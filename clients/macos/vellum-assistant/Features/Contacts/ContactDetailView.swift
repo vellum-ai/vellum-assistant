@@ -1,4 +1,3 @@
-import Combine
 import SwiftUI
 import VellumAssistantShared
 
@@ -6,18 +5,16 @@ import VellumAssistantShared
 /// channels with verification status, and action buttons.
 @MainActor
 struct ContactDetailView: View {
-    private static let allChannelTypes = ["telegram", "email", "whatsapp", "phone", "slack"]
+    private static let allChannelTypes = ["telegram", "phone", "slack"]
 
-    private static let verificationSupportedChannels: Set<String> = ["telegram", "phone", "slack"]
-
-    /// Channels that support 6-digit code invites from this view. Voice invites
-    /// require additional fields not available here, so they are excluded.
-    private static let codeInviteChannels: Set<String> = ["telegram", "email", "whatsapp", "slack"]
+    /// Channels that support 6-digit code invites from this view.
+    private static let codeInviteChannels: Set<String> = ["telegram", "slack", "phone"]
 
     let contact: ContactPayload
     var daemonClient: DaemonClient?
     var store: SettingsStore?
     var onDelete: (() -> Void)?
+    var guardianName: String?
 
     @State var currentContact: ContactPayload?
     @State private var showDeleteConfirmation = false
@@ -33,25 +30,22 @@ struct ContactDetailView: View {
     @State private var verificationSuccessChannelId: String?
     @State private var telegramBootstrapUrl: String?
     @State private var telegramBootstrapChannelId: String?
+    @State private var invitePhoneNumber = ""
     @State private var inviteInProgress: String?
     @State private var inviteResult: (
         type: String,
-        token: String,
+        token: String?,
         shareUrl: String?,
         inviteCode: String?,
+        voiceCode: String?,
         guardianInstruction: String?,
         channelHandle: String?
     )?
     @State private var inviteError: String?
     @State private var inviteCopiedType: String?
+    @State private var inviteExpanded: Set<String> = []
     @State private var channelReadiness: [String: DaemonClient.ChannelReadinessInfo] = [:]
     @State private var readinessFetchFailed = false
-    @State private var verificationDestinationTexts: [String: String] = [:]
-    @State private var verificationCountdownNow: Date = Date()
-    @State private var verificationCountdownTimer: Timer?
-    /// Incremented whenever SettingsStore publishes a change, forcing SwiftUI to
-    /// re-evaluate channel verification state derived from the store.
-    @State private var verificationStoreRevision: Int = 0
     /// Monotonically increasing counter that correlates a verification attempt
     /// with its one-shot response / timeout so stale callbacks are ignored.
     @State private var verificationAttempt: UInt64 = 0
@@ -68,11 +62,6 @@ struct ContactDetailView: View {
     }
 
     var body: some View {
-        // Read verificationStoreRevision so SwiftUI tracks it; the .onReceive
-        // below increments it whenever SettingsStore publishes, forcing
-        // re-evaluation of channel verification state.
-        let _ = verificationStoreRevision
-
         ScrollView {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
                 headerSection
@@ -95,18 +84,8 @@ struct ContactDetailView: View {
         }
         .onAppear {
             currentContact = contact
-            if contact.role == "guardian" {
-                startVerificationCountdownTimer()
-                // Refresh channel verification state for all supported channels
-                // so the view shows current status even if the user hasn't visited
-                // the Channels settings tab yet.
-                for channel in Self.verificationSupportedChannels {
-                    store?.refreshChannelVerificationStatus(channel: channel)
-                }
-            }
         }
         .onDisappear {
-            stopVerificationCountdownTimer()
             verificationTimeoutTask?.cancel()
             verificationTimeoutTask = nil
             verificationSuccessAnimationTask?.cancel()
@@ -119,9 +98,6 @@ struct ContactDetailView: View {
                 verificationInProgress = nil
             }
         }
-        .onReceive(store?.objectWillChange.map { _ in () }.eraseToAnyPublisher() ?? Empty().eraseToAnyPublisher()) { _ in
-            verificationStoreRevision += 1
-        }
     }
 
     // MARK: - Header Section
@@ -129,7 +105,7 @@ struct ContactDetailView: View {
     private var headerSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack {
-                if isEditing && displayContact.role != "guardian" {
+                if isEditing {
                     TextField("Display name", text: $editedName)
                         .font(VFont.largeTitle)
                         .foregroundColor(VColor.contentDefault)
@@ -145,7 +121,7 @@ struct ContactDetailView: View {
 
                 if isEditing {
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Save", style: .primary, size: .medium, isDisabled: isSaving) {
+                        VButton(label: "Save", style: .primary, isDisabled: isSaving) {
                             Task { await saveCardEdits() }
                         }
                         Button {
@@ -172,23 +148,21 @@ struct ContactDetailView: View {
                     .animation(VAnimation.fast, value: isHoveringHeader)
                     .accessibilityLabel("Edit contact")
 
-                    if displayContact.role != "guardian" {
-                        Button(action: { showDeleteConfirmation = true }) {
-                            if isDeleting {
-                                ProgressView()
-                                    .controlSize(.small)
-                            } else {
-                                VIconView(.trash, size: 14)
-                                    .foregroundColor(VColor.systemNegativeStrong)
-                            }
+                    Button(action: { showDeleteConfirmation = true }) {
+                        if isDeleting {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            VIconView(.trash, size: 14)
+                                .foregroundColor(VColor.systemNegativeStrong)
                         }
-                        .buttonStyle(.plain)
-                        .disabled(isDeleting || actionInProgress != nil || verificationInProgress != nil)
-                        .help("Delete contact")
-                        .opacity(isHoveringHeader ? 1 : 0)
-                        .animation(VAnimation.fast, value: isHoveringHeader)
-                        .accessibilityLabel("Delete contact")
                     }
+                    .buttonStyle(.plain)
+                    .disabled(isDeleting || actionInProgress != nil || verificationInProgress != nil)
+                    .help("Delete contact")
+                    .opacity(isHoveringHeader ? 1 : 0)
+                    .animation(VAnimation.fast, value: isHoveringHeader)
+                    .accessibilityLabel("Delete contact")
                 }
             }
 
@@ -250,25 +224,15 @@ struct ContactDetailView: View {
     }
 
     private var roleBadge: some View {
-        Group {
-            if displayContact.role == "guardian" {
-                Text("Guardian")
-                    .font(VFont.captionMedium)
-                    .foregroundColor(VColor.primaryBase)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xxs)
-                    .background(VColor.systemPositiveWeak)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
-            } else {
-                Text("Contact")
-                    .font(VFont.captionMedium)
-                    .foregroundColor(VColor.contentSecondary)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xxs)
-                    .background(VColor.surfaceOverlay)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
-            }
-        }
+        // Guardians route to GuardianChannelsDetailView, so this view only
+        // renders non-guardian contacts.
+        Text("Contact")
+            .font(VFont.captionMedium)
+            .foregroundColor(VColor.contentSecondary)
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.xxs)
+            .background(VColor.surfaceOverlay)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
     }
 
     private var contactTypeBadge: some View {
@@ -283,68 +247,51 @@ struct ContactDetailView: View {
     // MARK: - Channels Section
 
     private var channelsSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Channels")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.contentDefault)
+        let channelsByType = Dictionary(
+            grouping: displayContact.channels.filter { $0.status != "revoked" },
+            by: { $0.type }
+        )
 
-            let channelsByType = Dictionary(
-                grouping: displayContact.channels,
-                by: { $0.type }
-            )
-            let extraChannels = displayContact.channels.filter { !Self.allChannelTypes.contains($0.type) }
+        let visibleTypes = Self.allChannelTypes.filter { type in
+            // Always show channels the contact already has configured
+            channelsByType[type] != nil
+                // Otherwise only show channels the assistant has successfully set up
+                || channelReadiness[type]?.ready == true
+        }
 
-            // Compute which standard types are visible (have channels, readiness info,
-            // or should appear as unavailable after a readiness fetch failure)
-            let visibleTypes = Self.allChannelTypes.filter { type in
-                channelsByType[type] != nil || channelReadiness[type] != nil
-                    || (readinessFetchFailed && Self.codeInviteChannels.contains(type))
-            }
-            let lastVisibleType = visibleTypes.last
-            let hasExtraChannels = !extraChannels.isEmpty
-
-            ForEach(Array(Self.allChannelTypes.enumerated()), id: \.element) { _, type in
-                if let channels = channelsByType[type] {
-                    // Configured channel — always show
-                    ForEach(Array(channels.enumerated()), id: \.element.id) { channelIndex, channel in
-                        channelRow(channel)
-
-                        if channelIndex < channels.count - 1 {
-                            Divider().background(VColor.borderBase)
+        return VStack(alignment: .leading, spacing: VSpacing.md) {
+            if visibleTypes.isEmpty {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    Text("No channels available")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.contentDefault)
+                    Text("This contact does not have any channels configured yet. Channels will appear here once the assistant has them set up and the contact is invited.")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentTertiary)
+                }
+                .padding(VSpacing.lg)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .vCard(background: VColor.surfaceOverlay)
+            } else {
+                ForEach(visibleTypes, id: \.self) { type in
+                    SettingsCard(title: channelLabel(for: type), subtitle: channelSubtitle(for: type)) {
+                        if let channels = channelsByType[type] {
+                            ForEach(Array(channels.enumerated()), id: \.element.id) { channelIndex, channel in
+                                channelRow(channel)
+                                if channelIndex < channels.count - 1 {
+                                    SettingsDivider()
+                                }
+                            }
+                        } else {
+                            if inviteExpanded.contains(type) {
+                                unconfiguredChannelContent(type: type)
+                            } else {
+                                VButton(label: "Invite", style: .outlined) {
+                                    inviteExpanded.insert(type)
+                                }
+                            }
                         }
                     }
-
-                    if type != lastVisibleType || hasExtraChannels {
-                        Divider().background(VColor.borderBase)
-                    }
-                } else if let readiness = channelReadiness[type] {
-                    if readiness.ready {
-                        // Unconfigured but assistant has this channel set up — show
-                        unconfiguredChannelRow(type: type)
-                    } else {
-                        // Channel exists but is not ready — show with reason
-                        unavailableChannelRow(type: type, reason: readiness.reasonSummary)
-                    }
-
-                    if type != lastVisibleType || hasExtraChannels {
-                        Divider().background(VColor.borderBase)
-                    }
-                } else if readinessFetchFailed && Self.codeInviteChannels.contains(type) {
-                    // Readiness fetch failed — show as unavailable so channels
-                    // aren't silently hidden by a transient error.
-                    unavailableChannelRow(type: type, reason: "Unable to check readiness")
-
-                    if type != lastVisibleType || hasExtraChannels {
-                        Divider().background(VColor.borderBase)
-                    }
-                }
-            }
-
-            ForEach(Array(extraChannels.enumerated()), id: \.element.id) { index, channel in
-                channelRow(channel)
-
-                if index < extraChannels.count - 1 {
-                    Divider().background(VColor.borderBase)
                 }
             }
 
@@ -360,9 +307,6 @@ struct ContactDetailView: View {
                     .foregroundColor(VColor.systemNegativeStrong)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceOverlay)
         .task {
             do {
                 channelReadiness = try await daemonClient?.fetchChannelReadiness() ?? [:]
@@ -418,81 +362,41 @@ struct ContactDetailView: View {
                 Spacer()
             }
 
-            // Guardian contacts get the full channel verification flow; others get standard actions
-            if displayContact.role == "guardian" {
-                channelVerificationActions(for: channel)
-            } else {
-                channelActions(for: channel)
-            }
+            channelActions(for: channel)
         }
     }
 
     @ViewBuilder
-    private func unconfiguredChannelRow(type: String) -> some View {
+    private func unconfiguredChannelContent(type: String) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.sm) {
-                VIconView(channelIcon(for: type), size: 14)
-                    .foregroundColor(VColor.contentSecondary)
-                    .frame(width: 20, alignment: .center)
-
-                Text(channelLabel(for: type))
-                    .font(VFont.body)
-                    .foregroundColor(VColor.contentDefault)
-
-                if let handle = channelReadiness[type]?.channelHandle {
-                    Text(handle)
-                        .font(VFont.monoSmall)
-                        .foregroundColor(VColor.contentTertiary)
-                        .lineLimit(1)
-                }
-
-                Spacer()
-
-                Text("Not set up")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-            }
-
-            // Guardian contacts get the full channel verification flow; others get invite button
-            if displayContact.role == "guardian" {
-                if Self.verificationSupportedChannels.contains(type), let store {
-                    let state = store.channelVerificationState(for: type)
-                    let destinationBinding = Binding<String>(
-                        get: { verificationDestinationTexts[type] ?? "" },
-                        set: { verificationDestinationTexts[type] = $0 }
-                    )
-                    ChannelVerificationFlowView(
-                        state: state,
-                        countdownNow: $verificationCountdownNow,
-                        destinationText: destinationBinding,
-                        onStartOutbound: { dest in store.startOutboundVerification(channel: type, destination: dest) },
-                        onResend: { store.resendOutboundVerification(channel: type) },
-                        onCancelOutbound: { store.cancelOutboundVerification(channel: type) },
-                        onRevoke: { store.revokeChannelVerification(channel: type) },
-                        onStartSession: { rebind in store.startChannelVerification(channel: type, rebind: rebind) },
-                        onCancelSession: { store.cancelVerificationSession(channel: type) },
-                        botUsername: store.telegramBotUsername,
-                        phoneNumber: store.twilioPhoneNumber,
-                        showLabel: false
-                    )
-                }
-            } else if Self.codeInviteChannels.contains(type) {
-                // Channels that support 6-digit code invites can be invited directly
-                // from this view. Voice invites require additional fields (phone number,
-                // friend/guardian names) that aren't available in this context.
-                // Row visibility is already gated on channelReadiness[type]?.ready == true,
-                // so no additional readiness check is needed here.
+            if Self.codeInviteChannels.contains(type) {
                 if inviteInProgress == type {
                     ProgressView()
                         .controlSize(.small)
                 } else {
-                    VButton(
-                        label: "Invite",
-                        style: .secondary,
-                        size: .medium,
-                        isDisabled: inviteInProgress != nil
-                    ) {
-                        createInviteForChannel(type: type)
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        if type == "phone" {
+                            TextField("+1234567890", text: $invitePhoneNumber)
+                                .font(VFont.mono)
+                                .textFieldStyle(.plain)
+                                .padding(VSpacing.sm)
+                                .background(VColor.surfaceActive)
+                                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                        }
+                        HStack(spacing: VSpacing.sm) {
+                            VButton(
+                                label: "Invite",
+                                style: .outlined,
+                                isDisabled: inviteInProgress != nil || (type == "phone" && invitePhoneNumber.trimmingCharacters(in: .whitespaces).isEmpty)
+                            ) {
+                                createInviteForChannel(type: type)
+                            }
+                            VButton(label: "Cancel", style: .outlined) {
+                                inviteExpanded.remove(type)
+                                inviteResult = nil
+                                inviteError = nil
+                            }
+                        }
                     }
                 }
             }
@@ -503,41 +407,11 @@ struct ContactDetailView: View {
         }
     }
 
-    /// Row for a channel that the assistant knows about but is not ready.
-    /// Shows the channel name with an explanation of why it is unavailable.
-    @ViewBuilder
-    private func unavailableChannelRow(type: String, reason: String?) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.sm) {
-                VIconView(channelIcon(for: type), size: 14)
-                    .foregroundColor(VColor.contentTertiary)
-                    .frame(width: 20, alignment: .center)
-
-                Text(channelLabel(for: type))
-                    .font(VFont.body)
-                    .foregroundColor(VColor.contentTertiary)
-
-                Spacer()
-
-                Text("Unavailable")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-            }
-
-            if let reason {
-                Text(reason)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
     @ViewBuilder
     private func inviteResultDisplay(for type: String) -> some View {
         let result = inviteResult!
 
-        if let inviteCode = result.inviteCode {
+        if let inviteCode = result.inviteCode ?? result.voiceCode {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 if let instruction = result.guardianInstruction {
                     Text(instruction)
@@ -559,8 +433,7 @@ struct ContactDetailView: View {
                         VButton(
                             label: inviteCopiedType == "\(type)-link" ? "Copied!" : "Copy Link",
                             icon: VIcon.copy.rawValue,
-                            style: .secondary,
-                            size: .medium
+                            style: .outlined
                         ) {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(shareUrl, forType: .string)
@@ -575,7 +448,7 @@ struct ContactDetailView: View {
                         }
                     }
                 } else if let channelHandle = result.channelHandle {
-                    // For channels without a share URL (email, WhatsApp),
+                    // For channels without a share URL,
                     // show the assistant's channel handle so it can be copied.
                     HStack(spacing: VSpacing.sm) {
                         Text(channelHandle)
@@ -585,8 +458,7 @@ struct ContactDetailView: View {
                         VButton(
                             label: inviteCopiedType == "\(type)-handle" ? "Copied!" : "Copy Address",
                             icon: VIcon.copy.rawValue,
-                            style: .secondary,
-                            size: .medium
+                            style: .outlined
                         ) {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(channelHandle, forType: .string)
@@ -612,8 +484,7 @@ struct ContactDetailView: View {
                 VButton(
                     label: inviteCopiedType == type ? "Copied!" : "Copy Code",
                     icon: VIcon.copy.rawValue,
-                    style: (result.shareUrl != nil || result.channelHandle != nil) ? .tertiary : .secondary,
-                    size: .medium
+                    style: .outlined
                 ) {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(inviteCode, forType: .string)
@@ -627,10 +498,9 @@ struct ContactDetailView: View {
                     }
                 }
             }
-        } else {
+        } else if let shareableText = result.shareUrl ?? result.token {
             // Fallback: no invite code available, show raw token
             HStack(spacing: VSpacing.sm) {
-                let shareableText = result.shareUrl ?? result.token
                 let truncated = shareableText.count > 20
                     ? String(shareableText.prefix(20)) + "..."
                     : shareableText
@@ -641,8 +511,7 @@ struct ContactDetailView: View {
                 VButton(
                     label: inviteCopiedType == type ? "Copied!" : "Copy",
                     icon: VIcon.copy.rawValue,
-                    style: .tertiary,
-                    size: .medium
+                    style: .outlined
                 ) {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(shareableText, forType: .string)
@@ -669,20 +538,10 @@ struct ContactDetailView: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
                 switch channel.status {
-                case "revoked":
-                    VButton(
-                        label: "Restore Access",
-                        style: .secondary,
-                        size: .medium,
-                        isDisabled: anyActionInFlight
-                    ) {
-                        updateChannelStatus(channelId: channel.id, status: "active")
-                    }
                 case "blocked":
                     VButton(
                         label: "Restore Access",
-                        style: .secondary,
-                        size: .medium,
+                        style: .outlined,
                         isDisabled: anyActionInFlight
                     ) {
                         updateChannelStatus(channelId: channel.id, status: "active")
@@ -691,7 +550,6 @@ struct ContactDetailView: View {
                     VButton(
                         label: "Send Verification",
                         style: .primary,
-                        size: .medium,
                         isDisabled: anyActionInFlight
                     ) {
                         initiateVerification(for: channel)
@@ -699,7 +557,6 @@ struct ContactDetailView: View {
                     VButton(
                         label: "Revoke Access",
                         style: .danger,
-                        size: .medium,
                         isDisabled: anyActionInFlight
                     ) {
                         updateChannelStatus(channelId: channel.id, status: "revoked")
@@ -708,7 +565,6 @@ struct ContactDetailView: View {
                     VButton(
                         label: "Revoke Access",
                         style: .danger,
-                        size: .medium,
                         isDisabled: anyActionInFlight
                     ) {
                         updateChannelStatus(channelId: channel.id, status: "revoked")
@@ -716,7 +572,6 @@ struct ContactDetailView: View {
                     VButton(
                         label: "Block",
                         style: .danger,
-                        size: .medium,
                         isDisabled: anyActionInFlight
                     ) {
                         updateChannelStatus(channelId: channel.id, status: "blocked")
@@ -773,52 +628,6 @@ struct ContactDetailView: View {
                 }
             }
         }
-    }
-
-    // MARK: - Channel Verification Actions
-
-    @ViewBuilder
-    private func channelVerificationActions(for channel: ContactChannelPayload) -> some View {
-        if Self.verificationSupportedChannels.contains(channel.type), let store {
-            let state = store.channelVerificationState(for: channel.type)
-            let destinationBinding = Binding<String>(
-                get: { verificationDestinationTexts[channel.type] ?? "" },
-                set: { verificationDestinationTexts[channel.type] = $0 }
-            )
-
-            ChannelVerificationFlowView(
-                state: state,
-                countdownNow: $verificationCountdownNow,
-                destinationText: destinationBinding,
-                onStartOutbound: { dest in store.startOutboundVerification(channel: channel.type, destination: dest) },
-                onResend: { store.resendOutboundVerification(channel: channel.type) },
-                onCancelOutbound: { store.cancelOutboundVerification(channel: channel.type) },
-                onRevoke: { store.revokeChannelVerification(channel: channel.type) },
-                onStartSession: { rebind in store.startChannelVerification(channel: channel.type, rebind: rebind) },
-                onCancelSession: { store.cancelVerificationSession(channel: channel.type) },
-                botUsername: store.telegramBotUsername,
-                phoneNumber: store.twilioPhoneNumber,
-                showLabel: false
-            )
-        }
-        // Email and other unsupported channel types: show nothing (display-only)
-    }
-
-    // MARK: - Verification Countdown Timer
-
-    private func startVerificationCountdownTimer() {
-        guard verificationCountdownTimer == nil else { return }
-        verificationCountdownNow = Date()
-        verificationCountdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            Task { @MainActor in
-                verificationCountdownNow = Date()
-            }
-        }
-    }
-
-    private func stopVerificationCountdownTimer() {
-        verificationCountdownTimer?.invalidate()
-        verificationCountdownTimer = nil
     }
 
     // MARK: - Status Badge
@@ -887,9 +696,18 @@ struct ContactDetailView: View {
         case "telegram": return "Telegram"
         case "email": return "Email"
         case "whatsapp": return "WhatsApp"
-        case "phone": return "Voice"
+        case "phone": return "Phone"
         case "slack": return "Slack"
         default: return type.capitalized
+        }
+    }
+
+    private func channelSubtitle(for type: String) -> String {
+        switch type {
+        case "telegram": return "Message your assistant from Telegram"
+        case "phone": return "Call or text your assistant via phone"
+        case "slack": return "Message your assistant from Slack"
+        default: return "Connect via \(type.capitalized)"
         }
     }
 
@@ -911,8 +729,7 @@ struct ContactDetailView: View {
     // MARK: - Actions
 
     private func saveCardEdits() async {
-        let isGuardian = displayContact.role == "guardian"
-        let trimmedName = isGuardian ? displayContact.displayName : editedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedName = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else { return }
         let trimmedNotes = editedNotes.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -1034,16 +851,27 @@ struct ContactDetailView: View {
         inviteResult = nil
         Task {
             do {
+                var phoneNumber: String? = nil
+                if type == "phone" {
+                    let trimmed = invitePhoneNumber.trimmingCharacters(in: .whitespaces)
+                    phoneNumber = trimmed.hasPrefix("+") ? trimmed : "+1\(trimmed)"
+                }
+                let resolvedGuardianName = type == "phone" ? (guardianName ?? "your guardian") : nil
+
                 if let result = try await daemonClient.createInvite(
                     sourceChannel: type,
                     note: "Invite for \(displayContact.displayName)",
-                    contactName: displayContact.displayName
+                    contactName: displayContact.displayName,
+                    expectedExternalUserId: phoneNumber,
+                    friendName: type == "phone" ? displayContact.displayName : nil,
+                    guardianName: resolvedGuardianName
                 ) {
                     inviteResult = (
                         type: type,
                         token: result.token,
                         shareUrl: result.shareUrl,
                         inviteCode: result.inviteCode,
+                        voiceCode: result.voiceCode,
                         guardianInstruction: result.guardianInstruction,
                         channelHandle: result.channelHandle
                     )

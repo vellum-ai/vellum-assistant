@@ -331,7 +331,7 @@ export async function handleMemoryRecall(
 
     const result: MemoryRecallToolResult = {
       text: recall.injectedText,
-      resultCount: recall.topCandidates.length,
+      resultCount: recall.selectedCount,
       degraded,
       items: recall.topCandidates.map((c) => ({
         id: c.key,

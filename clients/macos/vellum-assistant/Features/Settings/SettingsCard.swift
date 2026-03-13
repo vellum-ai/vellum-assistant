@@ -13,7 +13,7 @@ struct SettingsCard<Content: View>: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text(title)
                     .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundColor(VColor.contentEmphasized)
                 if let subtitle {
                     Text(subtitle)
                         .font(VFont.sectionDescription)
@@ -32,7 +32,7 @@ struct SettingsCard<Content: View>: View {
 struct SettingsDivider: View {
     var body: some View {
         Rectangle()
-            .fill(VColor.borderBase)
+            .fill(VColor.borderDisabled)
             .frame(height: 1)
     }
 }

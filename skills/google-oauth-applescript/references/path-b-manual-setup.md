@@ -1,4 +1,4 @@
-# Path B: Manual Channel Setup (Telegram, SMS, Slack, etc.)
+# Path B: Manual Channel Setup (Telegram, Slack, etc.)
 
 When the user is on a non-interactive channel, walk them through a text-based setup. The channel path uses **Web application** credentials because the OAuth callback goes through the public gateway URL.
 

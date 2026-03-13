@@ -24,7 +24,7 @@ struct AppVersionHistoryPanel: View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
             HStack {
-                VButton(label: "Back", icon: "chevron.left", style: .tertiary) {
+                VButton(label: "Back", icon: "chevron.left", style: .outlined) {
                     onClose()
                 }
                 .controlSize(.small)
@@ -195,7 +195,7 @@ struct AppVersionHistoryPanel: View {
                 Spacer()
 
                 if !isRestoring && version.commitHash != versions.first?.commitHash {
-                    VButton(label: "Restore", icon: "arrow.counterclockwise", style: .tertiary) {
+                    VButton(label: "Restore", icon: "arrow.counterclockwise", style: .outlined) {
                         restoreConfirmVersion = version
                     }
                     .controlSize(.small)

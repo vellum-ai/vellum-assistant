@@ -7,9 +7,12 @@
  * encrypted store (startup code paths cannot do async I/O).
  */
 
+import { getLogger } from "../util/logger.js";
 import * as encryptedStore from "./encrypted-store.js";
 import type { KeychainBrokerClient } from "./keychain-broker-client.js";
 import { createBrokerClient } from "./keychain-broker-client.js";
+
+const log = getLogger("secure-keys");
 
 let _broker: KeychainBrokerClient | undefined;
 
@@ -120,13 +123,32 @@ export async function setSecureKeyAsync(
 ): Promise<boolean> {
   const broker = getBroker();
   if (broker.isAvailable()) {
-    const brokerOk = await broker.set(account, value);
-    if (!brokerOk) return false;
+    const result = await broker.set(account, value);
+    if (result.status !== "ok") {
+      log.warn(
+        {
+          account,
+          brokerStatus: result.status,
+          ...(result.status === "rejected"
+            ? { brokerCode: result.code, brokerMessage: result.message }
+            : {}),
+        },
+        "Broker set failed for secure key",
+      );
+      return false;
+    }
     // Broker succeeded — also persist to encrypted store for sync callers.
     const encOk = encryptedStore.setKey(account, value);
+    if (!encOk) {
+      log.warn({ account }, "Encrypted store set failed after broker success");
+    }
     return encOk;
   }
-  return encryptedStore.setKey(account, value);
+  const encOk = encryptedStore.setKey(account, value);
+  if (!encOk) {
+    log.warn({ account }, "Encrypted store set failed (broker unavailable)");
+  }
+  return encOk;
 }
 
 /**

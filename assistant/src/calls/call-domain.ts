@@ -1017,3 +1017,135 @@ export async function startVerificationCall(
     };
   }
 }
+
+// ── Invite call ───────────────────────────────────────────────────────
+
+export type StartInviteCallInput = {
+  phoneNumber: string;
+  friendName: string;
+  guardianName: string;
+  assistantId?: string;
+};
+
+export type StartInviteCallResult = { ok: true; callSid: string } | CallError;
+
+/**
+ * Initiate an outbound call to deliver a voice invite to a contact.
+ *
+ * Creates a minimal call session with a voice channel binding and
+ * passes invite-specific custom parameters so the relay server can
+ * detect this is an invite redemption call.
+ */
+export async function startInviteCall(
+  input: StartInviteCallInput,
+): Promise<StartInviteCallResult> {
+  const { phoneNumber, friendName, guardianName } = input;
+
+  if (!phoneNumber || !E164_REGEX.test(phoneNumber)) {
+    return {
+      ok: false,
+      error: "phone_number must be in E.164 format",
+      status: 400,
+    };
+  }
+
+  let sessionId: string | null = null;
+
+  try {
+    const config = loadConfig();
+    const provider = new TwilioConversationRelayProvider();
+
+    // Resolve the assistant's Twilio number as the caller ID
+    const identityResult = await resolveCallerIdentity(config);
+    if (!identityResult.ok) {
+      return { ok: false, error: identityResult.error, status: 400 };
+    }
+
+    const preflightResult = await preflightVoiceIngress();
+    if (!preflightResult.ok) {
+      return preflightResult;
+    }
+    const ingressConfig = preflightResult.ingressConfig;
+
+    // Create a minimal conversation so the call session has a valid FK,
+    // and bind it to the voice channel so it never appears as an unbound
+    // desktop thread.
+    const timestamp = Date.now();
+    const convKey = `invite-call:${phoneNumber}:${timestamp}`;
+    const { conversationId } = getOrCreateConversation(convKey);
+
+    upsertBinding({
+      conversationId,
+      sourceChannel: "phone",
+      externalChatId: `invite-call:${phoneNumber}:${timestamp}`,
+    });
+
+    const session = createCallSession({
+      conversationId,
+      provider: "twilio",
+      fromNumber: identityResult.fromNumber,
+      toNumber: phoneNumber,
+      callMode: "invite",
+      inviteFriendName: friendName,
+      inviteGuardianName: guardianName,
+      initiatedFromConversationId: conversationId,
+    });
+    sessionId = session.id;
+
+    const webhookUrl = await resolveCallbackUrl(
+      () => getTwilioVoiceWebhookUrl(ingressConfig, session.id),
+      "webhooks/twilio/voice",
+      "twilio_voice",
+      { callSessionId: session.id },
+    );
+    const statusCallbackUrl = await resolveCallbackUrl(
+      () => getTwilioStatusCallbackUrl(ingressConfig),
+      "webhooks/twilio/status",
+      "twilio_status",
+    );
+
+    upsertActiveCallLease({ callSessionId: session.id });
+
+    const { callSid } = await provider.initiateCall({
+      from: identityResult.fromNumber,
+      to: phoneNumber,
+      webhookUrl,
+      statusCallbackUrl,
+    });
+
+    updateCallSession(session.id, { providerCallSid: callSid });
+
+    log.info(
+      {
+        callSessionId: session.id,
+        callSid,
+        to: phoneNumber,
+        friendName,
+        guardianName,
+      },
+      "Invite call initiated",
+    );
+
+    return { ok: true, callSid };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error(
+      { err, phoneNumber, friendName, guardianName },
+      "Failed to initiate invite call",
+    );
+
+    if (sessionId) {
+      updateCallSession(sessionId, {
+        status: "failed",
+        endedAt: Date.now(),
+        lastError: msg,
+      });
+    }
+
+    return {
+      ok: false,
+      error: `Error initiating invite call: ${msg}`,
+      status: 500,
+    };
+  }
+}

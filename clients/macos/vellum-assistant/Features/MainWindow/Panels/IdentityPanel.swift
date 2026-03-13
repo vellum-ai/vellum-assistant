@@ -3,7 +3,6 @@ import VellumAssistantShared
 
 struct IdentityPanel: View {
     let onClose: () -> Void
-    let onEditAvatar: () -> Void
     let daemonClient: DaemonClient
     @State private var appearance = AvatarAppearanceManager.shared
 
@@ -57,7 +56,7 @@ struct IdentityPanel: View {
                                 .frame(maxWidth: .infinity, alignment: .center)
 
                             // Update Avatar button
-                            VButton(label: "Update Avatar", style: .secondary) { showAvatarSheet = true }
+                            VButton(label: "Update Avatar", style: .outlined) { showAvatarSheet = true }
                                 .padding(.top, VSpacing.md)
 
                             Spacer()
@@ -131,11 +130,7 @@ struct IdentityPanel: View {
 
                 if showAvatarSheet {
                     AvatarManagementSheet(
-                        onClose: { showAvatarSheet = false },
-                        onEditAvatar: {
-                            showAvatarSheet = false
-                            onEditAvatar()
-                        }
+                        onClose: { showAvatarSheet = false }
                     )
                     .frame(width: 360)
                     .fixedSize(horizontal: false, vertical: true)

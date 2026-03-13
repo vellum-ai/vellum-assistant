@@ -14,14 +14,14 @@ You are helping your user set up a Vercel API token so they can publish apps to 
 
 ## Client Check
 
-Determine whether the user has browser automation available (macOS desktop app) or is on a non-interactive channel (Telegram, SMS, etc.).
+Determine whether the user has browser automation available (macOS desktop app) or is on a non-interactive channel (Telegram, Slack, etc.).
 
 - **macOS desktop app**: Follow the **Automated Setup** path below.
 - **Telegram or other channel** (no browser automation): Follow the **Manual Setup for Channels** path below.
 
 ---
 
-# Path A: Manual Setup for Channels (Telegram, SMS, etc.)
+# Path A: Manual Setup for Channels (Telegram, Slack, etc.)
 
 When the user is on Telegram or any non-macOS client, walk them through a text-based setup. No browser automation is used — the user follows links and performs each action manually.
 

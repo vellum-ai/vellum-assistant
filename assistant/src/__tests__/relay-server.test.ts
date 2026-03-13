@@ -4055,7 +4055,7 @@ describe("relay-server", () => {
       .filter((m) => m.type === "text");
     expect(
       textMessages.some((m) =>
-        (m.token ?? "").includes("said I can speak with you"),
+        (m.token ?? "").includes("verified that you are Eve"),
       ),
     ).toBe(true);
 
@@ -4074,6 +4074,51 @@ describe("relay-server", () => {
     const events = getCallEvents(session.id);
     expect(
       events.some((e) => e.eventType === "invite_redemption_succeeded"),
+    ).toBe(true);
+
+    relay.destroy();
+  });
+
+  test("outbound invite prompt uses assistant introduction", async () => {
+    ensureConversation("conv-outbound-invite-origin");
+    ensureConversation("conv-outbound-invite");
+    const session = createCallSession({
+      conversationId: "conv-outbound-invite",
+      provider: "twilio",
+      fromNumber: "+15551111111",
+      toNumber: "+15558887777",
+      callMode: "invite",
+      inviteFriendName: "Grace",
+      inviteGuardianName: "Hank",
+      initiatedFromConversationId: "conv-outbound-invite-origin",
+    });
+
+    mockAssistantName = "Vellum";
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_outbound_invite",
+        from: "+15551111111",
+        to: "+15558887777",
+      }),
+    );
+
+    // Should be in verification-pending for invite redemption
+    expect(relay.getConnectionState()).toBe("verification_pending");
+
+    // The prompt should use the outbound assistant introduction
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === "text");
+    expect(
+      textMessages.some(
+        (m) =>
+          (m.token ?? "").includes("this is Vellum") &&
+          (m.token ?? "").includes("Hank's assistant"),
+      ),
     ).toBe(true);
 
     relay.destroy();

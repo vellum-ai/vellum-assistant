@@ -75,7 +75,7 @@ struct AssistantUpgradeSection: View {
 
                 VButton(
                     label: isLoadingReleases ? "Checking..." : "Check for Updates",
-                    style: .secondary
+                    style: .outlined
                 ) {
                     Task { await loadReleases() }
                 }

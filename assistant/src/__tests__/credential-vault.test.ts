@@ -114,6 +114,12 @@ mock.module("../oauth/oauth-store.js", () => {
   return {
     disconnectOAuthProvider: mockDisconnectOAuthProvider,
     getConnectionByProvider: (service: string) => mockConnections.get(service),
+    getConnection: (id: string) => {
+      for (const conn of mockConnections.values()) {
+        if (conn.id === id) return conn;
+      }
+      return undefined;
+    },
     getApp: (id: string) => mockApps.get(id),
     getProvider: (key: string) => mockProviders.get(key),
     updateConnection: () => {},

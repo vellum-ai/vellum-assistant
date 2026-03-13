@@ -135,16 +135,12 @@ const TIMEZONE_ABBREVIATIONS: Record<string, string> = {
   // North America
   PST: "America/Los_Angeles",
   PDT: "America/Los_Angeles",
-  PT: "America/Los_Angeles",
   MST: "America/Denver",
   MDT: "America/Denver",
-  MT: "America/Denver",
   CST: "America/Chicago",
   CDT: "America/Chicago",
-  CT: "America/Chicago",
   EST: "America/New_York",
   EDT: "America/New_York",
-  ET: "America/New_York",
   AKST: "America/Anchorage",
   AKDT: "America/Anchorage",
   HST: "Pacific/Honolulu",
@@ -157,16 +153,13 @@ const TIMEZONE_ABBREVIATIONS: Record<string, string> = {
   CEST: "Europe/Paris",
   EET: "Europe/Athens",
   EEST: "Europe/Athens",
-  WET: "Europe/Lisbon",
   WEST: "Europe/Lisbon",
   MSK: "Europe/Moscow",
-  IST: "Europe/Dublin",
   // Asia / Oceania
   JST: "Asia/Tokyo",
   KST: "Asia/Seoul",
   HKT: "Asia/Hong_Kong",
   SGT: "Asia/Singapore",
-  ICT: "Asia/Bangkok",
   WIB: "Asia/Jakarta",
   PHT: "Asia/Manila",
   PKT: "Asia/Karachi",
@@ -180,7 +173,6 @@ const TIMEZONE_ABBREVIATIONS: Record<string, string> = {
   NZDT: "Pacific/Auckland",
   // South America
   BRT: "America/Sao_Paulo",
-  ART: "America/Argentina/Buenos_Aires",
 };
 
 /**

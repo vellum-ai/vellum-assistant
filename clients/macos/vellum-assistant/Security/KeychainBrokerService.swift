@@ -1,6 +1,12 @@
 #if os(macOS)
 import Foundation
+import os
 import Security
+
+private let log = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
+    category: "KeychainBrokerService"
+)
 
 /// SecItem wrapper that performs keychain CRUD operations scoped to the
 /// `vellum-assistant` service. All methods are synchronous and thread-safe
@@ -40,9 +46,11 @@ enum KeychainBrokerService {
     /// Store a UTF-8 string value for a given account. Uses update-first
     /// with add-fallback so a transient add failure never erases an existing
     /// secret (unlike the previous delete-then-add approach).
+    ///
+    /// Returns `errSecSuccess` on success, or the failing `OSStatus` code.
     @discardableResult
-    static func set(account: String, value: String) -> Bool {
-        guard let data = value.data(using: .utf8) else { return false }
+    static func set(account: String, value: String) -> OSStatus {
+        guard let data = value.data(using: .utf8) else { return errSecParam }
 
         // Try to update an existing item first.
         let query: [String: Any] = [
@@ -57,7 +65,7 @@ enum KeychainBrokerService {
         let updateStatus = SecItemUpdate(query as CFDictionary, updateAttributes as CFDictionary)
 
         if updateStatus == errSecSuccess {
-            return true
+            return errSecSuccess
         }
 
         // Item doesn't exist yet — add it.
@@ -70,10 +78,14 @@ enum KeychainBrokerService {
                 kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
             ]
             let addStatus = SecItemAdd(addAttributes as CFDictionary, nil)
-            return addStatus == errSecSuccess
+            if addStatus != errSecSuccess {
+                log.error("SecItemAdd failed for account \(account, privacy: .public): OSStatus \(addStatus)")
+            }
+            return addStatus
         }
 
-        return false
+        log.error("SecItemUpdate failed for account \(account, privacy: .public): OSStatus \(updateStatus)")
+        return updateStatus
     }
 
     // MARK: - Delete

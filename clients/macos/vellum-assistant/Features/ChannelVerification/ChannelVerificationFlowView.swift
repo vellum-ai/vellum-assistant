@@ -19,6 +19,7 @@ struct ChannelVerificationFlowView: View {
     let onRevoke: () -> Void
     let onStartSession: (Bool) -> Void
     let onCancelSession: () -> Void
+    var onCancel: (() -> Void)?
 
     // Optional layout/display parameters
     var botUsername: String?
@@ -77,17 +78,10 @@ struct ChannelVerificationFlowView: View {
                     verificationLabel
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    if let telegramProfileURL {
-                        Link(primaryIdentity ?? "Verified", destination: telegramProfileURL)
-                            .font(VFont.body)
-                            .lineLimit(1)
-                            .pointerCursor()
-                    } else {
-                        Text(primaryIdentity ?? "Verified")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.contentSecondary)
-                            .lineLimit(1)
-                    }
+                    Text(primaryIdentity ?? "Verified")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentDefault)
+                        .lineLimit(1)
                     if let secondaryIdentity {
                         if let telegramProfileURL {
                             Link(secondaryIdentity, destination: telegramProfileURL)
@@ -104,7 +98,7 @@ struct ChannelVerificationFlowView: View {
                 }
                 Spacer()
             }
-            VButton(label: "Revoke", style: .secondary) {
+            VButton(label: "Disconnect", style: .danger) {
                 onRevoke()
             }
         }
@@ -230,13 +224,13 @@ struct ChannelVerificationFlowView: View {
                 // Disable resend during bootstrap: when bootstrapUrl is set the session is
                 // in pending_bootstrap state and the daemon rejects resend attempts.
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: resendCooldownText ?? "Resend", style: .secondary, isFullWidth: true) {
+                    VButton(label: resendCooldownText ?? "Resend", style: .outlined, isFullWidth: true) {
                         onResend()
                     }
                     .disabled(!canResend)
                     .frame(width: 160)
 
-                    VButton(label: "Cancel", style: .tertiary) {
+                    VButton(label: "Cancel", style: .outlined) {
                         onCancelOutbound()
                     }
                 }
@@ -355,7 +349,7 @@ struct ChannelVerificationFlowView: View {
                     .padding(.leading, leadingPadding)
             }
 
-            VButton(label: "Cancel", style: .tertiary) {
+            VButton(label: "Cancel", style: .outlined) {
                 onCancelSession()
             }
         }
@@ -402,10 +396,18 @@ struct ChannelVerificationFlowView: View {
                     .foregroundColor(VColor.contentTertiary)
             }
 
-            VButton(label: "Send", style: .secondary) {
-                onStartOutbound(destination)
+            HStack(spacing: VSpacing.sm) {
+                VButton(label: "Send", style: .outlined) {
+                    onStartOutbound(destination)
+                }
+                .disabled(destination.isEmpty)
+
+                if let onCancel {
+                    VButton(label: "Cancel", style: .outlined) {
+                        onCancel()
+                    }
+                }
             }
-            .disabled(destination.isEmpty)
         }
     }
 
@@ -420,7 +422,7 @@ struct ChannelVerificationFlowView: View {
                 .font(VFont.caption)
                 .foregroundColor(VColor.systemNegativeStrong)
             if state.alreadyBound {
-                VButton(label: "Replace", style: .secondary) {
+                VButton(label: "Replace", style: .outlined) {
                     onStartSession(true)
                 }
             }

@@ -76,15 +76,6 @@ extension MainWindowView {
         case .intelligence:
             IntelligencePanel(
                 onClose: { windowState.selection = nil },
-                onEditAvatar: {
-                    if threadManager.activeViewModel == nil {
-                        threadManager.createThread()
-                    }
-                    if let viewModel = threadManager.activeViewModel {
-                        viewModel.inputText = "I want to edit my avatar's looks"
-                    }
-                    windowState.selection = nil
-                },
                 onInvokeSkill: { skill in
                     if threadManager.activeViewModel == nil {
                         threadManager.createThread()
@@ -455,15 +446,6 @@ extension MainWindowView {
         case .intelligence:
             IntelligencePanel(
                 onClose: { windowState.dismissOverlay() },
-                onEditAvatar: {
-                    if threadManager.activeViewModel == nil {
-                        threadManager.createThread()
-                    }
-                    if let viewModel = threadManager.activeViewModel {
-                        viewModel.inputText = "I want to edit my avatar's looks"
-                    }
-                    windowState.dismissOverlay()
-                },
                 onInvokeSkill: { skill in
                     if threadManager.activeViewModel == nil {
                         threadManager.createThread()
@@ -504,7 +486,7 @@ extension MainWindowView {
     }
 
     var panelDismissButton: some View {
-        VIconButton(label: "Close", icon: VIcon.x.rawValue, iconOnly: true, action: panelDismissAction)
+        VButton(label: "Close", iconOnly: VIcon.x.rawValue, style: .ghost, action: panelDismissAction)
             .padding(.top, VSpacing.lg)
             .padding(.trailing, VSpacing.lg)
     }
@@ -786,11 +768,11 @@ struct DynamicWorkspaceWrapper: View {
             HStack {
                 // Left: Close Chat primary CTA in edit mode, Edit primary button otherwise
                 if case .appEditing = windowState.selection {
-                    VButton(label: "Close chat", icon: VIcon.x.rawValue, style: .primary, size: .medium) {
+                    VButton(label: "Close chat", icon: VIcon.x.rawValue, style: .primary) {
                         onToggleChatDock()
                     }
                 } else {
-                    VButton(label: "Edit", icon: VIcon.pencil.rawValue, style: .primary, size: .medium) {
+                    VButton(label: "Edit", icon: VIcon.pencil.rawValue, style: .primary) {
                         if !isChatDockOpen {
                             windowState.workspaceComposerExpanded = false
                         }
@@ -811,7 +793,7 @@ struct DynamicWorkspaceWrapper: View {
                 // Right: History + Share + Close outlined icon buttons
                 HStack(spacing: VSpacing.sm) {
                     if data.appId != nil {
-                        VIconButton(label: "Version history", icon: VIcon.history.rawValue, iconOnly: true, variant: .outlined, size: 28, tooltip: "Version history") {
+                        VButton(label: "Version history", iconOnly: VIcon.history.rawValue, style: .outlined, iconSize: 28, tooltip: "Version history") {
                             showVersionHistory = true
                         }
                     }
@@ -827,7 +809,7 @@ struct DynamicWorkspaceWrapper: View {
                                     .controlSize(.small)
                                     .frame(height: 28)
                             } else {
-                                VIconButton(label: "Share", icon: VIcon.share.rawValue, iconOnly: true, variant: .outlined, size: 28, tooltip: "Share") {
+                                VButton(label: "Share", iconOnly: VIcon.share.rawValue, style: .outlined, iconSize: 28, tooltip: "Share") {
                                     showShareDrawer.toggle()
                                 }
                                 .background(GeometryReader { proxy in
@@ -856,13 +838,13 @@ struct DynamicWorkspaceWrapper: View {
                                 .controlSize(.small)
                                 .frame(height: 28)
                         } else if sharing.publishedUrl == nil {
-                            VIconButton(label: "Publish", icon: VIcon.arrowUpRight.rawValue, iconOnly: true, variant: .outlined, size: 28, tooltip: "Publish to Vercel") {
+                            VButton(label: "Publish", iconOnly: VIcon.arrowUpRight.rawValue, style: .outlined, iconSize: 28, tooltip: "Publish to Vercel") {
                                 onPublishPage(data.html, data.preview?.title, data.appId)
                             }
                         }
                     }
 
-                    VIconButton(label: "Close workspace", icon: VIcon.x.rawValue, iconOnly: true, variant: .outlined, size: 28, tooltip: "Close workspace") {
+                    VButton(label: "Close workspace", iconOnly: VIcon.x.rawValue, style: .outlined, iconSize: 28, tooltip: "Close workspace") {
                         sharing.showSharePicker = false
                         windowState.activeDynamicSurface = nil
                         windowState.activeDynamicParsedSurface = nil
@@ -1125,13 +1107,13 @@ private struct AppLoadingView: View {
                     .frame(maxWidth: 280)
                 HStack(spacing: VSpacing.sm) {
                     if let appId {
-                        VButton(label: "Retry", icon: "arrow.clockwise", style: .secondary) {
+                        VButton(label: "Retry", icon: "arrow.clockwise", style: .outlined) {
                             timedOut = false
                             onRetry(appId)
                         }
                         .controlSize(.small)
                     }
-                    VButton(label: "Close", style: .tertiary) {
+                    VButton(label: "Close", style: .outlined) {
                         onClose()
                     }
                     .controlSize(.small)
@@ -1150,7 +1132,7 @@ private struct AppLoadingView: View {
         .background(VColor.surfaceBase)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .overlay(alignment: .topTrailing) {
-            VIconButton(label: "Close", icon: VIcon.x.rawValue, iconOnly: true) {
+            VButton(label: "Close", iconOnly: VIcon.x.rawValue, style: .ghost) {
                 onClose()
             }
             .padding(VSpacing.lg)

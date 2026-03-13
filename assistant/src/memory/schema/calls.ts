@@ -23,6 +23,8 @@ export const callSessions = sqliteTable(
     status: text("status").notNull().default("initiated"),
     callMode: text("call_mode"),
     verificationSessionId: text("verification_session_id"),
+    inviteFriendName: text("invite_friend_name"),
+    inviteGuardianName: text("invite_guardian_name"),
     callerIdentityMode: text("caller_identity_mode"),
     callerIdentitySource: text("caller_identity_source"),
     initiatedFromConversationId: text("initiated_from_conversation_id"),

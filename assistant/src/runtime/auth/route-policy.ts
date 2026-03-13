@@ -347,6 +347,12 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "skills:DELETE", scopes: ["settings.write"] },
   { endpoint: "skills:PATCH", scopes: ["settings.write"] },
 
+  // Memory items
+  { endpoint: "memory-items:GET", scopes: ["settings.read"] },
+  { endpoint: "memory-items:POST", scopes: ["settings.write"] },
+  { endpoint: "memory-items:PATCH", scopes: ["settings.write"] },
+  { endpoint: "memory-items:DELETE", scopes: ["settings.write"] },
+
   // Trust rule CRUD management
   { endpoint: "trust-rules/manage:GET", scopes: ["settings.read"] },
   { endpoint: "trust-rules/manage:POST", scopes: ["settings.write"] },

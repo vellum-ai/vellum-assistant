@@ -845,7 +845,7 @@ export function buildCliReferenceSection(): string {
   return [
     "## Assistant CLI",
     "",
-    "The `assistant` CLI is installed on the user's machine and available via `bash`.",
+    "The `assistant` CLI is available in the sandbox. Always use the `bash` tool (never `host_bash`) when running `assistant` commands.",
     "For account and authentication work, prefer real `assistant` CLI workflows over any legacy account-record abstraction.",
     "- Use `assistant credentials ...` for stored secrets and credential metadata.",
     "- Use `assistant oauth connections token <provider-key>` for connected integration tokens.",
@@ -959,6 +959,20 @@ function buildDynamicSkillWorkflowSection(
       'When the user asks about email, messaging, inbox management, or wants to read/send/search messages on any platform (Gmail, Slack, Telegram), load the "messaging" skill using `skill_load`. The messaging skill handles connection setup, credential flows, and all messaging operations — do not improvise setup instructions from general knowledge.',
     );
   }
+
+  lines.push(
+    "",
+    "### Community Skills Discovery",
+    "",
+    "When no built-in skill satisfies a request, search the community skills.sh registry:",
+    "1. Run `assistant skills search <query>` to find community skills. Results include install counts and security audit badges (ATH, Socket, Snyk).",
+    "2. Present the search results to the user, highlighting the security audit status. ATH is Gen Agent Trust Hub. Audits show PASS (safe/low risk), WARN (medium risk), or FAIL (high/critical risk) for each provider.",
+    '3. **Always ask the user for permission before installing a community skill.** Say something like: "I found a skill that could help with this. Would you like me to install it?" — share the skill name, source, and audit results.',
+    "4. After user consent, install with `assistant skills add <owner>/<repo>@<skill-name>` (e.g., `assistant skills add vercel-labs/skills@find-skills`).",
+    "5. After installation, load the skill with `skill_load` as usual.",
+    "",
+    "**Never install community skills without explicit user confirmation.** The user should always see the security audit information and make an informed choice.",
+  );
 
   return lines.join("\n");
 }

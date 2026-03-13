@@ -138,7 +138,7 @@ struct SidebarThreadItem: View {
         }
         .overlay(alignment: .trailing) {
             if sidebar.threadPendingDeletion == thread.id {
-                VButton(label: "Confirm", style: .danger, size: .small) {
+                VButton(label: "Confirm", style: .danger) {
                     threadManager.archiveThread(id: thread.id)
                     sidebar.threadPendingDeletion = nil
                 }

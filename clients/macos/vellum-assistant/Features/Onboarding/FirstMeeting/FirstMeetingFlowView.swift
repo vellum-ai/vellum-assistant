@@ -196,7 +196,7 @@ struct FirstMeetingFlowView: View {
 
     private var mockInputBar: some View {
         HStack(spacing: VSpacing.md) {
-            VIconButton(label: "Phone", icon: VIcon.phoneCall.rawValue, iconOnly: true) { }
+            VButton(label: "Phone", iconOnly: VIcon.phoneCall.rawValue, style: .ghost) { }
 
             Text("What you need chef?")
                 .font(VFont.body)

@@ -144,7 +144,7 @@ The design system uses a two-tier architecture with functional subgrouping:
 DesignSystem/
 ├── Tokens/              (VColor, VFont, VSpacing, VRadius, VShadow, VAnimation)
 ├── Core/                (atomic building blocks — single-responsibility controls)
-│   ├── Buttons/         (VButton, VIconButton)
+│   ├── Buttons/         (VButton)
 │   ├── Inputs/          (VSlider, VTextEditor, VTextField, VToggle)
 │   ├── Feedback/        (VBadge, VLoadingIndicator, VShortcutTag, VToast)
 │   ├── Display/         (VListRow)
@@ -167,12 +167,15 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 <details>
 <summary><strong>Token reference</strong></summary>
 
-**VColor** — Semantic color tokens mapped to Tailwind-style scales (Slate, Violet, Emerald, Rose, Amber, Indigo):
-- Backgrounds: `surfaceBase` (Slate._950), `backgroundSubtle` (Slate._800), `surface` (Slate._800), `surfaceBorder` (Slate._700)
-- Text: `textPrimary` (Slate._50), `textSecondary` (Slate._400), `textMuted` (Slate._500)
-- Accent: `accent` (Violet._600), `accentSubtle` (Violet._100)
-- Status: `success` (Emerald._600), `error` (Rose._600), `warning` (Amber._600)
-- Use raw scales (e.g. `Slate._300`, `Violet._700`) only when semantic tokens don't cover the need.
+**VColor** — Adaptive semantic color tokens sourced from Figma. Each token resolves to a light/dark pair via `adaptiveColor()`:
+- Surface: `surfaceBase`, `surfaceOverlay`, `surfaceActive`, `surfaceLift`
+- Border: `borderDisabled`, `borderBase`, `borderHover`, `borderActive`
+- Content: `contentEmphasized`, `contentDefault`, `contentSecondary`, `contentTertiary`, `contentDisabled`, `contentBackground`, `contentInset`
+- Primary: `primaryDisabled`, `primaryBase`, `primaryHover`, `primaryActive`
+- System: `systemPositiveStrong`/`Weak`, `systemNegativeStrong`/`Hover`/`Weak`, `systemMidStrong`/`Weak`
+- Utility: `auxWhite`, `auxBlack` (non-adaptive)
+- Fun: `funYellow`, `funRed`, `funPurple`, `funPink`, `funCoral`, `funTeal`, `funGreen` (non-adaptive, decorative)
+- Raw palettes (Moss, Stone/Slate, Forest/Sage, Emerald, Danger, Amber) are internal — use semantic tokens above.
 
 **VFont** — macOS HIG-aligned type scale:
 - `largeTitle` (26pt bold), `title` (22pt semibold), `headline` (13pt bold)
@@ -254,7 +257,7 @@ The macOS app pairs with iOS devices via QR code with Mac-side approval. The Con
 - **QR Code Pairing (v4):** Settings > Connect > Show QR Code generates a v4 payload containing a one-time `pairingRequestId` and `pairingSecret` (no bearer token in the QR). The QR is pre-registered with the daemon. iOS scans the QR, sends a pairing request, and waits for Mac-side approval.
 - **Approval flow:** When iOS sends a pairing request, macOS shows a floating approval prompt with Deny, Approve Once, and Always Allow options. "Always Allow" persists the device in `~/.vellum/protected/approved-devices.json` for auto-approval on future pairings.
 - **LAN pairing:** Disabled by default for security. To enable, set `VELLUM_ENABLE_INSECURE_LAN_PAIRING=1`. When enabled, the QR payload includes `localLanUrl` (the gateway's LAN address). iOS tries LAN first, falls back to cloud gateway. HTTP is permitted for local/private addresses via `LocalAddressValidator.isLocalAddress()`.
-- **Connect Tab Layout:** Pairing hero (QR + status) → Approved Devices list → Gateway (URL config, collapsed if set) → Advanced (bearer token, URL/token overrides) → Diagnostics (test connection) → Channels (Telegram, SMS, Voice).
+- **Connect Tab Layout:** Pairing hero (QR + status) → Approved Devices list → Gateway (URL config, collapsed if set) → Advanced (bearer token, URL/token overrides) → Diagnostics (test connection) → Channels (Telegram, Voice).
 - **Bearer Token:** Managed via JWT authentication. The pairing hero shows a "Generate Token" button when missing and a "Regenerate Token" link when present.
 
 ---

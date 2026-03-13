@@ -95,7 +95,14 @@ struct SettingsAppearanceTab: View {
                         if focused && timezoneSearchText.isEmpty {
                             // Show all when focused with empty search
                             isTimezoneDropdownOpen = true
+                        } else if !focused {
+                            isTimezoneDropdownOpen = false
                         }
+                    }
+                    .onExitCommand {
+                        isTimezoneDropdownOpen = false
+                        isTimezoneSearchFocused = false
+                        timezoneSearchText = ""
                     }
 
                     if isTimezoneDropdownOpen {
@@ -196,16 +203,16 @@ struct SettingsAppearanceTab: View {
                     }
 
                     if isRecordingGlobalHotkey {
-                        VButton(label: "Press shortcut...", style: .outlined, size: .medium) {
+                        VButton(label: "Press shortcut...", style: .outlined) {
                             stopRecording()
                         }
                     } else {
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Record", style: .outlined, size: .medium) {
+                            VButton(label: "Record", style: .outlined) {
                                 startRecording()
                             }
                             if !store.globalHotkeyShortcut.isEmpty {
-                                VButton(label: "Unbind", style: .outlined, size: .medium) {
+                                VButton(label: "Unbind", style: .outlined) {
                                     store.globalHotkeyShortcut = ""
                                 }
                             }
@@ -236,16 +243,16 @@ struct SettingsAppearanceTab: View {
                     }
 
                     if isRecordingQuickInputHotkey {
-                        VButton(label: "Press shortcut...", style: .outlined, size: .medium) {
+                        VButton(label: "Press shortcut...", style: .outlined) {
                             stopRecording()
                         }
                     } else {
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Record", style: .outlined, size: .medium) {
+                            VButton(label: "Record", style: .outlined) {
                                 startRecordingQuickInput()
                             }
                             if !store.quickInputHotkeyShortcut.isEmpty {
-                                VButton(label: "Unbind", style: .outlined, size: .medium) {
+                                VButton(label: "Unbind", style: .outlined) {
                                     store.quickInputHotkeyShortcut = ""
                                     store.quickInputHotkeyKeyCode = 0
                                 }
@@ -307,7 +314,7 @@ struct SettingsAppearanceTab: View {
                                     addAllowlistDomain()
                                 }
 
-                            VButton(label: "Add", style: .primary, size: .medium, isDisabled: newAllowlistDomain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                            VButton(label: "Add", style: .primary, isDisabled: newAllowlistDomain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                                 addAllowlistDomain()
                             }
                         }
@@ -320,7 +327,7 @@ struct SettingsAppearanceTab: View {
                                 .foregroundColor(VColor.contentDefault)
                                 .textSelection(.enabled)
                             Spacer()
-                            VIconButton(label: "Remove domain", icon: VIcon.trash.rawValue, iconOnly: true, variant: .danger) {
+                            VButton(label: "Remove domain", iconOnly: VIcon.trash.rawValue, style: .danger) {
                                 var domains = store.mediaEmbedVideoAllowlistDomains
                                 domains.removeAll { $0 == domain }
                                 store.setMediaEmbedVideoAllowlistDomains(domains)

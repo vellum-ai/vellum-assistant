@@ -36,11 +36,7 @@ struct AvatarCustomizationPanel: View {
                     // Avatar preview
                     HStack {
                         Spacer()
-                        Image(nsImage: appearance.fullAvatarImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: 120, height: 120)
-                            .clipShape(Circle())
+                        VAvatarImage(image: appearance.fullAvatarImage, size: 120, showBorder: false)
                         Spacer()
                     }
 
@@ -68,11 +64,7 @@ struct AvatarCustomizationPanel: View {
 
             if let customImage = appearance.customAvatarImage {
                 HStack(spacing: VSpacing.md) {
-                    Image(nsImage: customImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: 48, height: 48)
-                        .clipShape(Circle())
+                    VAvatarImage(image: customImage, size: 48, showBorder: false)
 
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Button("Change") { pickImage() }
@@ -117,6 +109,6 @@ struct AvatarCustomizationPanel: View {
 
         guard panel.runModal() == .OK, let url = panel.url,
               let image = NSImage(contentsOf: url) else { return }
-        appearance.setCustomAvatar(image)
+        appearance.saveAvatar(image)
     }
 }

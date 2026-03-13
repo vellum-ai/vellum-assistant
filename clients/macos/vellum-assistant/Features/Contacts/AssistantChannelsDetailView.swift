@@ -28,26 +28,19 @@ struct AssistantChannelsDetailView: View {
     // Email copy state
     @State private var emailCopied: Bool = false
 
-    // Outbound verification destination input (keyed by channel)
-    @State private var verificationDestinationText: [String: String] = [:]
-
-    // Countdown timer for outbound verification expiry
-    @State private var countdownNow: Date = Date()
-    @State private var countdownTimer: Timer?
-
-    // Shared label column width for channelStatusRow and channel verification alignment
-    private let labelColumnWidth: CGFloat = 140
-
-    /// True when at least one channel has an active outbound verification session.
-    private var hasAnyOutboundSession: Bool {
-        store.telegramOutboundSessionId != nil ||
-        store.voiceOutboundSessionId != nil ||
-        store.slackOutboundSessionId != nil
-    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Assistant Channels")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.contentDefault)
+                    Text("Once set up, you and others you trust can talk to your assistant in these channels.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                }
+
                 telegramCard
                 slackChannelCard
                 voiceCard
@@ -70,19 +63,6 @@ struct AssistantChannelsDetailView: View {
             store.fetchSlackChannelConfig()
             if store.twilioHasCredentials {
                 store.refreshTwilioNumbers()
-            }
-            if hasAnyOutboundSession {
-                startCountdownTimer()
-            }
-        }
-        .onDisappear {
-            stopCountdownTimer()
-        }
-        .onChange(of: hasAnyOutboundSession) { _, hasOutbound in
-            if hasOutbound {
-                startCountdownTimer()
-            } else {
-                stopCountdownTimer()
             }
         }
         .onChange(of: store.channelSetupStatus["telegram"]) { _, status in
@@ -159,8 +139,8 @@ struct AssistantChannelsDetailView: View {
         return SettingsCard(title: "Telegram", subtitle: "Message your assistant from Telegram") {
             if status == "ready" {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
-                    VButton(label: "Disconnect", style: .danger, size: .medium, isDisabled: store.telegramSaveInProgress) {
+                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
+                    VButton(label: "Disconnect", style: .danger, isDisabled: store.telegramSaveInProgress) {
                         store.clearTelegramCredentials()
                         telegramBotTokenText = ""
                         telegramSetupExpanded = false
@@ -170,18 +150,13 @@ struct AssistantChannelsDetailView: View {
             } else if (status == "incomplete" && store.telegramHasBotToken) || telegramSetupExpanded {
                 telegramCredentialEntry
             } else {
-                VButton(label: "Set Up", style: .secondary, size: .medium) {
+                VButton(label: "Set Up", style: .outlined) {
                     telegramSetupExpanded = true
                 }
             }
 
             if let error = store.telegramError {
                 Text(error).font(VFont.caption).foregroundColor(VColor.systemNegativeStrong)
-            }
-
-            if status == "ready" || status == "incomplete" {
-                SettingsDivider()
-                channelVerificationView(channel: "telegram")
             }
 
             if (status == "ready" || status == "incomplete") && store.telegramVerificationVerified {
@@ -230,7 +205,7 @@ struct AssistantChannelsDetailView: View {
                             }
                         }
                         Spacer()
-                        VButton(label: "Revoke", style: .secondary, size: .medium, isDisabled: store.telegramRevokingMemberIds.contains(member.id)) {
+                        VButton(label: "Revoke", style: .outlined, isDisabled: store.telegramRevokingMemberIds.contains(member.id)) {
                             store.revokeTelegramApprovedMember(memberId: member.id)
                         }
                     }
@@ -272,11 +247,11 @@ struct AssistantChannelsDetailView: View {
                 }
             } else {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connect", style: .secondary, size: .medium, isDisabled: telegramBotTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                    VButton(label: "Connect", style: .outlined, isDisabled: telegramBotTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                         store.saveTelegramToken(botToken: telegramBotTokenText)
                         telegramBotTokenText = ""
                     }
-                    VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                    VButton(label: "Cancel", style: .outlined) {
                         telegramSetupExpanded = false
                         telegramBotTokenText = ""
                     }
@@ -292,8 +267,8 @@ struct AssistantChannelsDetailView: View {
         return SettingsCard(title: "Slack", subtitle: "Message your assistant from Slack") {
             if status == "ready" {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
-                    VButton(label: "Disconnect", style: .danger, size: .medium, isDisabled: store.slackChannelSaveInProgress) {
+                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
+                    VButton(label: "Disconnect", style: .danger, isDisabled: store.slackChannelSaveInProgress) {
                         store.clearSlackChannelConfig()
                         slackChannelBotTokenInput = ""
                         slackChannelAppTokenInput = ""
@@ -304,7 +279,7 @@ struct AssistantChannelsDetailView: View {
             } else if (status == "incomplete" && (store.slackChannelHasBotToken || store.slackChannelHasAppToken)) || slackChannelSetupExpanded {
                 slackChannelCredentialEntry
             } else {
-                VButton(label: "Set Up", style: .secondary, size: .medium) {
+                VButton(label: "Set Up", style: .outlined) {
                     slackChannelSetupExpanded = true
                 }
             }
@@ -313,10 +288,7 @@ struct AssistantChannelsDetailView: View {
                 Text(error).font(VFont.caption).foregroundColor(VColor.systemNegativeStrong)
             }
 
-            if status == "ready" || status == "incomplete" {
-                SettingsDivider()
-                channelVerificationView(channel: "slack")
-
+            if (status == "ready" || status == "incomplete") && store.slackVerificationVerified {
                 SettingsDivider()
                 slackApprovedUsersSection
             }
@@ -362,7 +334,7 @@ struct AssistantChannelsDetailView: View {
                             }
                         }
                         Spacer()
-                        VButton(label: "Revoke", style: .secondary, size: .medium, isDisabled: store.slackRevokingMemberIds.contains(member.id)) {
+                        VButton(label: "Revoke", style: .outlined, isDisabled: store.slackRevokingMemberIds.contains(member.id)) {
                             store.revokeSlackApprovedMember(memberId: member.id)
                         }
                     }
@@ -411,8 +383,7 @@ struct AssistantChannelsDetailView: View {
                 HStack(spacing: VSpacing.sm) {
                     VButton(
                         label: "Connect",
-                        style: .secondary,
-                        size: .medium,
+                        style: .outlined,
                         isDisabled: slackChannelBotTokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                             || slackChannelAppTokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ) {
@@ -423,7 +394,7 @@ struct AssistantChannelsDetailView: View {
                         slackChannelBotTokenInput = ""
                         slackChannelAppTokenInput = ""
                     }
-                    VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                    VButton(label: "Cancel", style: .outlined) {
                         slackChannelSetupExpanded = false
                         slackChannelBotTokenInput = ""
                         slackChannelAppTokenInput = ""
@@ -440,8 +411,8 @@ struct AssistantChannelsDetailView: View {
         return SettingsCard(title: "Phone Calling", subtitle: "Receive and make phone calls via Twilio") {
             if status == "ready" {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
-                    VButton(label: "Disconnect", style: .danger, size: .medium, isDisabled: store.twilioSaveInProgress) {
+                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
+                    VButton(label: "Disconnect", style: .danger, isDisabled: store.twilioSaveInProgress) {
                         store.clearTwilioCredentials()
                         store.channelSetupStatus["phone"] = "not_configured"
                     }
@@ -449,7 +420,7 @@ struct AssistantChannelsDetailView: View {
             } else if (status == "incomplete" && store.twilioHasCredentials) || voiceSetupExpanded {
                 voiceCredentialEntry
             } else {
-                VButton(label: "Set Up", style: .secondary, size: .medium) {
+                VButton(label: "Set Up", style: .outlined) {
                     voiceSetupExpanded = true
                 }
             }
@@ -488,10 +459,6 @@ struct AssistantChannelsDetailView: View {
                     .foregroundColor(VColor.systemNegativeStrong)
             }
 
-            if (status == "ready" || status == "incomplete") && store.twilioPhoneNumber != nil {
-                SettingsDivider()
-                channelVerificationView(channel: "phone")
-            }
         }
     }
 
@@ -525,8 +492,7 @@ struct AssistantChannelsDetailView: View {
                 HStack(spacing: VSpacing.sm) {
                     VButton(
                         label: "Connect",
-                        style: .secondary,
-                        size: .medium,
+                        style: .outlined,
                         isDisabled: voiceAccountSidText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                             voiceAuthTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ) {
@@ -537,7 +503,7 @@ struct AssistantChannelsDetailView: View {
                         voiceAccountSidText = ""
                         voiceAuthTokenText = ""
                     }
-                    VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                    VButton(label: "Cancel", style: .outlined) {
                         voiceSetupExpanded = false
                         voiceAccountSidText = ""
                         voiceAuthTokenText = ""
@@ -547,44 +513,4 @@ struct AssistantChannelsDetailView: View {
         }
     }
 
-    // MARK: - Channel Verification Row
-
-    @ViewBuilder
-    private func channelVerificationView(channel: String) -> some View {
-        ChannelVerificationFlowView(
-            state: store.channelVerificationState(for: channel),
-            countdownNow: $countdownNow,
-            destinationText: Binding<String>(
-                get: { verificationDestinationText[channel] ?? "" },
-                set: { verificationDestinationText[channel] = $0 }
-            ),
-            onStartOutbound: { dest in store.startOutboundVerification(channel: channel, destination: dest) },
-            onResend: { store.resendOutboundVerification(channel: channel) },
-            onCancelOutbound: { store.cancelOutboundVerification(channel: channel) },
-            onRevoke: { store.revokeChannelVerification(channel: channel) },
-            onStartSession: { rebind in store.startChannelVerification(channel: channel, rebind: rebind) },
-            onCancelSession: { store.cancelVerificationSession(channel: channel) },
-            botUsername: store.telegramBotUsername,
-            phoneNumber: store.twilioPhoneNumber,
-            showLabel: true,
-            labelColumnWidth: labelColumnWidth
-        )
-    }
-
-    // MARK: - Countdown Timer
-
-    private func startCountdownTimer() {
-        guard countdownTimer == nil else { return }
-        countdownNow = Date()
-        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            Task { @MainActor in
-                countdownNow = Date()
-            }
-        }
-    }
-
-    private func stopCountdownTimer() {
-        countdownTimer?.invalidate()
-        countdownTimer = nil
-    }
 }

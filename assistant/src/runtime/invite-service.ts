@@ -8,6 +8,7 @@
  * /v1/contacts/channels endpoints.
  */
 
+import { startInviteCall } from "../calls/call-domain.js";
 import { isChannelId } from "../channels/types.js";
 import {
   createInvite,
@@ -23,6 +24,7 @@ import {
   DEFAULT_USER_REFERENCE,
   resolveGuardianName,
 } from "../prompts/user-reference.js";
+import { getLogger } from "../util/logger.js";
 import { isValidE164 } from "../util/phone.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 import {
@@ -36,6 +38,8 @@ import {
   redeemVoiceInviteCode as redeemVoiceInviteCodeTyped,
   type VoiceRedemptionOutcome,
 } from "./invite-redemption-service.js";
+
+const log = getLogger("invite-service");
 
 // ---------------------------------------------------------------------------
 // Response shapes — used by both HTTP routes and message handlers
@@ -247,6 +251,27 @@ export async function createIngressInvite(params: {
       channelHandle,
       hasShareUrl: !!share?.url,
       shareUrl: share?.url,
+    });
+  }
+
+  // For voice invites with a known phone number, initiate an outbound call
+  // so the contact is prompted to enter their code immediately.
+  if (
+    params.sourceChannel === "phone" &&
+    params.expectedExternalUserId &&
+    params.friendName &&
+    effectiveGuardianName
+  ) {
+    // Fire-and-forget: don't block invite creation on call initiation
+    startInviteCall({
+      phoneNumber: params.expectedExternalUserId,
+      friendName: params.friendName,
+      guardianName: effectiveGuardianName,
+    }).catch((err) => {
+      log.warn(
+        { err, inviteId: invite.id },
+        "Failed to initiate outbound invite call",
+      );
     });
   }
 

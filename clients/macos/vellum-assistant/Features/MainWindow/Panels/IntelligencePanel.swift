@@ -5,7 +5,6 @@ import VellumAssistantShared
 
 struct IntelligencePanel: View {
     var onClose: () -> Void
-    var onEditAvatar: () -> Void
     var onInvokeSkill: ((SkillInfo) -> Void)?
     let daemonClient: DaemonClient
 
@@ -14,8 +13,8 @@ struct IntelligencePanel: View {
     private enum IntelligenceTab: String, CaseIterable {
         case identity = "Identity"
         case installedSkills = "Installed Skills"
-        case communitySkills = "Community Skills"
         case workspace = "Workspace"
+        case memories = "Memories"
     }
 
     private let maxContentWidth: CGFloat = 1100
@@ -84,7 +83,6 @@ struct IntelligencePanel: View {
         case .identity:
             IdentityPanel(
                 onClose: onClose,
-                onEditAvatar: onEditAvatar,
                 daemonClient: daemonClient
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -98,21 +96,17 @@ struct IntelligencePanel: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
-        case .communitySkills:
-            AgentPanelContent(
-                onInvokeSkill: onInvokeSkill,
-                daemonClient: daemonClient,
-                visibleTab: .available
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-
         case .workspace:
             WorkspacePanel(daemonClient: daemonClient)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+
+        case .memories:
+            MemoriesPanel(daemonClient: daemonClient)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
     }
 }
 
 #Preview {
-    IntelligencePanel(onClose: {}, onEditAvatar: {}, daemonClient: DaemonClient())
+    IntelligencePanel(onClose: {}, daemonClient: DaemonClient())
 }

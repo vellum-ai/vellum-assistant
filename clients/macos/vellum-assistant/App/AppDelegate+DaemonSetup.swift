@@ -531,29 +531,22 @@ extension AppDelegate {
     }
 
     /// Creates a symlink at /usr/local/bin/<commandName> pointing to the
-    /// given target binary. Skips creation when the destination already
-    /// exists as a regular file, already points to the correct target,
-    /// or the command resolves elsewhere on PATH (developer's local build).
+    /// given target binary, falling back to ~/.local/bin if /usr/local/bin
+    /// is not writable. Skips creation when the destination already exists
+    /// as a regular file, already points to the correct target, or the
+    /// command resolves elsewhere on PATH (developer's local build).
     private func installSymlink(commandName: String, target: String) {
-        let symlinkPath = "/usr/local/bin/\(commandName)"
         let fm = FileManager.default
 
-        // If the path exists, check whether it's our symlink or something else
-        if let attrs = try? fm.attributesOfItem(atPath: symlinkPath),
-           let type = attrs[.type] as? FileAttributeType {
-            if type == .typeSymbolicLink {
-                // Already a symlink — skip if it already points to our binary
-                if let dest = try? fm.destinationOfSymbolicLink(atPath: symlinkPath),
-                   dest == target {
-                    return
-                }
-            } else {
-                // Real file (not a symlink) — don't overwrite
-                return
-            }
-        }
+        // Candidate directories in priority order: /usr/local/bin (system-wide),
+        // then ~/.local/bin (user-writable, no sudo needed).
+        let localBin = fm.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/bin").path
+        let candidateDirs = ["/usr/local/bin", localBin]
 
-        // Check if the command resolves elsewhere on PATH (developer's local build)
+        // Check if the command already resolves on PATH to something other than
+        // our candidate paths (developer's local build) — skip entirely.
+        let candidatePaths = Set(candidateDirs.map { "\($0)/\(commandName)" })
         let whichProc = Process()
         whichProc.executableURL = URL(fileURLWithPath: "/usr/bin/which")
         whichProc.arguments = [commandName]
@@ -568,7 +561,7 @@ extension AppDelegate {
                     data: pipe.fileHandleForReading.readDataToEndOfFile(),
                     encoding: .utf8
                 )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                if !resolved.isEmpty && resolved != symlinkPath {
+                if !resolved.isEmpty && !candidatePaths.contains(resolved) {
                     return
                 }
             }
@@ -576,20 +569,41 @@ extension AppDelegate {
             // `which` failed to run — continue with symlink creation
         }
 
-        // Create /usr/local/bin if needed, then create symlink
-        do {
-            let dir = (symlinkPath as NSString).deletingLastPathComponent
-            if !fm.fileExists(atPath: dir) {
-                try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        for dir in candidateDirs {
+            let symlinkPath = "\(dir)/\(commandName)"
+
+            // If the path exists, check whether it's our symlink or something else
+            if let attrs = try? fm.attributesOfItem(atPath: symlinkPath),
+               let type = attrs[.type] as? FileAttributeType {
+                if type == .typeSymbolicLink {
+                    // Already a symlink — skip if it already points to our binary
+                    if let dest = try? fm.destinationOfSymbolicLink(atPath: symlinkPath),
+                       dest == target {
+                        return
+                    }
+                } else {
+                    // Real file (not a symlink) — try next candidate
+                    continue
+                }
             }
-            // Remove stale symlink before creating a new one
-            if (try? fm.attributesOfItem(atPath: symlinkPath)) != nil {
-                try fm.removeItem(atPath: symlinkPath)
+
+            // Create the directory if needed, then create the symlink
+            do {
+                if !fm.fileExists(atPath: dir) {
+                    try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+                }
+                // Remove stale symlink before creating a new one
+                if (try? fm.attributesOfItem(atPath: symlinkPath)) != nil {
+                    try fm.removeItem(atPath: symlinkPath)
+                }
+                try fm.createSymbolicLink(atPath: symlinkPath, withDestinationPath: target)
+                log.info("Installed CLI symlink: \(symlinkPath) → \(target)")
+                return
+            } catch {
+                log.info("Could not install CLI symlink at \(symlinkPath): \(error.localizedDescription) — trying next candidate")
             }
-            try fm.createSymbolicLink(atPath: symlinkPath, withDestinationPath: target)
-            log.info("Installed CLI symlink: \(symlinkPath) → \(target)")
-        } catch {
-            log.warning("Could not install CLI symlink at \(symlinkPath): \(error.localizedDescription)")
         }
+
+        log.warning("Could not install CLI symlink for \(commandName) in any candidate directory")
     }
 }

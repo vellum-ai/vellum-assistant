@@ -777,6 +777,7 @@ describe("Trust Store", () => {
         "computer_use_click",
         "computer_use_drag",
         "computer_use_key",
+        "computer_use_observe",
         "computer_use_open_app",
         "computer_use_run_applescript",
         "computer_use_scroll",
@@ -897,6 +898,20 @@ describe("Trust Store", () => {
       expect(match!.decision).toBe("ask");
       expect(match!.priority).toBe(
         DEFAULT_PRIORITY_BY_ID.get("default:ask-computer_use_click-global")!,
+      );
+    });
+
+    test("findHighestPriorityRule matches default ask for computer_use_observe", () => {
+      const match = findHighestPriorityRule(
+        "computer_use_observe",
+        ["computer_use_observe:"],
+        "/tmp",
+      );
+      expect(match).not.toBeNull();
+      expect(match!.id).toBe("default:ask-computer_use_observe-global");
+      expect(match!.decision).toBe("ask");
+      expect(match!.priority).toBe(
+        DEFAULT_PRIORITY_BY_ID.get("default:ask-computer_use_observe-global")!,
       );
     });
 

@@ -426,7 +426,7 @@ struct GeneratedPanel: View {
                 .frame(width: 0, height: 0)
                 .opacity(0)
 
-                VIconButton(label: "Share", icon: VIcon.share.rawValue, iconOnly: true) {
+                VButton(label: "Share", iconOnly: VIcon.share.rawValue, style: .ghost) {
                     bundleAndShare(appId: localId, itemId: item.id)
                 }
             }
@@ -448,7 +448,7 @@ struct GeneratedPanel: View {
                 .frame(width: 0, height: 0)
                 .opacity(0)
 
-                VIconButton(label: "Share", icon: VIcon.share.rawValue, iconOnly: true) {
+                VButton(label: "Share", iconOnly: VIcon.share.rawValue, style: .ghost) {
                     reshareApp(uuid: uuid, itemId: item.id)
                 }
             }
@@ -456,13 +456,13 @@ struct GeneratedPanel: View {
     }
 
     private func forkButton(for item: DisplayAppItem) -> some View {
-        VIconButton(label: "Fork", icon: VIcon.gitBranch.rawValue, iconOnly: true) {
+        VButton(label: "Fork", iconOnly: VIcon.gitBranch.rawValue, style: .ghost) {
             forkSharedApp(item)
         }
     }
 
     private func deleteButton(for item: DisplayAppItem) -> some View {
-        VIconButton(label: "Delete", icon: VIcon.trash.rawValue, iconOnly: true) {
+        VButton(label: "Delete", iconOnly: VIcon.trash.rawValue, style: .ghost) {
             deleteSharedApp(item)
         }
     }

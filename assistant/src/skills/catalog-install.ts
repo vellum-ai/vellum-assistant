@@ -340,22 +340,34 @@ export async function installSkillLocally(
 
 /**
  * Resolve the catalog skill list, checking local (dev mode) first, then remote.
+ *
+ * In dev mode with a local catalog, returns local entries immediately to avoid
+ * unnecessary network latency.  Pass `skillId` to trigger a deferred remote
+ * fetch only when the requested skill is not found locally — this preserves the
+ * ability to discover remote-only skills without penalising every call with a
+ * 10s timeout on flaky networks.
+ *
  * Callers that install multiple skills in a loop should call this once and pass
  * the result to `autoInstallFromCatalog` to avoid redundant network requests.
  */
-export async function resolveCatalog(): Promise<CatalogSkill[]> {
+export async function resolveCatalog(
+  skillId?: string,
+): Promise<CatalogSkill[]> {
   const repoSkillsDir = getRepoSkillsDir();
   if (repoSkillsDir) {
     const local = readLocalCatalog(repoSkillsDir);
     if (local.length > 0) {
-      // Merge with remote catalog so skills not in local catalog.json
-      // can still be found. Local entries take precedence by id.
+      // If no specific skill requested, or it exists locally, skip remote fetch
+      if (!skillId || local.some((s) => s.id === skillId)) {
+        return local;
+      }
+      // Skill not found locally — merge with remote so remote-only skills
+      // can still be discovered. Local entries take precedence by id.
       try {
         const remote = await fetchCatalog();
         const localIds = new Set(local.map((s) => s.id));
         return [...local, ...remote.filter((s) => !localIds.has(s.id))];
       } catch {
-        // If remote fetch fails, fall back to local-only
         return local;
       }
     }
@@ -382,7 +394,7 @@ export async function autoInstallFromCatalog(
     skills = catalog;
   } else {
     try {
-      skills = await resolveCatalog();
+      skills = await resolveCatalog(skillId);
     } catch (err) {
       log.warn(
         { err, skillId },

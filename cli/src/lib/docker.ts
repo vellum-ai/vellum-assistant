@@ -7,7 +7,6 @@ import { saveAssistantEntry, setActiveAssistant } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
 import { DEFAULT_GATEWAY_PORT } from "./constants";
 import type { Species } from "./constants";
-import { discoverPublicUrl } from "./local";
 import { generateRandomSuffix } from "./random-name";
 import { exec, execOutput } from "./step-runner";
 import {
@@ -34,6 +33,36 @@ async function ensureDockerInstalled(): Promise<void> {
   }
 
   if (!installed) {
+    // Check whether Homebrew is available before attempting to use it.
+    let hasBrew = false;
+    try {
+      await execOutput("brew", ["--version"]);
+      hasBrew = true;
+    } catch {
+      // brew not found
+    }
+
+    if (!hasBrew) {
+      console.log("🍺 Homebrew not found. Installing Homebrew...");
+      try {
+        await exec("bash", [
+          "-c",
+          'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"',
+        ]);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        throw new Error(
+          `Failed to install Homebrew. Please install Docker manually from https://www.docker.com/products/docker-desktop/\n${message}`,
+        );
+      }
+
+      // Homebrew on Apple Silicon installs to /opt/homebrew; add it to PATH
+      // so subsequent brew/colima/docker invocations work in this session.
+      if (!process.env.PATH?.includes("/opt/homebrew")) {
+        process.env.PATH = `/opt/homebrew/bin:/opt/homebrew/sbin:${process.env.PATH}`;
+      }
+    }
+
     console.log("🐳 Docker not found. Installing via Homebrew...");
     try {
       await exec("brew", ["install", "colima", "docker"]);
@@ -58,6 +87,21 @@ async function ensureDockerInstalled(): Promise<void> {
   try {
     await exec("docker", ["info"]);
   } catch {
+    let hasColima = false;
+    try {
+      await execOutput("colima", ["version"]);
+      hasColima = true;
+    } catch {
+      // colima not found
+    }
+
+    if (!hasColima) {
+      throw new Error(
+        "Docker daemon is not running and Colima is not installed.\n" +
+          "Please start Docker Desktop, or install Colima with 'brew install colima' and run 'colima start'.",
+      );
+    }
+
     console.log("🚀 Docker daemon not running. Starting Colima...");
     try {
       await exec("colima", ["start"]);
@@ -326,8 +370,10 @@ export async function hatchDocker(
     );
   }
 
-  const publicUrl = await discoverPublicUrl(gatewayPort);
-  const runtimeUrl = publicUrl || `http://localhost:${gatewayPort}`;
+  // Docker containers bind to 0.0.0.0 so localhost always works. Skip
+  // mDNS/LAN discovery — the .local hostname often fails to resolve on the
+  // host machine itself (mDNS is designed for cross-device discovery).
+  const runtimeUrl = `http://localhost:${gatewayPort}`;
   const dockerEntry: AssistantEntry = {
     assistantId: instanceName,
     runtimeUrl,

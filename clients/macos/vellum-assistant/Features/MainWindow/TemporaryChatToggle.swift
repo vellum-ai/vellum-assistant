@@ -7,11 +7,11 @@ struct TemporaryChatToggle: View {
     let onToggle: () -> Void
 
     var body: some View {
-        VIconButton(
+        VButton(
             label: isActive ? "Turn off temporary chat" : "Turn on temporary chat",
-            icon: "circle.dashed",
+            iconOnly: "circle.dashed",
+            style: .ghost,
             isActive: isActive,
-            iconOnly: true,
             tooltip: tooltip,
             action: onToggle
         )

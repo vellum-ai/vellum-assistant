@@ -264,7 +264,7 @@ describe("keychain-broker-client", () => {
 
       const client = createBrokerClient();
       const result = await client.set("my-key", "new-value");
-      expect(result).toBe(true);
+      expect(result).toEqual({ status: "ok" });
     });
 
     test("del returns true on success", async () => {
@@ -434,11 +434,11 @@ describe("keychain-broker-client", () => {
       expect(result).toBeNull();
     });
 
-    test("set returns false when socket file does not exist", async () => {
+    test("set returns unreachable when socket file does not exist", async () => {
       writeFileSync(TOKEN_PATH, TEST_TOKEN);
       const client = createBrokerClient();
       const result = await client.set("test-key", "value");
-      expect(result).toBe(false);
+      expect(result).toEqual({ status: "unreachable" });
     });
 
     test("del returns false when socket file does not exist", async () => {
@@ -470,7 +470,7 @@ describe("keychain-broker-client", () => {
       }
       const client = createBrokerClient();
       expect(await client.get("key")).toBeNull();
-      expect(await client.set("key", "val")).toBe(false);
+      expect(await client.set("key", "val")).toEqual({ status: "unreachable" });
       expect(await client.del("key")).toBe(false);
       expect(await client.list()).toEqual([]);
       expect(await client.ping()).toBeNull();
