@@ -317,19 +317,27 @@ export function handleListMessages(
     let msgAttachments: RuntimeAttachmentMetadata[] = [];
     if (m.id) {
       if (m.role === "user") {
-        // User messages need full attachment data so the client can generate
-        // thumbnails for inline image display on history restore.
+        // User image attachments need full base64 data so the client can
+        // generate thumbnails for inline display on history restore.
+        // Non-image attachments (documents, audio) stay metadata-only to
+        // avoid inflating the response with large blobs.
         const linked = attachmentsStore.getAttachmentsForMessage(m.id);
         if (linked.length > 0) {
-          msgAttachments = linked.map((a) => ({
-            id: a.id,
-            filename: a.originalFilename,
-            mimeType: a.mimeType,
-            sizeBytes: a.sizeBytes,
-            kind: a.kind ?? "",
-            ...(a.dataBase64 ? { data: a.dataBase64 } : {}),
-            ...(a.thumbnailBase64 ? { thumbnailData: a.thumbnailBase64 } : {}),
-          }));
+          msgAttachments = linked.map((a) => {
+            const includeData =
+              a.mimeType.startsWith("image/") && !!a.dataBase64;
+            return {
+              id: a.id,
+              filename: a.originalFilename,
+              mimeType: a.mimeType,
+              sizeBytes: a.sizeBytes,
+              kind: a.kind ?? "",
+              ...(includeData ? { data: a.dataBase64 } : {}),
+              ...(a.thumbnailBase64
+                ? { thumbnailData: a.thumbnailBase64 }
+                : {}),
+            };
+          });
         }
       } else {
         const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
