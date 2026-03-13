@@ -39,13 +39,14 @@ struct FirstMeetingIntroductionView: View {
             // Main content: evolving avatar left, chat panel right
             HStack(alignment: .center, spacing: VSpacing.xxxl) {
                 // Avatar placeholder
-                Image(nsImage: AvatarAppearanceManager.buildInitialLetterAvatar(
-                    name: state.assistantName,
-                    size: 128
-                ))
-                    .resizable()
-                    .frame(width: 128, height: 128)
-                    .clipShape(Circle())
+                VAvatarImage(
+                    image: AvatarAppearanceManager.buildInitialLetterAvatar(
+                        name: state.assistantName,
+                        size: 128
+                    ),
+                    size: 128,
+                    showBorder: false
+                )
 
                 // Chat messages + input in panel
                 OnboardingPanel {
