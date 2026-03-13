@@ -119,6 +119,7 @@ Tell the user:
 credential_store:
   action: "oauth2_connect"
   service: "integration:notion"
+  client_id: "<the client id the user sent>"
 ```
 
 Send the returned auth URL to the user:

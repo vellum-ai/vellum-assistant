@@ -111,9 +111,10 @@ credential_store describe:
   service: "integration:slack"
 ```
 
-- If `redirectUri` says **"automatic"** or the callback transport is loopback with no ingress requirement, skip adding a redirect URL — tell the user: "The redirect URL is handled automatically for this setup, so we can skip this part."
 - If `redirectUri` mentions `ingress.publicBaseUrl` or says "not currently configured", stop and help the user configure public ingress first.
-- Otherwise, tell the user to scroll up to the **Redirect URLs** section on the same OAuth & Permissions page, click **Add New Redirect URL**, paste the URI, click **Add**, then **Save URLs**.
+- Otherwise (including loopback URIs like `http://localhost:17322/callback`), tell the user to scroll up to the **Redirect URLs** section on the same OAuth & Permissions page, click **Add New Redirect URL**, paste the URI, click **Add**, then **Save URLs**.
+
+> Slack requires the redirect URL to be registered even for local loopback callbacks. Without it, the authorization step will fail with a redirect mismatch error.
 
 ---
 

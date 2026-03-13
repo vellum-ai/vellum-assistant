@@ -155,12 +155,20 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
 
   "integration:twitter": {
     service: "integration:twitter",
+    injectionTemplates: [
+      {
+        hostPattern: "api.x.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
     setupSkillId: "twitter-oauth-setup",
     setup: {
       displayName: "Twitter / X",
       dashboardUrl: "https://developer.x.com/en/portal/dashboard",
       appType: "App",
-      requiresClientSecret: false,
+      requiresClientSecret: true,
     },
     identityVerifier: async (
       accessToken: string,

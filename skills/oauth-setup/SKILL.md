@@ -40,7 +40,9 @@ If no config is found, tell the user this service doesn't have a pre-configured 
 
 ## Step 2: Check for a dedicated setup skill
 
-If the `credential_store describe` response includes a `setupSkillId`, load that skill instead — it has provider-specific steps that are more reliable than the generic flow. Use `skill_load` with that skill ID and hand off completely.
+Check if there is a skill with `credential-setup-for` matching this service name. If so, load that skill instead — it has provider-specific steps that are more reliable than the generic flow. Use `skill_load` with that skill ID and hand off completely.
+
+Well-known services with dedicated setup skills: `gmail`, `slack`, `notion`, `twitter`, `github`, `linear`, `spotify`, `todoist`, `discord`, `dropbox`, `asana`, `airtable`, `hubspot`, `figma`.
 
 ## Step 3: Choose the flow based on setup metadata
 
