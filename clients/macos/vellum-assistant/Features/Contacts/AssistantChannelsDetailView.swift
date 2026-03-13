@@ -58,8 +58,6 @@ struct AssistantChannelsDetailView: View {
             store.refreshChannelVerificationStatus(channel: "telegram")
             store.refreshChannelVerificationStatus(channel: "phone")
             store.refreshChannelVerificationStatus(channel: "slack")
-            store.refreshTelegramApprovedMembers()
-            store.refreshSlackApprovedMembers()
             store.fetchSlackChannelConfig()
             if store.twilioHasCredentials {
                 store.refreshTwilioNumbers()
@@ -159,64 +157,6 @@ struct AssistantChannelsDetailView: View {
                 Text(error).font(VFont.caption).foregroundColor(VColor.systemNegativeStrong)
             }
 
-            if (status == "ready" || status == "incomplete") && store.telegramVerificationVerified {
-                SettingsDivider()
-                telegramApprovedUsersSection
-            }
-        }
-    }
-
-    // MARK: - Telegram Approved Users
-
-    private var telegramApprovedUsersSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.xs) {
-                Text("Approved Users")
-                VInfoTooltip("Users who have been granted access to interact with your assistant via Telegram.")
-            }
-            .font(VFont.caption)
-            .foregroundColor(VColor.contentSecondary)
-
-            if store.telegramApprovedMembersLoading {
-                HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Loading...")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                }
-            } else if store.telegramApprovedMembers.isEmpty {
-                Text("No approved users.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-            } else {
-                ForEach(store.telegramApprovedMembers) { member in
-                    HStack(spacing: VSpacing.sm) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(member.displayName ?? member.username ?? member.externalUserId ?? member.id)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.contentDefault)
-                                .lineLimit(1)
-                            if let username = member.username, member.displayName != nil {
-                                Text("@\(username)")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.contentTertiary)
-                                    .lineLimit(1)
-                            }
-                        }
-                        Spacer()
-                        VButton(label: "Revoke", style: .outlined, isDisabled: store.telegramRevokingMemberIds.contains(member.id)) {
-                            store.revokeTelegramApprovedMember(memberId: member.id)
-                        }
-                    }
-                }
-            }
-
-            if let error = store.telegramApprovedMembersError {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.systemNegativeStrong)
-            }
         }
     }
 
@@ -288,64 +228,6 @@ struct AssistantChannelsDetailView: View {
                 Text(error).font(VFont.caption).foregroundColor(VColor.systemNegativeStrong)
             }
 
-            if (status == "ready" || status == "incomplete") && store.slackVerificationVerified {
-                SettingsDivider()
-                slackApprovedUsersSection
-            }
-        }
-    }
-
-    // MARK: - Slack Approved Users
-
-    private var slackApprovedUsersSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.xs) {
-                Text("Approved Users")
-                VInfoTooltip("Users who have been granted access to interact with your assistant via Slack.")
-            }
-            .font(VFont.caption)
-            .foregroundColor(VColor.contentSecondary)
-
-            if store.slackApprovedMembersLoading {
-                HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Loading...")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                }
-            } else if store.slackApprovedMembers.isEmpty {
-                Text("No approved users.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-            } else {
-                ForEach(store.slackApprovedMembers) { member in
-                    HStack(spacing: VSpacing.sm) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(member.displayName ?? member.username ?? member.externalUserId ?? member.id)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.contentDefault)
-                                .lineLimit(1)
-                            if let username = member.username, member.displayName != nil {
-                                Text("@\(username)")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.contentTertiary)
-                                    .lineLimit(1)
-                            }
-                        }
-                        Spacer()
-                        VButton(label: "Revoke", style: .outlined, isDisabled: store.slackRevokingMemberIds.contains(member.id)) {
-                            store.revokeSlackApprovedMember(memberId: member.id)
-                        }
-                    }
-                }
-            }
-
-            if let error = store.slackApprovedMembersError {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.systemNegativeStrong)
-            }
         }
     }
 
