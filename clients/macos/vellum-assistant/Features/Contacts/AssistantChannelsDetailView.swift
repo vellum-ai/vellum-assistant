@@ -409,25 +409,8 @@ struct AssistantChannelsDetailView: View {
     private var voiceCard: some View {
         let status = store.channelSetupStatus["phone"]
         return SettingsCard(title: "Phone Calling", subtitle: "Receive and make phone calls via Twilio") {
-            if status == "ready" {
-                HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
-                    VButton(label: "Disconnect", style: .danger, isDisabled: store.twilioSaveInProgress) {
-                        store.clearTwilioCredentials()
-                        store.channelSetupStatus["phone"] = "not_configured"
-                    }
-                }
-            } else if (status == "incomplete" && store.twilioHasCredentials) || voiceSetupExpanded {
-                voiceCredentialEntry
-            } else {
-                VButton(label: "Set Up", style: .outlined) {
-                    voiceSetupExpanded = true
-                }
-            }
-
             // Phone number dropdown: show when credentials are configured
             if (status == "ready" || status == "incomplete") && store.twilioHasCredentials {
-                SettingsDivider()
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Phone Number")
                         .font(VFont.inputLabel)
@@ -444,6 +427,22 @@ struct AssistantChannelsDetailView: View {
                         emptyValue: ""
                     )
                     .frame(maxWidth: 360)
+                }
+            }
+
+            if status == "ready" {
+                HStack(spacing: VSpacing.sm) {
+                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
+                    VButton(label: "Disconnect", style: .danger, isDisabled: store.twilioSaveInProgress) {
+                        store.clearTwilioCredentials()
+                        store.channelSetupStatus["phone"] = "not_configured"
+                    }
+                }
+            } else if (status == "incomplete" && store.twilioHasCredentials) || voiceSetupExpanded {
+                voiceCredentialEntry
+            } else {
+                VButton(label: "Set Up", style: .outlined) {
+                    voiceSetupExpanded = true
                 }
             }
 
