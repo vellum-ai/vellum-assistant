@@ -552,6 +552,7 @@ struct MessageListView: View {
                     let lastVisibleIsAssistant = lastVisible?.role == .assistant
                     let canInlineProcessing = wouldShowThinking && lastVisibleIsAssistant
                     let shouldShowThinkingIndicator = wouldShowThinking && !canInlineProcessing
+                    let effectiveStatusText = isCompacting ? "Compacting context\u{2026}" : assistantStatusText
                     ForEach(Array(zip(displayMessages.indices, displayMessages)), id: \.1.id) { index, message in
                         MessageCellView(
                             message: message,
@@ -564,7 +565,7 @@ struct MessageListView: View {
                             subagentsByParent: subagentsByParent,
                             canInlineProcessing: canInlineProcessing,
                             shouldShowThinkingIndicator: shouldShowThinkingIndicator,
-                            assistantStatusText: assistantStatusText,
+                            assistantStatusText: effectiveStatusText,
                             dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
                             activeSurfaceId: activeSurfaceId,
                             mediaEmbedSettings: mediaEmbedSettings,
@@ -602,11 +603,11 @@ struct MessageListView: View {
                     }
 
                     if shouldShowThinkingIndicator && anchoredThinkingIndex == nil {
-                        thinkingIndicatorRow(displayMessages: displayMessages)
-                    }
-
-                    if isCompacting && !shouldShowThinkingIndicator {
-                        compactingIndicatorRow()
+                        if isCompacting {
+                            compactingIndicatorRow()
+                        } else {
+                            thinkingIndicatorRow(displayMessages: displayMessages)
+                        }
                     }
 
                     Color.clear
