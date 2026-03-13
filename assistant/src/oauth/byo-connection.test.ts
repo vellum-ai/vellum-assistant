@@ -100,6 +100,12 @@ const mockProviders = new Map<
 
 mock.module("./oauth-store.js", () => ({
   getConnectionByProvider: (service: string) => mockConnections.get(service),
+  getConnection: (id: string) => {
+    for (const conn of mockConnections.values()) {
+      if (conn.id === id) return conn;
+    }
+    return undefined;
+  },
   getApp: (id: string) => mockApps.get(id),
   getProvider: (key: string) => mockProviders.get(key),
   updateConnection: () => {},

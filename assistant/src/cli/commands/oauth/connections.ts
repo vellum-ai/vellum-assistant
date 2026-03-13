@@ -554,6 +554,14 @@ Examples:
             if (!clientId) clientId = dbApp.clientId;
             const storedSecret = getSecureKey(dbApp.clientSecretCredentialPath);
             if (storedSecret) clientSecret = storedSecret;
+          } else if (opts.clientId) {
+            // --client-id was explicitly provided but no matching app exists
+            writeOutput(cmd, {
+              ok: false,
+              error: `No registered app found for "${resolvedServiceKey}" with client ID "${opts.clientId}". Register it first with 'assistant oauth apps upsert --client-id ${opts.clientId}'.`,
+            });
+            process.exitCode = 1;
+            return;
           }
 
           // c. Validate client_id
