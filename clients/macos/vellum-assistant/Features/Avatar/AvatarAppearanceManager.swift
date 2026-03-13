@@ -196,6 +196,8 @@ final class AvatarAppearanceManager {
         characterEyeStyle = eyeStyle
         characterColor = color
         saveAvatarComponents()
+
+        _ = exportNotificationIcon()
     }
 
     /// Reloads the custom avatar from disk. Called when the daemon notifies
@@ -206,6 +208,7 @@ final class AvatarAppearanceManager {
         cachedFallbackAvatar = nil
         cachedFullFallbackAvatar = nil
         loadCustomAvatar()
+        _ = exportNotificationIcon()
     }
 
     func clearCustomAvatar() {
@@ -219,6 +222,7 @@ final class AvatarAppearanceManager {
         cachedChatAvatar = nil
         cachedFallbackAvatar = nil
         cachedFullFallbackAvatar = nil
+        _ = exportNotificationIcon()
     }
 
     // MARK: - Avatar Components Persistence
@@ -281,6 +285,7 @@ final class AvatarAppearanceManager {
             let flags = source.data
             Task { @MainActor [weak self] in
                 self?.loadCustomAvatar()
+                _ = self?.exportNotificationIcon()
                 if flags.contains(.delete) || flags.contains(.rename) {
                     self?.watchAvatarFile()
                 }
@@ -312,6 +317,7 @@ final class AvatarAppearanceManager {
                 guard let self else { return }
                 if FileManager.default.fileExists(atPath: self.customAvatarURL.path) {
                     self.loadCustomAvatar()
+                    _ = self.exportNotificationIcon()
                     self.watchAvatarFile()
                 }
             }
