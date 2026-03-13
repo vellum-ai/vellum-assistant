@@ -17,7 +17,6 @@ public enum ManagedBootstrapError: LocalizedError, Sendable {
     case hatchFailed(String)
     case unexpectedResponse(String)
     case multipleOrganizations
-    case assistantUnavailable(String)
 
     public var errorDescription: String? {
         switch self {
@@ -33,8 +32,6 @@ public enum ManagedBootstrapError: LocalizedError, Sendable {
             return "Unexpected response format: \(message)"
         case .multipleOrganizations:
             return "Multiple organizations found. Multi-org support is not yet available — please contact support."
-        case .assistantUnavailable(let id):
-            return "Selected assistant \(id) is no longer available. Please sign out and sign in again to set up a new assistant."
         }
     }
 }
