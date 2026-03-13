@@ -443,7 +443,7 @@ struct ChatContentView: View {
                         .font(.system(size: 22, weight: .medium))
                         .foregroundColor(VColor.contentSecondary)
                         .multilineTextAlignment(.leading)
-                        .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .leading)))
+                        .transition(.opacity.combined(with: .move(edge: .leading)))
                 }
             }
             .animation(.easeOut(duration: 0.4), value: viewModel.emptyStateGreeting != nil)
