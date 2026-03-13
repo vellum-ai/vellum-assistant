@@ -68,7 +68,6 @@ struct ContactsListView: View {
                 if !viewModel.hasNonGuardianContacts {
                     noContactsRow
                 } else if viewModel.otherContacts.isEmpty {
-                    // Search yielded no results
                     noMatchRow
                 } else {
                     ForEach(Array(viewModel.otherContacts.enumerated()), id: \.element.id) { index, contact in
@@ -104,14 +103,14 @@ struct ContactsListView: View {
             selection = .assistant
         } label: {
             HStack(spacing: VSpacing.md) {
-                initialsView(for: cachedAssistantDisplayName, color: VColor.primaryBase)
+                VInitialsAvatar(name: cachedAssistantDisplayName, color: VColor.primaryBase)
 
                 Text(cachedAssistantDisplayName)
                     .font(VFont.bodyBold)
                     .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
 
-                roleBadge("Assistant", color: VColor.primaryBase)
+                VBadge(style: .subtleLabel("Assistant"), color: VColor.primaryBase)
 
                 Spacer()
             }
@@ -129,37 +128,39 @@ struct ContactsListView: View {
     // MARK: - Guardian Row
 
     private func guardianRow(_ contact: ContactPayload) -> some View {
-        Button {
-            selection = .contact(contact.id)
-        } label: {
-            HStack(spacing: VSpacing.md) {
-                initialsView(for: contact.displayName, color: VColor.primaryBase)
+        HStack(spacing: 0) {
+            Button {
+                selection = .contact(contact.id)
+            } label: {
+                HStack(spacing: VSpacing.md) {
+                    VInitialsAvatar(name: contact.displayName, color: VColor.primaryBase)
 
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    HStack(spacing: VSpacing.sm) {
-                        Text(contact.displayName)
-                            .font(VFont.bodyBold)
-                            .foregroundColor(VColor.contentDefault)
-                            .lineLimit(1)
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        HStack(spacing: VSpacing.sm) {
+                            Text(contact.displayName)
+                                .font(VFont.bodyBold)
+                                .foregroundColor(VColor.contentDefault)
+                                .lineLimit(1)
 
-                        roleBadge("Guardian", color: VColor.primaryBase)
+                            VBadge(style: .subtleLabel("Guardian"), color: VColor.primaryBase)
+                        }
+
+                        if !contact.channels.isEmpty {
+                            channelBadgesRow(contact.channels)
+                        }
                     }
 
-                    if !contact.channels.isEmpty {
-                        channelBadgesRow(contact.channels)
-                    }
+                    Spacer()
                 }
-
-                Spacer()
-
-                overflowMenu(for: contact)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.md)
-            .background(selection == .contact(contact.id) ? VColor.contentEmphasized.opacity(0.08) : (hoveredContactId == contact.id ? VColor.contentEmphasized.opacity(0.04) : Color.clear))
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+
+            overflowMenu(for: contact)
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, VSpacing.sm)
+        .padding(.vertical, VSpacing.md)
+        .background(selection == .contact(contact.id) ? VColor.contentEmphasized.opacity(0.08) : (hoveredContactId == contact.id ? VColor.contentEmphasized.opacity(0.04) : Color.clear))
         .onHover { hovering in
             hoveredContactId = hovering ? contact.id : nil
         }
@@ -168,37 +169,39 @@ struct ContactsListView: View {
     // MARK: - Contact Row
 
     private func contactRow(_ contact: ContactPayload) -> some View {
-        Button {
-            selection = .contact(contact.id)
-        } label: {
-            HStack(spacing: VSpacing.md) {
-                initialsView(for: contact.displayName, color: VColor.contentTertiary)
+        HStack(spacing: 0) {
+            Button {
+                selection = .contact(contact.id)
+            } label: {
+                HStack(spacing: VSpacing.md) {
+                    VInitialsAvatar(name: contact.displayName, color: VColor.contentTertiary)
 
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    HStack(spacing: VSpacing.sm) {
-                        Text(contact.displayName)
-                            .font(VFont.bodyBold)
-                            .foregroundColor(VColor.contentDefault)
-                            .lineLimit(1)
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        HStack(spacing: VSpacing.sm) {
+                            Text(contact.displayName)
+                                .font(VFont.bodyBold)
+                                .foregroundColor(VColor.contentDefault)
+                                .lineLimit(1)
 
-                        roleBadge("Human", color: VColor.contentSecondary)
+                            VBadge(style: .subtleLabel("Human"), color: VColor.contentSecondary)
+                        }
+
+                        if !contact.channels.isEmpty {
+                            channelBadgesRow(contact.channels)
+                        }
                     }
 
-                    if !contact.channels.isEmpty {
-                        channelBadgesRow(contact.channels)
-                    }
+                    Spacer()
                 }
-
-                Spacer()
-
-                overflowMenu(for: contact)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.md)
-            .background(selection == .contact(contact.id) ? VColor.contentEmphasized.opacity(0.08) : (hoveredContactId == contact.id ? VColor.contentEmphasized.opacity(0.04) : Color.clear))
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+
+            overflowMenu(for: contact)
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, VSpacing.sm)
+        .padding(.vertical, VSpacing.md)
+        .background(selection == .contact(contact.id) ? VColor.contentEmphasized.opacity(0.08) : (hoveredContactId == contact.id ? VColor.contentEmphasized.opacity(0.04) : Color.clear))
         .onHover { hovering in
             hoveredContactId = hovering ? contact.id : nil
         }
@@ -231,35 +234,6 @@ struct ContactsListView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, VSpacing.lg)
-    }
-
-    // MARK: - Initials Avatar
-
-    private func initialsView(for name: String, color: Color) -> some View {
-        let initials = name.split(separator: " ")
-            .prefix(2)
-            .compactMap { $0.first.map(String.init) }
-            .joined()
-            .uppercased()
-
-        return Text(initials.isEmpty ? "?" : initials)
-            .font(VFont.caption)
-            .foregroundColor(VColor.auxWhite)
-            .frame(width: 28, height: 28)
-            .background(Circle().fill(color))
-            .accessibilityHidden(true)
-    }
-
-    // MARK: - Role Badge
-
-    private func roleBadge(_ role: String, color: Color) -> some View {
-        Text(role)
-            .font(VFont.caption)
-            .foregroundColor(color)
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xxs)
-            .background(color.opacity(0.12))
-            .clipShape(Capsule())
     }
 
     // MARK: - Channel Badges Row

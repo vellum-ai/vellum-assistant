@@ -129,18 +129,7 @@ struct ContactsListView: View {
     // MARK: - Initials
 
     private func initialsView(for name: String) -> some View {
-        let initials = name.split(separator: " ")
-            .prefix(2)
-            .compactMap { $0.first.map(String.init) }
-            .joined()
-            .uppercased()
-
-        return Text(initials.isEmpty ? "?" : initials)
-            .font(VFont.caption)
-            .foregroundColor(.white)
-            .frame(width: 32, height: 32)
-            .background(Circle().fill(VColor.primaryBase))
-            .accessibilityHidden(true)
+        VInitialsAvatar(name: name, size: 32)
     }
 
     // MARK: - Role Badge

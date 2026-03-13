@@ -248,18 +248,7 @@ struct ContactDetailView: View {
     }
 
     private func initialsView(for name: String, size: CGFloat) -> some View {
-        let initials = name.split(separator: " ")
-            .prefix(2)
-            .compactMap { $0.first.map(String.init) }
-            .joined()
-            .uppercased()
-
-        return Text(initials.isEmpty ? "?" : initials)
-            .font(.system(size: size * 0.35, weight: .semibold))
-            .foregroundColor(.white)
-            .frame(width: size, height: size)
-            .background(Circle().fill(VColor.primaryBase))
-            .accessibilityHidden(true)
+        VInitialsAvatar(name: name, size: size)
     }
 
     private func detailRow(label: String, value: String) -> some View {
