@@ -223,10 +223,10 @@ describe("cross-tool routing consistency", () => {
 });
 
 // =====================================================================
-// 4. Guardian verification routing dispatch hint in system prompt
+// 4. Activation hints projected in <available_skills> XML
 // =====================================================================
 
-describe("Guardian verification routing dispatch hint in system prompt", () => {
+describe("Activation hints in available_skills XML", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
   });
@@ -237,46 +237,32 @@ describe("Guardian verification routing dispatch hint in system prompt", () => {
     }
   });
 
-  test("system prompt includes the guardian verification routing heading", () => {
+  test("available_skills XML contains hints attribute for phone-calls", () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain("## Routing: Guardian Verification");
+    expect(prompt).toContain('id="phone-calls"');
+    expect(prompt).toMatch(/id="phone-calls"[^>]*hints="/);
   });
 
-  test("routing section references the guardian-verify-setup skill", () => {
+  test("available_skills XML contains hints attribute for orchestration", () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain("guardian-verify-setup");
+    expect(prompt).toContain('id="orchestration"');
+    expect(prompt).toMatch(/id="orchestration"[^>]*hints="/);
   });
 
-  test("routing section directs to load the skill exclusively", () => {
+  test("available_skills XML does NOT contain location attribute", () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain("exclusively");
+    // Ensure no skill tag has a location attribute
+    const skillTagPattern = /<skill [^>]*location="/;
+    expect(prompt).not.toMatch(skillTagPattern);
   });
 
-  test("routing section prohibits loading phone-calls for verification intents", () => {
+  test("domain routing sections are no longer in the system prompt", () => {
     const prompt = buildSystemPrompt();
-    const lower = prompt.toLowerCase();
-    expect(lower).toContain("do not load");
-    expect(lower).toContain("phone-calls");
-  });
-
-  test("routing section advises not to re-ask channel if already specified", () => {
-    const prompt = buildSystemPrompt();
-    const lower = prompt.toLowerCase();
-    expect(lower).toContain("do not re-ask");
-  });
-
-  test('routing section disambiguates "set myself up as your guardian" phrasing', () => {
-    const prompt = buildSystemPrompt();
-    const lower = prompt.toLowerCase();
-    expect(lower).toContain("help me set myself up as your guardian");
-  });
-
-  test("routing section is compact -- detailed steps live in the skill", () => {
-    const prompt = buildSystemPrompt();
-    // These details now live in the guardian-verify-setup skill, not the global prompt
-    expect(prompt).not.toContain("### Trigger phrases");
-    expect(prompt).not.toContain("### What it does");
-    expect(prompt).not.toContain("### Exclusivity rules");
+    expect(prompt).not.toContain("## Routing: Guardian Verification");
+    expect(prompt).not.toContain("## Routing: Voice Setup & Troubleshooting");
+    expect(prompt).not.toContain("## Routing: Phone Calls");
+    expect(prompt).not.toContain("## Routing: Starter Tasks");
+    expect(prompt).not.toContain("## Channel Command Intents");
   });
 });
 
@@ -314,10 +300,7 @@ describe("guardian-verify-setup SKILL.md contains routing detail", () => {
 
 describe("phone-calls SKILL.md contains routing detail", () => {
   const skillContent = readFileSync(
-    join(
-      import.meta.dirname,
-      "../config/bundled-skills/phone-calls/SKILL.md",
-    ),
+    join(import.meta.dirname, "../config/bundled-skills/phone-calls/SKILL.md"),
     "utf-8",
   );
 
@@ -352,7 +335,9 @@ describe("voice-setup SKILL.md contains routing detail", () => {
 
   test("skill has disambiguation section", () => {
     expect(skillContent).toContain("## Disambiguation");
-    expect(skillContent).toContain("local PTT, wake word, microphone permissions");
+    expect(skillContent).toContain(
+      "local PTT, wake word, microphone permissions",
+    );
     expect(skillContent).toContain("Twilio-powered voice calls");
   });
 });
@@ -363,10 +348,7 @@ describe("voice-setup SKILL.md contains routing detail", () => {
 
 describe("time-based-actions SKILL.md is up to date", () => {
   const skillContent = readFileSync(
-    join(
-      import.meta.dirname,
-      "../../../skills/time-based-actions/SKILL.md",
-    ),
+    join(import.meta.dirname, "../../../skills/time-based-actions/SKILL.md"),
     "utf-8",
   );
 

@@ -84,14 +84,11 @@ mock.module("../prompts/user-reference.js", () => ({
 }));
 
 // Import after mock
-const {
-  buildSystemPrompt,
-  ensurePromptFiles,
-  stripCommentLines,
-} = await import("../prompts/system-prompt.js");
+const { buildSystemPrompt, ensurePromptFiles, stripCommentLines } =
+  await import("../prompts/system-prompt.js");
 
 // Import section builders directly from their modules for focused tests
-const { buildExternalCommsIdentitySection, buildPhoneCallsRoutingSection } =
+const { buildExternalCommsIdentitySection } =
   await import("../prompts/sections/routing.js");
 
 /** Strip the Configuration, Skills, and hardcoded preamble sections so base-prompt tests stay focused. */
@@ -144,7 +141,7 @@ describe("prompt budget guardrails", () => {
   // skills catalog is ~20,800 chars — a 61% reduction. This budget gives
   // ~10% headroom above the current size to catch regressions without
   // breaking on minor wording tweaks.
-  const TOTAL_BUDGET_CHARS = 23_000;
+  const TOTAL_BUDGET_CHARS = 20_000;
 
   test(`total prompt length stays under ${TOTAL_BUDGET_CHARS} chars (no user content, no skills)`, () => {
     const result = buildSystemPrompt();
@@ -171,15 +168,11 @@ describe("prompt budget guardrails", () => {
     "## Memory & Workspace Persistence": 1_000,
     "## Parallel Task Orchestration": 500,
     "## External Service Access Preference": 1_000,
-    "## Routing: Starter Tasks": 500,
-    "## Routing: Phone Calls": 500,
-    "## Routing: Voice Setup & Troubleshooting": 500,
     "## Skill Authoring": 1_000,
     "## Sending Files to the User": 1_500,
     "## In-Chat Configuration": 2_100,
     "## System Permissions": 500,
     "## Tool Routing: Tasks vs Schedules vs Notifications": 800,
-    "## Channel Command Intents": 1_200,
   };
 
   test("each prompt section stays within its character budget", () => {
@@ -218,15 +211,11 @@ describe("prompt budget guardrails", () => {
       "## Memory & Workspace Persistence",
       "## Parallel Task Orchestration",
       "## External Service Access Preference",
-      "## Routing: Starter Tasks",
-      "## Routing: Phone Calls",
-      "## Routing: Voice Setup & Troubleshooting",
       "## Skill Authoring",
       "## Sending Files to the User",
       "## In-Chat Configuration",
       "## System Permissions",
       "## Tool Routing: Tasks vs Schedules vs Notifications",
-      "## Channel Command Intents",
     ];
 
     const missing = expectedSections.filter((s) => !result.includes(s));
@@ -244,6 +233,13 @@ describe("prompt budget guardrails", () => {
       "### Trigger phrases",
       "### Exclusivity rules",
       "### What it does",
+      "## Routing: Starter Tasks",
+      "## Routing: Phone Calls",
+      "## Routing: Voice Setup & Troubleshooting",
+      "## Routing: Guardian Verification",
+      "## Channel Command Intents",
+      "### Browser Skill Prerequisite",
+      "### Messaging Skill",
     ];
 
     const reappeared = deletedSections.filter((s) => result.includes(s));
@@ -372,10 +368,9 @@ describe("buildSystemPrompt", () => {
     expect(result).toContain("**John**");
   });
 
-  test("includes phone calls routing dispatch hint", () => {
+  test("does not include removed phone calls routing section", () => {
     const result = buildSystemPrompt();
-    expect(result).toContain("## Routing: Phone Calls");
-    expect(result).toContain("phone-calls");
+    expect(result).not.toContain("## Routing: Phone Calls");
   });
 
   test("includes compact persistence section with memory tools", () => {
@@ -437,7 +432,7 @@ describe("buildSystemPrompt", () => {
       const result = buildSystemPrompt();
       expect(result).not.toContain("## Starter Task Playbooks");
       expect(result).not.toContain("### Playbook: make_it_yours");
-      expect(result).toContain("## Routing: Starter Tasks");
+      expect(result).not.toContain("## Routing: Starter Tasks");
     });
   });
 
@@ -514,22 +509,6 @@ describe("buildExternalCommsIdentitySection", () => {
   test("includes AI disclosure guidance", () => {
     const section = buildExternalCommsIdentitySection();
     expect(section).toContain("Do not volunteer that you are an AI");
-  });
-});
-
-describe("buildPhoneCallsRoutingSection", () => {
-  test("returns compact dispatch hint referencing the skill", () => {
-    const section = buildPhoneCallsRoutingSection();
-    expect(section).toContain("## Routing: Phone Calls");
-    expect(section).toContain("phone-calls");
-    expect(section).toContain("Do NOT improvise Twilio setup");
-  });
-
-  test("does not include detailed trigger or exclusivity sections", () => {
-    const section = buildPhoneCallsRoutingSection();
-    // Detailed trigger phrases and exclusivity rules now live in the skill
-    expect(section).not.toContain("### Trigger phrases");
-    expect(section).not.toContain("### Exclusivity rules");
   });
 });
 

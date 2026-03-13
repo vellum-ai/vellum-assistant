@@ -7,6 +7,8 @@ metadata:
   vellum:
     display-name: "Onboarding Starter Tasks"
     user-invocable: false
+    activation-hints:
+      - "[STARTER_TASK:<id>] format messages -- runtime auto-loads this skill"
 ---
 
 You are executing an onboarding starter task. The user clicked a starter task card in the dashboard and the system sent a deterministic kickoff message in the format `[STARTER_TASK:<task_id>]`. Follow the playbook for that task exactly.

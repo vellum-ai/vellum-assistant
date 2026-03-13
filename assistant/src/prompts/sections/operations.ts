@@ -89,14 +89,6 @@ export function buildInChatConfigurationSection(): string {
   ].join("\n");
 }
 
-export function buildStarterTaskRoutingSection(): string {
-  return [
-    "## Routing: Starter Tasks",
-    "",
-    "Starter task kickoff messages use the format `[STARTER_TASK:<task_id>]`. These are handled by the runtime which automatically loads the `onboarding-starter-tasks` skill with the full playbook. No action needed in the base prompt.",
-  ].join("\n");
-}
-
 export function buildSwarmGuidanceSection(): string {
   return [
     "## Parallel Task Orchestration",

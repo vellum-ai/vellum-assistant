@@ -1,6 +1,4 @@
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getIsContainerized } from "../config/env-registry.js";
-import { getConfig } from "../config/loader.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
 import {
   buildCliReferenceSection,
@@ -14,7 +12,6 @@ import {
   buildInChatConfigurationSection,
   buildIntegrationSection,
   buildPostToolResponseSection,
-  buildStarterTaskRoutingSection,
   buildSwarmGuidanceSection,
   buildSystemPermissionSection,
   buildToolPermissionSection,
@@ -22,12 +19,8 @@ import {
 import { buildPersistenceSection } from "./sections/persistence.js";
 import {
   buildChannelAwarenessSection,
-  buildChannelCommandIntentSection,
   buildExternalCommsIdentitySection,
-  buildPhoneCallsRoutingSection,
   buildTaskScheduleReminderRoutingSection,
-  buildVerificationRoutingSection,
-  buildVoiceSetupRoutingSection,
 } from "./sections/routing.js";
 import { appendSkillsCatalog } from "./sections/skills.js";
 
@@ -41,9 +34,7 @@ export {
   ensurePromptFiles,
   stripCommentLines,
 } from "./sections/core.js";
-export {
-  buildChannelAwarenessSection,
-} from "./sections/routing.js";
+export { buildChannelAwarenessSection } from "./sections/routing.js";
 
 /**
  * Build the system prompt from ~/.vellum prompt files,
@@ -124,24 +115,10 @@ export function buildSystemPrompt(): string {
   parts.push(buildPostToolResponseSection());
   parts.push(buildExternalCommsIdentitySection());
   parts.push(buildChannelAwarenessSection());
-  const config = getConfig();
   parts.push(buildToolPermissionSection());
   parts.push(buildTaskScheduleReminderRoutingSection());
-  if (
-    isAssistantFeatureFlagEnabled(
-      "feature_flags.guardian-verify-setup.enabled",
-      config,
-    )
-  ) {
-    parts.push(buildVerificationRoutingSection());
-  }
   parts.push(buildAttachmentSection());
   parts.push(buildInChatConfigurationSection());
-  parts.push(buildVoiceSetupRoutingSection());
-  parts.push(buildPhoneCallsRoutingSection());
-  parts.push(buildChannelCommandIntentSection());
-
-  parts.push(buildStarterTaskRoutingSection());
   parts.push(buildSystemPermissionSection());
   parts.push(buildSwarmGuidanceSection());
   parts.push(buildAccessPreferenceSection());

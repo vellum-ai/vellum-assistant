@@ -18,39 +18,17 @@ export function appendSkillsCatalog(basePrompt: string): string {
   const catalog = formatSkillsCatalog(flagFiltered);
   if (catalog) sections.push(catalog);
 
-  sections.push(buildSkillFallbackSection(flagFiltered));
+  sections.push(buildSkillFallbackSection());
 
   return sections.join("\n\n");
 }
 
-function buildSkillFallbackSection(
-  activeSkills: SkillSummary[],
-): string {
-  const lines = [
+function buildSkillFallbackSection(): string {
+  return [
     "## Skill Authoring",
     "",
     "When no existing tool or skill can satisfy a request, load the `skill-authoring` skill for the full scaffold/test/persist workflow. Never persist or delete skills without explicit user confirmation.",
-  ];
-
-  const activeSkillIds = new Set(activeSkills.map((s) => s.id));
-
-  if (activeSkillIds.has("browser")) {
-    lines.push(
-      "",
-      "### Browser Skill Prerequisite",
-      'If you need browser capabilities (navigating web pages, clicking elements, extracting content) and `browser_*` tools are not available, load the "browser" skill first using `skill_load`.',
-    );
-  }
-
-  if (activeSkillIds.has("messaging")) {
-    lines.push(
-      "",
-      "### Messaging Skill",
-      'When the user asks about email, messaging, inbox management, or wants to read/send/search messages on any platform (Gmail, Slack, Telegram), load the "messaging" skill using `skill_load`. The messaging skill handles connection setup, credential flows, and all messaging operations — do not improvise setup instructions from general knowledge.',
-    );
-  }
-
-  return lines.join("\n");
+  ].join("\n");
 }
 
 function escapeXml(str: string): string {
@@ -95,12 +73,19 @@ function formatSkillsCatalog(skills: SkillSummary[]): string {
       skill.id === "mcp-setup"
         ? escapeXml(getMcpSetupDescription())
         : escapeXml(skill.description);
-    const locAttr = escapeXml(skill.directoryPath);
     const credAttr = skill.credentialSetupFor
       ? ` credential-setup-for="${escapeXml(skill.credentialSetupFor)}"`
       : "";
+    const hintsAttr =
+      skill.activationHints && skill.activationHints.length > 0
+        ? ` hints="${escapeXml(skill.activationHints.join("; "))}"`
+        : "";
+    const avoidAttr =
+      skill.avoidWhen && skill.avoidWhen.length > 0
+        ? ` avoid-when="${escapeXml(skill.avoidWhen.join("; "))}"`
+        : "";
     lines.push(
-      `<skill id="${idAttr}" name="${nameAttr}" description="${descAttr}" location="${locAttr}"${credAttr} />`,
+      `<skill id="${idAttr}" name="${nameAttr}" description="${descAttr}"${credAttr}${hintsAttr}${avoidAttr} />`,
     );
   }
   lines.push("</available_skills>");

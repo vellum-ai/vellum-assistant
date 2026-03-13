@@ -7,6 +7,12 @@ metadata:
   vellum:
     display-name: "Guardian Verify Setup"
     user-invocable: true
+    activation-hints:
+      - "Any guardian verification intent -> load this skill exclusively"
+      - '"help me set myself up as your guardian" = verification request'
+    avoid-when:
+      - "Don't load phone-calls for verification intents"
+      - "If the user already specified a channel, do not re-ask"
 ---
 
 You are helping your user set up channel verification for a messaging channel (phone, Telegram, or Slack). This links their identity as the trusted guardian for the chosen channel. Use the `assistant channel-verification-sessions` CLI for all verification operations.

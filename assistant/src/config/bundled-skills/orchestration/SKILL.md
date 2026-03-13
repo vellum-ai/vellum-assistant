@@ -7,6 +7,10 @@ metadata:
   vellum:
     display-name: "Orchestration"
     user-invocable: true
+    activation-hints:
+      - "Multiple independent work streams that benefit from parallel execution"
+    avoid-when:
+      - "Single-focus tasks -- work directly"
 ---
 
 Use `swarm_delegate` when facing complex multi-part tasks that benefit from parallel execution. The tool decomposes an objective into independent specialist subtasks, runs them concurrently, and synthesises the results.

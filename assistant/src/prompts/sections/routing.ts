@@ -1,4 +1,7 @@
-import { resolveUserPronouns, resolveUserReference } from "../user-reference.js";
+import {
+  resolveUserPronouns,
+  resolveUserReference,
+} from "../user-reference.js";
 
 export function buildTaskScheduleReminderRoutingSection(): string {
   return [
@@ -12,36 +15,6 @@ export function buildTaskScheduleReminderRoutingSection(): string {
     "",
     'Load skill "time-based-actions" for the full decision framework, relative-time parsing, and routing defaults.',
     "",
-  ].join("\n");
-}
-
-export function buildVerificationRoutingSection(): string {
-  return [
-    "## Routing: Guardian Verification",
-    "",
-    'Any guardian verification intent ("verify guardian", "verify my phone/Telegram/Slack", "set up guardian verification") -> load skill `guardian-verify-setup` exclusively.',
-    'Interpret "help me set myself up as your guardian" as a verification request. Do not give conceptual "I cannot set myself as guardian" explanations unless the user explicitly asks a conceptual question.',
-    "Do NOT load `phone-calls` for verification intents. If the user already specified a channel, do not re-ask.",
-  ].join("\n");
-}
-
-export function buildVoiceSetupRoutingSection(): string {
-  return [
-    "## Routing: Voice Setup & Troubleshooting",
-    "",
-    "Simple voice setting changes (PTT key, wake word toggle/keyword/timeout) -> use `voice_config_update` directly.",
-    'Guided setup or troubleshooting (setup walkthrough, "PTT not working", mic issues, ElevenLabs/TTS config) -> load skill `voice-setup`.',
-    "",
-    'Voice setup = local PTT/wake word/mic on the desktop app. Phone calls = Twilio voice over the phone network. If "voice" is in a Twilio/phone context, load `phone-calls` instead.',
-  ].join("\n");
-}
-
-export function buildPhoneCallsRoutingSection(): string {
-  return [
-    "## Routing: Phone Calls",
-    "",
-    'Phone calling setup, Twilio config, placing/receiving calls -> load skill `phone-calls`.',
-    "Do NOT improvise Twilio setup from general knowledge. Do NOT confuse with voice-setup (local PTT/mic) or guardian-verify-setup (channel verification).",
   ].join("\n");
 }
 
@@ -60,24 +33,10 @@ export function buildChannelAwarenessSection(): string {
     "### Push-to-talk awareness",
     "- The `<channel_capabilities>` block may include `ptt_activation_key` and `ptt_enabled` fields.",
     "- Change PTT settings via `voice_config_update`. When `microphone_permission_granted` is `false`, guide the user to grant microphone access.",
-  ].join("\n");
-}
-
-export function buildChannelCommandIntentSection(): string {
-  return [
-    "## Channel Command Intents",
     "",
+    "### Channel command handling",
     "Some channel turns include a `<channel_command_context>` block indicating the user triggered a bot command (e.g. Telegram `/start`).",
-    "",
-    "### `/start` command",
-    "When `command_type` is `start`:",
-    "- Generate a warm, friendly greeting as if the user just arrived for the first time.",
-    "- Keep it brief (1-3 sentences). Do not be verbose or list capabilities.",
-    '- If the user message is `/start` verbatim, treat the entire user intent as "I just started chatting with this bot, say hello."',
-    "- If a `payload` field is present (deep link), acknowledge what the payload references if you recognise it, but still greet warmly.",
-    '- Do NOT reset the conversation, clear history, or treat this as a "new conversation" command.',
-    "- Do NOT mention `/start` or any slash commands in your response.",
-    "- Respond in the same language as the user's locale if available from channel context, otherwise default to English.",
+    "When `command_type` is `start`: generate a warm, brief greeting (1-3 sentences). Treat `/start` verbatim as a hello. Do NOT reset conversation or mention slash commands. If a `payload` is present, acknowledge it warmly.",
   ].join("\n");
 }
 

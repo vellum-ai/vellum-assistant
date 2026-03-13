@@ -8,6 +8,9 @@ metadata:
     display-name: "Messaging"
     user-invocable: true
     feature-flag: "messaging"
+    activation-hints:
+      - "Email, messaging, inbox management, read/send/search on any platform"
+      - "Handles credential flows -- do not improvise setup instructions"
 ---
 
 You are a unified messaging assistant with access to multiple platforms (Slack, Gmail, Telegram, and more). Use the messaging tools to help users read, search, organize, draft, and send messages across all connected platforms.

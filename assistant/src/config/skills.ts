@@ -71,6 +71,8 @@ const VellumMetadataSchema = z
     includes: z.array(z.string()).optional(),
     "credential-setup-for": z.string().optional(),
     "feature-flag": z.string().optional(),
+    "activation-hints": z.array(z.string()).optional(),
+    "avoid-when": z.array(z.string()).optional(),
   })
   .passthrough();
 
@@ -98,6 +100,8 @@ export interface VellumMetadata {
   install?: InstallerSpec[];
   /** Declares a standalone CLI entry point for this skill. */
   cli?: SkillCliSpec;
+  activationHints?: string[];
+  avoidWhen?: string[];
 }
 
 export interface SkillRequirements {
@@ -140,6 +144,10 @@ export interface SkillSummary {
   credentialSetupFor?: string;
   /** Feature flag ID declared in frontmatter. Only skills with this field are subject to feature flag gating. */
   featureFlag?: string;
+  /** Compact routing cues projected into <available_skills> XML to guide skill selection. */
+  activationHints?: string[];
+  /** Conditions under which this skill should NOT be loaded. */
+  avoidWhen?: string[];
 }
 
 export interface SkillDefinition extends SkillSummary {
@@ -334,6 +342,17 @@ interface ParsedFrontmatter {
   includes?: string[];
   credentialSetupFor?: string;
   featureFlag?: string;
+  activationHints?: string[];
+  avoidWhen?: string[];
+}
+
+function normalizeStringArray(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const result = raw
+    .filter((item): item is string => typeof item === "string")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  return result.length > 0 ? result : undefined;
 }
 
 function parseFrontmatter(
@@ -481,6 +500,9 @@ function parseFrontmatter(
       ? vellum["display-name"]
       : undefined) ?? name;
 
+  const activationHints = normalizeStringArray(vellum?.["activation-hints"]);
+  const avoidWhen = normalizeStringArray(vellum?.["avoid-when"]);
+
   return {
     name,
     displayName,
@@ -492,6 +514,8 @@ function parseFrontmatter(
     includes,
     credentialSetupFor,
     featureFlag,
+    activationHints,
+    avoidWhen,
   };
 }
 
@@ -647,6 +671,8 @@ function readSkillFromDirectory(
       includes: parsed.includes,
       credentialSetupFor: parsed.credentialSetupFor,
       featureFlag: parsed.featureFlag,
+      activationHints: parsed.activationHints,
+      avoidWhen: parsed.avoidWhen,
     };
   } catch (err) {
     log.warn({ err, skillFilePath }, "Failed to read skill file");
@@ -698,6 +724,8 @@ function readBundledSkillFromDirectory(
       includes: parsed.includes,
       credentialSetupFor: parsed.credentialSetupFor,
       featureFlag: parsed.featureFlag,
+      activationHints: parsed.activationHints,
+      avoidWhen: parsed.avoidWhen,
     };
   } catch (err) {
     log.warn({ err, skillFilePath }, "Failed to read bundled skill file");
@@ -757,6 +785,8 @@ function loadBundledSkills(): SkillSummary[] {
       includes: skill.includes,
       credentialSetupFor: skill.credentialSetupFor,
       featureFlag: skill.featureFlag,
+      activationHints: skill.activationHints,
+      avoidWhen: skill.avoidWhen,
     });
   }
 
@@ -895,6 +925,8 @@ function skillSummaryFromDefinition(
     includes: skill.includes,
     credentialSetupFor: skill.credentialSetupFor,
     featureFlag: skill.featureFlag,
+    activationHints: skill.activationHints,
+    avoidWhen: skill.avoidWhen,
   };
 }
 
@@ -948,6 +980,8 @@ export function loadSkillCatalog(
             includes: parsed.includes,
             credentialSetupFor: parsed.credentialSetupFor,
             featureFlag: parsed.featureFlag,
+            activationHints: parsed.activationHints,
+            avoidWhen: parsed.avoidWhen,
           });
         } catch (err) {
           log.warn({ err, directory }, "Failed to read skill from extraDirs");
@@ -1045,6 +1079,8 @@ export function loadSkillCatalog(
           includes: parsed.includes,
           credentialSetupFor: parsed.credentialSetupFor,
           featureFlag: parsed.featureFlag,
+          activationHints: parsed.activationHints,
+          avoidWhen: parsed.avoidWhen,
         };
 
         if (seenIds.has(id)) {
