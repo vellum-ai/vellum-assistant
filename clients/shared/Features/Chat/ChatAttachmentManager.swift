@@ -60,6 +60,11 @@ public final class ChatAttachmentManager: ObservableObject {
 
     // MARK: - Limits
 
+    /// Safety cap to prevent unbounded memory allocation (200 MB). Files are read
+    /// entirely into memory and then base64-encoded (~33% overhead), so this limits
+    /// peak memory per attachment to ~270 MB. The server-side daemon enforces its
+    /// own 20 MB limit and will reject oversized payloads gracefully.
+    nonisolated static let maxFileSize = 200 * 1024 * 1024
     /// Maximum image size before compression (4 MB - leaves headroom for base64 encoding).
     /// Anthropic has a 5 MB limit per image; base64 encoding adds ~33% overhead.
     nonisolated static let maxImageSize = 4 * 1024 * 1024
@@ -168,6 +173,11 @@ public final class ChatAttachmentManager: ObservableObject {
                 return Result<ChatAttachment, AttachmentError>.failure(.message("Could not read file."))
             }
 
+            guard data.count <= Self.maxFileSize else {
+                let sizeMB = data.count / (1024 * 1024)
+                return .failure(.message("File is \(sizeMB) MB — too large to attach safely."))
+            }
+
             let filename = url.lastPathComponent
             var mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
 
@@ -273,6 +283,11 @@ public final class ChatAttachmentManager: ObservableObject {
             #else
             #error("Unsupported platform")
             #endif
+
+            guard pngData.count <= Self.maxFileSize else {
+                let sizeMB = pngData.count / (1024 * 1024)
+                return .failure(.message("Image is \(sizeMB) MB — too large to attach safely."))
+            }
 
             // Compress image if needed
             let (finalData, wasCompressed) = Self.compressImageIfNeeded(data: pngData, maxSize: Self.maxImageSize)
