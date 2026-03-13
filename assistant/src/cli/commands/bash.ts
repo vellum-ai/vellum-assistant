@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import type { Command } from "commander";
@@ -41,8 +47,9 @@ This is a developer debugging tool for inspecting how the assistant invokes and
 observes shell commands. The command runs with the assistant's environment, working
 directory, and process context — not the caller's shell.
 
-The CLI writes the command to signals/bash and polls signals/bash-result for
-the output. The assistant must be running for this to work.
+The CLI writes the command to signals/bash.<requestId> and polls
+signals/bash.result.<requestId> for the output. The assistant must be running
+for this to work.
 
 Arguments:
   command   The shell command string to execute (e.g. "echo hello", "ls -la").
@@ -74,8 +81,8 @@ Examples:
       }
 
       // Write the command signal for the assistant to pick up.
-      const signalPath = join(signalsDir, "bash");
-      const resultPath = join(signalsDir, "bash-result");
+      const signalPath = join(signalsDir, `bash.${requestId}`);
+      const resultPath = join(signalsDir, `bash.result.${requestId}`);
 
       try {
         writeFileSync(
@@ -119,6 +126,7 @@ Examples:
         if (result.requestId !== requestId) return;
 
         clearInterval(poll);
+        cleanupResultFile();
 
         if (result.error) {
           log.error(`Spawn error: ${result.error}`);
@@ -150,5 +158,13 @@ Examples:
 
         process.exitCode = result.exitCode ?? 1;
       }, POLL_INTERVAL_MS);
+
+      function cleanupResultFile(): void {
+        try {
+          unlinkSync(resultPath);
+        } catch {
+          // Best-effort cleanup; the file may already be gone.
+        }
+      }
     });
 }

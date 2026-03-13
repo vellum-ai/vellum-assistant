@@ -225,21 +225,37 @@ export class ConfigWatcher {
       // If we can't create it, watching will also fail — handled below.
     }
 
-    const signalHandlers: Record<string, () => void> = {
-      bash: handleBashSignal,
+    const exactSignalHandlers: Record<string, () => void> = {
       "mcp-reload": handleMcpReloadSignal,
       confirm: handleConfirmationSignal,
+    };
+
+    const prefixSignalHandlers: Record<string, (filename: string) => void> = {
+      "bash.": handleBashSignal,
     };
 
     try {
       const watcher = watch(signalsDir, (_eventType, filename) => {
         if (!filename) return;
         const file = String(filename);
-        if (!signalHandlers[file]) return;
-        this.debounceTimers.schedule(`signal:${file}`, () => {
-          log.info({ file }, "Signal file detected");
-          signalHandlers[file]();
-        });
+
+        if (exactSignalHandlers[file]) {
+          this.debounceTimers.schedule(`signal:${file}`, () => {
+            log.info({ file }, "Signal file detected");
+            exactSignalHandlers[file]();
+          });
+          return;
+        }
+
+        for (const [prefix, handler] of Object.entries(prefixSignalHandlers)) {
+          if (file.startsWith(prefix) && !file.includes(".result.")) {
+            this.debounceTimers.schedule(`signal:${file}`, () => {
+              log.info({ file }, "Signal file detected");
+              handler(file);
+            });
+            return;
+          }
+        }
       });
       this.watchers.push(watcher);
       log.info({ dir: signalsDir }, "Watching signals directory");
