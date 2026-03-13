@@ -374,9 +374,12 @@ async function doRefresh(service: string, connId: string): Promise<string> {
 export async function withValidToken<T>(
   service: string,
   callback: (token: string) => Promise<T>,
-  clientId?: string,
+  opts?: string | { connectionId: string },
 ): Promise<T> {
-  const conn = getConnectionByProvider(service, clientId);
+  const conn =
+    opts && typeof opts === "object"
+      ? getConnection(opts.connectionId)
+      : getConnectionByProvider(service, opts);
   let token = conn
     ? getSecureKey(`oauth_connection/${conn.id}/access_token`)
     : undefined;
