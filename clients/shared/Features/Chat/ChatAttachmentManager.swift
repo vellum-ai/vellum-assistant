@@ -54,8 +54,8 @@ public final class ChatAttachmentManager: ObservableObject {
     }
 
     /// Limits concurrent attachment I/O. Each attachment can consume up to ~40 MB
-    /// (30 MB raw + base64 overhead), so 2 concurrent loads keeps peak under ~80 MB.
-    private static let maxConcurrentLoads = 2
+    /// (30 MB raw + base64 overhead), so 4 concurrent loads keeps peak under ~160 MB.
+    private static let maxConcurrentLoads = 4
     private let loadSemaphore = AsyncSemaphore(value: maxConcurrentLoads)
 
     // MARK: - Limits
