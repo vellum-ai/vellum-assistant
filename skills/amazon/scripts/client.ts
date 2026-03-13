@@ -291,6 +291,10 @@ export async function cdpEval(tabId: number, script: string): Promise<unknown> {
 /**
  * Handle the raw result object returned from cdpEval scripts.
  * Throws appropriate errors for auth failures, rate limits, and other errors.
+ *
+ * Not all 403s are rate limits — a 403 from /alm/addtofreshcart with
+ * "fakeOfferId" means the request payload was wrong. We inspect the response
+ * body (surfaced via __addCartJson or __message) before classifying.
  */
 export function handleResult(result: Record<string, unknown>): void {
   if (result.__error) {
@@ -298,6 +302,20 @@ export function handleResult(result: Record<string, unknown>): void {
       throw new SessionExpiredError("Amazon session has expired.");
     }
     if (result.__status === 403) {
+      // Check whether this is a payload rejection rather than a rate limit.
+      // Payload errors contain indicators like "fakeOfferId" in the response body.
+      const bodyHint =
+        ((result.__addCartJson as string) ?? "") +
+        ((result.__message as string) ?? "");
+      const isPayloadError =
+        bodyHint.includes("fakeOfferId") ||
+        bodyHint.includes("INVALID_ITEM") ||
+        bodyHint.includes("offerListingID");
+      if (isPayloadError) {
+        throw new Error(
+          `Amazon rejected the request payload (HTTP 403): ${bodyHint.substring(0, 200)}`,
+        );
+      }
       throw new RateLimitError("Amazon rate limit hit (HTTP 403).");
     }
     throw new Error(
