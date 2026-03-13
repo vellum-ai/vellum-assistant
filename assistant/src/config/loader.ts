@@ -405,8 +405,9 @@ export function invalidateConfigCache(): void {
 }
 
 /**
- * Load the raw config from disk, merging API keys from secure storage.
+ * Load the raw config from disk without any secure-storage merging.
  * Used by CLI config commands to read/write the file directly.
+ * API keys in secure storage are managed via `assistant keys` commands.
  */
 export function loadRawConfig(): Record<string, unknown> {
   ensureMigratedDataDir();
@@ -418,25 +419,6 @@ export function loadRawConfig(): Record<string, unknown> {
     } catch (err) {
       throw new ConfigError(`Failed to parse config at ${configPath}: ${err}`);
     }
-  }
-
-  // Merge secure keys into apiKeys so `config get apiKeys.*` works
-  try {
-    const apiKeys =
-      raw.apiKeys &&
-      typeof raw.apiKeys === "object" &&
-      !Array.isArray(raw.apiKeys)
-        ? { ...(raw.apiKeys as Record<string, unknown>) }
-        : {};
-    for (const provider of API_KEY_PROVIDERS) {
-      const value = getSecureKey(provider);
-      if (value) apiKeys[provider] = value;
-    }
-    if (Object.keys(apiKeys).length > 0) {
-      raw.apiKeys = apiKeys;
-    }
-  } catch (err) {
-    log.debug({ err }, "Failed to merge secure keys into raw config");
   }
 
   return raw;
