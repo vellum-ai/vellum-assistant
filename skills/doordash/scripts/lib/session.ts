@@ -49,7 +49,8 @@ export function loadSession(): DoorDashSession | null {
 
 export function saveSession(session: DoorDashSession): void {
   const dir = getSessionDir();
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: SESSION_DIR_MODE });
+  if (!existsSync(dir))
+    mkdirSync(dir, { recursive: true, mode: SESSION_DIR_MODE });
   else chmodSync(dir, SESSION_DIR_MODE);
   writeFileSync(getSessionPath(), JSON.stringify(session, null, 2), {
     mode: SESSION_FILE_MODE,
