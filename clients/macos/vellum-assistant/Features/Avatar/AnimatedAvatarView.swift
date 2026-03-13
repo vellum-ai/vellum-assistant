@@ -9,9 +9,13 @@ struct AnimatedAvatarView: View {
     let eyeStyle: AvatarEyeStyle
     let color: AvatarColor
     let size: CGFloat
+    var breathingEnabled: Bool = true
+    var blinkEnabled: Bool = true
+    var pokeEnabled: Bool = true
 
     var body: some View {
-        AvatarLayerRepresentable(bodyShape: bodyShape, eyeStyle: eyeStyle, color: color, size: size)
+        AvatarLayerRepresentable(bodyShape: bodyShape, eyeStyle: eyeStyle, color: color, size: size,
+                                 breathingEnabled: breathingEnabled, blinkEnabled: blinkEnabled, pokeEnabled: pokeEnabled)
             .frame(width: size, height: size)
             .accessibilityHidden(true)
     }
@@ -22,15 +26,20 @@ private struct AvatarLayerRepresentable: NSViewRepresentable {
     let eyeStyle: AvatarEyeStyle
     let color: AvatarColor
     let size: CGFloat
+    var breathingEnabled: Bool = true
+    var blinkEnabled: Bool = true
+    var pokeEnabled: Bool = true
 
     func makeNSView(context: Context) -> AvatarLayerView {
         let view = AvatarLayerView(frame: NSRect(x: 0, y: 0, width: size, height: size))
-        view.configure(bodyShape: bodyShape, eyeStyle: eyeStyle, color: color, size: size)
+        view.configure(bodyShape: bodyShape, eyeStyle: eyeStyle, color: color, size: size,
+                       breathingEnabled: breathingEnabled, blinkEnabled: blinkEnabled, pokeEnabled: pokeEnabled)
         return view
     }
 
     func updateNSView(_ nsView: AvatarLayerView, context: Context) {
-        nsView.configure(bodyShape: bodyShape, eyeStyle: eyeStyle, color: color, size: size)
+        nsView.configure(bodyShape: bodyShape, eyeStyle: eyeStyle, color: color, size: size,
+                         breathingEnabled: breathingEnabled, blinkEnabled: blinkEnabled, pokeEnabled: pokeEnabled)
     }
 }
 
@@ -48,8 +57,13 @@ class AvatarLayerView: NSView {
     /// Timer that fires random blinks.
     private var blinkTask: Task<Void, Never>?
 
-    /// Whether blinks are currently enabled (paused when window is inactive).
-    private var blinkEnabled = true
+    /// Whether animations are currently active (paused when window is inactive).
+    private var animationsActive = true
+
+    /// Per-animation config flags (set via `configure()`).
+    private var configBreathingEnabled: Bool = true
+    private var configBlinkEnabled: Bool = true
+    private var configPokeEnabled: Bool = true
 
     /// Notification observers for window key/resign-key events.
     private var notificationObservers: [NSObjectProtocol] = []
@@ -63,7 +77,9 @@ class AvatarLayerView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .pointingHand)
+        if configPokeEnabled {
+            addCursorRect(bounds, cursor: .pointingHand)
+        }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -77,8 +93,13 @@ class AvatarLayerView: NSView {
         }
     }
 
-    func configure(bodyShape: AvatarBodyShape, eyeStyle: AvatarEyeStyle, color: AvatarColor, size: CGFloat) {
-        let key = "\(bodyShape.rawValue)-\(eyeStyle.rawValue)-\(color.rawValue)-\(String(format: "%.1f", size))"
+    func configure(bodyShape: AvatarBodyShape, eyeStyle: AvatarEyeStyle, color: AvatarColor, size: CGFloat,
+                   breathingEnabled: Bool = true, blinkEnabled: Bool = true, pokeEnabled: Bool = true) {
+        configBreathingEnabled = breathingEnabled
+        configBlinkEnabled = blinkEnabled
+        configPokeEnabled = pokeEnabled
+
+        let key = "\(bodyShape.rawValue)-\(eyeStyle.rawValue)-\(color.rawValue)-\(String(format: "%.1f", size))-\(breathingEnabled)-\(blinkEnabled)-\(pokeEnabled)"
         guard key != currentKey else { return }
         currentKey = key
 
@@ -146,9 +167,9 @@ class AvatarLayerView: NSView {
 
         CATransaction.commit()
 
-        if blinkEnabled {
-            startBlinkTimer()
-            startBreathing()
+        if animationsActive {
+            if configBlinkEnabled { startBlinkTimer() }
+            if configBreathingEnabled { startBreathing() }
         }
     }
 
@@ -161,7 +182,7 @@ class AvatarLayerView: NSView {
                 try? await Task.sleep(for: .seconds(delay))
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
-                    guard let self, self.blinkEnabled else { return }
+                    guard let self, self.animationsActive, self.configBlinkEnabled else { return }
                     self.performBlink()
                 }
             }
@@ -221,26 +242,30 @@ class AvatarLayerView: NSView {
     }
 
     private func pauseAnimations() {
-        blinkEnabled = false
+        animationsActive = false
         blinkTask?.cancel()
-        let pausedTime = bodyLayer.convertTime(CACurrentMediaTime(), from: nil)
-        bodyLayer.speed = 0
-        bodyLayer.timeOffset = pausedTime
+        if configBreathingEnabled {
+            let pausedTime = bodyLayer.convertTime(CACurrentMediaTime(), from: nil)
+            bodyLayer.speed = 0
+            bodyLayer.timeOffset = pausedTime
+        }
     }
 
     private func resumeAnimations() {
-        blinkEnabled = true
-        startBlinkTimer()
-        let pausedTime = bodyLayer.timeOffset
-        bodyLayer.speed = 1
-        bodyLayer.timeOffset = 0
-        bodyLayer.beginTime = 0
-        let timeSincePause = bodyLayer.convertTime(CACurrentMediaTime(), from: nil) - pausedTime
-        bodyLayer.beginTime = timeSincePause
+        animationsActive = true
+        if configBlinkEnabled { startBlinkTimer() }
+        if configBreathingEnabled {
+            let pausedTime = bodyLayer.timeOffset
+            bodyLayer.speed = 1
+            bodyLayer.timeOffset = 0
+            bodyLayer.beginTime = 0
+            let timeSincePause = bodyLayer.convertTime(CACurrentMediaTime(), from: nil) - pausedTime
+            bodyLayer.beginTime = timeSincePause
+        }
     }
 
     private func performPoke() {
-        guard blinkEnabled else { return }
+        guard animationsActive, configPokeEnabled else { return }
         guard let rootLayer = layer else { return }
 
         // Remove any in-progress poke animation (enables interruptible rapid clicks)
