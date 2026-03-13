@@ -1088,7 +1088,6 @@ export async function startInviteCall(
       callMode: "invite",
       inviteFriendName: friendName,
       inviteGuardianName: guardianName,
-      initiatedFromConversationId: conversationId,
     });
     sessionId = session.id;
 
