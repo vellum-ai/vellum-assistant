@@ -46,7 +46,7 @@ function normalizeForPathCheck(path: string): string {
   return process.platform === "win32" ? path.toLowerCase() : path;
 }
 
-function validateImportPath(filePath: string): string {
+function validateImportPath(filePath: string, workspaceRoot?: string): string {
   const resolvedPath = resolve(filePath);
 
   // Resolve symlinks to prevent symlink-based escapes (e.g. workspace/evil.csv -> /etc/shadow).
@@ -58,12 +58,17 @@ function validateImportPath(filePath: string): string {
     realPath = resolvedPath;
   }
 
+  // Use the caller-supplied workspace root (e.g. ToolContext.workingDir) so that validation
+  // is anchored to the same directory the tool operates in, not process.cwd() which may
+  // differ when the daemon is launched without forcing cwd.
+  const root = workspaceRoot ?? process.cwd();
+
   // Also resolve the workspace root's real path (e.g. /tmp -> /private/tmp on macOS).
   let realWorkspace: string;
   try {
-    realWorkspace = realpathSync(resolve(process.cwd()));
+    realWorkspace = realpathSync(resolve(root));
   } catch {
-    realWorkspace = resolve(process.cwd());
+    realWorkspace = resolve(root);
   }
 
   const normalizedPath = normalizeForPathCheck(realPath);
@@ -236,8 +241,11 @@ function splitCSVRows(content: string): string[] {
 /**
  * Parse a CSV/TSV file into structured contacts.
  */
-export function parseContactFile(filePath: string): ParseResult {
-  const validatedPath = validateImportPath(filePath);
+export function parseContactFile(
+  filePath: string,
+  workspaceRoot?: string,
+): ParseResult {
+  const validatedPath = validateImportPath(filePath, workspaceRoot);
   const content = readFileSync(validatedPath, "utf-8");
   const lines = splitCSVRows(content);
 

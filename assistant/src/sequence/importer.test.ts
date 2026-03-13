@@ -19,58 +19,35 @@ describe("parseContactFile", () => {
     const external = mkdtempSync(join(tmpdir(), "sequence-external-"));
     tempDirs.push(workspace, external);
 
-    const current = process.cwd();
-    process.chdir(workspace);
+    const externalPath = join(external, "contacts.csv");
+    writeFileSync(externalPath, "email,name\nuser@example.com,User\n");
 
-    try {
-      const externalPath = join(external, "contacts.csv");
-      writeFileSync(externalPath, "email,name\nuser@example.com,User\n");
-
-      expect(() => parseContactFile(externalPath)).toThrow(
-        "file_path must be inside the current workspace.",
-      );
-    } finally {
-      process.chdir(current);
-    }
+    expect(() => parseContactFile(externalPath, workspace)).toThrow(
+      "file_path must be inside the current workspace.",
+    );
   });
 
   test("rejects non-csv/tsv file extensions", () => {
     const workspace = mkdtempSync(join(tmpdir(), "sequence-workspace-"));
     tempDirs.push(workspace);
 
-    const current = process.cwd();
-    process.chdir(workspace);
+    const filePath = join(workspace, "secrets.txt");
+    writeFileSync(filePath, "root:x:0:0:root:/root:/bin/bash\n");
 
-    try {
-      const filePath = join(workspace, "secrets.txt");
-      writeFileSync(filePath, "root:x:0:0:root:/root:/bin/bash\n");
-
-      expect(() => parseContactFile(filePath)).toThrow(
-        "file_path must be a .csv or .tsv file.",
-      );
-    } finally {
-      process.chdir(current);
-    }
+    expect(() => parseContactFile(filePath, workspace)).toThrow(
+      "file_path must be a .csv or .tsv file.",
+    );
   });
 
   test("does not echo raw input values in invalid email errors", () => {
     const workspace = mkdtempSync(join(tmpdir(), "sequence-workspace-"));
     tempDirs.push(workspace);
 
-    const current = process.cwd();
-    process.chdir(workspace);
+    const filePath = join(workspace, "contacts.csv");
+    writeFileSync(filePath, "email\nroot:x:0:0:root:/root:/bin/bash\n");
 
-    try {
-      const filePath = join(workspace, "contacts.csv");
-      writeFileSync(filePath, "email\nroot:x:0:0:root:/root:/bin/bash\n");
+    const result = parseContactFile(filePath, workspace);
 
-      const result = parseContactFile(filePath);
-
-      expect(result.errors).toEqual([
-        { row: 2, reason: "Invalid email format" },
-      ]);
-    } finally {
-      process.chdir(current);
-    }
+    expect(result.errors).toEqual([{ row: 2, reason: "Invalid email format" }]);
   });
 });

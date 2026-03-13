@@ -8,7 +8,7 @@ import { err, ok } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const filePath = input.file_path as string;
   const sequenceId = input.sequence_id as string;
@@ -21,7 +21,7 @@ export async function run(
     const seq = getSequence(sequenceId);
     if (!seq) return err(`Sequence not found: ${sequenceId}`);
 
-    const parsed = parseContactFile(filePath);
+    const parsed = parseContactFile(filePath, context.workingDir);
 
     if (parsed.contacts.length === 0 && parsed.errors.length > 0) {
       return err(
