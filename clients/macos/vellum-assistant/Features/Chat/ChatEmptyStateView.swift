@@ -71,7 +71,7 @@ struct ChatEmptyStateView: View {
                         .font(.custom("Fraunces", size: 28).weight(.regular))
                         .foregroundColor(VColor.contentSecondary)
                         .multilineTextAlignment(.leading)
-                        .transition(.opacity.combined(with: .move(edge: .leading)))
+                        .transition(.opacity)
                 }
             }
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
