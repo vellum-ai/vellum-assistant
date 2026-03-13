@@ -111,11 +111,40 @@ public final class ToolConfirmationNotificationService {
         if let reason = confirmationReasonDescription(input: message.input) {
             return reason.count > 200 ? String(reason.prefix(197)) + "..." : reason
         }
-        let description = confirmationHumanDescription(
-            toolName: message.toolName,
-            input: message.input
-        )
-        return description.count > 200 ? String(description.prefix(197)) + "..." : description
+        // Provide contextual detail from tool input (command, path, URL) so the
+        // notification body adds information beyond the title.
+        let body = notificationBodyDetail(toolName: message.toolName, input: message.input)
+        return body.count > 200 ? String(body.prefix(197)) + "..." : body
+    }
+
+    /// Extracts a contextual detail string from tool input for notification bodies.
+    /// Provides specifics (command text, file path, URL) that complement the title.
+    private func notificationBodyDetail(toolName: String, input: [String: AnyCodable]) -> String {
+        switch toolName {
+        case "bash", "host_bash":
+            if let cmd = input["command"]?.value as? String {
+                return cmd
+            }
+        case "file_write", "host_file_write", "file_edit", "host_file_edit", "file_read", "host_file_read":
+            if let path = input["path"]?.value as? String {
+                return path
+            }
+        case "web_fetch":
+            if let url = input["url"]?.value as? String {
+                return url
+            }
+        case "browser_navigate":
+            if let url = input["url"]?.value as? String {
+                return url
+            }
+        case "credential_store":
+            if let service = input["service"]?.value as? String {
+                return service
+            }
+        default:
+            break
+        }
+        return "Approve or deny this action."
     }
 
     private func toolDisplayName(_ toolName: String) -> String {
