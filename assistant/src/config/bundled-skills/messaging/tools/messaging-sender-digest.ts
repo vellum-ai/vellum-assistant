@@ -23,7 +23,8 @@ export async function run(
       );
     }
 
-    const conn = await getProviderConnection(provider);
+    const account = input.account as string | undefined;
+    const conn = await getProviderConnection(provider, account);
     const result = await provider.senderDigest!(conn, query, {
       maxMessages,
       maxSenders,

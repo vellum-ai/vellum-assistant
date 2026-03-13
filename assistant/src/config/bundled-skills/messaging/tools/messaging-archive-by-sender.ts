@@ -30,7 +30,8 @@ export async function run(
       );
     }
 
-    const conn = await getProviderConnection(provider);
+    const account = input.account as string | undefined;
+    const conn = await getProviderConnection(provider, account);
     const result = await provider.archiveByQuery!(conn, query);
 
     if (result.archived === 0) {

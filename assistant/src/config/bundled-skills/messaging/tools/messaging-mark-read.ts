@@ -23,7 +23,8 @@ export async function run(
         `${provider.displayName} does not support marking messages as read.`,
       );
     }
-    const conn = await getProviderConnection(provider);
+    const account = input.account as string | undefined;
+    const conn = await getProviderConnection(provider, account);
     await provider.markRead(conn, conversationId, messageId);
     return ok("Marked as read.");
   } catch (e) {
