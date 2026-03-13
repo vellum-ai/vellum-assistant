@@ -3,9 +3,9 @@ import VellumAssistantShared
 
 /// Card for a video embed that transitions through click-to-play states.
 ///
-/// Shows a play-button placeholder, then builds an embed URL with autoplay
-/// parameters via `VideoEmbedURLBuilder` and displays the video inside an
-/// `InlineVideoWebView`. The card expands to 16:9 aspect ratio when playing.
+/// Shows a thumbnail placeholder with a play button overlay, then builds an
+/// embed URL with autoplay parameters via `VideoEmbedURLBuilder` and displays
+/// the video inside an `InlineVideoWebView`. The card uses 16:9 aspect ratio.
 struct InlineVideoEmbedCard: View {
     let provider: String
     let videoID: String
@@ -28,7 +28,7 @@ struct InlineVideoEmbedCard: View {
         case .playing, .initializing:
             return 315
         case .placeholder:
-            return 180
+            return 315
         case .failed:
             return 60
         }
@@ -47,6 +47,7 @@ struct InlineVideoEmbedCard: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: cardHeight)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .animation(.easeInOut(duration: 0.25), value: cardHeight)
         .onDisappear {
             // Only reset states that own an active WKWebView.
@@ -75,6 +76,46 @@ struct InlineVideoEmbedCard: View {
     }
 
     private var placeholderView: some View {
+        ZStack {
+            // Video thumbnail background
+            if let thumbnailURL = VideoThumbnailURL.thumbnailURL(provider: provider, videoID: videoID) {
+                AsyncImage(url: thumbnailURL) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    case .failure:
+                        fallbackPlaceholder
+                    case .empty:
+                        // Loading state — show dark background
+                        Color.black
+                    @unknown default:
+                        fallbackPlaceholder
+                    }
+                }
+            } else {
+                fallbackPlaceholder
+            }
+
+            // Play button overlay
+            Circle()
+                .fill(Color.black.opacity(0.7))
+                .frame(width: 56, height: 56)
+                .overlay(
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 22))
+                        .foregroundColor(.white)
+                        .offset(x: 2)
+                )
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            stateManager.requestPlay()
+        }
+    }
+
+    private var fallbackPlaceholder: some View {
         VStack(spacing: VSpacing.sm) {
             VIconView(.play, size: 44)
                 .foregroundStyle(VColor.contentSecondary)
@@ -83,10 +124,8 @@ struct InlineVideoEmbedCard: View {
                 .font(VFont.caption)
                 .foregroundStyle(VColor.contentSecondary)
         }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            stateManager.requestPlay()
-        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(VColor.surfaceBase)
     }
 
     /// Single view for both .initializing and .playing so SwiftUI preserves
