@@ -17,9 +17,9 @@ final class NotificationIconProvider: NotificationIconProviding {
             iconURL = URL(fileURLWithPath: baseDataDir)
                 .appendingPathComponent("workspace/data/avatar/notification-icon.png")
         } else {
-            iconURL = AvatarAppearanceManager.workspaceCustomAvatarURL()
-                .deletingLastPathComponent()
-                .appendingPathComponent("notification-icon.png")
+            // No assistant-scoped path available — return nil to avoid
+            // serving another assistant's notification icon.
+            return nil
         }
 
         guard FileManager.default.fileExists(atPath: iconURL.path) else {

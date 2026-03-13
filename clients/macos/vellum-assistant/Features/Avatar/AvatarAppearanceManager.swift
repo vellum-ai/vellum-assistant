@@ -344,9 +344,9 @@ final class AvatarAppearanceManager {
             destURL = URL(fileURLWithPath: baseDataDir)
                 .appendingPathComponent("workspace/data/avatar/notification-icon.png")
         } else {
-            destURL = Self.workspaceCustomAvatarURL()
-                .deletingLastPathComponent()
-                .appendingPathComponent("notification-icon.png")
+            // No assistant-scoped path available — return nil to avoid
+            // writing to a shared location that could serve the wrong avatar.
+            return nil
         }
 
         // 2. Get the current avatar image (chatAvatarImage handles all fallbacks)
