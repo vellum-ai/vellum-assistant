@@ -189,6 +189,7 @@ import {
   RelayConnection,
 } from "../calls/relay-server.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
+import { upsertContact } from "../contacts/contact-store.js";
 import {
   createGuardianBinding,
   upsertContactChannel,
@@ -287,6 +288,11 @@ function resetTables() {
     "contacts",
   );
   ensuredConvIds = new Set();
+}
+
+/** Create a throwaway contact and return its ID, for use as the invite's contactId. */
+function createTargetContact(displayName = "Test Contact"): string {
+  return upsertContact({ displayName, role: "contact" }).id;
 }
 
 function addTrustedVoiceContact(phoneNumber: string): void {
@@ -2053,7 +2059,7 @@ describe("relay-server", () => {
     const codeHash = hashVoiceCode(code);
     createInvite({
       sourceChannel: "phone",
-      contactId: "test-contact-id",
+      contactId: createTargetContact(),
       maxUses: 1,
       expectedExternalUserId: "+15558887777",
       voiceCodeHash: codeHash,
@@ -2127,7 +2133,7 @@ describe("relay-server", () => {
     const codeHash = hashVoiceCode(code);
     createInvite({
       sourceChannel: "phone",
-      contactId: "test-contact-id",
+      contactId: createTargetContact(),
       maxUses: 1,
       expectedExternalUserId: "+15558886666",
       voiceCodeHash: codeHash,
@@ -4015,7 +4021,7 @@ describe("relay-server", () => {
     const codeHash = hashVoiceCode(code);
     createInvite({
       sourceChannel: "phone",
-      contactId: "test-contact-id",
+      contactId: createTargetContact(),
       maxUses: 1,
       expectedExternalUserId: "+15557776666",
       voiceCodeHash: codeHash,
