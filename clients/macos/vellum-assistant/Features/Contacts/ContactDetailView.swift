@@ -430,21 +430,20 @@ struct ContactDetailView: View {
                                 .background(VColor.surfaceActive)
                                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                         }
-                        HStack(spacing: VSpacing.sm) {
-                            VButton(
-                                label: "Invite",
-                                style: .outlined,
-                                isDisabled: inviteInProgress != nil || (type == "phone" && invitePhoneNumber.trimmingCharacters(in: .whitespaces).isEmpty)
-                            ) {
-                                createInviteForChannel(type: type)
-                            }
-                            VButton(label: "Cancel", style: .outlined) {
-                                inviteExpanded.remove(type)
-                                if inviteResult?.type == type {
-                                    inviteResult = nil
+                        if inviteResult?.type != type {
+                            HStack(spacing: VSpacing.sm) {
+                                VButton(
+                                    label: "Invite",
+                                    style: .outlined,
+                                    isDisabled: inviteInProgress != nil || (type == "phone" && invitePhoneNumber.trimmingCharacters(in: .whitespaces).isEmpty)
+                                ) {
+                                    createInviteForChannel(type: type)
                                 }
-                                inviteError = nil
-                                inviteErrorChannel = nil
+                                VButton(label: "Cancel", style: .outlined) {
+                                    inviteExpanded.remove(type)
+                                    inviteError = nil
+                                    inviteErrorChannel = nil
+                                }
                             }
                         }
                     }
@@ -660,41 +659,50 @@ struct ContactDetailView: View {
                     .tracking(4)
                     .padding(.vertical, VSpacing.xs)
 
-                VButton(
-                    label: inviteCopiedType == type ? "Copied!" : "Copy Code",
-                    icon: VIcon.copy.rawValue,
-                    style: .outlined
-                ) {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(inviteCode, forType: .string)
-                    inviteCopiedType = type
-                    Task {
-                        try? await Task.sleep(nanoseconds: 2_000_000_000)
-                        guard !Task.isCancelled else { return }
-                        if inviteCopiedType == type {
-                            inviteCopiedType = nil
+                HStack(spacing: VSpacing.sm) {
+                    VButton(
+                        label: inviteCopiedType == type ? "Copied!" : "Copy Code",
+                        icon: VIcon.copy.rawValue,
+                        style: .outlined
+                    ) {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(inviteCode, forType: .string)
+                        inviteCopiedType = type
+                        Task {
+                            try? await Task.sleep(nanoseconds: 2_000_000_000)
+                            guard !Task.isCancelled else { return }
+                            if inviteCopiedType == type {
+                                inviteCopiedType = nil
+                            }
                         }
                     }
-                }
 
-                if type == "phone", let result = inviteResult {
-                    if inviteCallTriggered {
-                        HStack(spacing: VSpacing.sm) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(VColor.systemPositiveStrong)
-                            Text("Call started")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.systemPositiveStrong)
+                    if type == "phone", let result = inviteResult {
+                        if inviteCallTriggered {
+                            HStack(spacing: VSpacing.sm) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(VColor.systemPositiveStrong)
+                                Text("Call started")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.systemPositiveStrong)
+                            }
+                        } else {
+                            VButton(
+                                label: inviteCallInProgress ? "Calling..." : "Call \(displayContact.displayName)",
+                                icon: VIcon.phoneCall.rawValue,
+                                style: .primary,
+                                isDisabled: inviteCallInProgress
+                            ) {
+                                triggerInviteCallAction(inviteId: result.inviteId)
+                            }
                         }
-                    } else {
-                        VButton(
-                            label: inviteCallInProgress ? "Calling..." : "Call \(displayContact.displayName)",
-                            icon: VIcon.phoneCall.rawValue,
-                            style: .primary,
-                            isDisabled: inviteCallInProgress
-                        ) {
-                            triggerInviteCallAction(inviteId: result.inviteId)
-                        }
+                    }
+
+                    VButton(label: "Cancel", style: .outlined) {
+                        inviteExpanded.remove(type)
+                        inviteResult = nil
+                        inviteError = nil
+                        inviteErrorChannel = nil
                     }
                 }
             }
