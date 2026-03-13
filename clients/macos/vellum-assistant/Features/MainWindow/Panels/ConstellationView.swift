@@ -754,6 +754,11 @@ struct ConstellationView: View {
         return result
     }
 
+    /// Whether the user has uploaded a custom avatar image (vs. the bundled native character).
+    private var hasCustomAvatar: Bool {
+        appearance.customAvatarImage != nil
+    }
+
     /// Computes tree layout synchronously and populates all state vars.
     private func computeLayout(center: CGPoint) {
         let result = buildTree(center: center, groups: groups)
@@ -1027,6 +1032,62 @@ struct ConstellationView: View {
         )
     }
 
+    // MARK: - Center Avatar
+
+    @ViewBuilder
+    private func centerAvatarView(showGlow: Bool) -> some View {
+        VAvatarImage(image: appearance.fullAvatarImage, size: centerAvatarSize, showBorder: false)
+            .if(showGlow) { view in
+                view.background(
+                    ZStack {
+                        // Outer glow ring
+                        Circle()
+                            .fill(
+                                RadialGradient(
+                                    colors: [
+                                        VColor.primaryActive.opacity(0.25),
+                                        VColor.primaryActive.opacity(0.08),
+                                        Color.clear
+                                    ],
+                                    center: .center,
+                                    startRadius: (centerAvatarSize + 16) / 2 - 4,
+                                    endRadius: (centerAvatarSize + 16) / 2 + 12
+                                )
+                            )
+                            .frame(width: centerAvatarSize + 40, height: centerAvatarSize + 40)
+
+                        // Frosted backdrop
+                        Circle()
+                            .fill(
+                                RadialGradient(
+                                    colors: [
+                                        VColor.surfaceOverlay.opacity(0.95),
+                                        VColor.surfaceOverlay.opacity(0.85)
+                                    ],
+                                    center: .center,
+                                    startRadius: 0,
+                                    endRadius: (centerAvatarSize + 16) / 2
+                                )
+                            )
+                            .frame(width: centerAvatarSize + 16, height: centerAvatarSize + 16)
+
+                        // Subtle inner ring
+                        Circle()
+                            .stroke(VColor.primaryActive.opacity(0.3), lineWidth: 1.5)
+                            .frame(width: centerAvatarSize + 16, height: centerAvatarSize + 16)
+                    }
+                )
+            }
+            .allowsHitTesting(false)
+            .position(effectivePosition(forId: "__center__"))
+            .scaleEffect(phase.centerVisible ? 1 : 0.6)
+            .opacity(phase.centerVisible ? 1 : 0)
+            .animation(
+                .spring(response: 0.5, dampingFraction: 0.7).delay(0.05),
+                value: phase
+            )
+    }
+
     // MARK: - Canvas
 
     @ViewBuilder
@@ -1040,7 +1101,12 @@ struct ConstellationView: View {
                 endRadius: min(size.width, size.height) * 0.5
             )
 
-            // Edge lines drawn first (behind nodes)
+            // Native character avatar rendered BEHIND edges (no glow)
+            if !hasCustomAvatar {
+                centerAvatarView(showGlow: false)
+            }
+
+            // Edge lines (behind nodes, on top of native avatar)
             // Uses SwiftUI Path shapes instead of Canvas so edges are never clipped
             // to the view bounds — they extend as far as the nodes go.
             ForEach(treeEdges) { edge in
@@ -1062,7 +1128,7 @@ struct ConstellationView: View {
 
                 switch node.kind {
                 case .center:
-                    EmptyView() // Center avatar is rendered separately below
+                    EmptyView() // Center avatar is rendered separately
 
                 case .category(let category):
                     CategoryNodeView(category: category, size: categoryNodeSize)
@@ -1120,55 +1186,10 @@ struct ConstellationView: View {
                 }
             }
 
-            // Center avatar on top of everything (full-size for constellation display)
-            VAvatarImage(image: appearance.fullAvatarImage, size: centerAvatarSize, showBorder: false)
-                .background(
-                    ZStack {
-                        // Outer glow ring
-                        Circle()
-                            .fill(
-                                RadialGradient(
-                                    colors: [
-                                        VColor.primaryActive.opacity(0.25),
-                                        VColor.primaryActive.opacity(0.08),
-                                        Color.clear
-                                    ],
-                                    center: .center,
-                                    startRadius: (centerAvatarSize + 16) / 2 - 4,
-                                    endRadius: (centerAvatarSize + 16) / 2 + 12
-                                )
-                            )
-                            .frame(width: centerAvatarSize + 40, height: centerAvatarSize + 40)
-
-                        // Frosted backdrop
-                        Circle()
-                            .fill(
-                                RadialGradient(
-                                    colors: [
-                                        VColor.surfaceOverlay.opacity(0.95),
-                                        VColor.surfaceOverlay.opacity(0.85)
-                                    ],
-                                    center: .center,
-                                    startRadius: 0,
-                                    endRadius: (centerAvatarSize + 16) / 2
-                                )
-                            )
-                            .frame(width: centerAvatarSize + 16, height: centerAvatarSize + 16)
-
-                        // Subtle inner ring
-                        Circle()
-                            .stroke(VColor.primaryActive.opacity(0.3), lineWidth: 1.5)
-                            .frame(width: centerAvatarSize + 16, height: centerAvatarSize + 16)
-                    }
-                )
-                .allowsHitTesting(false)
-                .position(effectivePosition(forId: "__center__"))
-                .scaleEffect(phase.centerVisible ? 1 : 0.6)
-                .opacity(phase.centerVisible ? 1 : 0)
-                .animation(
-                    .spring(response: 0.5, dampingFraction: 0.7).delay(0.05),
-                    value: phase
-                )
+            // Custom avatar rendered ON TOP of everything with glow
+            if hasCustomAvatar {
+                centerAvatarView(showGlow: true)
+            }
         }
     }
 }
