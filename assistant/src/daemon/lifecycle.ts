@@ -68,7 +68,6 @@ import {
   getInterfacesDir,
   getRootDir,
 } from "../util/platform.js";
-import { APP_VERSION } from "../version.js";
 import {
   listWorkItems,
   updateWorkItem,
@@ -139,11 +138,6 @@ export async function runDaemon(): Promise<void> {
     await initLogfire();
 
     ensureDataDir();
-
-    // Write the resolved version to a well-known file so the standalone
-    // CLI (`assistant --version`) can read it even when the env var and
-    // package.json are unavailable (e.g. compiled desktop-app binaries).
-    writeFileSync(join(getRootDir(), "version"), APP_VERSION);
 
     // Load (or generate + persist) the auth signing key so tokens survive
     // daemon restarts. Must happen after ensureDataDir() creates the

@@ -760,6 +760,13 @@ async function hatchLocal(
   console.log(`   Species: ${species}`);
   console.log("");
 
+  // Pass the CLI package version to the daemon so `assistant --version`
+  // resolves correctly even in compiled desktop-app binaries where the
+  // daemon cannot find its own package.json.
+  if (!process.env.APP_VERSION) {
+    process.env.APP_VERSION = cliPkg.version;
+  }
+
   await startLocalDaemon(watch, resources);
 
   let runtimeUrl: string;
