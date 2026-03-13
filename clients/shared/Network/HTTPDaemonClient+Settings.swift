@@ -162,7 +162,19 @@ extension HTTPTransport {
                 return true
             }
             if let msg = message as? ChannelVerificationSessionRequestMessage {
-                Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessions, body: msg, messageType: "channel_verification_session_response", label: "channel_verification_session") }
+                switch msg.action {
+                case "status":
+                    let channel = msg.channel ?? "telegram"
+                    Task { await self.sendVerificationStatusGetAndDispatch(channel: channel) }
+                case "cancel_session":
+                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessions, body: msg, method: "DELETE", messageType: "channel_verification_session_response", label: "channel_verification_cancel") }
+                case "revoke":
+                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessionsRevoke, body: msg, messageType: "channel_verification_session_response", label: "channel_verification_revoke") }
+                case "resend_session":
+                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessionsResend, body: msg, messageType: "channel_verification_session_response", label: "channel_verification_resend") }
+                default:
+                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessions, body: msg, messageType: "channel_verification_session_response", label: "channel_verification_session") }
+                }
                 return true
             }
             // --- Publishing ---
@@ -374,6 +386,49 @@ extension HTTPTransport {
             onMessage?(serverMessage)
         } catch {
             log.error("\(label) error: \(error.localizedDescription)")
+        }
+    }
+
+    /// Fetch channel verification status via GET with a channel query parameter,
+    /// then dispatch the response through the message handler chain.
+    private func sendVerificationStatusGetAndDispatch(channel: String) async {
+        guard var url = buildURL(for: .channelVerificationSessionsStatus) else {
+            log.error("Failed to build URL for channel_verification_status")
+            return
+        }
+        // Append the channel query parameter
+        if var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            var items = components.queryItems ?? []
+            items.append(URLQueryItem(name: "channel", value: channel))
+            components.queryItems = items
+            if let resolved = components.url {
+                url = resolved
+            }
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if !(200...299).contains(http.statusCode) {
+                log.error("channel_verification_status failed: \(http.statusCode)")
+            }
+
+            guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                log.error("channel_verification_status: failed to parse response JSON")
+                return
+            }
+            json["type"] = "channel_verification_session_response"
+            let enriched = try JSONSerialization.data(withJSONObject: json)
+            let serverMessage = try decoder.decode(ServerMessage.self, from: enriched)
+            onMessage?(serverMessage)
+        } catch {
+            log.error("channel_verification_status error: \(error.localizedDescription)")
         }
     }
 }
