@@ -109,10 +109,12 @@ struct ContactsListView: View {
                     .font(VFont.bodyBold)
                     .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
+                    .truncationMode(.tail)
 
                 VBadge(style: .subtleLabel("Assistant"), color: VColor.primaryBase)
+                    .layoutPriority(1)
 
-                Spacer()
+                Spacer(minLength: VSpacing.sm)
             }
             .padding(.horizontal, VSpacing.sm)
             .padding(.vertical, VSpacing.md)
@@ -128,7 +130,7 @@ struct ContactsListView: View {
     // MARK: - Guardian Row
 
     private func guardianRow(_ contact: ContactPayload) -> some View {
-        HStack(spacing: 0) {
+        HStack(spacing: VSpacing.sm) {
             Button {
                 selection = .contact(contact.id)
             } label: {
@@ -141,8 +143,10 @@ struct ContactsListView: View {
                                 .font(VFont.bodyBold)
                                 .foregroundColor(VColor.contentDefault)
                                 .lineLimit(1)
+                                .truncationMode(.tail)
 
                             VBadge(style: .subtleLabel("Guardian"), color: VColor.primaryBase)
+                                .layoutPriority(1)
                         }
 
                         if !contact.channels.isEmpty {
@@ -150,7 +154,7 @@ struct ContactsListView: View {
                         }
                     }
 
-                    Spacer()
+                    Spacer(minLength: VSpacing.sm)
                 }
                 .contentShape(Rectangle())
             }
@@ -169,7 +173,7 @@ struct ContactsListView: View {
     // MARK: - Contact Row
 
     private func contactRow(_ contact: ContactPayload) -> some View {
-        HStack(spacing: 0) {
+        HStack(spacing: VSpacing.sm) {
             Button {
                 selection = .contact(contact.id)
             } label: {
@@ -182,8 +186,10 @@ struct ContactsListView: View {
                                 .font(VFont.bodyBold)
                                 .foregroundColor(VColor.contentDefault)
                                 .lineLimit(1)
+                                .truncationMode(.tail)
 
                             VBadge(style: .subtleLabel(contactBadgeLabel(contact)), color: VColor.contentSecondary)
+                                .layoutPriority(1)
                         }
 
                         if !contact.channels.isEmpty {
@@ -191,7 +197,7 @@ struct ContactsListView: View {
                         }
                     }
 
-                    Spacer()
+                    Spacer(minLength: VSpacing.sm)
                 }
                 .contentShape(Rectangle())
             }
