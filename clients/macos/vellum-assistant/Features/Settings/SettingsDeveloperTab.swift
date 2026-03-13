@@ -636,19 +636,7 @@ struct SettingsDeveloperTab: View {
     }
 
     private func performManagedRestart(assistant: LockfileAssistant) async {
-        let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
-        guard let token = SessionTokenManager.getToken(), !token.isEmpty else { return }
-        guard let url = URL(string: "\(baseURL)/v1/assistants/restart/") else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 30
-        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
-        if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
-            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
-        }
-
-        _ = try? await URLSession.shared.data(for: request)
+        _ = try? await GatewayHTTPClient.post(path: "restart")
     }
 
     private func performLocalRestart() async {

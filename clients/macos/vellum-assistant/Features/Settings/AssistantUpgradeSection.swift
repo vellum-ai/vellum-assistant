@@ -135,28 +135,24 @@ struct AssistantUpgradeSection: View {
         isLoadingReleases = true
         defer { isLoadingReleases = false }
 
-        guard let request = buildRequest(path: "releases", method: "GET") else {
-            errorMessage = "Unable to check for updates"
-            return
-        }
-
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200 else {
+            let response = try await GatewayHTTPClient.get(path: "releases")
+            guard response.statusCode == 200 else {
                 errorMessage = "Failed to check for updates"
                 return
             }
             let decoder = JSONDecoder()
             decoder.keyDecodingStrategy = .convertFromSnakeCase
             // Try paginated response { "results": [...] }, then plain array [...]
-            if let decoded = try? decoder.decode(PaginatedReleasesResponse.self, from: data) {
+            if let decoded = try? decoder.decode(PaginatedReleasesResponse.self, from: response.data) {
                 availableReleases = decoded.results
-            } else if let decoded = try? decoder.decode(ReleasesResponse.self, from: data) {
+            } else if let decoded = try? decoder.decode(ReleasesResponse.self, from: response.data) {
                 availableReleases = decoded.releases
             } else {
-                availableReleases = try decoder.decode([AssistantRelease].self, from: data)
+                availableReleases = try decoder.decode([AssistantRelease].self, from: response.data)
             }
+        } catch let error as GatewayHTTPClient.ClientError {
+            errorMessage = "Unable to check for updates: \(error.localizedDescription)"
         } catch {
             errorMessage = "Failed to check for updates: \(error.localizedDescription)"
         }
@@ -167,27 +163,19 @@ struct AssistantUpgradeSection: View {
         isUpgrading = true
         defer { isUpgrading = false }
 
-        guard var request = buildRequest(path: "upgrade", method: "POST") else {
-            errorMessage = "Unable to start upgrade"
-            return
-        }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                errorMessage = "Invalid response"
-                return
-            }
-            if httpResponse.statusCode >= 200 && httpResponse.statusCode < 300 {
+            let response = try await GatewayHTTPClient.post(path: "upgrade")
+            if response.isSuccess {
                 successMessage = "Upgrade initiated. The assistant may be briefly unavailable."
                 // Refresh releases to update UI without clearing success message
                 await loadReleasesQuietly()
                 // Clear any error from the releases fetch so it doesn't appear alongside the success
                 if successMessage != nil { errorMessage = nil }
             } else {
-                errorMessage = "Upgrade failed (HTTP \(httpResponse.statusCode))"
+                errorMessage = "Upgrade failed (HTTP \(response.statusCode))"
             }
+        } catch let error as GatewayHTTPClient.ClientError {
+            errorMessage = "Unable to start upgrade: \(error.localizedDescription)"
         } catch {
             errorMessage = "Upgrade failed: \(error.localizedDescription)"
         }
@@ -200,20 +188,6 @@ struct AssistantUpgradeSection: View {
         successMessage = nil
     }
 
-    private func buildRequest(path: String, method: String) -> URLRequest? {
-        let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
-        guard let token = SessionTokenManager.getToken(), !token.isEmpty else { return nil }
-        let trailingSlash = path.hasSuffix("/") ? "" : "/"
-        guard let url = URL(string: "\(baseURL)/v1/assistants/\(path)\(trailingSlash)") else { return nil }
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.timeoutInterval = 30
-        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
-        if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
-            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
-        }
-        return request
-    }
 }
 
 // MARK: - Models
