@@ -91,8 +91,7 @@ struct IntelligencePanel: View {
         case .installedSkills:
             AgentPanelContent(
                 onInvokeSkill: onInvokeSkill,
-                daemonClient: daemonClient,
-                visibleTab: .installed
+                daemonClient: daemonClient
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
