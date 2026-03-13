@@ -54,6 +54,54 @@ extension UserDefaults {
     @objc dynamic var quickInputHotkeyKeyCode: Int {
         return integer(forKey: "quickInputHotkeyKeyCode")
     }
+    @objc dynamic var quickInputAboveDockShortcut: String {
+        if UserDefaults.standard.object(forKey: "quickInputAboveDockShortcut") == nil {
+            return "cmd+shift+v"
+        }
+        return string(forKey: "quickInputAboveDockShortcut") ?? ""
+    }
+    @objc dynamic var newThreadShortcut: String {
+        if UserDefaults.standard.object(forKey: "newThreadShortcut") == nil {
+            return "cmd+n"
+        }
+        return string(forKey: "newThreadShortcut") ?? ""
+    }
+    @objc dynamic var commandPaletteShortcut: String {
+        if UserDefaults.standard.object(forKey: "commandPaletteShortcut") == nil {
+            return "cmd+k"
+        }
+        return string(forKey: "commandPaletteShortcut") ?? ""
+    }
+    @objc dynamic var navigateBackShortcut: String {
+        if UserDefaults.standard.object(forKey: "navigateBackShortcut") == nil {
+            return "cmd+["
+        }
+        return string(forKey: "navigateBackShortcut") ?? ""
+    }
+    @objc dynamic var navigateForwardShortcut: String {
+        if UserDefaults.standard.object(forKey: "navigateForwardShortcut") == nil {
+            return "cmd+]"
+        }
+        return string(forKey: "navigateForwardShortcut") ?? ""
+    }
+    @objc dynamic var zoomInShortcut: String {
+        if UserDefaults.standard.object(forKey: "zoomInShortcut") == nil {
+            return "cmd+="
+        }
+        return string(forKey: "zoomInShortcut") ?? ""
+    }
+    @objc dynamic var zoomOutShortcut: String {
+        if UserDefaults.standard.object(forKey: "zoomOutShortcut") == nil {
+            return "cmd+-"
+        }
+        return string(forKey: "zoomOutShortcut") ?? ""
+    }
+    @objc dynamic var zoomResetShortcut: String {
+        if UserDefaults.standard.object(forKey: "zoomResetShortcut") == nil {
+            return "cmd+0"
+        }
+        return string(forKey: "zoomResetShortcut") ?? ""
+    }
 }
 
 // MARK: - Input Monitors
@@ -69,16 +117,31 @@ extension AppDelegate {
         registerFnVMonitor()
         registerCmdKMonitor()
         registerCmdNMonitor()
+        registerNavigationMonitor()
+        registerZoomMonitor()
 
-        globalHotkeyObserver = Publishers.Merge3(
-            UserDefaults.standard.publisher(for: \.globalHotkeyShortcut).map { _ in () },
-            UserDefaults.standard.publisher(for: \.quickInputHotkeyShortcut).map { _ in () },
-            UserDefaults.standard.publisher(for: \.quickInputHotkeyKeyCode).map { _ in () }
-        )
+        globalHotkeyObserver = Publishers.MergeMany([
+            UserDefaults.standard.publisher(for: \.globalHotkeyShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.quickInputHotkeyShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.quickInputHotkeyKeyCode).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.quickInputAboveDockShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.newThreadShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.commandPaletteShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.navigateBackShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.navigateForwardShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.zoomInShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.zoomOutShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.zoomResetShortcut).map { _ in () }.eraseToAnyPublisher(),
+        ])
         .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
         .sink { [weak self] _ in
             self?.registerGlobalHotkeyMonitor()
             self?.registerQuickInputMonitor()
+            self?.registerFnVMonitor()
+            self?.registerCmdKMonitor()
+            self?.registerCmdNMonitor()
+            self?.registerNavigationMonitor()
+            self?.registerZoomMonitor()
         }
     }
 
@@ -174,14 +237,36 @@ extension AppDelegate {
         }
     }
 
-    /// Registers Cmd+Shift+V as a global shortcut to open the quick input text field.
-    /// Uses NSEvent monitors (global + local).
+    /// Registers the Quick Input Above Dock shortcut (default Cmd+Shift+V) as a
+    /// global + local monitor. Reads the shortcut from UserDefaults and skips
+    /// re-registration if unchanged. An empty shortcut disables the feature.
     func registerFnVMonitor() {
+        let shortcut = UserDefaults.standard.string(forKey: "quickInputAboveDockShortcut") ?? "cmd+shift+v"
+
+        if shortcut == lastRegisteredQuickInputAboveDockShortcut { return }
+
+        // Tear down previous monitors
+        if let monitor = fnVGlobalMonitor {
+            NSEvent.removeMonitor(monitor)
+            fnVGlobalMonitor = nil
+        }
+        if let monitor = fnVLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            fnVLocalMonitor = nil
+        }
+
+        guard !shortcut.isEmpty else {
+            lastRegisteredQuickInputAboveDockShortcut = shortcut
+            log.info("Quick Input Above Dock: shortcut disabled")
+            return
+        }
+
+        let (targetModifiers, targetKey) = ShortcutHelper.parseShortcut(shortcut)
+
         let handler: (NSEvent) -> NSEvent? = { [weak self] event in
-            // Cmd+Shift+V: keyCode 9 is kVK_ANSI_V
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            guard event.keyCode == 9,
-                  mods == [.command, .shift] else {
+            guard mods == targetModifiers,
+                  event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else {
                 return event
             }
             Task { @MainActor in
@@ -195,14 +280,36 @@ extension AppDelegate {
             _ = handler(event)
         }
         fnVLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+
+        lastRegisteredQuickInputAboveDockShortcut = shortcut
     }
 
-    /// Registers Cmd+N as a local shortcut to create a new thread.
+    /// Registers a local shortcut to create a new thread.
+    /// Reads the shortcut from UserDefaults (`newThreadShortcut`), defaulting to "cmd+n".
+    /// Skips re-registration if the shortcut hasn't changed.
     func registerCmdNMonitor() {
+        let shortcut = UserDefaults.standard.string(forKey: "newThreadShortcut") ?? "cmd+n"
+
+        if shortcut == lastRegisteredNewThreadShortcut { return }
+
+        // Tear down previous monitor
+        if let monitor = cmdNLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            cmdNLocalMonitor = nil
+        }
+
+        guard !shortcut.isEmpty else {
+            lastRegisteredNewThreadShortcut = shortcut
+            log.info("New Thread: shortcut disabled")
+            return
+        }
+
+        let (targetModifiers, targetKey) = ShortcutHelper.parseShortcut(shortcut)
+
         let handler: (NSEvent) -> NSEvent? = { [weak self] event in
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            guard event.keyCode == 45, // kVK_ANSI_N
-                  mods == [.command] else {
+            guard mods == targetModifiers,
+                  event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else {
                 return event
             }
             Task { @MainActor in
@@ -212,16 +319,36 @@ extension AppDelegate {
             return nil
         }
         cmdNLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+
+        lastRegisteredNewThreadShortcut = shortcut
     }
 
-    /// Registers Cmd+K as a local shortcut to open the command palette.
+    /// Registers a local shortcut to open the command palette.
     /// Only active when the app is focused (local monitor, not global).
+    /// Reads the shortcut from UserDefaults. Skips re-registration if unchanged.
     func registerCmdKMonitor() {
+        let shortcut = UserDefaults.standard.string(forKey: "commandPaletteShortcut") ?? "cmd+k"
+
+        if shortcut == lastRegisteredCommandPaletteShortcut { return }
+
+        // Tear down previous registration
+        if let monitor = cmdKLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            cmdKLocalMonitor = nil
+        }
+
+        guard !shortcut.isEmpty else {
+            lastRegisteredCommandPaletteShortcut = shortcut
+            log.info("Command Palette: shortcut disabled")
+            return
+        }
+
+        let (targetModifiers, targetKey) = ShortcutHelper.parseShortcut(shortcut)
+
         let handler: (NSEvent) -> NSEvent? = { [weak self] event in
-            // Cmd+K: keyCode 40 is kVK_ANSI_K
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            guard event.keyCode == 40,
-                  mods == [.command] else {
+            guard mods == targetModifiers,
+                  event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else {
                 return event
             }
             Task { @MainActor in
@@ -231,6 +358,8 @@ extension AppDelegate {
             return nil // consume the event
         }
         cmdKLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+
+        lastRegisteredCommandPaletteShortcut = shortcut
     }
 
     /// Registers Cmd+[ and Cmd+] as local shortcuts for back/forward navigation.
@@ -243,57 +372,132 @@ extension AppDelegate {
     /// Only consumes the event when navigation actually occurs — if the history
     /// stack is empty, the event passes through to the responder chain.
     func registerNavigationMonitor() {
-        guard navLocalMonitor == nil else { return }
+        let backShortcut = UserDefaults.standard.string(forKey: "navigateBackShortcut") ?? "cmd+["
+        let forwardShortcut = UserDefaults.standard.string(forKey: "navigateForwardShortcut") ?? "cmd+]"
+
+        // Skip re-registration if neither shortcut changed.
+        if backShortcut == lastRegisteredNavBackShortcut,
+           forwardShortcut == lastRegisteredNavForwardShortcut { return }
+
+        // Tear down existing monitor before re-registration.
+        if let monitor = navLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            navLocalMonitor = nil
+        }
+
+        // If both shortcuts are disabled, record state and return.
+        guard !backShortcut.isEmpty || !forwardShortcut.isEmpty else {
+            lastRegisteredNavBackShortcut = backShortcut
+            lastRegisteredNavForwardShortcut = forwardShortcut
+            log.info("Navigation: both shortcuts disabled")
+            return
+        }
+
+        // Parse shortcuts into modifier flags and key strings.
+        let backParsed: (NSEvent.ModifierFlags, String)? = backShortcut.isEmpty ? nil : ShortcutHelper.parseShortcut(backShortcut)
+        let forwardParsed: (NSEvent.ModifierFlags, String)? = forwardShortcut.isEmpty ? nil : ShortcutHelper.parseShortcut(forwardShortcut)
+
         let handler: (NSEvent) -> NSEvent? = { [weak self] event in
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            guard mods == [.command] else { return event }
             guard let chars = event.charactersIgnoringModifiers else { return event }
-            switch chars {
-            case "[":
+
+            // Check back shortcut
+            if let (backMods, backKey) = backParsed,
+               mods == backMods,
+               chars.lowercased() == backKey.lowercased() {
                 guard self?.mainWindow?.windowState.navigationHistory.canGoBack == true else { return event }
                 Task { @MainActor in
                     self?.mainWindow?.windowState.navigateBack()
                 }
                 return nil
-            case "]":
+            }
+
+            // Check forward shortcut
+            if let (fwdMods, fwdKey) = forwardParsed,
+               mods == fwdMods,
+               chars.lowercased() == fwdKey.lowercased() {
                 guard self?.mainWindow?.windowState.navigationHistory.canGoForward == true else { return event }
                 Task { @MainActor in
                     self?.mainWindow?.windowState.navigateForward()
                 }
                 return nil
-            default:
-                return event
             }
+
+            return event
         }
         navLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+
+        lastRegisteredNavBackShortcut = backShortcut
+        lastRegisteredNavForwardShortcut = forwardShortcut
     }
 
-    /// Registers Cmd+=/Cmd+-/Cmd+0 as local shortcuts for window zoom.
+    /// Registers zoom shortcuts as local event monitors for window zoom.
+    /// Reads `zoomInShortcut`, `zoomOutShortcut`, and `zoomResetShortcut` from
+    /// UserDefaults (defaults: "cmd+=", "cmd+-", "cmd+0"). Any shortcut can be
+    /// independently disabled by setting it to an empty string.
     /// Uses event monitoring instead of NSMenu key equivalents because
     /// SwiftUI manages the menu bar and strips programmatic items.
     func registerZoomMonitor() {
-        guard zoomLocalMonitor == nil else { return }
-        let handler: (NSEvent) -> NSEvent? = { [weak self] event in
-            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            guard let chars = event.charactersIgnoringModifiers else { return event }
-            // Cmd+= (same physical key as Cmd++, shift ignored)
-            if chars == "=" && mods.contains(.command) && !mods.contains(.control) {
-                Task { @MainActor in self?.zoomManager.zoomIn() }
-                return nil
-            }
-            // Cmd+-
-            if chars == "-" && mods == [.command] {
-                Task { @MainActor in self?.zoomManager.zoomOut() }
-                return nil
-            }
-            // Cmd+0
-            if chars == "0" && mods == [.command] {
-                Task { @MainActor in self?.zoomManager.resetZoom() }
-                return nil
-            }
-            return event
+        let zoomIn = UserDefaults.standard.string(forKey: "zoomInShortcut") ?? "cmd+="
+        let zoomOut = UserDefaults.standard.string(forKey: "zoomOutShortcut") ?? "cmd+-"
+        let zoomReset = UserDefaults.standard.string(forKey: "zoomResetShortcut") ?? "cmd+0"
+
+        // Skip re-registration if all three shortcuts are unchanged
+        if zoomIn == lastRegisteredZoomInShortcut
+            && zoomOut == lastRegisteredZoomOutShortcut
+            && zoomReset == lastRegisteredZoomResetShortcut { return }
+
+        // Tear down existing monitor before re-registration
+        if let monitor = zoomLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            zoomLocalMonitor = nil
         }
-        zoomLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+
+        // Parse each shortcut (empty strings yield empty key, which won't match)
+        let (zoomInMods, zoomInKey) = ShortcutHelper.parseShortcut(zoomIn)
+        let (zoomOutMods, zoomOutKey) = ShortcutHelper.parseShortcut(zoomOut)
+        let (zoomResetMods, zoomResetKey) = ShortcutHelper.parseShortcut(zoomReset)
+
+        // Only install the monitor if at least one shortcut is enabled
+        let hasAnyShortcut = !zoomIn.isEmpty || !zoomOut.isEmpty || !zoomReset.isEmpty
+
+        if hasAnyShortcut {
+            let handler: (NSEvent) -> NSEvent? = { [weak self] event in
+                let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                guard let chars = event.charactersIgnoringModifiers else { return event }
+
+                // Allow Shift to be present for zoom-in: on US keyboards Cmd+Shift+= produces "+"
+                // which is the standard zoom-in gesture. Only strip Shift when the configured
+                // shortcut doesn't already include it, so custom shortcuts like cmd+shift+z still work.
+                let zoomInModsMatch = zoomInMods.contains(.shift)
+                    ? mods == zoomInMods
+                    : mods.subtracting(.shift) == zoomInMods
+                if !zoomInKey.isEmpty && chars.lowercased() == zoomInKey.lowercased() && zoomInModsMatch {
+                    Task { @MainActor in self?.zoomManager.zoomIn() }
+                    return nil
+                }
+                if !zoomOutKey.isEmpty && chars.lowercased() == zoomOutKey.lowercased() && mods == zoomOutMods {
+                    Task { @MainActor in self?.zoomManager.zoomOut() }
+                    return nil
+                }
+                if !zoomResetKey.isEmpty && chars.lowercased() == zoomResetKey.lowercased() && mods == zoomResetMods {
+                    Task { @MainActor in self?.zoomManager.resetZoom() }
+                    return nil
+                }
+                return event
+            }
+            zoomLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+        }
+
+        lastRegisteredZoomInShortcut = zoomIn
+        lastRegisteredZoomOutShortcut = zoomOut
+        lastRegisteredZoomResetShortcut = zoomReset
+    }
+
+    /// Returns a display string for a shortcut stored in UserDefaults, or `nil` if the shortcut is unbound.
+    private func shortcutHint(forKey key: String, default defaultShortcut: String) -> String? {
+        let shortcut = UserDefaults.standard.string(forKey: key) ?? defaultShortcut
+        return shortcut.isEmpty ? nil : ShortcutHelper.displayString(for: shortcut)
     }
 
     func toggleCommandPalette() {
@@ -306,7 +510,7 @@ extension AppDelegate {
 
         // Static actions
         window.actions = [
-            CommandPaletteAction(id: "new-conversation", icon: VIcon.squarePen.rawValue, label: "New Conversation", shortcutHint: "\u{2318}N") { [weak self] in
+            CommandPaletteAction(id: "new-conversation", icon: VIcon.squarePen.rawValue, label: "New Conversation", shortcutHint: shortcutHint(forKey: "newThreadShortcut", default: "cmd+n")) { [weak self] in
                 self?.mainWindow?.threadManager.createThread()
                 if let id = self?.mainWindow?.threadManager.activeThreadId {
                     self?.mainWindow?.windowState.selection = .thread(id)
@@ -321,19 +525,19 @@ extension AppDelegate {
             CommandPaletteAction(id: "intelligence", icon: VIcon.brain.rawValue, label: "Intelligence", shortcutHint: nil) { [weak self] in
                 self?.mainWindow?.windowState.showPanel(.intelligence)
             },
-            CommandPaletteAction(id: "navigate-back", icon: VIcon.chevronLeft.rawValue, label: "Back", shortcutHint: "\u{2318}[") { [weak self] in
+            CommandPaletteAction(id: "navigate-back", icon: VIcon.chevronLeft.rawValue, label: "Back", shortcutHint: shortcutHint(forKey: "navigateBackShortcut", default: "cmd+[")) { [weak self] in
                 self?.mainWindow?.windowState.navigateBack()
             },
-            CommandPaletteAction(id: "navigate-forward", icon: VIcon.chevronRight.rawValue, label: "Forward", shortcutHint: "\u{2318}]") { [weak self] in
+            CommandPaletteAction(id: "navigate-forward", icon: VIcon.chevronRight.rawValue, label: "Forward", shortcutHint: shortcutHint(forKey: "navigateForwardShortcut", default: "cmd+]")) { [weak self] in
                 self?.mainWindow?.windowState.navigateForward()
             },
-            CommandPaletteAction(id: "zoom-in", icon: VIcon.zoomIn.rawValue, label: "Zoom In", shortcutHint: "\u{2318}+") { [weak self] in
+            CommandPaletteAction(id: "zoom-in", icon: VIcon.zoomIn.rawValue, label: "Zoom In", shortcutHint: shortcutHint(forKey: "zoomInShortcut", default: "cmd+=")) { [weak self] in
                 self?.zoomManager.zoomIn()
             },
-            CommandPaletteAction(id: "zoom-out", icon: VIcon.zoomOut.rawValue, label: "Zoom Out", shortcutHint: "\u{2318}-") { [weak self] in
+            CommandPaletteAction(id: "zoom-out", icon: VIcon.zoomOut.rawValue, label: "Zoom Out", shortcutHint: shortcutHint(forKey: "zoomOutShortcut", default: "cmd+-")) { [weak self] in
                 self?.zoomManager.zoomOut()
             },
-            CommandPaletteAction(id: "zoom-reset", icon: VIcon.search.rawValue, label: "Actual Size", shortcutHint: "\u{2318}0") { [weak self] in
+            CommandPaletteAction(id: "zoom-reset", icon: VIcon.search.rawValue, label: "Actual Size", shortcutHint: shortcutHint(forKey: "zoomResetShortcut", default: "cmd+0")) { [weak self] in
                 self?.zoomManager.resetZoom()
             },
         ]

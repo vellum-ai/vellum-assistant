@@ -9,17 +9,13 @@ struct SettingsAppearanceTab: View {
     var afterTimezone: AnyView? = nil
     @AppStorage("themePreference") private var themePreference: String = "system"
     @State private var newAllowlistDomain = ""
-    @State private var isRecordingGlobalHotkey = false
-    @State private var isRecordingQuickInputHotkey = false
-    @State private var shortcutMonitor: Any?
-    @State private var flagsMonitor: Any?
-    @State private var recordingDisplayString: String?
-    @State private var shortcutConflictWarning: String?
+    @State private var activeRecordingId: String?
     @State private var selectedTimezone: String = ""
     @State private var timezoneSearchText: String = ""
     @State private var debouncedTimezoneSearchText: String = ""
     @State private var isTimezoneDropdownOpen: Bool = false
     @State private var timezoneSearchDebounceTask: Task<Void, Never>?
+    @State private var showResetConfirmation = false
     @FocusState private var isTimezoneSearchFocused: Bool
 
     var body: some View {
@@ -191,76 +187,112 @@ struct SettingsAppearanceTab: View {
                 VStack(alignment: .leading, spacing: 0) {
 
                 // Open Vellum (configurable)
-                HStack {
-                    Text("Open Vellum")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentSecondary)
-                    Spacer()
-                    if isRecordingGlobalHotkey, let display = recordingDisplayString, !display.isEmpty {
-                        VShortcutTag(display)
-                    } else {
-                        VShortcutTag(ShortcutHelper.displayString(for: store.globalHotkeyShortcut))
-                    }
-
-                    if isRecordingGlobalHotkey {
-                        VButton(label: "Press shortcut...", style: .outlined) {
-                            stopRecording()
-                        }
-                    } else {
-                        HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Record", style: .outlined) {
-                                startRecording()
-                            }
-                            if !store.globalHotkeyShortcut.isEmpty {
-                                VButton(label: "Unbind", style: .outlined) {
-                                    store.globalHotkeyShortcut = ""
-                                }
-                            }
-                        }
-                    }
-                }
-                .padding(.vertical, VSpacing.md)
-
-                if let shortcutConflictWarning {
-                    Text(shortcutConflictWarning)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.systemNegativeHover)
-                        .padding(.bottom, VSpacing.xs)
-                }
+                ConfigurableShortcutRow(
+                    label: "Open Vellum",
+                    shortcutBinding: $store.globalHotkeyShortcut,
+                    keyCodeBinding: nil,
+                    registryId: "globalHotkeyShortcut",
+                    activeRecordingId: $activeRecordingId
+                )
 
                 SettingsDivider()
 
                 // Quick Input (configurable)
-                HStack {
-                    Text("Quick Input")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentSecondary)
-                    Spacer()
-                    if isRecordingQuickInputHotkey, let display = recordingDisplayString, !display.isEmpty {
-                        VShortcutTag(display)
-                    } else {
-                        VShortcutTag(ShortcutHelper.displayString(for: store.quickInputHotkeyShortcut))
-                    }
+                ConfigurableShortcutRow(
+                    label: "Quick Input",
+                    shortcutBinding: $store.quickInputHotkeyShortcut,
+                    keyCodeBinding: $store.quickInputHotkeyKeyCode,
+                    registryId: "quickInputHotkeyShortcut",
+                    activeRecordingId: $activeRecordingId
+                )
 
-                    if isRecordingQuickInputHotkey {
-                        VButton(label: "Press shortcut...", style: .outlined) {
-                            stopRecording()
-                        }
-                    } else {
-                        HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Record", style: .outlined) {
-                                startRecordingQuickInput()
-                            }
-                            if !store.quickInputHotkeyShortcut.isEmpty {
-                                VButton(label: "Unbind", style: .outlined) {
-                                    store.quickInputHotkeyShortcut = ""
-                                    store.quickInputHotkeyKeyCode = 0
-                                }
-                            }
-                        }
-                    }
-                }
-                .padding(.vertical, VSpacing.md)
+                SettingsDivider()
+
+                // Quick Input Above Dock (configurable)
+                ConfigurableShortcutRow(
+                    label: "Quick Input Above Dock",
+                    shortcutBinding: $store.quickInputAboveDockShortcut,
+                    keyCodeBinding: nil,
+                    registryId: "quickInputAboveDockShortcut",
+                    activeRecordingId: $activeRecordingId
+                )
+
+                SettingsDivider()
+
+                // New Conversation (configurable)
+                ConfigurableShortcutRow(
+                    label: "New Conversation",
+                    shortcutBinding: $store.newThreadShortcut,
+                    keyCodeBinding: nil,
+                    registryId: "newThreadShortcut",
+                    activeRecordingId: $activeRecordingId
+                )
+
+                SettingsDivider()
+
+                // Command Palette (configurable)
+                ConfigurableShortcutRow(
+                    label: "Command Palette",
+                    shortcutBinding: $store.commandPaletteShortcut,
+                    keyCodeBinding: nil,
+                    registryId: "commandPaletteShortcut",
+                    activeRecordingId: $activeRecordingId
+                )
+
+                SettingsDivider()
+
+                // Navigate Back (configurable)
+                ConfigurableShortcutRow(
+                    label: "Navigate Back",
+                    shortcutBinding: $store.navigateBackShortcut,
+                    keyCodeBinding: nil,
+                    registryId: "navigateBackShortcut",
+                    activeRecordingId: $activeRecordingId
+                )
+
+                SettingsDivider()
+
+                // Navigate Forward (configurable)
+                ConfigurableShortcutRow(
+                    label: "Navigate Forward",
+                    shortcutBinding: $store.navigateForwardShortcut,
+                    keyCodeBinding: nil,
+                    registryId: "navigateForwardShortcut",
+                    activeRecordingId: $activeRecordingId
+                )
+
+                SettingsDivider()
+
+                // Zoom In (configurable)
+                ConfigurableShortcutRow(
+                    label: "Zoom In",
+                    shortcutBinding: $store.zoomInShortcut,
+                    keyCodeBinding: nil,
+                    registryId: "zoomInShortcut",
+                    activeRecordingId: $activeRecordingId
+                )
+
+                SettingsDivider()
+
+                // Zoom Out (configurable)
+                ConfigurableShortcutRow(
+                    label: "Zoom Out",
+                    shortcutBinding: $store.zoomOutShortcut,
+                    keyCodeBinding: nil,
+                    registryId: "zoomOutShortcut",
+                    activeRecordingId: $activeRecordingId
+                )
+
+                SettingsDivider()
+
+                // Actual Size (configurable)
+                ConfigurableShortcutRow(
+                    label: "Actual Size",
+                    shortcutBinding: $store.zoomResetShortcut,
+                    keyCodeBinding: nil,
+                    registryId: "zoomResetShortcut",
+                    activeRecordingId: $activeRecordingId
+                )
 
                 SettingsDivider()
 
@@ -277,10 +309,28 @@ struct SettingsAppearanceTab: View {
                     helperText: "When enabled, Enter inserts a new line and cmd+enter sends."
                 )
                 .padding(.vertical, VSpacing.md)
+
+                SettingsDivider()
+
+                HStack {
+                    Spacer()
+                    VButton(label: "Reset All to Defaults", style: .outlined) {
+                        showResetConfirmation = true
+                    }
+                }
+                .padding(.vertical, VSpacing.md)
                 }
             }
             .onDisappear {
-                stopRecording()
+                activeRecordingId = nil
+            }
+            .alert("Reset Keyboard Shortcuts?", isPresented: $showResetConfirmation) {
+                Button("Reset", role: .destructive) {
+                    KeyboardShortcutRegistry.resetAllToDefaults(store: store)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This will reset all keyboard shortcuts to their default values.")
             }
 
             // MEDIA EMBEDS section
@@ -444,30 +494,84 @@ struct SettingsAppearanceTab: View {
         }
     }
 
-    // MARK: - Shortcut Recording
+}
+
+/// A configurable shortcut row with Record/Unbind buttons, real-time modifier display, and conflict detection.
+private struct ConfigurableShortcutRow: View {
+    let label: String
+    @Binding var shortcutBinding: String
+    var keyCodeBinding: Binding<Int>?
+    let registryId: String
+    @Binding var activeRecordingId: String?
+
+    @State private var shortcutMonitor: Any?
+    @State private var flagsMonitor: Any?
+    @State private var recordingDisplayString: String?
+    @State private var conflictWarning: String?
+
+    private var isRecording: Bool {
+        activeRecordingId == registryId
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(label)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentSecondary)
+                Spacer()
+                if isRecording, let display = recordingDisplayString, !display.isEmpty {
+                    VShortcutTag(display)
+                } else {
+                    VShortcutTag(ShortcutHelper.displayString(for: shortcutBinding))
+                }
+
+                if isRecording {
+                    VButton(label: "Press shortcut...", style: .outlined) {
+                        stopRecording()
+                    }
+                } else {
+                    HStack(spacing: VSpacing.sm) {
+                        VButton(label: "Record", style: .outlined) {
+                            startRecording()
+                        }
+                        if !shortcutBinding.isEmpty {
+                            VButton(label: "Unbind", style: .outlined) {
+                                shortcutBinding = ""
+                                if keyCodeBinding != nil {
+                                    keyCodeBinding?.wrappedValue = 0
+                                }
+                                conflictWarning = nil
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.vertical, VSpacing.md)
+
+            if let conflictWarning {
+                Text(conflictWarning)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.systemNegativeHover)
+                    .padding(.bottom, VSpacing.xs)
+            }
+        }
+        .onDisappear {
+            stopRecording()
+        }
+        .onChange(of: activeRecordingId) { _, newValue in
+            if newValue != registryId && (shortcutMonitor != nil || flagsMonitor != nil) {
+                stopRecording()
+            }
+        }
+    }
 
     private func startRecording() {
-        startRecordingShortcut { shortcut, _ in
-            store.globalHotkeyShortcut = shortcut
-        }
-        isRecordingGlobalHotkey = true
-    }
-
-    private func startRecordingQuickInput() {
-        startRecordingShortcut { shortcut, keyCode in
-            store.quickInputHotkeyShortcut = shortcut
-            store.quickInputHotkeyKeyCode = Int(keyCode)
-        }
-        isRecordingQuickInputHotkey = true
-    }
-
-    /// Shared recording logic. The callback receives the shortcut string and the raw NSEvent key code.
-    private func startRecordingShortcut(onRecord: @escaping (String, UInt16) -> Void) {
         stopRecording()
-        shortcutConflictWarning = nil
+        conflictWarning = nil
         recordingDisplayString = nil
+        activeRecordingId = registryId
 
-        // Monitor modifier key changes to show pressed modifiers in real-time.
         flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             recordingDisplayString = ShortcutHelper.modifierDisplayString(from: mods)
@@ -477,6 +581,7 @@ struct SettingsAppearanceTab: View {
         shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
+            // Escape cancels recording
             if event.keyCode == 53 {
                 stopRecording()
                 return nil
@@ -493,16 +598,25 @@ struct SettingsAppearanceTab: View {
                 from: mods, key: chars, keyCode: event.keyCode
             )
 
-            shortcutConflictWarning = nil
-            onRecord(shortcut, event.keyCode)
+            // Check for conflicts
+            conflictWarning = nil
+            if let conflict = KeyboardShortcutRegistry.conflictingShortcut(for: shortcut, excluding: registryId) {
+                conflictWarning = "Conflicts with \(conflict.label)"
+            }
+
+            shortcutBinding = shortcut
+            if let keyCodeBinding {
+                keyCodeBinding.wrappedValue = Int(event.keyCode)
+            }
             stopRecording()
             return nil
         }
     }
 
     private func stopRecording() {
-        isRecordingGlobalHotkey = false
-        isRecordingQuickInputHotkey = false
+        if activeRecordingId == registryId {
+            activeRecordingId = nil
+        }
         recordingDisplayString = nil
         if let monitor = shortcutMonitor {
             NSEvent.removeMonitor(monitor)
@@ -513,7 +627,6 @@ struct SettingsAppearanceTab: View {
             flagsMonitor = nil
         }
     }
-
 }
 
 /// A read-only row displaying a keyboard shortcut and its description.
@@ -532,4 +645,3 @@ private struct ShortcutRow: View {
         .padding(.vertical, VSpacing.md)
     }
 }
-
