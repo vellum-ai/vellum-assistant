@@ -92,8 +92,7 @@ struct InlineVideoEmbedView: View {
                     .fill(Color.black.opacity(0.7))
                     .frame(width: 56, height: 56)
                     .overlay(
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 22))
+                        VIconView(.play, size: 22)
                             .foregroundColor(.white)
                             .offset(x: 2)
                     )
