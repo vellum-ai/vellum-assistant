@@ -87,10 +87,13 @@ Examples:
       const configKey = getSecureKey(provider);
       const envVar = providerEnvVar[provider];
       const envKey = envVar ? process.env[envVar] : undefined;
+      const plaintextKey = (
+        raw.apiKeys as Record<string, string> | undefined
+      )?.[provider];
 
       if (provider === "ollama") {
         pass("Provider configured (Ollama; API key optional)");
-      } else if (envKey || configKey) {
+      } else if (envKey || configKey || plaintextKey) {
         pass("API key configured");
       } else {
         fail(
