@@ -22,6 +22,7 @@ struct GuardianChannelsDetailView: View {
     @State private var verificationCountdownNow: Date = Date()
     @State private var verificationCountdownTimer: Timer?
     @State private var setupExpanded: Set<String> = []
+    @State private var dismissedChannels: Set<String> = []
     @State private var verificationStoreRevision: Int = 0
 
     var displayContact: ContactPayload {
@@ -112,12 +113,13 @@ struct GuardianChannelsDetailView: View {
             if let channel = activeChannel, channel.status == "active", channel.verifiedAt != nil {
                 // Verified channel — show address, badge, date + revoke action
                 verifiedChannelContent(channel: channel, type: type)
-            } else if !existingChannels.isEmpty || setupExpanded.contains(type) {
+            } else if (!existingChannels.isEmpty && !dismissedChannels.contains(type)) || setupExpanded.contains(type) {
                 // Existing unverified channel or user clicked "Set Up" — show verification flow
                 verificationFlowContent(for: type)
             } else {
                 // Channel ready on assistant but not yet started — show "Set Up"
                 VButton(label: "Set Up", style: .outlined) {
+                    dismissedChannels.remove(type)
                     setupExpanded.insert(type)
                 }
             }
@@ -235,7 +237,10 @@ struct GuardianChannelsDetailView: View {
                 onRevoke: { store.revokeChannelVerification(channel: type) },
                 onStartSession: { rebind in store.startChannelVerification(channel: type, rebind: rebind) },
                 onCancelSession: { store.cancelVerificationSession(channel: type) },
-                onCancel: { setupExpanded.remove(type) },
+                onCancel: {
+                    setupExpanded.remove(type)
+                    dismissedChannels.insert(type)
+                },
                 botUsername: store.telegramBotUsername,
                 phoneNumber: store.twilioPhoneNumber,
                 showLabel: false
