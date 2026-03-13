@@ -16,8 +16,17 @@ import CoreGraphics
 /// - Scientific notation (e.g., `1e-4`)
 /// - Implicit repeated commands after the initial coordinate group
 func parseSVGPath(_ d: String) -> CGPath {
+    return parseSVGPathToEditable(d).toCGPath()
+}
+
+/// Parses an SVG path `d` attribute string into an `EditablePath`, preserving
+/// individual path elements for programmatic manipulation (animations, morphing).
+///
+/// Uses the same tokenizer and coordinate resolution logic as `parseSVGPath`,
+/// but builds an `EditablePath` instead of a `CGPath` directly.
+func parseSVGPathToEditable(_ d: String) -> EditablePath {
     let tokens = tokenize(d)
-    return buildPath(from: tokens)
+    return buildEditablePath(from: tokens)
 }
 
 // MARK: - Token Types
@@ -143,9 +152,9 @@ private func scanNumber(_ chars: [Character], from start: Int) -> (Double?, Int)
 
 // MARK: - Path Builder
 
-/// Processes the token stream and builds a CGMutablePath.
-private func buildPath(from tokens: [Token]) -> CGPath {
-    let path = CGMutablePath()
+/// Processes the token stream and builds an EditablePath with individual path elements.
+private func buildEditablePath(from tokens: [Token]) -> EditablePath {
+    var elements: [EditablePath.PathElement] = []
     var currentPoint = CGPoint.zero
     var startPoint = CGPoint.zero
     var currentCommand: Character = "M"
@@ -161,7 +170,7 @@ private func buildPath(from tokens: [Token]) -> CGPath {
 
             // Z/z takes no arguments
             if currentCommand == "Z" {
-                path.closeSubpath()
+                elements.append(.close)
                 currentPoint = startPoint
                 continue
             }
@@ -172,7 +181,7 @@ private func buildPath(from tokens: [Token]) -> CGPath {
         case "M":
             guard let (x, y, newI) = consumeCoordinatePair(tokens, from: i) else { break }
             let point = resolvePoint(x: x, y: y, relative: isRelative, current: currentPoint)
-            path.move(to: point)
+            elements.append(.moveTo(point))
             currentPoint = point
             startPoint = point
             i = newI
@@ -183,7 +192,7 @@ private func buildPath(from tokens: [Token]) -> CGPath {
         case "L":
             guard let (x, y, newI) = consumeCoordinatePair(tokens, from: i) else { break }
             let point = resolvePoint(x: x, y: y, relative: isRelative, current: currentPoint)
-            path.addLine(to: point)
+            elements.append(.lineTo(point))
             currentPoint = point
             i = newI
             continue
@@ -192,7 +201,7 @@ private func buildPath(from tokens: [Token]) -> CGPath {
             guard let (x, newI) = consumeNumber(tokens, from: i) else { break }
             let absX = isRelative ? currentPoint.x + x : x
             let point = CGPoint(x: absX, y: currentPoint.y)
-            path.addLine(to: point)
+            elements.append(.lineTo(point))
             currentPoint = point
             i = newI
             continue
@@ -201,7 +210,7 @@ private func buildPath(from tokens: [Token]) -> CGPath {
             guard let (y, newI) = consumeNumber(tokens, from: i) else { break }
             let absY = isRelative ? currentPoint.y + y : y
             let point = CGPoint(x: currentPoint.x, y: absY)
-            path.addLine(to: point)
+            elements.append(.lineTo(point))
             currentPoint = point
             i = newI
             continue
@@ -213,7 +222,7 @@ private func buildPath(from tokens: [Token]) -> CGPath {
             let control1 = resolvePoint(x: x1, y: y1, relative: isRelative, current: currentPoint)
             let control2 = resolvePoint(x: x2, y: y2, relative: isRelative, current: currentPoint)
             let endPoint = resolvePoint(x: x, y: y, relative: isRelative, current: currentPoint)
-            path.addCurve(to: endPoint, control1: control1, control2: control2)
+            elements.append(.curveTo(to: endPoint, control1: control1, control2: control2))
             currentPoint = endPoint
             i = newI3
             continue
@@ -227,7 +236,7 @@ private func buildPath(from tokens: [Token]) -> CGPath {
         i += 1
     }
 
-    return path
+    return EditablePath(elements: elements)
 }
 
 // MARK: - Helpers
