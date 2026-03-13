@@ -91,6 +91,15 @@ final class OnboardingState {
         !speechGranted || !accessibilityGranted || !screenGranted
     }
 
+    /// Whether the user has previously accepted the Terms of Service.
+    static var hasAcceptedToS: Bool {
+        UserDefaults.standard.double(forKey: "tos.acceptedAt") > 0
+    }
+
+    var userHostedEnabled: Bool {
+        MacOSClientFeatureFlagManager.shared.isEnabled("user_hosted_enabled")
+    }
+
     /// Continuous crack progress (0.0–1.0) derived from step and permission state.
     /// For the first meeting variant, uses a timer-driven stored property instead.
     var crackProgress: CGFloat {
@@ -227,7 +236,7 @@ final class OnboardingState {
     }
 
     static func clearPersistedState() {
-        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.variant", "onboarding.firstMeetingCrackProgress", "onboarding.flowVersion", "onboarding.cloudProvider", "onboarding.userDisplayName", "onboarding.userEmail"] {
+        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.variant", "onboarding.firstMeetingCrackProgress", "onboarding.flowVersion", "onboarding.cloudProvider", "onboarding.userDisplayName", "onboarding.userEmail", "tos.acceptedAt"] {
             UserDefaults.standard.removeObject(forKey: key)
         }
     }
