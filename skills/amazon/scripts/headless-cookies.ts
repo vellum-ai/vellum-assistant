@@ -14,7 +14,7 @@ import type { AmazonSession } from "./session.js";
 
 const CHROME_COOKIES_DB = join(
   homedir(),
-  "Library/Application Support/Google/Chrome/Default/Cookies",
+  "Library/Application Support/Google/Chrome/Default/Cookies"
 );
 
 /**
@@ -24,7 +24,7 @@ const CHROME_COOKIES_DB = join(
  */
 function decryptChromeCookie(
   encHex: string,
-  derivedKey: Buffer,
+  derivedKey: Buffer
 ): string | null {
   const buf = Buffer.from(encHex, "hex");
   if (buf.length < 4 || buf.slice(0, 3).toString() !== "v10") return null;
@@ -53,18 +53,20 @@ function decryptChromeCookie(
  *   - The user must be signed into Amazon in Chrome
  *   - macOS Keychain access for 'Chrome Safe Storage' (will prompt once)
  */
-export async function extractSessionFromChromeCookies(): Promise<AmazonSession> {
+export async function extractSessionFromChromeCookies(): Promise<
+  AmazonSession
+> {
   // 1. Get Chrome Safe Storage key from macOS Keychain
   let keychainPassword: string;
   try {
     keychainPassword = execSync(
       'security find-generic-password -w -s "Chrome Safe Storage" -a "Chrome"',
-      { encoding: "utf-8" },
+      { encoding: "utf-8" }
     ).trim();
   } catch {
     throw new Error(
       "Could not read Chrome Safe Storage key from macOS Keychain. " +
-        "Make sure Chrome is installed and has been opened at least once.",
+        "Make sure Chrome is installed and has been opened at least once."
     );
   }
 
@@ -74,7 +76,7 @@ export async function extractSessionFromChromeCookies(): Promise<AmazonSession> 
     "saltysalt",
     1003,
     16,
-    "sha1",
+    "sha1"
   );
 
   // 3. Copy the Cookies DB to a temp file, then query the copy.
@@ -92,12 +94,12 @@ export async function extractSessionFromChromeCookies(): Promise<AmazonSession> 
 
     rawOutput = execSync(
       `sqlite3 "${tmpCookiesDb}" "SELECT name, hex(encrypted_value), host_key, path, is_httponly, is_secure, expires_utc FROM cookies WHERE host_key LIKE '%amazon.com%'"`,
-      { encoding: "utf-8" },
+      { encoding: "utf-8" }
     ).trim();
   } catch {
     throw new Error(
       "Could not read Chrome Cookies database. " +
-        "Make sure Chrome is installed and the Cookies file exists.",
+        "Make sure Chrome is installed and the Cookies file exists."
     );
   } finally {
     // Clean up temp files
@@ -115,7 +117,7 @@ export async function extractSessionFromChromeCookies(): Promise<AmazonSession> 
   if (!rawOutput) {
     throw new Error(
       "No Amazon cookies found in Chrome. " +
-        "Make sure you are signed into Amazon in Chrome.",
+        "Make sure you are signed into Amazon in Chrome."
     );
   }
 
@@ -137,9 +139,10 @@ export async function extractSessionFromChromeCookies(): Promise<AmazonSession> 
       path: path || "/",
       httpOnly: httpOnly === "1",
       secure: secure === "1",
-      expires: expiresUtc && expiresUtc !== "0"
-        ? Math.floor(parseInt(expiresUtc, 10) / 1000000 - 11644473600)
-        : undefined,
+      expires:
+        expiresUtc && expiresUtc !== "0"
+          ? Math.floor(parseInt(expiresUtc, 10) / 1000000 - 11644473600)
+          : undefined,
     });
   }
 
@@ -148,19 +151,19 @@ export async function extractSessionFromChromeCookies(): Promise<AmazonSession> 
   if (!cookieNames.has("session-id")) {
     throw new Error(
       "Chrome cookies are missing required Amazon cookie: session-id. " +
-        "Make sure you are signed into Amazon in Chrome.",
+        "Make sure you are signed into Amazon in Chrome."
     );
   }
   if (!cookieNames.has("ubid-main")) {
     throw new Error(
       "Chrome cookies are missing required Amazon cookie: ubid-main. " +
-        "Make sure you are signed into Amazon in Chrome.",
+        "Make sure you are signed into Amazon in Chrome."
     );
   }
   if (!cookieNames.has("at-main") && !cookieNames.has("x-main")) {
     throw new Error(
       "Chrome cookies are missing required Amazon auth cookie (at-main or x-main). " +
-        "Make sure you are fully signed into Amazon in Chrome.",
+        "Make sure you are fully signed into Amazon in Chrome."
     );
   }
 
