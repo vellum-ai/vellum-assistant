@@ -429,7 +429,10 @@ describe("assistant credentials CLI", () => {
 
       const inspectResult = await runCli([
         "inspect",
-        "twilio:account_sid",
+        "--service",
+        "twilio",
+        "--field",
+        "account_sid",
         "--json",
       ]);
       const inspectParsed = JSON.parse(inspectResult.stdout);
@@ -448,7 +451,10 @@ describe("assistant credentials CLI", () => {
     test("stores secret and creates metadata", async () => {
       const result = await runCli([
         "set",
-        "twilio:account_sid",
+        "--service",
+        "twilio",
+        "--field",
+        "account_sid",
         "AC1234567890",
         "--json",
       ]);
@@ -476,7 +482,10 @@ describe("assistant credentials CLI", () => {
     test("stores metadata with --label and --description", async () => {
       const result = await runCli([
         "set",
-        "fal:api_key",
+        "--service",
+        "fal",
+        "--field",
+        "api_key",
         "key_live_abc",
         "--label",
         "fal-prod",
@@ -496,34 +505,39 @@ describe("assistant credentials CLI", () => {
       expect(meta!.usageDescription).toBe("Image generation");
     });
 
-    test("rejects invalid name without colon", async () => {
+    test("errors when --service flag is missing", async () => {
       const result = await runCli([
         "set",
-        "invalid_name",
+        "--field",
+        "account_sid",
         "some_value",
         "--json",
       ]);
-      expect(result.exitCode).toBe(1);
-      const parsed = JSON.parse(result.stdout);
-      expect(parsed.ok).toBe(false);
-      expect(parsed.error).toContain("Invalid credential name");
-      expect(parsed.error).toContain("service:field");
+      // Commander should error on missing required option
+      expect(result.exitCode).not.toBe(0);
     });
 
-    test("rejects name with leading colon", async () => {
+    test("errors when --field flag is missing", async () => {
       const result = await runCli([
         "set",
-        ":field_only",
+        "--service",
+        "twilio",
         "some_value",
         "--json",
       ]);
-      expect(result.exitCode).toBe(1);
-      const parsed = JSON.parse(result.stdout);
-      expect(parsed.ok).toBe(false);
+      // Commander should error on missing required option
+      expect(result.exitCode).not.toBe(0);
     });
 
     test("errors when value argument is missing", async () => {
-      const result = await runCli(["set", "twilio:account_sid", "--json"]);
+      const result = await runCli([
+        "set",
+        "--service",
+        "twilio",
+        "--field",
+        "account_sid",
+        "--json",
+      ]);
       // Commander should error on missing required arg
       expect(result.exitCode).not.toBe(0);
     });
@@ -531,7 +545,10 @@ describe("assistant credentials CLI", () => {
     test("stores metadata with --allowed-tools", async () => {
       const result = await runCli([
         "set",
-        "twilio:auth_token",
+        "--service",
+        "twilio",
+        "--field",
+        "auth_token",
         "sometoken",
         "--allowed-tools",
         "bash,host_bash",
@@ -550,7 +567,15 @@ describe("assistant credentials CLI", () => {
 
     test("updates existing credential on second set", async () => {
       // First set
-      await runCli(["set", "twilio:account_sid", "original_value", "--json"]);
+      await runCli([
+        "set",
+        "--service",
+        "twilio",
+        "--field",
+        "account_sid",
+        "original_value",
+        "--json",
+      ]);
       const meta1 = metadataStore.find(
         (m) => m.service === "twilio" && m.field === "account_sid",
       );
@@ -561,7 +586,15 @@ describe("assistant credentials CLI", () => {
       await new Promise((resolve) => setTimeout(resolve, 5));
 
       // Second set
-      await runCli(["set", "twilio:account_sid", "new_value", "--json"]);
+      await runCli([
+        "set",
+        "--service",
+        "twilio",
+        "--field",
+        "account_sid",
+        "new_value",
+        "--json",
+      ]);
       const meta2 = metadataStore.find(
         (m) => m.service === "twilio" && m.field === "account_sid",
       );
@@ -583,7 +616,14 @@ describe("assistant credentials CLI", () => {
     test("removes both secret and metadata", async () => {
       seedCredential("twilio", "auth_token", "secret_value_here");
 
-      const result = await runCli(["delete", "twilio:auth_token", "--json"]);
+      const result = await runCli([
+        "delete",
+        "--service",
+        "twilio",
+        "--field",
+        "auth_token",
+        "--json",
+      ]);
       expect(result.exitCode).toBe(0);
       const parsed = JSON.parse(result.stdout);
       expect(parsed.ok).toBe(true);
@@ -602,26 +642,48 @@ describe("assistant credentials CLI", () => {
     });
 
     test("errors on nonexistent credential", async () => {
-      const result = await runCli(["delete", "twilio:nonexistent", "--json"]);
+      const result = await runCli([
+        "delete",
+        "--service",
+        "twilio",
+        "--field",
+        "nonexistent",
+        "--json",
+      ]);
       expect(result.exitCode).toBe(1);
       const parsed = JSON.parse(result.stdout);
       expect(parsed.ok).toBe(false);
       expect(parsed.error).toContain("not found");
     });
 
-    test("rejects invalid name without colon", async () => {
-      const result = await runCli(["delete", "badname", "--json"]);
-      expect(result.exitCode).toBe(1);
-      const parsed = JSON.parse(result.stdout);
-      expect(parsed.ok).toBe(false);
-      expect(parsed.error).toContain("Invalid credential name");
-      expect(parsed.error).toContain("service:field");
+    test("errors when --service flag is missing", async () => {
+      const result = await runCli([
+        "delete",
+        "--field",
+        "auth_token",
+        "--json",
+      ]);
+      // Commander should error on missing required option
+      expect(result.exitCode).not.toBe(0);
+    });
+
+    test("errors when --field flag is missing", async () => {
+      const result = await runCli(["delete", "--service", "twilio", "--json"]);
+      // Commander should error on missing required option
+      expect(result.exitCode).not.toBe(0);
     });
 
     test("succeeds when only metadata exists (no secret)", async () => {
       seedMetadataOnly("twilio", "auth_token");
 
-      const result = await runCli(["delete", "twilio:auth_token", "--json"]);
+      const result = await runCli([
+        "delete",
+        "--service",
+        "twilio",
+        "--field",
+        "auth_token",
+        "--json",
+      ]);
       expect(result.exitCode).toBe(0);
       const parsed = JSON.parse(result.stdout);
       expect(parsed.ok).toBe(true);
@@ -637,7 +699,14 @@ describe("assistant credentials CLI", () => {
     test("calls disconnectOAuthProvider for OAuth cleanup", async () => {
       seedCredential("gmail", "access_token", "ya29.token_value");
 
-      const result = await runCli(["delete", "gmail:access_token", "--json"]);
+      const result = await runCli([
+        "delete",
+        "--service",
+        "gmail",
+        "--field",
+        "access_token",
+        "--json",
+      ]);
       expect(result.exitCode).toBe(0);
       const parsed = JSON.parse(result.stdout);
       expect(parsed.ok).toBe(true);
@@ -650,7 +719,14 @@ describe("assistant credentials CLI", () => {
       // No legacy credential seeded — only the OAuth disconnect finds something
       disconnectOAuthProviderResult = "disconnected";
 
-      const result = await runCli(["delete", "gmail:access_token", "--json"]);
+      const result = await runCli([
+        "delete",
+        "--service",
+        "gmail",
+        "--field",
+        "access_token",
+        "--json",
+      ]);
       expect(result.exitCode).toBe(0);
       const parsed = JSON.parse(result.stdout);
       expect(parsed.ok).toBe(true);
@@ -659,29 +735,6 @@ describe("assistant credentials CLI", () => {
 
       expect(disconnectOAuthProviderCalls).toEqual(["gmail"]);
     });
-
-    test("demonstrates colon-in-service-name parsing limitation with integration:gmail", async () => {
-      // parseCredentialName("integration:gmail:access_token") splits on the
-      // first colon, yielding service="integration" and field="gmail:access_token".
-      // This is incorrect for the intended service "integration:gmail". The fix
-      // for this limitation is addressed by introducing a dedicated `disconnect`
-      // subcommand (PR 5).
-      const result = await runCli([
-        "delete",
-        "integration:gmail:access_token",
-        "--json",
-      ]);
-      // The command parses as service="integration", field="gmail:access_token"
-      // which finds nothing and reports not-found.
-      expect(result.exitCode).toBe(1);
-      const parsed = JSON.parse(result.stdout);
-      expect(parsed.ok).toBe(false);
-      expect(parsed.error).toContain("not found");
-
-      // disconnectOAuthProvider was called with "integration" (wrong) instead
-      // of "integration:gmail" (intended).
-      expect(disconnectOAuthProviderCalls).toEqual(["integration"]);
-    });
   });
 
   // =========================================================================
@@ -689,10 +742,17 @@ describe("assistant credentials CLI", () => {
   // =========================================================================
 
   describe("inspect", () => {
-    test("shows metadata and scrubbed value by service:field", async () => {
+    test("shows metadata and scrubbed value by --service/--field", async () => {
       const meta = seedCredential("twilio", "account_sid", "AC123456789012");
 
-      const result = await runCli(["inspect", "twilio:account_sid", "--json"]);
+      const result = await runCli([
+        "inspect",
+        "--service",
+        "twilio",
+        "--field",
+        "account_sid",
+        "--json",
+      ]);
       expect(result.exitCode).toBe(0);
       const parsed = JSON.parse(result.stdout);
       expect(parsed.ok).toBe(true);
@@ -727,7 +787,14 @@ describe("assistant credentials CLI", () => {
     test("scrubs normal-length secret (>4 chars): shows last 4", async () => {
       seedCredential("test", "normal", "abcdefgh");
 
-      const result = await runCli(["inspect", "test:normal", "--json"]);
+      const result = await runCli([
+        "inspect",
+        "--service",
+        "test",
+        "--field",
+        "normal",
+        "--json",
+      ]);
       const parsed = JSON.parse(result.stdout);
       expect(parsed.scrubbedValue).toBe("****efgh");
     });
@@ -735,7 +802,14 @@ describe("assistant credentials CLI", () => {
     test("scrubs short secret (<=4 chars): shows only ****", async () => {
       seedCredential("test", "short", "ab");
 
-      const result = await runCli(["inspect", "test:short", "--json"]);
+      const result = await runCli([
+        "inspect",
+        "--service",
+        "test",
+        "--field",
+        "short",
+        "--json",
+      ]);
       const parsed = JSON.parse(result.stdout);
       expect(parsed.scrubbedValue).toBe("****");
     });
@@ -743,32 +817,49 @@ describe("assistant credentials CLI", () => {
     test("shows (not set) when no secret exists", async () => {
       seedMetadataOnly("test", "nosecret");
 
-      const result = await runCli(["inspect", "test:nosecret", "--json"]);
+      const result = await runCli([
+        "inspect",
+        "--service",
+        "test",
+        "--field",
+        "nosecret",
+        "--json",
+      ]);
       const parsed = JSON.parse(result.stdout);
       expect(parsed.ok).toBe(true);
       expect(parsed.scrubbedValue).toBe("(not set)");
       expect(parsed.hasSecret).toBe(false);
     });
 
-    test("rejects invalid name without colon", async () => {
-      const result = await runCli(["inspect", "badname", "--json"]);
+    test("errors when neither flags nor UUID provided", async () => {
+      const result = await runCli(["inspect", "--json"]);
+      expect(result.exitCode).toBe(1);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error).toContain("--service");
+    });
+
+    test("errors on nonexistent credential by --service/--field", async () => {
+      const result = await runCli([
+        "inspect",
+        "--service",
+        "nonexistent",
+        "--field",
+        "field",
+        "--json",
+      ]);
       expect(result.exitCode).toBe(1);
       const parsed = JSON.parse(result.stdout);
       expect(parsed.ok).toBe(false);
       expect(parsed.error).toContain("not found");
     });
 
-    test("rejects name with leading colon", async () => {
-      const result = await runCli(["inspect", ":field_only", "--json"]);
-      expect(result.exitCode).toBe(1);
-      const parsed = JSON.parse(result.stdout);
-      expect(parsed.ok).toBe(false);
-      expect(parsed.error).toContain("Invalid credential name");
-      expect(parsed.error).toContain("service:field");
-    });
-
-    test("errors on nonexistent credential", async () => {
-      const result = await runCli(["inspect", "nonexistent:field", "--json"]);
+    test("errors on nonexistent UUID", async () => {
+      const result = await runCli([
+        "inspect",
+        "00000000-0000-0000-0000-000000000099",
+        "--json",
+      ]);
       expect(result.exitCode).toBe(1);
       const parsed = JSON.parse(result.stdout);
       expect(parsed.ok).toBe(false);
@@ -778,7 +869,14 @@ describe("assistant credentials CLI", () => {
     test("--json flag produces compact JSON (single line)", async () => {
       seedCredential("twilio", "account_sid", "AC123456789012");
 
-      const result = await runCli(["inspect", "twilio:account_sid", "--json"]);
+      const result = await runCli([
+        "inspect",
+        "--service",
+        "twilio",
+        "--field",
+        "account_sid",
+        "--json",
+      ]);
       const lines = result.stdout.trim().split("\n");
       expect(lines).toHaveLength(1);
       // Verify it parses as valid JSON
@@ -788,7 +886,14 @@ describe("assistant credentials CLI", () => {
     test("shows hasSecret: false when metadata exists but no secret", async () => {
       seedMetadataOnly("test", "metaonly");
 
-      const result = await runCli(["inspect", "test:metaonly", "--json"]);
+      const result = await runCli([
+        "inspect",
+        "--service",
+        "test",
+        "--field",
+        "metaonly",
+        "--json",
+      ]);
       const parsed = JSON.parse(result.stdout);
       expect(parsed.ok).toBe(true);
       expect(parsed.hasSecret).toBe(false);
@@ -801,10 +906,17 @@ describe("assistant credentials CLI", () => {
   // =========================================================================
 
   describe("reveal", () => {
-    test("returns plaintext value by service:field", async () => {
+    test("returns plaintext value by --service/--field", async () => {
       seedCredential("twilio", "account_sid", "AC123456789012");
 
-      const result = await runCli(["reveal", "twilio:account_sid", "--json"]);
+      const result = await runCli([
+        "reveal",
+        "--service",
+        "twilio",
+        "--field",
+        "account_sid",
+        "--json",
+      ]);
       expect(result.exitCode).toBe(0);
       const parsed = JSON.parse(result.stdout);
       expect(parsed.ok).toBe(true);
@@ -821,8 +933,15 @@ describe("assistant credentials CLI", () => {
       expect(parsed.value).toBe("ghp_abcdefghij1234");
     });
 
-    test("errors on nonexistent credential", async () => {
-      const result = await runCli(["reveal", "nonexistent:field", "--json"]);
+    test("errors on nonexistent credential by --service/--field", async () => {
+      const result = await runCli([
+        "reveal",
+        "--service",
+        "nonexistent",
+        "--field",
+        "field",
+        "--json",
+      ]);
       expect(result.exitCode).toBe(1);
       const parsed = JSON.parse(result.stdout);
       expect(parsed.ok).toBe(false);
@@ -841,18 +960,24 @@ describe("assistant credentials CLI", () => {
       expect(parsed.error).toContain("not found");
     });
 
-    test("rejects invalid name without colon", async () => {
-      const result = await runCli(["reveal", ":field_only", "--json"]);
+    test("errors when neither flags nor UUID provided", async () => {
+      const result = await runCli(["reveal", "--json"]);
       expect(result.exitCode).toBe(1);
       const parsed = JSON.parse(result.stdout);
       expect(parsed.ok).toBe(false);
-      expect(parsed.error).toContain("Invalid credential name");
+      expect(parsed.error).toContain("--service");
     });
 
     test("reveal in human mode emits bare secret with trailing newline", async () => {
       seedCredential("twilio", "auth_token", "secret_xyz_789");
 
-      const result = await runCli(["reveal", "twilio:auth_token"]);
+      const result = await runCli([
+        "reveal",
+        "--service",
+        "twilio",
+        "--field",
+        "auth_token",
+      ]);
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toBe("secret_xyz_789\n");
     });
@@ -860,11 +985,54 @@ describe("assistant credentials CLI", () => {
     test("errors when metadata exists but no secret stored", async () => {
       seedMetadataOnly("test", "nosecret");
 
-      const result = await runCli(["reveal", "test:nosecret", "--json"]);
+      const result = await runCli([
+        "reveal",
+        "--service",
+        "test",
+        "--field",
+        "nosecret",
+        "--json",
+      ]);
       expect(result.exitCode).toBe(1);
       const parsed = JSON.parse(result.stdout);
       expect(parsed.ok).toBe(false);
       expect(parsed.error).toContain("not found");
+    });
+  });
+
+  // =========================================================================
+  // compound service names (colons in service)
+  // =========================================================================
+
+  describe("compound service names", () => {
+    test("set and reveal with colon in service name works correctly", async () => {
+      const setResult = await runCli([
+        "set",
+        "--service",
+        "integration:google",
+        "--field",
+        "client_secret",
+        "secret123",
+        "--json",
+      ]);
+      expect(setResult.exitCode).toBe(0);
+      const setParsed = JSON.parse(setResult.stdout);
+      expect(setParsed.ok).toBe(true);
+      expect(setParsed.service).toBe("integration:google");
+      expect(setParsed.field).toBe("client_secret");
+
+      const revealResult = await runCli([
+        "reveal",
+        "--service",
+        "integration:google",
+        "--field",
+        "client_secret",
+        "--json",
+      ]);
+      expect(revealResult.exitCode).toBe(0);
+      const revealParsed = JSON.parse(revealResult.stdout);
+      expect(revealParsed.ok).toBe(true);
+      expect(revealParsed.value).toBe("secret123");
     });
   });
 
@@ -899,8 +1067,15 @@ describe("assistant credentials CLI", () => {
       // Seed a credential in the mock store
       seedCredential("twilio", "auth_token", "instance_secret_abc123");
 
-      // Run `credentials reveal twilio:auth_token`
-      const result = await runCli(["reveal", "twilio:auth_token", "--json"]);
+      // Run `credentials reveal --service twilio --field auth_token`
+      const result = await runCli([
+        "reveal",
+        "--service",
+        "twilio",
+        "--field",
+        "auth_token",
+        "--json",
+      ]);
       expect(result.exitCode).toBe(0);
       const parsed = JSON.parse(result.stdout);
       expect(parsed.ok).toBe(true);
@@ -924,7 +1099,7 @@ describe("assistant credentials CLI", () => {
     test("credentials --help contains naming convention table and storage description", async () => {
       const result = await runCli(["--help"]);
       const out = result.stdout;
-      expect(out).toContain("twilio:account_sid");
+      expect(out).toContain("--service twilio --field account_sid");
       expect(out).toContain("AES-256-GCM");
       expect(out).toContain("Examples:");
     });
