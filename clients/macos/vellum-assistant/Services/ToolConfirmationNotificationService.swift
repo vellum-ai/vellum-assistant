@@ -149,14 +149,16 @@ public final class ToolConfirmationNotificationService {
 
     private func toolDisplayName(_ toolName: String) -> String {
         switch toolName {
-        case "file_write":      return "Write File"
-        case "file_edit":       return "Edit File"
-        case "bash", "host_bash": return "Run Command"
-        case "web_fetch":       return "Fetch URL"
-        case "schedule_create": return "Create Schedule"
-        case "schedule_update": return "Update Schedule"
-        case "schedule_delete": return "Delete Schedule"
-        case "schedule_list":   return "List Schedules"
+        case "file_write", "host_file_write":   return "Write File"
+        case "file_edit", "host_file_edit":     return "Edit File"
+        case "file_read", "host_file_read":     return "Read File"
+        case "bash", "host_bash":               return "Run Command"
+        case "web_fetch":                       return "Fetch URL"
+        case "web_search":                      return "Web Search"
+        case "schedule_create":                 return "Create Schedule"
+        case "schedule_update":                 return "Update Schedule"
+        case "schedule_delete":                 return "Delete Schedule"
+        case "schedule_list":                   return "List Schedules"
         default: return toolName.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }

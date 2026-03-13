@@ -583,9 +583,8 @@ public struct ToolConfirmationData: Equatable {
 }
 
 /// Shared helper that builds a human-friendly confirmation description from tool
-/// metadata. Used by both the inline `ToolConfirmationBubble` (via
-/// `ToolConfirmationData.humanDescription`) and system notifications (via
-/// `ToolConfirmationNotificationService`).
+/// metadata. Used by `ToolConfirmationBubble` (via
+/// `ToolConfirmationData.humanDescription`).
 public func confirmationHumanDescription(
     toolName: String,
     input: [String: AnyCodable],
@@ -637,6 +636,10 @@ public func confirmationHumanDescription(
 
     switch toolName {
     case "request_system_permission":
+        let reason = (input["reason"]?.value as? String) ?? ""
+        if !reason.isEmpty {
+            return reason
+        }
         return "Permission Required: \(perm)"
     case "bash", "host_bash":
         return "Permission Required: Run Command"
