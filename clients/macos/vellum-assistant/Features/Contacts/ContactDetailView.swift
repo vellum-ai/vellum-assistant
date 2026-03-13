@@ -284,6 +284,7 @@ struct ContactDetailView: View {
                                         createInviteForChannel(type: type)
                                     }
                                 }
+                                .accessibilityHint("\(channelLabel(for: type)) is not connected for this contact")
                             }
                         }
                     }
