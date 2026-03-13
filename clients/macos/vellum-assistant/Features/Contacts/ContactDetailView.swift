@@ -43,6 +43,7 @@ struct ContactDetailView: View {
     )?
     @State private var inviteError: String?
     @State private var inviteCopiedType: String?
+    @State private var inviteExpanded: Set<String> = []
     @State private var channelReadiness: [String: DaemonClient.ChannelReadinessInfo] = [:]
     @State private var readinessFetchFailed = false
     /// Monotonically increasing counter that correlates a verification attempt
@@ -282,7 +283,13 @@ struct ContactDetailView: View {
                                 }
                             }
                         } else {
-                            unconfiguredChannelRow(type: type)
+                            if inviteExpanded.contains(type) {
+                                unconfiguredChannelContent(type: type)
+                            } else {
+                                VButton(label: "Invite", style: .outlined) {
+                                    inviteExpanded.insert(type)
+                                }
+                            }
                         }
                     }
                 }
@@ -360,7 +367,7 @@ struct ContactDetailView: View {
     }
 
     @ViewBuilder
-    private func unconfiguredChannelRow(type: String) -> some View {
+    private func unconfiguredChannelContent(type: String) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             if Self.codeInviteChannels.contains(type) {
                 if inviteInProgress == type {
@@ -376,12 +383,19 @@ struct ContactDetailView: View {
                                 .background(VColor.surfaceActive)
                                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                         }
-                        VButton(
-                            label: "Invite",
-                            style: .outlined,
-                            isDisabled: inviteInProgress != nil || (type == "phone" && invitePhoneNumber.trimmingCharacters(in: .whitespaces).isEmpty)
-                        ) {
-                            createInviteForChannel(type: type)
+                        HStack(spacing: VSpacing.sm) {
+                            VButton(
+                                label: "Invite",
+                                style: .outlined,
+                                isDisabled: inviteInProgress != nil || (type == "phone" && invitePhoneNumber.trimmingCharacters(in: .whitespaces).isEmpty)
+                            ) {
+                                createInviteForChannel(type: type)
+                            }
+                            VButton(label: "Cancel", style: .outlined) {
+                                inviteExpanded.remove(type)
+                                inviteResult = nil
+                                inviteError = nil
+                            }
                         }
                     }
                 }
