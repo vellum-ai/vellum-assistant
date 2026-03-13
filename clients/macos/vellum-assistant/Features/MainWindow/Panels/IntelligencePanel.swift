@@ -15,6 +15,7 @@ struct IntelligencePanel: View {
         case installedSkills = "Installed Skills"
         case communitySkills = "Community Skills"
         case workspace = "Workspace"
+        case memories = "Memories"
     }
 
     private let maxContentWidth: CGFloat = 1100
@@ -106,6 +107,10 @@ struct IntelligencePanel: View {
 
         case .workspace:
             WorkspacePanel(daemonClient: daemonClient)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+
+        case .memories:
+            MemoriesPanel(daemonClient: daemonClient)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
     }
