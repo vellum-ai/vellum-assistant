@@ -7,7 +7,7 @@ import { getRuntimeHttpPort } from "../../config/env.js";
 import { loadRawConfig } from "../../config/loader.js";
 import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
 import { isHttpHealthy } from "../../daemon/daemon-control.js";
-import { getSecureKey } from "../../security/secure-keys.js";
+import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import {
   getDbPath,
   getLogPath,
@@ -84,7 +84,7 @@ Examples:
         fireworks: "FIREWORKS_API_KEY",
         openrouter: "OPENROUTER_API_KEY",
       };
-      const configKey = getSecureKey(provider);
+      const configKey = await getSecureKeyAsync(provider);
       const envVar = providerEnvVar[provider];
       const envKey = envVar ? process.env[envVar] : undefined;
       const plaintextKey = (
