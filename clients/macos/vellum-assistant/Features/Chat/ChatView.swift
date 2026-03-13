@@ -91,9 +91,6 @@ struct ChatView: View {
     /// timeout window. Shows a failure screen instead of the loading skeleton.
     var isBootstrapTimedOut: Bool = false
 
-    /// Called when the user taps "Try Again" on the bootstrap timeout screen.
-    var onRetryBootstrap: (() -> Void)? = nil
-
     @State private var isNearBottom = true
     @State private var isDropTargeted = false
     @State private var containerWidth: CGFloat = 0
@@ -125,9 +122,7 @@ struct ChatView: View {
                         .accessibilityLabel("Loading chat history")
                 } else if isEmptyState && isBootstrapping {
                     if isBootstrapTimedOut {
-                        ChatBootstrapTimeoutView {
-                            onRetryBootstrap?()
-                        }
+                        ChatBootstrapTimeoutView()
                     } else {
                         ChatBootstrapLoadingView()
                     }
@@ -531,10 +526,8 @@ private struct ChatBootstrapLoadingView: View {
 
 /// Shown during first-launch bootstrap when the daemon fails to connect
 /// within the timeout window. Mirrors the hatch-failure pattern from
-/// onboarding: a centered message with a retry button.
+/// onboarding: a centered error message.
 private struct ChatBootstrapTimeoutView: View {
-    let onRetry: () -> Void
-
     @State private var visible = false
 
     var body: some View {
@@ -548,18 +541,12 @@ private struct ChatBootstrapTimeoutView: View {
                 Text("Something went wrong")
                     .font(.system(size: 24, weight: .regular, design: .serif))
                     .foregroundColor(VColor.contentDefault)
-                Text("Your assistant didn\u{2019}t connect in time.")
+                Text("Your assistant didn\u{2019}t connect in time. Please quit and reopen the app.")
                     .font(.system(size: 14))
                     .foregroundColor(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 320)
             }
-
-            VButton(label: "Try Again", style: .outlined) {
-                onRetry()
-            }
-            .controlSize(.small)
-            .padding(.top, VSpacing.xs)
 
             Spacer()
         }

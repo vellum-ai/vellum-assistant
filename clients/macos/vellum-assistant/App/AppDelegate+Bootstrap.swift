@@ -68,26 +68,6 @@ extension AppDelegate {
         return daemonClient.isConnected
     }
 
-    // MARK: - Bootstrap Retry
-
-    /// Retries the daemon connection after a bootstrap timeout. Called when
-    /// the user taps "Try Again" on the bootstrap timeout screen.
-    func retryBootstrap() {
-        bootstrapRetryTask?.cancel()
-        transitionBootstrap(to: .pendingDaemon)
-        bootstrapRetryTask = Task {
-            let ready = await awaitDaemonReady(timeout: 15)
-            guard !Task.isCancelled else { return }
-            if ready {
-                transitionBootstrap(to: .pendingWakeupSend)
-                await performRetriableWakeUpSend()
-            } else {
-                log.warning("Daemon still not ready after retry — showing timeout screen")
-                transitionBootstrap(to: .timedOut)
-            }
-        }
-    }
-
     /// Sends the wake-up greeting. If the daemon is disconnected, waits for
     /// reconnection before proceeding. Since `showMainWindow` always creates
     /// the window (via `ensureMainWindowExists`), there is no need for a

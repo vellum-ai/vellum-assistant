@@ -684,10 +684,7 @@ struct ActiveChatViewWrapper: View {
             isLoadingMoreMessages: viewModel.isLoadingMoreMessages,
             loadPreviousMessagePage: { await viewModel.loadPreviousMessagePage() },
             isBootstrapping: isBootstrapping,
-            isBootstrapTimedOut: isBootstrapTimedOut,
-            onRetryBootstrap: {
-                NotificationCenter.default.post(name: .bootstrapRetryRequested, object: nil)
-            }
+            isBootstrapTimedOut: isBootstrapTimedOut
         )
         .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
     }

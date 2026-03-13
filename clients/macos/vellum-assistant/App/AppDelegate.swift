@@ -79,10 +79,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var crashReportWindowObserver: NSObjectProtocol?
     var logReportWindow: NSWindow?
     var logReportWindowObserver: NSObjectProtocol?
-    /// Opaque observer token for the bootstrap-retry notification.
-    var bootstrapRetryObserver: NSObjectProtocol?
-    /// In-flight bootstrap retry task so rapid "Try Again" taps don't race.
-    var bootstrapRetryTask: Task<Void, Never>?
     /// Background task that retries actor-token bootstrap until success.
     var actorTokenBootstrapTask: Task<Void, Never>?
     /// Opaque token returned by `NotificationCenter.addObserver(forName:)` for
@@ -353,17 +349,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         ensureLocalAssistantApiKey()
 
         if isFirstLaunch {
-            // Listen for retry requests from the bootstrap timeout screen.
-            if bootstrapRetryObserver == nil {
-                bootstrapRetryObserver = NotificationCenter.default.addObserver(
-                    forName: .bootstrapRetryRequested, object: nil, queue: .main
-                ) { [weak self] _ in
-                    MainActor.assumeIsolated {
-                        self?.retryBootstrap()
-                    }
-                }
-            }
-
             // Enter the bootstrap state machine. The sequence is:
             // pendingDaemon → pendingWakeupSend → pendingFirstReply → complete
             // Each transition is persisted so a restart resumes correctly.
@@ -379,7 +364,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                     await performRetriableWakeUpSend()
                 } else {
                     // Daemon not ready — show the main window with a
-                    // timeout screen so the user can retry manually.
+                    // timeout screen so the user knows something went wrong.
                     log.warning("Daemon not ready after timeout — showing timeout screen")
                     transitionBootstrap(to: .timedOut)
                     showMainWindow(isFirstLaunch: true)
@@ -410,10 +395,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         if let observer = windowObserver {
             NotificationCenter.default.removeObserver(observer)
         }
-        if let observer = bootstrapRetryObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        bootstrapRetryTask?.cancel()
         statusIconCancellable?.cancel()
         conversationBadgeCancellable?.cancel()
         NSApp.dockTile.badgeLabel = nil
