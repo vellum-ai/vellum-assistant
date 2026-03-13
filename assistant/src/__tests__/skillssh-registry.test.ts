@@ -9,8 +9,10 @@ import {
   fetchSkillAudits,
   formatAuditBadges,
   providerDisplayName,
+  resolveSkillSource,
   riskToDisplay,
   searchSkillsRegistry,
+  validateSkillSlug,
 } from "../skills/skillssh-registry.js";
 
 // ─── Fetch mock helpers ──────────────────────────────────────────────────────
@@ -196,5 +198,125 @@ describe("formatAuditBadges", () => {
       ath: { risk: "critical", analyzedAt: "2025-01-15T00:00:00Z" },
     };
     expect(formatAuditBadges(auditData)).toBe("Security: [ATH:FAIL]");
+  });
+});
+
+// ─── resolveSkillSource ─────────────────────────────────────────────────────
+
+describe("resolveSkillSource", () => {
+  test("parses owner/repo@skill-name format", () => {
+    const result = resolveSkillSource("vercel-labs/skills@find-skills");
+    expect(result).toEqual({
+      owner: "vercel-labs",
+      repo: "skills",
+      skillSlug: "find-skills",
+    });
+  });
+
+  test("parses owner/repo/skill-name format", () => {
+    const result = resolveSkillSource("vercel-labs/skills/find-skills");
+    expect(result).toEqual({
+      owner: "vercel-labs",
+      repo: "skills",
+      skillSlug: "find-skills",
+    });
+  });
+
+  test("parses full GitHub URL with main branch", () => {
+    const result = resolveSkillSource(
+      "https://github.com/vercel-labs/skills/tree/main/skills/find-skills",
+    );
+    expect(result).toEqual({
+      owner: "vercel-labs",
+      repo: "skills",
+      skillSlug: "find-skills",
+      ref: "main",
+    });
+  });
+
+  test("parses full GitHub URL with non-main branch", () => {
+    const result = resolveSkillSource(
+      "https://github.com/some-org/repo/tree/develop/skills/my-skill",
+    );
+    expect(result).toEqual({
+      owner: "some-org",
+      repo: "repo",
+      skillSlug: "my-skill",
+      ref: "develop",
+    });
+  });
+
+  test("parses GitHub URL with trailing slash", () => {
+    const result = resolveSkillSource(
+      "https://github.com/owner/repo/tree/main/skills/skill-name/",
+    );
+    expect(result).toEqual({
+      owner: "owner",
+      repo: "repo",
+      skillSlug: "skill-name",
+      ref: "main",
+    });
+  });
+
+  test("throws on bare skill name (no owner/repo)", () => {
+    expect(() => resolveSkillSource("find-skills")).toThrow(
+      'Invalid skill source "find-skills"',
+    );
+  });
+
+  test("throws on empty string", () => {
+    expect(() => resolveSkillSource("")).toThrow('Invalid skill source ""');
+  });
+
+  test("throws on owner-only format", () => {
+    expect(() => resolveSkillSource("vercel-labs")).toThrow(
+      'Invalid skill source "vercel-labs"',
+    );
+  });
+
+  test("throws on owner/repo without skill", () => {
+    expect(() => resolveSkillSource("vercel-labs/skills")).toThrow(
+      'Invalid skill source "vercel-labs/skills"',
+    );
+  });
+
+  test("rejects path traversal in @ format slug", () => {
+    expect(() =>
+      resolveSkillSource("owner/repo@../../malicious"),
+    ).toThrow('Invalid skill source "owner/repo@../../malicious"');
+  });
+
+  test("rejects uppercase slug in @ format", () => {
+    expect(() => resolveSkillSource("owner/repo@BadSlug")).toThrow(
+      'Invalid skill source "owner/repo@BadSlug"',
+    );
+  });
+});
+
+// ─── validateSkillSlug ──────────────────────────────────────────────────────
+
+describe("validateSkillSlug", () => {
+  test("accepts valid slugs", () => {
+    expect(() => validateSkillSlug("my-skill")).not.toThrow();
+    expect(() => validateSkillSlug("skill123")).not.toThrow();
+    expect(() => validateSkillSlug("my.skill")).not.toThrow();
+    expect(() => validateSkillSlug("my_skill")).not.toThrow();
+  });
+
+  test("rejects path traversal characters", () => {
+    expect(() => validateSkillSlug("../../malicious")).toThrow(
+      "path traversal",
+    );
+    expect(() => validateSkillSlug("foo/bar")).toThrow("path traversal");
+    expect(() => validateSkillSlug("foo\\bar")).toThrow("path traversal");
+  });
+
+  test("rejects slugs starting with special chars", () => {
+    expect(() => validateSkillSlug(".hidden")).toThrow();
+    expect(() => validateSkillSlug("-dash")).toThrow();
+  });
+
+  test("rejects empty input", () => {
+    expect(() => validateSkillSlug("")).toThrow("Skill slug is required");
   });
 });

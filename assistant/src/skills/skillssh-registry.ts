@@ -1,3 +1,11 @@
+import { execSync } from "node:child_process";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, resolve, sep } from "node:path";
+
+import { upsertSkillsIndex } from "./catalog-install.js";
+import { getWorkspaceSkillsDir } from "../util/platform.js";
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface SkillsShSearchResult {
@@ -28,6 +36,16 @@ export type SkillAuditData = Record<string, PartnerAudit>;
 
 /** Map from skill slug to per-provider audit data */
 export type AuditResponse = Record<string, SkillAuditData>;
+
+export interface ResolvedSkillSource {
+  owner: string;
+  repo: string;
+  skillSlug: string;
+  ref?: string;
+}
+
+/** Map of relative file paths to their string contents */
+export type SkillFiles = Record<string, string>;
 
 // ─── Display helpers ─────────────────────────────────────────────────────────
 
@@ -116,4 +134,258 @@ export async function fetchSkillAudits(
   }
 
   return (await response.json()) as AuditResponse;
+}
+
+// ─── Source resolution ──────────────────────────────────────────────────────
+
+/**
+ * Parse a skill source string into owner, repo, and skill slug.
+ *
+ * Supported formats:
+ *   - `owner/repo@skill-name`
+ *   - `owner/repo/skill-name`
+ *   - `https://github.com/owner/repo/tree/<branch>/skills/skill-name`
+ */
+export function resolveSkillSource(source: string): ResolvedSkillSource {
+  // Full GitHub URL — capture the branch for ref passthrough
+  const urlMatch = source.match(
+    /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/skills\/([^/]+)\/?$/,
+  );
+  if (urlMatch) {
+    return {
+      owner: urlMatch[1]!,
+      repo: urlMatch[2]!,
+      skillSlug: urlMatch[4]!,
+      ref: urlMatch[3]!,
+    };
+  }
+
+  // owner/repo@skill-name — restrict slug to safe characters
+  const atMatch = source.match(/^([^/]+)\/([^/@]+)@([a-z0-9][a-z0-9._-]*)$/);
+  if (atMatch) {
+    return { owner: atMatch[1]!, repo: atMatch[2]!, skillSlug: atMatch[3]! };
+  }
+
+  // owner/repo/skill-name (exactly 3 segments)
+  const slashMatch = source.match(/^([^/]+)\/([^/]+)\/([^/]+)$/);
+  if (slashMatch) {
+    return {
+      owner: slashMatch[1]!,
+      repo: slashMatch[2]!,
+      skillSlug: slashMatch[3]!,
+    };
+  }
+
+  throw new Error(
+    `Invalid skill source "${source}". Expected one of:\n` +
+      `  owner/repo@skill-name\n` +
+      `  owner/repo/skill-name\n` +
+      `  https://github.com/owner/repo/tree/<branch>/skills/skill-name`,
+  );
+}
+
+// ─── GitHub fetch ───────────────────────────────────────────────────────────
+
+interface GitHubContentsEntry {
+  name: string;
+  type: "file" | "dir";
+  download_url: string | null;
+}
+
+/** Build common headers for GitHub API requests (User-Agent + optional auth). */
+function githubHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: "application/vnd.github.v3+json",
+    "User-Agent": "vellum-assistant",
+  };
+  const token = process.env.GITHUB_TOKEN;
+  if (token) {
+    headers["Authorization"] = `token ${token}`;
+  }
+  return headers;
+}
+
+/**
+ * Fetch SKILL.md and supporting files from a GitHub-hosted skills directory.
+ *
+ * Uses the GitHub Contents API: `GET /repos/:owner/:repo/contents/skills/:slug`
+ * and follows each file's `download_url` to retrieve content.
+ * Recursively fetches subdirectories (e.g. scripts/, references/).
+ */
+export async function fetchSkillFromGitHub(
+  owner: string,
+  repo: string,
+  skillSlug: string,
+  ref?: string,
+): Promise<SkillFiles> {
+  const headers = githubHeaders();
+
+  async function fetchDir(subpath: string, prefix: string): Promise<SkillFiles> {
+    let apiUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${subpath}`;
+    if (ref) {
+      apiUrl += `?ref=${encodeURIComponent(ref)}`;
+    }
+
+    const response = await fetch(apiUrl, {
+      headers,
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (!response.ok) {
+      if (response.status === 404 && prefix === "") {
+        throw new Error(
+          `Skill "${skillSlug}" not found in ${owner}/${repo}. ` +
+            `Looked in skills/${skillSlug}/`,
+        );
+      }
+      throw new Error(
+        `GitHub API error: HTTP ${response.status} ${response.statusText}`,
+      );
+    }
+
+    const entries = (await response.json()) as GitHubContentsEntry[];
+    if (!Array.isArray(entries)) {
+      throw new Error(
+        `Expected a directory listing for ${subpath}/ but got a single file`,
+      );
+    }
+
+    const files: SkillFiles = {};
+    for (const entry of entries) {
+      const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+
+      if (entry.type === "dir") {
+        // Recursively fetch subdirectory contents
+        const subFiles = await fetchDir(`${subpath}/${entry.name}`, relativePath);
+        Object.assign(files, subFiles);
+        continue;
+      }
+
+      if (entry.type !== "file" || !entry.download_url) continue;
+      const fileResponse = await fetch(entry.download_url, {
+        headers: { "User-Agent": "vellum-assistant" },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!fileResponse.ok) {
+        throw new Error(
+          `Failed to download ${relativePath}: HTTP ${fileResponse.status}`,
+        );
+      }
+      files[relativePath] = await fileResponse.text();
+    }
+
+    return files;
+  }
+
+  const rootPath = `skills/${encodeURIComponent(skillSlug)}`;
+  const files = await fetchDir(rootPath, "");
+
+  if (!files["SKILL.md"]) {
+    throw new Error(
+      `SKILL.md not found in ${owner}/${repo}/skills/${skillSlug}/`,
+    );
+  }
+
+  return files;
+}
+
+// ─── External skill installation ────────────────────────────────────────────
+
+// ─── Slug validation ────────────────────────────────────────────────────────
+
+const VALID_SKILL_SLUG = /^[a-z0-9][a-z0-9._-]*$/;
+
+/**
+ * Validate that a skill slug is safe for use in filesystem paths.
+ * Follows the same pattern as `validateManagedSkillId` in managed-store.ts.
+ */
+export function validateSkillSlug(slug: string): void {
+  if (!slug || typeof slug !== "string") {
+    throw new Error("Skill slug is required");
+  }
+  if (slug.includes("..") || slug.includes("/") || slug.includes("\\")) {
+    throw new Error(
+      `Invalid skill slug "${slug}": must not contain path traversal characters`,
+    );
+  }
+  if (!VALID_SKILL_SLUG.test(slug)) {
+    throw new Error(
+      `Invalid skill slug "${slug}": must start with a lowercase letter or digit and contain only lowercase letters, digits, dots, hyphens, and underscores`,
+    );
+  }
+}
+
+/**
+ * Install a community skill from a GitHub-hosted skills.sh registry repo.
+ *
+ * 1. Validates the skill slug for path safety
+ * 2. Fetches all files from `skills/<skillSlug>/` in the source repo
+ * 3. Writes them to `<workspace>/skills/<skillSlug>/` with path traversal protection
+ * 4. Writes `version.json` with origin metadata
+ * 5. Runs `bun install` if a `package.json` is present
+ * 6. Registers the skill in SKILLS.md only after all steps succeed
+ */
+export async function installExternalSkill(
+  owner: string,
+  repo: string,
+  skillSlug: string,
+  overwrite: boolean,
+  ref?: string,
+): Promise<void> {
+  // Validate slug before using in filesystem paths
+  validateSkillSlug(skillSlug);
+
+  const skillDir = join(getWorkspaceSkillsDir(), skillSlug);
+  const skillFilePath = join(skillDir, "SKILL.md");
+
+  if (existsSync(skillFilePath) && !overwrite) {
+    throw new Error(
+      `Skill "${skillSlug}" is already installed. Use --overwrite to replace it.`,
+    );
+  }
+
+  const files = await fetchSkillFromGitHub(owner, repo, skillSlug, ref);
+
+  mkdirSync(skillDir, { recursive: true });
+
+  // Write files with path traversal protection (follows extractTarToDir pattern)
+  for (const [filename, content] of Object.entries(files)) {
+    const normalized = filename.replace(/\\/g, "/").replace(/^\.\/+/g, "");
+    if (!normalized || normalized.includes("..") || normalized.startsWith("/"))
+      continue;
+    const destPath = resolve(skillDir, normalized);
+    if (
+      !destPath.startsWith(resolve(skillDir) + sep) &&
+      destPath !== resolve(skillDir)
+    )
+      continue;
+    mkdirSync(dirname(destPath), { recursive: true });
+    writeFileSync(destPath, content, "utf-8");
+  }
+
+  // Write origin metadata
+  const meta = {
+    origin: "skills.sh",
+    source: `${owner}/${repo}`,
+    skillSlug,
+    installedAt: new Date().toISOString(),
+  };
+  writeFileSync(
+    join(skillDir, "version.json"),
+    JSON.stringify(meta, null, 2) + "\n",
+    "utf-8",
+  );
+
+  // Install npm dependencies if the skill ships a package.json
+  if (existsSync(join(skillDir, "package.json"))) {
+    const bunPath = `${homedir()}/.bun/bin`;
+    execSync("bun install", {
+      cwd: skillDir,
+      stdio: "inherit",
+      env: { ...process.env, PATH: `${bunPath}:${process.env.PATH}` },
+    });
+  }
+
+  // Register in SKILLS.md only after files are written and deps installed
+  upsertSkillsIndex(skillSlug);
 }

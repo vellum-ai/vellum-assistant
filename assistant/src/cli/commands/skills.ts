@@ -11,6 +11,8 @@ import {
 import {
   fetchSkillAudits,
   formatAuditBadges,
+  installExternalSkill,
+  resolveSkillSource,
   searchSkillsRegistry,
 } from "../../skills/skillssh-registry.js";
 import type { AuditResponse } from "../../skills/skillssh-registry.js";
@@ -38,7 +40,9 @@ Examples:
   $ assistant skills search react --limit 5 --json
   $ assistant skills install weather
   $ assistant skills install weather --overwrite
-  $ assistant skills uninstall weather`,
+  $ assistant skills uninstall weather
+  $ assistant skills add vercel-labs/skills@find-skills
+  $ assistant skills add vercel-labs/skills/find-skills --overwrite`,
   );
 
   skills
@@ -265,4 +269,73 @@ Examples:
         process.exitCode = 1;
       }
     });
+
+  skills
+    .command("add <source>")
+    .description(
+      "Install a community skill from the skills.sh registry (GitHub)",
+    )
+    .option("--overwrite", "Replace an already installed skill")
+    .option("--json", "Machine-readable JSON output")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  source   Skill source in one of these formats:
+             owner/repo@skill-name
+             owner/repo/skill-name
+             https://github.com/owner/repo/tree/<branch>/skills/skill-name
+
+Notes:
+  Fetches the skill's SKILL.md and supporting files from the specified GitHub
+  repository and installs them into the workspace skills directory. A
+  version.json file is written with origin metadata for provenance tracking.
+
+Examples:
+  $ assistant skills add vercel-labs/skills@find-skills
+  $ assistant skills add vercel-labs/skills/find-skills
+  $ assistant skills add vercel-labs/skills@find-skills --overwrite`,
+    )
+    .action(
+      async (
+        source: string,
+        opts: { overwrite?: boolean; json?: boolean },
+      ) => {
+        const json = opts.json ?? false;
+
+        try {
+          const { owner, repo, skillSlug, ref } = resolveSkillSource(source);
+
+          await installExternalSkill(
+            owner,
+            repo,
+            skillSlug,
+            opts.overwrite ?? false,
+            ref,
+          );
+
+          if (json) {
+            console.log(
+              JSON.stringify({
+                ok: true,
+                skillSlug,
+                source: `${owner}/${repo}`,
+              }),
+            );
+          } else {
+            log.info(
+              `Installed skill "${skillSlug}" from ${owner}/${repo}.`,
+            );
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (json) {
+            console.log(JSON.stringify({ ok: false, error: msg }));
+          } else {
+            log.error(`Error: ${msg}`);
+          }
+          process.exitCode = 1;
+        }
+      },
+    );
 }
