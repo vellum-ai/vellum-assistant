@@ -241,13 +241,12 @@ private struct ButtonLayoutModifier: ViewModifier {
     func body(content: Content) -> some View {
         if isIconOnly {
             content
-                .frame(width: iconSize, height: iconSize)
-                .padding(iconSize == nil ? VSpacing.xs : 0)
+                .frame(width: iconSize ?? 32, height: iconSize ?? 32)
         } else {
             content
                 .padding(.horizontal, VSpacing.md)
                 .padding(.vertical, VSpacing.buttonV)
-                .frame(height: 28)
+                .frame(height: 32)
                 .frame(maxWidth: isFullWidth ? .infinity : nil)
         }
     }

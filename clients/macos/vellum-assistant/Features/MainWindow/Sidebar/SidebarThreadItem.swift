@@ -158,7 +158,7 @@ struct SidebarThreadItem: View {
                 .accessibilityLabel("Archive \(thread.title)")
             }
         }
-        .padding(.horizontal, VSpacing.sm)
+        .padding(.horizontal, 0)
         .contextMenu {
             Button {
                 withAnimation(VAnimation.standard) {

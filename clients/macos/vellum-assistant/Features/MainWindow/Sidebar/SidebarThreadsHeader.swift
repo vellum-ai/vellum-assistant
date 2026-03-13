@@ -27,8 +27,8 @@ struct SidebarThreadsHeader: View {
                 .disabled(isLoading)
                 .opacity(isLoading ? 0.4 : 1)
         }
-        .padding(.leading, SidebarLayoutMetrics.iconSlotSize)
-        .padding(.trailing, VSpacing.md)
+        .padding(.leading, 0)
+        .padding(.trailing, 0)
         .padding(.top, SidebarLayoutMetrics.sectionTitleTopGap)
         .contextMenu {
             Button {

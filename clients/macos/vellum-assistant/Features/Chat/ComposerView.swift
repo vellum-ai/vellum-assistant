@@ -11,7 +11,7 @@ private let composerLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com
 
 struct ComposerView: View {
     private let composerMaxHeight: CGFloat = 200
-    private let composerActionButtonSize: CGFloat = 34
+    private let composerActionButtonSize: CGFloat = 32
 
     // MARK: - ComposerMode
 
@@ -231,12 +231,11 @@ struct ComposerView: View {
                 composerTextOverlays(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
                 composerInputField(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
             }
-            .frame(maxWidth: .infinity, minHeight: composerCompactHeight, alignment: .leading)
-            .padding(.trailing, 70)
+            .frame(maxWidth: .infinity, minHeight: composerActionButtonSize, alignment: .leading)
         }
         .scrollBounceBehavior(.basedOnSize)
         .defaultScrollAnchor(.bottom)
-        .frame(minHeight: composerCompactHeight, maxHeight: inputText.isEmpty ? composerCompactHeight : composerMaxHeight)
+        .frame(minHeight: composerActionButtonSize, maxHeight: inputText.isEmpty ? composerActionButtonSize : composerMaxHeight)
         .accessibilityLabel("Message")
         .frame(maxWidth: .infinity)
         .background(
@@ -391,37 +390,24 @@ struct ComposerView: View {
             }
             content()
         }
-        .padding(.top, VSpacing.md)
-        .padding(.bottom, VSpacing.md)
-        .padding(.leading, VSpacing.lg)
-        .padding(.trailing, VSpacing.lg)
+        .padding(.vertical, VSpacing.sm)
+        .padding(.horizontal, VSpacing.md)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surfaceActive)
+                .fill(VColor.surfaceLift)
         )
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(
-                    isComposerFocused ? VColor.borderBase : VColor.borderBase.opacity(0.95),
-                    lineWidth: isComposerFocused ? 1.5 : 1
-                )
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.borderBase.opacity(isComposerFocused ? 0.12 : 0), lineWidth: 3)
-        )
-        .shadow(color: .clear, radius: 0)
+        .shadow(color: VColor.auxBlack.opacity(0.05), radius: 2, x: 0, y: 2)
     }
 
     @ViewBuilder
     private var textEntryComposer: some View {
         standardComposerShell {
-            composerTextField
-                .frame(minHeight: composerCompactHeight)
-                .overlay(alignment: .bottomTrailing) {
-                    composerActionButtons
-                }
+            HStack(alignment: .bottom, spacing: VSpacing.xs) {
+                composerTextField
+                    .frame(minHeight: composerActionButtonSize)
+                composerActionButtons
+            }
         }
     }
 
@@ -469,15 +455,21 @@ struct ComposerView: View {
                     .disabled(!hasAPIKey)
                     .transition(.scale.combined(with: .opacity))
 
-                    VoiceModeButton(size: composerActionButtonSize) {
-                        onVoiceModeToggle?()
-                    }
+                    VButton(
+                        label: "Voice mode",
+                        iconOnly: VIcon.audioWaveform.rawValue,
+                        style: .contrast,
+                        iconSize: composerActionButtonSize,
+                        action: { onVoiceModeToggle?() }
+                    )
                     .disabled(!hasAPIKey)
                     .transition(.scale.combined(with: .opacity))
                 } else {
-                    MicrophoneButton(
-                        isRecording: isRecording,
-                        size: composerActionButtonSize,
+                    VButton(
+                        label: isRecording ? "Stop recording" : "Start voice input",
+                        iconOnly: VIcon.mic.rawValue,
+                        style: .ghost,
+                        iconSize: composerActionButtonSize,
                         action: { onMicrophoneToggle() }
                     )
                     .disabled(!hasAPIKey)
@@ -485,7 +477,6 @@ struct ComposerView: View {
                 }
             }
         }
-        .padding(.trailing, -(VSpacing.lg - VSpacing.sm))
         .animation(VAnimation.fast, value: canSend)
     }
 
@@ -498,7 +489,7 @@ struct ComposerView: View {
             VStack(spacing: VSpacing.sm) {
                 // Text field remains visible for live transcription
                 composerTextField
-                    .frame(minHeight: composerCompactHeight)
+                    .frame(minHeight: composerActionButtonSize)
 
                 // Inline recording strip
                 HStack(alignment: .center, spacing: VSpacing.sm) {
@@ -629,28 +620,3 @@ VStreamingWaveform(
 
 }
 
-// MARK: - Voice Mode Button
-
-/// Circle button with inverse colors for voice mode entry.
-private struct VoiceModeButton: View {
-    let size: CGFloat
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VIconView(.audioWaveform, size: 13)
-                .frame(width: 20, height: 20)
-                .foregroundColor(VColor.contentInset)
-        }
-        .buttonStyle(.plain)
-        .frame(width: size, height: size)
-        .background(
-            Circle()
-                .fill(VColor.contentEmphasized)
-                .frame(width: 28, height: 28)
-        )
-        .contentShape(Circle().size(width: size, height: size))
-        .pointerCursor()
-        .accessibilityLabel("Voice mode")
-    }
-}
