@@ -75,19 +75,13 @@ ENV PATH="${BUN_INSTALL}/bin:${PATH}"
 ENV PYTHONUSERBASE="/data/.python"
 ENV PATH="${PYTHONUSERBASE}/bin:${PATH}"
 
-# Configure apt/dpkg to install future packages to /data
-RUN mkdir -p /data/dpkg/info /data/dpkg/updates /data/dpkg/triggers && \
-    mkdir -p /data/usr/bin /data/usr/lib /data/usr/share && \
-    chown -R assistant:assistant /data/dpkg /data/usr
-
-# Create dpkg configuration for using /data as install prefix
+# Configure apt/dpkg to install future packages to /data.
+# The actual /data directories are created at container startup by entrypoint.sh
+# because /data is typically a mounted volume that hides build-time contents.
 RUN echo 'Dir::State "/data/dpkg";' > /etc/apt/apt.conf.d/99data-dir && \
     echo 'Dir::State::status "/data/dpkg/status";' >> /etc/apt/apt.conf.d/99data-dir && \
     echo 'Dir::Cache "/data/apt/cache";' >> /etc/apt/apt.conf.d/99data-dir && \
-    echo 'DPkg::Options {"--instdir=/data/usr";"--admindir=/data/dpkg";"--force-not-root";"--force-bad-path";};' >> /etc/apt/apt.conf.d/99data-dir && \
-    mkdir -p /data/apt/cache && \
-    touch /data/dpkg/status && \
-    chown -R assistant:assistant /data/apt /data/dpkg
+    echo 'DPkg::Options {"--instdir=/data/usr";"--admindir=/data/dpkg";"--force-not-root";"--force-bad-path";};' >> /etc/apt/apt.conf.d/99data-dir
 
 ENV PATH="/data/usr/bin:/data/usr/sbin:${PATH}"
 ENV LD_LIBRARY_PATH="/data/usr/lib:/data/usr/lib/x86_64-linux-gnu:/data/usr/lib/aarch64-linux-gnu"
@@ -103,5 +97,10 @@ ENV IS_CONTAINERIZED=true
 # Copy from builder
 COPY --from=builder /app /app
 
+# Entrypoint initializes /data directory structure for apt/dpkg on mounted volumes
+COPY assistant/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 # Run the daemon + http server
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["bun", "run", "src/daemon/main.ts"]
