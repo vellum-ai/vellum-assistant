@@ -64,6 +64,19 @@ struct MemoriesPanel: View {
             contentView
         }
         .task { await store.loadItems() }
+        .sheet(item: $selectedItem) { item in
+            MemoryItemDetailSheet(
+                item: item,
+                store: store,
+                onDismiss: { selectedItem = nil }
+            )
+        }
+        .sheet(isPresented: $showCreateSheet) {
+            MemoryItemCreateSheet(
+                store: store,
+                onDismiss: { showCreateSheet = false }
+            )
+        }
     }
 
     // MARK: - Filter Bar
