@@ -575,6 +575,9 @@ extension AppDelegate {
         lastRegisteredQuickInputHotkey = nil
         lastRegisteredNavBackShortcut = nil
         lastRegisteredNavForwardShortcut = nil
+        lastRegisteredZoomInShortcut = nil
+        lastRegisteredZoomOutShortcut = nil
+        lastRegisteredZoomResetShortcut = nil
         tearDownQuickInputMonitors()
     }
 }

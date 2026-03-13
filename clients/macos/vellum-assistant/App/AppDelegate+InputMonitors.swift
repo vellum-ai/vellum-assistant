@@ -260,12 +260,32 @@ extension AppDelegate {
         fnVLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
     }
 
-    /// Registers Cmd+N as a local shortcut to create a new thread.
+    /// Registers a local shortcut to create a new thread.
+    /// Reads the shortcut from UserDefaults (`newThreadShortcut`), defaulting to "cmd+n".
+    /// Skips re-registration if the shortcut hasn't changed.
     func registerCmdNMonitor() {
+        let shortcut = UserDefaults.standard.string(forKey: "newThreadShortcut") ?? "cmd+n"
+
+        if shortcut == lastRegisteredNewThreadShortcut { return }
+
+        // Tear down previous monitor
+        if let monitor = cmdNLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            cmdNLocalMonitor = nil
+        }
+
+        guard !shortcut.isEmpty else {
+            lastRegisteredNewThreadShortcut = shortcut
+            log.info("New Thread: shortcut disabled")
+            return
+        }
+
+        let (targetModifiers, targetKey) = ShortcutHelper.parseShortcut(shortcut)
+
         let handler: (NSEvent) -> NSEvent? = { [weak self] event in
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            guard event.keyCode == 45, // kVK_ANSI_N
-                  mods == [.command] else {
+            guard mods == targetModifiers,
+                  event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else {
                 return event
             }
             Task { @MainActor in
@@ -275,6 +295,8 @@ extension AppDelegate {
             return nil
         }
         cmdNLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+
+        lastRegisteredNewThreadShortcut = shortcut
     }
 
     /// Registers Cmd+K as a local shortcut to open the command palette.
@@ -365,32 +387,61 @@ extension AppDelegate {
         lastRegisteredNavForwardShortcut = forwardShortcut
     }
 
-    /// Registers Cmd+=/Cmd+-/Cmd+0 as local shortcuts for window zoom.
+    /// Registers zoom shortcuts as local event monitors for window zoom.
+    /// Reads `zoomInShortcut`, `zoomOutShortcut`, and `zoomResetShortcut` from
+    /// UserDefaults (defaults: "cmd+=", "cmd+-", "cmd+0"). Any shortcut can be
+    /// independently disabled by setting it to an empty string.
     /// Uses event monitoring instead of NSMenu key equivalents because
     /// SwiftUI manages the menu bar and strips programmatic items.
     func registerZoomMonitor() {
-        guard zoomLocalMonitor == nil else { return }
-        let handler: (NSEvent) -> NSEvent? = { [weak self] event in
-            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            guard let chars = event.charactersIgnoringModifiers else { return event }
-            // Cmd+= (same physical key as Cmd++, shift ignored)
-            if chars == "=" && mods.contains(.command) && !mods.contains(.control) {
-                Task { @MainActor in self?.zoomManager.zoomIn() }
-                return nil
-            }
-            // Cmd+-
-            if chars == "-" && mods == [.command] {
-                Task { @MainActor in self?.zoomManager.zoomOut() }
-                return nil
-            }
-            // Cmd+0
-            if chars == "0" && mods == [.command] {
-                Task { @MainActor in self?.zoomManager.resetZoom() }
-                return nil
-            }
-            return event
+        let zoomIn = UserDefaults.standard.string(forKey: "zoomInShortcut") ?? "cmd+="
+        let zoomOut = UserDefaults.standard.string(forKey: "zoomOutShortcut") ?? "cmd+-"
+        let zoomReset = UserDefaults.standard.string(forKey: "zoomResetShortcut") ?? "cmd+0"
+
+        // Skip re-registration if all three shortcuts are unchanged
+        if zoomIn == lastRegisteredZoomInShortcut
+            && zoomOut == lastRegisteredZoomOutShortcut
+            && zoomReset == lastRegisteredZoomResetShortcut { return }
+
+        // Tear down existing monitor before re-registration
+        if let monitor = zoomLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            zoomLocalMonitor = nil
         }
-        zoomLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+
+        // Parse each shortcut (empty strings yield empty key, which won't match)
+        let (zoomInMods, zoomInKey) = ShortcutHelper.parseShortcut(zoomIn)
+        let (zoomOutMods, zoomOutKey) = ShortcutHelper.parseShortcut(zoomOut)
+        let (zoomResetMods, zoomResetKey) = ShortcutHelper.parseShortcut(zoomReset)
+
+        // Only install the monitor if at least one shortcut is enabled
+        let hasAnyShortcut = !zoomIn.isEmpty || !zoomOut.isEmpty || !zoomReset.isEmpty
+
+        if hasAnyShortcut {
+            let handler: (NSEvent) -> NSEvent? = { [weak self] event in
+                let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                guard let chars = event.charactersIgnoringModifiers else { return event }
+
+                if !zoomInKey.isEmpty && chars.lowercased() == zoomInKey.lowercased() && mods == zoomInMods {
+                    Task { @MainActor in self?.zoomManager.zoomIn() }
+                    return nil
+                }
+                if !zoomOutKey.isEmpty && chars.lowercased() == zoomOutKey.lowercased() && mods == zoomOutMods {
+                    Task { @MainActor in self?.zoomManager.zoomOut() }
+                    return nil
+                }
+                if !zoomResetKey.isEmpty && chars.lowercased() == zoomResetKey.lowercased() && mods == zoomResetMods {
+                    Task { @MainActor in self?.zoomManager.resetZoom() }
+                    return nil
+                }
+                return event
+            }
+            zoomLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+        }
+
+        lastRegisteredZoomInShortcut = zoomIn
+        lastRegisteredZoomOutShortcut = zoomOut
+        lastRegisteredZoomResetShortcut = zoomReset
     }
 
     func toggleCommandPalette() {

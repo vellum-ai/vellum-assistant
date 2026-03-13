@@ -21,8 +21,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var hotKeyMonitor: Any?
     var lastRegisteredGlobalHotkey: String?
     var lastRegisteredQuickInputHotkey: String?
+    var lastRegisteredNewThreadShortcut: String?
     var lastRegisteredNavBackShortcut: String?
     var lastRegisteredNavForwardShortcut: String?
+    var lastRegisteredZoomInShortcut: String?
+    var lastRegisteredZoomOutShortcut: String?
+    var lastRegisteredZoomResetShortcut: String?
     var globalHotkeyObserver: AnyCancellable?
     var escapeMonitor: Any?
     var hasSetupHotKey = false
