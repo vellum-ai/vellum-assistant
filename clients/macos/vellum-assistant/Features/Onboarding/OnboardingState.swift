@@ -82,6 +82,11 @@ final class OnboardingState {
         !speechGranted || !accessibilityGranted || !screenGranted
     }
 
+    /// Whether the user has previously accepted the Terms of Service.
+    static var hasAcceptedToS: Bool {
+        UserDefaults.standard.double(forKey: "tos.acceptedAt") > 0
+    }
+
     var userHostedEnabled: Bool {
         MacOSClientFeatureFlagManager.shared.isEnabled("user_hosted_enabled")
     }
@@ -208,7 +213,7 @@ final class OnboardingState {
     }
 
     static func clearPersistedState() {
-        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.variant", "onboarding.firstMeetingCrackProgress", "onboarding.flowVersion", "onboarding.cloudProvider", "onboarding.userDisplayName", "onboarding.userEmail"] {
+        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.variant", "onboarding.firstMeetingCrackProgress", "onboarding.flowVersion", "onboarding.cloudProvider", "onboarding.userDisplayName", "onboarding.userEmail", "tos.acceptedAt"] {
             UserDefaults.standard.removeObject(forKey: key)
         }
     }
