@@ -48,7 +48,7 @@ observes shell commands. The command runs with the assistant's environment, work
 directory, and process context — not the caller's shell.
 
 The CLI writes the command to signals/bash.<requestId> and polls
-signals/bash.result.<requestId> for the output. The assistant must be running
+signals/bash.<requestId>.result for the output. The assistant must be running
 for this to work.
 
 Arguments:
@@ -82,7 +82,7 @@ Examples:
 
       // Write the command signal for the assistant to pick up.
       const signalPath = join(signalsDir, `bash.${requestId}`);
-      const resultPath = join(signalsDir, `bash.result.${requestId}`);
+      const resultPath = join(signalsDir, `bash.${requestId}.result`);
 
       try {
         writeFileSync(
@@ -104,6 +104,7 @@ Examples:
       const poll = setInterval(() => {
         if (Date.now() > deadline) {
           clearInterval(poll);
+          cleanupSignalFiles();
           log.error(
             "Timed out waiting for response. Is the assistant running?",
           );
@@ -126,7 +127,7 @@ Examples:
         if (result.requestId !== requestId) return;
 
         clearInterval(poll);
-        cleanupResultFile();
+        cleanupSignalFiles();
 
         if (result.error) {
           log.error(`Spawn error: ${result.error}`);
@@ -159,11 +160,13 @@ Examples:
         process.exitCode = result.exitCode ?? 1;
       }, POLL_INTERVAL_MS);
 
-      function cleanupResultFile(): void {
-        try {
-          unlinkSync(resultPath);
-        } catch {
-          // Best-effort cleanup; the file may already be gone.
+      function cleanupSignalFiles(): void {
+        for (const p of [signalPath, resultPath]) {
+          try {
+            unlinkSync(p);
+          } catch {
+            // Best-effort cleanup; the file may already be gone.
+          }
         }
       }
     });

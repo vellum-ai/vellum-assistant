@@ -248,7 +248,7 @@ export class ConfigWatcher {
         }
 
         for (const [prefix, handler] of Object.entries(prefixSignalHandlers)) {
-          if (file.startsWith(prefix) && !file.includes(".result.")) {
+          if (file.startsWith(prefix) && !file.endsWith(".result")) {
             this.debounceTimers.schedule(`signal:${file}`, () => {
               log.info({ file }, "Signal file detected");
               handler(file);

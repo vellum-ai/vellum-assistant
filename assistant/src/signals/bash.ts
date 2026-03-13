@@ -4,7 +4,7 @@
  * Each invocation writes JSON to a unique `signals/bash.<requestId>` file.
  * ConfigWatcher detects the new file and invokes {@link handleBashSignal},
  * which reads the payload, spawns the command, and writes the result to
- * `signals/bash.result.<requestId>` for the CLI to pick up.
+ * `signals/bash.<requestId>.result` for the CLI to pick up.
  *
  * Per-request filenames avoid dropped commands when overlapping invocations
  * race on the same signal file.
@@ -39,7 +39,7 @@ interface BashSignalResult {
 function writeResult(requestId: string, result: BashSignalResult): void {
   try {
     writeFileSync(
-      join(getWorkspaceDir(), "signals", `bash.result.${requestId}`),
+      join(getWorkspaceDir(), "signals", `bash.${requestId}.result`),
       JSON.stringify(result),
     );
   } catch (err) {
@@ -49,7 +49,7 @@ function writeResult(requestId: string, result: BashSignalResult): void {
 
 /**
  * Read a `signals/bash.<requestId>` file, execute the command, and write
- * the result to `signals/bash.result.<requestId>`. Called by ConfigWatcher
+ * the result to `signals/bash.<requestId>.result`. Called by ConfigWatcher
  * when a matching signal file is created or modified.
  */
 export function handleBashSignal(filename: string): void {
