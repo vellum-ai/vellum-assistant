@@ -48,6 +48,7 @@ export async function run(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  const account = input.account as string | undefined;
   const action = input.action as string;
   const messageId = input.message_id as string;
 
@@ -56,7 +57,7 @@ export async function run(
 
   if (action === "list") {
     try {
-      const connection = resolveOAuthConnection("integration:gmail");
+      const connection = resolveOAuthConnection("integration:gmail", account);
       const message = await getMessage(connection, messageId, "full");
       const attachments = collectAttachments(message.payload?.parts);
 
@@ -78,7 +79,7 @@ export async function run(
     if (!filename) return err("filename is required for download.");
 
     try {
-      const connection = resolveOAuthConnection("integration:gmail");
+      const connection = resolveOAuthConnection("integration:gmail", account);
       const attachment = await getAttachment(
         connection,
         messageId,

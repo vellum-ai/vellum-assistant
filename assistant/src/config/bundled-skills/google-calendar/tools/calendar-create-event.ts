@@ -9,6 +9,7 @@ export async function run(
   input: Record<string, unknown>,
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  const account = input.account as string | undefined;
   const summary = input.summary as string;
   const startRaw = input.start as string;
   const endRaw = input.end as string;
@@ -40,7 +41,7 @@ export async function run(
     eventBody.attendees = attendees.map((email) => ({ email }));
   }
 
-  const connection = getCalendarConnection();
+  const connection = getCalendarConnection(account);
   const event = await calendar.createEvent(connection, eventBody, calendarId);
   const link = event.htmlLink ? ` View it here: ${event.htmlLink}` : "";
   return ok(`Event created (ID: ${event.id}).${link}`);

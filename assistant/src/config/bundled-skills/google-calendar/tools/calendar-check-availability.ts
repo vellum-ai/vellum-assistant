@@ -9,12 +9,13 @@ export async function run(
   input: Record<string, unknown>,
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  const account = input.account as string | undefined;
   const timeMin = input.time_min as string;
   const timeMax = input.time_max as string;
   const calendarIds = (input.calendar_ids as string[]) ?? ["primary"];
   const timezone = input.timezone as string | undefined;
 
-  const connection = getCalendarConnection();
+  const connection = getCalendarConnection(account);
   const result = await calendar.freeBusy(connection, {
     timeMin,
     timeMax,

@@ -18,6 +18,7 @@ export async function run(
   input: Record<string, unknown>,
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  const account = input.account as string | undefined;
   const action = input.action as string;
 
   if (!action) {
@@ -25,7 +26,7 @@ export async function run(
   }
 
   try {
-    const connection = resolveOAuthConnection("integration:gmail");
+    const connection = resolveOAuthConnection("integration:gmail", account);
     switch (action) {
       case "list": {
         const filters = await listFilters(connection);
