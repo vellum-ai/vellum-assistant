@@ -17,6 +17,7 @@ public enum ManagedBootstrapError: LocalizedError, Sendable {
     case hatchFailed(String)
     case unexpectedResponse(String)
     case multipleOrganizations
+    case accessRevoked(String)
 
     public var errorDescription: String? {
         switch self {
@@ -32,6 +33,8 @@ public enum ManagedBootstrapError: LocalizedError, Sendable {
             return "Unexpected response format: \(message)"
         case .multipleOrganizations:
             return "Multiple organizations found. Multi-org support is not yet available — please contact support."
+        case .accessRevoked(let id):
+            return "Access to assistant \(id) has been revoked. Please sign out and sign in again to set up a new assistant."
         }
     }
 }
@@ -40,7 +43,8 @@ public enum ManagedBootstrapError: LocalizedError, Sendable {
 ///
 /// The bootstrap flow:
 /// 1. If a `connectedAssistantId` exists, fetch that specific assistant via GET /assistants/{id}/.
-///    If it returns 404/403, clear the stale ID and fall through to step 2.
+///    - 404 (deleted): clear the stale ID and fall through to step 2.
+///    - 403 (access revoked): surface an `accessRevoked` error so the user knows.
 /// 2. Fall back to GET /assistants/current/ to discover the user's assistant.
 /// 3. If none exists (404), create one via hatch and return `.createdNew`.
 /// 4. Any other error is surfaced as a typed `ManagedBootstrapError`.
@@ -80,6 +84,10 @@ public final class ManagedAssistantBootstrapService {
                 // so the user doesn't have to manually retry.
                 log.warning("Connected assistant \(connectedId, privacy: .public) not found — clearing stale ID and falling through to discovery")
                 UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+            case .accessDenied:
+                log.error("Access to connected assistant \(connectedId, privacy: .public) has been revoked")
+                UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+                throw ManagedBootstrapError.accessRevoked(connectedId)
             }
         }
 
@@ -96,6 +104,9 @@ public final class ManagedAssistantBootstrapService {
         case .found(let assistant):
             log.info("Found existing managed assistant: \(assistant.id, privacy: .public)")
             return .reusedExisting(assistant)
+
+        case .accessDenied:
+            throw ManagedBootstrapError.authenticationRequired
 
         case .notFound:
             log.info("No managed assistant found, hatching a new one")
