@@ -231,6 +231,8 @@ export interface RuntimeAttachmentMetadata {
   mimeType: string;
   sizeBytes: number;
   kind: string;
+  data?: string;
+  thumbnailData?: string;
 }
 
 export interface RuntimeMessagePayload {

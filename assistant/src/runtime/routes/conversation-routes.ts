@@ -315,16 +315,34 @@ export function handleListMessages(
   let prevAssistantTimestamp = 0;
   const messages: RuntimeMessagePayload[] = parsed.map((m) => {
     let msgAttachments: RuntimeAttachmentMetadata[] = [];
-    if (m.role === "assistant" && m.id) {
-      const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
-      if (linked.length > 0) {
-        msgAttachments = linked.map((a) => ({
-          id: a.id,
-          filename: a.originalFilename,
-          mimeType: a.mimeType,
-          sizeBytes: a.sizeBytes,
-          kind: a.kind,
-        }));
+    if (m.id) {
+      if (m.role === "user") {
+        // User messages need full attachment data so the client can generate
+        // thumbnails for inline image display on history restore.
+        const linked = attachmentsStore.getAttachmentsForMessage(m.id);
+        if (linked.length > 0) {
+          msgAttachments = linked.map((a) => ({
+            id: a.id,
+            filename: a.originalFilename,
+            mimeType: a.mimeType,
+            sizeBytes: a.sizeBytes,
+            kind: a.kind ?? "",
+            ...(a.dataBase64 ? { data: a.dataBase64 } : {}),
+            ...(a.thumbnailBase64 ? { thumbnailData: a.thumbnailBase64 } : {}),
+          }));
+        }
+      } else {
+        const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
+        if (linked.length > 0) {
+          msgAttachments = linked.map((a) => ({
+            id: a.id,
+            filename: a.originalFilename,
+            mimeType: a.mimeType,
+            sizeBytes: a.sizeBytes,
+            kind: a.kind,
+            ...(a.thumbnailBase64 ? { thumbnailData: a.thumbnailBase64 } : {}),
+          }));
+        }
       }
     }
 
