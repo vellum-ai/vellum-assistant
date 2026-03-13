@@ -692,6 +692,11 @@ struct ContactDetailView: View {
                     }
                 }
             }
+        } else {
+            // Fallback: invite was created but no displayable fields are available
+            Text("Invite created but no details available")
+                .font(VFont.caption)
+                .foregroundColor(VColor.contentSecondary)
         }
     }
 
