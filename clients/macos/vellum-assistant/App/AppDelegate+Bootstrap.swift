@@ -82,6 +82,8 @@ extension AppDelegate {
             if !reconnected {
                 log.warning("Daemon did not reconnect — showing timeout screen")
                 transitionBootstrap(to: .timedOut)
+                showMainWindow(isFirstLaunch: true)
+                debugStateWriter.start(appDelegate: self)
                 return
             }
         }
