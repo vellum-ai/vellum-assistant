@@ -83,6 +83,9 @@ struct MemoryItemDetailView: View {
         } message: {
             Text("Unable to save changes. Please try again.")
         }
+        .task {
+            await store.fetchDetail(id: item.id)
+        }
     }
 
     // MARK: - Content Section

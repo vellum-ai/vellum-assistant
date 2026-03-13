@@ -76,6 +76,17 @@ public final class MemoryItemsStore: ObservableObject {
         return item
     }
 
+    /// Fetch the full detail for a single memory item (resolves supersession subjects)
+    /// and update it in the local items array. Returns the fetched item, or nil on failure.
+    @discardableResult
+    public func fetchDetail(id: String) async -> MemoryItemPayload? {
+        guard let detail = await daemonClient.fetchMemoryItem(id: id) else { return nil }
+        if let idx = items.firstIndex(where: { $0.id == id }) {
+            items[idx] = detail
+        }
+        return detail
+    }
+
     /// Delete a memory item and refresh the list on success.
     public func deleteItem(id: String) async -> Bool {
         let success = await daemonClient.deleteMemoryItem(id: id)
