@@ -18,14 +18,19 @@ public final class AppServices {
         daemonClient: daemonClient
     )
 
+    /// Notification icon provider for attaching assistant avatar to notifications.
+    let notificationIconProvider: NotificationIconProviding
+
     /// Activity notification service for sending push notifications on task completion.
     /// Lazy because it needs `settingsStore` which is set above.
     public lazy var activityNotificationService: ActivityNotificationService = ActivityNotificationService(
-        settingsStore: settingsStore
+        settingsStore: settingsStore,
+        notificationIconProvider: notificationIconProvider
     )
 
-    init() {
+    init(notificationIconProvider: NotificationIconProviding) {
         self.daemonClient = DaemonClient()
+        self.notificationIconProvider = notificationIconProvider
     }
 
     /// Reconfigure the daemon client's transport in place (e.g., for HTTP transport).

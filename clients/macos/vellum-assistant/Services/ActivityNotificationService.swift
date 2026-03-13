@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 import UserNotifications
 import AppKit
 import VellumAssistantShared
@@ -20,6 +21,7 @@ public protocol ActivityNotificationServiceProtocol {
 @MainActor
 public final class ActivityNotificationService: ActivityNotificationServiceProtocol {
     private let settingsStore: SettingsStore
+    private let notificationIconProvider: NotificationIconProviding
 
     // MARK: - Readiness Gate
 
@@ -49,8 +51,9 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
         }
     }
 
-    public init(settingsStore: SettingsStore) {
+    public init(settingsStore: SettingsStore, notificationIconProvider: NotificationIconProviding) {
         self.settingsStore = settingsStore
+        self.notificationIconProvider = notificationIconProvider
     }
 
     /// Sends a notification when a session completes.
@@ -97,6 +100,17 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
         content.sound = .default
         content.userInfo = ["sessionId": sessionId, "type": "activity_complete"]
 
+        // Attach assistant avatar icon
+        let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+        if let iconURL = notificationIconProvider.notificationIconURL(for: assistantId),
+           let attachment = try? UNNotificationAttachment(
+               identifier: "assistant-avatar",
+               url: iconURL,
+               options: [UNNotificationAttachmentOptionsTypeHintKey: UTType.png.identifier]
+           ) {
+            content.attachments = [attachment]
+        }
+
         log.info("Sending notification: \(content.title, privacy: .public)")
 
         // Send notification
@@ -135,6 +149,17 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
         content.body = truncated.isEmpty ? "Response complete" : truncated
         content.sound = .default
         content.userInfo = ["type": "quick_input_complete"]
+
+        // Attach assistant avatar icon
+        let qiAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+        if let iconURL = notificationIconProvider.notificationIconURL(for: qiAssistantId),
+           let attachment = try? UNNotificationAttachment(
+               identifier: "assistant-avatar",
+               url: iconURL,
+               options: [UNNotificationAttachmentOptionsTypeHintKey: UTType.png.identifier]
+           ) {
+            content.attachments = [attachment]
+        }
 
         let request = UNNotificationRequest(
             identifier: UUID().uuidString,
