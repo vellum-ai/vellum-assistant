@@ -995,6 +995,23 @@ export async function runAgentLoopImpl(
       );
     }
 
+    // If mid-loop compaction exhausted all attempts but the agent loop
+    // still yielded (yieldedForBudget is true), the turn is incomplete.
+    // Escalate to the convergence loop's more aggressive reducer tiers
+    // (tool-result truncation, media stubbing, injection downgrade)
+    // instead of silently treating an incomplete turn as done.
+    if (yieldedForBudget && !abortController.signal.aborted) {
+      rlog.warn(
+        {
+          phase: "mid-loop-compact",
+          midLoopCompactAttempts,
+          maxAttempts: overflowRecovery.maxAttempts,
+        },
+        "Mid-loop compaction exhausted all attempts — escalating to convergence loop",
+      );
+      state.contextTooLargeDetected = true;
+    }
+
     // One-shot ordering error retry
     if (
       state.orderingErrorDetected &&
