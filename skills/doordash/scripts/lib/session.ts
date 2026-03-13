@@ -55,6 +55,7 @@ export function saveSession(session: DoorDashSession): void {
   writeFileSync(getSessionPath(), JSON.stringify(session, null, 2), {
     mode: SESSION_FILE_MODE,
   });
+  chmodSync(getSessionPath(), SESSION_FILE_MODE);
 }
 
 export function clearSession(): void {
