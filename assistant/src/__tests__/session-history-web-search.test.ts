@@ -784,8 +784,10 @@ describe("web_search_tool_result structural guard", () => {
    * Approved patterns (allowlisted):
    * - The `isToolResultBlock` function body (which defines the canonical
    *   check for both "tool_result" and "web_search_tool_result")
-   * - Lines that also mention "web_search_tool_result" on the same line
-   *   (inline paired check, as in `isToolResultOnly`)
+   * - Lines that also mention "web_search_tool_result" within a +/-3 line
+   *   window (multi-line paired check), or a `guard:allow-tool-result-only`
+   *   annotation. Each suppression line can only cover ONE raw check to
+   *   prevent a single annotation from silently covering multiple violations.
    */
   function findRawToolResultChecks(
     source: string,
@@ -797,6 +799,12 @@ describe("web_search_tool_result structural guard", () => {
     // Track whether we're inside an isToolResultBlock or isToolResultContent
     // helper function definition (which canonically defines the check).
     let insideHelperFunction = false;
+
+    // Track which lines have already been used to suppress a raw tool_result check.
+    // Each web_search_tool_result reference or guard:allow-tool-result-only annotation
+    // can only suppress one raw check, preventing adjacent violations from being
+    // silently covered by a single nearby suppression.
+    const consumedSuppressions = new Set<number>();
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -820,15 +828,20 @@ describe("web_search_tool_result structural guard", () => {
       // Allow lines that reference web_search_tool_result nearby (paired check).
       // Multi-line patterns like `block.type === "tool_result" ||\n  block.type === "web_search_tool_result"`
       // are common, so we check a window of +/- 3 lines for the pairing.
+      // Each suppression line (web_search_tool_result or guard:allow-tool-result-only)
+      // can only suppress ONE raw tool_result check to prevent a single annotation
+      // from silently covering multiple adjacent raw checks.
       const windowStart = Math.max(0, i - 3);
       const windowEnd = Math.min(lines.length - 1, i + 3);
       let pairedOrSuppressed = false;
       for (let j = windowStart; j <= windowEnd; j++) {
+        if (consumedSuppressions.has(j)) continue;
         if (
           /web_search_tool_result/.test(lines[j]) ||
           /guard:allow-tool-result-only/.test(lines[j])
         ) {
           pairedOrSuppressed = true;
+          consumedSuppressions.add(j);
           break;
         }
       }
