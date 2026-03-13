@@ -148,10 +148,20 @@ enum LogExporter {
             // Sentry's Feedback API, linked to the event. This keeps PII
             // out of event tags/extras and lets us use Sentry's built-in
             // feedback UI for triage.
+            // Fall back to global identity when the user leaves form fields blank.
+            let feedbackName: String? = {
+                if !formData.name.isEmpty { return formData.name }
+                return UserDefaults.standard.string(forKey: "user.displayName")
+            }()
+            let feedbackEmail: String = {
+                if !formData.email.isEmpty { return formData.email }
+                return UserDefaults.standard.string(forKey: "user.email") ?? ""
+            }()
+
             let feedback = MetricKitManager.UserFeedbackData(
                 comments: formData.message.isEmpty ? nil : formData.message,
-                email: formData.email,
-                name: formData.name.isEmpty ? nil : formData.name
+                email: feedbackEmail,
+                name: feedbackName
             )
 
             // Route assistant behavior reports to the brain Sentry project

@@ -12,7 +12,7 @@ struct LogReportFormView: View {
     let onCancel: () -> Void
 
     @State private var selectedReason: LogReportReason?
-    @State private var name: String = ""
+    @State private var name: String = UserDefaults.standard.string(forKey: "user.displayName") ?? ""
     @State private var message: String = ""
     @AppStorage("logReportEmail") private var email: String = ""
     @FocusState private var focusedField: Field?

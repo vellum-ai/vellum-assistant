@@ -40,6 +40,31 @@ enum SentryDeviceInfo {
             }
             scope.setTag(value: ProcessInfo.processInfo.operatingSystemVersionString, key: "os_version")
         }
+        configureUserIdentity()
+    }
+
+    /// Attaches the user's display name and email to the Sentry scope
+    /// so all events carry identity context when available.
+    /// Reads from the persisted `user.displayName` and `user.email` keys.
+    static func configureUserIdentity() {
+        let displayName = UserDefaults.standard.string(forKey: "user.displayName")
+        let email = UserDefaults.standard.string(forKey: "user.email")
+
+        let hasName = displayName != nil && !displayName!.isEmpty
+        let hasEmail = email != nil && !email!.isEmpty
+
+        guard hasName || hasEmail else { return }
+
+        SentrySDK.configureScope { scope in
+            let user = User()
+            if hasName {
+                user.name = displayName
+            }
+            if hasEmail {
+                user.email = email
+            }
+            scope.setUser(user)
+        }
     }
 
     /// Updates the `assistant_id` Sentry tag when the connected assistant changes.
