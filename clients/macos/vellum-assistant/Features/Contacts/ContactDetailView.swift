@@ -647,7 +647,7 @@ struct ContactDetailView: View {
                 if type == "phone", let result = inviteResult {
                     if inviteCallTriggered {
                         HStack(spacing: VSpacing.sm) {
-                            Image(systemName: "phone.fill")
+                            Image(systemName: "checkmark.circle.fill")
                                 .foregroundColor(VColor.systemPositiveStrong)
                             Text("Call started")
                                 .font(VFont.caption)
