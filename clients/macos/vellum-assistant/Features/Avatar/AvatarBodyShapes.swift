@@ -30,6 +30,23 @@ enum AvatarBodyShape: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Point within the viewBox where eyes should be centered — derived from each body's
+    /// native eye style placement. Ninja has no native eye style so uses a manual estimate.
+    var faceCenter: CGPoint {
+        switch self {
+        case .blob:    return CGPoint(x: 300, y: 273)
+        case .cloud:   return CGPoint(x: 350, y: 380)
+        case .sprout:  return CGPoint(x: 264, y: 415)
+        case .star:    return CGPoint(x: 325, y: 390)
+        case .ghost:   return CGPoint(x: 321, y: 167)
+        case .urchin:  return CGPoint(x: 397, y: 338)
+        case .stack:   return CGPoint(x: 304, y: 358)
+        case .flower:  return CGPoint(x: 335, y: 352)
+        case .burst:   return CGPoint(x: 345, y: 305)
+        case .ninja:   return CGPoint(x: 395, y: 387)
+        }
+    }
+
     // swiftlint:disable line_length
     var svgPath: String {
         switch self {

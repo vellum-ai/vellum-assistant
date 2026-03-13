@@ -40,23 +40,21 @@ enum AvatarCompositor {
         context.setFillColor(color.nsColor.cgColor)
         context.fillPath()
 
-        // Draw eyes — remap from eye sourceViewBox to body viewBox before applying canvas transform.
-        // This aspect-fit centers the eye paths within the body's coordinate space so that
-        // eye styles designed for one body shape render correctly on any other body shape.
+        // Draw eyes — remap from eye sourceViewBox to body viewBox using eye-center → face-center
+        // alignment.  Each eye style's paths are designed around a center point within their source
+        // coordinate space; each body shape defines a face-center where eyes should land.
+        // Aspect-fit scaling sizes the eyes appropriately, then translation aligns the centers.
+        // Per-combo overrides allow specific eye+body pairs to use a custom face center.
         let srcVB = eyeStyle.sourceViewBox
-        var eyeTransform: CGAffineTransform
-        if srcVB.width == viewBox.width && srcVB.height == viewBox.height {
-            // Same coordinate space — no remapping needed.
-            eyeTransform = transform
-        } else {
-            let remapScale = min(viewBox.width / srcVB.width, viewBox.height / srcVB.height)
-            let remapTx = (viewBox.width - srcVB.width * remapScale) / 2
-            let remapTy = (viewBox.height - srcVB.height * remapScale) / 2
-            // Remap: scale within body viewBox, then translate to center, then apply the canvas transform.
-            let remapT = CGAffineTransform(scaleX: remapScale, y: remapScale)
-                .concatenating(CGAffineTransform(translationX: remapTx, y: remapTy))
-            eyeTransform = remapT.concatenating(transform)
-        }
+        let eyeCenter = eyeStyle.eyeCenter
+        let overrideKey = "\(bodyShape.rawValue)-\(eyeStyle.rawValue)"
+        let faceCenter = faceCenterOverrides[overrideKey] ?? bodyShape.faceCenter
+        let remapScale = min(viewBox.width / srcVB.width, viewBox.height / srcVB.height)
+        let remapTx = faceCenter.x - eyeCenter.x * remapScale
+        let remapTy = faceCenter.y - eyeCenter.y * remapScale
+        let remapT = CGAffineTransform(scaleX: remapScale, y: remapScale)
+            .concatenating(CGAffineTransform(translationX: remapTx, y: remapTy))
+        let eyeTransform = remapT.concatenating(transform)
 
         for eyePath in eyeStyle.paths {
             let parsed = parseSVGPath(eyePath.svgPath)
@@ -72,6 +70,35 @@ enum AvatarCompositor {
         cache[cacheKey] = image
         return image
     }
+
+    /// Per-combo face-center overrides for when the default body faceCenter doesn't produce
+    /// the best result for a specific eye style.  Key format: "bodyRawValue-eyeRawValue".
+    ///
+    /// Ghost (native faceCenter y=167, 28%) — non-native eyes pulled slightly lower to ~34%
+    /// so they sit better within the ghost's rounded head rather than at the very top.
+    ///
+    /// Sprout (native faceCenter y=415, 66%) — non-native eyes pulled slightly higher to ~61%
+    /// so they sit better within the sprout's leaf area rather than at the very bottom.
+    private static let faceCenterOverrides: [String: CGPoint] = [
+        // Ghost body — shift non-native eyes from y=167 → y=200
+        "ghost-grumpy":  CGPoint(x: 321, y: 200),
+        "ghost-angry":   CGPoint(x: 321, y: 200),
+        "ghost-curious":  CGPoint(x: 321, y: 200),
+        "ghost-goofy":   CGPoint(x: 321, y: 200),
+        "ghost-bashful":  CGPoint(x: 321, y: 200),
+        "ghost-gentle":  CGPoint(x: 321, y: 200),
+        "ghost-quirky":  CGPoint(x: 321, y: 200),
+        "ghost-dazed":   CGPoint(x: 321, y: 200),
+        // Sprout body — shift non-native eyes from y=415 → y=385
+        "sprout-grumpy":   CGPoint(x: 264, y: 385),
+        "sprout-angry":    CGPoint(x: 264, y: 385),
+        "sprout-goofy":    CGPoint(x: 264, y: 385),
+        "sprout-surprised": CGPoint(x: 264, y: 385),
+        "sprout-bashful":  CGPoint(x: 264, y: 385),
+        "sprout-gentle":   CGPoint(x: 264, y: 385),
+        "sprout-quirky":   CGPoint(x: 264, y: 385),
+        "sprout-dazed":    CGPoint(x: 264, y: 385),
+    ]
 
     private static var cache: [String: NSImage] = [:]
 }

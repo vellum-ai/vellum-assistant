@@ -33,6 +33,22 @@ enum AvatarEyeStyle: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Approximate center of the combined eye paths' bounding box within sourceViewBox coordinates.
+    /// Used by AvatarCompositor to align eyes to each body shape's face center.
+    var eyeCenter: CGPoint {
+        switch self {
+        case .grumpy:   return CGPoint(x: 300, y: 273)
+        case .angry:    return CGPoint(x: 350, y: 380)
+        case .curious:  return CGPoint(x: 264, y: 415)
+        case .goofy:    return CGPoint(x: 325, y: 390)
+        case .surprised: return CGPoint(x: 321, y: 167)
+        case .bashful:  return CGPoint(x: 397, y: 338)
+        case .gentle:   return CGPoint(x: 304, y: 358)
+        case .quirky:   return CGPoint(x: 335, y: 352)
+        case .dazed:    return CGPoint(x: 345, y: 305)
+        }
+    }
+
     private static let scleraColor = NSColor(srgbRed: 0xF2 / 255.0, green: 0xF2 / 255.0, blue: 0xF2 / 255.0, alpha: 1)
     private static let pupilColor = NSColor(srgbRed: 0x1A / 255.0, green: 0x1A / 255.0, blue: 0x1A / 255.0, alpha: 1)
 
