@@ -18,8 +18,8 @@ struct TaskAttachment: Identifiable {
     let data: Data
     let extractedText: String?
 
-    /// Safety cap to prevent unbounded memory allocation (200 MB).
-    static let maxAttachmentBytes = 200 * 1024 * 1024
+    /// Safety cap to prevent memory spikes (50 MB).
+    static let maxAttachmentBytes = 50 * 1024 * 1024
     static let maxExtractedChars = 8_000
     private static let unsupportedOfficeMimeTypes: Set<String> = [
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
