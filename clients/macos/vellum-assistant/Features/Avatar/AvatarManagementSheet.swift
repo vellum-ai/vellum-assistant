@@ -89,6 +89,22 @@ struct AvatarManagementSheet: View {
                     .padding(.horizontal, VSpacing.xl)
 
                 actionRow(
+                    icon: "dice",
+                    label: "Generate Random",
+                    subtitle: "Random body, eyes, and color combo"
+                ) {
+                    let body = AvatarBodyShape.allCases.randomElement()!
+                    let eyes = AvatarEyeStyle.allCases.randomElement()!
+                    let color = AvatarColor.allCases.randomElement()! // color-literal-ok
+                    let image = AvatarCompositor.render(bodyShape: body, eyeStyle: eyes, color: color)
+                    appearance.setCustomAvatar(image)
+                    onClose()
+                }
+
+                Divider().background(VColor.borderBase)
+                    .padding(.horizontal, VSpacing.xl)
+
+                actionRow(
                     icon: "photo",
                     label: "Upload Image",
                     subtitle: "Choose a PNG or JPEG from your Mac"
