@@ -65,7 +65,7 @@ Open: `https://www.notion.so/profile/integrations`
 - If "Public" is not available as a type, the user may need to check their workspace settings or plan level
 - If they already have an integration named "Vellum Assistant", ask if they'd like to reuse it — skip ahead to Step 3
 
-**Milestone (2 of 6):** "Integration created — now we'll configure the OAuth redirect."
+**Milestone (2 of 6):** "Integration created — now let's get it configured."
 
 ---
 
