@@ -79,7 +79,7 @@ export type AgentEvent =
       toolUseId: string;
       input: Record<string, unknown>;
     }
-  | { type: "server_tool_complete"; toolUseId: string }
+  | { type: "server_tool_complete"; toolUseId: string; isError: boolean }
   | { type: "error"; error: Error }
   | {
       type: "usage";
@@ -324,6 +324,7 @@ export class AgentLoop {
                 onEvent({
                   type: "server_tool_complete",
                   toolUseId: event.toolUseId,
+                  isError: event.isError,
                 });
               }
             },

@@ -123,7 +123,7 @@ export type ProviderEvent =
       toolUseId: string;
       input: Record<string, unknown>;
     }
-  | { type: "server_tool_complete"; toolUseId: string };
+  | { type: "server_tool_complete"; toolUseId: string; isError: boolean };
 
 export interface SendMessageConfig {
   model?: string;
