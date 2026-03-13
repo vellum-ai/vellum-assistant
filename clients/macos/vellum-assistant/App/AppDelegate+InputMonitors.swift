@@ -466,7 +466,9 @@ extension AppDelegate {
                 let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
                 guard let chars = event.charactersIgnoringModifiers else { return event }
 
-                if !zoomInKey.isEmpty && chars.lowercased() == zoomInKey.lowercased() && mods == zoomInMods {
+                // Allow Shift to be present for zoom-in: on US keyboards Cmd+Shift+= produces "+"
+                // which is the standard zoom-in gesture. Using subtracting(.shift) preserves that behavior.
+                if !zoomInKey.isEmpty && chars.lowercased() == zoomInKey.lowercased() && mods.subtracting(.shift) == zoomInMods {
                     Task { @MainActor in self?.zoomManager.zoomIn() }
                     return nil
                 }
