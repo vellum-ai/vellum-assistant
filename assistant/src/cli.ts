@@ -3,7 +3,8 @@ import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import * as readline from "node:readline";
 
-import { httpHealthCheck, httpSend, readHttpToken } from "./cli/http-client.js";
+import { httpSend } from "./cli/http-client.js";
+import { isHttpHealthy } from "./daemon/daemon-control.js";
 import {
   type MainScreenLayout,
   renderMainScreen,
@@ -885,17 +886,10 @@ export async function startCli(): Promise<void> {
 
   /** Connect the SSE event stream for the current conversation. */
   async function connectSse(): Promise<void> {
-    const token = readHttpToken();
     const controller = new AbortController();
     sseAbortController = controller;
 
     const url = `/v1/events?conversationKey=${encodeURIComponent(conversationKey)}`;
-    const headers: Record<string, string> = {
-      Accept: "text/event-stream",
-    };
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
 
     try {
       const response = await httpSend(url, {
@@ -1010,7 +1004,7 @@ export async function startCli(): Promise<void> {
       try {
         if (shouldAutoStartDaemon()) await ensureDaemonRunning();
         // Verify the daemon is healthy before attempting SSE
-        const healthy = await httpHealthCheck(2000);
+        const healthy = await isHttpHealthy();
         if (!healthy) throw new Error("Health check failed");
         await connectSse();
         reconnectDelay = RECONNECT_BASE_DELAY_MS;
