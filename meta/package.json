@@ -1,6 +1,6 @@
 {
   "name": "vellum",
-  "version": "0.4.50",
+  "version": "0.4.51",
   "description": "Install the full Vellum stack locally",
   "bin": {
     "vellum": "./bin/vellum.js",
@@ -14,9 +14,9 @@
     "Dockerfile"
   ],
   "dependencies": {
-    "@vellumai/assistant": "0.4.50",
-    "@vellumai/cli": "0.4.50",
-    "@vellumai/vellum-gateway": "0.4.50"
+    "@vellumai/assistant": "0.4.51",
+    "@vellumai/cli": "0.4.51",
+    "@vellumai/vellum-gateway": "0.4.51"
   },
   "devDependencies": {
     "@types/bun": "^1.2.4"
