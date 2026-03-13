@@ -103,7 +103,7 @@ export function handleListMemoryItems(url: URL): Response {
 
   // Build WHERE conditions
   const conditions = [];
-  if (statusParam) {
+  if (statusParam && statusParam !== "all") {
     conditions.push(eq(memoryItems.status, statusParam));
   }
   if (kindParam) {
@@ -337,9 +337,15 @@ export async function handleUpdateMemoryItem(
   };
 
   if (body.subject !== undefined) {
+    if (typeof body.subject !== "string") {
+      return httpError("BAD_REQUEST", "subject must be a string", 400);
+    }
     set.subject = truncate(body.subject.trim(), 80, "");
   }
   if (body.statement !== undefined) {
+    if (typeof body.statement !== "string") {
+      return httpError("BAD_REQUEST", "statement must be a string", 400);
+    }
     set.statement = truncate(body.statement.trim(), 500, "");
   }
   if (body.kind !== undefined) {
