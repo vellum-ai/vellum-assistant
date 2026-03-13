@@ -52,8 +52,18 @@ struct IdentityPanel: View {
                             Spacer()
 
                             // Large centered avatar
-                            VAvatarImage(image: appearance.fullAvatarImage, size: avatarSize, showBorder: false)
-                                .frame(maxWidth: .infinity, alignment: .center)
+                            Group {
+                                if let body = appearance.characterBodyShape,
+                                   let eyes = appearance.characterEyeStyle,
+                                   let color = appearance.characterColor {
+                                    AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color, size: avatarSize)
+                                        .frame(width: avatarSize, height: avatarSize)
+                                        .frame(maxWidth: .infinity, alignment: .center)
+                                } else {
+                                    VAvatarImage(image: appearance.fullAvatarImage, size: avatarSize, showBorder: false)
+                                        .frame(maxWidth: .infinity, alignment: .center)
+                                }
+                            }
 
                             // Update Avatar button
                             VButton(label: "Update Avatar", style: .outlined) { showAvatarSheet = true }
