@@ -845,7 +845,7 @@ export function buildCliReferenceSection(): string {
   return [
     "## Assistant CLI",
     "",
-    "The `assistant` CLI is installed on the user's machine and available via `bash`.",
+    "The `assistant` CLI is available in the sandbox. Always use the `bash` tool (never `host_bash`) when running `assistant` commands.",
     "For account and authentication work, prefer real `assistant` CLI workflows over any legacy account-record abstraction.",
     "- Use `assistant credentials ...` for stored secrets and credential metadata.",
     "- Use `assistant oauth connections token <provider-key>` for connected integration tokens.",
