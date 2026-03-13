@@ -686,6 +686,8 @@ struct ActiveChatViewWrapper: View {
             onDictateToggle: onDictateToggle,
             onVoiceModeToggle: onVoiceModeToggle,
             threadId: threadId,
+            daemonGreeting: viewModel.emptyStateGreeting,
+            onRequestGreeting: { [weak viewModel] in viewModel?.generateGreeting() },
             anchorMessageId: $anchorMessageId,
             btwResponse: viewModel.btwResponse,
             btwLoading: viewModel.btwLoading,

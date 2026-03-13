@@ -64,6 +64,8 @@ struct ChatView: View {
     var onDictateToggle: (() -> Void)? = nil
     var onVoiceModeToggle: (() -> Void)? = nil
     var threadId: UUID?
+    var daemonGreeting: String? = nil
+    var onRequestGreeting: (() -> Void)? = nil
     /// When set, scroll to this message ID and clear the binding.
     @Binding var anchorMessageId: UUID?
 
@@ -166,7 +168,9 @@ struct ChatView: View {
                             recordingAmplitude: recordingAmplitude,
                             onDictateToggle: onDictateToggle,
                             onVoiceModeToggle: onVoiceModeToggle,
-                            threadId: threadId
+                            threadId: threadId,
+                            daemonGreeting: daemonGreeting,
+                            onRequestGreeting: onRequestGreeting
                         )
                     }
                 } else {
