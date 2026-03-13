@@ -423,8 +423,8 @@ private struct WorkspaceTreeRow: View {
                 .background(isSelected ? VColor.surfaceActive : Color.clear)
             }
             .buttonStyle(.plain)
-            .onDrop(of: entry.isDirectory ? [.fileURL] : [], isTargeted: .none) { providers in
-                guard entry.isDirectory else { return false }
+            .onDrop(of: entry.isDirectory && !isHiddenPath(entry.path) ? [.fileURL] : [], isTargeted: .none) { providers in
+                guard entry.isDirectory, !isHiddenPath(entry.path) else { return false }
                 handleDrop(providers: providers, targetDir: entry.path, state: state, daemonClient: daemonClient)
                 return true
             }
