@@ -573,6 +573,7 @@ extension AppDelegate {
         hasSetupHotKey = false
         lastRegisteredGlobalHotkey = nil
         lastRegisteredQuickInputHotkey = nil
+        lastRegisteredQuickInputAboveDockShortcut = nil
         lastRegisteredNavBackShortcut = nil
         lastRegisteredNavForwardShortcut = nil
         lastRegisteredZoomInShortcut = nil
