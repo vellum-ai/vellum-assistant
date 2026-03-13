@@ -8,11 +8,12 @@ metadata:
     display-name: "Google OAuth Setup"
     user-invocable: true
     credential-setup-for: "gmail"
+    includes: ["collaborative-oauth-flow"]
 ---
 
 You are helping your user set up Google Cloud OAuth credentials so Gmail and Google Calendar integrations can connect.
 
-This skill follows the **Collaborative Guided Flow** pattern defined in `references/collaborative-guided-flow.md`. Read that reference for the navigation helper setup, step rhythm, rules, tone, error handling, and guardrails. This file defines only the Google-specific steps.
+This skill follows the **Collaborative Guided Flow** pattern from the included `collaborative-oauth-flow` skill. That reference covers the navigation helper setup, step rhythm, rules, tone, error handling, and guardrails. This file defines only the Google-specific steps.
 
 ## Provider Details
 
