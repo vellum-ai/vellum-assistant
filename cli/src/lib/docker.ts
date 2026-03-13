@@ -59,7 +59,7 @@ async function ensureDockerInstalled(): Promise<void> {
       // Homebrew on Apple Silicon installs to /opt/homebrew; add it to PATH
       // so subsequent brew/colima/docker invocations work in this session.
       if (!process.env.PATH?.includes("/opt/homebrew")) {
-        process.env.PATH = `/opt/homebrew/bin:/opt/homebrew/sbin:${process.env.PATH}`;
+        process.env.PATH = `/opt/homebrew/bin:/opt/homebrew/sbin:${process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"}`;
       }
     }
 
