@@ -2,15 +2,16 @@
  * Diagnostic tests that run WITHOUT mocks to verify which secure-key
  * backend is actually used in the current environment (CI or local).
  *
- * These tests answer three questions:
+ * Designed to run on macOS CI runners (macos-15) to answer:
  *   1. Is setSecureKey using the keychain broker or the encrypted file store?
- *   2. If the broker were available, would it work?
- *   3. Why is the broker unavailable (when it is)?
+ *   2. If it is trying to use the keychain, does it work?
+ *   3. If it doesn't work, why not?
  */
 
+import { execSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
-import { hostname, platform, userInfo } from "node:os";
+import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { arch, hostname, platform, userInfo } from "node:os";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -52,13 +53,25 @@ const TEST_DIR = join(
 );
 const STORE_PATH = join(TEST_DIR, "keys.enc");
 
-/** True when the broker socket + token exist (e.g. developer machine with app running). */
+const IS_MACOS = platform() === "darwin";
+
+/** True when the broker socket + token both exist on disk. */
 function isBrokerPresent(): boolean {
   const rootDir = getRootDir();
   return (
     existsSync(join(rootDir, "keychain-broker.sock")) &&
     existsSync(join(rootDir, "protected", "keychain-broker.token"))
   );
+}
+
+/** Run a shell command and return stdout, or the error message on failure. */
+function shell(cmd: string): string {
+  try {
+    return execSync(cmd, { encoding: "utf-8", timeout: 5_000 }).trim();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return `[error] ${message}`;
+  }
 }
 
 describe("secure-keys CI backend resolution", () => {
@@ -86,10 +99,10 @@ describe("secure-keys CI backend resolution", () => {
   // Q1: Is setSecureKey using the keychain broker or the .enc file?
   // -------------------------------------------------------------------------
   describe("Q1: which backend does setSecureKey resolve to", () => {
-    test("sync setSecureKey always writes to the encrypted file store, never the keychain", () => {
+    test("sync setSecureKey writes to the encrypted file store", () => {
       /**
-       * Verifies that the sync setSecureKey path delegates exclusively to the
-       * encrypted-at-rest file store, regardless of broker availability.
+       * The sync setSecureKey path always delegates to the encrypted-at-rest
+       * file store, regardless of broker availability.
        */
 
       // GIVEN a clean environment with no prior keys
@@ -98,169 +111,192 @@ describe("secure-keys CI backend resolution", () => {
       // WHEN we write a key via the sync API
       const ok = setSecureKey("ci-test-key", "ci-test-value");
 
-      // THEN the write succeeds
+      // THEN the write succeeds and creates the encrypted store file
       expect(ok).toBe(true);
-
-      // AND the encrypted store file was created on disk
       expect(existsSync(STORE_PATH)).toBe(true);
 
-      // AND we can read it back via the sync getter (also encrypted-store-only)
+      // AND the value round-trips through the sync getter
       expect(getSecureKey("ci-test-key")).toBe("ci-test-value");
     });
 
-    test("getBackendType reports the resolved backend for this environment", () => {
+    test("getBackendType reports which backend resolved", () => {
       /**
-       * Reports whether the broker (macOS keychain via Unix socket) is
-       * reachable or whether the encrypted file store is used.
+       * Logs and asserts the resolved backend. On macOS CI without the
+       * desktop app, this should be "encrypted".
        */
 
       // WHEN we query the backend type
       const backend = getBackendType();
+      const brokerPresent = isBrokerPresent();
 
-      // THEN the result depends on whether the broker is present
-      if (isBrokerPresent()) {
+      console.log(
+        `[Q1] getBackendType() = "${backend}", brokerPresent = ${brokerPresent}`,
+      );
+
+      // THEN it matches the broker's actual presence
+      if (brokerPresent) {
         expect(backend).toBe("broker");
       } else {
         expect(backend).toBe("encrypted");
       }
     });
 
-    test("setSecureKeyAsync falls back to encrypted store when broker is unavailable", async () => {
+    test("setSecureKeyAsync resolves correctly regardless of broker state", async () => {
       /**
-       * Verifies that the async path, which prefers the broker, gracefully
-       * falls back to the encrypted file store when no broker is running.
+       * The async path tries the broker first and falls back to the
+       * encrypted file store. Either way the write must succeed.
        */
 
-      // GIVEN the broker is not available
+      // GIVEN the current broker state
       const brokerPresent = isBrokerPresent();
-      if (!brokerPresent) {
-        const broker = createBrokerClient();
-        expect(broker.isAvailable()).toBe(false);
-      }
+      console.log(`[Q1] brokerPresent = ${brokerPresent} before async write`);
 
       // WHEN we write a key via the async API
       const ok = await setSecureKeyAsync("ci-async-key", "ci-async-value");
 
-      // THEN the write succeeds (via broker or encrypted store fallback)
+      // THEN the write succeeds
       expect(ok).toBe(true);
 
-      // AND the value is readable from both sync and async getters
+      // AND readable from both sync and async getters
       expect(getSecureKey("ci-async-key")).toBe("ci-async-value");
       expect(await getSecureKeyAsync("ci-async-key")).toBe("ci-async-value");
     });
   });
 
   // -------------------------------------------------------------------------
-  // Q2: If the broker were available, would keychain access work?
+  // Q2: If it is trying to use the keychain, does it work?
   // -------------------------------------------------------------------------
-  describe("Q2: broker availability in CI", () => {
-    test("the keychain broker reflects its actual availability", () => {
+  describe("Q2: does keychain/broker access work", () => {
+    test("broker client reports actual availability and ping result", async () => {
       /**
-       * The broker requires the Vellum macOS desktop app to be running,
-       * which exposes a Unix domain socket at <rootDir>/keychain-broker.sock.
-       * In CI, the app is not installed, so the broker is unavailable.
-       * On developer machines with the app, it may be available.
+       * Creates a real broker client and probes it. Logs the result
+       * so CI output shows whether the broker is reachable.
        */
 
-      // WHEN we create a real (unmocked) broker client
+      // WHEN we create a real broker client and probe it
       const broker = createBrokerClient();
+      const available = broker.isAvailable();
+      const pingResult = available ? await broker.ping() : null;
 
-      // THEN availability matches whether the socket + token exist
-      expect(broker.isAvailable()).toBe(isBrokerPresent());
+      console.log(
+        `[Q2] broker.isAvailable() = ${available}, ping = ${JSON.stringify(pingResult)}`,
+      );
+
+      // THEN availability matches filesystem presence
+      expect(available).toBe(isBrokerPresent());
+
+      // AND if unavailable, ping returns null (graceful failure, no hang)
+      if (!available) {
+        expect(pingResult).toBeNull();
+      }
     });
 
-    test("broker.ping returns null when the broker is unreachable", async () => {
+    test("macOS keychain state via security CLI", () => {
       /**
-       * Confirms that attempting to contact the broker when it is
-       * unreachable fails gracefully (returns null) rather than
-       * throwing or hanging.
+       * On macOS, probes the system keychain using the security CLI
+       * to show default keychain, keychain list, and whether basic
+       * keychain operations are possible. Logs everything for CI.
        */
 
-      if (isBrokerPresent()) {
-        console.log("Broker is present — skipping unreachable ping test");
+      if (!IS_MACOS) {
+        console.log("[Q2] Not macOS — skipping keychain CLI probe");
         return;
       }
 
-      // GIVEN a real broker client in an environment without the macOS app
-      const broker = createBrokerClient();
+      const defaultKeychain = shell("security default-keychain 2>&1");
+      const keychainList = shell("security list-keychains -d user 2>&1");
+      const identities = shell("security find-identity -v -p codesigning 2>&1");
 
-      // WHEN we attempt to ping the broker
-      const result = await broker.ping();
+      console.log("[Q2] macOS keychain diagnostics:");
+      console.log(`  default-keychain: ${defaultKeychain}`);
+      console.log(`  list-keychains: ${keychainList}`);
+      console.log(`  find-identity: ${identities}`);
 
-      // THEN we get null (unreachable), not an error
-      expect(result).toBeNull();
+      // No assertion — this test exists purely for diagnostic output.
+      // The logged values answer whether the macOS keychain is accessible.
+      expect(true).toBe(true);
     });
   });
 
   // -------------------------------------------------------------------------
-  // Q3: Why is the broker unavailable?
+  // Q3: If it doesn't work, why not?
   // -------------------------------------------------------------------------
-  describe("Q3: why the broker is unavailable in CI", () => {
-    test("broker socket path does not exist when broker is unavailable", () => {
+  describe("Q3: why the broker is unavailable", () => {
+    test("broker socket and token file presence", () => {
       /**
-       * The broker communicates over a Unix domain socket created by the
-       * macOS app. When unavailable, this socket file does not exist.
+       * Checks whether the broker's required files exist and logs
+       * their state. The broker needs both a Unix domain socket and
+       * an auth token file written by the macOS desktop app.
        */
 
-      if (isBrokerPresent()) {
-        console.log("Broker is present — skipping missing-socket assertion");
-        return;
+      const rootDir = getRootDir();
+      const socketPath = join(rootDir, "keychain-broker.sock");
+      const tokenPath = join(rootDir, "protected", "keychain-broker.token");
+      const socketExists = existsSync(socketPath);
+      const tokenExists = existsSync(tokenPath);
+
+      console.log(`[Q3] rootDir = ${rootDir}`);
+      console.log(`[Q3] broker socket (${socketPath}): exists=${socketExists}`);
+      console.log(`[Q3] broker token  (${tokenPath}): exists=${tokenExists}`);
+
+      // Log what IS in the root dir to see what the runner has
+      if (existsSync(rootDir)) {
+        const entries = readdirSync(rootDir);
+        console.log(`[Q3] contents of ${rootDir}: ${JSON.stringify(entries)}`);
+        const protectedDir = join(rootDir, "protected");
+        if (existsSync(protectedDir)) {
+          const protectedEntries = readdirSync(protectedDir);
+          console.log(
+            `[Q3] contents of ${protectedDir}: ${JSON.stringify(protectedEntries)}`,
+          );
+        } else {
+          console.log(`[Q3] ${protectedDir} does not exist`);
+        }
+      } else {
+        console.log(`[Q3] ${rootDir} does not exist at all`);
       }
 
-      // GIVEN the expected socket path derived from getRootDir()
-      const socketPath = join(getRootDir(), "keychain-broker.sock");
-
-      // THEN the socket file does not exist
-      expect(existsSync(socketPath)).toBe(false);
-    });
-
-    test("broker token file does not exist when broker is unavailable", () => {
-      /**
-       * The broker requires an auth token written by the macOS app at
-       * <rootDir>/protected/keychain-broker.token. Without this token,
-       * even if the socket existed, authentication would fail.
-       */
-
-      if (isBrokerPresent()) {
-        console.log("Broker is present — skipping missing-token assertion");
-        return;
+      // Assertion: if broker reports unavailable, at least one file is missing
+      const broker = createBrokerClient();
+      if (!broker.isAvailable()) {
+        expect(socketExists && tokenExists).toBe(false);
       }
-
-      // GIVEN the expected token path derived from getRootDir()
-      const tokenPath = join(
-        getRootDir(),
-        "protected",
-        "keychain-broker.token",
-      );
-
-      // THEN the token file does not exist
-      expect(existsSync(tokenPath)).toBe(false);
     });
 
-    test("environment context: platform and CI indicators", () => {
+    test("full environment context for CI logs", () => {
       /**
-       * Documents the runtime environment so CI logs clearly show
-       * whether this is macOS or Linux, and whether CI env vars are set.
+       * Dumps complete environment context so the CI log provides a
+       * single place to see platform, user, paths, and broker state.
        */
 
+      const rootDir = getRootDir();
       const env = {
         platform: platform(),
+        arch: arch(),
         hostname: hostname(),
         user: userInfo().username,
+        homedir: userInfo().homedir,
         isCI: !!(
           process.env.CI ||
           process.env.GITHUB_ACTIONS ||
           process.env.RUNNER_OS
         ),
         runnerOS: process.env.RUNNER_OS ?? "(not set)",
-        rootDir: getRootDir(),
+        rootDir,
+        storePath: join(rootDir, "protected", "keys.enc"),
+        brokerSocketPath: join(rootDir, "keychain-broker.sock"),
+        brokerTokenPath: join(rootDir, "protected", "keychain-broker.token"),
         brokerPresent: isBrokerPresent(),
+        backendType: getBackendType(),
+        rootDirExists: existsSync(rootDir),
       };
 
-      // Log environment context for CI visibility
-      console.log("CI Environment Context:", JSON.stringify(env, null, 2));
+      console.log(
+        "[Q3] Full environment context:",
+        JSON.stringify(env, null, 2),
+      );
 
-      // The encrypted store works on all platforms
+      // Verify the encrypted store works on this platform
       const ok = setSecureKey("platform-test", "works-on-" + env.platform);
       expect(ok).toBe(true);
       expect(getSecureKey("platform-test")).toBe("works-on-" + env.platform);
