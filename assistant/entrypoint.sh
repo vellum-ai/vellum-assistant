@@ -10,8 +10,8 @@ if [ ! -f /data/dpkg/status ]; then
     mkdir -p /data/usr/bin /data/usr/lib /data/usr/share
     mkdir -p /data/apt/cache
     touch /data/dpkg/status
-    chown -R assistant:assistant /data/dpkg /data/usr /data/apt
     apt-get update || true
+    chown -R assistant:assistant /data/dpkg /data/usr /data/apt
 fi
 
 exec "$@"
