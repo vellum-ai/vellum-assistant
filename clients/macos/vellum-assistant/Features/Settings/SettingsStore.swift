@@ -3,6 +3,7 @@ import Carbon.HIToolbox
 import Combine
 import Foundation
 import os
+import SwiftUI
 import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "SettingsStore")
@@ -19,6 +20,11 @@ public final class SettingsStore: ObservableObject {
     /// Set externally (e.g. via HTTP) to deep-link into a specific settings tab.
     /// SettingsPanel observes this and clears it after applying.
     @Published var pendingSettingsTab: SettingsTab?
+
+    // MARK: - User Identity
+
+    @AppStorage("user.displayName") var userDisplayName: String = ""
+    @AppStorage("user.email") var userEmail: String = ""
 
     // MARK: - API Key State
 
