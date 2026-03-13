@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 
@@ -148,8 +148,9 @@ export async function fetchSkillAudits(
  */
 export function resolveSkillSource(source: string): ResolvedSkillSource {
   // Full GitHub URL — capture the branch for ref passthrough
+  // Branch capture uses non-greedy `.+?` to handle branch names with slashes (e.g. feature/new-flow)
   const urlMatch = source.match(
-    /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/skills\/([^/]+)\/?$/,
+    /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/tree\/(.+?)\/skills\/([a-z0-9][a-z0-9._-]*)\/?$/,
   );
   if (urlMatch) {
     return {
@@ -166,8 +167,8 @@ export function resolveSkillSource(source: string): ResolvedSkillSource {
     return { owner: atMatch[1]!, repo: atMatch[2]!, skillSlug: atMatch[3]! };
   }
 
-  // owner/repo/skill-name (exactly 3 segments)
-  const slashMatch = source.match(/^([^/]+)\/([^/]+)\/([^/]+)$/);
+  // owner/repo/skill-name (exactly 3 segments) — restrict slug to safe characters
+  const slashMatch = source.match(/^([^/]+)\/([^/]+)\/([a-z0-9][a-z0-9._-]*)$/);
   if (slashMatch) {
     return {
       owner: slashMatch[1]!,
@@ -263,7 +264,7 @@ export async function fetchSkillFromGitHub(
 
       if (entry.type !== "file" || !entry.download_url) continue;
       const fileResponse = await fetch(entry.download_url, {
-        headers: { "User-Agent": "vellum-assistant" },
+        headers,
         signal: AbortSignal.timeout(10_000),
       });
       if (!fileResponse.ok) {
@@ -346,6 +347,10 @@ export async function installExternalSkill(
 
   const files = await fetchSkillFromGitHub(owner, repo, skillSlug, ref);
 
+  // Clear existing directory on overwrite to remove stale files
+  if (overwrite && existsSync(skillDir)) {
+    rmSync(skillDir, { recursive: true, force: true });
+  }
   mkdirSync(skillDir, { recursive: true });
 
   // Write files with path traversal protection (follows extractTarToDir pattern)
