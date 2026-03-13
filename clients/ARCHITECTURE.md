@@ -202,7 +202,7 @@ idle → starting → recording → stopping → idle
                                       └→ failed → idle
 ```
 
-A recording is initiated via dedicated HTTP endpoints (`/v1/recording/*`). The daemon generates a unique `recordingId`, stores bidirectional mappings (`recordingId ↔ conversationId`), and sends a `recording_start` SSE event to the macOS client. The client manages the actual screen capture via `RecordingManager.swift` and reports status transitions back to the daemon via HTTP.
+A recording is initiated via dedicated HTTP endpoints (`/v1/recordings/*`). The daemon generates a unique `recordingId`, stores bidirectional mappings (`recordingId ↔ conversationId`), and sends a `recording_start` SSE event to the macOS client. The client manages the actual screen capture via `RecordingManager.swift` and reports status transitions back to the daemon via HTTP.
 
 ### Key Files
 
@@ -221,7 +221,7 @@ A recording is initiated via dedicated HTTP endpoints (`/v1/recording/*`). The d
 
 ### Intent Routing
 
-Recording is managed through dedicated HTTP endpoints (`/v1/recording/*`) rather than intent detection in user messages. Clients call these endpoints directly to start, stop, and query recording status.
+Recording is managed through dedicated HTTP endpoints (`/v1/recordings/*`) rather than intent detection in user messages. Clients call these endpoints directly to start, stop, and query recording status.
 
 ### File-Backed Attachments
 
@@ -239,7 +239,7 @@ sequenceDiagram
     participant Daemon as Daemon (Bun)
     participant RM as RecordingManager
 
-    Client->>Daemon: POST /v1/recording/start
+    Client->>Daemon: POST /v1/recordings/start
     Daemon->>Client: recording_start { recordingId, options }
     Client->>RM: startRecording(recordingId)
     RM-->>Client: capture started
@@ -247,7 +247,7 @@ sequenceDiagram
 
     Note over RM: Screen capture in progress...
 
-    Client->>Daemon: POST /v1/recording/stop
+    Client->>Daemon: POST /v1/recordings/stop
     Daemon->>Client: recording_stop { recordingId }
     Client->>RM: stopRecording()
     RM-->>Client: file saved at filePath
