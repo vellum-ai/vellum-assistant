@@ -45,7 +45,7 @@ struct SettingsGeneralTab: View {
                             Text(device.deviceName)
                                 .font(VFont.body)
                                 .foregroundColor(VColor.contentSecondary)
-                            VIconButton(label: "Remove \(device.deviceName)", icon: VIcon.trash.rawValue, iconOnly: true, variant: .danger) {
+                            VButton(label: "Remove \(device.deviceName)", iconOnly: VIcon.trash.rawValue, style: .danger) {
                                 store.removeApprovedDevice(hashedDeviceId: device.hashedDeviceId)
                             }
                         }

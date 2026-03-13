@@ -192,7 +192,7 @@ struct MicrophoneButton: View {
                     .foregroundColor(isRecording ? VColor.systemNegativeStrong : VColor.primaryBase)
             }
         }
-        .buttonStyle(VIconButtonStyle(isHovered: isHovered, isFocused: isFocused, size: size))
+        .buttonStyle(VButtonStyle.iconOnly(isHovered: isHovered, isFocused: isFocused, iconSize: size))
         .focused($isFocused)
         .onHover { hovering in
             isHovered = hovering

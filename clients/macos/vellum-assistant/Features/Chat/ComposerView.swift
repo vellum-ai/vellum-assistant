@@ -429,31 +429,29 @@ struct ComposerView: View {
     private var composerActionButtons: some View {
         HStack(spacing: 2) {
             if isSending && !hasPendingConfirmation {
-                VIconButton(
+                VButton(
                     label: "Stop generation",
-                    icon: VIcon.square.rawValue,
-                    iconOnly: true,
-                    variant: .neutral,
-                    size: composerActionButtonSize,
+                    iconOnly: VIcon.square.rawValue,
+                    style: .neutral,
+                    iconSize: composerActionButtonSize,
                     action: onStop
                 )
             } else {
-                VIconButton(
+                VButton(
                     label: "Attach file",
-                    icon: VIcon.paperclip.rawValue,
-                    iconOnly: true,
-                    size: composerActionButtonSize,
+                    iconOnly: VIcon.paperclip.rawValue,
+                    style: .ghost,
+                    iconSize: composerActionButtonSize,
                     action: { onAttach() }
                 )
                 .disabled(!hasAPIKey)
 
                 if canSend {
-                    VIconButton(
+                    VButton(
                         label: "Send message",
-                        icon: VIcon.arrowUp.rawValue,
-                        iconOnly: true,
-                        variant: .primary,
-                        size: composerActionButtonSize
+                        iconOnly: VIcon.arrowUp.rawValue,
+                        style: .primary,
+                        iconSize: composerActionButtonSize
                     ) {
                         composerFocus = true
                         onSend()
@@ -461,11 +459,11 @@ struct ComposerView: View {
                     .transition(.scale.combined(with: .opacity))
                 } else if inputText.isEmpty && !hasPendingConfirmation {
                     // Empty input: show dictate + voice mode buttons
-                    VIconButton(
+                    VButton(
                         label: "Dictate",
-                        icon: VIcon.mic.rawValue,
-                        iconOnly: true,
-                        size: composerActionButtonSize,
+                        iconOnly: VIcon.mic.rawValue,
+                        style: .ghost,
+                        iconSize: composerActionButtonSize,
                         action: { (onDictateToggle ?? onMicrophoneToggle)() }
                     )
                     .disabled(!hasAPIKey)
@@ -516,12 +514,11 @@ VStreamingWaveform(
                     .frame(maxWidth: .infinity)
 
                     // Cancel: stop dictation and discard transcribed text
-                    VIconButton(
+                    VButton(
                         label: "Cancel dictation",
-                        icon: VIcon.x.rawValue,
-                        iconOnly: true,
-                        variant: .danger,
-                        size: composerActionButtonSize,
+                        iconOnly: VIcon.x.rawValue,
+                        style: .danger,
+                        iconSize: composerActionButtonSize,
                         action: {
                             inputText = preDictationText
                             preDictationText = ""
@@ -530,12 +527,11 @@ VStreamingWaveform(
                     )
 
                     // Accept: stop dictation and keep transcribed text
-                    VIconButton(
+                    VButton(
                         label: "Accept dictation",
-                        icon: VIcon.check.rawValue,
-                        iconOnly: true,
-                        variant: .primary,
-                        size: composerActionButtonSize,
+                        iconOnly: VIcon.check.rawValue,
+                        style: .primary,
+                        iconSize: composerActionButtonSize,
                         action: {
                             preDictationText = ""
                             (onDictateToggle ?? onMicrophoneToggle)()
@@ -574,22 +570,20 @@ VStreamingWaveform(
 
                 // Right: mute/unmute + end button
                 HStack(spacing: VSpacing.xs) {
-                    VIconButton(
+                    VButton(
                         label: manager.state == .listening ? "Mute" : "Unmute",
-                        icon: manager.state == .listening ? VIcon.mic.rawValue : VIcon.micOff.rawValue,
-                        iconOnly: true,
-                        variant: .neutral,
-                        size: composerActionButtonSize,
+                        iconOnly: manager.state == .listening ? VIcon.mic.rawValue : VIcon.micOff.rawValue,
+                        style: .neutral,
+                        iconSize: composerActionButtonSize,
                         action: { manager.toggleListening() }
                     )
                     .disabled(manager.state == .processing)
 
-                    VIconButton(
+                    VButton(
                         label: "End voice mode",
-                        icon: VIcon.phoneCall.rawValue,
-                        iconOnly: true,
-                        variant: .danger,
-                        size: composerActionButtonSize,
+                        iconOnly: VIcon.phoneCall.rawValue,
+                        style: .danger,
+                        iconSize: composerActionButtonSize,
                         action: { onEndVoiceMode?() }
                     )
                 }

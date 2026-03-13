@@ -93,20 +93,19 @@ struct MemoryItemDetailSheet: View {
             Spacer()
 
             if !isEditing {
-                VIconButton(
+                VButton(
                     label: "Edit",
-                    icon: VIcon.pencil.rawValue,
-                    iconOnly: true,
+                    iconOnly: VIcon.pencil.rawValue,
+                    style: .ghost,
                     tooltip: "Edit memory"
                 ) {
                     isEditing = true
                 }
 
-                VIconButton(
+                VButton(
                     label: "Delete",
-                    icon: VIcon.trash.rawValue,
-                    iconOnly: true,
-                    variant: .danger,
+                    iconOnly: VIcon.trash.rawValue,
+                    style: .danger,
                     tooltip: "Delete memory"
                 ) {
                     showDeleteConfirm = true

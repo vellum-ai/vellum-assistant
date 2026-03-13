@@ -993,12 +993,12 @@ struct ConstellationView: View {
     // MARK: - Fullscreen Toggle (top-left)
 
     private var fullscreenToggle: some View {
-        VIconButton(
+        VButton(
             label: isFullscreen ? "Collapse" : "Expand",
-            icon: isFullscreen
+            iconOnly: isFullscreen
                 ? VIcon.minimize.rawValue
                 : VIcon.maximize.rawValue,
-            iconOnly: true,
+            style: .ghost,
             tooltip: isFullscreen ? "Exit fullscreen" : "Enter fullscreen"
         ) {
             withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
@@ -1012,21 +1012,21 @@ struct ConstellationView: View {
     @ViewBuilder
     private func viewportControls(viewSize: CGSize) -> some View {
         HStack(spacing: VSpacing.xxs) {
-            VIconButton(label: "Zoom in", icon: VIcon.zoomIn.rawValue, iconOnly: true, tooltip: "Zoom in") {
+            VButton(label: "Zoom in", iconOnly: VIcon.zoomIn.rawValue, style: .ghost, tooltip: "Zoom in") {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                     zoomScale = min(3.0, zoomScale + 0.25)
                     baseZoomScale = zoomScale
                 }
             }
 
-            VIconButton(label: "Zoom out", icon: VIcon.zoomOut.rawValue, iconOnly: true, tooltip: "Zoom out") {
+            VButton(label: "Zoom out", iconOnly: VIcon.zoomOut.rawValue, style: .ghost, tooltip: "Zoom out") {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                     zoomScale = max(0.4, zoomScale - 0.25)
                     baseZoomScale = zoomScale
                 }
             }
 
-            VIconButton(label: "Fit all", icon: VIcon.scan.rawValue, iconOnly: true, tooltip: "Fit all skills") {
+            VButton(label: "Fit all", iconOnly: VIcon.scan.rawValue, style: .ghost, tooltip: "Fit all skills") {
                 fitAll(viewSize: viewSize)
             }
         }

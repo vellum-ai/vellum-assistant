@@ -126,10 +126,10 @@ struct InputBarView: View {
     private var standardInputRow: some View {
         HStack(spacing: VSpacing.md) {
             // Attachment button — tap opens photo library (most common), long-press shows both options
-            VIconButton(
+            VButton(
                 label: "Attach file",
-                icon: VIcon.paperclip.rawValue,
-                iconOnly: true,
+                iconOnly: VIcon.paperclip.rawValue,
+                style: .ghost,
                 action: { showPhotosPicker = true }
             )
             .contextMenu {
@@ -184,28 +184,26 @@ struct InputBarView: View {
 
             // Stop button (shown while generating but not yet cancelling)
             if isGenerating && !isCancelling {
-                VIconButton(
+                VButton(
                     label: "Stop generation",
-                    icon: VIcon.square.rawValue,
-                    iconOnly: true,
-                    variant: .neutral,
+                    iconOnly: VIcon.square.rawValue,
+                    style: .neutral,
                     action: onStop
                 )
             } else {
                 // Mic button — tap to expand the animated voice orb
-                VIconButton(
+                VButton(
                     label: "Start voice input",
-                    icon: VIcon.mic.rawValue,
-                    iconOnly: true,
+                    iconOnly: VIcon.mic.rawValue,
+                    style: .ghost,
                     action: toggleVoiceInput
                 )
 
                 // Send button
-                VIconButton(
+                VButton(
                     label: "Send message",
-                    icon: VIcon.arrowUp.rawValue,
-                    iconOnly: true,
-                    variant: .primary,
+                    iconOnly: VIcon.arrowUp.rawValue,
+                    style: .primary,
                     action: {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         onSend()

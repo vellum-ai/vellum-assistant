@@ -327,7 +327,7 @@ struct SettingsAppearanceTab: View {
                                 .foregroundColor(VColor.contentDefault)
                                 .textSelection(.enabled)
                             Spacer()
-                            VIconButton(label: "Remove domain", icon: VIcon.trash.rawValue, iconOnly: true, variant: .danger) {
+                            VButton(label: "Remove domain", iconOnly: VIcon.trash.rawValue, style: .danger) {
                                 var domains = store.mediaEmbedVideoAllowlistDomains
                                 domains.removeAll { $0 == domain }
                                 store.setMediaEmbedVideoAllowlistDomains(domains)
