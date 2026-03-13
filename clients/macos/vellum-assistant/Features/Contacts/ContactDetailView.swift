@@ -29,8 +29,11 @@ struct ContactDetailView: View {
     @State private var telegramBootstrapChannelId: String?
     @State private var invitePhoneNumber = ""
     @State private var inviteInProgress: String?
+    @State private var inviteCallInProgress = false
+    @State private var inviteCallTriggered = false
     @State private var inviteResult: (
         type: String,
+        inviteId: String,
         token: String?,
         shareUrl: String?,
         inviteCode: String?,
@@ -640,6 +643,27 @@ struct ContactDetailView: View {
                         }
                     }
                 }
+
+                if type == "phone", let result = inviteResult {
+                    if inviteCallTriggered {
+                        HStack(spacing: VSpacing.sm) {
+                            Image(systemName: "phone.fill")
+                                .foregroundColor(VColor.systemPositiveStrong)
+                            Text("Call started")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.systemPositiveStrong)
+                        }
+                    } else {
+                        VButton(
+                            label: inviteCallInProgress ? "Calling..." : "Call \(displayContact.displayName)",
+                            icon: VIcon.phoneCall.rawValue,
+                            style: .primary,
+                            isDisabled: inviteCallInProgress
+                        ) {
+                            triggerInviteCallAction(inviteId: result.inviteId)
+                        }
+                    }
+                }
             }
         } else if let shareableText = result.shareUrl ?? result.token {
             // Fallback: no invite code available, show raw token
@@ -992,6 +1016,8 @@ struct ContactDetailView: View {
         inviteInProgress = type
         inviteError = nil
         inviteResult = nil
+        inviteCallInProgress = false
+        inviteCallTriggered = false
         inviteCodeRevealed = false
         inviteHandleInput = ""
         Task {
@@ -1013,6 +1039,7 @@ struct ContactDetailView: View {
                 ) {
                     inviteResult = (
                         type: type,
+                        inviteId: result.inviteId,
                         token: result.token,
                         shareUrl: result.shareUrl,
                         inviteCode: result.inviteCode,
@@ -1027,6 +1054,24 @@ struct ContactDetailView: View {
                 inviteError = "Failed to create invite: \(error.localizedDescription)"
             }
             inviteInProgress = nil
+        }
+    }
+
+    private func triggerInviteCallAction(inviteId: String) {
+        guard let daemonClient, !inviteCallInProgress else { return }
+        inviteCallInProgress = true
+        Task {
+            do {
+                let success = try await daemonClient.triggerInviteCall(inviteId: inviteId)
+                if success {
+                    inviteCallTriggered = true
+                } else {
+                    inviteError = "Failed to initiate call"
+                }
+            } catch {
+                inviteError = "Failed to initiate call: \(error.localizedDescription)"
+            }
+            inviteCallInProgress = false
         }
     }
 

@@ -272,6 +272,7 @@ public final class HTTPTransport {
         case contactChannelUpdate(contactChannelId: String)
         case contactsUpsert
         case contactsInvitesCreate
+        case contactsInvitesCall(id: String)
         case channelsReadiness
         case surfaceContent(surfaceId: String, sessionId: String)
         case usageTotals(from: Int, to: Int)
@@ -532,6 +533,9 @@ public final class HTTPTransport {
             return ("/v1/contacts", nil)
         case .contactsInvitesCreate:
             return ("/v1/contacts/invites", nil)
+        case .contactsInvitesCall(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/contacts/invites/\(encoded)/call", nil)
         case .channelsReadiness:
             return ("/v1/channels/readiness", nil)
         case .surfaceContent(let surfaceId, let sessionId):
@@ -940,6 +944,9 @@ public final class HTTPTransport {
             return ("\(prefix)/contacts/", nil)
         case .contactsInvitesCreate:
             return ("\(prefix)/contacts/invites/", nil)
+        case .contactsInvitesCall(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/contacts/invites/\(encoded)/call/", nil)
         case .channelsReadiness:
             return ("\(prefix)/channels/readiness/", nil)
         case .surfaceContent(let surfaceId, let sessionId):
@@ -2568,6 +2575,27 @@ public final class HTTPTransport {
         let decoded = try decoder.decode(HTTPCreateInviteResponse.self, from: data)
         guard let invite = decoded.invite else { return nil }
         return (inviteId: invite.id, token: invite.token, shareUrl: invite.share?.url, inviteCode: invite.inviteCode, voiceCode: invite.voiceCode, guardianInstruction: invite.guardianInstruction, channelHandle: invite.channelHandle)
+    }
+
+    // MARK: - Invite Call
+
+    func triggerInviteCall(inviteId: String, isRetry: Bool = false) async throws -> Bool {
+        guard let url = buildURL(for: .contactsInvitesCall(id: inviteId)) else { return false }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+        request.httpBody = try JSONSerialization.data(withJSONObject: [:] as [String: Any])
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse {
+            if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult { return try await triggerInviteCall(inviteId: inviteId, isRetry: true) }
+                return false
+            }
+            guard (200...201).contains(http.statusCode) else { return false }
+        }
+        return true
     }
 
     // MARK: - Channel Readiness

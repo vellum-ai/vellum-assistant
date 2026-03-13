@@ -2099,6 +2099,21 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         #endif
     }
 
+    /// Trigger an invite call via `POST /v1/contacts/invites/:id/call`.
+    public func triggerInviteCall(inviteId: String) async throws -> Bool {
+        if let httpTransport { return try await httpTransport.triggerInviteCall(inviteId: inviteId) }
+        #if os(macOS)
+        guard var request = buildLocalRequest(target: .gateway, path: "v1/contacts/invites/\(inviteId)/call", method: "POST") else { return false }
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [:] as [String: Any])
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...201).contains(http.statusCode) else { return false }
+        return true
+        #else
+        return false
+        #endif
+    }
+
     /// A single readiness check result from the API.
     public struct ReadinessCheck {
         public let name: String
