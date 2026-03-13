@@ -13,30 +13,17 @@ struct ThreadTitleActionsControl: View {
     @Binding var showDrawer: Bool
 
     var body: some View {
-        Button {
+        VButton(
+            label: presentation.displayTitle,
+            rightIcon: presentation.showsActionsMenu ? VIcon.chevronDown.rawValue : nil,
+            style: .ghost
+        ) {
             if presentation.showsActionsMenu {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
                     showDrawer.toggle()
                 }
             }
-        } label: {
-            HStack(spacing: VSpacing.xs) {
-                Text(presentation.displayTitle)
-                    .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.contentDefault)
-                    .lineLimit(1)
-                if presentation.showsActionsMenu {
-                    VIconView(.chevronDown, size: 9)
-                        .foregroundColor(VColor.contentTertiary)
-                        .rotationEffect(.degrees(showDrawer ? -180 : 0))
-                        .animation(VAnimation.fast, value: showDrawer)
-                }
-            }
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .padding(.leading, VSpacing.sm)
-        .padding(.vertical, VSpacing.sm)
     }
 }
 

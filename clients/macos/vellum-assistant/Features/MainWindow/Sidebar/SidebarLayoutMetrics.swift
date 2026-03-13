@@ -14,7 +14,7 @@ enum SidebarLayoutMetrics {
     static let rowVerticalPadding: CGFloat = VSpacing.xs  // 4pt — compact density
 
     /// Minimum row height to ensure touch/click targets remain accessible.
-    static let rowMinHeight: CGFloat = 28
+    static let rowMinHeight: CGFloat = 32
 
     // MARK: - List Row Spacing
 

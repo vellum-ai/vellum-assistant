@@ -116,9 +116,8 @@ extension MainWindowView {
                 collapsedSidebarContent
             }
         }
-        .padding(.horizontal, VSpacing.xs)
-        .padding(.top, VSpacing.md)
-        .padding(.bottom, sidebarExpanded ? VSpacing.md : VSpacing.sm)
+        .padding(.vertical, VSpacing.md)
+        .padding(.horizontal, sidebarExpanded ? VSpacing.md : VSpacing.sm)
         .frame(width: sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth, alignment: .leading)
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
@@ -179,8 +178,6 @@ extension MainWindowView {
     @ViewBuilder
     var expandedSidebarContent: some View {
         VStack(spacing: SidebarLayoutMetrics.listRowGap) {
-            Spacer().frame(height: 0)
-
             // MARK: Pinned Apps (above nav items)
             if !appListManager.pinnedApps.isEmpty {
                 VStack(spacing: SidebarLayoutMetrics.listRowGap) {
@@ -464,8 +461,6 @@ extension MainWindowView {
     @ViewBuilder
     var collapsedSidebarContent: some View {
         VStack(spacing: SidebarLayoutMetrics.listRowGap) {
-            Spacer().frame(height: 0)
-
             // MARK: Pinned Apps (collapsed)
             if !appListManager.pinnedApps.isEmpty {
                 VStack(spacing: SidebarLayoutMetrics.listRowGap) {
@@ -522,7 +517,7 @@ extension MainWindowView {
                     }
                 }
                 .buttonStyle(.plain)
-                .padding(.horizontal, VSpacing.xs)
+                .padding(.horizontal, 0)
                 .accessibilityLabel(switcher.accessibilityLabel)
                 .accessibilityValue(switcher.accessibilityValue)
                 .onDisappear {
@@ -552,8 +547,6 @@ extension MainWindowView {
                     }
                 }
             )
-
-            Spacer().frame(height: 0)
         }
     }
 
@@ -563,11 +556,8 @@ extension MainWindowView {
     /// Horizontal inset adapts to expanded/collapsed; vertical rhythm is always compact.
     @ViewBuilder
     func sidebarSectionDivider(isExpanded: Bool) -> some View {
-        VColor.borderBase
+        VColor.surfaceBase
             .frame(height: 1)
-            .padding(.horizontal, isExpanded
-                ? SidebarLayoutMetrics.dividerHorizontalPaddingExpanded
-                : SidebarLayoutMetrics.dividerHorizontalPaddingCollapsed)
             .padding(.vertical, SidebarLayoutMetrics.dividerVerticalPadding)
     }
 

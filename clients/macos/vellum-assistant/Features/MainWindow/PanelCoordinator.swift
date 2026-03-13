@@ -793,7 +793,7 @@ struct DynamicWorkspaceWrapper: View {
                 // Right: History + Share + Close outlined icon buttons
                 HStack(spacing: VSpacing.sm) {
                     if data.appId != nil {
-                        VButton(label: "Version history", iconOnly: VIcon.history.rawValue, style: .outlined, iconSize: 28, tooltip: "Version history") {
+                        VButton(label: "Version history", iconOnly: VIcon.history.rawValue, style: .outlined, iconSize: 32, tooltip: "Version history") {
                             showVersionHistory = true
                         }
                     }
@@ -807,9 +807,9 @@ struct DynamicWorkspaceWrapper: View {
                             if sharing.isBundling || sharing.isPublishing {
                                 ProgressView()
                                     .controlSize(.small)
-                                    .frame(height: 28)
+                                    .frame(height: 32)
                             } else {
-                                VButton(label: "Share", iconOnly: VIcon.share.rawValue, style: .outlined, iconSize: 28, tooltip: "Share") {
+                                VButton(label: "Share", iconOnly: VIcon.share.rawValue, style: .outlined, iconSize: 32, tooltip: "Share") {
                                     showShareDrawer.toggle()
                                 }
                                 .background(GeometryReader { proxy in
@@ -836,15 +836,15 @@ struct DynamicWorkspaceWrapper: View {
                         } else if sharing.isPublishing {
                             ProgressView()
                                 .controlSize(.small)
-                                .frame(height: 28)
+                                .frame(height: 32)
                         } else if sharing.publishedUrl == nil {
-                            VButton(label: "Publish", iconOnly: VIcon.arrowUpRight.rawValue, style: .outlined, iconSize: 28, tooltip: "Publish to Vercel") {
+                            VButton(label: "Publish", iconOnly: VIcon.arrowUpRight.rawValue, style: .outlined, iconSize: 32, tooltip: "Publish to Vercel") {
                                 onPublishPage(data.html, data.preview?.title, data.appId)
                             }
                         }
                     }
 
-                    VButton(label: "Close workspace", iconOnly: VIcon.x.rawValue, style: .outlined, iconSize: 28, tooltip: "Close workspace") {
+                    VButton(label: "Close workspace", iconOnly: VIcon.x.rawValue, style: .outlined, iconSize: 32, tooltip: "Close workspace") {
                         sharing.showSharePicker = false
                         windowState.activeDynamicSurface = nil
                         windowState.activeDynamicParsedSurface = nil
@@ -854,10 +854,14 @@ struct DynamicWorkspaceWrapper: View {
             }
             .padding(.leading, VSpacing.md)
             .padding(.trailing, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
+            .padding(.vertical, VSpacing.md)
             .background(
-                VColor.surfaceBase
+                VColor.surfaceOverlay
             )
+            .overlay(alignment: .bottom) {
+                VColor.borderBase
+                    .frame(height: 1)
+            }
 
             if let error = sharing.publishError {
                 HStack {
