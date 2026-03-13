@@ -77,7 +77,9 @@ struct ContactDetailView: View {
 
         ScrollView {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
-                headerSection
+                if displayContact.role != "guardian" {
+                    headerSection
+                }
                 channelsSection
             }
             .padding(VSpacing.xl)
