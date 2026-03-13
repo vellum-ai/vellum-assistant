@@ -160,7 +160,7 @@ Register the OAuth app:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:dropbox --client-id <app-key> --client-secret-credential-path "integration:dropbox:oauth_secret" --extra-params "token_access_type=offline"
+    assistant oauth apps upsert --provider integration:dropbox --client-id <app-key> --client-secret-credential-path "integration:dropbox:oauth_secret"
 ```
 
 **Milestone (8 of 11):** "Credentials saved — just the authorization step left."

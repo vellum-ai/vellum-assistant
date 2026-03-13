@@ -115,7 +115,7 @@ Tell the user:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:dropbox --client-id <app-key> --client-secret-credential-path "integration:dropbox:oauth_secret" --extra-params "token_access_type=offline"
+    assistant oauth apps upsert --provider integration:dropbox --client-id <app-key> --client-secret-credential-path "integration:dropbox:oauth_secret"
 ```
 
 ```

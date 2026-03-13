@@ -150,7 +150,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:discord --client-id <client-id> --scopes "identify guilds guilds.members.read messages.read"
+    assistant oauth connections connect integration:discord --client-id <client-id> --scopes identify guilds guilds.members.read messages.read
 ```
 
 ---

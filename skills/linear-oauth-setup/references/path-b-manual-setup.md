@@ -92,7 +92,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:linear --client-id <client-id> --extra-params "prompt=consent"
+    assistant oauth connections connect integration:linear --client-id <client-id>
 ```
 
 Send the returned auth URL to the user. Tell them to click **Authorize** on the Linear consent page.

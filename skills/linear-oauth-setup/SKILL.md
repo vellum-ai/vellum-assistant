@@ -144,7 +144,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:linear --client-id <client-id> --extra-params "prompt=consent"
+    assistant oauth connections connect integration:linear --client-id <client-id>
 ```
 
 ---

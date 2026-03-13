@@ -39,12 +39,6 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
         headerName: "Authorization",
         valuePrefix: "Bearer ",
       },
-      {
-        hostPattern: "www.googleapis.com/drive",
-        injectionType: "header",
-        headerName: "Authorization",
-        valuePrefix: "Bearer ",
-      },
     ],
     setupSkillId: "google-oauth-applescript",
     setup: {
