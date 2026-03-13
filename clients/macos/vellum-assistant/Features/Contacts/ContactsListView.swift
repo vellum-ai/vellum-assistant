@@ -168,8 +168,9 @@ struct ContactsListView: View {
                                 .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
                         }
 
-                        if !contact.channels.isEmpty {
-                            Text(channelSummary(contact.channels))
+                        let summary = channelSummary(contact.channels)
+                        if !summary.isEmpty {
+                            Text(summary)
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.contentSecondary)
                                 .lineLimit(1)
@@ -279,7 +280,7 @@ struct ContactsListView: View {
 
     private func channelIconsRow(_ channels: [ContactChannelPayload]) -> some View {
         HStack(spacing: VSpacing.sm) {
-            let channelTypes = Set(channels.map(\.type))
+            let channelTypes = Set(channels.filter { $0.status != "revoked" }.map(\.type))
             ForEach(Array(channelTypes.sorted()), id: \.self) { type in
                 VIconView(channelIcon(for: type), size: 11)
                     .foregroundColor(VColor.contentTertiary)
@@ -338,7 +339,7 @@ struct ContactsListView: View {
 
     /// Summarizes channel types into a human-readable string (e.g. "Telegram, Voice").
     private func channelSummary(_ channels: [ContactChannelPayload]) -> String {
-        let types = Set(channels.map(\.type))
+        let types = Set(channels.filter { $0.status != "revoked" }.map(\.type))
         return types.sorted().map { channelLabel(for: $0) }.joined(separator: ", ")
     }
 
@@ -365,17 +366,19 @@ struct ContactsListView: View {
     }
 
     /// Aggregates channel statuses into a single status indicator.
-    /// Green = all active/verified, Yellow = some pending, Red = any blocked/revoked.
+    /// Green = all active/verified, Yellow = some pending, Red = any blocked.
+    /// Revoked channels are treated as uninvited and excluded from aggregation.
     private func aggregateChannelStatus(_ channels: [ContactChannelPayload]) -> (color: Color, label: String) {
-        guard !channels.isEmpty else {
+        let active = channels.filter { $0.status != "revoked" }
+        guard !active.isEmpty else {
             return (VColor.contentTertiary, "No channels")
         }
 
-        let hasBlocked = channels.contains { $0.status == "blocked" || $0.status == "revoked" }
-        let hasPending = channels.contains { $0.status == "pending" || $0.status == "unverified" }
+        let hasBlocked = active.contains { $0.status == "blocked" }
+        let hasPending = active.contains { $0.status == "pending" || $0.status == "unverified" }
 
         if hasBlocked {
-            return (VColor.systemNegativeStrong, "Some channels blocked or revoked")
+            return (VColor.systemNegativeStrong, "Some channels blocked")
         } else if hasPending {
             return (VColor.systemNegativeHover, "Some channels pending verification")
         } else {
