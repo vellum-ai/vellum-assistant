@@ -69,15 +69,14 @@ struct SettingsPanel: View {
         VStack(spacing: 0) {
             // Header: back chevron + title
             HStack(spacing: VSpacing.md) {
-                Button(action: onClose) {
-                    VIconView(.chevronLeft, size: 16)
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
+                VButton(
+                    label: "Back",
+                    iconOnly: VIcon.chevronLeft.rawValue,
+                    style: .ghost,
+                    tooltip: "Back"
+                ) {
+                    onClose()
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(VColor.primaryBase)
-                .pointerCursor()
-                .accessibilityLabel("Back")
 
                 Text("Settings")
                     .font(VFont.panelTitle)
