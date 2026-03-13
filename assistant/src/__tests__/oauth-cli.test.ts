@@ -685,6 +685,14 @@ describe("assistant oauth connections connect <provider-key>", () => {
   });
 
   test("completes interactive flow and prints success (human mode)", async () => {
+    mockGetAppByProviderAndClientId = () => ({
+      id: "app-1",
+      clientId: "test-id",
+      clientSecretCredentialPath: "oauth_app/app-1/client_secret",
+      providerKey: "integration:gmail",
+      createdAt: 0,
+      updatedAt: 0,
+    });
     mockOrchestrateOAuthConnect = async () => ({
       success: true,
       deferred: false,
@@ -704,6 +712,14 @@ describe("assistant oauth connections connect <provider-key>", () => {
   });
 
   test("completes interactive flow and returns JSON with --json flag", async () => {
+    mockGetAppByProviderAndClientId = () => ({
+      id: "app-1",
+      clientId: "test-id",
+      clientSecretCredentialPath: "oauth_app/app-1/client_secret",
+      providerKey: "integration:gmail",
+      createdAt: 0,
+      updatedAt: 0,
+    });
     mockOrchestrateOAuthConnect = async () => ({
       success: true,
       deferred: false,
@@ -729,6 +745,14 @@ describe("assistant oauth connections connect <provider-key>", () => {
   });
 
   test("returns auth URL in default (non-interactive) mode (JSON)", async () => {
+    mockGetAppByProviderAndClientId = () => ({
+      id: "app-1",
+      clientId: "test-id",
+      clientSecretCredentialPath: "oauth_app/app-1/client_secret",
+      providerKey: "integration:gmail",
+      createdAt: 0,
+      updatedAt: 0,
+    });
     mockOrchestrateOAuthConnect = async () => ({
       success: true,
       deferred: true,
@@ -821,6 +845,14 @@ describe("assistant oauth connections connect <provider-key>", () => {
   });
 
   test("outputs error from orchestrator", async () => {
+    mockGetAppByProviderAndClientId = () => ({
+      id: "app-1",
+      clientId: "x",
+      clientSecretCredentialPath: "oauth_app/app-1/client_secret",
+      providerKey: "integration:gmail",
+      createdAt: 0,
+      updatedAt: 0,
+    });
     mockOrchestrateOAuthConnect = async () => ({
       success: false,
       error: "Something went wrong",
@@ -841,6 +873,14 @@ describe("assistant oauth connections connect <provider-key>", () => {
   });
 
   test("fails when client_secret is required but missing", async () => {
+    mockGetAppByProviderAndClientId = () => ({
+      id: "app-1",
+      clientId: "test-id",
+      clientSecretCredentialPath: "oauth_app/app-1/client_secret",
+      providerKey: "integration:gmail",
+      createdAt: 0,
+      updatedAt: 0,
+    });
     mockGetProviderBehavior = () => ({
       setup: {
         requiresClientSecret: true,
@@ -1082,8 +1122,9 @@ describe("assistant oauth connections ping <provider-key>", () => {
       updatedAt: Date.now(),
     });
     const originalFetch = globalThis.fetch;
+    // Use 403 (not 401) — 401 now throws inside withValidToken for retry
     globalThis.fetch = (async () =>
-      new Response("Unauthorized", { status: 401 })) as unknown as typeof fetch;
+      new Response("Forbidden", { status: 403 })) as unknown as typeof fetch;
     try {
       const { exitCode, stdout } = await runCli([
         "connections",
@@ -1094,7 +1135,7 @@ describe("assistant oauth connections ping <provider-key>", () => {
       expect(exitCode).toBe(1);
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(false);
-      expect(parsed.status).toBe(401);
+      expect(parsed.status).toBe(403);
     } finally {
       globalThis.fetch = originalFetch;
     }
