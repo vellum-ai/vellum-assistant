@@ -336,6 +336,9 @@ export async function deleteApp(id: string): Promise<boolean> {
 
   const result = await deleteSecureKeyAsync(app.clientSecretCredentialPath);
   if (result === "error") {
+    // Throw (rather than returning "error" like disconnectOAuthProvider) because
+    // the DB row is already deleted above. The caller should surface this to the
+    // user so they can retry or manually clean up the orphaned secret.
     throw new Error(
       `Deleted app ${id} but failed to remove client_secret from secure storage`,
     );
@@ -617,6 +620,11 @@ export async function disconnectOAuthProvider(
   );
 
   if (r1 === "error" || r2 === "error") {
+    // Return "error" (rather than throwing like deleteApp) so the connection row
+    // is preserved. This avoids orphaning secrets in secure storage — the caller
+    // can retry later and the row acts as a pointer to the keys that still need
+    // cleanup. In deleteApp the DB row is already gone, so throwing is the only
+    // way to surface the failure.
     log.warn(
       {
         providerKey,
