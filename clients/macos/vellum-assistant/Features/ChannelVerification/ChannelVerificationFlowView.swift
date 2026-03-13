@@ -77,17 +77,10 @@ struct ChannelVerificationFlowView: View {
                     verificationLabel
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    if let telegramProfileURL {
-                        Link(primaryIdentity ?? "Verified", destination: telegramProfileURL)
-                            .font(VFont.body)
-                            .lineLimit(1)
-                            .pointerCursor()
-                    } else {
-                        Text(primaryIdentity ?? "Verified")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.contentSecondary)
-                            .lineLimit(1)
-                    }
+                    Text(primaryIdentity ?? "Verified")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentDefault)
+                        .lineLimit(1)
                     if let secondaryIdentity {
                         if let telegramProfileURL {
                             Link(secondaryIdentity, destination: telegramProfileURL)
@@ -104,7 +97,7 @@ struct ChannelVerificationFlowView: View {
                 }
                 Spacer()
             }
-            VButton(label: "Revoke", style: .outlined) {
+            VButton(label: "Disconnect", style: .danger) {
                 onRevoke()
             }
         }
