@@ -289,6 +289,12 @@ struct ContactDetailView: View {
                                 }
                             }
                         } else {
+                            if let handle = channelReadiness[type]?.channelHandle {
+                                Text(handle)
+                                    .font(VFont.monoSmall)
+                                    .foregroundColor(VColor.contentTertiary)
+                                    .lineLimit(1)
+                            }
                             if inviteExpanded.contains(type) {
                                 unconfiguredChannelContent(type: type)
                             } else {
