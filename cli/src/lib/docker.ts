@@ -43,10 +43,24 @@ async function ensureDockerInstalled(): Promise<void> {
     }
 
     if (!hasBrew) {
-      throw new Error(
-        "Docker is not installed and Homebrew is not available.\n" +
-          "Please install Docker Desktop from https://www.docker.com/products/docker-desktop/",
-      );
+      console.log("🍺 Homebrew not found. Installing Homebrew...");
+      try {
+        await exec("bash", [
+          "-c",
+          'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"',
+        ]);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        throw new Error(
+          `Failed to install Homebrew. Please install Docker manually from https://www.docker.com/products/docker-desktop/\n${message}`,
+        );
+      }
+
+      // Homebrew on Apple Silicon installs to /opt/homebrew; add it to PATH
+      // so subsequent brew/colima/docker invocations work in this session.
+      if (!process.env.PATH?.includes("/opt/homebrew")) {
+        process.env.PATH = `/opt/homebrew/bin:/opt/homebrew/sbin:${process.env.PATH}`;
+      }
     }
 
     console.log("🐳 Docker not found. Installing via Homebrew...");
