@@ -111,7 +111,7 @@ struct GuardianChannelsDetailView: View {
                 ?? existingChannels.first
 
             if let channel = activeChannel, channel.status == "active", channel.verifiedAt != nil {
-                // Verified channel — show address, badge, date + revoke action
+                // Verified channel — show address + disconnect
                 verifiedChannelContent(channel: channel, type: type)
             } else if (!existingChannels.isEmpty && !dismissedChannels.contains(type)) || setupExpanded.contains(type) {
                 // Existing unverified channel or user clicked "Set Up" — show verification flow
@@ -131,90 +131,21 @@ struct GuardianChannelsDetailView: View {
 
     @ViewBuilder
     private func verifiedChannelContent(channel: ContactChannelPayload, type: String) -> some View {
-        // Show the channel address, verified badge, and date from the channel payload,
-        // then delegate to ChannelVerificationFlowView for revoke/re-verify actions.
-        // The channel payload is the source of truth for verified state — it is always
-        // populated, even if the store hasn't refreshed yet (startup/offline).
+        // Guardian verified channels show only the address and a Disconnect button.
+        // Verification metadata (badge, date, identity) is omitted since the guardian
+        // owns the assistant — only trusted contacts need that detail.
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.sm) {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: VSpacing.sm) {
-                        Text(channel.address)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.contentDefault)
-                            .lineLimit(1)
+            Text(channel.address)
+                .font(VFont.body)
+                .foregroundColor(VColor.contentDefault)
+                .lineLimit(1)
 
-                        Text("Verified")
-                            .font(VFont.captionMedium)
-                            .foregroundColor(VColor.systemPositiveStrong)
-                            .padding(.horizontal, VSpacing.sm)
-                            .padding(.vertical, VSpacing.xxs)
-                            .background(VColor.systemPositiveWeak)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
-                    }
-
-                    if let verifiedAt = channel.verifiedAt, verifiedAt > 0 {
-                        let dateStr = formatDate(epochMs: verifiedAt)
-                        let via = channel.verifiedVia ?? "unknown"
-                        Text("Verified via \(via) on \(dateStr)")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
-                    }
-                }
-
-                Spacer()
-            }
-
-            // Use store state for the revoke/re-verify action flow, falling back to
-            // a verified state derived from the channel payload when the store hasn't
-            // loaded yet (startup, offline, or stale refresh).
             if let store {
-                let storeState = store.channelVerificationState(for: type)
-                let effectiveState = storeState.verified ? storeState : ChannelVerificationState(
-                    channel: type,
-                    identity: channel.address,
-                    username: nil,
-                    displayName: nil,
-                    verified: true,
-                    inProgress: false,
-                    instruction: nil,
-                    error: nil,
-                    alreadyBound: false,
-                    outboundSessionId: nil,
-                    outboundExpiresAt: nil,
-                    outboundNextResendAt: nil,
-                    outboundSendCount: 0,
-                    outboundCode: nil,
-                    bootstrapUrl: nil
-                )
-                let destinationBinding = Binding<String>(
-                    get: { verificationDestinationTexts[type] ?? "" },
-                    set: { verificationDestinationTexts[type] = $0 }
-                )
-                ChannelVerificationFlowView(
-                    state: effectiveState,
-                    countdownNow: $verificationCountdownNow,
-                    destinationText: destinationBinding,
-                    onStartOutbound: { dest in store.startOutboundVerification(channel: type, destination: dest) },
-                    onResend: { store.resendOutboundVerification(channel: type) },
-                    onCancelOutbound: { store.cancelOutboundVerification(channel: type) },
-                    onRevoke: { store.revokeChannelVerification(channel: type) },
-                    onStartSession: { rebind in store.startChannelVerification(channel: type, rebind: rebind) },
-                    onCancelSession: { store.cancelVerificationSession(channel: type) },
-                    botUsername: store.telegramBotUsername,
-                    phoneNumber: store.twilioPhoneNumber,
-                    showLabel: false
-                )
+                VButton(label: "Disconnect", style: .danger) {
+                    store.revokeChannelVerification(channel: type)
+                }
             }
         }
-    }
-
-    private func formatDate(epochMs: Int) -> String {
-        let date = Date(timeIntervalSince1970: Double(epochMs) / 1000)
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        return formatter.string(from: date)
     }
 
     // MARK: - Verification Flow Content
