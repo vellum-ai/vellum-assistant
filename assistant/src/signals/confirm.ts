@@ -15,7 +15,7 @@ import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 
-const log = getLogger("confirmation-signal-service");
+const log = getLogger("signal:confirm");
 
 const VALID_DECISIONS: ReadonlySet<string> = new Set<string>([
   "allow",
