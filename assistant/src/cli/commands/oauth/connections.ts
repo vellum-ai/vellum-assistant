@@ -93,7 +93,8 @@ Examples:
   $ assistant oauth connections token integration:twitter
   $ assistant oauth connections ping integration:gmail
   $ assistant oauth connections connect integration:gmail
-  $ assistant oauth connections connect integration:gmail --open-browser`,
+  $ assistant oauth connections connect integration:gmail --open-browser
+  $ assistant oauth connections disconnect integration:gmail`,
   );
 
   // ---------------------------------------------------------------------------
