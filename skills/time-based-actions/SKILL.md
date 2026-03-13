@@ -13,7 +13,8 @@ Quick-reference decision guide for choosing the right tool when users ask about 
 ## Decision Tree
 
 1. **Does the request have a specific future time AND should fire only once?**
-   - YES -> `schedule_create` with `fire_at`
+   - YES -> `schedule_create` with `fire_at` and `mode: "notify"` (for simple reminders) or `mode: "execute"` (if the assistant should act autonomously)
+   - Default to `mode: "notify"` for reminder-style requests. Use `mode: "execute"` only when the user wants the assistant to perform a task (e.g. "at 5pm, check my email and summarize it").
    - Examples: "remind me at 3pm", "remind me in 5 minutes", "alert me tomorrow at 9am"
 
 2. **Does the request have a recurring pattern?**
@@ -107,6 +108,7 @@ Phrases like "at the 45 minute mark", "at the top of the hour", "on the half-hou
 - "at the 45 min mark" (no start time, now: 9:50) -> 10:45 AM (wall-clock, next hour)
 - "top of the hour" (now: 9:39) -> 10:00 AM
 - "at noon" -> 12:00 PM today
+- "at the hour mark" with no start time -> ask for clarification
 
 ## Tool Summary
 

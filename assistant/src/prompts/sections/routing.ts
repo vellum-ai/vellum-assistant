@@ -8,7 +8,7 @@ export function buildTaskScheduleReminderRoutingSection(): string {
     "## Tool Routing: Tasks vs Schedules vs Notifications",
     "",
     "- `task_list_add` — track work (no time trigger)",
-    "- `schedule_create` — time-based: recurring (cron/RRULE) or one-shot (`fire_at`)",
+    "- `schedule_create` — time-based: recurring (cron/RRULE) or one-shot (`fire_at`). Use `mode: \"notify\"` for reminders, `mode: \"execute\"` for autonomous tasks.",
     "- `send_notification` — **immediate-only**, fires NOW, never for future times",
     "",
     "NEVER use `send_notification` for future-time requests. Use `schedule_create` with `fire_at`.",
