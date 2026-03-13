@@ -47,7 +47,6 @@ struct ContactDetailView: View {
     @State private var inviteHandleInput = ""
     @State private var inviteCodeRevealed = false
     @State private var channelReadiness: [String: DaemonClient.ChannelReadinessInfo] = [:]
-    @State private var readinessFetchFailed = false
     /// Monotonically increasing counter that correlates a verification attempt
     /// with its one-shot response / timeout so stale callbacks are ignored.
     @State private var verificationAttempt: UInt64 = 0
@@ -300,9 +299,10 @@ struct ContactDetailView: View {
         .task {
             do {
                 channelReadiness = try await daemonClient?.fetchChannelReadiness() ?? [:]
-                readinessFetchFailed = false
             } catch {
-                readinessFetchFailed = true
+                // Channel readiness fetch failed — fall back to showing only
+                // channels the contact already has configured (channelReadiness
+                // stays empty so no unconfigured channel cards appear).
             }
         }
     }
