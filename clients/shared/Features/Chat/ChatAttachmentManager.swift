@@ -167,7 +167,7 @@ public final class ChatAttachmentManager: ObservableObject {
                 return Result<ChatAttachment, AttachmentError>.failure(.message("Could not read file."))
             }
 
-            if data.count > 100 * 1024 * 1024 {
+            if data.count > 20 * 1024 * 1024 {
                 log.warning("Large attachment (\(data.count / (1024 * 1024)) MB): \(url.lastPathComponent). Server may reject files over 20 MB.")
             }
 
