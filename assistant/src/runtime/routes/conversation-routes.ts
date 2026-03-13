@@ -317,22 +317,33 @@ export function handleListMessages(
     let msgAttachments: RuntimeAttachmentMetadata[] = [];
     if (m.id) {
       if (m.role === "user") {
-        // User image attachments need full base64 data so the client can
+        // Use metadata-only query first to avoid loading large base64
+        // blobs for non-image attachments (documents, audio). Then
+        // selectively fetch full data only for images so the client can
         // generate thumbnails for inline display on history restore.
-        // Non-image attachments (documents, audio) stay metadata-only to
-        // avoid inflating the response with large blobs.
-        const linked = attachmentsStore.getAttachmentsForMessage(m.id);
+        const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
         if (linked.length > 0) {
           msgAttachments = linked.map((a) => {
-            const includeData =
-              a.mimeType.startsWith("image/") && !!a.dataBase64;
+            if (a.mimeType.startsWith("image/")) {
+              const full = attachmentsStore.getAttachmentById(a.id);
+              return {
+                id: a.id,
+                filename: a.originalFilename,
+                mimeType: a.mimeType,
+                sizeBytes: a.sizeBytes,
+                kind: a.kind,
+                ...(full?.dataBase64 ? { data: full.dataBase64 } : {}),
+                ...(a.thumbnailBase64
+                  ? { thumbnailData: a.thumbnailBase64 }
+                  : {}),
+              };
+            }
             return {
               id: a.id,
               filename: a.originalFilename,
               mimeType: a.mimeType,
               sizeBytes: a.sizeBytes,
-              kind: a.kind ?? "",
-              ...(includeData ? { data: a.dataBase64 } : {}),
+              kind: a.kind,
               ...(a.thumbnailBase64
                 ? { thumbnailData: a.thumbnailBase64 }
                 : {}),
