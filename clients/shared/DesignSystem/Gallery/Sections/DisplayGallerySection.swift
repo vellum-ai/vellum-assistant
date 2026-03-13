@@ -90,6 +90,33 @@ struct DisplayGallerySection: View {
                 }
             }
 
+            Text("With Action Button")
+                .font(VFont.headline)
+                .foregroundColor(VColor.contentSecondary)
+
+            HStack(spacing: VSpacing.lg) {
+                VCard {
+                    VEmptyState(
+                        title: "No contacts yet",
+                        icon: VIcon.users.rawValue,
+                        actionLabel: "Add Contact",
+                        actionIcon: VIcon.plus.rawValue,
+                        action: {}
+                    )
+                    .frame(height: 200)
+                }
+                VCard {
+                    VEmptyState(
+                        title: "No documents",
+                        subtitle: "Upload a file to get started",
+                        icon: VIcon.fileText.rawValue,
+                        actionLabel: "Upload",
+                        action: {}
+                    )
+                    .frame(height: 200)
+                }
+            }
+
             Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - VDisclosureSection

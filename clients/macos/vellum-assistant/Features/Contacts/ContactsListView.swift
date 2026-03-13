@@ -169,17 +169,13 @@ struct ContactsListView: View {
             }
 
             if !viewModel.hasNonGuardianContacts {
-                VStack(spacing: VSpacing.md) {
-                    VIconView(.users, size: 24)
-                        .foregroundColor(VColor.contentTertiary)
-                        .accessibilityHidden(true)
-                    Text("No contacts yet")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentSecondary)
-                    VButton(label: "Add Contact", leftIcon: VIcon.plus.rawValue, style: .primary) {
-                        viewModel.isCreatingContact = true
-                    }
-                }
+                VEmptyState(
+                    title: "No contacts yet",
+                    icon: VIcon.users.rawValue,
+                    actionLabel: "Add Contact",
+                    actionIcon: VIcon.plus.rawValue,
+                    action: { viewModel.isCreatingContact = true }
+                )
                 .padding(.vertical, VSpacing.lg)
                 .frame(maxWidth: .infinity)
                 .vCard(background: VColor.surfaceOverlay)
