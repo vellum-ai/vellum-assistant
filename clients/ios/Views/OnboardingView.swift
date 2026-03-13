@@ -16,39 +16,133 @@ private enum OnboardingStep: Hashable {
 struct OnboardingView: View {
     @Binding var isCompleted: Bool
     @Bindable var authManager: AuthManager
+    @EnvironmentObject var clientProvider: ClientProvider
     @State private var currentStep: OnboardingStep = .welcome
+    @State private var isBootstrappingManaged = false
+    @State private var managedBootstrapError: String?
 
     var body: some View {
         ZStack {
-            switch currentStep {
-            case .welcome:
-                WelcomeStep(onContinue: { currentStep = .choosePath })
+            if isBootstrappingManaged {
+                managedBootstrapView
                     .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
-            case .choosePath:
-                ChoosePathStep(
-                    onLoginWithVellum: { currentStep = .login },
-                    onConnectToMac: { currentStep = .daemonSetup }
-                )
-                .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
-            case .login:
-                LoginView(
-                    authManager: authManager,
-                    onContinue: { currentStep = .permissions },
-                    onCancel: { currentStep = .choosePath }
-                )
-                .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
-            case .daemonSetup:
-                DaemonSetupStep(onContinue: { currentStep = .permissions })
+            } else {
+                switch currentStep {
+                case .welcome:
+                    WelcomeStep(onContinue: { currentStep = .choosePath })
+                        .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
+                case .choosePath:
+                    ChoosePathStep(
+                        onLoginWithVellum: { currentStep = .login },
+                        onConnectToMac: { currentStep = .daemonSetup }
+                    )
                     .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
-            case .permissions:
-                PermissionsStep(onContinue: { currentStep = .ready })
+                case .login:
+                    LoginView(
+                        authManager: authManager,
+                        onContinue: {
+                            Task { await performManagedBootstrap() }
+                        },
+                        onCancel: { currentStep = .choosePath }
+                    )
                     .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
-            case .ready:
-                ReadyStep(isCompleted: $isCompleted)
-                    .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
+                case .daemonSetup:
+                    DaemonSetupStep(onContinue: { currentStep = .permissions })
+                        .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
+                case .permissions:
+                    PermissionsStep(onContinue: { currentStep = .ready })
+                        .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
+                case .ready:
+                    ReadyStep(isCompleted: $isCompleted)
+                        .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
+                }
             }
         }
         .animation(.easeInOut, value: currentStep)
+        .animation(.easeInOut, value: isBootstrappingManaged)
+    }
+
+    // MARK: - Managed Bootstrap
+
+    @ViewBuilder
+    private var managedBootstrapView: some View {
+        VStack(spacing: VSpacing.xl) {
+            Spacer()
+
+            if managedBootstrapError == nil {
+                ProgressView()
+                    .controlSize(.large)
+                Text("Setting up your assistant...")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentSecondary)
+            } else {
+                VIconView(.triangleAlert, size: 48)
+                    .foregroundColor(VColor.systemNegativeStrong)
+
+                Text("Setup Failed")
+                    .font(VFont.title)
+                    .foregroundColor(VColor.contentDefault)
+
+                if let error = managedBootstrapError {
+                    Text(error)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentSecondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, VSpacing.xl)
+                }
+
+                Button("Try Again") {
+                    Task { await performManagedBootstrap() }
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button("Cancel") {
+                    isBootstrappingManaged = false
+                    managedBootstrapError = nil
+                    currentStep = .choosePath
+                }
+                .foregroundColor(VColor.contentSecondary)
+            }
+
+            Spacer()
+        }
+        .padding(VSpacing.xl)
+    }
+
+    private func performManagedBootstrap() async {
+        isBootstrappingManaged = true
+        managedBootstrapError = nil
+
+        do {
+            let outcome = try await ManagedAssistantBootstrapService.shared.ensureManagedAssistant()
+
+            let assistant: PlatformAssistant
+            switch outcome {
+            case .reusedExisting(let existing):
+                assistant = existing
+            case .createdNew(let created):
+                assistant = created
+            }
+
+            let platformBaseURL = AuthService.shared.baseURL
+
+            // Persist managed assistant config so DaemonConfig.fromUserDefaults() picks it up.
+            UserDefaults.standard.set(assistant.id, forKey: UserDefaultsKeys.managedAssistantId)
+            UserDefaults.standard.set(platformBaseURL, forKey: UserDefaultsKeys.managedPlatformBaseURL)
+            UserDefaults.standard.set(assistant.id, forKey: "connectedAssistantId")
+
+            // Rebuild the daemon client with managed transport config and connect.
+            clientProvider.rebuildClient()
+
+            Task {
+                try? await clientProvider.client.connect()
+            }
+
+            isBootstrappingManaged = false
+            currentStep = .permissions
+        } catch {
+            managedBootstrapError = error.localizedDescription
+        }
     }
 }
 
@@ -297,6 +391,8 @@ struct ReadyStep: View {
 }
 
 #Preview {
+    let client = DaemonClient(config: .default)
     OnboardingView(isCompleted: .constant(false), authManager: AuthManager())
+        .environmentObject(ClientProvider(client: client))
 }
 #endif
