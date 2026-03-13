@@ -580,6 +580,7 @@ extension AppDelegate {
         lastRegisteredZoomInShortcut = nil
         lastRegisteredZoomOutShortcut = nil
         lastRegisteredZoomResetShortcut = nil
+        lastRegisteredNewThreadShortcut = nil
         tearDownQuickInputMonitors()
     }
 }
