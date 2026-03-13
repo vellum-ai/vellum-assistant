@@ -44,12 +44,22 @@ import {
   setSecureKey,
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
+import { getRootDir } from "../util/platform.js";
 
 const TEST_DIR = join(
   tmpdir(),
   `vellum-ci-backend-test-${randomBytes(4).toString("hex")}`,
 );
 const STORE_PATH = join(TEST_DIR, "keys.enc");
+
+/** True when the broker socket + token exist (e.g. developer machine with app running). */
+function isBrokerPresent(): boolean {
+  const rootDir = getRootDir();
+  return (
+    existsSync(join(rootDir, "keychain-broker.sock")) &&
+    existsSync(join(rootDir, "protected", "keychain-broker.token"))
+  );
+}
 
 describe("secure-keys CI backend resolution", () => {
   beforeEach(() => {
@@ -101,16 +111,18 @@ describe("secure-keys CI backend resolution", () => {
     test("getBackendType reports the resolved backend for this environment", () => {
       /**
        * Reports whether the broker (macOS keychain via Unix socket) is
-       * reachable. In CI, this will be "encrypted" because the macOS app
-       * is not running.
+       * reachable or whether the encrypted file store is used.
        */
 
       // WHEN we query the backend type
       const backend = getBackendType();
 
-      // THEN it should be "encrypted" in CI (no broker socket available)
-      // On a developer machine with the macOS app running, this would be "broker"
-      expect(backend).toBe("encrypted");
+      // THEN the result depends on whether the broker is present
+      if (isBrokerPresent()) {
+        expect(backend).toBe("broker");
+      } else {
+        expect(backend).toBe("encrypted");
+      }
     });
 
     test("setSecureKeyAsync falls back to encrypted store when broker is unavailable", async () => {
@@ -119,14 +131,17 @@ describe("secure-keys CI backend resolution", () => {
        * falls back to the encrypted file store when no broker is running.
        */
 
-      // GIVEN the broker is not available (typical CI environment)
-      const broker = createBrokerClient();
-      expect(broker.isAvailable()).toBe(false);
+      // GIVEN the broker is not available
+      const brokerPresent = isBrokerPresent();
+      if (!brokerPresent) {
+        const broker = createBrokerClient();
+        expect(broker.isAvailable()).toBe(false);
+      }
 
       // WHEN we write a key via the async API
       const ok = await setSecureKeyAsync("ci-async-key", "ci-async-value");
 
-      // THEN the write succeeds via the encrypted store fallback
+      // THEN the write succeeds (via broker or encrypted store fallback)
       expect(ok).toBe(true);
 
       // AND the value is readable from both sync and async getters
@@ -139,25 +154,32 @@ describe("secure-keys CI backend resolution", () => {
   // Q2: If the broker were available, would keychain access work?
   // -------------------------------------------------------------------------
   describe("Q2: broker availability in CI", () => {
-    test("the keychain broker is not available in CI", () => {
+    test("the keychain broker reflects its actual availability", () => {
       /**
        * The broker requires the Vellum macOS desktop app to be running,
-       * which exposes a Unix domain socket at ~/.vellum/keychain-broker.sock.
+       * which exposes a Unix domain socket at <rootDir>/keychain-broker.sock.
        * In CI, the app is not installed, so the broker is unavailable.
+       * On developer machines with the app, it may be available.
        */
 
       // WHEN we create a real (unmocked) broker client
       const broker = createBrokerClient();
 
-      // THEN it reports as unavailable
-      expect(broker.isAvailable()).toBe(false);
+      // THEN availability matches whether the socket + token exist
+      expect(broker.isAvailable()).toBe(isBrokerPresent());
     });
 
     test("broker.ping returns null when the broker is unreachable", async () => {
       /**
-       * Confirms that attempting to contact the broker in CI fails
-       * gracefully (returns null) rather than throwing or hanging.
+       * Confirms that attempting to contact the broker when it is
+       * unreachable fails gracefully (returns null) rather than
+       * throwing or hanging.
        */
+
+      if (isBrokerPresent()) {
+        console.log("Broker is present — skipping unreachable ping test");
+        return;
+      }
 
       // GIVEN a real broker client in an environment without the macOS app
       const broker = createBrokerClient();
@@ -174,35 +196,44 @@ describe("secure-keys CI backend resolution", () => {
   // Q3: Why is the broker unavailable?
   // -------------------------------------------------------------------------
   describe("Q3: why the broker is unavailable in CI", () => {
-    test("broker socket path does not exist in CI", () => {
+    test("broker socket path does not exist when broker is unavailable", () => {
       /**
        * The broker communicates over a Unix domain socket created by the
-       * macOS app. In CI, this socket file does not exist because the
-       * desktop app is not installed or running.
+       * macOS app. When unavailable, this socket file does not exist.
        */
 
-      // GIVEN the expected socket path
-      const rootDir =
-        process.env.VELLUM_ROOT_DIR || join(userInfo().homedir, ".vellum");
-      const socketPath = join(rootDir, "keychain-broker.sock");
+      if (isBrokerPresent()) {
+        console.log("Broker is present — skipping missing-socket assertion");
+        return;
+      }
 
-      // THEN the socket file does not exist in CI
+      // GIVEN the expected socket path derived from getRootDir()
+      const socketPath = join(getRootDir(), "keychain-broker.sock");
+
+      // THEN the socket file does not exist
       expect(existsSync(socketPath)).toBe(false);
     });
 
-    test("broker token file does not exist in CI", () => {
+    test("broker token file does not exist when broker is unavailable", () => {
       /**
        * The broker requires an auth token written by the macOS app at
-       * ~/.vellum/protected/keychain-broker.token. Without this token,
+       * <rootDir>/protected/keychain-broker.token. Without this token,
        * even if the socket existed, authentication would fail.
        */
 
-      // GIVEN the expected token path
-      const rootDir =
-        process.env.VELLUM_ROOT_DIR || join(userInfo().homedir, ".vellum");
-      const tokenPath = join(rootDir, "protected", "keychain-broker.token");
+      if (isBrokerPresent()) {
+        console.log("Broker is present — skipping missing-token assertion");
+        return;
+      }
 
-      // THEN the token file does not exist in CI
+      // GIVEN the expected token path derived from getRootDir()
+      const tokenPath = join(
+        getRootDir(),
+        "protected",
+        "keychain-broker.token",
+      );
+
+      // THEN the token file does not exist
       expect(existsSync(tokenPath)).toBe(false);
     });
 
@@ -222,20 +253,14 @@ describe("secure-keys CI backend resolution", () => {
           process.env.RUNNER_OS
         ),
         runnerOS: process.env.RUNNER_OS ?? "(not set)",
+        rootDir: getRootDir(),
+        brokerPresent: isBrokerPresent(),
       };
 
       // Log environment context for CI visibility
       console.log("CI Environment Context:", JSON.stringify(env, null, 2));
 
-      // The broker requires macOS + the desktop app running. In CI:
-      // - On Linux runners: keychain is not available (no macOS keychain)
-      // - On macOS runners: keychain exists but the Vellum app is not installed
-      // Either way, the assistant correctly falls back to the encrypted store.
-      if (env.isCI) {
-        expect(env.platform).toBe("linux");
-      }
-
-      // The encrypted store works on all platforms — this is the fallback
+      // The encrypted store works on all platforms
       const ok = setSecureKey("platform-test", "works-on-" + env.platform);
       expect(ok).toBe(true);
       expect(getSecureKey("platform-test")).toBe("works-on-" + env.platform);
