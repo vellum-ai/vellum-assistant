@@ -844,6 +844,31 @@ export async function dispatchAgentEvent(
         deps.reqId,
         statusText,
       );
+      // Emit tool_use_start so the client renders a tool chip (like other tools)
+      deps.onEvent({
+        type: "tool_use_start",
+        toolName: event.name,
+        input: event.input,
+        sessionId: deps.ctx.conversationId,
+        toolUseId: event.toolUseId,
+      });
+      break;
+    }
+    case "server_tool_complete": {
+      deps.ctx.emitActivityState(
+        "streaming",
+        "tool_result_received",
+        "assistant_turn",
+        deps.reqId,
+      );
+      deps.onEvent({
+        type: "tool_result",
+        toolName: "",
+        result: "",
+        isError: false,
+        sessionId: deps.ctx.conversationId,
+        toolUseId: event.toolUseId,
+      });
       break;
     }
     case "error":

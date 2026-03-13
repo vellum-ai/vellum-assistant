@@ -680,10 +680,14 @@ export class AnthropicProvider implements Provider {
               onEvent?.({ type: "text_delta", text: " " });
             }
             hasSeenTextBlock = true;
-          } else if (event.type === "content_block_start") {
-            // Reset on non-text blocks so that text separated by tool_use
-            // (text -> tool_use -> text) doesn't get a spurious leading space
-            // in the second text segment.
+          } else if (
+            event.type === "content_block_start" &&
+            event.content_block.type === "tool_use"
+          ) {
+            // Reset only for client-side tool_use blocks, which create visual
+            // separators in the UI. Server-side tool blocks (server_tool_use,
+            // web_search_tool_result) are transparent in the text stream and
+            // need the space preserved between surrounding text blocks.
             hasSeenTextBlock = false;
           }
           if (
@@ -708,6 +712,20 @@ export class AnthropicProvider implements Provider {
               type: "server_tool_start",
               name: event.content_block.name,
               toolUseId: event.content_block.id,
+              input: (
+                event.content_block as { input?: Record<string, unknown> }
+              ).input ?? {},
+            });
+          }
+          if (
+            event.type === "content_block_start" &&
+            event.content_block.type === "web_search_tool_result"
+          ) {
+            onEvent?.({
+              type: "server_tool_complete",
+              toolUseId: (
+                event.content_block as { tool_use_id: string }
+              ).tool_use_id,
             });
           }
           if (event.type === "content_block_stop") {
