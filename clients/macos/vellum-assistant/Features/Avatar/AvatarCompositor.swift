@@ -1,4 +1,5 @@
 import AppKit
+import VellumAssistantShared
 
 @MainActor
 enum AvatarCompositor {
@@ -111,7 +112,54 @@ enum AvatarCompositor {
         return image
     }
 
+    /// Renders only the body shape outline (white fill, black stroke) into an NSImage.
+    static func renderBodyOutline(
+        bodyShape: AvatarBodyShape,
+        size: CGFloat = 64
+    ) -> NSImage {
+        let cacheKey = "body-outline-\(bodyShape.rawValue)-\(Int(size))"
+        if let cached = cache[cacheKey] {
+            return cached
+        }
+
+        let viewBox = bodyShape.viewBox
+        let inset: CGFloat = 2
+        let drawSize = size - inset * 2
+        let scale = min(drawSize / viewBox.width, drawSize / viewBox.height)
+        let tx = inset + (drawSize - viewBox.width * scale) / 2
+        let ty = inset + (drawSize - viewBox.height * scale) / 2
+
+        var transform = CGAffineTransform(translationX: 0, y: size)
+            .scaledBy(x: 1, y: -1)
+            .translatedBy(x: tx, y: ty)
+            .scaledBy(x: scale, y: scale)
+
+        let image = NSImage(size: NSSize(width: size, height: size))
+        image.lockFocus()
+        guard let context = NSGraphicsContext.current?.cgContext else {
+            image.unlockFocus()
+            return image
+        }
+
+        let bodyPath = parseSVGPath(bodyShape.svgPath)
+        let transformedBody = bodyPath.copy(using: &transform)!
+        context.addPath(transformedBody)
+        context.setFillColor(NSColor(VColor.auxWhite).cgColor)
+        context.fillPath()
+
+        context.addPath(transformedBody)
+        context.setStrokeColor(NSColor(VColor.auxBlack).cgColor)
+        context.setLineWidth(1.5)
+        context.strokePath()
+
+        image.unlockFocus()
+
+        cache[cacheKey] = image
+        return image
+    }
+
     /// Renders only the eye paths (pupils + sclera) centered in an NSImage, no body shape.
+    /// Eyes are centered around their `eyeCenter` so they always appear in the middle of the image.
     static func renderEyesOnly(
         eyeStyle: AvatarEyeStyle,
         size: CGFloat = 64
@@ -122,9 +170,11 @@ enum AvatarCompositor {
         }
 
         let srcVB = eyeStyle.sourceViewBox
+        let eyeCenter = eyeStyle.eyeCenter
         let scale = min(size / srcVB.width, size / srcVB.height)
-        let tx = (size - srcVB.width * scale) / 2
-        let ty = (size - srcVB.height * scale) / 2
+        // Translate so that the eye center maps to the center of the output image.
+        let tx = size / 2 - eyeCenter.x * scale
+        let ty = size / 2 - eyeCenter.y * scale
 
         let baseTransform = CGAffineTransform(translationX: 0, y: size)
             .scaledBy(x: 1, y: -1)
