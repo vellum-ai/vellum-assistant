@@ -309,12 +309,6 @@ struct ContactDetailView: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.systemNegativeStrong)
             }
-
-            if let inviteError {
-                Text(inviteError)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.systemNegativeStrong)
-            }
         }
         .task {
             do {
@@ -441,6 +435,13 @@ struct ContactDetailView: View {
 
                 if inviteResult?.type == type {
                     inviteResultDisplay(for: type)
+                }
+
+                // Inline error display so the message appears inside the channel card
+                if let inviteError {
+                    Text(inviteError)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.systemNegativeStrong)
                 }
             }
         }
