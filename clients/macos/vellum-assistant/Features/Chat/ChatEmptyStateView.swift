@@ -64,7 +64,17 @@ struct ChatEmptyStateView: View {
             Spacer()
 
             HStack(spacing: VSpacing.md) {
-                VAvatarImage(image: appearance.chatAvatarImage, size: 32)
+                Group {
+                    if let body = appearance.characterBodyShape,
+                       let eyes = appearance.characterEyeStyle,
+                       let color = appearance.characterColor {
+                        AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color, size: 32,
+                                           breathingEnabled: false)
+                            .frame(width: 32, height: 32)
+                    } else {
+                        VAvatarImage(image: appearance.chatAvatarImage, size: 32)
+                    }
+                }
 
                 if let greeting = effectiveGreeting {
                     Text(greeting)
