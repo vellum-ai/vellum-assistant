@@ -57,6 +57,9 @@ class AvatarLayerView: NSView {
     /// Timer that fires random blinks.
     private var blinkTask: Task<Void, Never>?
 
+    /// Timer that fires random twitches.
+    private var twitchTask: Task<Void, Never>?
+
     /// Whether animations are currently active (paused when window is inactive).
     private var animationsActive = true
 
@@ -88,6 +91,7 @@ class AvatarLayerView: NSView {
 
     deinit {
         blinkTask?.cancel()
+        twitchTask?.cancel()
         for observer in notificationObservers {
             NotificationCenter.default.removeObserver(observer)
         }
@@ -170,6 +174,7 @@ class AvatarLayerView: NSView {
         if animationsActive {
             if configBlinkEnabled { startBlinkTimer() }
             if configBreathingEnabled { startBreathing() }
+            startTwitchTimer()
         }
     }
 
@@ -187,6 +192,42 @@ class AvatarLayerView: NSView {
                 }
             }
         }
+    }
+
+    private func startTwitchTimer() {
+        twitchTask?.cancel()
+        twitchTask = Task { [weak self] in
+            while !Task.isCancelled {
+                let delay = Double.random(in: 8.0...15.0)
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    guard let self, self.animationsActive else { return }
+                    self.performTwitch()
+                }
+            }
+        }
+    }
+
+    private func performTwitch() {
+        guard animationsActive else { return }
+        guard let rootLayer = layer else { return }
+
+        rootLayer.removeAnimation(forKey: "twitch")
+
+        let animation = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+        let angle: CGFloat = .pi / 60  // ~3 degrees
+        animation.values = [0, angle, -angle * 0.6, angle * 0.3, 0]
+        animation.keyTimes = [0, 0.2, 0.5, 0.75, 1.0]
+        animation.duration = 0.4
+        animation.timingFunctions = [
+            CAMediaTimingFunction(name: .easeIn),
+            CAMediaTimingFunction(name: .easeOut),
+            CAMediaTimingFunction(name: .easeInEaseOut),
+            CAMediaTimingFunction(name: .easeOut),
+        ]
+        animation.isRemovedOnCompletion = true
+        rootLayer.add(animation, forKey: "twitch")
     }
 
     private func startBreathing() {
@@ -244,6 +285,7 @@ class AvatarLayerView: NSView {
     private func pauseAnimations() {
         animationsActive = false
         blinkTask?.cancel()
+        twitchTask?.cancel()
         if configBreathingEnabled {
             let pausedTime = bodyLayer.convertTime(CACurrentMediaTime(), from: nil)
             bodyLayer.speed = 0
@@ -254,6 +296,7 @@ class AvatarLayerView: NSView {
     private func resumeAnimations() {
         animationsActive = true
         if configBlinkEnabled { startBlinkTimer() }
+        startTwitchTimer()
         if configBreathingEnabled {
             let pausedTime = bodyLayer.timeOffset
             bodyLayer.speed = 1
