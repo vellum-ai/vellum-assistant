@@ -95,16 +95,6 @@ public struct ToolConfirmationBubble: View {
         }
     }
 
-    /// Color for the risk level badge.
-    private var riskColor: Color {
-        switch confirmation.riskLevel.lowercased() {
-        case "low":    return VColor.contentTertiary
-        case "medium": return VColor.systemNegativeHover
-        case "high":   return VColor.systemNegativeStrong
-        default:       return VColor.contentTertiary
-        }
-    }
-
     public var body: some View {
         if confirmation.isSystemPermissionRequest {
             if isDecided {
