@@ -1,3 +1,4 @@
+import Carbon.HIToolbox
 import Foundation
 
 /// Describes a single keyboard shortcut that can be customized by the user.
@@ -123,6 +124,37 @@ enum KeyboardShortcutRegistry {
             let normalizedCurrent = ShortcutHelper.normalizeShortcut(current)
             return normalizedCurrent == normalizedTarget
         }
+    }
+
+    /// Resets all keyboard shortcuts on the given store back to their registry defaults.
+    @MainActor static func resetAllToDefaults(store: SettingsStore) {
+        for definition in allShortcuts {
+            switch definition.id {
+            case "globalHotkeyShortcut":
+                store.globalHotkeyShortcut = definition.defaultShortcut
+            case "quickInputHotkeyShortcut":
+                store.quickInputHotkeyShortcut = definition.defaultShortcut
+            case "quickInputAboveDockShortcut":
+                store.quickInputAboveDockShortcut = definition.defaultShortcut
+            case "newThreadShortcut":
+                store.newThreadShortcut = definition.defaultShortcut
+            case "commandPaletteShortcut":
+                store.commandPaletteShortcut = definition.defaultShortcut
+            case "navigateBackShortcut":
+                store.navigateBackShortcut = definition.defaultShortcut
+            case "navigateForwardShortcut":
+                store.navigateForwardShortcut = definition.defaultShortcut
+            case "zoomInShortcut":
+                store.zoomInShortcut = definition.defaultShortcut
+            case "zoomOutShortcut":
+                store.zoomOutShortcut = definition.defaultShortcut
+            case "zoomResetShortcut":
+                store.zoomResetShortcut = definition.defaultShortcut
+            default:
+                break
+            }
+        }
+        store.quickInputHotkeyKeyCode = kVK_ANSI_Slash
     }
 
     /// Returns the user's current shortcut for the given definition id,

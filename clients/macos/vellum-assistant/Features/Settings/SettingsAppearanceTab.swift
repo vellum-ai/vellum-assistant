@@ -15,6 +15,7 @@ struct SettingsAppearanceTab: View {
     @State private var debouncedTimezoneSearchText: String = ""
     @State private var isTimezoneDropdownOpen: Bool = false
     @State private var timezoneSearchDebounceTask: Task<Void, Never>?
+    @State private var showResetConfirmation = false
     @FocusState private var isTimezoneSearchFocused: Bool
 
     var body: some View {
@@ -308,10 +309,28 @@ struct SettingsAppearanceTab: View {
                     helperText: "When enabled, Enter inserts a new line and cmd+enter sends."
                 )
                 .padding(.vertical, VSpacing.md)
+
+                SettingsDivider()
+
+                HStack {
+                    Spacer()
+                    VButton(label: "Reset All to Defaults", style: .outlined) {
+                        showResetConfirmation = true
+                    }
+                }
+                .padding(.vertical, VSpacing.md)
                 }
             }
             .onDisappear {
                 activeRecordingId = nil
+            }
+            .alert("Reset Keyboard Shortcuts?", isPresented: $showResetConfirmation) {
+                Button("Reset", role: .destructive) {
+                    KeyboardShortcutRegistry.resetAllToDefaults(store: store)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This will reset all keyboard shortcuts to their default values.")
             }
 
             // MEDIA EMBEDS section
