@@ -226,6 +226,17 @@ extension AppDelegate {
         }
     }
 
+    /// Marks notification intents as ready to post and flushes any enqueued closures.
+    func markNotificationIntentsReady() {
+        guard !notificationIntentsReady else { return }
+        notificationIntentsReady = true
+        let pending = pendingNotificationIntentClosures
+        pendingNotificationIntentClosures.removeAll()
+        for closure in pending {
+            closure()
+        }
+    }
+
     private func postNotificationIntent(
         sourceEventName: String,
         title: String,
@@ -233,6 +244,20 @@ extension AppDelegate {
         deepLinkMetadata: [String: AnyCodable]?,
         deliveryId: String? = nil
     ) {
+        guard notificationIntentsReady else {
+            // Enqueue until ready
+            pendingNotificationIntentClosures.append { [self] in
+                self.postNotificationIntent(
+                    sourceEventName: sourceEventName,
+                    title: title,
+                    body: body,
+                    deepLinkMetadata: deepLinkMetadata,
+                    deliveryId: deliveryId
+                )
+            }
+            return
+        }
+
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body

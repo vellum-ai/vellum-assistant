@@ -21,6 +21,34 @@ public protocol ActivityNotificationServiceProtocol {
 public final class ActivityNotificationService: ActivityNotificationServiceProtocol {
     private let settingsStore: SettingsStore
 
+    // MARK: - Readiness Gate
+
+    /// Whether this service is ready to post notifications (e.g. avatar icon exported).
+    /// Callers of notification methods will transparently wait until ready.
+    private var isReady = false
+
+    /// Continuations waiting for the service to become ready.
+    private var readinessWaiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Marks the service as ready and resumes any callers waiting on readiness.
+    public func markReady() {
+        guard !isReady else { return }
+        isReady = true
+        let waiters = readinessWaiters
+        readinessWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    /// Suspends the caller until the service is ready. Returns immediately if already ready.
+    private func waitUntilReady() async {
+        guard !isReady else { return }
+        await withCheckedContinuation { continuation in
+            readinessWaiters.append(continuation)
+        }
+    }
+
     public init(settingsStore: SettingsStore) {
         self.settingsStore = settingsStore
     }
@@ -35,6 +63,7 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
         toolCalls: [ToolCallData],
         sessionId: String
     ) async {
+        await waitUntilReady()
         log.info("notifySessionComplete called for session \(sessionId, privacy: .public)")
 
         // Check if notifications enabled in settings
@@ -88,6 +117,8 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
     /// Sends a notification when a quick input response completes.
     /// Only sends if the app is not active and notification permissions are granted.
     public func notifyQuickInputComplete(summary: String) async {
+        await waitUntilReady()
+
         // Check if app is in background
         guard !NSApp.isActive else { return }
 
