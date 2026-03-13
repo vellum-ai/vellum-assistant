@@ -160,11 +160,11 @@ public struct ToolConfirmationBubble: View {
         .padding(VSpacing.lg)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surfaceBase)
+                .fill(VColor.surfaceOverlay)
         )
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.borderBase, lineWidth: 1)
+                .stroke(VColor.borderBase, lineWidth: 0.5)
         )
     }
 
@@ -267,10 +267,10 @@ public struct ToolConfirmationBubble: View {
         .padding(VSpacing.md)
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.surfaceBase)
+                .fill(VColor.surfaceOverlay)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.borderBase, lineWidth: 1)
+                        .stroke(VColor.borderBase, lineWidth: 0.5)
                 )
         )
     }
@@ -300,7 +300,7 @@ public struct ToolConfirmationBubble: View {
                     .padding(.vertical, VSpacing.xxs)
                     .background(
                         Capsule()
-                            .fill(VColor.surfaceBase)
+                            .fill(VColor.surfaceOverlay)
                     )
             }
 
@@ -329,7 +329,7 @@ public struct ToolConfirmationBubble: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: VRadius.sm)
-                .fill(VColor.surfaceBase)
+                .fill(VColor.surfaceOverlay)
         )
     }
 

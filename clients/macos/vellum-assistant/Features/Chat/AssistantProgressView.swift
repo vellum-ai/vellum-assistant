@@ -199,7 +199,7 @@ struct AssistantProgressView: View {
                     .padding(.bottom, VSpacing.xs)
             }
         }
-        .background(colorScheme == .light ? VColor.surfaceOverlay : VColor.surfaceBase.opacity(0.5))
+        .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .onChange(of: phase) { _, newPhase in
             if newPhase == .processing {
@@ -426,7 +426,7 @@ struct AssistantProgressView: View {
                         onAlwaysAllow: onAlwaysAllow ?? { _, _, _, _ in },
                         onTemporaryAllow: onTemporaryAllow
                     )
-                    .padding(.horizontal, VSpacing.md)
+                    .padding(.horizontal, VSpacing.sm)
                     .padding(.vertical, VSpacing.xs)
                 }
             }

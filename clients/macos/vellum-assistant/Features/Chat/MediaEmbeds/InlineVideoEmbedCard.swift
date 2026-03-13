@@ -37,7 +37,7 @@ struct InlineVideoEmbedCard: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.surfaceBase)
+                .fill(VColor.surfaceOverlay)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
                         .stroke(VColor.borderBase.opacity(0.4), lineWidth: 0.5)
