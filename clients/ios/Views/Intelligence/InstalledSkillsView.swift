@@ -17,7 +17,7 @@ struct InstalledSkillsView: View {
                 skillsList
             }
         }
-        .navigationTitle("Installed Skills")
+        .navigationTitle("Skills")
         .refreshable {
             skillsStore.fetchSkills(force: true)
         }

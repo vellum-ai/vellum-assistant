@@ -117,7 +117,7 @@ struct IdentityView: View {
 
             // Navigation section
             Section {
-                // Installed Skills
+                // Skills
                 NavigationLink {
                     if let store = viewModel.skillsStore {
                         InstalledSkillsView(skillsStore: store)
@@ -127,7 +127,7 @@ struct IdentityView: View {
                         VIconView(.brain, size: 16)
                             .foregroundColor(VColor.primaryBase)
                             .frame(width: 24)
-                        Text("Installed Skills")
+                        Text("Skills")
                             .font(VFont.body)
                             .foregroundColor(VColor.contentDefault)
                         Spacer()
