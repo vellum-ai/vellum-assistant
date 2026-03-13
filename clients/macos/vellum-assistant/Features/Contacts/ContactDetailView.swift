@@ -44,6 +44,8 @@ struct ContactDetailView: View {
     @State private var inviteError: String?
     @State private var inviteCopiedType: String?
     @State private var inviteExpanded: Set<String> = []
+    @State private var inviteHandleInput = ""
+    @State private var inviteCodeRevealed = false
     @State private var channelReadiness: [String: DaemonClient.ChannelReadinessInfo] = [:]
     @State private var readinessFetchFailed = false
     /// Monotonically increasing counter that correlates a verification attempt
@@ -84,6 +86,13 @@ struct ContactDetailView: View {
         }
         .onAppear {
             currentContact = contact
+        }
+        .onChange(of: contact.id) { _, _ in
+            inviteCodeRevealed = false
+            inviteHandleInput = ""
+            inviteExpanded = []
+            inviteResult = nil
+            inviteError = nil
         }
         .onDisappear {
             verificationTimeoutTask?.cancel()
@@ -288,6 +297,9 @@ struct ContactDetailView: View {
                             } else {
                                 VButton(label: "Invite", style: .outlined) {
                                     inviteExpanded.insert(type)
+                                    if type == "telegram" || type == "slack" {
+                                        createInviteForChannel(type: type)
+                                    }
                                 }
                             }
                         }
@@ -369,7 +381,30 @@ struct ContactDetailView: View {
     @ViewBuilder
     private func unconfiguredChannelContent(type: String) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            if Self.codeInviteChannels.contains(type) {
+            if type == "telegram" || type == "slack" {
+                // Two-stage invite flow for Telegram/Slack
+                if inviteInProgress == type && inviteResult?.type != type {
+                    // Stage 0: Loading while invite is being created
+                    ProgressView()
+                        .controlSize(.small)
+                } else if let result = inviteResult, result.type == type {
+                    // Stage 1: Show invite URL + handle input (invite created)
+                    telegramSlackInviteContent(type: type)
+                } else {
+                    // Fallback: re-show Invite/Cancel if no result yet
+                    HStack(spacing: VSpacing.sm) {
+                        VButton(label: "Invite", style: .outlined, isDisabled: inviteInProgress != nil) {
+                            createInviteForChannel(type: type)
+                        }
+                        VButton(label: "Cancel", style: .outlined) {
+                            inviteExpanded.remove(type)
+                            inviteResult = nil
+                            inviteError = nil
+                        }
+                    }
+                }
+            } else if Self.codeInviteChannels.contains(type) {
+                // Phone and other channels: keep existing behavior
                 if inviteInProgress == type {
                     ProgressView()
                         .controlSize(.small)
@@ -399,10 +434,123 @@ struct ContactDetailView: View {
                         }
                     }
                 }
+
+                if inviteResult?.type == type {
+                    inviteResultDisplay(for: type)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func telegramSlackInviteContent(type: String) -> some View {
+        let result = inviteResult!
+
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            // Invite URL section (Telegram has a deep link; Slack shows channel handle)
+            if let shareUrl = result.shareUrl {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Share this invite link:")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentSecondary)
+                    HStack(spacing: VSpacing.sm) {
+                        let truncated = shareUrl.count > 40
+                            ? String(shareUrl.prefix(40)) + "..."
+                            : shareUrl
+                        Text(truncated)
+                            .font(VFont.monoSmall)
+                            .foregroundColor(VColor.contentDefault)
+                            .textSelection(.enabled)
+                        VButton(
+                            label: inviteCopiedType == "\(type)-link" ? "Copied!" : "Copy Link",
+                            icon: VIcon.copy.rawValue,
+                            style: .outlined
+                        ) {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(shareUrl, forType: .string)
+                            inviteCopiedType = "\(type)-link"
+                            Task {
+                                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                                guard !Task.isCancelled else { return }
+                                if inviteCopiedType == "\(type)-link" {
+                                    inviteCopiedType = nil
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if let channelHandle = result.channelHandle {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Your assistant's \(channelLabel(for: type)) handle:")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentSecondary)
+                    Text(channelHandle)
+                        .font(VFont.monoSmall)
+                        .foregroundColor(VColor.contentDefault)
+                        .textSelection(.enabled)
+                }
             }
 
-            if inviteResult?.type == type {
-                inviteResultDisplay(for: type)
+            // Handle input section
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Or enter their \(channelLabel(for: type)) handle:")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentSecondary)
+                TextField(type == "telegram" ? "@username" : "@display_name", text: $inviteHandleInput)
+                    .font(VFont.mono)
+                    .textFieldStyle(.plain)
+                    .padding(VSpacing.sm)
+                    .background(VColor.surfaceActive)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+            }
+
+            // Buttons: Send + Cancel
+            HStack(spacing: VSpacing.sm) {
+                VButton(label: "Send", style: .outlined) {
+                    inviteCodeRevealed = true
+                }
+                VButton(label: "Cancel", style: .outlined) {
+                    inviteExpanded.remove(type)
+                    inviteResult = nil
+                    inviteError = nil
+                    inviteHandleInput = ""
+                    inviteCodeRevealed = false
+                }
+            }
+
+            // Stage 2: Show the invite code after "Send" is clicked
+            if inviteCodeRevealed {
+                if let instruction = result.guardianInstruction {
+                    Text(instruction)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if let inviteCode = result.inviteCode ?? result.voiceCode {
+                    Text(inviteCode)
+                        .font(VFont.inviteCode)
+                        .foregroundColor(VColor.contentDefault)
+                        .tracking(4)
+                        .padding(.vertical, VSpacing.xs)
+
+                    VButton(
+                        label: inviteCopiedType == type ? "Copied!" : "Copy Code",
+                        icon: VIcon.copy.rawValue,
+                        style: .outlined
+                    ) {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(inviteCode, forType: .string)
+                        inviteCopiedType = type
+                        Task {
+                            try? await Task.sleep(nanoseconds: 2_000_000_000)
+                            guard !Task.isCancelled else { return }
+                            if inviteCopiedType == type {
+                                inviteCopiedType = nil
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -849,6 +997,8 @@ struct ContactDetailView: View {
         inviteInProgress = type
         inviteError = nil
         inviteResult = nil
+        inviteCodeRevealed = false
+        inviteHandleInput = ""
         Task {
             do {
                 var phoneNumber: String? = nil
