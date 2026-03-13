@@ -20,6 +20,7 @@ import {
   resetAllowlist,
   validateAllowlistFile,
 } from "../security/secret-allowlist.js";
+import { handleBashSignal } from "../signals/bash.js";
 import { handleConfirmationSignal } from "../signals/confirm.js";
 import { handleMcpReloadSignal } from "../signals/mcp-reload.js";
 import { DebouncerMap } from "../util/debounce.js";
@@ -225,6 +226,7 @@ export class ConfigWatcher {
     }
 
     const signalHandlers: Record<string, () => void> = {
+      bash: handleBashSignal,
       "mcp-reload": handleMcpReloadSignal,
       confirm: handleConfirmationSignal,
     };

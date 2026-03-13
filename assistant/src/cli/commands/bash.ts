@@ -1,0 +1,150 @@
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+import type { Command } from "commander";
+
+import { getWorkspaceDir } from "../../util/platform.js";
+import { log } from "../logger.js";
+
+const DEFAULT_TIMEOUT_MS = 30_000;
+const POLL_INTERVAL_MS = 100;
+
+interface BashSignalResult {
+  requestId: string;
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+  timedOut: boolean;
+  error?: string;
+}
+
+export function registerBashCommand(program: Command): void {
+  program
+    .command("bash <command>")
+    .description(
+      "Execute a shell command through the daemon process for debugging",
+    )
+    .option(
+      "-t, --timeout <ms>",
+      "Timeout in milliseconds for command execution",
+      String(DEFAULT_TIMEOUT_MS),
+    )
+    .addHelpText(
+      "after",
+      `
+Sends a shell command to the running assistant daemon for execution via the
+signals directory. The daemon spawns the command in its own process environment
+and returns stdout, stderr, and the exit code.
+
+This is a developer debugging tool for inspecting how the daemon invokes and
+observes shell commands. The command runs with the daemon's environment, working
+directory, and process context — not the caller's shell.
+
+The CLI writes the command to signals/bash and polls signals/bash-result for
+the output. The assistant daemon must be running for this to work.
+
+Examples:
+  $ assistant bash "echo hello"
+  $ assistant bash "which node"
+  $ assistant bash "env | grep PATH" --timeout 10000
+  $ assistant bash "ls -la"`,
+    )
+    .action((command: string, opts: { timeout: string }) => {
+      const timeoutMs = parseInt(opts.timeout, 10);
+      if (!Number.isFinite(timeoutMs) || timeoutMs < 1) {
+        log.error("Invalid timeout value. Must be a positive integer.");
+        process.exitCode = 1;
+        return;
+      }
+
+      const requestId = randomUUID();
+      const signalsDir = join(getWorkspaceDir(), "signals");
+
+      try {
+        mkdirSync(signalsDir, { recursive: true });
+      } catch {
+        log.error("Failed to create signals directory.");
+        process.exitCode = 1;
+        return;
+      }
+
+      // Write the command signal for the daemon to pick up.
+      const signalPath = join(signalsDir, "bash");
+      const resultPath = join(signalsDir, "bash-result");
+
+      try {
+        writeFileSync(
+          signalPath,
+          JSON.stringify({ requestId, command, timeoutMs }),
+        );
+      } catch {
+        log.error("Failed to write bash signal file.");
+        process.exitCode = 1;
+        return;
+      }
+
+      log.info(`Sent command to daemon (requestId: ${requestId})`);
+      log.info("Waiting for result...");
+
+      // Poll for the result file until timeout.
+      const deadline = Date.now() + timeoutMs + 5_000; // extra buffer for daemon overhead
+
+      const poll = setInterval(() => {
+        if (Date.now() > deadline) {
+          clearInterval(poll);
+          log.error(
+            "Timed out waiting for daemon response. Is the assistant running?",
+          );
+          process.exitCode = 1;
+          return;
+        }
+
+        if (!existsSync(resultPath)) return;
+
+        let result: BashSignalResult;
+        try {
+          const content = readFileSync(resultPath, "utf-8");
+          result = JSON.parse(content) as BashSignalResult;
+        } catch {
+          // File may be partially written; retry on next poll.
+          return;
+        }
+
+        // Ignore stale results from a previous invocation.
+        if (result.requestId !== requestId) return;
+
+        clearInterval(poll);
+
+        if (result.error) {
+          log.error(`Spawn error: ${result.error}`);
+          process.exitCode = 1;
+          return;
+        }
+
+        if (result.stdout) {
+          process.stdout.write(result.stdout);
+          if (!result.stdout.endsWith("\n")) {
+            process.stdout.write("\n");
+          }
+        }
+
+        if (result.stderr) {
+          process.stderr.write(result.stderr);
+          if (!result.stderr.endsWith("\n")) {
+            process.stderr.write("\n");
+          }
+        }
+
+        if (result.timedOut) {
+          log.info(`Command timed out in daemon.`);
+        }
+
+        if (result.exitCode != null && result.exitCode !== 0) {
+          log.info(`Exit code: ${result.exitCode}`);
+        }
+
+        process.exitCode = result.exitCode ?? 1;
+      }, POLL_INTERVAL_MS);
+    });
+}
