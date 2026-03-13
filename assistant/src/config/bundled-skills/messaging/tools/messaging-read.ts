@@ -19,7 +19,8 @@ export async function run(
 
   try {
     const provider = await resolveProvider(platform);
-    const conn = await getProviderConnection(provider);
+    const account = input.account as string | undefined;
+    const conn = await getProviderConnection(provider, account);
     let messages;
     if (threadId && provider.getThreadReplies) {
       messages = await provider.getThreadReplies(

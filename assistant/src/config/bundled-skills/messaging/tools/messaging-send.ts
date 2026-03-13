@@ -52,7 +52,8 @@ export async function run(
       return err("Attachments are only supported on Gmail.");
     }
 
-    const conn = await getProviderConnection(provider);
+    const account = input.account as string | undefined;
+    const conn = await getProviderConnection(provider, account);
 
     // Gmail: create a draft instead of sending directly
     if (provider.id === "gmail") {
