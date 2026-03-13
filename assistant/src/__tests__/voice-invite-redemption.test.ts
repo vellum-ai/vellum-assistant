@@ -23,7 +23,10 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { findContactChannel } from "../contacts/contact-store.js";
+import {
+  findContactChannel,
+  upsertContact,
+} from "../contacts/contact-store.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
 import { createInvite, revokeInvite } from "../memory/invite-store.js";
@@ -352,6 +355,34 @@ describe("redeemVoiceInviteCode", () => {
       code: "123456",
     });
 
+    expect(result).toEqual({ ok: false, reason: "invalid_or_expired" });
+  });
+
+  test("returns invalid_or_expired for a revoked guardian to prevent invite-based reactivation", () => {
+    const phone = "+15559998888";
+    const { code } = createVoiceInvite({ callerPhone: phone });
+
+    // Pre-create a guardian contact with a revoked phone channel
+    upsertContact({
+      displayName: "Guardian",
+      role: "guardian",
+      channels: [
+        {
+          type: "phone",
+          address: phone,
+          externalUserId: phone,
+          status: "revoked",
+        },
+      ],
+    });
+
+    const result = redeemVoiceInviteCode({
+      callerExternalUserId: phone,
+      sourceChannel: "phone",
+      code,
+    });
+
+    // Must reject — guardian channels are managed via the binding flow, not invites
     expect(result).toEqual({ ok: false, reason: "invalid_or_expired" });
   });
 });
