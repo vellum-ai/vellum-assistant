@@ -1,4 +1,5 @@
 #!/bin/sh
+set -e
 # Initialize /data directory structure for apt/dpkg when a volume is mounted.
 # The Dockerfile configures apt to use /data/dpkg as the admin directory, but
 # when /data is a mounted volume the build-time directories are hidden.
