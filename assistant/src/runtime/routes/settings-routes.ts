@@ -29,7 +29,7 @@ import {
   generateAllowlistOptions,
   generateScopeOptions,
 } from "../../permissions/checker.js";
-import { getSecureKey } from "../../security/secure-keys.js";
+import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { parseToolManifestFile } from "../../skills/tool-manifest.js";
 import {
   type ManifestOverride,
@@ -160,7 +160,7 @@ async function handleOAuthConnectStart(body: {
     const app = getApp(conn.oauthAppId);
     if (app) {
       clientId = app.clientId;
-      clientSecret = getSecureKey(app.clientSecretCredentialPath);
+      clientSecret = await getSecureKeyAsync(app.clientSecretCredentialPath);
     }
   }
 
@@ -170,7 +170,7 @@ async function handleOAuthConnectStart(body: {
     if (dbApp) {
       clientId = dbApp.clientId;
       if (!clientSecret) {
-        clientSecret = getSecureKey(dbApp.clientSecretCredentialPath);
+        clientSecret = await getSecureKeyAsync(dbApp.clientSecretCredentialPath);
       }
     }
   }

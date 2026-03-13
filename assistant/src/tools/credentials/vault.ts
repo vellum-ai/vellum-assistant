@@ -20,7 +20,7 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
-  getSecureKey,
+  getSecureKeyAsync,
   listSecureKeys,
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
@@ -765,7 +765,7 @@ class CredentialStoreTool implements Tool {
           if (dbApp) {
             if (!clientId) clientId = dbApp.clientId;
             if (!clientSecret) {
-              clientSecret = getSecureKey(dbApp.clientSecretCredentialPath);
+              clientSecret = await getSecureKeyAsync(dbApp.clientSecretCredentialPath);
             }
           }
         }

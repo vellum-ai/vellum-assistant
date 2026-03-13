@@ -6,7 +6,7 @@
 
 import { getNestedValue, loadRawConfig } from "../../config/loader.js";
 import { credentialKey } from "../../security/credential-key.js";
-import { getSecureKey } from "../../security/secure-keys.js";
+import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { ConfigError } from "../../util/errors.js";
 import type { EmailProvider } from "../provider.js";
 
@@ -47,7 +47,7 @@ export async function createProvider(
       const candidates = PROVIDER_KEY_MAP.agentmail;
       let apiKey: string | undefined;
       for (const account of candidates) {
-        apiKey = getSecureKey(account);
+        apiKey = await getSecureKeyAsync(account);
         if (apiKey) break;
       }
       if (!apiKey) {
