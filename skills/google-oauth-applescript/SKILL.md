@@ -374,7 +374,7 @@ Now register the OAuth app with the collected Client ID and Client Secret.
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider <provider-key> --client-id <client-id> --client-secret-credential-path <provider-key>
+    assistant oauth apps upsert --provider <provider-key> --client-id <client-id> --client-secret-credential-path "<provider-key>/client_secret"
 ```
 
 Do not navigate away from the credential dialog until both values are provided. After both are stored and the app is registered, tell the user they can close the dialog.
@@ -398,7 +398,7 @@ Tell the user:
 ```
 bash:
   command: |
-    assistant oauth connections connect <provider-key> --client-id <client-id> --url-only
+    assistant oauth connections connect <provider-key> --client-id <client-id>
 ```
 
 The command prints an authorization URL. Send it to the user and encourage them to open it. Wait for the user to complete authorization in the browser. The token exchange completes in the background.

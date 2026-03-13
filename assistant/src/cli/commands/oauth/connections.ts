@@ -86,10 +86,14 @@ token expiry, refresh token availability, account info, and status.
 Examples:
   $ assistant oauth connections list
   $ assistant oauth connections list --provider integration:gmail
+  $ assistant oauth connections list --client-id abc123
   $ assistant oauth connections get --id <uuid>
   $ assistant oauth connections get --provider integration:gmail
+  $ assistant oauth connections get --provider integration:gmail --client-id abc123
   $ assistant oauth connections token integration:twitter
-  $ assistant oauth connections ping integration:gmail`,
+  $ assistant oauth connections ping integration:gmail
+  $ assistant oauth connections connect integration:gmail
+  $ assistant oauth connections connect integration:gmail --open-browser`,
   );
 
   // ---------------------------------------------------------------------------
@@ -103,21 +107,25 @@ Examples:
       "--provider <key>",
       "Filter by provider key (e.g. integration:gmail)",
     )
+    .option("--client-id <id>", "Filter by OAuth client ID")
     .addHelpText(
       "after",
       `
-Lists all OAuth connections, optionally filtered by provider key.
+Lists all OAuth connections, optionally filtered by provider key and/or client ID.
 
 Each connection shows its ID, provider, account info, granted scopes, token
 expiry, refresh token availability, and status.
 
 Examples:
   $ assistant oauth connections list
-  $ assistant oauth connections list --provider integration:gmail`,
+  $ assistant oauth connections list --provider integration:gmail
+  $ assistant oauth connections list --client-id abc123`,
     )
-    .action((opts: { provider?: string }, cmd: Command) => {
+    .action((opts: { provider?: string; clientId?: string }, cmd: Command) => {
       try {
-        const rows = listConnections(opts.provider).map(formatConnectionRow);
+        const rows = listConnections(opts.provider, opts.clientId).map(
+          formatConnectionRow,
+        );
 
         if (!shouldOutputJson(cmd)) {
           log.info(`Found ${rows.length} connection(s)`);
@@ -143,6 +151,10 @@ Examples:
       "--provider <key>",
       "Provider key (returns most recent active connection)",
     )
+    .option(
+      "--client-id <id>",
+      "Filter by OAuth client ID (used with --provider)",
+    )
     .addHelpText(
       "after",
       `
@@ -153,39 +165,45 @@ Two lookup modes are supported:
 
   2. By provider (returns the most recent active connection):
      $ assistant oauth connections get --provider integration:gmail
+     $ assistant oauth connections get --provider integration:gmail --client-id abc123
 
 At least --id or --provider must be specified.`,
     )
-    .action((opts: { id?: string; provider?: string }, cmd: Command) => {
-      try {
-        let row;
+    .action(
+      (
+        opts: { id?: string; provider?: string; clientId?: string },
+        cmd: Command,
+      ) => {
+        try {
+          let row;
 
-        if (opts.id) {
-          row = getConnection(opts.id);
-        } else if (opts.provider) {
-          row = getConnectionByProvider(opts.provider);
-        } else {
-          writeOutput(cmd, {
-            ok: false,
-            error: "Provide --id or --provider",
-          });
+          if (opts.id) {
+            row = getConnection(opts.id);
+          } else if (opts.provider) {
+            row = getConnectionByProvider(opts.provider, opts.clientId);
+          } else {
+            writeOutput(cmd, {
+              ok: false,
+              error: "Provide --id or --provider",
+            });
+            process.exitCode = 1;
+            return;
+          }
+
+          if (!row) {
+            writeOutput(cmd, { ok: false, error: "Connection not found" });
+            process.exitCode = 1;
+            return;
+          }
+
+          writeOutput(cmd, formatConnectionRow(row));
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          writeOutput(cmd, { ok: false, error: message });
           process.exitCode = 1;
-          return;
         }
-
-        if (!row) {
-          writeOutput(cmd, { ok: false, error: "Connection not found" });
-          process.exitCode = 1;
-          return;
-        }
-
-        writeOutput(cmd, formatConnectionRow(row));
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        writeOutput(cmd, { ok: false, error: message });
-        process.exitCode = 1;
-      }
-    });
+      },
+    );
 
   // ---------------------------------------------------------------------------
   // connections token <provider-key>
@@ -195,6 +213,10 @@ At least --id or --provider must be specified.`,
     .command("token <provider-key>")
     .description(
       "Print a valid OAuth access token for a provider, refreshing if expired",
+    )
+    .option(
+      "--client-id <id>",
+      "Filter by OAuth client ID when multiple apps exist for the provider",
     )
     .addHelpText(
       "after",
@@ -212,22 +234,33 @@ Exits with code 1 if no access token exists or refresh fails.
 
 Examples:
   $ assistant oauth connections token integration:twitter
-  $ assistant oauth connections token integration:gmail --json`,
+  $ assistant oauth connections token integration:gmail --json
+  $ assistant oauth connections token integration:gmail --client-id abc123`,
     )
-    .action(async (providerKey: string, _opts: unknown, cmd: Command) => {
-      try {
-        const token = await withValidToken(providerKey, async (t) => t);
-        if (shouldOutputJson(cmd)) {
-          writeOutput(cmd, { ok: true, token });
-        } else {
-          process.stdout.write(token + "\n");
+    .action(
+      async (
+        providerKey: string,
+        opts: { clientId?: string },
+        cmd: Command,
+      ) => {
+        try {
+          const token = await withValidToken(
+            providerKey,
+            async (t) => t,
+            opts.clientId,
+          );
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, { ok: true, token });
+          } else {
+            process.stdout.write(token + "\n");
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          writeOutput(cmd, { ok: false, error: message });
+          process.exitCode = 1;
         }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        writeOutput(cmd, { ok: false, error: message });
-        process.exitCode = 1;
-      }
-    });
+      },
+    );
 
   // ---------------------------------------------------------------------------
   // connections ping <provider-key>
@@ -237,6 +270,10 @@ Examples:
     .command("ping <provider-key>")
     .description(
       "Verify that a stored OAuth token is still valid by hitting the provider's health-check endpoint",
+    )
+    .option(
+      "--client-id <id>",
+      "Filter by OAuth client ID when multiple apps exist for the provider",
     )
     .addHelpText(
       "after",
@@ -252,69 +289,80 @@ If no ping URL is configured for the provider, exits with an error.
 
 Examples:
   $ assistant oauth connections ping integration:gmail
-  $ assistant oauth connections ping integration:twitter --json`,
+  $ assistant oauth connections ping integration:twitter --json
+  $ assistant oauth connections ping integration:gmail --client-id abc123`,
     )
-    .action(async (providerKey: string, _opts: unknown, cmd: Command) => {
-      try {
-        const provider = getProvider(providerKey);
-        if (!provider) {
-          writeOutput(cmd, {
-            ok: false,
-            error: `Provider not found: ${providerKey}`,
-          });
-          process.exitCode = 1;
-          return;
-        }
-
-        if (!provider.pingUrl) {
-          writeOutput(cmd, {
-            ok: false,
-            error: `No ping URL configured for "${providerKey}"`,
-          });
-          process.exitCode = 1;
-          return;
-        }
-
-        const pingUrl = provider.pingUrl;
-
-        const result = await withValidToken(providerKey, async (token) => {
-          const res = await fetch(pingUrl, {
-            method: "GET",
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          return { status: res.status, ok: res.ok };
-        });
-
-        if (result.ok) {
-          if (shouldOutputJson(cmd)) {
+    .action(
+      async (
+        providerKey: string,
+        opts: { clientId?: string },
+        cmd: Command,
+      ) => {
+        try {
+          const provider = getProvider(providerKey);
+          if (!provider) {
             writeOutput(cmd, {
-              ok: true,
-              provider: providerKey,
-              status: result.status,
+              ok: false,
+              error: `Provider not found: ${providerKey}`,
             });
-          } else {
-            log.info(`${providerKey}: OK (HTTP ${result.status})`);
-            writeOutput(cmd, {
-              ok: true,
-              provider: providerKey,
-              status: result.status,
-            });
+            process.exitCode = 1;
+            return;
           }
-        } else {
-          writeOutput(cmd, {
-            ok: false,
-            provider: providerKey,
-            status: result.status,
-            error: `Ping failed with HTTP ${result.status}`,
-          });
+
+          if (!provider.pingUrl) {
+            writeOutput(cmd, {
+              ok: false,
+              error: `No ping URL configured for "${providerKey}"`,
+            });
+            process.exitCode = 1;
+            return;
+          }
+
+          const pingUrl = provider.pingUrl;
+
+          const result = await withValidToken(
+            providerKey,
+            async (token) => {
+              const res = await fetch(pingUrl, {
+                method: "GET",
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              return { status: res.status, ok: res.ok };
+            },
+            opts.clientId,
+          );
+
+          if (result.ok) {
+            if (shouldOutputJson(cmd)) {
+              writeOutput(cmd, {
+                ok: true,
+                provider: providerKey,
+                status: result.status,
+              });
+            } else {
+              log.info(`${providerKey}: OK (HTTP ${result.status})`);
+              writeOutput(cmd, {
+                ok: true,
+                provider: providerKey,
+                status: result.status,
+              });
+            }
+          } else {
+            writeOutput(cmd, {
+              ok: false,
+              provider: providerKey,
+              status: result.status,
+              error: `Ping failed with HTTP ${result.status}`,
+            });
+            process.exitCode = 1;
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          writeOutput(cmd, { ok: false, error: message });
           process.exitCode = 1;
         }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        writeOutput(cmd, { ok: false, error: message });
-        process.exitCode = 1;
-      }
-    });
+      },
+    );
 
   // ---------------------------------------------------------------------------
   // connections disconnect <provider-key>
@@ -324,6 +372,10 @@ Examples:
     .command("disconnect <provider-key>")
     .description(
       "Disconnect an OAuth integration and remove all associated credentials",
+    )
+    .option(
+      "--client-id <id>",
+      "Filter by OAuth client ID when multiple apps exist for the provider",
     )
     .addHelpText(
       "after",
@@ -340,62 +392,72 @@ client_id, client_secret) are also cleaned up if present.
 
 Examples:
   $ assistant oauth connections disconnect integration:gmail
-  $ assistant oauth connections disconnect integration:slack`,
+  $ assistant oauth connections disconnect integration:slack
+  $ assistant oauth connections disconnect integration:gmail --client-id abc123`,
     )
-    .action(async (providerKey: string, _opts: unknown, cmd: Command) => {
-      try {
-        assertMetadataWritable();
+    .action(
+      async (
+        providerKey: string,
+        opts: { clientId?: string },
+        cmd: Command,
+      ) => {
+        try {
+          assertMetadataWritable();
 
-        let cleanedUp = false;
+          let cleanedUp = false;
 
-        // 1. Disconnect the OAuth connection (new-format keys + connection row)
-        const oauthResult = await disconnectOAuthProvider(providerKey);
-        if (oauthResult === "error") {
-          writeOutput(cmd, {
-            ok: false,
-            error: `Failed to disconnect OAuth provider "${providerKey}" — please try again`,
-          });
+          // 1. Disconnect the OAuth connection (new-format keys + connection row)
+          const oauthResult = await disconnectOAuthProvider(
+            providerKey,
+            opts.clientId,
+          );
+          if (oauthResult === "error") {
+            writeOutput(cmd, {
+              ok: false,
+              error: `Failed to disconnect OAuth provider "${providerKey}" — please try again`,
+            });
+            process.exitCode = 1;
+            return;
+          }
+          if (oauthResult === "disconnected") cleanedUp = true;
+
+          // 2. Clean up legacy credential keys for common fields
+          const legacyFields = [
+            "access_token",
+            "refresh_token",
+            "client_id",
+            "client_secret",
+          ];
+          for (const field of legacyFields) {
+            const key = credentialKey(providerKey, field);
+            const result = await deleteSecureKeyAsync(key);
+            if (result === "deleted") cleanedUp = true;
+
+            const metaDeleted = deleteCredentialMetadata(providerKey, field);
+            if (metaDeleted) cleanedUp = true;
+          }
+
+          if (!cleanedUp) {
+            writeOutput(cmd, {
+              ok: false,
+              error: `No OAuth connection or credentials found for "${providerKey}"`,
+            });
+            process.exitCode = 1;
+            return;
+          }
+
+          writeOutput(cmd, { ok: true, service: providerKey });
+
+          if (!shouldOutputJson(cmd)) {
+            log.info(`Disconnected ${providerKey}`);
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          writeOutput(cmd, { ok: false, error: message });
           process.exitCode = 1;
-          return;
         }
-        if (oauthResult === "disconnected") cleanedUp = true;
-
-        // 2. Clean up legacy credential keys for common fields
-        const legacyFields = [
-          "access_token",
-          "refresh_token",
-          "client_id",
-          "client_secret",
-        ];
-        for (const field of legacyFields) {
-          const key = credentialKey(providerKey, field);
-          const result = await deleteSecureKeyAsync(key);
-          if (result === "deleted") cleanedUp = true;
-
-          const metaDeleted = deleteCredentialMetadata(providerKey, field);
-          if (metaDeleted) cleanedUp = true;
-        }
-
-        if (!cleanedUp) {
-          writeOutput(cmd, {
-            ok: false,
-            error: `No OAuth connection or credentials found for "${providerKey}"`,
-          });
-          process.exitCode = 1;
-          return;
-        }
-
-        writeOutput(cmd, { ok: true, service: providerKey });
-
-        if (!shouldOutputJson(cmd)) {
-          log.info(`Disconnected ${providerKey}`);
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        writeOutput(cmd, { ok: false, error: message });
-        process.exitCode = 1;
-      }
-    });
+      },
+    );
 
   // ---------------------------------------------------------------------------
   // connections connect <provider-key>
@@ -404,13 +466,18 @@ Examples:
   connections
     .command("connect <provider-key>")
     .description("Initiate an OAuth2 authorization flow for a provider")
-    .option("--client-id <id>", "Override the OAuth client ID")
-    .option("--client-secret <secret>", "Override the OAuth client secret")
+    .option(
+      "--client-id <id>",
+      "Filter by OAuth client ID when multiple apps exist for the provider",
+    )
     .option(
       "--scopes <scopes...>",
       "Additional scopes beyond the provider's defaults",
     )
-    .option("--url-only", "Print the auth URL instead of opening the browser")
+    .option(
+      "--open-browser",
+      "Open the auth URL in the browser and wait for completion",
+    )
     .addHelpText(
       "after",
       `
@@ -418,19 +485,19 @@ Arguments:
   provider-key   Provider key (e.g. integration:gmail) or alias (e.g. gmail)
 
 Initiates an OAuth2 authorization flow for the given provider. By default,
-opens the authorization URL in your browser and waits for completion.
+prints the authorization URL to stdout — useful for headless/remote sessions.
+The token exchange completes in the background when the user authorizes.
 
-With --url-only, prints the auth URL instead — useful for headless/remote
-sessions. The token exchange completes in the background when the user
-authorizes.
+With --open-browser, opens the authorization URL in your browser and waits
+for completion.
 
-Client credentials are resolved from the OAuth app store unless overridden
-with --client-id and --client-secret.
+Client credentials are resolved from the OAuth app store. Use --client-id
+to select a specific app when multiple apps exist for the same provider.
 
 Examples:
   $ assistant oauth connections connect integration:gmail
-  $ assistant oauth connections connect gmail --url-only
-  $ assistant oauth connections connect integration:slack --client-id abc --client-secret s3cret
+  $ assistant oauth connections connect gmail --open-browser
+  $ assistant oauth connections connect integration:slack --client-id abc123
   $ assistant oauth connections connect integration:gmail --scopes calendar.readonly --json`,
     )
     .action(
@@ -438,9 +505,8 @@ Examples:
         providerKey: string,
         opts: {
           clientId?: string;
-          clientSecret?: string;
           scopes?: string[];
-          urlOnly?: boolean;
+          openBrowser?: boolean;
         },
         cmd: Command,
       ) => {
@@ -448,24 +514,18 @@ Examples:
           // a. Resolve service alias
           const resolvedServiceKey = resolveService(providerKey);
 
-          // b. Resolve client credentials
+          // b. Resolve client credentials from the DB
+          const dbApp = opts.clientId
+            ? getAppByProviderAndClientId(resolvedServiceKey, opts.clientId)
+            : getMostRecentAppByProvider(resolvedServiceKey);
+
           let clientId = opts.clientId;
-          let clientSecret = opts.clientSecret;
+          let clientSecret: string | undefined;
 
-          if (!clientId || !clientSecret) {
-            const dbApp = clientId
-              ? getAppByProviderAndClientId(resolvedServiceKey, clientId)
-              : getMostRecentAppByProvider(resolvedServiceKey);
-
-            if (dbApp) {
-              if (!clientId) clientId = dbApp.clientId;
-              if (!clientSecret) {
-                const storedSecret = getSecureKey(
-                  dbApp.clientSecretCredentialPath,
-                );
-                if (storedSecret) clientSecret = storedSecret;
-              }
-            }
+          if (dbApp) {
+            if (!clientId) clientId = dbApp.clientId;
+            const storedSecret = getSecureKey(dbApp.clientSecretCredentialPath);
+            if (storedSecret) clientSecret = storedSecret;
           }
 
           // c. Validate client_id
@@ -493,7 +553,7 @@ Examples:
             if (requiresSecret) {
               writeOutput(cmd, {
                 ok: false,
-                error: `client_secret is required for ${resolvedServiceKey} but not found. Provide --client-secret or store it first with 'assistant oauth apps upsert --client-secret'.`,
+                error: `client_secret is required for ${resolvedServiceKey} but not found. Store it first with 'assistant oauth apps upsert --client-secret'.`,
               });
               process.exitCode = 1;
               return;
@@ -505,8 +565,8 @@ Examples:
             service: providerKey,
             clientId,
             clientSecret,
-            isInteractive: !opts.urlOnly,
-            openUrl: !opts.urlOnly
+            isInteractive: !!opts.openBrowser,
+            openUrl: opts.openBrowser
               ? (url) => {
                   if (isMacOS()) {
                     Bun.spawn(["open", url], {

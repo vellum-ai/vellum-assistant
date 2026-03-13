@@ -400,12 +400,33 @@ export function getConnection(id: string): OAuthConnectionRow | undefined {
 
 /**
  * Get the most recent active connection for a provider.
+ * When `clientId` is provided, only connections linked to the matching app are considered.
  * Returns undefined if no active connection exists.
  */
 export function getConnectionByProvider(
   providerKey: string,
+  clientId?: string,
 ): OAuthConnectionRow | undefined {
   const db = getDb();
+
+  if (clientId) {
+    const app = getAppByProviderAndClientId(providerKey, clientId);
+    if (!app) return undefined;
+    return db
+      .select()
+      .from(oauthConnections)
+      .where(
+        and(
+          eq(oauthConnections.providerKey, providerKey),
+          eq(oauthConnections.oauthAppId, app.id),
+          eq(oauthConnections.status, "active"),
+        ),
+      )
+      .orderBy(desc(oauthConnections.createdAt), sql`rowid DESC`)
+      .limit(1)
+      .get();
+  }
+
   return db
     .select()
     .from(oauthConnections)
@@ -475,19 +496,37 @@ export function updateConnection(
   return rawChanges() > 0;
 }
 
-/** List connections, optionally filtered by provider key. */
-export function listConnections(providerKey?: string): OAuthConnectionRow[] {
+/** List connections, optionally filtered by provider key and/or client ID. */
+export function listConnections(
+  providerKey?: string,
+  clientId?: string,
+): OAuthConnectionRow[] {
   const db = getDb();
 
+  let rows: OAuthConnectionRow[];
   if (providerKey) {
-    return db
+    rows = db
       .select()
       .from(oauthConnections)
       .where(eq(oauthConnections.providerKey, providerKey))
       .all();
+  } else {
+    rows = db.select().from(oauthConnections).all();
   }
 
-  return db.select().from(oauthConnections).all();
+  if (clientId) {
+    const matchingAppIds = new Set(
+      db
+        .select({ id: oauthApps.id })
+        .from(oauthApps)
+        .where(eq(oauthApps.clientId, clientId))
+        .all()
+        .map((a) => a.id),
+    );
+    return rows.filter((r) => matchingAppIds.has(r.oauthAppId));
+  }
+
+  return rows;
 }
 
 /** Delete a connection by ID. Returns true if a row was deleted. */
@@ -512,8 +551,9 @@ export function deleteConnection(id: string): boolean {
  */
 export async function disconnectOAuthProvider(
   providerKey: string,
+  clientId?: string,
 ): Promise<"disconnected" | "not-found" | "error"> {
-  const conn = getConnectionByProvider(providerKey);
+  const conn = getConnectionByProvider(providerKey, clientId);
   if (!conn) return "not-found";
 
   const r1 = await deleteSecureKeyAsync(

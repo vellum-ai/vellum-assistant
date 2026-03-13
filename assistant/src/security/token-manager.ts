@@ -9,6 +9,7 @@
 
 import {
   getApp,
+  getConnection,
   getConnectionByProvider,
   getProvider,
   updateConnection,
@@ -116,14 +117,14 @@ function recordRefreshFailure(service: string): void {
 
 const inflightRefreshes = new Map<string, Promise<string>>();
 
-function deduplicatedRefresh(service: string): Promise<string> {
-  const existing = inflightRefreshes.get(service);
+function deduplicatedRefresh(service: string, connId: string): Promise<string> {
+  const existing = inflightRefreshes.get(connId);
   if (existing) return existing;
 
-  const promise = doRefresh(service).finally(() => {
-    inflightRefreshes.delete(service);
+  const promise = doRefresh(service, connId).finally(() => {
+    inflightRefreshes.delete(connId);
   });
-  inflightRefreshes.set(service, promise);
+  inflightRefreshes.set(connId, promise);
   return promise;
 }
 
@@ -157,18 +158,11 @@ export class TokenExpiredError extends Error {
 }
 
 /**
- * Check whether the access token for a service is expired or will expire
- * within the buffer window, based on the `expiresAt` field in the
- * oauth_connection row.
+ * Check whether a token is expired or will expire within the buffer window.
  */
-function isTokenExpired(service: string): boolean {
-  try {
-    const conn = getConnectionByProvider(service);
-    if (!conn?.expiresAt) return false;
-    return Date.now() >= conn.expiresAt - EXPIRY_BUFFER_MS;
-  } catch {
-    return false;
-  }
+function isTokenExpired(expiresAt: number | null): boolean {
+  if (!expiresAt) return false;
+  return Date.now() >= expiresAt - EXPIRY_BUFFER_MS;
 }
 
 // ── Refresh config resolution ─────────────────────────────────────────
@@ -191,8 +185,8 @@ interface RefreshConfig {
  * authMethod. Throws `TokenExpiredError` if the connection is not found
  * or incomplete.
  */
-function resolveRefreshConfig(service: string): RefreshConfig {
-  const conn = getConnectionByProvider(service);
+function resolveRefreshConfig(service: string, connId: string): RefreshConfig {
+  const conn = getConnection(connId);
   if (!conn) {
     throw new TokenExpiredError(
       service,
@@ -217,8 +211,8 @@ function resolveRefreshConfig(service: string): RefreshConfig {
   }
 
   const tokenUrl = provider.tokenUrl;
-  const clientId = app.clientId;
-  if (!tokenUrl || !clientId) {
+  const resolvedClientId = app.clientId;
+  if (!tokenUrl || !resolvedClientId) {
     throw new TokenExpiredError(
       service,
       `Missing OAuth2 refresh config for "${service}".${recoveryHint(service)}`,
@@ -238,7 +232,7 @@ function resolveRefreshConfig(service: string): RefreshConfig {
   return {
     connId: conn.id,
     tokenUrl,
-    clientId,
+    clientId: resolvedClientId,
     secret,
     refreshToken,
     authMethod,
@@ -254,10 +248,15 @@ function resolveRefreshConfig(service: string): RefreshConfig {
  * Returns the new access token on success.
  * Throws `TokenExpiredError` if refresh is not possible.
  */
-async function doRefresh(service: string): Promise<string> {
-  const refreshConfig = resolveRefreshConfig(service);
-  const { tokenUrl, clientId, secret, authMethod, connId, refreshToken } =
-    refreshConfig;
+async function doRefresh(service: string, connId: string): Promise<string> {
+  const refreshConfig = resolveRefreshConfig(service, connId);
+  const {
+    tokenUrl,
+    clientId: resolvedClientId,
+    secret,
+    authMethod,
+    refreshToken,
+  } = refreshConfig;
 
   if (!refreshToken) {
     throw new TokenExpiredError(
@@ -266,8 +265,8 @@ async function doRefresh(service: string): Promise<string> {
     );
   }
 
-  if (isRefreshBreakerOpen(service)) {
-    const state = refreshBreakers.get(service)!;
+  if (isRefreshBreakerOpen(connId)) {
+    const state = refreshBreakers.get(connId)!;
     const remainingMs = state.cooldownMs - (Date.now() - state.openedAt);
     throw new TokenExpiredError(
       service,
@@ -282,13 +281,13 @@ async function doRefresh(service: string): Promise<string> {
   try {
     result = await refreshOAuth2Token(
       tokenUrl,
-      clientId,
+      resolvedClientId,
       refreshToken,
       secret,
       authMethod,
     );
   } catch (err) {
-    recordRefreshFailure(service);
+    recordRefreshFailure(connId);
     if (isCredentialError(err)) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new TokenExpiredError(
@@ -349,7 +348,7 @@ async function doRefresh(service: string): Promise<string> {
     );
   }
 
-  recordRefreshSuccess(service);
+  recordRefreshSuccess(connId);
   log.info({ service }, "OAuth2 access token refreshed successfully");
   return result.accessToken;
 }
@@ -368,12 +367,13 @@ async function doRefresh(service: string): Promise<string> {
 export async function withValidToken<T>(
   service: string,
   callback: (token: string) => Promise<T>,
+  clientId?: string,
 ): Promise<T> {
-  const conn = getConnectionByProvider(service);
+  const conn = getConnectionByProvider(service, clientId);
   let token = conn
     ? getSecureKey(`oauth_connection/${conn.id}/access_token`)
     : undefined;
-  if (!token) {
+  if (!token || !conn) {
     throw new TokenExpiredError(
       service,
       `No access token found for "${service}". Authorization required.${recoveryHint(service)}`,
@@ -381,15 +381,15 @@ export async function withValidToken<T>(
   }
 
   // Proactively refresh if expired or about to expire.
-  if (isTokenExpired(service)) {
-    token = await deduplicatedRefresh(service);
+  if (isTokenExpired(conn.expiresAt)) {
+    token = await deduplicatedRefresh(service, conn.id);
   }
 
   try {
     return await callback(token);
   } catch (err: unknown) {
     if (is401Error(err)) {
-      token = await deduplicatedRefresh(service);
+      token = await deduplicatedRefresh(service, conn.id);
       return callback(token);
     }
     throw err;
