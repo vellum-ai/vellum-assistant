@@ -11,5 +11,5 @@ export function ok(content: string): ToolExecutionResult {
  * scopes are granted in a single OAuth consent flow.
  */
 export function getCalendarConnection(account?: string): OAuthConnection {
-  return resolveOAuthConnection("integration:gmail", account);
+  return resolveOAuthConnection("integration:google", account);
 }

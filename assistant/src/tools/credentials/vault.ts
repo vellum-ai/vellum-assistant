@@ -741,7 +741,7 @@ class CredentialStoreTool implements Tool {
             isError: true,
           };
 
-        // Resolve aliases (e.g. "gmail" → "integration:gmail")
+        // Resolve aliases (e.g. "gmail" → "integration:google")
         const service = resolveService(rawService);
 
         // Code-side behavioral fields (identityVerifier, setup, etc.)

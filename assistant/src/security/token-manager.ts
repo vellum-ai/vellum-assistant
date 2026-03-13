@@ -20,7 +20,7 @@ import { getSecureKey, setSecureKeyAsync } from "./secure-keys.js";
 
 const log = getLogger("token-manager");
 
-const MESSAGING_SERVICES = new Set(["integration:gmail", "integration:slack"]);
+const MESSAGING_SERVICES = new Set(["integration:google", "integration:slack"]);
 
 function recoveryHint(service: string): string {
   const shortName = service.startsWith("integration:")

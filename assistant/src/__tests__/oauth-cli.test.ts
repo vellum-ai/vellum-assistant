@@ -337,11 +337,11 @@ describe("assistant oauth connections token <provider-key>", () => {
     const { exitCode, stdout } = await runCli([
       "connections",
       "token",
-      "integration:gmail",
+      "integration:google",
     ]);
     expect(exitCode).toBe(0);
     expect(stdout).toBe("gmail-token\n");
-    expect(capturedService).toBe("integration:gmail");
+    expect(capturedService).toBe("integration:google");
   });
 
   test("exits 1 when no token exists", async () => {
@@ -421,30 +421,30 @@ describe("assistant oauth connections disconnect <provider-key>", () => {
     const result = await runCli([
       "connections",
       "disconnect",
-      "integration:gmail",
+      "integration:google",
       "--json",
     ]);
     expect(result.exitCode).toBe(0);
     const parsed = JSON.parse(result.stdout);
     expect(parsed.ok).toBe(true);
-    expect(parsed.service).toBe("integration:gmail");
+    expect(parsed.service).toBe("integration:google");
 
     // disconnectOAuthProvider should have been called with the full provider key
-    expect(disconnectOAuthProviderCalls).toEqual(["integration:gmail"]);
+    expect(disconnectOAuthProviderCalls).toEqual(["integration:google"]);
   });
 
   test("reports not-found when nothing exists", async () => {
     const result = await runCli([
       "connections",
       "disconnect",
-      "integration:gmail",
+      "integration:google",
       "--json",
     ]);
     expect(result.exitCode).toBe(1);
     const parsed = JSON.parse(result.stdout);
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("No OAuth connection or credentials");
-    expect(parsed.error).toContain("integration:gmail");
+    expect(parsed.error).toContain("integration:google");
   });
 
   test("cleans up legacy credential keys if present", async () => {
@@ -457,12 +457,12 @@ describe("assistant oauth connections disconnect <provider-key>", () => {
     ];
     for (const field of legacyFields) {
       secureKeyStore.set(
-        credentialKey("integration:gmail", field),
+        credentialKey("integration:google", field),
         `legacy_${field}_value`,
       );
       metadataStore.push({
         credentialId: nextUUID(),
-        service: "integration:gmail",
+        service: "integration:google",
         field,
         allowedTools: [],
         allowedDomains: [],
@@ -474,22 +474,22 @@ describe("assistant oauth connections disconnect <provider-key>", () => {
     const result = await runCli([
       "connections",
       "disconnect",
-      "integration:gmail",
+      "integration:google",
       "--json",
     ]);
     expect(result.exitCode).toBe(0);
     const parsed = JSON.parse(result.stdout);
     expect(parsed.ok).toBe(true);
-    expect(parsed.service).toBe("integration:gmail");
+    expect(parsed.service).toBe("integration:google");
 
     // All legacy keys should be removed
     for (const field of legacyFields) {
       expect(
-        secureKeyStore.has(credentialKey("integration:gmail", field)),
+        secureKeyStore.has(credentialKey("integration:google", field)),
       ).toBe(false);
       expect(
         metadataStore.find(
-          (m) => m.service === "integration:gmail" && m.field === field,
+          (m) => m.service === "integration:google" && m.field === field,
         ),
       ).toBeUndefined();
     }
@@ -501,12 +501,12 @@ describe("assistant oauth connections disconnect <provider-key>", () => {
 
     // Seed a legacy credential key
     secureKeyStore.set(
-      credentialKey("integration:gmail", "access_token"),
+      credentialKey("integration:google", "access_token"),
       "legacy_token",
     );
     metadataStore.push({
       credentialId: nextUUID(),
-      service: "integration:gmail",
+      service: "integration:google",
       field: "access_token",
       allowedTools: [],
       allowedDomains: [],
@@ -517,7 +517,7 @@ describe("assistant oauth connections disconnect <provider-key>", () => {
     const result = await runCli([
       "connections",
       "disconnect",
-      "integration:gmail",
+      "integration:google",
       "--json",
     ]);
     expect(result.exitCode).toBe(0);
@@ -525,9 +525,9 @@ describe("assistant oauth connections disconnect <provider-key>", () => {
     expect(parsed.ok).toBe(true);
 
     // Both should be cleaned up
-    expect(disconnectOAuthProviderCalls).toEqual(["integration:gmail"]);
+    expect(disconnectOAuthProviderCalls).toEqual(["integration:google"]);
     expect(
-      secureKeyStore.has(credentialKey("integration:gmail", "access_token")),
+      secureKeyStore.has(credentialKey("integration:google", "access_token")),
     ).toBe(false);
   });
 });
@@ -539,7 +539,7 @@ describe("assistant oauth connections disconnect <provider-key>", () => {
 describe("assistant oauth providers list", () => {
   const fakeProviders = [
     {
-      providerKey: "integration:gmail",
+      providerKey: "integration:google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: "[]",
@@ -596,7 +596,7 @@ describe("assistant oauth providers list", () => {
     const parsed = JSON.parse(stdout);
     expect(parsed).toHaveLength(4);
     const keys = parsed.map((p: { providerKey: string }) => p.providerKey);
-    expect(keys).toContain("integration:gmail");
+    expect(keys).toContain("integration:google");
     expect(keys).toContain("integration:google-calendar");
     expect(keys).toContain("integration:slack");
     expect(keys).toContain("integration:twitter");
@@ -613,7 +613,7 @@ describe("assistant oauth providers list", () => {
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
     expect(parsed).toHaveLength(1);
-    expect(parsed[0].providerKey).toBe("integration:gmail");
+    expect(parsed[0].providerKey).toBe("integration:google");
   });
 
   test("filters by comma-separated OR values", async () => {
@@ -628,7 +628,7 @@ describe("assistant oauth providers list", () => {
     const parsed = JSON.parse(stdout);
     expect(parsed).toHaveLength(2);
     const keys = parsed.map((p: { providerKey: string }) => p.providerKey);
-    expect(keys).toContain("integration:gmail");
+    expect(keys).toContain("integration:google");
     expect(keys).toContain("integration:google-calendar");
   });
 
@@ -657,7 +657,7 @@ describe("assistant oauth providers list", () => {
     const parsed = JSON.parse(stdout);
     expect(parsed).toHaveLength(2);
     const keys = parsed.map((p: { providerKey: string }) => p.providerKey);
-    expect(keys).toContain("integration:gmail");
+    expect(keys).toContain("integration:google");
     expect(keys).toContain("integration:google-calendar");
   });
 
@@ -673,7 +673,7 @@ describe("assistant oauth providers list", () => {
     const parsed = JSON.parse(stdout);
     expect(parsed).toHaveLength(2);
     const keys = parsed.map((p: { providerKey: string }) => p.providerKey);
-    expect(keys).toContain("integration:gmail");
+    expect(keys).toContain("integration:google");
     expect(keys).toContain("integration:google-calendar");
   });
 });
@@ -707,7 +707,7 @@ describe("assistant oauth connections connect <provider-key>", () => {
       id: "app-1",
       clientId: "test-id",
       clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      providerKey: "integration:gmail",
+      providerKey: "integration:google",
       createdAt: 0,
       updatedAt: 0,
     });
@@ -721,7 +721,7 @@ describe("assistant oauth connections connect <provider-key>", () => {
     const { exitCode, stdout } = await runCli([
       "connections",
       "connect",
-      "integration:gmail",
+      "integration:google",
       "--client-id",
       "test-id",
     ]);
@@ -734,7 +734,7 @@ describe("assistant oauth connections connect <provider-key>", () => {
       id: "app-1",
       clientId: "test-id",
       clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      providerKey: "integration:gmail",
+      providerKey: "integration:google",
       createdAt: 0,
       updatedAt: 0,
     });
@@ -748,7 +748,7 @@ describe("assistant oauth connections connect <provider-key>", () => {
     const { exitCode, stdout } = await runCli([
       "connections",
       "connect",
-      "integration:gmail",
+      "integration:google",
       "--client-id",
       "test-id",
       "--json",
@@ -767,7 +767,7 @@ describe("assistant oauth connections connect <provider-key>", () => {
       id: "app-1",
       clientId: "test-id",
       clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      providerKey: "integration:gmail",
+      providerKey: "integration:google",
       createdAt: 0,
       updatedAt: 0,
     });
@@ -776,13 +776,13 @@ describe("assistant oauth connections connect <provider-key>", () => {
       deferred: true,
       authUrl: "https://example.com/auth",
       state: "abc",
-      service: "integration:gmail",
+      service: "integration:google",
     });
 
     const { exitCode, stdout } = await runCli([
       "connections",
       "connect",
-      "integration:gmail",
+      "integration:google",
       "--client-id",
       "test-id",
       "--json",
@@ -800,7 +800,7 @@ describe("assistant oauth connections connect <provider-key>", () => {
     const { exitCode, stdout } = await runCli([
       "connections",
       "connect",
-      "integration:gmail",
+      "integration:google",
       "--json",
     ]);
     expect(exitCode).toBe(1);
@@ -814,7 +814,7 @@ describe("assistant oauth connections connect <provider-key>", () => {
       id: "app-1",
       clientId: "db-client-id",
       clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      providerKey: "integration:gmail",
+      providerKey: "integration:google",
       createdAt: 0,
       updatedAt: 0,
     });
@@ -829,7 +829,7 @@ describe("assistant oauth connections connect <provider-key>", () => {
       };
     };
 
-    await runCli(["connections", "connect", "integration:gmail"]);
+    await runCli(["connections", "connect", "integration:google"]);
     expect(capturedClientId).toBe("db-client-id");
   });
 
@@ -838,7 +838,7 @@ describe("assistant oauth connections connect <provider-key>", () => {
       id: "app-1",
       clientId: "db-client-id",
       clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      providerKey: "integration:gmail",
+      providerKey: "integration:google",
       createdAt: 0,
       updatedAt: 0,
     });
@@ -856,7 +856,7 @@ describe("assistant oauth connections connect <provider-key>", () => {
       };
     };
 
-    await runCli(["connections", "connect", "integration:gmail"]);
+    await runCli(["connections", "connect", "integration:google"]);
     expect(capturedOpts).toBeDefined();
     expect(capturedOpts!.clientId).toBe("db-client-id");
     expect(capturedOpts!.clientSecret).toBe("db-secret");
@@ -867,7 +867,7 @@ describe("assistant oauth connections connect <provider-key>", () => {
       id: "app-1",
       clientId: "x",
       clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      providerKey: "integration:gmail",
+      providerKey: "integration:google",
       createdAt: 0,
       updatedAt: 0,
     });
@@ -879,7 +879,7 @@ describe("assistant oauth connections connect <provider-key>", () => {
     const { exitCode, stdout } = await runCli([
       "connections",
       "connect",
-      "integration:gmail",
+      "integration:google",
       "--client-id",
       "x",
       "--json",
@@ -963,7 +963,7 @@ describe("assistant oauth connections connect <provider-key>", () => {
       id: "app-1",
       clientId: "test-id",
       clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      providerKey: "integration:gmail",
+      providerKey: "integration:google",
       createdAt: 0,
       updatedAt: 0,
     });
@@ -979,7 +979,7 @@ describe("assistant oauth connections connect <provider-key>", () => {
     const { exitCode, stdout } = await runCli([
       "connections",
       "connect",
-      "integration:gmail",
+      "integration:google",
       "--client-id",
       "test-id",
       "--json",
@@ -1007,7 +1007,7 @@ describe("assistant oauth apps upsert --client-secret-credential-path", () => {
     mockUpsertAppCalls = [];
     mockUpsertAppResult = {
       id: "app-upsert-1",
-      providerKey: "integration:gmail",
+      providerKey: "integration:google",
       clientId: "abc123",
       createdAt: 1700000000000,
       updatedAt: 1700000000000,
@@ -1031,7 +1031,7 @@ describe("assistant oauth apps upsert --client-secret-credential-path", () => {
       "apps",
       "upsert",
       "--provider",
-      "integration:gmail",
+      "integration:google",
       "--client-id",
       "abc123",
       "--client-secret-credential-path",
@@ -1041,7 +1041,7 @@ describe("assistant oauth apps upsert --client-secret-credential-path", () => {
     expect(exitCode).toBe(0);
     expect(mockUpsertAppCalls).toHaveLength(1);
     expect(mockUpsertAppCalls[0]).toEqual({
-      provider: "integration:gmail",
+      provider: "integration:google",
       clientId: "abc123",
       clientSecretOpts: { clientSecretCredentialPath: "custom/path" },
     });
@@ -1054,7 +1054,7 @@ describe("assistant oauth apps upsert --client-secret-credential-path", () => {
       "apps",
       "upsert",
       "--provider",
-      "integration:gmail",
+      "integration:google",
       "--client-id",
       "abc123",
       "--client-secret",
@@ -1078,7 +1078,7 @@ describe("assistant oauth apps upsert --client-secret-credential-path", () => {
       "apps",
       "upsert",
       "--provider",
-      "integration:gmail",
+      "integration:google",
       "--client-id",
       "abc123",
       "--client-secret",
@@ -1088,7 +1088,7 @@ describe("assistant oauth apps upsert --client-secret-credential-path", () => {
     expect(exitCode).toBe(0);
     expect(mockUpsertAppCalls).toHaveLength(1);
     expect(mockUpsertAppCalls[0]).toEqual({
-      provider: "integration:gmail",
+      provider: "integration:google",
       clientId: "abc123",
       clientSecretOpts: { clientSecretValue: "s3cret" },
     });
@@ -1099,7 +1099,7 @@ describe("assistant oauth apps upsert --client-secret-credential-path", () => {
       "apps",
       "upsert",
       "--provider",
-      "integration:gmail",
+      "integration:google",
       "--client-id",
       "abc123",
       "--json",
@@ -1107,7 +1107,7 @@ describe("assistant oauth apps upsert --client-secret-credential-path", () => {
     expect(exitCode).toBe(0);
     expect(mockUpsertAppCalls).toHaveLength(1);
     expect(mockUpsertAppCalls[0]).toEqual({
-      provider: "integration:gmail",
+      provider: "integration:google",
       clientId: "abc123",
       clientSecretOpts: undefined,
     });
@@ -1224,7 +1224,7 @@ describe("assistant oauth connections ping <provider-key>", () => {
 
   test("returns ok when ping endpoint returns 200", async () => {
     mockGetProvider = () => ({
-      providerKey: "integration:gmail",
+      providerKey: "integration:google",
       pingUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
@@ -1241,7 +1241,7 @@ describe("assistant oauth connections ping <provider-key>", () => {
       const { exitCode, stdout } = await runCli([
         "connections",
         "ping",
-        "integration:gmail",
+        "integration:google",
         "--json",
       ]);
       expect(exitCode).toBe(0);
@@ -1293,7 +1293,7 @@ describe("assistant oauth connections ping <provider-key>", () => {
 
   test("exits 1 when ping endpoint returns non-2xx", async () => {
     mockGetProvider = () => ({
-      providerKey: "integration:gmail",
+      providerKey: "integration:google",
       pingUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
@@ -1311,7 +1311,7 @@ describe("assistant oauth connections ping <provider-key>", () => {
       const { exitCode, stdout } = await runCli([
         "connections",
         "ping",
-        "integration:gmail",
+        "integration:google",
         "--json",
       ]);
       expect(exitCode).toBe(1);
@@ -1325,10 +1325,10 @@ describe("assistant oauth connections ping <provider-key>", () => {
 
   test("exits 1 when no token exists", async () => {
     mockWithValidToken = async () => {
-      throw new Error('No access token found for "integration:gmail".');
+      throw new Error('No access token found for "integration:google".');
     };
     mockGetProvider = () => ({
-      providerKey: "integration:gmail",
+      providerKey: "integration:google",
       pingUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
@@ -1341,7 +1341,7 @@ describe("assistant oauth connections ping <provider-key>", () => {
     const { exitCode, stdout } = await runCli([
       "connections",
       "ping",
-      "integration:gmail",
+      "integration:google",
       "--json",
     ]);
     expect(exitCode).toBe(1);

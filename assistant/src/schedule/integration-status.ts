@@ -15,7 +15,7 @@ const INTEGRATION_PROBES: IntegrationProbe[] = [
   {
     name: "Gmail",
     category: "email",
-    isConnected: () => isProviderConnected("integration:gmail"),
+    isConnected: () => isProviderConnected("integration:google"),
   },
   {
     name: "Slack",

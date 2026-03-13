@@ -18,7 +18,7 @@ export async function run(
   }
 
   try {
-    const connection = resolveOAuthConnection("integration:gmail", account);
+    const connection = resolveOAuthConnection("integration:google", account);
     await trashMessage(connection, messageId);
     return ok("Message moved to trash.");
   } catch (e) {

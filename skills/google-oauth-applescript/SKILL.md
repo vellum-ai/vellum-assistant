@@ -51,6 +51,7 @@ Open: `https://console.cloud.google.com/cloud-resource-manager`
 **New project:** Open `https://console.cloud.google.com/projectcreate` → name it `vellum-assistant` → click Create → get the project ID.
 
 **Known issues:**
+
 - Workspace accounts may show an Organization/Location dropdown — leave as-is
 - Project quota limit → suggest requesting increase, deleting unused, or reusing existing
 
@@ -135,6 +136,7 @@ host_bash:
 > 2. Back on the main page, scroll down and click **Save**
 >
 > You should see:
+>
 > - **Non-sensitive:** `userinfo.email`, `contacts.readonly`
 > - **Sensitive:** `calendar.readonly`, `calendar.events`, `gmail.send`
 > - **Restricted:** `gmail.modify`, `gmail.readonly`
@@ -186,6 +188,7 @@ Use the ping URL from the provider registration to verify the connection.
 For non-interactive channels, see [references/path-b-manual-setup.md](references/path-b-manual-setup.md).
 
 Key Google-specific differences for Path B:
+
 - Use **Web application** credentials (not Desktop app)
 - Add redirect URI under **Authorized redirect URIs**
 - Client Secret prefix is `GOCSPX-` — use split entry to avoid channel scanners

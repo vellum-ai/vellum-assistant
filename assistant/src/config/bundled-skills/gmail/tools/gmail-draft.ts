@@ -23,7 +23,7 @@ export async function run(
   if (!body) return err("body is required.");
 
   try {
-    const connection = resolveOAuthConnection("integration:gmail", account);
+    const connection = resolveOAuthConnection("integration:google", account);
     const draft = await createDraft(
       connection,
       to,

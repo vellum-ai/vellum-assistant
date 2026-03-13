@@ -35,7 +35,7 @@ export async function run(
     }
 
     try {
-      const connection = resolveOAuthConnection("integration:gmail", account);
+      const connection = resolveOAuthConnection("integration:google", account);
       const allMessageIds: string[] = [];
       let pageToken: string | undefined;
       let truncated = false;
@@ -104,7 +104,7 @@ export async function run(
   } else if (messageId) {
     // Single message path
     try {
-      const connection = resolveOAuthConnection("integration:gmail", account);
+      const connection = resolveOAuthConnection("integration:google", account);
       await modifyMessage(connection, messageId, { removeLabelIds: ["INBOX"] });
       return ok("Message archived.");
     } catch (e) {
@@ -122,7 +122,7 @@ export async function run(
   }
 
   try {
-    const connection = resolveOAuthConnection("integration:gmail", account);
+    const connection = resolveOAuthConnection("integration:google", account);
     if (messageIds.length === 1) {
       await modifyMessage(connection, messageIds[0], {
         removeLabelIds: ["INBOX"],

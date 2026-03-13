@@ -35,8 +35,8 @@ const PROVIDER_SEED_DATA: Record<
     loopbackPort?: number;
   }
 > = {
-  "integration:gmail": {
-    providerKey: "integration:gmail",
+  "integration:google": {
+    providerKey: "integration:google",
     authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
     tokenUrl: "https://oauth2.googleapis.com/token",
     userinfoUrl: "https://www.googleapis.com/oauth2/v2/userinfo",

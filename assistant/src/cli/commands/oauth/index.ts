@@ -26,9 +26,9 @@ their respective subcommands.
 Examples:
   $ assistant oauth connections token integration:twitter
   $ assistant oauth connections list
-  $ assistant oauth connections get --provider integration:gmail
+  $ assistant oauth connections get --provider integration:google
   $ assistant oauth providers list
-  $ assistant oauth providers get integration:gmail
+  $ assistant oauth providers get integration:google
   $ assistant oauth providers register --provider-key custom:myapi --auth-url https://example.com/auth --token-url https://example.com/token`,
   );
 

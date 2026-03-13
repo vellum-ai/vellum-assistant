@@ -16,8 +16,8 @@ import type { OAuthProviderBehavior } from "./connect-types.js";
 // ---------------------------------------------------------------------------
 
 export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
-  "integration:gmail": {
-    service: "integration:gmail",
+  "integration:google": {
+    service: "integration:google",
     // Google APIs for Gmail/Calendar/Contacts span multiple hosts; register
     // all of them so proxied bash can inject the OAuth bearer token reliably.
     injectionTemplates: [
@@ -586,7 +586,8 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
 
 /** Map shorthand aliases to canonical service names. */
 export const SERVICE_ALIASES: Record<string, string> = {
-  gmail: "integration:gmail",
+  gmail: "integration:google",
+  google: "integration:google",
   slack: "integration:slack",
   notion: "integration:notion",
   twitter: "integration:twitter",

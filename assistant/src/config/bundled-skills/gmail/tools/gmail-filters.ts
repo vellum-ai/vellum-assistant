@@ -26,7 +26,7 @@ export async function run(
   }
 
   try {
-    const connection = resolveOAuthConnection("integration:gmail", account);
+    const connection = resolveOAuthConnection("integration:google", account);
     switch (action) {
       case "list": {
         const filters = await listFilters(connection);
