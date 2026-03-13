@@ -12,6 +12,7 @@ import { startInviteCall } from "../calls/call-domain.js";
 import { isChannelId } from "../channels/types.js";
 import {
   createInvite,
+  findById,
   findByTokenHash,
   hashToken,
   type IngressInvite,
@@ -24,7 +25,6 @@ import {
   DEFAULT_USER_REFERENCE,
   resolveGuardianName,
 } from "../prompts/user-reference.js";
-import { getLogger } from "../util/logger.js";
 import { isValidE164 } from "../util/phone.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 import {
@@ -38,8 +38,6 @@ import {
   redeemVoiceInviteCode as redeemVoiceInviteCodeTyped,
   type VoiceRedemptionOutcome,
 } from "./invite-redemption-service.js";
-
-const log = getLogger("invite-service");
 
 // ---------------------------------------------------------------------------
 // Response shapes — used by both HTTP routes and message handlers
@@ -254,25 +252,8 @@ export async function createIngressInvite(params: {
     });
   }
 
-  // For voice invites with a known phone number, initiate an outbound call
-  // so the contact is prompted to enter their code immediately.
-  if (
-    params.sourceChannel === "phone" &&
-    params.expectedExternalUserId &&
-    params.friendName &&
-    effectiveGuardianName
-  ) {
-    // Fire-and-forget: don't block invite creation on call initiation
-    startInviteCall({
-      phoneNumber: params.expectedExternalUserId,
-      friendName: params.friendName,
-      guardianName: effectiveGuardianName,
-    }).catch((err) => {
-      log.warn(
-        { err, inviteId: invite.id },
-        "Failed to initiate outbound invite call",
-      );
-    });
+  if (isVoice && params.friendName) {
+    guardianInstruction = `${params.friendName} will need this code when they answer. Share it with them first.`;
   }
 
   // Voice invites must not expose the token — callers must redeem via the
@@ -314,6 +295,32 @@ export function revokeIngressInvite(
     return { ok: false, error: "Invite not found or already revoked" };
   }
   return { ok: true, data: inviteToResponse(revoked) };
+}
+
+export async function triggerInviteCall(
+  inviteId: string,
+): Promise<IngressResult<{ callSid: string }>> {
+  if (!inviteId) return { ok: false, error: "inviteId is required" };
+  const invite = findById(inviteId);
+  if (!invite) return { ok: false, error: "Invite not found" };
+  if (invite.status !== "active")
+    return { ok: false, error: "Invite is not active" };
+  if (invite.sourceChannel !== "phone")
+    return { ok: false, error: "Only phone invites support call triggering" };
+  if (
+    !invite.expectedExternalUserId ||
+    !invite.friendName ||
+    !invite.guardianName
+  ) {
+    return { ok: false, error: "Invite is missing required voice metadata" };
+  }
+  const result = await startInviteCall({
+    phoneNumber: invite.expectedExternalUserId,
+    friendName: invite.friendName,
+    guardianName: invite.guardianName,
+  });
+  if (!result.ok) return { ok: false, error: result.error };
+  return { ok: true, data: { callSid: result.callSid } };
 }
 
 export function redeemIngressInvite(params: {

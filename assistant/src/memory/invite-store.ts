@@ -313,6 +313,20 @@ export function findByTokenHash(tokenHash: string): IngressInvite | null {
 }
 
 // ---------------------------------------------------------------------------
+// findById
+// ---------------------------------------------------------------------------
+
+export function findById(inviteId: string): IngressInvite | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(assistantIngressInvites)
+    .where(eq(assistantIngressInvites.id, inviteId))
+    .get();
+  return row ? rowToInvite(row) : null;
+}
+
+// ---------------------------------------------------------------------------
 // findActiveVoiceInvites
 // ---------------------------------------------------------------------------
 
