@@ -327,13 +327,19 @@ final class AvatarAppearanceManager {
 
     // MARK: - Notification Icon Export
 
-    /// Exports the current avatar as a PNG file suitable for UNNotificationAttachment.
+    /// Exports the currently connected assistant's avatar as a PNG file suitable
+    /// for `UNNotificationAttachment`. Always uses `chatAvatarImage`, which
+    /// renders the *connected* assistant's avatar (custom upload or fallback).
+    /// The destination path is derived from `connectedAssistantId` in
+    /// UserDefaults, matching the same resolution used by `customAvatarURL`.
+    ///
     /// Writes to `{baseDataDir}/workspace/data/avatar/notification-icon.png`.
     /// Returns the file URL on success, nil on failure.
-    func exportNotificationIcon(for assistantId: String) -> URL? {
-        // 1. Resolve the destination path
+    func exportNotificationIcon() -> URL? {
+        // 1. Resolve the destination path from the connected assistant
         let destURL: URL
-        if let assistant = LockfileAssistant.loadByName(assistantId),
+        if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+           let assistant = LockfileAssistant.loadByName(assistantId),
            let baseDataDir = assistant.baseDataDir {
             destURL = URL(fileURLWithPath: baseDataDir)
                 .appendingPathComponent("workspace/data/avatar/notification-icon.png")
