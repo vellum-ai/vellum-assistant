@@ -7,6 +7,7 @@ import type {
 } from "../skills/skillssh-registry.js";
 import {
   fetchSkillAudits,
+  fetchSkillFromGitHub,
   formatAuditBadges,
   providerDisplayName,
   resolveSkillSource,
@@ -316,5 +317,134 @@ describe("validateSkillSlug", () => {
 
   test("rejects empty input", () => {
     expect(() => validateSkillSlug("")).toThrow("Skill slug is required");
+  });
+});
+
+// ─── fetchSkillFromGitHub ───────────────────────────────────────────────────
+
+describe("fetchSkillFromGitHub", () => {
+  test("fetches from conventional skills/<slug>/ path", async () => {
+    mockFetchImpl = (url: string | URL | Request) => {
+      const urlStr = url.toString();
+      // Probe request for skills/my-skill
+      if (urlStr.includes("/contents/skills/my-skill")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify([
+              {
+                name: "SKILL.md",
+                type: "file",
+                download_url: "https://raw.example.com/SKILL.md",
+              },
+            ]),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+      // File download
+      if (urlStr.includes("raw.example.com/SKILL.md")) {
+        return Promise.resolve(new Response("# My Skill", { status: 200 }));
+      }
+      return Promise.resolve(new Response("not found", { status: 404 }));
+    };
+
+    const files = await fetchSkillFromGitHub("owner", "repo", "my-skill");
+    expect(files["SKILL.md"]).toBe("# My Skill");
+  });
+
+  test("falls back to tree search when skills/<slug>/ returns 404", async () => {
+    mockFetchImpl = (url: string | URL | Request) => {
+      const urlStr = url.toString();
+      // Probe for conventional path returns 404
+      if (urlStr.includes("/contents/skills/csv")) {
+        return Promise.resolve(new Response("Not Found", { status: 404 }));
+      }
+      // Tree search returns the skill at a non-standard path
+      if (urlStr.includes("/git/trees/")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              tree: [
+                { path: "examples/skills/csv/SKILL.md", type: "blob" },
+                { path: "examples/skills/csv/scripts/filter.sh", type: "blob" },
+                { path: "README.md", type: "blob" },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+      // Contents API for the discovered path
+      if (urlStr.includes("/contents/examples/skills/csv")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify([
+              {
+                name: "SKILL.md",
+                type: "file",
+                download_url: "https://raw.example.com/SKILL.md",
+              },
+              {
+                name: "scripts",
+                type: "dir",
+                download_url: null,
+              },
+            ]),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+      // Subdirectory listing
+      if (urlStr.includes("/contents/examples/skills/csv/scripts")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify([
+              {
+                name: "filter.sh",
+                type: "file",
+                download_url: "https://raw.example.com/filter.sh",
+              },
+            ]),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+      // File downloads
+      if (urlStr.includes("raw.example.com/SKILL.md")) {
+        return Promise.resolve(new Response("# CSV Skill", { status: 200 }));
+      }
+      if (urlStr.includes("raw.example.com/filter.sh")) {
+        return Promise.resolve(
+          new Response("#!/bin/bash\necho filter", { status: 200 }),
+        );
+      }
+      return Promise.resolve(new Response("not found", { status: 404 }));
+    };
+
+    const files = await fetchSkillFromGitHub("vercel-labs", "bash-tool", "csv");
+    expect(files["SKILL.md"]).toBe("# CSV Skill");
+    expect(files["scripts/filter.sh"]).toBe("#!/bin/bash\necho filter");
+  });
+
+  test("throws when skill not found in tree either", async () => {
+    mockFetchImpl = (url: string | URL | Request) => {
+      const urlStr = url.toString();
+      if (urlStr.includes("/contents/skills/missing")) {
+        return Promise.resolve(new Response("Not Found", { status: 404 }));
+      }
+      if (urlStr.includes("/git/trees/")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ tree: [{ path: "README.md", type: "blob" }] }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+      return Promise.resolve(new Response("not found", { status: 404 }));
+    };
+
+    await expect(
+      fetchSkillFromGitHub("owner", "repo", "missing"),
+    ).rejects.toThrow("Searched skills/missing/ and the full repo tree");
   });
 });

@@ -207,11 +207,51 @@ function githubHeaders(): Record<string, string> {
   return headers;
 }
 
+interface GitHubTreeEntry {
+  path: string;
+  type: "blob" | "tree";
+}
+
+/**
+ * Search the repo tree for a directory containing `<slug>/SKILL.md`.
+ * Returns the directory path (e.g. "examples/skills-tool/skills/csv") or null.
+ */
+async function findSkillDirInTree(
+  owner: string,
+  repo: string,
+  skillSlug: string,
+  ref: string,
+  headers: Record<string, string>,
+): Promise<string | null> {
+  const treeUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(ref)}?recursive=1`;
+  const response = await fetch(treeUrl, {
+    headers,
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) return null;
+
+  const data = (await response.json()) as { tree: GitHubTreeEntry[] };
+  const suffix = `${skillSlug}/SKILL.md`;
+  const match = data.tree.find(
+    (entry) =>
+      entry.type === "blob" &&
+      (entry.path === suffix || entry.path.endsWith(`/${suffix}`)),
+  );
+  if (!match) return null;
+
+  // Return the directory containing SKILL.md (strip the trailing /SKILL.md)
+  return match.path.slice(0, -"/SKILL.md".length);
+}
+
 /**
  * Fetch SKILL.md and supporting files from a GitHub-hosted skills directory.
  *
- * Uses the GitHub Contents API: `GET /repos/:owner/:repo/contents/skills/:slug`
- * and follows each file's `download_url` to retrieve content.
+ * First tries the conventional `skills/<slug>/` path. If that returns a 404,
+ * falls back to searching the full repo tree for `<slug>/SKILL.md` at any
+ * depth (handles repos like `vercel-labs/bash-tool` where skills live at
+ * non-standard paths like `examples/skills-tool/skills/csv/`).
+ *
+ * Uses the GitHub Contents API for directory listing and file downloads.
  * Recursively fetches subdirectories (e.g. scripts/, references/).
  */
 export async function fetchSkillFromGitHub(
@@ -237,12 +277,6 @@ export async function fetchSkillFromGitHub(
     });
 
     if (!response.ok) {
-      if (response.status === 404 && prefix === "") {
-        throw new Error(
-          `Skill "${skillSlug}" not found in ${owner}/${repo}. ` +
-            `Looked in skills/${skillSlug}/`,
-        );
-      }
       throw new Error(
         `GitHub API error: HTTP ${response.status} ${response.statusText}`,
       );
@@ -285,13 +319,79 @@ export async function fetchSkillFromGitHub(
     return files;
   }
 
-  const rootPath = `skills/${encodeURIComponent(skillSlug)}`;
-  const files = await fetchDir(rootPath, "");
+  // Try the conventional skills/<slug>/ path first
+  const conventionalPath = `skills/${encodeURIComponent(skillSlug)}`;
+  let skillDirPath = conventionalPath;
+
+  const probeUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${conventionalPath}${ref ? `?ref=${encodeURIComponent(ref)}` : ""}`;
+  const probeResponse = await fetch(probeUrl, {
+    headers,
+    signal: AbortSignal.timeout(15_000),
+  });
+
+  if (probeResponse.status === 404) {
+    // Fall back to searching the repo tree for <slug>/SKILL.md at any path
+    const treeRef = ref ?? "HEAD";
+    const foundPath = await findSkillDirInTree(
+      owner,
+      repo,
+      skillSlug,
+      treeRef,
+      headers,
+    );
+    if (!foundPath) {
+      throw new Error(
+        `Skill "${skillSlug}" not found in ${owner}/${repo}. ` +
+          `Searched skills/${skillSlug}/ and the full repo tree.`,
+      );
+    }
+    skillDirPath = foundPath;
+  } else if (!probeResponse.ok) {
+    throw new Error(
+      `GitHub API error: HTTP ${probeResponse.status} ${probeResponse.statusText}`,
+    );
+  }
+
+  // If we already have the probe response for the conventional path and it was
+  // successful, we can use it directly instead of re-fetching.
+  let files: SkillFiles;
+  if (skillDirPath === conventionalPath && probeResponse.ok) {
+    const entries = (await probeResponse.json()) as GitHubContentsEntry[];
+    if (!Array.isArray(entries)) {
+      throw new Error(
+        `Expected a directory listing for ${conventionalPath}/ but got a single file`,
+      );
+    }
+    // Fetch the directory contents from the already-parsed probe response
+    const result: SkillFiles = {};
+    for (const entry of entries) {
+      if (entry.type === "dir") {
+        const subFiles = await fetchDir(
+          `${conventionalPath}/${entry.name}`,
+          entry.name,
+        );
+        Object.assign(result, subFiles);
+        continue;
+      }
+      if (entry.type !== "file" || !entry.download_url) continue;
+      const fileResponse = await fetch(entry.download_url, {
+        headers,
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!fileResponse.ok) {
+        throw new Error(
+          `Failed to download ${entry.name}: HTTP ${fileResponse.status}`,
+        );
+      }
+      result[entry.name] = await fileResponse.text();
+    }
+    files = result;
+  } else {
+    files = await fetchDir(skillDirPath, "");
+  }
 
   if (!files["SKILL.md"]) {
-    throw new Error(
-      `SKILL.md not found in ${owner}/${repo}/skills/${skillSlug}/`,
-    );
+    throw new Error(`SKILL.md not found in ${owner}/${repo}/${skillDirPath}/`);
   }
 
   return files;
