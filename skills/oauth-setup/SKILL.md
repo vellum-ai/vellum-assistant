@@ -149,7 +149,7 @@ credential_store prompt:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider <provider-key> --client-id <client-id> --client-secret-credential-path "<provider-key>:client_secret"
+    assistant oauth apps upsert --provider <provider-key> --client-id <client-id> --client-secret-credential-path "credential/<provider-key>/client_secret"
 ```
 
 ```

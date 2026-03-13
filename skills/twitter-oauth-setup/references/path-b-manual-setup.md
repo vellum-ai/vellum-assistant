@@ -112,7 +112,7 @@ Tell the user:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:twitter --client-id <client-id> --client-secret-credential-path "integration:twitter:client_secret"
+    assistant oauth apps upsert --provider integration:twitter --client-id <client-id> --client-secret-credential-path "credential/integration:twitter/client_secret"
 ```
 
 ```

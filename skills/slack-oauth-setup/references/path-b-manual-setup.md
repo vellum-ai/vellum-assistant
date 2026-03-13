@@ -117,7 +117,7 @@ Tell the user:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:slack --client-id <client-id> --client-secret-credential-path "integration:slack:client_secret"
+    assistant oauth apps upsert --provider integration:slack --client-id <client-id> --client-secret-credential-path "credential/integration:slack/client_secret"
 ```
 
 ```
