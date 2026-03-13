@@ -1737,6 +1737,18 @@ public final class HTTPTransport {
                         failedMessageContent: content
                     )))
                 }
+            } else if http.statusCode == 422,
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let errorCategory = json["error"] as? String,
+                      errorCategory == "secret_blocked" {
+                // Surface secret-block errors through the .error path so
+                // ChatViewModel's secret_blocked handler can offer "Send Anyway".
+                let message = (json["message"] as? String) ?? "Message blocked — contains secrets"
+                log.warning("Message blocked by secret-ingress check")
+                onMessage?(.error(ErrorMessage(
+                    message: message,
+                    category: "secret_blocked"
+                )))
             } else {
                 let errorBody = String(data: data, encoding: .utf8) ?? "unknown"
                 log.error("Send message failed (\(http.statusCode)): \(errorBody)")

@@ -815,6 +815,31 @@ export async function handleSendMessage(
     );
   }
 
+  // Auto-deny pending confirmations for idle sessions. The legacy
+  // handleUserMessage called autoDenyPendingConfirmations unconditionally
+  // before dispatching, so an idle session with lingering confirmations
+  // (e.g. the user never responded to a tool-approval prompt) must deny
+  // them before starting the new turn.
+  if (session.hasAnyPendingConfirmation()) {
+    for (const interaction of pendingInteractions.getByConversation(
+      mapping.conversationId,
+    )) {
+      if (
+        interaction.session === session &&
+        interaction.kind === "confirmation"
+      ) {
+        session.emitConfirmationStateChanged({
+          sessionId: mapping.conversationId,
+          requestId: interaction.requestId,
+          state: "denied" as const,
+          source: "auto_deny" as const,
+        });
+      }
+    }
+    session.denyAllPendingConfirmations();
+    pendingInteractions.removeBySession(session);
+  }
+
   // Session is idle — persist and fire agent loop immediately
   session.setTurnChannelContext({
     userMessageChannel: sourceChannel,
