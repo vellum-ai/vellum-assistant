@@ -428,28 +428,10 @@ export function saveRawConfig(config: Record<string, unknown>): void {
   ensureMigratedDataDir();
   const configPath = getConfigPath();
 
-  // Route apiKeys to secure storage and strip from plaintext file
-  const apiKeys = config.apiKeys;
-  if (apiKeys && typeof apiKeys === "object" && !Array.isArray(apiKeys)) {
-    for (const [provider, value] of Object.entries(
-      apiKeys as Record<string, unknown>,
-    )) {
-      if (typeof value === "string" && value.length > 0) {
-        if (!setSecureKey(provider, value)) {
-          throw new ConfigError(
-            `Failed to save API key for "${provider}" to secure storage. Key not removed from config to prevent data loss.`,
-          );
-        }
-      } else if (value == null || value === "") {
-        deleteSecureKey(provider);
-      }
-    }
-    // Remove apiKeys from plaintext config
-    const { apiKeys: _, ...rest } = config;
-    writeFileSync(configPath, JSON.stringify(rest, null, 2) + "\n");
-  } else {
-    writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
-  }
+  // Strip apiKeys from plaintext config — secure storage is managed
+  // by saveConfig() and `assistant keys` commands, not here.
+  const { apiKeys: _, ...rest } = config;
+  writeFileSync(configPath, JSON.stringify(rest, null, 2) + "\n");
 
   cached = null; // invalidate cache
 }
