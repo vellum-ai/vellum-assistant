@@ -193,7 +193,7 @@ struct IdentityPanel: View {
                     guard !Task.isCancelled else { return }
                     result += delta
                 }
-                self.introText = result
+                self.introText = result.isEmpty ? nil : result
             } catch is CancellationError {
                 return
             } catch {
