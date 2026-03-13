@@ -355,7 +355,7 @@ struct ChatView: View {
             }
             activateSearch()
         }
-        .onChange(of: shouldShowSkeleton) { _, shouldShow in
+        .onChange(of: shouldShowSkeleton, initial: true) { _, shouldShow in
             skeletonDebounceTask?.cancel()
             if shouldShow {
                 skeletonDebounceTask = Task {
