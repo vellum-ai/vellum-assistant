@@ -1619,7 +1619,7 @@ public final class HTTPTransport {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse else { return .transientFailure }
 
-            if http.statusCode == 200 {
+            if http.statusCode == 200 || http.statusCode == 201 {
                 let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
                 if let id = json?["id"] as? String {
                     return .success(id: id)
