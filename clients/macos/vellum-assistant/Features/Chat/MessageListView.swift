@@ -312,7 +312,17 @@ struct MessageListView: View {
     private var conversationTailAvatar: some View {
         if shouldShowConversationTailAvatar {
             HStack {
-                VAvatarImage(image: appearance.chatAvatarImage, size: ConversationAvatarFollower.avatarSize)
+                if let body = appearance.characterBodyShape,
+                   let eyes = appearance.characterEyeStyle,
+                   let color = appearance.characterColor {
+                    AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color,
+                                       size: ConversationAvatarFollower.avatarSize,
+                                       breathingEnabled: false)
+                        .frame(width: ConversationAvatarFollower.avatarSize,
+                               height: ConversationAvatarFollower.avatarSize)
+                } else {
+                    VAvatarImage(image: appearance.chatAvatarImage, size: ConversationAvatarFollower.avatarSize)
+                }
                 Spacer()
             }
             .padding(.horizontal, VSpacing.xl)
