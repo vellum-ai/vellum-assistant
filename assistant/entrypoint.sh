@@ -11,6 +11,7 @@ if [ ! -f /data/dpkg/status ]; then
     mkdir -p /data/apt/cache
     touch /data/dpkg/status
     chown -R assistant:assistant /data/dpkg /data/usr /data/apt
+    apt-get update || true
 fi
 
 exec "$@"

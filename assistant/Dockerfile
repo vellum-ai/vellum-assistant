@@ -45,6 +45,7 @@ RUN apt-get update && apt-get install -y \
     make \
     g++ \
     git \
+    procps \
     sudo \
     && rm -rf /var/lib/apt/lists/*
 
