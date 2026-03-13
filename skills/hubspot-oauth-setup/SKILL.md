@@ -58,6 +58,7 @@ If the user already has a developer account, skip to the next step.
 > Look for the **Create app** button. Go ahead and click it.
 
 **Known issues:**
+
 - If the user doesn't see a Create app button, they may need to navigate to **Apps** in the top navigation first
 - Some accounts may show "Create a public app" vs "Create a private app" — choose **public app** (required for OAuth)
 
@@ -182,6 +183,7 @@ bash:
 For non-interactive channels, see [references/path-b-manual-setup.md](references/path-b-manual-setup.md).
 
 Key HubSpot-specific differences for Path B:
+
 - Loopback callback won't work from a remote channel — need public ingress configured
 - Add the ingress-based redirect URI under **Redirect URLs** on the Auth tab
 - App secrets don't have a known prefix that triggers scanners, but still use `credential_store prompt` or `credential_store store` for security

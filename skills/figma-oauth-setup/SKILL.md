@@ -57,6 +57,7 @@ After the user clicks:
 > Then click **Save** or **Create**.
 
 **Known issues:**
+
 - If the page looks different or the button isn't visible, the user may need to scroll down or check that they're on the correct page at `https://www.figma.com/developers/apps`
 
 **Milestone (2 of 7):** "App created — now let's set up the callback URL."
@@ -169,6 +170,7 @@ bash:
 For non-interactive channels, see [references/path-b-manual-setup.md](references/path-b-manual-setup.md).
 
 Key Figma-specific differences for Path B:
+
 - Loopback callback won't work from a remote channel — need public ingress configured
 - Add the ingress-based redirect URI in the **Callback URL** field on the app settings page
 - The app secret doesn't have a known prefix that triggers scanners, but still use `credential_store prompt` or `credential_store store` for security

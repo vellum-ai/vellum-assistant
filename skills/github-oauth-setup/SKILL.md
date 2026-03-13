@@ -172,6 +172,7 @@ bash:
 For non-interactive channels, see [references/path-b-manual-setup.md](references/path-b-manual-setup.md).
 
 Key GitHub-specific differences for Path B:
+
 - Loopback callback won't work from a remote channel — need public ingress configured
 - Set the **Authorization callback URL** to the ingress-based OAuth callback URL when creating the app
 - App secrets don't have a known prefix that triggers scanners, but still use `credential_store prompt` or `credential_store store` for security

@@ -73,6 +73,7 @@ Then:
 > Check the terms of service box, then click **Save**.
 
 **Known issues:**
+
 - If the dashboard shows a "You need to verify your email" banner, the user must verify their Spotify email first
 - Free and premium accounts both have access to the developer dashboard
 
@@ -136,6 +137,7 @@ bash:
 ```
 
 The scopes requested will include:
+
 - `user-read-playback-state` — see what's playing
 - `user-modify-playback-state` — play, pause, skip tracks
 - `user-read-currently-playing` — see the current track
@@ -167,6 +169,7 @@ bash:
 For non-interactive channels, see [references/path-b-manual-setup.md](references/path-b-manual-setup.md).
 
 Key Spotify-specific differences for Path B:
+
 - Loopback callback won't work from a remote channel — need public ingress configured
 - Add the ingress-based redirect URI in the app's Settings page under **Redirect URIs**
 - The app secret doesn't have a known prefix that triggers scanners, but still use `credential_store prompt` or `credential_store store` for security

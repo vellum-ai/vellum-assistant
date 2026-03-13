@@ -52,6 +52,7 @@ After the user clicks:
 > Set the application name to **Vellum Assistant**, accept the Developer Terms of Service and Developer Policy, then click **Create**.
 
 **Known issues:**
+
 - If the user already has an application named "Vellum Assistant", they can either reuse it or pick a different name
 - Discord may show a CAPTCHA during creation
 
@@ -84,6 +85,7 @@ Wait for the user to provide the Client ID.
 > **Important:** Once the secret is shown, you'll only be able to see it this once. I'll prompt you to paste it securely in a moment.
 
 **Known issues:**
+
 - If the user has 2FA enabled, Discord will ask for a 2FA code before revealing the secret
 - The old secret (if any) will stop working immediately after reset
 
@@ -172,6 +174,7 @@ bash:
 For non-interactive channels, see [references/path-b-manual-setup.md](references/path-b-manual-setup.md).
 
 Key Discord-specific differences for Path B:
+
 - Loopback callback won't work from a remote channel — need public ingress configured
 - Add the ingress-based redirect URI under **Redirects** on the OAuth2 page
 - Discord app secrets don't have a known prefix that triggers scanners, but still use `credential_store prompt` or `credential_store store` for security

@@ -53,6 +53,7 @@ Then:
 > Set the name to **Vellum Assistant**. Then click **Register integration**.
 
 **Known issues:**
+
 - If you don't see the registration option, make sure you're on a plan that supports OAuth integrations (most plans do)
 
 **Milestone (2 of 8):** "Integration registered — now let's configure the redirect URL."
@@ -171,6 +172,7 @@ bash:
 For non-interactive channels, see [references/path-b-manual-setup.md](references/path-b-manual-setup.md).
 
 Key Airtable-specific differences for Path B:
+
 - Loopback callback won't work from a remote channel — need public ingress configured
 - Add the ingress-based redirect URI under the OAuth redirect URL field on the integration page
 - Airtable OAuth secrets don't have a known prefix that triggers scanners, but still use `credential_store prompt` or `credential_store store` for security

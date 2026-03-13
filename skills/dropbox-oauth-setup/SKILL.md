@@ -61,6 +61,7 @@ Then:
 > Click **Create app** to finish.
 
 **Known issues:**
+
 - App names must be globally unique on Dropbox — if "Vellum Assistant" is taken, suggest adding a suffix like "Vellum Assistant - Personal"
 - If the user sees "You have reached the limit for the number of apps," they'll need to delete an unused app first
 
@@ -207,6 +208,7 @@ Summarize what was set up and remind the user:
 For non-interactive channels, see [references/path-b-manual-setup.md](references/path-b-manual-setup.md).
 
 Key Dropbox-specific differences for Path B:
+
 - Loopback callback won't work from a remote channel — need public ingress configured
 - Add the ingress-based redirect URI under **Redirect URIs** on the Settings tab
 - App secrets don't have a known prefix that triggers scanners, but still use `credential_store prompt` or `credential_store store` for security

@@ -53,6 +53,7 @@ After the user clicks:
 > Set the app name to **Vellum Assistant**. You'll also need to select a purpose — pick whichever fits best (e.g., "Build an integration" or "Personal use"). Then click **Create app**.
 
 **Known issues:**
+
 - If the user is part of multiple workspaces, the app will be tied to their default workspace — that's fine for personal use
 
 **Milestone (2 of 7):** "App created — now let's set up the redirect URL."
@@ -152,6 +153,7 @@ bash:
 For non-interactive channels, see [references/path-b-manual-setup.md](references/path-b-manual-setup.md).
 
 Key Asana-specific differences for Path B:
+
 - Loopback callback won't work from a remote channel — need public ingress configured
 - Add the ingress-based redirect URI under the **OAuth** section of the app settings
 - The app secret doesn't have a known prefix that triggers scanners, but still use `credential_store prompt` or `credential_store store` for security

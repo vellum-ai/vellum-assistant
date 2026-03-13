@@ -16,6 +16,23 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "airtable-oauth-setup",
+      "name": "airtable-oauth-setup",
+      "description": "Set up Airtable OAuth credentials using a collaborative guided flow",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "Airtable OAuth Setup",
+          "user-invocable": "true",
+          "credential-setup-for": "airtable",
+          "includes": [
+            "collaborative-oauth-flow"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "amazon",
       "name": "amazon",
       "description": "Shop on Amazon and Amazon Fresh using the bundled Amazon scripts",
@@ -37,6 +54,23 @@
         "vellum": {
           "display-name": "API Mapping",
           "user-invocable": "true"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "asana-oauth-setup",
+      "name": "asana-oauth-setup",
+      "description": "Set up Asana OAuth credentials using a collaborative guided flow",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "Asana OAuth Setup",
+          "user-invocable": "true",
+          "credential-setup-for": "asana",
+          "includes": [
+            "collaborative-oauth-flow"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -79,6 +113,23 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "discord-oauth-setup",
+      "name": "discord-oauth-setup",
+      "description": "Set up Discord OAuth credentials using a collaborative guided flow",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "Discord OAuth Setup",
+          "user-invocable": "true",
+          "credential-setup-for": "discord",
+          "includes": [
+            "collaborative-oauth-flow"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "document-writer",
       "name": "document-writer",
       "description": "Create and edit long-form documents like blog posts, articles, essays, and reports using the built-in rich text editor",
@@ -104,6 +155,23 @@
             "command": "doordash",
             "entry": "scripts/doordash-entry.ts"
           }
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "dropbox-oauth-setup",
+      "name": "dropbox-oauth-setup",
+      "description": "Set up Dropbox OAuth credentials using a collaborative guided flow",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "Dropbox OAuth Setup",
+          "user-invocable": "true",
+          "credential-setup-for": "dropbox",
+          "includes": [
+            "collaborative-oauth-flow"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -136,11 +204,45 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "figma-oauth-setup",
+      "name": "figma-oauth-setup",
+      "description": "Set up Figma OAuth credentials using a collaborative guided flow",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "Figma OAuth Setup",
+          "user-invocable": "true",
+          "credential-setup-for": "figma",
+          "includes": [
+            "collaborative-oauth-flow"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "frontend-design",
       "name": "frontend-design",
       "description": "Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, artifacts, posters, or applications (examples include websites, landing pages, dashboards, React components, HTML/CSS layouts, or when styling/beautifying any web UI). Generates creative, polished code and UI design that avoids generic AI aesthetics.",
       "metadata": {
         "emoji": "🎨"
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "github-oauth-setup",
+      "name": "github-oauth-setup",
+      "description": "Set up GitHub OAuth credentials using a collaborative guided flow",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "GitHub OAuth Setup",
+          "user-invocable": "true",
+          "credential-setup-for": "github",
+          "includes": [
+            "collaborative-oauth-flow"
+          ]
+        }
       },
       "compatibility": "Designed for Vellum personal assistants"
     },
@@ -175,6 +277,23 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "hubspot-oauth-setup",
+      "name": "hubspot-oauth-setup",
+      "description": "Set up HubSpot OAuth credentials using a collaborative guided flow",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "HubSpot OAuth Setup",
+          "user-invocable": "true",
+          "credential-setup-for": "hubspot",
+          "includes": [
+            "collaborative-oauth-flow"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "influencer",
       "name": "influencer",
       "description": "Research influencers on Instagram, TikTok, and X/Twitter using the Chrome extension relay",
@@ -183,6 +302,23 @@
         "vellum": {
           "display-name": "Influencer Research",
           "user-invocable": "true"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "linear-oauth-setup",
+      "name": "linear-oauth-setup",
+      "description": "Set up Linear OAuth credentials using a collaborative guided flow",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "Linear OAuth Setup",
+          "user-invocable": "true",
+          "credential-setup-for": "linear",
+          "includes": [
+            "collaborative-oauth-flow"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -384,6 +520,23 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "spotify-oauth-setup",
+      "name": "spotify-oauth-setup",
+      "description": "Set up Spotify OAuth credentials using a collaborative guided flow",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "Spotify OAuth Setup",
+          "user-invocable": "true",
+          "credential-setup-for": "spotify",
+          "includes": [
+            "collaborative-oauth-flow"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "start-the-day",
       "name": "start-the-day",
       "description": "Get a personalized daily briefing with weather, news, and actionable insights",
@@ -420,6 +573,23 @@
         "emoji": "⏰",
         "vellum": {
           "display-name": "Time-Based Actions"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "todoist-oauth-setup",
+      "name": "todoist-oauth-setup",
+      "description": "Set up Todoist OAuth credentials using a collaborative guided flow",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "Todoist OAuth Setup",
+          "user-invocable": "true",
+          "credential-setup-for": "todoist",
+          "includes": [
+            "collaborative-oauth-flow"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"

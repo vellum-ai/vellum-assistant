@@ -67,6 +67,7 @@ credential_store describe:
 > Now click **Create**.
 
 **Known issues:**
+
 - If the user sees an error about duplicate application names, suggest a variant like "Vellum Assistant (Personal)"
 
 **Milestone (2 of 8):** "App created — now let's grab the credentials."
@@ -167,6 +168,7 @@ bash:
 For non-interactive channels, see [references/path-b-manual-setup.md](references/path-b-manual-setup.md).
 
 Key Linear-specific differences for Path B:
+
 - Loopback callback won't work from a remote channel — need public ingress configured
 - The redirect URL must be set when creating the OAuth application (or updated afterwards in the app settings)
 - The app secret is shown only once at creation time — if the user misses it, they'll need to regenerate it

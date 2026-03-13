@@ -53,10 +53,8 @@ Tell the user:
 > 1. Find the **Scopes** section and enable:
 >    - `files:read`
 >    - `file_comments:write`
->
 > 2. Find the **Callback URL** field and paste this exact URL:
 >    `OAUTH_CALLBACK_URL`
->
 > 3. Click **Save**
 >
 > Let me know when it's saved.
