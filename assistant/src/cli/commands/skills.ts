@@ -304,13 +304,14 @@ Examples:
         const json = opts.json ?? false;
 
         try {
-          const { owner, repo, skillSlug } = resolveSkillSource(source);
+          const { owner, repo, skillSlug, ref } = resolveSkillSource(source);
 
           await installExternalSkill(
             owner,
             repo,
             skillSlug,
             opts.overwrite ?? false,
+            ref,
           );
 
           if (json) {

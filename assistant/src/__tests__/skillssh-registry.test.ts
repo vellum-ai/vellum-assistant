@@ -12,6 +12,7 @@ import {
   resolveSkillSource,
   riskToDisplay,
   searchSkillsRegistry,
+  validateSkillSlug,
 } from "../skills/skillssh-registry.js";
 
 // ─── Fetch mock helpers ──────────────────────────────────────────────────────
@@ -229,6 +230,7 @@ describe("resolveSkillSource", () => {
       owner: "vercel-labs",
       repo: "skills",
       skillSlug: "find-skills",
+      ref: "main",
     });
   });
 
@@ -240,6 +242,7 @@ describe("resolveSkillSource", () => {
       owner: "some-org",
       repo: "repo",
       skillSlug: "my-skill",
+      ref: "develop",
     });
   });
 
@@ -251,6 +254,7 @@ describe("resolveSkillSource", () => {
       owner: "owner",
       repo: "repo",
       skillSlug: "skill-name",
+      ref: "main",
     });
   });
 
@@ -274,5 +278,45 @@ describe("resolveSkillSource", () => {
     expect(() => resolveSkillSource("vercel-labs/skills")).toThrow(
       'Invalid skill source "vercel-labs/skills"',
     );
+  });
+
+  test("rejects path traversal in @ format slug", () => {
+    expect(() =>
+      resolveSkillSource("owner/repo@../../malicious"),
+    ).toThrow('Invalid skill source "owner/repo@../../malicious"');
+  });
+
+  test("rejects uppercase slug in @ format", () => {
+    expect(() => resolveSkillSource("owner/repo@BadSlug")).toThrow(
+      'Invalid skill source "owner/repo@BadSlug"',
+    );
+  });
+});
+
+// ─── validateSkillSlug ──────────────────────────────────────────────────────
+
+describe("validateSkillSlug", () => {
+  test("accepts valid slugs", () => {
+    expect(() => validateSkillSlug("my-skill")).not.toThrow();
+    expect(() => validateSkillSlug("skill123")).not.toThrow();
+    expect(() => validateSkillSlug("my.skill")).not.toThrow();
+    expect(() => validateSkillSlug("my_skill")).not.toThrow();
+  });
+
+  test("rejects path traversal characters", () => {
+    expect(() => validateSkillSlug("../../malicious")).toThrow(
+      "path traversal",
+    );
+    expect(() => validateSkillSlug("foo/bar")).toThrow("path traversal");
+    expect(() => validateSkillSlug("foo\\bar")).toThrow("path traversal");
+  });
+
+  test("rejects slugs starting with special chars", () => {
+    expect(() => validateSkillSlug(".hidden")).toThrow();
+    expect(() => validateSkillSlug("-dash")).toThrow();
+  });
+
+  test("rejects empty input", () => {
+    expect(() => validateSkillSlug("")).toThrow("Skill slug is required");
   });
 });
