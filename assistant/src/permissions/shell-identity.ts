@@ -76,6 +76,37 @@ const SETUP_PREFIX_PROGRAMS = new Set([
 
 const MAX_ACTION_KEY_DEPTH = 3;
 
+const SCRIPT_RUNNERS = new Set(["bun", "node", "python", "python3"]);
+
+function getScriptIdentityToken(
+  program: string,
+  args: string[],
+): string | null {
+  if (!SCRIPT_RUNNERS.has(program) || args[0] !== "run") {
+    return null;
+  }
+
+  const scriptArg = args.find(
+    (arg) => arg.includes("/") || arg.startsWith("."),
+  );
+  if (!scriptArg) {
+    return null;
+  }
+
+  const normalized = scriptArg.replace(/^['"]|['"]$/g, "");
+  const baseName =
+    normalized
+      .split("/")
+      .pop()
+      ?.replace(/\.[^.]+$/, "") ?? "";
+
+  if (!/^[a-zA-Z0-9_-]+$/.test(baseName)) {
+    return null;
+  }
+
+  return baseName;
+}
+
 /**
  * Analyze a shell command using the tree-sitter parser to extract
  * identity information for permission decisions.
@@ -166,6 +197,10 @@ export function deriveShellActionKeys(
 
   const primarySegment = actionSegments[0];
   const tokens: string[] = [primarySegment.program];
+  const scriptIdentityToken = getScriptIdentityToken(
+    primarySegment.program,
+    primarySegment.args,
+  );
 
   // Add non-flag, non-path stable subcommand tokens (up to MAX_ACTION_KEY_DEPTH)
   for (const arg of primarySegment.args) {
@@ -177,9 +212,18 @@ export function deriveShellActionKeys(
     tokens.push(arg);
   }
 
+  if (scriptIdentityToken && !tokens.includes(scriptIdentityToken)) {
+    if (tokens.length < MAX_ACTION_KEY_DEPTH) {
+      tokens.push(scriptIdentityToken);
+    } else {
+      tokens[tokens.length - 1] = scriptIdentityToken;
+    }
+  }
+
   // Build action keys from narrowest to broadest
   const keys: ShellActionKey[] = [];
-  for (let depth = tokens.length; depth >= 1; depth--) {
+  const minDepth = scriptIdentityToken ? tokens.length : 1;
+  for (let depth = tokens.length; depth >= minDepth; depth--) {
     keys.push({
       key: `action:${tokens.slice(0, depth).join(" ")}`,
       depth,

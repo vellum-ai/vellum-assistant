@@ -170,6 +170,16 @@ describe("deriveShellActionKeys", () => {
       { key: "action:gh", depth: 1 },
     ]);
   });
+
+  test("bun run script derives script-specific key and excludes broad bun run", async () => {
+    const analysis = await analyzeShellCommand(
+      "bun run /tmp/skills/amazon/scripts/amazon.ts fresh delivery-slots --json",
+    );
+    const result = deriveShellActionKeys(analysis);
+
+    expect(result.isSimpleAction).toBe(true);
+    expect(result.keys).toEqual([{ key: "action:bun run amazon", depth: 3 }]);
+  });
 });
 
 describe("buildShellCommandCandidates", () => {
@@ -276,5 +286,16 @@ describe("buildShellAllowlistOptions — complex command restrictions", () => {
     expect(options[0].pattern).toBe("npm install express");
     expect(options.some((o) => o.pattern === "action:npm install")).toBe(true);
     expect(options.some((o) => o.pattern === "action:npm")).toBe(true);
+  });
+
+  test("bun run script allowlist options are script-specific", async () => {
+    const options = await buildShellAllowlistOptions(
+      "bun run /tmp/skills/amazon/scripts/amazon.ts fresh checkout",
+    );
+
+    expect(options.some((o) => o.pattern === "action:bun run amazon")).toBe(
+      true,
+    );
+    expect(options.some((o) => o.pattern === "action:bun run")).toBe(false);
   });
 });
