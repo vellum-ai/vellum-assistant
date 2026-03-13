@@ -2017,16 +2017,18 @@ public final class ChatViewModel: ObservableObject {
             // Preserve attachments so they are resent with the retry.
             // ChatAttachment.data may already be cleared for older messages,
             // but for a just-sent 429'd message it is still populated.
+            // Also keep file-path-based attachments even when data is empty,
+            // since the daemon can read the file from disk.
             lastFailedMessageAttachments = lastMsg.attachments.compactMap { att in
-                guard !att.data.isEmpty else { return nil }
+                guard !att.data.isEmpty || att.filePath != nil else { return nil }
                 return UserMessageAttachment(
                     id: att.id,
                     filename: att.filename,
                     mimeType: att.mimeType,
                     data: att.data,
                     extractedText: nil,
-                    sizeBytes: nil,
-                    thumbnailData: nil,
+                    sizeBytes: att.sizeBytes,
+                    thumbnailData: att.thumbnailData?.base64EncodedString(),
                     filePath: att.filePath
                 )
             }
