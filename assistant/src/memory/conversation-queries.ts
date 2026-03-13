@@ -1,8 +1,8 @@
-import { and, asc, count, desc, eq, lt, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, sql } from "drizzle-orm";
 
 import { getLogger } from "../util/logger.js";
-import type { ConversationRow, MessageRow } from "./conversation-crud.js";
-import { parseConversation, parseMessage } from "./conversation-crud.js";
+import type { ConversationRow } from "./conversation-crud.js";
+import { parseConversation } from "./conversation-crud.js";
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { getDb, rawAll } from "./db.js";
 import { conversations, messages } from "./schema.js";
@@ -67,83 +67,6 @@ export function getLatestConversation(): ConversationRow | null {
     .limit(1)
     .get();
   return row ? parseConversation(row) : null;
-}
-
-export interface PaginatedMessagesResult {
-  messages: MessageRow[];
-  /** Whether older messages exist beyond the returned page. */
-  hasMore: boolean;
-}
-
-/**
- * Paginated variant of getMessages. Returns the most recent `limit` messages
- * (optionally before a cursor timestamp), in chronological order.
- *
- * When `limit` is undefined, all matching messages are returned (no pagination).
- * When `beforeMessageId` is provided alongside `beforeTimestamp`, it acts as a
- * tie-breaker to avoid skipping messages that share the same millisecond timestamp
- * at page boundaries.
- */
-export function getMessagesPaginated(
-  conversationId: string,
-  limit: number | undefined,
-  beforeTimestamp?: number,
-  beforeMessageId?: string,
-): PaginatedMessagesResult {
-  const db = getDb();
-  const conditions = [eq(messages.conversationId, conversationId)];
-  if (beforeTimestamp !== undefined) {
-    if (beforeMessageId) {
-      // Proper compound cursor: fetch messages that are strictly older, OR
-      // share the same timestamp but have a smaller ID. This avoids both
-      // duplicates and skipped messages when multiple rows share a timestamp.
-      conditions.push(
-        or(
-          lt(messages.createdAt, beforeTimestamp),
-          and(
-            eq(messages.createdAt, beforeTimestamp),
-            lt(messages.id, beforeMessageId),
-          ),
-        )!,
-      );
-    } else {
-      // Legacy callers without a message ID tie-breaker: use strict lt.
-      // This may skip same-millisecond messages at boundaries, but avoids
-      // re-fetching the boundary message. New callers should prefer the
-      // compound cursor (beforeTimestamp + beforeMessageId).
-      conditions.push(lt(messages.createdAt, beforeTimestamp));
-    }
-  }
-
-  if (limit === undefined) {
-    // Unlimited: return all messages in chronological order, no pagination.
-    const rows = db
-      .select()
-      .from(messages)
-      .where(and(...conditions))
-      .orderBy(asc(messages.createdAt), asc(messages.id))
-      .all()
-      .map(parseMessage);
-    return { messages: rows, hasMore: false };
-  }
-
-  // Fetch limit+1 rows ordered newest-first so we can detect hasMore
-  const rows = db
-    .select()
-    .from(messages)
-    .where(and(...conditions))
-    .orderBy(desc(messages.createdAt), desc(messages.id))
-    .limit(limit + 1)
-    .all()
-    .map(parseMessage);
-
-  const hasMore = rows.length > limit;
-  const page = hasMore ? rows.slice(0, limit) : rows;
-
-  // Return in chronological order (oldest first) for the client
-  page.reverse();
-
-  return { messages: page, hasMore };
 }
 
 /**
