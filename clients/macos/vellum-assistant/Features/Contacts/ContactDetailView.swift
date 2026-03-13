@@ -292,7 +292,6 @@ struct ContactDetailView: View {
                 grouping: displayContact.channels,
                 by: { $0.type }
             )
-            let extraChannels = displayContact.channels.filter { !Self.allChannelTypes.contains($0.type) }
 
             let visibleTypes = Self.allChannelTypes.filter { type in
                 // Always show channels the contact already has configured
@@ -301,7 +300,6 @@ struct ContactDetailView: View {
                     || channelReadiness[type]?.ready == true
             }
             let lastVisibleType = visibleTypes.last
-            let hasExtraChannels = !extraChannels.isEmpty
 
             ForEach(Array(Self.allChannelTypes.enumerated()), id: \.element) { _, type in
                 if let channels = channelsByType[type] {
@@ -314,24 +312,16 @@ struct ContactDetailView: View {
                         }
                     }
 
-                    if type != lastVisibleType || hasExtraChannels {
+                    if type != lastVisibleType {
                         Divider().background(VColor.borderBase)
                     }
                 } else if channelReadiness[type]?.ready == true {
                     // Unconfigured but assistant has this channel set up — show
                     unconfiguredChannelRow(type: type)
 
-                    if type != lastVisibleType || hasExtraChannels {
+                    if type != lastVisibleType {
                         Divider().background(VColor.borderBase)
                     }
-                }
-            }
-
-            ForEach(Array(extraChannels.enumerated()), id: \.element.id) { index, channel in
-                channelRow(channel)
-
-                if index < extraChannels.count - 1 {
-                    Divider().background(VColor.borderBase)
                 }
             }
 
@@ -532,7 +522,7 @@ struct ContactDetailView: View {
                         }
                     }
                 } else if let channelHandle = result.channelHandle {
-                    // For channels without a share URL (email, WhatsApp),
+                    // For channels without a share URL,
                     // show the assistant's channel handle so it can be copied.
                     HStack(spacing: VSpacing.sm) {
                         Text(channelHandle)
