@@ -421,7 +421,8 @@ private struct WorkspaceTreeRow: View {
             }
         }
         .contextMenu {
-            if entry.isDirectory {
+            let hidden = isHiddenPath(entry.path)
+            if entry.isDirectory && !hidden {
                 Button {
                     state.newItemParentPath = entry.path
                     state.newItemName = ""
@@ -438,17 +439,19 @@ private struct WorkspaceTreeRow: View {
                 }
                 Divider()
             }
-            Button(role: .destructive) {
-                state.deleteConfirmPath = entry.path
-                state.deleteConfirmName = entry.name
-            } label: {
-                Label { Text("Delete") } icon: { VIconView(.trash, size: 12) }
-            }
-            Button {
-                state.renamingPath = entry.path
-                state.renamingText = entry.name
-            } label: {
-                Label { Text("Rename") } icon: { VIconView(.pencil, size: 12) }
+            if !hidden {
+                Button(role: .destructive) {
+                    state.deleteConfirmPath = entry.path
+                    state.deleteConfirmName = entry.name
+                } label: {
+                    Label { Text("Delete") } icon: { VIconView(.trash, size: 12) }
+                }
+                Button {
+                    state.renamingPath = entry.path
+                    state.renamingText = entry.name
+                } label: {
+                    Label { Text("Rename") } icon: { VIconView(.pencil, size: 12) }
+                }
             }
         }
     }
@@ -607,8 +610,18 @@ private struct WorkspaceFileViewer: View {
     }
 
     private func textViewer(_ detail: WorkspaceFileResponse) -> some View {
-        VStack(spacing: 0) {
-            if state.isDirty {
+        let readOnly = isHiddenPath(detail.path)
+        return VStack(spacing: 0) {
+            if readOnly {
+                HStack {
+                    Spacer()
+                    Text("Read-only")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                        .padding(.trailing, VSpacing.md)
+                        .padding(.vertical, VSpacing.xs)
+                }
+            } else if state.isDirty {
                 HStack {
                     Spacer()
                     Button {
@@ -629,15 +642,27 @@ private struct WorkspaceFileViewer: View {
                 }
             }
 
-            TextEditor(text: $state.editableContent)
-                .font(VFont.mono)
-                .foregroundColor(VColor.contentDefault)
-                .scrollContentBackground(.hidden)
-                .padding(VSpacing.md)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .onChange(of: state.editableContent) { _, newValue in
-                    state.isDirty = newValue != state.originalContent
+            if readOnly {
+                ScrollView {
+                    Text(detail.content ?? "")
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.contentDefault)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(VSpacing.md)
+                        .textSelection(.enabled)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                TextEditor(text: $state.editableContent)
+                    .font(VFont.mono)
+                    .foregroundColor(VColor.contentDefault)
+                    .scrollContentBackground(.hidden)
+                    .padding(VSpacing.md)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .onChange(of: state.editableContent) { _, newValue in
+                        state.isDirty = newValue != state.originalContent
+                    }
+            }
         }
     }
 
@@ -746,6 +771,13 @@ private struct WorkspaceFileViewer: View {
         formatter.countStyle = .file
         return formatter.string(fromByteCount: Int64(bytes))
     }
+}
+
+// MARK: - Hidden Path Helper
+
+/// Returns true if any segment of the path starts with a dot (e.g. ".hidden/file.txt" or "dir/.env").
+private func isHiddenPath(_ path: String) -> Bool {
+    path.split(separator: "/").contains { $0.hasPrefix(".") }
 }
 
 // MARK: - Authenticated Image View
