@@ -47,7 +47,13 @@ function redactMetadata(obj: Record<string, unknown>): Record<string, unknown> {
   for (const [key, value] of Object.entries(obj)) {
     if (REDACTED_METADATA_KEYS.has(key)) {
       result[key] = "[REDACTED]";
-    } else if (value && typeof value === "object" && !Array.isArray(value)) {
+    } else if (Array.isArray(value)) {
+      result[key] = value.map((item) =>
+        item && typeof item === "object" && !Array.isArray(item)
+          ? redactMetadata(item as Record<string, unknown>)
+          : item,
+      );
+    } else if (value && typeof value === "object") {
       result[key] = redactMetadata(value as Record<string, unknown>);
     } else {
       result[key] = value;
