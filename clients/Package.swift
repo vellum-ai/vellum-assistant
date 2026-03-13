@@ -74,7 +74,6 @@ let package = Package(
                 .copy("Resources/editor"),
                 .process("Resources/initial-avatar.png"),
                 .process("Resources/vellum-app-icon.png"),
-                .process("Resources/preset-avatars"),
                 .process("Resources/welcome-characters.png")
             ],
             linkerSettings: [

@@ -1,36 +1,30 @@
 import AppKit
-import VellumAssistantShared
 
-/// A bundled preset avatar character ("little dude") that users can select
-/// during onboarding or from the avatar management sheet.
 struct PresetAvatar: Identifiable, Equatable {
     let name: String
+    let bodyShape: AvatarBodyShape
+    let eyeStyle: AvatarEyeStyle
+    let color: AvatarColor
+
     var id: String { name }
 
-    /// Cached image loaded once from the resource bundle.
-    var image: NSImage? { Self.imageCache[name] }
+    var image: NSImage? {
+        AvatarCompositor.render(bodyShape: bodyShape, eyeStyle: eyeStyle, color: color)
+    }
 
-    /// Static cache so images are loaded from disk once, not on every view render.
-    private static let imageCache: [String: NSImage] = {
-        var cache: [String: NSImage] = [:]
-        for name in allNames {
-            if let url = ResourceBundle.bundle.url(forResource: name, withExtension: "png"),
-               let image = NSImage(contentsOf: url) {
-                cache[name] = image
-            }
-        }
-        return cache
-    }()
-
-    private static let allNames = [
-        "green-grump", "orange-cloud", "orange-sprout", "orange-star",
-        "pink-ghost", "pink-spiky", "purple-blob", "purple-flower",
-        "teal-spike", "yellow-ninja"
+    private static let presets: [PresetAvatar] = [
+        PresetAvatar(name: "green-grump", bodyShape: .blob, eyeStyle: .grumpy, color: .green),
+        PresetAvatar(name: "orange-cloud", bodyShape: .cloud, eyeStyle: .angry, color: .orange),
+        PresetAvatar(name: "orange-sprout", bodyShape: .sprout, eyeStyle: .curious, color: .orange),
+        PresetAvatar(name: "orange-star", bodyShape: .star, eyeStyle: .goofy, color: .orange),
+        PresetAvatar(name: "pink-ghost", bodyShape: .ghost, eyeStyle: .surprised, color: .pink),
+        PresetAvatar(name: "pink-spiky", bodyShape: .urchin, eyeStyle: .bashful, color: .pink),
+        PresetAvatar(name: "purple-blob", bodyShape: .stack, eyeStyle: .gentle, color: .purple),
+        PresetAvatar(name: "purple-flower", bodyShape: .flower, eyeStyle: .quirky, color: .purple),
+        PresetAvatar(name: "teal-spike", bodyShape: .burst, eyeStyle: .dazed, color: .teal),
+        PresetAvatar(name: "yellow-ninja", bodyShape: .ninja, eyeStyle: .angry, color: .yellow),
     ]
 
-    static let all: [PresetAvatar] = allNames.map { PresetAvatar(name: $0) }
-
-    static func random() -> PresetAvatar {
-        all.randomElement()!
-    }
+    static let all: [PresetAvatar] = presets
+    static func random() -> PresetAvatar { all.randomElement()! }
 }
