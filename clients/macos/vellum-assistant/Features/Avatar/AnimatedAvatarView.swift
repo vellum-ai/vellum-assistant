@@ -12,6 +12,7 @@ struct AnimatedAvatarView: View {
 
     var body: some View {
         AvatarLayerRepresentable(bodyShape: bodyShape, eyeStyle: eyeStyle, color: color, size: size)
+            .frame(width: size, height: size)
             .accessibilityHidden(true)
     }
 }
@@ -69,7 +70,7 @@ class AvatarLayerView: NSView {
     }
 
     func configure(bodyShape: AvatarBodyShape, eyeStyle: AvatarEyeStyle, color: AvatarColor, size: CGFloat) {
-        let key = "\(bodyShape.rawValue)-\(eyeStyle.rawValue)-\(color.rawValue)-\(Int(size))"
+        let key = "\(bodyShape.rawValue)-\(eyeStyle.rawValue)-\(color.rawValue)-\(String(format: "%.1f", size))"
         guard key != currentKey else { return }
         currentKey = key
 
