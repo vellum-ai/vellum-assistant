@@ -467,8 +467,12 @@ extension AppDelegate {
                 guard let chars = event.charactersIgnoringModifiers else { return event }
 
                 // Allow Shift to be present for zoom-in: on US keyboards Cmd+Shift+= produces "+"
-                // which is the standard zoom-in gesture. Using subtracting(.shift) preserves that behavior.
-                if !zoomInKey.isEmpty && chars.lowercased() == zoomInKey.lowercased() && mods.subtracting(.shift) == zoomInMods {
+                // which is the standard zoom-in gesture. Only strip Shift when the configured
+                // shortcut doesn't already include it, so custom shortcuts like cmd+shift+z still work.
+                let zoomInModsMatch = zoomInMods.contains(.shift)
+                    ? mods == zoomInMods
+                    : mods.subtracting(.shift) == zoomInMods
+                if !zoomInKey.isEmpty && chars.lowercased() == zoomInKey.lowercased() && zoomInModsMatch {
                     Task { @MainActor in self?.zoomManager.zoomIn() }
                     return nil
                 }
