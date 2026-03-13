@@ -11,9 +11,38 @@ public final class ToolConfirmationNotificationService {
 
     private var pendingRequests: [String: CheckedContinuation<String, Never>] = [:]
 
+    // MARK: - Readiness Gate
+
+    /// Whether this service is ready to post notifications (e.g. avatar icon exported).
+    /// Callers of `showConfirmation` will transparently wait until ready.
+    private var isReady = false
+
+    /// Continuations waiting for the service to become ready.
+    private var readinessWaiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Marks the service as ready and resumes any callers waiting on readiness.
+    public func markReady() {
+        guard !isReady else { return }
+        isReady = true
+        let waiters = readinessWaiters
+        readinessWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    /// Suspends the caller until the service is ready. Returns immediately if already ready.
+    private func waitUntilReady() async {
+        guard !isReady else { return }
+        await withCheckedContinuation { continuation in
+            readinessWaiters.append(continuation)
+        }
+    }
+
     /// Shows a native notification for a tool confirmation request and awaits the user's response.
     /// Returns "allow" or "deny".
     public func showConfirmation(_ message: ConfirmationRequestMessage) async -> String {
+        await waitUntilReady()
         let content = UNMutableNotificationContent()
         content.title = formatTitle(message)
         content.body = formatBody(message)

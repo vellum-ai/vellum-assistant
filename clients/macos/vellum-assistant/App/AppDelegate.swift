@@ -135,6 +135,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// Last time we surfaced the denied-notification permission toast.
     var lastNotificationPermissionToastAtMs: Double = 0
 
+    /// Whether notification intents are ready to post (e.g. avatar icon exported).
+    /// When false, intents are enqueued and flushed once `markNotificationIntentsReady()` is called.
+    private(set) var notificationIntentsReady = false
+    /// Closures captured while `notificationIntentsReady` was false.
+    var pendingNotificationIntentClosures: [() -> Void] = []
+
     /// Whether the current assistant runs remotely (cloud != "local").
     /// When true, local daemon hatching is skipped.
     var isCurrentAssistantRemote = false
