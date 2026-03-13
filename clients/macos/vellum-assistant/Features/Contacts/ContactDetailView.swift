@@ -400,6 +400,13 @@ struct ContactDetailView: View {
                         }
                     }
                 }
+
+                // Inline error display so the message appears inside the channel card
+                if let inviteError {
+                    Text(inviteError)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.systemNegativeStrong)
+                }
             } else if type == "phone" {
                 // Phone channel: code-based invite flow
                 if inviteInProgress == type {
