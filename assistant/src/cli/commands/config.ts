@@ -39,9 +39,12 @@ export function registerConfigCommand(program: Command): void {
     "after",
     `
 Configuration is stored in config.json in the assistant workspace directory.
-Keys support dotted paths for nested values (e.g. calls.enabled, apiKeys.anthropic).
+Keys support dotted paths for nested values (e.g. calls.enabled, twilio.accountSid).
 Values are auto-parsed as JSON (booleans, numbers, objects) with fallback to
 plain string if parsing fails.
+
+API keys are managed separately via secure storage. Use "assistant keys list"
+and "assistant keys set <provider> <key>" to view and manage API keys.
 
 Examples:
   $ assistant config list
@@ -53,14 +56,14 @@ Examples:
   config
     .command("set <key> <value>")
     .description(
-      "Set a config value (supports dotted paths like apiKeys.anthropic)",
+      "Set a config value (supports dotted paths like calls.enabled)",
     )
     .addHelpText(
       "after",
       `
 Arguments:
   key     Dotted path to the config key (e.g. provider, calls.enabled,
-          apiKeys.anthropic). Intermediate objects are created automatically.
+          twilio.accountSid). Intermediate objects are created automatically.
   value   The value to store. Parsed as JSON first (so "true" becomes boolean
           true, "42" becomes number 42). Falls back to plain string if JSON
           parsing fails.
@@ -68,10 +71,11 @@ Arguments:
 After writing the value to config.json, the lockfile is automatically synced
 to reflect the updated configuration.
 
+To manage API keys, use "assistant keys set <provider> <key>" instead.
+
 Examples:
   $ assistant config set provider anthropic
-  $ assistant config set calls.enabled true
-  $ assistant config set apiKeys.anthropic sk-ant-abc123`,
+  $ assistant config set calls.enabled true`,
     )
     .action((key: string, value: string) => {
       const raw = loadRawConfig();
@@ -100,10 +104,11 @@ Arguments:
 Prints the value at the given key path. If the key is not set, prints
 "(not set)". Object values are pretty-printed as indented JSON.
 
+To view API keys, use "assistant keys list" instead.
+
 Examples:
   $ assistant config get provider
-  $ assistant config get calls.enabled
-  $ assistant config get apiKeys`,
+  $ assistant config get calls.enabled`,
     )
     .action((key: string) => {
       const raw = loadRawConfig();
@@ -133,8 +138,8 @@ Dumps the full raw configuration from config.json as pretty-printed JSON.
 If no configuration has been set, prints "No configuration set".
 
 The --search flag filters results by case-insensitive substring match against
-flattened dotted key paths. For example, --search api matches apiKeys.anthropic,
-apiKeys.openai, and any other key containing "api".
+flattened dotted key paths. For example, --search calls matches calls.enabled,
+calls.recordingEnabled, and any other key containing "calls".
 
 Examples:
   $ assistant config list

@@ -124,7 +124,7 @@ struct AgentPanelContent: View {
         .frame(width: 180)
     }
 
-    // MARK: - Installed Skills Content
+    // MARK: - Skills Content
 
     @ViewBuilder
     private var skillsContent: some View {
@@ -287,7 +287,7 @@ struct AgentPanelContent: View {
             }) {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(.chevronLeft, size: 11)
-                    Text("Installed Skills")
+                    Text("Skills")
                         .font(VFont.caption)
                 }
                 .foregroundColor(VColor.contentTertiary)

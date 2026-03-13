@@ -1039,7 +1039,7 @@ jobs:
 
           # Assistant CLI
           mkdir -p assistant-bin
-          bun build --compile --target=bun-darwin-x64 \
+          bun build --compile "${DAEMON_EXTERNAL_FLAGS[@]}" --target=bun-darwin-x64 \
             "$ASSISTANT_SRC_DIR/src/index.ts" --outfile assistant-bin/vellum-assistant
           chmod +x assistant-bin/vellum-assistant
 

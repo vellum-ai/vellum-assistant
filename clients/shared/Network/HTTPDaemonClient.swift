@@ -272,14 +272,15 @@ public final class HTTPTransport {
         case contactChannelUpdate(contactChannelId: String)
         case contactsUpsert
         case contactsInvitesCreate
+        case contactsInvitesCall(id: String)
         case channelsReadiness
         case surfaceContent(surfaceId: String, sessionId: String)
         case usageTotals(from: Int, to: Int)
         case usageDaily(from: Int, to: Int)
         case usageBreakdown(from: Int, to: Int, groupBy: String)
-        case workspaceTree(path: String)
-        case workspaceFile(path: String)
-        case workspaceFileContent(path: String)
+        case workspaceTree(path: String, showHidden: Bool)
+        case workspaceFile(path: String, showHidden: Bool)
+        case workspaceFileContent(path: String, showHidden: Bool)
         case workspaceWrite
         case workspaceMkdir
         case workspaceRename
@@ -532,6 +533,9 @@ public final class HTTPTransport {
             return ("/v1/contacts", nil)
         case .contactsInvitesCreate:
             return ("/v1/contacts/invites", nil)
+        case .contactsInvitesCall(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/contacts/invites/\(encoded)/call", nil)
         case .channelsReadiness:
             return ("/v1/channels/readiness", nil)
         case .surfaceContent(let surfaceId, let sessionId):
@@ -545,15 +549,22 @@ public final class HTTPTransport {
         case .usageBreakdown(let from, let to, let groupBy):
             let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? groupBy
             return ("/v1/usage/breakdown", "from=\(from)&to=\(to)&groupBy=\(encoded)")
-        case .workspaceTree(let path):
+        case .workspaceTree(let path, let showHidden):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-            return ("/v1/workspace/tree", path.isEmpty ? nil : "path=\(encoded)")
-        case .workspaceFile(let path):
+            var params: [String] = []
+            if !path.isEmpty { params.append("path=\(encoded)") }
+            if showHidden { params.append("showHidden=true") }
+            return ("/v1/workspace/tree", params.isEmpty ? nil : params.joined(separator: "&"))
+        case .workspaceFile(let path, let showHidden):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-            return ("/v1/workspace/file", "path=\(encoded)")
-        case .workspaceFileContent(let path):
+            var query = "path=\(encoded)"
+            if showHidden { query += "&showHidden=true" }
+            return ("/v1/workspace/file", query)
+        case .workspaceFileContent(let path, let showHidden):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-            return ("/v1/workspace/file/content", "path=\(encoded)")
+            var query = "path=\(encoded)"
+            if showHidden { query += "&showHidden=true" }
+            return ("/v1/workspace/file/content", query)
         case .workspaceWrite:
             return ("/v1/workspace/write", nil)
         case .workspaceMkdir:
@@ -933,6 +944,9 @@ public final class HTTPTransport {
             return ("\(prefix)/contacts/", nil)
         case .contactsInvitesCreate:
             return ("\(prefix)/contacts/invites/", nil)
+        case .contactsInvitesCall(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/contacts/invites/\(encoded)/call/", nil)
         case .channelsReadiness:
             return ("\(prefix)/channels/readiness/", nil)
         case .surfaceContent(let surfaceId, let sessionId):
@@ -946,15 +960,22 @@ public final class HTTPTransport {
         case .usageBreakdown(let from, let to, let groupBy):
             let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? groupBy
             return ("\(prefix)/usage/breakdown/", "from=\(from)&to=\(to)&groupBy=\(encoded)")
-        case .workspaceTree(let path):
+        case .workspaceTree(let path, let showHidden):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-            return ("\(prefix)/workspace/tree/", path.isEmpty ? nil : "path=\(encoded)")
-        case .workspaceFile(let path):
+            var params: [String] = []
+            if !path.isEmpty { params.append("path=\(encoded)") }
+            if showHidden { params.append("showHidden=true") }
+            return ("\(prefix)/workspace/tree/", params.isEmpty ? nil : params.joined(separator: "&"))
+        case .workspaceFile(let path, let showHidden):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-            return ("\(prefix)/workspace/file/", "path=\(encoded)")
-        case .workspaceFileContent(let path):
+            var query = "path=\(encoded)"
+            if showHidden { query += "&showHidden=true" }
+            return ("\(prefix)/workspace/file/", query)
+        case .workspaceFileContent(let path, let showHidden):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-            return ("\(prefix)/workspace/file/content/", "path=\(encoded)")
+            var query = "path=\(encoded)"
+            if showHidden { query += "&showHidden=true" }
+            return ("\(prefix)/workspace/file/content/", query)
         case .workspaceWrite:
             return ("\(prefix)/workspace/write/", nil)
         case .workspaceMkdir:
@@ -2517,6 +2538,7 @@ public final class HTTPTransport {
         note: String? = nil,
         maxUses: Int? = nil,
         contactName: String? = nil,
+        contactId: String? = nil,
         expectedExternalUserId: String? = nil,
         friendName: String? = nil,
         guardianName: String? = nil,
@@ -2533,6 +2555,7 @@ public final class HTTPTransport {
         if let note { body["note"] = note }
         if let maxUses { body["maxUses"] = maxUses }
         if let contactName { body["contactName"] = contactName }
+        if let contactId { body["contactId"] = contactId }
         if let expectedExternalUserId { body["expectedExternalUserId"] = expectedExternalUserId }
         if let friendName { body["friendName"] = friendName }
         if let guardianName { body["guardianName"] = guardianName }
@@ -2544,7 +2567,7 @@ public final class HTTPTransport {
             if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                 if case .success = refreshResult {
-                    return try await createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses, contactName: contactName, expectedExternalUserId: expectedExternalUserId, friendName: friendName, guardianName: guardianName, isRetry: true)
+                    return try await createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses, contactName: contactName, contactId: contactId, expectedExternalUserId: expectedExternalUserId, friendName: friendName, guardianName: guardianName, isRetry: true)
                 }
                 return nil
             }
@@ -2554,6 +2577,27 @@ public final class HTTPTransport {
         let decoded = try decoder.decode(HTTPCreateInviteResponse.self, from: data)
         guard let invite = decoded.invite else { return nil }
         return (inviteId: invite.id, token: invite.token, shareUrl: invite.share?.url, inviteCode: invite.inviteCode, voiceCode: invite.voiceCode, guardianInstruction: invite.guardianInstruction, channelHandle: invite.channelHandle)
+    }
+
+    // MARK: - Invite Call
+
+    func triggerInviteCall(inviteId: String, isRetry: Bool = false) async throws -> Bool {
+        guard let url = buildURL(for: .contactsInvitesCall(id: inviteId)) else { return false }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+        request.httpBody = try JSONSerialization.data(withJSONObject: [:] as [String: Any])
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse {
+            if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult { return try await triggerInviteCall(inviteId: inviteId, isRetry: true) }
+                return false
+            }
+            guard (200...201).contains(http.statusCode) else { return false }
+        }
+        return true
     }
 
     // MARK: - Channel Readiness
@@ -3180,8 +3224,8 @@ public final class HTTPTransport {
     // MARK: - Workspace API
 
     /// Fetch the workspace directory tree from `GET /v1/workspace/tree`.
-    func fetchWorkspaceTree(path: String, isRetry: Bool = false) async -> WorkspaceTreeResponse? {
-        guard let url = buildURL(for: .workspaceTree(path: path)) else { return nil }
+    func fetchWorkspaceTree(path: String, showHidden: Bool = false, isRetry: Bool = false) async -> WorkspaceTreeResponse? {
+        guard let url = buildURL(for: .workspaceTree(path: path, showHidden: showHidden)) else { return nil }
 
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
@@ -3193,7 +3237,7 @@ public final class HTTPTransport {
                 if http.statusCode == 401 && !isRetry {
                     let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                     if case .success = refreshResult {
-                        return await fetchWorkspaceTree(path: path, isRetry: true)
+                        return await fetchWorkspaceTree(path: path, showHidden: showHidden, isRetry: true)
                     }
                     return nil
                 }
@@ -3207,8 +3251,8 @@ public final class HTTPTransport {
     }
 
     /// Fetch a single workspace file's metadata from `GET /v1/workspace/file`.
-    func fetchWorkspaceFile(path: String, isRetry: Bool = false) async -> WorkspaceFileResponse? {
-        guard let url = buildURL(for: .workspaceFile(path: path)) else { return nil }
+    func fetchWorkspaceFile(path: String, showHidden: Bool = false, isRetry: Bool = false) async -> WorkspaceFileResponse? {
+        guard let url = buildURL(for: .workspaceFile(path: path, showHidden: showHidden)) else { return nil }
 
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
@@ -3220,7 +3264,7 @@ public final class HTTPTransport {
                 if http.statusCode == 401 && !isRetry {
                     let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                     if case .success = refreshResult {
-                        return await fetchWorkspaceFile(path: path, isRetry: true)
+                        return await fetchWorkspaceFile(path: path, showHidden: showHidden, isRetry: true)
                     }
                     return nil
                 }
@@ -3234,8 +3278,8 @@ public final class HTTPTransport {
     }
 
     /// Build a URL for streaming/downloading workspace file content.
-    func workspaceFileContentURL(path: String) -> URL? {
-        return buildURL(for: .workspaceFileContent(path: path))
+    func workspaceFileContentURL(path: String, showHidden: Bool = false) -> URL? {
+        return buildURL(for: .workspaceFileContent(path: path, showHidden: showHidden))
     }
 
     /// Write (create or overwrite) a file in the workspace via `POST /v1/workspace/write`.

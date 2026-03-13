@@ -44,6 +44,7 @@ export async function run(
   input: Record<string, unknown>,
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  const account = input.account as string | undefined;
   const maxMessages = Math.min(
     (input.max_messages as number) ?? 2000,
     MAX_MESSAGES_CAP,
@@ -55,7 +56,7 @@ export async function run(
   const query = `in:inbox -has:unsubscribe newer_than:${timeRange}`;
 
   try {
-    const connection = resolveOAuthConnection("integration:gmail");
+    const connection = resolveOAuthConnection("integration:gmail", account);
     // Pipeline: fire metadata fetches for each page of IDs as they arrive
     const allMessageIds: string[] = [];
     const fetchPromises: Promise<GmailMessage[]>[] = [];

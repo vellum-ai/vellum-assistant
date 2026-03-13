@@ -78,6 +78,7 @@ struct ComposerView: View {
     @State private var preDictationText: String = ""
     /// Live amplitude from VoiceInputManager, bypassing ChatViewModel's 100ms coalescing.
     @State private var liveAmplitude: Float = 0
+    @State private var isComposerDropTargeted = false
 
     /// The portion of the suggestion that extends beyond the current input.
     private var ghostSuffix: String? {
@@ -277,7 +278,7 @@ struct ComposerView: View {
                 updateSlashState()
             }
         }
-        .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: nil) { providers in
+        .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isComposerDropTargeted) { providers in
             let group = DispatchGroup()
             // Collect URLs on the main queue to avoid concurrent Array mutation
             // from loadObject callbacks that may fire on different threads.
@@ -391,12 +392,29 @@ struct ComposerView: View {
             content()
         }
         .padding(.vertical, VSpacing.sm)
-        .padding(.horizontal, VSpacing.md)
+        .padding(.leading, VSpacing.md)
+        .padding(.trailing, VSpacing.sm)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surfaceLift)
+                .fill(VColor.surfaceOverlay)
         )
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .overlay {
+            if isComposerDropTargeted {
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .fill(VColor.surfaceActive)
+                    .overlay {
+                        HStack(spacing: VSpacing.sm) {
+                            VIconView(.paperclip, size: 16)
+                                .foregroundColor(VColor.contentSecondary)
+                            Text("Drop files to attach")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.contentSecondary)
+                        }
+                    }
+                    .allowsHitTesting(false)
+            }
+        }
         .shadow(color: VColor.auxBlack.opacity(0.05), radius: 2, x: 0, y: 2)
     }
 

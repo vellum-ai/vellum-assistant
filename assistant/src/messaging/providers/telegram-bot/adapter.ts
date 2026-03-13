@@ -55,8 +55,11 @@ export const telegramBotMessagingProvider: MessagingProvider = {
   capabilities: new Set(["send"]),
 
   /**
-   * Custom connectivity check using the oauth_connection record as the
-   * single source of truth, consistent with integration-status.ts.
+   * Custom connectivity check using both the oauth_connection record AND
+   * actual keychain credentials. The connection row alone can become stale
+   * if clearTelegramConfig() returns early on a secure-key deletion error
+   * without removing the row. Checking both ensures we don't report
+   * Telegram as connected when secrets are missing.
    *
    * Both bot_token and webhook_secret are required — the gateway's
    * /deliver/telegram endpoint rejects requests without the webhook
@@ -64,7 +67,11 @@ export const telegramBotMessagingProvider: MessagingProvider = {
    */
   isConnected(): boolean {
     const conn = getConnectionByProvider("telegram");
-    return !!(conn && conn.status === "active");
+    return (
+      !!(conn && conn.status === "active") &&
+      getBotToken() !== undefined &&
+      !!getSecureKey(credentialKey("telegram", "webhook_secret"))
+    );
   },
 
   async testConnection(

@@ -106,10 +106,19 @@ struct SidebarThreadItem: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .help(thread.title)
+
+                if sidebar.threadPendingDeletion == thread.id {
+                    VButton(label: "Confirm", style: .dangerOutline, size: .pill) {
+                        threadManager.archiveThread(id: thread.id)
+                        sidebar.threadPendingDeletion = nil
+                    }
+                    .fixedSize()
+                    .accessibilityLabel("Confirm archive \(thread.title)")
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, VSpacing.xs)
-            .padding(.trailing, hasTrailingIcon ? (VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs) : VSpacing.sm)
+            .padding(.trailing, hasTrailingIcon ? VSpacing.xs : VSpacing.sm)
             .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
             .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
             .background {
@@ -137,14 +146,7 @@ struct SidebarThreadItem: View {
             selectThread()
         }
         .overlay(alignment: .trailing) {
-            if sidebar.threadPendingDeletion == thread.id {
-                VButton(label: "Confirm", style: .danger) {
-                    threadManager.archiveThread(id: thread.id)
-                    sidebar.threadPendingDeletion = nil
-                }
-                .padding(.trailing, VSpacing.xs)
-                .accessibilityLabel("Confirm archive \(thread.title)")
-            } else if isHovered {
+            if isHovered && sidebar.threadPendingDeletion != thread.id {
                 Button {
                     sidebar.threadPendingDeletion = thread.id
                 } label: {

@@ -41,6 +41,8 @@ export interface IngressInvite {
   // Display metadata for personalized voice prompts (null for non-voice invites)
   friendName: string | null;
   guardianName: string | null;
+  // Contact binding — every invite is bound to a specific contact
+  contactId: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -86,6 +88,7 @@ function rowToInvite(
     inviteCodeHash: row.inviteCodeHash,
     friendName: row.friendName,
     guardianName: row.guardianName,
+    contactId: row.contactId,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -97,6 +100,7 @@ function rowToInvite(
 
 export function createInvite(params: {
   sourceChannel: string;
+  contactId: string;
   createdBySessionId?: string;
   note?: string;
   maxUses?: number;
@@ -135,6 +139,7 @@ export function createInvite(params: {
     inviteCodeHash: params.inviteCodeHash ?? null,
     friendName: params.friendName ?? null,
     guardianName: params.guardianName ?? null,
+    contactId: params.contactId,
     createdAt: now,
     updatedAt: now,
   };
@@ -309,6 +314,20 @@ export function findByTokenHash(tokenHash: string): IngressInvite | null {
     .where(eq(assistantIngressInvites.tokenHash, tokenHash))
     .get();
 
+  return row ? rowToInvite(row) : null;
+}
+
+// ---------------------------------------------------------------------------
+// findById
+// ---------------------------------------------------------------------------
+
+export function findById(inviteId: string): IngressInvite | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(assistantIngressInvites)
+    .where(eq(assistantIngressInvites.id, inviteId))
+    .get();
   return row ? rowToInvite(row) : null;
 }
 

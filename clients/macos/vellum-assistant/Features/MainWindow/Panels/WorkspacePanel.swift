@@ -32,14 +32,15 @@ final class WorkspaceBrowserState {
     var renamingText: String = ""
     var pendingSwitchPath: String?
     var showingDirtyAlert: Bool = false
+    var showHiddenFiles: Bool = false
 
     func refreshDirectory(_ dirPath: String, using daemonClient: DaemonClient) async {
-        if let response = await daemonClient.fetchWorkspaceTree(path: dirPath) {
+        if let response = await daemonClient.fetchWorkspaceTree(path: dirPath, showHidden: showHiddenFiles) {
             directoryCache[dirPath] = response.entries
         }
     }
 
-    func loadFile(path targetPath: String, using daemonClient: DaemonClient) async {
+    func loadFile(path targetPath: String, using daemonClient: DaemonClient, showHidden: Bool = false) async {
         selectedFilePath = targetPath
         isLoadingFile = true
         selectedFileDetail = nil
@@ -47,7 +48,7 @@ final class WorkspaceBrowserState {
         editableContent = ""
         fileLoadTask?.cancel()
         let task = Task {
-            let detail = await daemonClient.fetchWorkspaceFile(path: targetPath)
+            let detail = await daemonClient.fetchWorkspaceFile(path: targetPath, showHidden: showHidden)
             guard !Task.isCancelled, selectedFilePath == targetPath else { return }
             selectedFileDetail = detail
             editableContent = detail?.content ?? ""
@@ -86,7 +87,7 @@ struct WorkspacePanel: View {
             Button("Discard", role: .destructive) {
                 guard let targetPath = state.pendingSwitchPath else { return }
                 state.pendingSwitchPath = nil
-                Task { await state.loadFile(path: targetPath, using: daemonClient) }
+                Task { await state.loadFile(path: targetPath, using: daemonClient, showHidden: state.showHiddenFiles) }
             }
             Button("Cancel", role: .cancel) {
                 state.pendingSwitchPath = nil
@@ -134,7 +135,7 @@ struct WorkspacePanel: View {
 
     private func loadRoot() async {
         state.isLoadingTree = true
-        if let response = await daemonClient.fetchWorkspaceTree(path: "") {
+        if let response = await daemonClient.fetchWorkspaceTree(path: "", showHidden: state.showHiddenFiles) {
             state.directoryCache[""] = response.entries
         }
         state.isLoadingTree = false
@@ -188,6 +189,30 @@ private struct WorkspaceTreeSidebar: View {
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
+
+            HStack {
+                VToggle(isOn: Binding(
+                    get: { state.showHiddenFiles },
+                    set: { newValue in
+                        state.showHiddenFiles = newValue
+                        state.directoryCache.removeAll()
+                        state.expandedDirs.removeAll()
+                        // Reset selected file state so stale selections don't linger
+                        state.selectedFilePath = nil
+                        state.selectedFileDetail = nil
+                        state.editableContent = ""
+                        state.originalContent = ""
+                        state.isDirty = false
+                        Task {
+                            if let response = await daemonClient.fetchWorkspaceTree(path: "", showHidden: newValue) {
+                                state.directoryCache[""] = response.entries
+                            }
+                        }
+                    }
+                ), label: "Show hidden files")
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.bottom, VSpacing.xs)
 
             Divider().background(VColor.borderBase)
 
@@ -396,7 +421,8 @@ private struct WorkspaceTreeRow: View {
             }
         }
         .contextMenu {
-            if entry.isDirectory {
+            let hidden = isHiddenPath(entry.path)
+            if entry.isDirectory && !hidden {
                 Button {
                     state.newItemParentPath = entry.path
                     state.newItemName = ""
@@ -413,17 +439,19 @@ private struct WorkspaceTreeRow: View {
                 }
                 Divider()
             }
-            Button(role: .destructive) {
-                state.deleteConfirmPath = entry.path
-                state.deleteConfirmName = entry.name
-            } label: {
-                Label { Text("Delete") } icon: { VIconView(.trash, size: 12) }
-            }
-            Button {
-                state.renamingPath = entry.path
-                state.renamingText = entry.name
-            } label: {
-                Label { Text("Rename") } icon: { VIconView(.pencil, size: 12) }
+            if !hidden {
+                Button(role: .destructive) {
+                    state.deleteConfirmPath = entry.path
+                    state.deleteConfirmName = entry.name
+                } label: {
+                    Label { Text("Delete") } icon: { VIconView(.trash, size: 12) }
+                }
+                Button {
+                    state.renamingPath = entry.path
+                    state.renamingText = entry.name
+                } label: {
+                    Label { Text("Rename") } icon: { VIconView(.pencil, size: 12) }
+                }
             }
         }
     }
@@ -504,7 +532,7 @@ private struct WorkspaceTreeRow: View {
                 state.expandedDirs.insert(entry.path)
                 // Load children if not cached
                 if state.directoryCache[entry.path] == nil {
-                    if let response = await daemonClient.fetchWorkspaceTree(path: entry.path) {
+                    if let response = await daemonClient.fetchWorkspaceTree(path: entry.path, showHidden: state.showHiddenFiles) {
                         state.directoryCache[entry.path] = response.entries
                     }
                 }
@@ -518,7 +546,7 @@ private struct WorkspaceTreeRow: View {
                 state.pendingSwitchPath = targetPath
                 state.showingDirtyAlert = true
             } else {
-                await state.loadFile(path: targetPath, using: daemonClient)
+                await state.loadFile(path: targetPath, using: daemonClient, showHidden: state.showHiddenFiles)
             }
         }
     }
@@ -582,8 +610,18 @@ private struct WorkspaceFileViewer: View {
     }
 
     private func textViewer(_ detail: WorkspaceFileResponse) -> some View {
-        VStack(spacing: 0) {
-            if state.isDirty {
+        let readOnly = isHiddenPath(detail.path)
+        return VStack(spacing: 0) {
+            if readOnly {
+                HStack {
+                    Spacer()
+                    Text("Read-only")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                        .padding(.trailing, VSpacing.md)
+                        .padding(.vertical, VSpacing.xs)
+                }
+            } else if state.isDirty {
                 HStack {
                     Spacer()
                     Button {
@@ -604,15 +642,27 @@ private struct WorkspaceFileViewer: View {
                 }
             }
 
-            TextEditor(text: $state.editableContent)
-                .font(VFont.mono)
-                .foregroundColor(VColor.contentDefault)
-                .scrollContentBackground(.hidden)
-                .padding(VSpacing.md)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .onChange(of: state.editableContent) { _, newValue in
-                    state.isDirty = newValue != state.originalContent
+            if readOnly {
+                ScrollView {
+                    Text(detail.content ?? "")
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.contentDefault)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(VSpacing.md)
+                        .textSelection(.enabled)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                TextEditor(text: $state.editableContent)
+                    .font(VFont.mono)
+                    .foregroundColor(VColor.contentDefault)
+                    .scrollContentBackground(.hidden)
+                    .padding(VSpacing.md)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .onChange(of: state.editableContent) { _, newValue in
+                        state.isDirty = newValue != state.originalContent
+                    }
+            }
         }
     }
 
@@ -661,7 +711,7 @@ private struct WorkspaceFileViewer: View {
 
     private func imageViewer(_ detail: WorkspaceFileResponse) -> some View {
         Group {
-            if let url = daemonClient.workspaceFileContentURL(path: detail.path) {
+            if let url = daemonClient.workspaceFileContentURL(path: detail.path, showHidden: state.showHiddenFiles) {
                 AuthenticatedImageView(url: url, daemonClient: daemonClient)
             } else {
                 Text("Unable to load image URL")
@@ -674,7 +724,7 @@ private struct WorkspaceFileViewer: View {
 
     private func videoViewer(_ detail: WorkspaceFileResponse) -> some View {
         Group {
-            if let url = daemonClient.workspaceFileContentURL(path: detail.path) {
+            if let url = daemonClient.workspaceFileContentURL(path: detail.path, showHidden: state.showHiddenFiles) {
                 WorkspaceVideoPlayer(url: url, daemonClient: daemonClient)
             } else {
                 Text("Unable to load video URL")
@@ -721,6 +771,13 @@ private struct WorkspaceFileViewer: View {
         formatter.countStyle = .file
         return formatter.string(fromByteCount: Int64(bytes))
     }
+}
+
+// MARK: - Hidden Path Helper
+
+/// Returns true if any segment of the path starts with a dot (e.g. ".hidden/file.txt" or "dir/.env").
+private func isHiddenPath(_ path: String) -> Bool {
+    path.split(separator: "/").contains { $0.hasPrefix(".") }
 }
 
 // MARK: - Authenticated Image View

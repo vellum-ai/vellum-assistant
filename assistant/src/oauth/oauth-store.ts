@@ -336,6 +336,9 @@ export async function deleteApp(id: string): Promise<boolean> {
 
   const result = await deleteSecureKeyAsync(app.clientSecretCredentialPath);
   if (result === "error") {
+    // Throw (rather than returning "error" like disconnectOAuthProvider) because
+    // the DB row is already deleted above. The caller should surface this to the
+    // user so they can retry or manually clean up the orphaned secret.
     throw new Error(
       `Deleted app ${id} but failed to remove client_secret from secure storage`,
     );
@@ -442,6 +445,52 @@ export function getConnectionByProvider(
 }
 
 /**
+ * Get the active connection for a provider matching a specific account.
+ * Falls back to getConnectionByProvider when accountInfo is undefined.
+ */
+export function getConnectionByProviderAndAccount(
+  providerKey: string,
+  accountInfo?: string,
+): OAuthConnectionRow | undefined {
+  if (!accountInfo) return getConnectionByProvider(providerKey);
+
+  const db = getDb();
+  return db
+    .select()
+    .from(oauthConnections)
+    .where(
+      and(
+        eq(oauthConnections.providerKey, providerKey),
+        eq(oauthConnections.accountInfo, accountInfo),
+        eq(oauthConnections.status, "active"),
+      ),
+    )
+    .orderBy(desc(oauthConnections.createdAt), sql`rowid DESC`)
+    .limit(1)
+    .get();
+}
+
+/**
+ * Get ALL active connections for a provider (supports multi-account).
+ */
+export function listActiveConnectionsByProvider(
+  providerKey: string,
+): OAuthConnectionRow[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(oauthConnections)
+    .where(
+      and(
+        eq(oauthConnections.providerKey, providerKey),
+        eq(oauthConnections.status, "active"),
+      ),
+    )
+    .orderBy(desc(oauthConnections.createdAt), sql`rowid DESC`)
+    .all();
+}
+
+/**
  * Check whether a provider has a usable OAuth connection: an active row in the
  * database AND a corresponding access token in secure storage.
  *
@@ -544,6 +593,10 @@ export function deleteConnection(id: string): boolean {
  * Fully disconnect an OAuth provider: delete the new-format secure keys
  * (access_token and refresh_token) and remove the connection row from SQLite.
  *
+ * When `connectionId` is provided, disconnects that specific connection
+ * (useful for multi-account providers). Otherwise falls back to the most
+ * recent active connection.
+ *
  * Returns `"disconnected"` if a connection was found and cleaned up,
  * `"not-found"` if no active connection existed for the given provider,
  * or `"error"` if secure key deletion failed (connection row is preserved
@@ -552,8 +605,11 @@ export function deleteConnection(id: string): boolean {
 export async function disconnectOAuthProvider(
   providerKey: string,
   clientId?: string,
+  connectionId?: string,
 ): Promise<"disconnected" | "not-found" | "error"> {
-  const conn = getConnectionByProvider(providerKey, clientId);
+  const conn = connectionId
+    ? getConnection(connectionId)
+    : getConnectionByProvider(providerKey, clientId);
   if (!conn) return "not-found";
 
   const r1 = await deleteSecureKeyAsync(
@@ -564,6 +620,11 @@ export async function disconnectOAuthProvider(
   );
 
   if (r1 === "error" || r2 === "error") {
+    // Return "error" (rather than throwing like deleteApp) so the connection row
+    // is preserved. This avoids orphaning secrets in secure storage — the caller
+    // can retry later and the row acts as a pointer to the keys that still need
+    // cleanup. In deleteApp the DB row is already gone, so throwing is the only
+    // way to surface the failure.
     log.warn(
       {
         providerKey,

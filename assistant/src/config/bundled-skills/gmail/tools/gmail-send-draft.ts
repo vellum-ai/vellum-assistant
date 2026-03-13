@@ -10,11 +10,12 @@ export async function run(
   input: Record<string, unknown>,
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  const account = input.account as string | undefined;
   const draftId = input.draft_id as string;
   if (!draftId) return err("draft_id is required.");
 
   try {
-    const connection = resolveOAuthConnection("integration:gmail");
+    const connection = resolveOAuthConnection("integration:gmail", account);
     const msg = await sendDraft(connection, draftId);
     return ok(`Draft sent (Message ID: ${msg.id}).`);
   } catch (e) {

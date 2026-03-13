@@ -29,8 +29,11 @@ struct ContactDetailView: View {
     @State private var telegramBootstrapChannelId: String?
     @State private var invitePhoneNumber = ""
     @State private var inviteInProgress: String?
+    @State private var inviteCallInProgress = false
+    @State private var inviteCallTriggered = false
     @State private var inviteResult: (
         type: String,
+        inviteId: String,
         token: String?,
         shareUrl: String?,
         inviteCode: String?,
@@ -44,7 +47,6 @@ struct ContactDetailView: View {
     @State private var inviteHandleInput = ""
     @State private var inviteCodeRevealed = false
     @State private var channelReadiness: [String: DaemonClient.ChannelReadinessInfo] = [:]
-    @State private var readinessFetchFailed = false
     /// Monotonically increasing counter that correlates a verification attempt
     /// with its one-shot response / timeout so stale callbacks are ignored.
     @State private var verificationAttempt: UInt64 = 0
@@ -297,9 +299,10 @@ struct ContactDetailView: View {
         .task {
             do {
                 channelReadiness = try await daemonClient?.fetchChannelReadiness() ?? [:]
-                readinessFetchFailed = false
             } catch {
-                readinessFetchFailed = true
+                // Channel readiness fetch failed — fall back to showing only
+                // channels the contact already has configured (channelReadiness
+                // stays empty so no unconfigured channel cards appear).
             }
         }
     }
@@ -637,6 +640,27 @@ struct ContactDetailView: View {
                         guard !Task.isCancelled else { return }
                         if inviteCopiedType == type {
                             inviteCopiedType = nil
+                        }
+                    }
+                }
+
+                if type == "phone", let result = inviteResult {
+                    if inviteCallTriggered {
+                        HStack(spacing: VSpacing.sm) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(VColor.systemPositiveStrong)
+                            Text("Call started")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.systemPositiveStrong)
+                        }
+                    } else {
+                        VButton(
+                            label: inviteCallInProgress ? "Calling..." : "Call \(displayContact.displayName)",
+                            icon: VIcon.phoneCall.rawValue,
+                            style: .primary,
+                            isDisabled: inviteCallInProgress
+                        ) {
+                            triggerInviteCallAction(inviteId: result.inviteId)
                         }
                     }
                 }
@@ -992,6 +1016,8 @@ struct ContactDetailView: View {
         inviteInProgress = type
         inviteError = nil
         inviteResult = nil
+        inviteCallInProgress = false
+        inviteCallTriggered = false
         inviteCodeRevealed = false
         inviteHandleInput = ""
         Task {
@@ -1007,12 +1033,14 @@ struct ContactDetailView: View {
                     sourceChannel: type,
                     note: "Invite for \(displayContact.displayName)",
                     contactName: displayContact.displayName,
+                    contactId: displayContact.id,
                     expectedExternalUserId: phoneNumber,
                     friendName: type == "phone" ? displayContact.displayName : nil,
                     guardianName: resolvedGuardianName
                 ) {
                     inviteResult = (
                         type: type,
+                        inviteId: result.inviteId,
                         token: result.token,
                         shareUrl: result.shareUrl,
                         inviteCode: result.inviteCode,
@@ -1027,6 +1055,24 @@ struct ContactDetailView: View {
                 inviteError = "Failed to create invite: \(error.localizedDescription)"
             }
             inviteInProgress = nil
+        }
+    }
+
+    private func triggerInviteCallAction(inviteId: String) {
+        guard let daemonClient, !inviteCallInProgress else { return }
+        inviteCallInProgress = true
+        Task {
+            do {
+                let success = try await daemonClient.triggerInviteCall(inviteId: inviteId)
+                if success {
+                    inviteCallTriggered = true
+                } else {
+                    inviteError = "Failed to initiate call"
+                }
+            } catch {
+                inviteError = "Failed to initiate call: \(error.localizedDescription)"
+            }
+            inviteCallInProgress = false
         }
     }
 

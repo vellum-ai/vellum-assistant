@@ -467,6 +467,13 @@ async function main() {
       handler: (req) => contactsControlPlaneProxy.handleRedeemInvite(req),
     },
     {
+      path: /^\/v1\/contacts\/invites\/([^/]+)\/call$/,
+      method: "POST",
+      auth: "edge",
+      handler: (req, params) =>
+        contactsControlPlaneProxy.handleCallInvite(req, params[0]),
+    },
+    {
       path: /^\/v1\/contacts\/invites\/([^/]+)$/,
       method: "DELETE",
       auth: "edge",

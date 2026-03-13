@@ -23,7 +23,11 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { findContactChannel } from "../contacts/contact-store.js";
+import {
+  findContactChannel,
+  getContact,
+  upsertContact,
+} from "../contacts/contact-store.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
 import { createInvite, revokeInvite } from "../memory/invite-store.js";
@@ -45,6 +49,11 @@ function resetTables() {
   getSqlite().run("DELETE FROM assistant_ingress_invites");
   getSqlite().run("DELETE FROM contact_channels");
   getSqlite().run("DELETE FROM contacts");
+}
+
+/** Create a throwaway contact and return its ID, for use as the invite's contactId. */
+function createTargetContact(displayName = "Target Contact"): string {
+  return upsertContact({ displayName, role: "contact" }).id;
 }
 
 // ---------------------------------------------------------------------------
@@ -140,14 +149,18 @@ describe("redeemVoiceInviteCode", () => {
       expiresInMs?: number;
       voiceCodeDigits?: number;
       assistantId?: string;
+      contactId?: string;
     } = {},
   ) {
     const digits = opts.voiceCodeDigits ?? 6;
     const code = generateVoiceCode(digits);
     const codeHash = hashVoiceCode(code);
 
+    const contactId = opts.contactId ?? createTargetContact();
+
     const { invite } = createInvite({
       sourceChannel: "phone",
+      contactId,
       maxUses: opts.maxUses ?? 1,
       expiresInMs: opts.expiresInMs,
       expectedExternalUserId: opts.callerPhone ?? "+15551234567",
@@ -277,11 +290,13 @@ describe("redeemVoiceInviteCode", () => {
     // Create a non-voice invite with voice code metadata to simulate a
     // hypothetical misconfiguration. The redemption service filters by
     // sourceChannel='phone', so non-phone invites are invisible.
+    const targetContactId = createTargetContact();
     const code = generateVoiceCode(6);
     const codeHash = hashVoiceCode(code);
 
     createInvite({
       sourceChannel: "telegram",
+      contactId: targetContactId,
       maxUses: 1,
       expectedExternalUserId: "+15551234567",
       voiceCodeHash: codeHash,
@@ -301,14 +316,19 @@ describe("redeemVoiceInviteCode", () => {
 
   test("already-member caller gets already_member outcome", () => {
     const phone = "+15551234567";
-    const { code } = createVoiceInvite({ callerPhone: phone });
 
     // Pre-create an active member for this phone on voice channel
-    upsertContactChannel({
+    const member = upsertContactChannel({
       sourceChannel: "phone",
       externalUserId: phone,
       status: "active",
       policy: "allow",
+    });
+
+    // Create a voice invite targeting the same contact that owns the channel
+    const { code } = createVoiceInvite({
+      callerPhone: phone,
+      contactId: member!.contact.id,
     });
 
     const result = redeemVoiceInviteCode({
@@ -327,13 +347,19 @@ describe("redeemVoiceInviteCode", () => {
 
   test("blocked member gets generic failure to avoid leaking membership status", () => {
     const phone = "+15551234567";
-    const { code } = createVoiceInvite({ callerPhone: phone });
 
-    upsertContactChannel({
+    // Pre-create a blocked member and find their contact
+    const member = upsertContactChannel({
       sourceChannel: "phone",
       externalUserId: phone,
       status: "blocked",
       policy: "deny",
+    });
+
+    // Create a voice invite targeting the same contact that owns the channel
+    const { code } = createVoiceInvite({
+      callerPhone: phone,
+      contactId: member!.contact.id,
     });
 
     const result = redeemVoiceInviteCode({
@@ -353,5 +379,59 @@ describe("redeemVoiceInviteCode", () => {
     });
 
     expect(result).toEqual({ ok: false, reason: "invalid_or_expired" });
+  });
+
+  test("binds redeemer to the invite's target contact, not the guardian, on voice redemption", () => {
+    const phone = "+15559998888";
+
+    // Pre-create a guardian contact with a revoked phone channel
+    const guardianContact = upsertContact({
+      displayName: "Guardian",
+      role: "guardian",
+      channels: [
+        {
+          type: "phone",
+          address: phone,
+          externalUserId: phone,
+          status: "revoked",
+        },
+      ],
+    });
+
+    // Create a separate target contact "Mom"
+    const momContact = upsertContact({
+      displayName: "Mom",
+      role: "contact",
+    });
+
+    // Create a voice invite targeting Mom's contact
+    const { code } = createVoiceInvite({
+      callerPhone: phone,
+      contactId: momContact.id,
+    });
+
+    const result = redeemVoiceInviteCode({
+      callerExternalUserId: phone,
+      sourceChannel: "phone",
+      code,
+    });
+
+    // Should succeed — redeemer's channel is bound to Mom
+    expect(result.ok).toBe(true);
+    expect((result as { type: string }).type).toBe("redeemed");
+
+    // Verify the redeemer's phone is now bound to Mom's contact
+    const contactResult = findContactChannel({
+      channelType: "phone",
+      externalUserId: phone,
+    });
+    expect(contactResult).not.toBeNull();
+    expect(contactResult!.contact.id).toBe(momContact.id);
+    expect(contactResult!.channel.status).toBe("active");
+
+    // Verify the original guardian contact was NOT modified
+    const guardian = getContact(guardianContact.id);
+    expect(guardian).not.toBeNull();
+    expect(guardian!.role).toBe("guardian");
   });
 });

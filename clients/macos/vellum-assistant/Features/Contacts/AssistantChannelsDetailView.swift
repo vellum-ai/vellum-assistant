@@ -136,14 +136,15 @@ struct AssistantChannelsDetailView: View {
         let status = store.channelSetupStatus["telegram"]
         return SettingsCard(title: "Telegram", subtitle: "Message your assistant from Telegram") {
             if status == "ready" {
-                HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
-                    VButton(label: "Disconnect", style: .danger, isDisabled: store.telegramSaveInProgress) {
-                        store.clearTelegramCredentials()
-                        telegramBotTokenText = ""
-                        telegramSetupExpanded = false
-                        store.channelSetupStatus["telegram"] = "not_configured"
-                    }
+                VBadge(style: .label("Connected"), color: VColor.systemPositiveStrong)
+            }
+        } content: {
+            if status == "ready" {
+                VButton(label: "Disconnect", style: .danger, isDisabled: store.telegramSaveInProgress) {
+                    store.clearTelegramCredentials()
+                    telegramBotTokenText = ""
+                    telegramSetupExpanded = false
+                    store.channelSetupStatus["telegram"] = "not_configured"
                 }
             } else if (status == "incomplete" && store.telegramHasBotToken) || telegramSetupExpanded {
                 telegramCredentialEntry
@@ -206,15 +207,16 @@ struct AssistantChannelsDetailView: View {
         let status = store.channelSetupStatus["slack"]
         return SettingsCard(title: "Slack", subtitle: "Message your assistant from Slack") {
             if status == "ready" {
-                HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
-                    VButton(label: "Disconnect", style: .danger, isDisabled: store.slackChannelSaveInProgress) {
-                        store.clearSlackChannelConfig()
-                        slackChannelBotTokenInput = ""
-                        slackChannelAppTokenInput = ""
-                        slackChannelSetupExpanded = false
-                        store.channelSetupStatus["slack"] = "not_configured"
-                    }
+                VBadge(style: .label("Connected"), color: VColor.systemPositiveStrong)
+            }
+        } content: {
+            if status == "ready" {
+                VButton(label: "Disconnect", style: .danger, isDisabled: store.slackChannelSaveInProgress) {
+                    store.clearSlackChannelConfig()
+                    slackChannelBotTokenInput = ""
+                    slackChannelAppTokenInput = ""
+                    slackChannelSetupExpanded = false
+                    store.channelSetupStatus["slack"] = "not_configured"
                 }
             } else if (status == "incomplete" && (store.slackChannelHasBotToken || store.slackChannelHasAppToken)) || slackChannelSetupExpanded {
                 slackChannelCredentialEntry
@@ -291,6 +293,10 @@ struct AssistantChannelsDetailView: View {
     private var voiceCard: some View {
         let status = store.channelSetupStatus["phone"]
         return SettingsCard(title: "Phone Calling", subtitle: "Receive and make phone calls via Twilio") {
+            if status == "ready" {
+                VBadge(style: .label("Connected"), color: VColor.systemPositiveStrong)
+            }
+        } content: {
             // Phone number dropdown: show when credentials are configured
             if (status == "ready" || status == "incomplete") && store.twilioHasCredentials {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
@@ -313,12 +319,9 @@ struct AssistantChannelsDetailView: View {
             }
 
             if status == "ready" {
-                HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
-                    VButton(label: "Disconnect", style: .danger, isDisabled: store.twilioSaveInProgress) {
-                        store.clearTwilioCredentials()
-                        store.channelSetupStatus["phone"] = "not_configured"
-                    }
+                VButton(label: "Disconnect", style: .danger, isDisabled: store.twilioSaveInProgress) {
+                    store.clearTwilioCredentials()
+                    store.channelSetupStatus["phone"] = "not_configured"
                 }
             } else if (status == "incomplete" && store.twilioHasCredentials) || voiceSetupExpanded {
                 voiceCredentialEntry

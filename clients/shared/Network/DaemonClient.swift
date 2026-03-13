@@ -957,37 +957,44 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Fetch the workspace directory tree.
     /// Delegates to HTTPTransport for remote connections, or calls the local daemon HTTP server.
-    public func fetchWorkspaceTree(path: String = "") async -> WorkspaceTreeResponse? {
+    public func fetchWorkspaceTree(path: String = "", showHidden: Bool = false) async -> WorkspaceTreeResponse? {
         if let httpTransport {
-            return await httpTransport.fetchWorkspaceTree(path: path)
+            return await httpTransport.fetchWorkspaceTree(path: path, showHidden: showHidden)
         }
 
         let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-        let queryPath = path.isEmpty ? "v1/workspace/tree" : "v1/workspace/tree?path=\(encoded)"
+        var params: [String] = []
+        if !path.isEmpty { params.append("path=\(encoded)") }
+        if showHidden { params.append("showHidden=true") }
+        let queryPath = params.isEmpty ? "v1/workspace/tree" : "v1/workspace/tree?\(params.joined(separator: "&"))"
         return await executeLocalRequest(path: queryPath, timeout: 10)
     }
 
     /// Fetch a single workspace file's metadata and optional content.
     /// Delegates to HTTPTransport for remote connections, or calls the local daemon HTTP server.
-    public func fetchWorkspaceFile(path: String) async -> WorkspaceFileResponse? {
+    public func fetchWorkspaceFile(path: String, showHidden: Bool = false) async -> WorkspaceFileResponse? {
         if let httpTransport {
-            return await httpTransport.fetchWorkspaceFile(path: path)
+            return await httpTransport.fetchWorkspaceFile(path: path, showHidden: showHidden)
         }
 
         let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-        return await executeLocalRequest(path: "v1/workspace/file?path=\(encoded)", timeout: 10)
+        var query = "path=\(encoded)"
+        if showHidden { query += "&showHidden=true" }
+        return await executeLocalRequest(path: "v1/workspace/file?\(query)", timeout: 10)
     }
 
     /// Build a URL for streaming/downloading workspace file content.
     /// For remote connections, delegates to HTTPTransport. For local, builds against daemon HTTP port.
-    public func workspaceFileContentURL(path: String) -> URL? {
+    public func workspaceFileContentURL(path: String, showHidden: Bool = false) -> URL? {
         if let httpTransport {
-            return httpTransport.workspaceFileContentURL(path: path)
+            return httpTransport.workspaceFileContentURL(path: path, showHidden: showHidden)
         }
 
         let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
+        var query = "path=\(encoded)"
+        if showHidden { query += "&showHidden=true" }
         guard let port = httpPort else { return nil }
-        return URL(string: "http://localhost:\(port)/v1/workspace/file/content?path=\(encoded)")
+        return URL(string: "http://localhost:\(port)/v1/workspace/file/content?\(query)")
     }
 
     // MARK: - Workspace Write Operations
@@ -2041,12 +2048,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         note: String? = nil,
         maxUses: Int? = nil,
         contactName: String? = nil,
+        contactId: String? = nil,
         expectedExternalUserId: String? = nil,
         friendName: String? = nil,
         guardianName: String? = nil
     ) async throws -> (inviteId: String, token: String?, shareUrl: String?, inviteCode: String?, voiceCode: String?, guardianInstruction: String?, channelHandle: String?)? {
         if let httpTransport {
-            return try await httpTransport.createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses, contactName: contactName, expectedExternalUserId: expectedExternalUserId, friendName: friendName, guardianName: guardianName)
+            return try await httpTransport.createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses, contactName: contactName, contactId: contactId, expectedExternalUserId: expectedExternalUserId, friendName: friendName, guardianName: guardianName)
         }
 
         #if os(macOS)
@@ -2057,6 +2065,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         if let note { body["note"] = note }
         if let maxUses { body["maxUses"] = maxUses }
         if let contactName { body["contactName"] = contactName }
+        if let contactId { body["contactId"] = contactId }
         if let expectedExternalUserId { body["expectedExternalUserId"] = expectedExternalUserId }
         if let friendName { body["friendName"] = friendName }
         if let guardianName { body["guardianName"] = guardianName }
@@ -2089,6 +2098,21 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         return (inviteId: invite.id, token: invite.token, shareUrl: invite.share?.url, inviteCode: invite.inviteCode, voiceCode: invite.voiceCode, guardianInstruction: invite.guardianInstruction, channelHandle: invite.channelHandle)
         #else
         return nil
+        #endif
+    }
+
+    /// Trigger an invite call via `POST /v1/contacts/invites/:id/call`.
+    public func triggerInviteCall(inviteId: String) async throws -> Bool {
+        if let httpTransport { return try await httpTransport.triggerInviteCall(inviteId: inviteId) }
+        #if os(macOS)
+        guard var request = buildLocalRequest(target: .gateway, path: "v1/contacts/invites/\(inviteId)/call", method: "POST") else { return false }
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [:] as [String: Any])
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...201).contains(http.statusCode) else { return false }
+        return true
+        #else
+        return false
         #endif
     }
 

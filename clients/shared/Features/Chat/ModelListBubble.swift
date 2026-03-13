@@ -113,7 +113,7 @@ public struct ModelListBubble: View {
             }
 
             // Footer
-            Text("Switch with /shortcut or `config set apiKeys.<provider> <key>` to add a provider.")
+            Text("Switch with /shortcut or `keys set <provider> <key>` to add a provider.")
                 .font(VFont.small)
                 .foregroundColor(VColor.contentTertiary)
                 .padding(.horizontal, VSpacing.lg)

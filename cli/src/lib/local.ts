@@ -528,46 +528,77 @@ export async function discoverPublicUrl(
 ): Promise<string | undefined> {
   const effectivePort = port ?? GATEWAY_PORT;
 
-  // Discover local and cloud addresses in parallel so the cloud metadata
-  // timeout (1s) doesn't block startup when a local address is immediately
-  // available.
+  // Start cloud metadata lookup (may take up to 1s on non-cloud hosts).
   const cloudIpPromise = discoverCloudExternalIp();
 
-  // Resolve local address synchronously (no I/O).
-  const localUrl = discoverLocalUrl(effectivePort);
+  // Resolve local address synchronously (no I/O) — does not log.
+  const localResult = discoverLocalUrl(effectivePort);
 
-  const cloudIp = await cloudIpPromise;
+  // Race: if cloud IP resolves quickly, prefer it; otherwise return the
+  // local URL immediately instead of blocking on the full metadata timeout.
+  const cloudIp = await Promise.race([
+    cloudIpPromise,
+    // Give cloud metadata a short grace period (150ms) before falling back
+    // to the local address. This is enough for on-cloud hosts where the
+    // metadata endpoint responds in single-digit ms, but avoids the full
+    // 1s timeout on non-cloud machines.
+    new Promise<undefined>((resolve) =>
+      setTimeout(() => resolve(undefined), 150),
+    ),
+  ]);
+
   if (cloudIp) {
     console.log(`   Discovered external IP: ${cloudIp}`);
     return `http://${cloudIp}:${effectivePort}`;
   }
 
-  return localUrl;
+  // Log the local address source only when we actually use it.
+  if (localResult.source === "hostname") {
+    console.log(`   Discovered macOS local hostname: ${localResult.label}`);
+  } else if (localResult.source === "lan") {
+    console.log(`   Discovered LAN IP: ${localResult.label}`);
+  }
+
+  return localResult.url;
 }
 
 /**
  * Resolve a LAN-reachable URL without any async I/O. Returns the best local
- * address or falls back to localhost.
+ * address or falls back to localhost. Does not emit any logs — the caller
+ * decides whether to log based on which result is actually used.
  */
-function discoverLocalUrl(effectivePort: number): string {
+function discoverLocalUrl(effectivePort: number): {
+  url: string;
+  source: "hostname" | "lan" | "localhost";
+  label?: string;
+} {
   // On macOS, prefer the .local hostname (Bonjour/mDNS) so other devices on
   // the same network can reach the gateway by name.
   if (platform() === "darwin") {
     const localHostname = getMacLocalHostname();
     if (localHostname) {
-      console.log(`   Discovered macOS local hostname: ${localHostname}`);
-      return `http://${localHostname}:${effectivePort}`;
+      return {
+        url: `http://${localHostname}:${effectivePort}`,
+        source: "hostname",
+        label: localHostname,
+      };
     }
   }
 
   const lanIp = getLocalLanIPv4();
   if (lanIp) {
-    console.log(`   Discovered LAN IP: ${lanIp}`);
-    return `http://${lanIp}:${effectivePort}`;
+    return {
+      url: `http://${lanIp}:${effectivePort}`,
+      source: "lan",
+      label: lanIp,
+    };
   }
 
   // Final fallback to localhost when no LAN address could be discovered.
-  return `http://localhost:${effectivePort}`;
+  return {
+    url: `http://localhost:${effectivePort}`,
+    source: "localhost",
+  };
 }
 
 /**

@@ -68,27 +68,21 @@ struct ChannelVerificationFlowView: View {
     private var verifiedView: some View {
         let primaryIdentity = state.primaryIdentity
         let secondaryIdentity = state.secondaryIdentity(primary: primaryIdentity)
-        let telegramProfileURL: URL? = state.channel == "telegram"
-            ? state.identity.flatMap { URL(string: "https://web.telegram.org/a/#\($0)") }
-            : nil
 
         return VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
                 if showLabel {
                     verificationLabel
                 }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(primaryIdentity ?? "Verified")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentDefault)
-                        .lineLimit(1)
-                    if let secondaryIdentity {
-                        if let telegramProfileURL {
-                            Link(secondaryIdentity, destination: telegramProfileURL)
-                                .font(VFont.caption)
-                                .lineLimit(1)
-                                .pointerCursor()
-                        } else {
+                if state.channel == "telegram" {
+                    telegramVerifiedIdentity
+                } else {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(primaryIdentity ?? "Verified")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentDefault)
+                            .lineLimit(1)
+                        if let secondaryIdentity {
                             Text(secondaryIdentity)
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.contentTertiary)
@@ -100,6 +94,62 @@ struct ChannelVerificationFlowView: View {
             }
             VButton(label: "Disconnect", style: .danger) {
                 onRevoke()
+            }
+        }
+    }
+
+    /// Telegram-specific verified identity layout:
+    /// 1. Display name (or username/identity as fallback)
+    /// 2. @username (plain text, if available and not already shown)
+    /// 3. "Telegram ID: " prefix + hyperlinked ID
+    private var telegramVerifiedIdentity: some View {
+        let displayName = state.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let username = state.username?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let identity = state.identity?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let formattedUsername: String? = {
+            guard let username, !username.isEmpty else { return nil }
+            return username.hasPrefix("@") ? username : "@\(username)"
+        }()
+
+        // Primary line: display name, else username, else identity, else "Verified"
+        let nameLine = (displayName.flatMap { $0.isEmpty ? nil : $0 })
+            ?? formattedUsername
+            ?? identity
+            ?? "Verified"
+
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(nameLine)
+                .font(VFont.body)
+                .foregroundColor(VColor.contentDefault)
+                .lineLimit(1)
+
+            // Show @username if it wasn't already used as the name line
+            if let formattedUsername, formattedUsername != nameLine {
+                Text(formattedUsername)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
+                    .lineLimit(1)
+            }
+
+            // Telegram ID line: only hyperlink the ID itself
+            if let identity, !identity.isEmpty, identity != nameLine {
+                HStack(spacing: 0) {
+                    Text("Telegram ID: ")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                    if let url = URL(string: "https://web.telegram.org/a/#\(identity)") {
+                        Link(identity, destination: url)
+                            .font(VFont.caption)
+                            .lineLimit(1)
+                            .pointerCursor()
+                    } else {
+                        Text(identity)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentTertiary)
+                            .lineLimit(1)
+                    }
+                }
             }
         }
     }

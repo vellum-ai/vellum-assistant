@@ -52,14 +52,11 @@ struct ThreadActionsDrawer: View {
 
             SidebarPrimaryRow(icon: VIcon.archive.rawValue, label: "Archive thread", action: onArchive)
         }
-        .padding(.vertical, VSpacing.sm)
-        .background(VColor.surfaceOverlay)
+        .padding(VSpacing.sm)
+        .background(VColor.surfaceLift)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.borderBase, lineWidth: 1)
-        )
-        .shadow(color: VColor.auxBlack.opacity(0.15), radius: 6, y: 2)
+        .shadow(color: VColor.auxBlack.opacity(0.1), radius: 1.5, x: 0, y: 1)
+        .shadow(color: VColor.auxBlack.opacity(0.1), radius: 6, x: 0, y: 4)
         .frame(width: 200)
         .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .top)))
     }

@@ -2,6 +2,7 @@ import SwiftUI
 
 public struct VButton: View {
     public enum Style: Hashable { case primary, danger, dangerOutline, outlined, ghost, contrast }
+    public enum Size: Hashable { case regular, pill }
 
     public let label: String
     public var leftIcon: String? = nil
@@ -12,6 +13,7 @@ public struct VButton: View {
     public var isDisabled: Bool = false
     public var isActive: Bool = false
     public var iconSize: CGFloat? = nil
+    public var size: Size = .regular
     public var tooltip: String? = nil
     public var accessibilityID: String? = nil
     public let action: () -> Void
@@ -19,7 +21,7 @@ public struct VButton: View {
     @State private var isHovered = false
     @FocusState private var isFocused: Bool
 
-    public init(label: String, icon: String? = nil, leftIcon: String? = nil, rightIcon: String? = nil, iconOnly: String? = nil, style: Style = .primary, isFullWidth: Bool = false, isDisabled: Bool = false, isActive: Bool = false, iconSize: CGFloat? = nil, tooltip: String? = nil, accessibilityID: String? = nil, action: @escaping () -> Void) {
+    public init(label: String, icon: String? = nil, leftIcon: String? = nil, rightIcon: String? = nil, iconOnly: String? = nil, style: Style = .primary, size: Size = .regular, isFullWidth: Bool = false, isDisabled: Bool = false, isActive: Bool = false, iconSize: CGFloat? = nil, tooltip: String? = nil, accessibilityID: String? = nil, action: @escaping () -> Void) {
         self.label = label
         self.leftIcon = leftIcon ?? icon
         self.rightIcon = rightIcon
@@ -29,6 +31,7 @@ public struct VButton: View {
         self.isDisabled = isDisabled
         self.isActive = isActive
         self.iconSize = iconSize
+        self.size = size
         self.tooltip = tooltip
         self.accessibilityID = accessibilityID
         self.action = action
@@ -48,7 +51,7 @@ public struct VButton: View {
                         VIconView(.resolve(leftIcon), size: textIconSize)
                     }
                     Text(label)
-                        .font(VFont.bodyMedium)
+                        .font(size == .pill ? VFont.captionMedium : VFont.bodyMedium)
                     if isFullWidth && (leftIcon != nil || rightIcon != nil) {
                         Spacer(minLength: 0)
                     }
@@ -61,6 +64,7 @@ public struct VButton: View {
         .focused($isFocused)
         .buttonStyle(VButtonStyle(
             style: style,
+            size: size,
             isHovered: isHovered,
             isFullWidth: isFullWidth,
             isIconOnly: iconOnly != nil,
@@ -96,6 +100,7 @@ public struct VButton: View {
 
 public struct VButtonStyle: ButtonStyle {
     let style: VButton.Style
+    let size: VButton.Size
     let isHovered: Bool
     let isFullWidth: Bool
     let isIconOnly: Bool
@@ -105,11 +110,12 @@ public struct VButtonStyle: ButtonStyle {
 
     /// Creates an icon-only button style for custom button compositions.
     public static func iconOnly(style: VButton.Style = .ghost, isHovered: Bool, isFocused: Bool = false, isActive: Bool = false, iconSize: CGFloat? = nil) -> VButtonStyle {
-        VButtonStyle(style: style, isHovered: isHovered, isFullWidth: false, isIconOnly: true, isActive: isActive, isFocused: isFocused, iconSize: iconSize)
+        VButtonStyle(style: style, size: .regular, isHovered: isHovered, isFullWidth: false, isIconOnly: true, isActive: isActive, isFocused: isFocused, iconSize: iconSize)
     }
 
-    init(style: VButton.Style, isHovered: Bool, isFullWidth: Bool, isIconOnly: Bool = false, isActive: Bool = false, isFocused: Bool = false, iconSize: CGFloat? = nil) {
+    init(style: VButton.Style, size: VButton.Size = .regular, isHovered: Bool, isFullWidth: Bool, isIconOnly: Bool = false, isActive: Bool = false, isFocused: Bool = false, iconSize: CGFloat? = nil) {
         self.style = style
+        self.size = size
         self.isHovered = isHovered
         self.isFullWidth = isFullWidth
         self.isIconOnly = isIconOnly
@@ -121,12 +127,14 @@ public struct VButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
 
     public func makeBody(configuration: Configuration) -> some View {
-        let shape = RoundedRectangle(cornerRadius: VRadius.md)
+        let cornerRadius = size == .pill ? VRadius.pill : VRadius.md
+        let shape = RoundedRectangle(cornerRadius: cornerRadius)
 
         configuration.label
             .foregroundColor(foregroundColor)
             .modifier(ButtonLayoutModifier(
                 style: style,
+                size: size,
                 isIconOnly: isIconOnly,
                 isFullWidth: isFullWidth,
                 iconSize: iconSize
@@ -234,6 +242,7 @@ public struct VButtonStyle: ButtonStyle {
 
 private struct ButtonLayoutModifier: ViewModifier {
     let style: VButton.Style
+    let size: VButton.Size
     let isIconOnly: Bool
     let isFullWidth: Bool
     let iconSize: CGFloat?
@@ -242,6 +251,11 @@ private struct ButtonLayoutModifier: ViewModifier {
         if isIconOnly {
             content
                 .frame(width: iconSize ?? 32, height: iconSize ?? 32)
+        } else if size == .pill {
+            content
+                .padding(.horizontal, VSpacing.sm)
+                .frame(height: 24)
+                .frame(maxWidth: isFullWidth ? .infinity : nil)
         } else {
             content
                 .padding(.horizontal, VSpacing.md)

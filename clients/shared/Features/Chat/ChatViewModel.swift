@@ -560,6 +560,23 @@ public final class ChatViewModel: ObservableObject {
     /// The in-flight btw streaming task, stored for cancellation.
     private var btwTask: Task<Void, Never>?
 
+    // MARK: - Empty-State Greeting
+
+    /// A daemon-generated greeting shown when the conversation is empty, or nil before generation.
+    @Published public var emptyStateGreeting: String? = nil
+    /// True while a greeting is being streamed from the daemon.
+    @Published public var isGeneratingGreeting: Bool = false
+    /// The in-flight greeting streaming task, stored for cancellation.
+    private var greetingTask: Task<Void, Never>?
+
+    private static let fallbackGreetings = [
+        "What are we working on?",
+        "I'm here whenever you need me.",
+        "What's on your mind?",
+        "Let's make something happen.",
+        "Ready when you are.",
+    ]
+
     /// Whether there are more messages above the current display window.
     /// True when either:
     ///   1. There are locally loaded messages outside the current display suffix, OR
@@ -1178,6 +1195,43 @@ public final class ChatViewModel: ObservableObject {
         btwTask = nil
         btwResponse = nil
         btwLoading = false
+    }
+
+    // MARK: - Empty-State Greeting Generation
+
+    /// Stream a short, personality-matched greeting from the daemon for the empty conversation state.
+    /// Each call cancels any in-flight generation and starts fresh. On error, falls back to a
+    /// random default greeting so the UI always receives a value.
+    public func generateGreeting() {
+        greetingTask?.cancel()
+        emptyStateGreeting = nil
+        isGeneratingGreeting = true
+
+        greetingTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let key = "greeting-\(UUID().uuidString)"
+            var result = ""
+            do {
+                let stream = self.daemonClient.sendBtwMessage(
+                    content: "Generate a short, casual greeting for when the user opens a new conversation (under 8 words, like \"Ready when you are.\" or \"What's on your mind?\"). Match your personality. Output ONLY the greeting, nothing else.",
+                    conversationKey: key
+                )
+                for try await delta in stream {
+                    guard !Task.isCancelled else { return }
+                    result += delta
+                }
+                guard !Task.isCancelled else { return }
+                self.emptyStateGreeting = result.isEmpty
+                    ? Self.fallbackGreetings.randomElement()!
+                    : result
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.emptyStateGreeting = Self.fallbackGreetings.randomElement()!
+            }
+            self.isGeneratingGreeting = false
+        }
     }
 
     private func bootstrapSession(userMessage: String?, attachments: [UserMessageAttachment]?) {
@@ -2682,6 +2736,7 @@ public final class ChatViewModel: ObservableObject {
         reconnectLatchTimeoutTask?.cancel()
         reconnectDebounceTask?.cancel()
         btwTask?.cancel()
+        greetingTask?.cancel()
         memoryPressureSource?.cancel()
         if let observer = reconnectObserver {
             NotificationCenter.default.removeObserver(observer)

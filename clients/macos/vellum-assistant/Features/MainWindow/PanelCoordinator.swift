@@ -538,9 +538,21 @@ func openFilePicker(viewModel: ChatViewModel) {
         .movie, .mpeg4Movie, .quickTimeMovie, .avi,
         .mp3, .wav, .aiff, .audio,
     ]
-    guard panel.runModal() == .OK else { return }
-    for url in panel.urls {
-        viewModel.addAttachment(url: url)
+    // Present as a window sheet instead of a blocking app-modal dialog
+    // so the user can still see the chat while picking files.
+    guard let window = NSApp.keyWindow ?? NSApp.mainWindow else {
+        // Fallback to modal if no window is available.
+        guard panel.runModal() == .OK else { return }
+        for url in panel.urls {
+            viewModel.addAttachment(url: url)
+        }
+        return
+    }
+    panel.beginSheetModal(for: window) { response in
+        guard response == .OK else { return }
+        for url in panel.urls {
+            viewModel.addAttachment(url: url)
+        }
     }
 }
 
@@ -674,6 +686,8 @@ struct ActiveChatViewWrapper: View {
             onDictateToggle: onDictateToggle,
             onVoiceModeToggle: onVoiceModeToggle,
             threadId: threadId,
+            daemonGreeting: viewModel.emptyStateGreeting,
+            onRequestGreeting: { [weak viewModel] in viewModel?.generateGreeting() },
             anchorMessageId: $anchorMessageId,
             btwResponse: viewModel.btwResponse,
             btwLoading: viewModel.btwLoading,
