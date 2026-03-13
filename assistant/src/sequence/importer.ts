@@ -5,7 +5,7 @@
  * and bulk-enrolls contacts into a sequence.
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { extname, resolve, sep } from "node:path";
 
 import { getLogger } from "../util/logger.js";
@@ -48,9 +48,26 @@ function normalizeForPathCheck(path: string): string {
 
 function validateImportPath(filePath: string): string {
   const resolvedPath = resolve(filePath);
-  const workspaceRoot = resolve(process.cwd());
-  const normalizedPath = normalizeForPathCheck(resolvedPath);
-  const normalizedWorkspace = normalizeForPathCheck(workspaceRoot);
+
+  // Resolve symlinks to prevent symlink-based escapes (e.g. workspace/evil.csv -> /etc/shadow).
+  // Fall back to the resolve()-d path if the file doesn't exist yet.
+  let realPath: string;
+  try {
+    realPath = realpathSync(resolvedPath);
+  } catch {
+    realPath = resolvedPath;
+  }
+
+  // Also resolve the workspace root's real path (e.g. /tmp -> /private/tmp on macOS).
+  let realWorkspace: string;
+  try {
+    realWorkspace = realpathSync(resolve(process.cwd()));
+  } catch {
+    realWorkspace = resolve(process.cwd());
+  }
+
+  const normalizedPath = normalizeForPathCheck(realPath);
+  const normalizedWorkspace = normalizeForPathCheck(realWorkspace);
 
   if (
     normalizedPath !== normalizedWorkspace &&
@@ -64,7 +81,7 @@ function validateImportPath(filePath: string): string {
     throw new Error("file_path must be a .csv or .tsv file.");
   }
 
-  return resolvedPath;
+  return realPath;
 }
 
 // ── Email validation ────────────────────────────────────────────────
