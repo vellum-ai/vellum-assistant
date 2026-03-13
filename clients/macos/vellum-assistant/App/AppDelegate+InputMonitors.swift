@@ -237,14 +237,36 @@ extension AppDelegate {
         }
     }
 
-    /// Registers Cmd+Shift+V as a global shortcut to open the quick input text field.
-    /// Uses NSEvent monitors (global + local).
+    /// Registers the Quick Input Above Dock shortcut (default Cmd+Shift+V) as a
+    /// global + local monitor. Reads the shortcut from UserDefaults and skips
+    /// re-registration if unchanged. An empty shortcut disables the feature.
     func registerFnVMonitor() {
+        let shortcut = UserDefaults.standard.string(forKey: "quickInputAboveDockShortcut") ?? "cmd+shift+v"
+
+        if shortcut == lastRegisteredQuickInputAboveDockShortcut { return }
+
+        // Tear down previous monitors
+        if let monitor = fnVGlobalMonitor {
+            NSEvent.removeMonitor(monitor)
+            fnVGlobalMonitor = nil
+        }
+        if let monitor = fnVLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            fnVLocalMonitor = nil
+        }
+
+        guard !shortcut.isEmpty else {
+            lastRegisteredQuickInputAboveDockShortcut = shortcut
+            log.info("Quick Input Above Dock: shortcut disabled")
+            return
+        }
+
+        let (targetModifiers, targetKey) = ShortcutHelper.parseShortcut(shortcut)
+
         let handler: (NSEvent) -> NSEvent? = { [weak self] event in
-            // Cmd+Shift+V: keyCode 9 is kVK_ANSI_V
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            guard event.keyCode == 9,
-                  mods == [.command, .shift] else {
+            guard mods == targetModifiers,
+                  event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else {
                 return event
             }
             Task { @MainActor in
@@ -258,6 +280,8 @@ extension AppDelegate {
             _ = handler(event)
         }
         fnVLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+
+        lastRegisteredQuickInputAboveDockShortcut = shortcut
     }
 
     /// Registers Cmd+N as a local shortcut to create a new thread.
