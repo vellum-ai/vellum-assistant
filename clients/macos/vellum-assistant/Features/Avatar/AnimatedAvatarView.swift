@@ -40,6 +40,16 @@ class AvatarLayerView: NSView {
     /// Track current configuration to skip redundant updates.
     private var currentKey: String?
 
+    /// Pre-computed open and closed eye CGPaths for blink animation.
+    private var openEyePaths: [CGPath] = []
+    private var closedEyePaths: [CGPath] = []
+
+    /// Timer that fires random blinks.
+    private var blinkTask: Task<Void, Never>?
+
+    /// Whether blinks are currently enabled (paused when window is inactive).
+    private var blinkEnabled = true
+
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
@@ -47,6 +57,10 @@ class AvatarLayerView: NSView {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    deinit {
+        blinkTask?.cancel()
+    }
 
     func configure(bodyShape: AvatarBodyShape, eyeStyle: AvatarEyeStyle, color: AvatarColor, size: CGFloat) {
         let key = "\(bodyShape.rawValue)-\(eyeStyle.rawValue)-\(color.rawValue)-\(Int(size))"
@@ -84,11 +98,15 @@ class AvatarLayerView: NSView {
             bodyTransform: bodyTransform
         )
 
+        // Pre-compute blink paths
+        openEyePaths.removeAll()
+        closedEyePaths.removeAll()
+
         for eyePath in eyeStyle.paths {
             let eyeEditable = parseSVGPathToEditable(eyePath.svgPath)
             let eyeCGPath = eyeEditable.toCGPath()
             var mutableEyeTransform = eyeXform
-            let transformedEyePath = eyeCGPath.copy(using: &mutableEyeTransform)
+            let transformedEyePath = eyeCGPath.copy(using: &mutableEyeTransform)!
 
             let eyeLayer = CAShapeLayer()
             eyeLayer.path = transformedEyePath
@@ -96,8 +114,54 @@ class AvatarLayerView: NSView {
             eyeLayer.frame = CGRect(x: 0, y: 0, width: size, height: size)
             layer?.addSublayer(eyeLayer)
             eyeLayers.append(eyeLayer)
+
+            // Store the open path (reuse the already-computed transformedEyePath)
+            openEyePaths.append(transformedEyePath)
+
+            // Closed path — squish Y toward center, then apply same transform
+            let closedEditable = eyeEditable.blinked(amount: 1.0)
+            let closedCGPath = closedEditable.toCGPath()
+            var closedTransform = eyeXform
+            closedEyePaths.append(closedCGPath.copy(using: &closedTransform)!)
         }
 
         CATransaction.commit()
+
+        startBlinkTimer()
+    }
+
+    private func startBlinkTimer() {
+        blinkTask?.cancel()
+        blinkTask = Task { [weak self] in
+            while !Task.isCancelled {
+                // Random delay between 3-7 seconds
+                let delay = Double.random(in: 3.0...7.0)
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    guard let self, self.blinkEnabled else { return }
+                    self.performBlink()
+                }
+            }
+        }
+    }
+
+    private func performBlink() {
+        guard !eyeLayers.isEmpty,
+              eyeLayers.count == openEyePaths.count,
+              eyeLayers.count == closedEyePaths.count else { return }
+
+        for (i, eyeLayer) in eyeLayers.enumerated() {
+            let animation = CAKeyframeAnimation(keyPath: "path")
+            animation.values = [openEyePaths[i], closedEyePaths[i], openEyePaths[i]]
+            animation.keyTimes = [0, 0.3, 1.0]  // Quick close at 30%, slow open to 100%
+            animation.duration = 0.25
+            animation.timingFunctions = [
+                CAMediaTimingFunction(name: .easeIn),   // Close quickly
+                CAMediaTimingFunction(name: .easeOut),   // Open slowly
+            ]
+            animation.isRemovedOnCompletion = true
+            eyeLayer.add(animation, forKey: "blink")
+        }
     }
 }
