@@ -129,6 +129,51 @@ struct ModifiersGallerySection: View {
 
             Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
+            // MARK: - .iBeamCursor()
+            GallerySectionHeader(
+                title: ".iBeamCursor()",
+                description: "Shows an I-beam (text) cursor on hover. Useful for making non-TextField areas feel like clickable text-input zones."
+            )
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Text("Hover over the items below to see the I-beam cursor:")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentSecondary)
+
+                    HStack(spacing: VSpacing.lg) {
+                        Text("Text input area")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentDefault)
+                            .padding(VSpacing.md)
+                            .background(VColor.surfaceBase)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: VRadius.sm)
+                                    .stroke(VColor.borderBase, lineWidth: 1)
+                            )
+                            .contentShape(Rectangle())
+                            .iBeamCursor()
+
+                        Text("Disabled")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentSecondary)
+                            .padding(VSpacing.md)
+                            .background(VColor.surfaceBase)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: VRadius.sm)
+                                    .stroke(VColor.borderBase, lineWidth: 1)
+                            )
+                            .contentShape(Rectangle())
+                            .iBeamCursor()
+                            .disabled(true)
+                    }
+                }
+            }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
             // MARK: - .vPanelBackground()
             GallerySectionHeader(
                 title: ".vPanelBackground()",

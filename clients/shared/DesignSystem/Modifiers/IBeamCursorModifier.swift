@@ -6,9 +6,10 @@ import AppKit
 
 /// A view modifier that shows an I-beam (text) cursor on hover.
 ///
-/// On macOS 15+ this uses the native `.pointerStyle(.horizontalBeamResize)` workaround
-/// since there is no `.iBeam` pointer style. On macOS 14 it falls back to
-/// `NSCursor.iBeam.push()` / `NSCursor.pop()`.
+/// On macOS this uses `NSCursor.iBeam.push()` / `NSCursor.pop()` with cleanup
+/// in `onChange(of: isEnabled)` and `onDisappear` to avoid cursor stack leaks.
+/// There is no `.pointerStyle` equivalent for I-beam, so the NSCursor approach
+/// is used unconditionally across all macOS versions.
 struct IBeamCursorModifier: ViewModifier {
     @Environment(\.isEnabled) private var isEnabled
 
