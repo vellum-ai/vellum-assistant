@@ -69,8 +69,12 @@ struct MemoryItemDetailSheet: View {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {
                 Task {
-                    _ = await store.deleteItem(id: item.id)
-                    onDismiss()
+                    let success = await store.deleteItem(id: item.id)
+                    if success {
+                        onDismiss()
+                    } else {
+                        errorMessage = "Failed to delete memory. Please try again."
+                    }
                 }
             }
         } message: {
@@ -168,6 +172,12 @@ struct MemoryItemDetailSheet: View {
                     Text("Confirmed by you")
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentSecondary)
+                } else if displayItem.isUserReported {
+                    VIconView(.user, size: 12)
+                        .foregroundColor(VColor.contentSecondary)
+                    Text("Reported by you")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentSecondary)
                 } else {
                     VIconView(.sparkles, size: 12)
                         .foregroundColor(VColor.contentTertiary)
@@ -261,8 +271,7 @@ struct MemoryItemDetailSheet: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentSecondary)
                 }
-                Slider(value: $editImportance, in: 0...1, step: 0.1)
-                    .tint(VColor.primaryBase)
+                VSlider(value: $editImportance, range: 0...1, step: 0.1)
             }
         }
     }
@@ -293,7 +302,7 @@ struct MemoryItemDetailSheet: View {
                 VButton(
                     label: isSaving ? "Saving..." : "Save",
                     style: .primary,
-                    isDisabled: isSaving
+                    isDisabled: !isEditFormValid || isSaving
                 ) {
                     save()
                 }
@@ -303,6 +312,13 @@ struct MemoryItemDetailSheet: View {
         }
         .padding(.horizontal, VSpacing.xl)
         .padding(.vertical, VSpacing.lg)
+    }
+
+    // MARK: - Validation
+
+    private var isEditFormValid: Bool {
+        !editSubject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !editStatement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     // MARK: - Actions

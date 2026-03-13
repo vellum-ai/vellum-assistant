@@ -64,6 +64,11 @@ public struct MemoryItemPayload: Codable, Identifiable, Hashable, Sendable {
     public var isUserConfirmed: Bool {
         verificationState == "user_confirmed"
     }
+
+    /// Whether this memory was extracted from a user message.
+    public var isUserReported: Bool {
+        verificationState == "user_reported"
+    }
 }
 
 /// Response shape for the memory items list endpoint.
