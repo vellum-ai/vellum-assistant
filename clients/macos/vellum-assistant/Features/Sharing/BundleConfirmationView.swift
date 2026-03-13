@@ -217,7 +217,7 @@ struct BundleConfirmationView: View {
 
     private var footerSection: some View {
         HStack(spacing: VSpacing.md) {
-            VButton(label: "Cancel", style: .ghost, size: .medium) {
+            VButton(label: "Cancel", style: .outlined) {
                 viewModel.cancel()
             }
 
@@ -226,7 +226,7 @@ struct BundleConfirmationView: View {
             if viewModel.isTampered {
                 tamperedInstallButton
             } else {
-                VButton(label: "Install", style: .primary, size: .medium) {
+                VButton(label: "Install", style: .primary) {
                     viewModel.confirm()
                 }
                 .disabled(viewModel.isInstalling)
@@ -243,13 +243,13 @@ struct BundleConfirmationView: View {
                 Text("This app may have been modified.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.systemNegativeStrong)
-                VButton(label: "Install Anyway", style: .danger, size: .medium) {
+                VButton(label: "Install Anyway", style: .danger) {
                     viewModel.confirm()
                 }
                 .disabled(viewModel.isInstalling)
             }
         } else {
-            VButton(label: "Install", style: .ghost, size: .medium) {
+            VButton(label: "Install", style: .outlined) {
                 withAnimation(VAnimation.standard) {
                     viewModel.showTamperedWarning = true
                 }
@@ -295,7 +295,7 @@ struct BundleConfirmationView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xxl)
 
-            VButton(label: "Dismiss", style: .ghost, size: .medium) {
+            VButton(label: "Dismiss", style: .outlined) {
                 viewModel.cancel()
             }
 

@@ -75,12 +75,12 @@ struct AssistantBackupsSection: View {
         }
 
         HStack(spacing: VSpacing.md) {
-            VButton(label: isExporting ? "Exporting..." : "Create Backup", style: .secondary) {
+            VButton(label: isExporting ? "Exporting..." : "Create Backup", style: .outlined) {
                 Task { await exportLocalBackup() }
             }
             .disabled(isExporting || isImporting)
 
-            VButton(label: isImporting ? "Restoring..." : "Restore from Backup", style: .secondary) {
+            VButton(label: isImporting ? "Restoring..." : "Restore from Backup", style: .outlined) {
                 selectAndRestoreLocalBackup()
             }
             .disabled(isExporting || isImporting)
@@ -108,12 +108,12 @@ struct AssistantBackupsSection: View {
         }
 
         HStack(spacing: VSpacing.md) {
-            VButton(label: isCreatingBackup ? "Creating..." : "Create Backup", style: .secondary) {
+            VButton(label: isCreatingBackup ? "Creating..." : "Create Backup", style: .outlined) {
                 Task { await createManagedBackup() }
             }
             .disabled(isCreatingBackup || isLoadingBackups)
 
-            VButton(label: isLoadingBackups ? "Loading..." : "Refresh", style: .secondary) {
+            VButton(label: isLoadingBackups ? "Loading..." : "Refresh", style: .outlined) {
                 Task { await loadManagedBackups() }
             }
             .disabled(isLoadingBackups || isCreatingBackup)
@@ -154,7 +154,7 @@ struct AssistantBackupsSection: View {
                     }
                     Spacer()
                     if backup.readyToUse {
-                        VButton(label: "Restore", style: .secondary) {
+                        VButton(label: "Restore", style: .outlined) {
                             pendingManagedRestore = backup
                             showingManagedRestoreConfirmation = true
                         }

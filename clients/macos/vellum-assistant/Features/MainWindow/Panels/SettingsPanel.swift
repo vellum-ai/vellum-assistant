@@ -483,7 +483,7 @@ struct SettingsPanel: View {
                             .font(VFont.sectionDescription)
                             .foregroundColor(VColor.contentTertiary)
                     }
-                    VButton(label: "Manage", style: .secondary, size: .medium) {
+                    VButton(label: "Manage", style: .outlined) {
                         daemonClient?.isTrustRulesSheetOpen = true
                         showingTrustRules = true
                     }
@@ -638,7 +638,7 @@ struct SettingsPanelEnvVarsSheet: View {
                     .font(VFont.headline)
                     .foregroundColor(VColor.contentDefault)
                 Spacer()
-                VButton(label: "Done", style: .tertiary) { dismiss() }
+                VButton(label: "Done", style: .outlined) { dismiss() }
             }
             .padding(VSpacing.lg)
 

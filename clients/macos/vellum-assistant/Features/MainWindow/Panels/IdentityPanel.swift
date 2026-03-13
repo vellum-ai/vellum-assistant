@@ -57,7 +57,7 @@ struct IdentityPanel: View {
                                 .frame(maxWidth: .infinity, alignment: .center)
 
                             // Update Avatar button
-                            VButton(label: "Update Avatar", style: .secondary) { showAvatarSheet = true }
+                            VButton(label: "Update Avatar", style: .outlined) { showAvatarSheet = true }
                                 .padding(.top, VSpacing.md)
 
                             Spacer()

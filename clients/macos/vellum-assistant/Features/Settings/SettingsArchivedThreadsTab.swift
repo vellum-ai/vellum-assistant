@@ -61,7 +61,7 @@ private struct ArchivedThreadRow: View {
 
             Spacer()
 
-            VButton(label: "Unarchive", style: .secondary, size: .small) {
+            VButton(label: "Unarchive", style: .outlined) {
                 onUnarchive()
             }
         }

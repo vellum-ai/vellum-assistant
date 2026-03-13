@@ -159,8 +159,8 @@ struct AssistantChannelsDetailView: View {
         return SettingsCard(title: "Telegram", subtitle: "Message your assistant from Telegram") {
             if status == "ready" {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
-                    VButton(label: "Disconnect", style: .danger, size: .medium, isDisabled: store.telegramSaveInProgress) {
+                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
+                    VButton(label: "Disconnect", style: .danger, isDisabled: store.telegramSaveInProgress) {
                         store.clearTelegramCredentials()
                         telegramBotTokenText = ""
                         telegramSetupExpanded = false
@@ -170,7 +170,7 @@ struct AssistantChannelsDetailView: View {
             } else if (status == "incomplete" && store.telegramHasBotToken) || telegramSetupExpanded {
                 telegramCredentialEntry
             } else {
-                VButton(label: "Set Up", style: .secondary, size: .medium) {
+                VButton(label: "Set Up", style: .outlined) {
                     telegramSetupExpanded = true
                 }
             }
@@ -230,7 +230,7 @@ struct AssistantChannelsDetailView: View {
                             }
                         }
                         Spacer()
-                        VButton(label: "Revoke", style: .secondary, size: .medium, isDisabled: store.telegramRevokingMemberIds.contains(member.id)) {
+                        VButton(label: "Revoke", style: .outlined, isDisabled: store.telegramRevokingMemberIds.contains(member.id)) {
                             store.revokeTelegramApprovedMember(memberId: member.id)
                         }
                     }
@@ -272,11 +272,11 @@ struct AssistantChannelsDetailView: View {
                 }
             } else {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connect", style: .secondary, size: .medium, isDisabled: telegramBotTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                    VButton(label: "Connect", style: .outlined, isDisabled: telegramBotTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                         store.saveTelegramToken(botToken: telegramBotTokenText)
                         telegramBotTokenText = ""
                     }
-                    VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                    VButton(label: "Cancel", style: .outlined) {
                         telegramSetupExpanded = false
                         telegramBotTokenText = ""
                     }
@@ -292,8 +292,8 @@ struct AssistantChannelsDetailView: View {
         return SettingsCard(title: "Slack", subtitle: "Message your assistant from Slack") {
             if status == "ready" {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
-                    VButton(label: "Disconnect", style: .danger, size: .medium, isDisabled: store.slackChannelSaveInProgress) {
+                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
+                    VButton(label: "Disconnect", style: .danger, isDisabled: store.slackChannelSaveInProgress) {
                         store.clearSlackChannelConfig()
                         slackChannelBotTokenInput = ""
                         slackChannelAppTokenInput = ""
@@ -304,7 +304,7 @@ struct AssistantChannelsDetailView: View {
             } else if (status == "incomplete" && (store.slackChannelHasBotToken || store.slackChannelHasAppToken)) || slackChannelSetupExpanded {
                 slackChannelCredentialEntry
             } else {
-                VButton(label: "Set Up", style: .secondary, size: .medium) {
+                VButton(label: "Set Up", style: .outlined) {
                     slackChannelSetupExpanded = true
                 }
             }
@@ -362,7 +362,7 @@ struct AssistantChannelsDetailView: View {
                             }
                         }
                         Spacer()
-                        VButton(label: "Revoke", style: .secondary, size: .medium, isDisabled: store.slackRevokingMemberIds.contains(member.id)) {
+                        VButton(label: "Revoke", style: .outlined, isDisabled: store.slackRevokingMemberIds.contains(member.id)) {
                             store.revokeSlackApprovedMember(memberId: member.id)
                         }
                     }
@@ -411,8 +411,7 @@ struct AssistantChannelsDetailView: View {
                 HStack(spacing: VSpacing.sm) {
                     VButton(
                         label: "Connect",
-                        style: .secondary,
-                        size: .medium,
+                        style: .outlined,
                         isDisabled: slackChannelBotTokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                             || slackChannelAppTokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ) {
@@ -423,7 +422,7 @@ struct AssistantChannelsDetailView: View {
                         slackChannelBotTokenInput = ""
                         slackChannelAppTokenInput = ""
                     }
-                    VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                    VButton(label: "Cancel", style: .outlined) {
                         slackChannelSetupExpanded = false
                         slackChannelBotTokenInput = ""
                         slackChannelAppTokenInput = ""
@@ -440,8 +439,8 @@ struct AssistantChannelsDetailView: View {
         return SettingsCard(title: "Phone Calling", subtitle: "Receive and make phone calls via Twilio") {
             if status == "ready" {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
-                    VButton(label: "Disconnect", style: .danger, size: .medium, isDisabled: store.twilioSaveInProgress) {
+                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
+                    VButton(label: "Disconnect", style: .danger, isDisabled: store.twilioSaveInProgress) {
                         store.clearTwilioCredentials()
                         store.channelSetupStatus["phone"] = "not_configured"
                     }
@@ -449,7 +448,7 @@ struct AssistantChannelsDetailView: View {
             } else if (status == "incomplete" && store.twilioHasCredentials) || voiceSetupExpanded {
                 voiceCredentialEntry
             } else {
-                VButton(label: "Set Up", style: .secondary, size: .medium) {
+                VButton(label: "Set Up", style: .outlined) {
                     voiceSetupExpanded = true
                 }
             }
@@ -525,8 +524,7 @@ struct AssistantChannelsDetailView: View {
                 HStack(spacing: VSpacing.sm) {
                     VButton(
                         label: "Connect",
-                        style: .secondary,
-                        size: .medium,
+                        style: .outlined,
                         isDisabled: voiceAccountSidText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                             voiceAuthTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ) {
@@ -537,7 +535,7 @@ struct AssistantChannelsDetailView: View {
                         voiceAccountSidText = ""
                         voiceAuthTokenText = ""
                     }
-                    VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                    VButton(label: "Cancel", style: .outlined) {
                         voiceSetupExpanded = false
                         voiceAccountSidText = ""
                         voiceAuthTokenText = ""

@@ -32,8 +32,7 @@ struct BootstrapInterstitialView: View {
                 VButton(
                     label: "Try Again",
                     icon: "arrow.clockwise",
-                    style: .tertiary,
-                    size: .medium,
+                    style: .outlined,
                     isDisabled: isRetrying
                 ) {
                     onRetry()

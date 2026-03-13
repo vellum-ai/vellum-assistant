@@ -196,16 +196,16 @@ struct SettingsAppearanceTab: View {
                     }
 
                     if isRecordingGlobalHotkey {
-                        VButton(label: "Press shortcut...", style: .outlined, size: .medium) {
+                        VButton(label: "Press shortcut...", style: .outlined) {
                             stopRecording()
                         }
                     } else {
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Record", style: .outlined, size: .medium) {
+                            VButton(label: "Record", style: .outlined) {
                                 startRecording()
                             }
                             if !store.globalHotkeyShortcut.isEmpty {
-                                VButton(label: "Unbind", style: .outlined, size: .medium) {
+                                VButton(label: "Unbind", style: .outlined) {
                                     store.globalHotkeyShortcut = ""
                                 }
                             }
@@ -236,16 +236,16 @@ struct SettingsAppearanceTab: View {
                     }
 
                     if isRecordingQuickInputHotkey {
-                        VButton(label: "Press shortcut...", style: .outlined, size: .medium) {
+                        VButton(label: "Press shortcut...", style: .outlined) {
                             stopRecording()
                         }
                     } else {
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Record", style: .outlined, size: .medium) {
+                            VButton(label: "Record", style: .outlined) {
                                 startRecordingQuickInput()
                             }
                             if !store.quickInputHotkeyShortcut.isEmpty {
-                                VButton(label: "Unbind", style: .outlined, size: .medium) {
+                                VButton(label: "Unbind", style: .outlined) {
                                     store.quickInputHotkeyShortcut = ""
                                     store.quickInputHotkeyKeyCode = 0
                                 }
@@ -307,7 +307,7 @@ struct SettingsAppearanceTab: View {
                                     addAllowlistDomain()
                                 }
 
-                            VButton(label: "Add", style: .primary, size: .medium, isDisabled: newAllowlistDomain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                            VButton(label: "Add", style: .primary, isDisabled: newAllowlistDomain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                                 addAllowlistDomain()
                             }
                         }

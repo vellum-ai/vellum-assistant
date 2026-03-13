@@ -101,14 +101,13 @@ struct LogReportFormView: View {
     private var actionRow: some View {
         HStack {
             Spacer()
-            VButton(label: "Cancel", style: .secondary, size: .medium) {
+            VButton(label: "Cancel", style: .outlined) {
                 onCancel()
             }
             VButton(
                 label: "Send Logs",
                 leftIcon: VIcon.send.rawValue,
                 style: .primary,
-                size: .medium,
                 isDisabled: !canSend
             ) {
                 guard let reason = selectedReason else { return }

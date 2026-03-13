@@ -73,11 +73,11 @@ struct ServiceCredentialCard<ExtraContent: View>: View {
 
             // Action buttons
             HStack(spacing: VSpacing.sm) {
-                VButton(label: "Save", style: .primary, size: .medium, isDisabled: !isSaveEnabled) {
+                VButton(label: "Save", style: .primary, isDisabled: !isSaveEnabled) {
                     onSave()
                 }
                 if isConnected {
-                    VButton(label: "Reset (disconnect)", style: .danger, size: .medium) {
+                    VButton(label: "Reset (disconnect)", style: .danger) {
                         onReset()
                     }
                 }

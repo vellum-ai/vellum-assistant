@@ -47,7 +47,7 @@ struct InlineAppCreatedCard: View {
 
             // Action buttons
             HStack(spacing: VSpacing.sm) {
-                VButton(label: "Open App", leftIcon: VIcon.arrowUpRight.rawValue, style: .primary, size: .small) {
+                VButton(label: "Open App", leftIcon: VIcon.arrowUpRight.rawValue, style: .primary) {
                     onOpenApp()
                 }
 
@@ -55,8 +55,7 @@ struct InlineAppCreatedCard: View {
                     VButton(
                         label: isPinned ? "Unpin" : "Pin to Nav",
                         leftIcon: isPinned ? VIcon.pinOff.rawValue : VIcon.pin.rawValue,
-                        style: .tertiary,
-                        size: .small
+                        style: .outlined
                     ) {
                         onTogglePin(isPinned)
                     }
