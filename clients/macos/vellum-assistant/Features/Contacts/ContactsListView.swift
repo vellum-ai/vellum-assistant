@@ -20,7 +20,6 @@ struct ContactsListView: View {
             } else if viewModel.contacts.isEmpty {
                 emptyState
             } else {
-                searchBar
                 contactsList
             }
         }
@@ -209,6 +208,10 @@ struct ContactsListView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Add contact")
+            }
+
+            if viewModel.hasNonGuardianContacts {
+                searchBar
             }
 
             if !viewModel.hasNonGuardianContacts {
