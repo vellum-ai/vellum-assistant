@@ -17,6 +17,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint",
+    "lint:unused": "knip --include files,dependencies,unlisted",
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit"
   },
@@ -38,6 +39,7 @@
     "@types/qrcode-terminal": "^0.12.2",
     "@types/react": "^19.2.14",
     "eslint": "^10.0.0",
+    "knip": "^5.86.0",
     "prettier": "^3.8.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.55.0"

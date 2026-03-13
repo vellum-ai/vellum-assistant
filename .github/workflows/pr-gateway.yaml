@@ -39,6 +39,9 @@ jobs:
       - name: Lint
         run: bun run lint
 
+      - name: Lint unused code
+        run: bun run lint:unused
+
       - name: Type check
         run: bun run typecheck
 

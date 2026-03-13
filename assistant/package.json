@@ -16,6 +16,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint",
+    "lint:unused": "knip --include files,dependencies,unlisted",
     "typecheck": "bunx tsc --noEmit",
     "test": "bash scripts/test.sh",
     "test:coverage": "COVERAGE=true bash scripts/test.sh",

@@ -1,8 +1,5 @@
 {
-  "project": [
-    "src/**/*.ts"
-  ],
-  "ignore": [
-    "src/**/__tests__/**"
-  ]
+  "entry": ["src/**/*.test.ts", "src/**/__tests__/**/*.ts"],
+  "project": ["src/**/*.ts"],
+  "ignoreDependencies": ["zod"]
 }

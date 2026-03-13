@@ -48,6 +48,9 @@ jobs:
       - name: Lint
         run: bun run lint
 
+      - name: Lint unused code
+        run: bun run lint:unused
+
   typecheck:
     if: contains(github.event.pull_request.labels.*.name, 'preview')
     name: Type Check
