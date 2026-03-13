@@ -146,6 +146,12 @@ export function redeemInvite(params: {
     return { ok: false, reason: "invalid_token" };
   }
 
+  // Guardian channels must not be reactivated via regular invite redemption —
+  // their lifecycle is managed exclusively through the guardian binding flow.
+  if (existingContact && existingContact.role === "guardian") {
+    return { ok: false, reason: "invalid_token" };
+  }
+
   // Inactive member reactivation: when the user already has a member record
   // in a non-active state (revoked/pending), reactivate it via upsertContactChannel
   // and consume an invite use atomically. The fresh-member path below also
@@ -338,6 +344,7 @@ export function redeemVoiceInviteCode(params: {
     externalUserId: canonicalCallerId,
   });
   const existingVoiceChannel = voiceContactResult?.channel ?? null;
+  const voiceContact = voiceContactResult?.contact ?? null;
 
   if (existingVoiceChannel && existingVoiceChannel.status === "active") {
     return {
@@ -352,13 +359,18 @@ export function redeemVoiceInviteCode(params: {
     return { ok: false, reason: "invalid_or_expired" };
   }
 
+  // Guardian channels must not be reactivated via regular invite redemption —
+  // their lifecycle is managed exclusively through the guardian binding flow.
+  if (voiceContact && voiceContact.role === "guardian") {
+    return { ok: false, reason: "invalid_or_expired" };
+  }
+
   // Atomic redemption: upsert member + consume invite use in a transaction
   const STALE_INVITE = Symbol("stale_invite");
   let memberId: string | undefined;
 
   // Reactivation should not overwrite a guardian-managed nickname (same
   // protection as the token-based redemption path above).
-  const voiceContact = voiceContactResult?.contact ?? null;
   const preservedDisplayName = voiceContact?.displayName?.trim().length
     ? voiceContact.displayName
     : (invite.friendName ?? undefined);
@@ -484,6 +496,12 @@ export function redeemInviteByCode(params: {
   // codes. Return the same generic failure as an invalid token to avoid
   // leaking membership status to the caller.
   if (existingChannel && existingChannel.status === "blocked") {
+    return { ok: false, reason: "invalid_token" };
+  }
+
+  // Guardian channels must not be reactivated via regular invite redemption —
+  // their lifecycle is managed exclusively through the guardian binding flow.
+  if (existingContact && existingContact.role === "guardian") {
     return { ok: false, reason: "invalid_token" };
   }
 
