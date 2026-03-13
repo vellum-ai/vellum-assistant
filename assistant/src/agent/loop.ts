@@ -176,9 +176,18 @@ export class AgentLoop {
     this.toolExecutor = toolExecutor ?? null;
   }
 
-  /** Estimate token cost of the tool definitions passed to the provider. */
-  getToolTokenBudget(): number {
-    return estimateToolsTokens(this.tools);
+  /**
+   * Estimate token cost of the tool definitions sent to the provider.
+   *
+   * When `history` is provided and a dynamic `resolveTools` callback
+   * exists, the budget is derived from the resolved tool list for that
+   * turn — matching what `run()` actually sends. Without `history` (or
+   * without a resolver), falls back to the static `this.tools`.
+   */
+  getToolTokenBudget(history?: Message[]): number {
+    const tools =
+      history && this.resolveTools ? this.resolveTools(history) : this.tools;
+    return estimateToolsTokens(tools);
   }
 
   async run(

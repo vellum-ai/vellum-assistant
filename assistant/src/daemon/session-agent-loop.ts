@@ -710,7 +710,7 @@ export async function runAgentLoopImpl(
     const preflightBudget = Math.floor(providerMaxTokens * (1 - safetyMargin));
     let reducerState: ReducerState | undefined;
 
-    const toolTokenBudget = ctx.agentLoop.getToolTokenBudget();
+    const toolTokenBudget = ctx.agentLoop.getToolTokenBudget(runMessages);
     const preflightTokens = estimatePromptTokens(
       runMessages,
       ctx.systemPrompt,
