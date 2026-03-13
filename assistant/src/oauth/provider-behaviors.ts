@@ -107,6 +107,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
             user?: string;
             team?: string;
           };
+          if (!body.ok) return undefined;
           if (body.user && body.team) return `@${body.user} (${body.team})`;
           if (body.user) return `@${body.user}`;
         }
@@ -130,7 +131,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
     setupSkillId: "notion-oauth-setup",
     setup: {
       displayName: "Notion",
-      dashboardUrl: "https://www.notion.so/my-integrations",
+      dashboardUrl: "https://www.notion.so/profile/integrations",
       appType: "Public integration",
       requiresClientSecret: true,
     },
