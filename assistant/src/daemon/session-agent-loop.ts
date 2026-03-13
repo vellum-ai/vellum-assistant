@@ -133,7 +133,7 @@ const log = getLogger("session-agent-loop");
  *
  * Returns the actual token count or null if it cannot be parsed.
  */
-function parseActualTokensFromError(
+export function parseActualTokensFromError(
   errorMessage: string | null,
 ): number | null {
   if (!errorMessage) return null;
