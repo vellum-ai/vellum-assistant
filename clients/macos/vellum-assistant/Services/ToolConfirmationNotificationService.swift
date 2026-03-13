@@ -108,15 +108,14 @@ public final class ToolConfirmationNotificationService {
     }
 
     private func formatBody(_ message: ConfirmationRequestMessage) -> String {
+        if let reason = confirmationReasonDescription(input: message.input) {
+            return reason.count > 200 ? String(reason.prefix(197)) + "..." : reason
+        }
         let description = confirmationHumanDescription(
             toolName: message.toolName,
             input: message.input
         )
-        var body = description
-        if let reason = confirmationReasonDescription(input: message.input) {
-            body += "\n" + reason
-        }
-        return body.count > 200 ? String(body.prefix(197)) + "..." : body
+        return description.count > 200 ? String(description.prefix(197)) + "..." : description
     }
 
     private func toolDisplayName(_ toolName: String) -> String {
