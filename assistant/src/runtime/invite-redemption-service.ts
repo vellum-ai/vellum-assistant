@@ -152,11 +152,7 @@ export function redeemInvite(params: {
   // Blocked members cannot bypass the guardian's explicit block via invite
   // links. Return the same generic failure as an invalid token to avoid
   // leaking membership status to the caller.
-  if (
-    existingChannel &&
-    existingChannel.status === "blocked" &&
-    !targetMismatch
-  ) {
+  if (existingChannel && existingChannel.status === "blocked") {
     return { ok: false, reason: "invalid_token" };
   }
 
@@ -384,11 +380,7 @@ export function redeemVoiceInviteCode(params: {
   }
 
   // Blocked members cannot bypass the guardian's explicit block
-  if (
-    existingVoiceChannel &&
-    existingVoiceChannel.status === "blocked" &&
-    !targetMismatch
-  ) {
+  if (existingVoiceChannel && existingVoiceChannel.status === "blocked") {
     return { ok: false, reason: "invalid_or_expired" };
   }
 
@@ -539,11 +531,7 @@ export function redeemInviteByCode(params: {
   // Blocked members cannot bypass the guardian's explicit block via invite
   // codes. Return the same generic failure as an invalid token to avoid
   // leaking membership status to the caller.
-  if (
-    existingChannel &&
-    existingChannel.status === "blocked" &&
-    !targetMismatch
-  ) {
+  if (existingChannel && existingChannel.status === "blocked") {
     return { ok: false, reason: "invalid_token" };
   }
 
