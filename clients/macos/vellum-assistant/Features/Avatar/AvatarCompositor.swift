@@ -39,10 +39,28 @@ enum AvatarCompositor {
         context.setFillColor(color.nsColor.cgColor)
         context.fillPath()
 
-        // Draw eyes
+        // Draw eyes — remap from eye sourceViewBox to body viewBox before applying canvas transform.
+        // This aspect-fit centers the eye paths within the body's coordinate space so that
+        // eye styles designed for one body shape render correctly on any other body shape.
+        let srcVB = eyeStyle.sourceViewBox
+        var eyeTransform: CGAffineTransform
+        if srcVB.width == viewBox.width && srcVB.height == viewBox.height {
+            // Same coordinate space — no remapping needed.
+            eyeTransform = transform
+        } else {
+            let remapScale = min(viewBox.width / srcVB.width, viewBox.height / srcVB.height)
+            let remapTx = (viewBox.width - srcVB.width * remapScale) / 2
+            let remapTy = (viewBox.height - srcVB.height * remapScale) / 2
+            // Remap: translate + scale within body viewBox, then apply the canvas transform.
+            eyeTransform = CGAffineTransform(translationX: remapTx, y: remapTy)
+                .scaledBy(x: remapScale, y: remapScale)
+            eyeTransform = eyeTransform.concatenating(transform)
+        }
+
         for eyePath in eyeStyle.paths {
             let parsed = parseSVGPath(eyePath.svgPath)
-            let transformed = parsed.copy(using: &transform)!
+            var mutableEyeTransform = eyeTransform
+            let transformed = parsed.copy(using: &mutableEyeTransform)!
             context.addPath(transformed)
             context.setFillColor(eyePath.color.cgColor)
             context.fillPath()
