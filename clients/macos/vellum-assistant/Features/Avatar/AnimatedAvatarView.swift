@@ -214,13 +214,20 @@ class AvatarLayerView: NSView {
     private func pauseAnimations() {
         blinkEnabled = false
         blinkTask?.cancel()
-        bodyLayer.removeAnimation(forKey: "breathing")
+        let pausedTime = bodyLayer.convertTime(CACurrentMediaTime(), from: nil)
+        bodyLayer.speed = 0
+        bodyLayer.timeOffset = pausedTime
     }
 
     private func resumeAnimations() {
         blinkEnabled = true
         startBlinkTimer()
-        startBreathing()
+        let pausedTime = bodyLayer.timeOffset
+        bodyLayer.speed = 1
+        bodyLayer.timeOffset = 0
+        bodyLayer.beginTime = 0
+        let timeSincePause = bodyLayer.convertTime(CACurrentMediaTime(), from: nil) - pausedTime
+        bodyLayer.beginTime = timeSincePause
     }
 
     private func performBlink() {
@@ -242,7 +249,7 @@ class AvatarLayerView: NSView {
                     closedEyePaths[i],  // Second close
                     openEyePaths[i],    // Final open
                 ]
-                animation.keyTimes = [0, 0.15, 0.35, 0.50, 0.75]
+                animation.keyTimes = [0, 0.15, 0.35, 0.50, 1.0]
                 animation.duration = 0.45
                 animation.timingFunctions = [
                     CAMediaTimingFunction(name: .easeIn),
