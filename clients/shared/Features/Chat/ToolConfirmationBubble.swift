@@ -139,6 +139,12 @@ public struct ToolConfirmationBubble: View {
                 .font(VFont.body)
                 .foregroundColor(VColor.contentSecondary)
 
+            if let reason = confirmation.humanReason {
+                Text(reason)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentSecondary)
+            }
+
             HStack(spacing: VSpacing.sm) {
                 VButton(label: "Open System Settings", style: .primary) {
                     #if os(macOS)
@@ -220,6 +226,12 @@ public struct ToolConfirmationBubble: View {
             Text(confirmation.humanDescription)
                 .font(VFont.bodyBold)
                 .foregroundColor(VColor.contentDefault)
+
+            if let reason = confirmation.humanReason {
+                Text(reason)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentSecondary)
+            }
 
             // First-time educational banner for command confirmations
             if isCommandTool && !hasSeenCommandExplanation {

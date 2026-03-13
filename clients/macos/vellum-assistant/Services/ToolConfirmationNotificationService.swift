@@ -100,7 +100,7 @@ public final class ToolConfirmationNotificationService {
 
     private func formatTitle(_ message: ConfirmationRequestMessage) -> String {
         let toolName = toolDisplayName(message.toolName)
-        var title = "\(toolName) — \(message.riskLevel) risk"
+        var title = "Permission Required: \(toolName) — \(message.riskLevel) risk"
         if let target = message.executionTarget, !target.isEmpty {
             title += " (\(target))"
         }
@@ -108,6 +108,9 @@ public final class ToolConfirmationNotificationService {
     }
 
     private func formatBody(_ message: ConfirmationRequestMessage) -> String {
+        if let reason = confirmationReasonDescription(input: message.input) {
+            return reason.count > 200 ? String(reason.prefix(197)) + "..." : reason
+        }
         let description = confirmationHumanDescription(
             toolName: message.toolName,
             input: message.input
