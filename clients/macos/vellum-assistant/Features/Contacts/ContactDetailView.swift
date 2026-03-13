@@ -362,25 +362,6 @@ struct ContactDetailView: View {
     @ViewBuilder
     private func unconfiguredChannelRow(type: String) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.sm) {
-                VIconView(channelIcon(for: type), size: 14)
-                    .foregroundColor(VColor.contentSecondary)
-                    .frame(width: 20, alignment: .center)
-
-                Text(channelLabel(for: type))
-                    .font(VFont.body)
-                    .foregroundColor(VColor.contentDefault)
-
-                if let handle = channelReadiness[type]?.channelHandle {
-                    Text(handle)
-                        .font(VFont.monoSmall)
-                        .foregroundColor(VColor.contentTertiary)
-                        .lineLimit(1)
-                }
-
-                Spacer()
-            }
-
             if Self.codeInviteChannels.contains(type) {
                 if inviteInProgress == type {
                     ProgressView()
