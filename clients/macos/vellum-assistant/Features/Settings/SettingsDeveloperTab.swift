@@ -123,10 +123,7 @@ struct SettingsDeveloperTab: View {
                 }
             }
             Task { await loadHatchFlag() }
-            if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
-               assistant.isManaged || assistant.isRemote {
-                Task { await fetchHealthz() }
-            }
+            Task { await fetchHealthz() }
 
             // Advanced dev setup
             macOSFlagStates = MacOSClientFeatureFlagManager.shared.allFlagStates()
@@ -281,10 +278,7 @@ struct SettingsDeveloperTab: View {
                 DeveloperDaemonStatusRows(daemonClient: daemonClient)
             }
 
-            if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
-               assistant.isManaged || assistant.isRemote {
-                healthzInfoRows
-            }
+            healthzInfoRows
         }
     }
 
@@ -422,16 +416,23 @@ struct SettingsDeveloperTab: View {
     }
 
     private func fetchHealthz() async {
-        do {
-            let response = try await GatewayHTTPClient.get(
-                path: "\(selectedAssistantId)/healthz",
-                timeout: 10
-            )
-            guard response.statusCode == 200 else { return }
-            let decoder = JSONDecoder()
-            decoder.keyDecodingStrategy = .convertFromSnakeCase
-            healthz = try decoder.decode(DaemonHealthz.self, from: response.data)
-        } catch {}
+        guard let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) else { return }
+
+        if assistant.isManaged || assistant.isRemote {
+            do {
+                let response = try await GatewayHTTPClient.get(
+                    path: "\(selectedAssistantId)/healthz",
+                    timeout: 10
+                )
+                guard response.statusCode == 200 else { return }
+                let decoder = JSONDecoder()
+                decoder.keyDecodingStrategy = .convertFromSnakeCase
+                healthz = try decoder.decode(DaemonHealthz.self, from: response.data)
+            } catch {}
+        } else {
+            let port = assistant.resolvedDaemonPort()
+            healthz = await DaemonHealthzFetcher.fetchLocal(port: port, bearerToken: assistant.bearerToken)
+        }
     }
 
     private func infoRow(label: String, value: String, mono: Bool = false) -> some View {
