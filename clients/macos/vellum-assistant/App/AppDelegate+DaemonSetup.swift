@@ -524,9 +524,9 @@ extension AppDelegate {
             installSymlink(commandName: "vellum", target: cliBinary.path)
         }
 
-        let daemonBinary = macosDir.appendingPathComponent("vellum-daemon")
-        if FileManager.default.fileExists(atPath: daemonBinary.path) {
-            installSymlink(commandName: "assistant", target: daemonBinary.path)
+        let assistantBinary = macosDir.appendingPathComponent("vellum-assistant")
+        if FileManager.default.fileExists(atPath: assistantBinary.path) {
+            installSymlink(commandName: "assistant", target: assistantBinary.path)
         }
     }
 
