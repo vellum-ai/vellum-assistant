@@ -145,8 +145,8 @@ final class OnboardingState {
             hasHatched = UserDefaults.standard.bool(forKey: "onboarding.hatched")
             interviewCompleted = UserDefaults.standard.bool(forKey: "onboarding.interviewCompleted")
             cloudProvider = UserDefaults.standard.string(forKey: "onboarding.cloudProvider") ?? "local"
-            userDisplayName = UserDefaults.standard.string(forKey: "onboarding.userDisplayName") ?? ""
-            userEmail = UserDefaults.standard.string(forKey: "onboarding.userEmail") ?? ""
+            userDisplayName = UserDefaults.standard.string(forKey: "onboarding.userDisplayName") ?? UserDefaults.standard.string(forKey: "user.displayName") ?? ""
+            userEmail = UserDefaults.standard.string(forKey: "onboarding.userEmail") ?? UserDefaults.standard.string(forKey: "user.email") ?? ""
         }
         if let rawVariant = UserDefaults.standard.string(forKey: "onboarding.variant"),
            let variant = OnboardingVariant(rawValue: rawVariant) {
@@ -236,7 +236,7 @@ final class OnboardingState {
     }
 
     static func clearPersistedState() {
-        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.variant", "onboarding.firstMeetingCrackProgress", "onboarding.flowVersion", "onboarding.cloudProvider", "onboarding.userDisplayName", "onboarding.userEmail", "tos.acceptedAt"] {
+        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.variant", "onboarding.firstMeetingCrackProgress", "onboarding.flowVersion", "onboarding.cloudProvider", "onboarding.userDisplayName", "onboarding.userEmail", "tos.acceptedAt", "user.displayName", "user.email"] {
             UserDefaults.standard.removeObject(forKey: key)
         }
     }

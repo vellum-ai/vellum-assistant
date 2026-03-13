@@ -9,8 +9,6 @@ struct SettingsPrivacyTab: View {
     @ObservedObject var store: SettingsStore
 
     // Identity editing state
-    @State private var displayName: String = UserDefaults.standard.string(forKey: "user.displayName") ?? ""
-    @State private var email: String = UserDefaults.standard.string(forKey: "user.email") ?? ""
     @State private var isEditingIdentity: Bool = false
     @State private var editingName: String = ""
     @State private var editingEmail: String = ""
@@ -48,9 +46,9 @@ struct SettingsPrivacyTab: View {
                     Text("Name")
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
-                    Text(displayName.isEmpty ? "Not set" : displayName)
+                    Text(store.userDisplayName.isEmpty ? "Not set" : store.userDisplayName)
                         .font(VFont.body)
-                        .foregroundColor(displayName.isEmpty ? VColor.contentTertiary : VColor.contentSecondary)
+                        .foregroundColor(store.userDisplayName.isEmpty ? VColor.contentTertiary : VColor.contentSecondary)
                 }
                 Spacer()
             }
@@ -60,9 +58,9 @@ struct SettingsPrivacyTab: View {
                     Text("Email")
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
-                    Text(email.isEmpty ? "Not set" : email)
+                    Text(store.userEmail.isEmpty ? "Not set" : store.userEmail)
                         .font(VFont.body)
-                        .foregroundColor(email.isEmpty ? VColor.contentTertiary : VColor.contentSecondary)
+                        .foregroundColor(store.userEmail.isEmpty ? VColor.contentTertiary : VColor.contentSecondary)
                 }
                 Spacer()
             }
@@ -70,8 +68,8 @@ struct SettingsPrivacyTab: View {
             HStack {
                 Spacer()
                 VButton(label: "Edit", style: .outlined) {
-                    editingName = displayName
-                    editingEmail = email
+                    editingName = store.userDisplayName
+                    editingEmail = store.userEmail
                     isEditingIdentity = true
                 }
             }
@@ -100,10 +98,8 @@ struct SettingsPrivacyTab: View {
                     isEditingIdentity = false
                 }
                 VButton(label: "Save", style: .primary) {
-                    displayName = editingName
-                    email = editingEmail
-                    UserDefaults.standard.set(displayName, forKey: "user.displayName")
-                    UserDefaults.standard.set(email, forKey: "user.email")
+                    store.userDisplayName = editingName
+                    store.userEmail = editingEmail
                     SentryDeviceInfo.configureSentryScope()
                     isEditingIdentity = false
                 }
