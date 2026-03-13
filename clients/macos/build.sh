@@ -37,14 +37,20 @@ swift_with_retry() {
     _stderr_log=$(mktemp)
     trap "rm -f '$_stderr_log'" RETURN
     while true; do
-        if "$@" 2> >(tee "$_stderr_log" >&2); then
+        # Redirect stderr to log file, capture exit code, then replay stderr
+        # to the terminal. Avoids process substitution race where grep could
+        # read an incomplete log.
+        local _cmd_exit=0
+        "$@" 2>"$_stderr_log" || _cmd_exit=$?
+        cat "$_stderr_log" >&2
+        if [ "$_cmd_exit" -eq 0 ]; then
             return 0
         fi
         # Auto-clean stale PCH module cache (happens when switching between
         # worktrees that share the same .build directory via symlink).
         if [ "$_pch_cleaned" -eq 0 ] && grep -q "PCH was compiled with module cache path" "$_stderr_log" 2>/dev/null; then
             echo "warning: stale module cache detected, cleaning and retrying..."
-            find "$SCRIPT_DIR/../.build" -type d -name "ModuleCache" -exec rm -rf {} + 2>/dev/null || true
+            find -L "$SCRIPT_DIR/../.build" -type d -name "ModuleCache" -exec rm -rf {} + 2>/dev/null || true
             _pch_cleaned=1
             continue
         fi
