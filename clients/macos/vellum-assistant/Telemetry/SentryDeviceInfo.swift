@@ -53,7 +53,10 @@ enum SentryDeviceInfo {
         let hasName = displayName != nil && !displayName!.isEmpty
         let hasEmail = email != nil && !email!.isEmpty
 
-        guard hasName || hasEmail else { return }
+        guard hasName || hasEmail else {
+            SentrySDK.configureScope { scope in scope.setUser(nil) }
+            return
+        }
 
         SentrySDK.configureScope { scope in
             let user = User()
