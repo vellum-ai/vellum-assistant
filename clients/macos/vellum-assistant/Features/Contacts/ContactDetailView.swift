@@ -7,9 +7,6 @@ import VellumAssistantShared
 struct ContactDetailView: View {
     private static let allChannelTypes = ["telegram", "phone", "slack"]
 
-    /// Channels that support 6-digit code invites from this view.
-    private static let codeInviteChannels: Set<String> = ["telegram", "slack", "phone"]
-
     let contact: ContactPayload
     var daemonClient: DaemonClient?
     var store: SettingsStore?
@@ -403,8 +400,8 @@ struct ContactDetailView: View {
                         }
                     }
                 }
-            } else if Self.codeInviteChannels.contains(type) {
-                // Phone and other channels: keep existing behavior
+            } else if type == "phone" {
+                // Phone channel: code-based invite flow
                 if inviteInProgress == type {
                     ProgressView()
                         .controlSize(.small)
