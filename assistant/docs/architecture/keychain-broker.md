@@ -179,14 +179,32 @@ The gateway reads credentials via async `readCredential()` which tries the broke
 
 ### Known sync exceptions
 
-The following call sites still use the deprecated sync variants because they run in contexts where async I/O is not feasible:
+The migration from sync to async secure-key functions is **incremental**. The following call sites still use the deprecated sync variants. They are grouped by category and tracked for future conversion.
 
-| File                                               | Reason                                                                                                                                                                                                                |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `assistant/src/config/loader.ts`                   | Config loading runs synchronously at startup before the event loop is available. The broker socket may not be ready yet, and converting to async would require rearchitecting the entire config initialization chain. |
-| `assistant/src/providers/managed-proxy/context.ts` | Provider context initialization is synchronous. The managed proxy context must resolve credentials before the first request can be processed, and the initialization path does not support awaiting.                  |
+#### Startup / top-level config (must remain sync)
 
-These are the only sanctioned sync call sites. Any new sync usage requires explicit justification and should be documented here.
+These call sites run in synchronous initialization contexts where async I/O is not feasible:
+
+| File                                               | Sync functions used                               | Reason                                                                                                                                                                                                                |
+| -------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/config/loader.ts`                   | `getSecureKey`, `setSecureKey`, `deleteSecureKey` | Config loading runs synchronously at startup before the event loop is available. The broker socket may not be ready yet, and converting to async would require rearchitecting the entire config initialization chain. |
+| `assistant/src/providers/managed-proxy/context.ts` | `getSecureKey`                                    | Provider context initialization is synchronous. The managed proxy context must resolve credentials before the first request can be processed, and the initialization path does not support awaiting.                  |
+
+#### Tracked for future conversion
+
+These call sites use sync `getSecureKey` in contexts that could potentially support async, but conversion has been deferred to avoid scope creep during the initial broker rollout:
+
+| File                                                          | Sync functions used | Reason deferred                                                                                                       |
+| ------------------------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/tools/credentials/broker.ts`                   | `getSecureKey`      | Credential broker read paths are called synchronously from multiple consumers; converting requires async propagation. |
+| `assistant/src/security/token-manager.ts`                     | `getSecureKey`      | Token resolution is called in sync context during connection token lookup; async would require refactoring callers.   |
+| `assistant/src/runtime/routes/integrations/slack/share.ts`    | `getSecureKey`      | Slack share route reads OAuth token synchronously; converting requires making the route handler async-aware.          |
+| `assistant/src/runtime/channel-invite-transports/telegram.ts` | `getSecureKey`      | Telegram transport reads bot token synchronously; converting requires async transport initialization.                 |
+| `assistant/src/tools/network/web-search.ts`                   | `getSecureKey`      | Web search tool reads API keys synchronously; converting requires async tool execution path.                          |
+| `assistant/src/cli/commands/doctor.ts`                        | `getSecureKey`      | Doctor diagnostic command reads provider keys synchronously; converting requires async CLI command execution.         |
+| `assistant/src/cli/commands/oauth/connections.ts`             | `getSecureKey`      | OAuth connections CLI reads client secrets synchronously during display; converting requires async command handler.   |
+
+Any new sync usage requires explicit justification and should be documented here.
 
 ## Migration
 
