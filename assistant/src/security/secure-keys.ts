@@ -3,7 +3,7 @@
  * available (macOS app embedded), with transparent fallback to the
  * encrypted-at-rest file store.
  *
- * Async variants try the broker first; sync variants always use the
+ * Async variants try the encrypted store first; sync variants always use the
  * encrypted store (startup code paths cannot do async I/O).
  */
 
@@ -82,7 +82,7 @@ export function isDowngradedFromKeychain(): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Async variants — try broker first, fall back to encrypted store
+// Async variants — try encrypted store first, fall back to broker
 // ---------------------------------------------------------------------------
 
 /**
@@ -118,7 +118,7 @@ export async function getSecureKeyAsync(
  *
  * If the broker is available but `broker.set()` fails we return `false`
  * immediately — falling through to an encrypted-store-only write would
- * leave the broker with stale data that async readers would still see.
+ * leave the two stores out of sync.
  */
 export async function setSecureKeyAsync(
   account: string,
@@ -164,7 +164,7 @@ export async function setSecureKeyAsync(
  *
  * If the broker is available but `broker.del()` fails we return `"error"`
  * immediately — falling through to an encrypted-store-only delete would
- * leave the broker with the key, and async readers would still see it.
+ * leave the broker with the key, causing stale reads on broker fallback.
  */
 export async function deleteSecureKeyAsync(
   account: string,
