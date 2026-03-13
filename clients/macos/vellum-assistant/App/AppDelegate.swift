@@ -254,6 +254,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         applyThemePreference()
         registerBundledFonts()
         AvatarAppearanceManager.shared.start()
+        _ = AvatarAppearanceManager.shared.exportNotificationIcon()
+        toolConfirmationNotificationService.markReady()
+        services.activityNotificationService.markReady()
+        self.markNotificationIntentsReady()
 
         #if DEBUG
         let skipOnboarding = CommandLine.arguments.contains("--skip-onboarding")
