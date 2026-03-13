@@ -31,6 +31,7 @@ struct SidebarThreadItem: View {
     private var interactionState: ThreadInteractionState { threadManager.interactionState(for: thread.id) }
     // Reserve trailing space when hovered for archive button overlay.
     private var hasTrailingIcon: Bool { isHovered || sidebar.threadPendingDeletion == thread.id }
+    private var isPendingDeletion: Bool { sidebar.threadPendingDeletion == thread.id }
     private var canMarkUnread: Bool {
         !thread.hasUnseenLatestAssistantMessage &&
             thread.sessionId != nil &&
@@ -110,7 +111,7 @@ struct SidebarThreadItem: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, VSpacing.xs)
-            .padding(.trailing, hasTrailingIcon ? VSpacing.xs : VSpacing.sm)
+            .padding(.trailing, isPendingDeletion ? 72 : hasTrailingIcon ? VSpacing.xs : VSpacing.sm)
             .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
             .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
             .background {
