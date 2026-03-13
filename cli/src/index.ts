@@ -124,6 +124,11 @@ async function main() {
   const GLOBAL_FLAGS = new Set(["--no-color", "--plain"]);
   const commandName = args.find((a) => !GLOBAL_FLAGS.has(a));
 
+  // Strip global flags from process.argv so subcommands that parse
+  // process.argv.slice(3) don't see them as positional arguments.
+  const filteredArgs = args.filter((a) => !GLOBAL_FLAGS.has(a));
+  process.argv = [...process.argv.slice(0, 2), ...filteredArgs];
+
   if (commandName === "--version" || commandName === "-v") {
     console.log(`@vellumai/cli v${cliPkg.version}`);
     process.exit(0);
