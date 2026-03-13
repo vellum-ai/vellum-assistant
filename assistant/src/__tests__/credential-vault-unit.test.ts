@@ -1113,7 +1113,7 @@ describe("CredentialBroker — serverUseById edge cases", () => {
     _resetBackend();
   });
 
-  test("serverUseById with multiple injection templates returns all", () => {
+  test("serverUseById with multiple injection templates returns all", async () => {
     const meta = upsertCredentialMetadata("multi", "api_key", {
       allowedTools: ["proxy"],
       injectionTemplates: [
@@ -1132,7 +1132,7 @@ describe("CredentialBroker — serverUseById edge cases", () => {
     });
     setSecureKey(credentialKey("multi", "api_key"), "multi-secret");
 
-    const result = broker.serverUseById({
+    const result = await broker.serverUseById({
       credentialId: meta.credentialId,
       requestingTool: "proxy",
     });
@@ -1146,13 +1146,13 @@ describe("CredentialBroker — serverUseById edge cases", () => {
     expect(JSON.stringify(result)).not.toContain("multi-secret");
   });
 
-  test("serverUseById verifies secret exists in storage (fail-closed)", () => {
+  test("serverUseById verifies secret exists in storage (fail-closed)", async () => {
     const meta = upsertCredentialMetadata("fal", "api_key", {
       allowedTools: ["proxy"],
     });
     // No setSecureKey — metadata exists but value doesn't
 
-    const result = broker.serverUseById({
+    const result = await broker.serverUseById({
       credentialId: meta.credentialId,
       requestingTool: "proxy",
     });
