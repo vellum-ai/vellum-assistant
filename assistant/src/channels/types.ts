@@ -74,6 +74,22 @@ export function assertInterfaceId(value: unknown, field: string): InterfaceId {
   return value;
 }
 
+/**
+ * Interfaces that have an SSE client capable of displaying interactive
+ * permission prompts. Channel interfaces (telegram, slack, etc.) route
+ * approvals through the guardian system and have no interactive prompter UI.
+ */
+export const INTERACTIVE_INTERFACES: ReadonlySet<InterfaceId> = new Set([
+  "macos",
+  "ios",
+  "cli",
+  "vellum",
+]);
+
+export function isInteractiveInterface(id: InterfaceId): boolean {
+  return INTERACTIVE_INTERFACES.has(id);
+}
+
 export interface TurnInterfaceContext {
   userMessageInterface: InterfaceId;
   assistantMessageInterface: InterfaceId;

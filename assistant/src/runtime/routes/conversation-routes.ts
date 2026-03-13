@@ -11,6 +11,7 @@ import {
 import {
   CHANNEL_IDS,
   INTERFACE_IDS,
+  isInteractiveInterface,
   parseChannelId,
   parseInterfaceId,
 } from "../../channels/types.js";
@@ -656,14 +657,7 @@ export async function handleSendMessage(
   }
 
   const onEvent = makeHubPublisher(smDeps, mapping.conversationId, session);
-  // Desktop, CLI, and web interfaces have an SSE client that can display
-  // permission prompts. Channel interfaces (telegram, slack, etc.) route
-  // approvals through the guardian system and have no interactive prompter UI.
-  const isInteractiveInterface =
-    sourceInterface === "macos" ||
-    sourceInterface === "ios" ||
-    sourceInterface === "cli" ||
-    sourceInterface === "vellum";
+  const isInteractive = isInteractiveInterface(sourceInterface);
   // Only create the host bash proxy for desktop client interfaces that can
   // execute commands on the user's machine. Non-desktop sessions (CLI,
   // channels, headless) fall back to local execution.
@@ -709,7 +703,7 @@ export async function handleSendMessage(
     session.isProcessing() &&
     sourceInterface !== "macos" &&
     sourceInterface !== "ios";
-  session.updateClient(onEvent, !isInteractiveInterface, {
+  session.updateClient(onEvent, !isInteractive, {
     skipProxySenderUpdate: preservingProxies,
   });
 
@@ -781,7 +775,7 @@ export async function handleSendMessage(
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
       },
-      { isInteractive: isInteractiveInterface },
+      { isInteractive },
     );
     if (enqueueResult.rejected) {
       return Response.json(
@@ -960,7 +954,7 @@ export async function handleSendMessage(
   // Fire-and-forget the agent loop; events flow to the hub via onEvent.
   session
     .runAgentLoop(resolvedContent, messageId, onEvent, {
-      isInteractive: isInteractiveInterface,
+      isInteractive,
       isUserMessage: true,
     })
     .catch((err) => {
