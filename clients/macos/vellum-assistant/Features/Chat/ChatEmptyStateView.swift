@@ -48,14 +48,6 @@ struct ChatEmptyStateView: View {
 
     // MARK: - Greeting Data
 
-    static let defaultGreetings = [
-        "What are we working on?",
-        "I'm here whenever you need me.",
-        "What's on your mind?",
-        "Let's make something happen.",
-        "Ready when you are.",
-    ]
-
     static let placeholderTexts = [
         "Ask me anything...",
         "Tell me what you need...",
