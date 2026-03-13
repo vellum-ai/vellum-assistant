@@ -796,20 +796,32 @@ describe("web_search_tool_result structural guard", () => {
 
     // Track whether we're inside an isToolResultBlock or isToolResultContent
     // helper function definition (which canonically defines the check).
-    let insideHelperFunction = false;
+    // We use brace depth tracking so nested blocks (if/else, etc.) inside the
+    // helper don't prematurely end the allowlisted region.
+    let helperBraceDepth = 0;
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
 
-      // Detect entry/exit of known helper functions that define the canonical check
-      if (/function isToolResult(Block|Content)\b/.test(line)) {
-        insideHelperFunction = true;
-      }
-      if (insideHelperFunction && line.trim() === "}") {
-        insideHelperFunction = false;
+      // Detect entry of known helper functions that define the canonical check
+      if (
+        helperBraceDepth === 0 &&
+        /function isToolResult(Block|Content)\b/.test(line)
+      ) {
+        // Count opening braces on the declaration line itself (e.g. `function foo() {`)
+        const opens = (line.match(/{/g) || []).length;
+        const closes = (line.match(/}/g) || []).length;
+        helperBraceDepth = opens - closes;
         continue;
       }
-      if (insideHelperFunction) continue;
+
+      // Track brace depth while inside a helper function
+      if (helperBraceDepth > 0) {
+        const opens = (line.match(/{/g) || []).length;
+        const closes = (line.match(/}/g) || []).length;
+        helperBraceDepth += opens - closes;
+        continue;
+      }
 
       // Check for raw tool_result type comparisons (both quote styles)
       const hasRawCheck =
