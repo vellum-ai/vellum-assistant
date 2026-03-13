@@ -275,38 +275,7 @@ public struct ToolConfirmationBubble: View {
         )
     }
 
-    // MARK: - Header Row
 
-    @ViewBuilder
-    private var headerRow: some View {
-        HStack(spacing: VSpacing.sm) {
-            VIconView(confirmation.toolCategoryIcon, size: 12)
-                .foregroundColor(VColor.contentSecondary)
-
-            Text(confirmation.toolCategory)
-                .font(VFont.captionMedium)
-                .foregroundColor(VColor.contentDefault)
-
-            VBadge(
-                style: .label(confirmation.riskLevel.capitalized),
-                color: riskColor
-            )
-
-            if let target = confirmation.normalizedExecutionTarget {
-                Text(target)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xxs)
-                    .background(
-                        Capsule()
-                            .fill(VColor.surfaceOverlay)
-                    )
-            }
-
-            Spacer()
-        }
-    }
 
     // MARK: - Inline Preview
 
