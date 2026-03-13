@@ -38,7 +38,10 @@ mock.module("../security/secure-keys.js", () => ({
     Promise.resolve(secureKeyValues.get(account)),
 }));
 
-import { initializeDb, resetDb, resetTestTables } from "../memory/db.js";
+import { eq } from "drizzle-orm";
+
+import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
+import { oauthProviders } from "../memory/schema/oauth.js";
 import {
   createConnection,
   deleteApp,
@@ -141,7 +144,7 @@ describe("provider operations", () => {
       });
     });
 
-    test("updates existing provider rows with corrected seed data", () => {
+    test("updates implementation fields while preserving user-customizable fields on re-seed", () => {
       seedProviders([
         {
           providerKey: "github",
@@ -172,14 +175,16 @@ describe("provider operations", () => {
 
       const row = getProvider("github");
       expect(row).toBeDefined();
-      // Seed data should overwrite the existing row
+      // Implementation fields should be overwritten by the re-seed
       expect(row!.authUrl).toBe("https://github.com/login/oauth/authorize-v2");
       expect(row!.tokenUrl).toBe(
         "https://github.com/login/oauth/access_token-v2",
       );
-      expect(row!.baseUrl).toBe("https://api.github.com/v2");
-      expect(JSON.parse(row!.defaultScopes)).toEqual(["repo", "user"]);
-      expect(JSON.parse(row!.scopePolicy)).toEqual({ required: ["repo"] });
+      // User-customizable fields (baseUrl, defaultScopes, scopePolicy) are
+      // preserved from the original insert — not overwritten on re-seed.
+      expect(row!.baseUrl).toBe("https://api.github.com");
+      expect(JSON.parse(row!.defaultScopes)).toEqual(["repo"]);
+      expect(JSON.parse(row!.scopePolicy)).toEqual({});
       // createdAt should be preserved from the original insert
       expect(row!.createdAt).toBe(originalCreatedAt);
     });
@@ -211,6 +216,92 @@ describe("provider operations", () => {
       ]);
       const row = getProvider("github");
       expect(row!.pingUrl).toBeNull();
+    });
+
+    test("preserves user-customizable fields while overwriting implementation fields on re-seed", () => {
+      // Initial seed with all fields
+      seedProviders([
+        {
+          providerKey: "github",
+          authUrl: "https://github.com/authorize",
+          tokenUrl: "https://github.com/token",
+          tokenEndpointAuthMethod: "client_secret_post",
+          defaultScopes: ["repo"],
+          scopePolicy: { required: ["repo"] },
+          userinfoUrl: "https://api.github.com/user",
+          baseUrl: "https://api.github.com",
+          extraParams: { prompt: "consent" },
+          callbackTransport: "loopback",
+          loopbackPort: 8765,
+          pingUrl: "https://api.github.com/user",
+        },
+      ]);
+
+      // Manually update user-customizable fields to simulate user edits
+      const db = getDb();
+      db.update(oauthProviders)
+        .set({
+          defaultScopes: JSON.stringify(["repo", "user", "gist"]),
+          scopePolicy: JSON.stringify({
+            required: ["repo"],
+            allowAdditionalScopes: true,
+          }),
+          userinfoUrl: "https://api.github.com/user/custom",
+          baseUrl: "https://custom.github.com/api",
+        })
+        .where(eq(oauthProviders.providerKey, "github"))
+        .run();
+
+      // Verify the manual updates took effect
+      const beforeReseed = getProvider("github");
+      expect(JSON.parse(beforeReseed!.defaultScopes)).toEqual([
+        "repo",
+        "user",
+        "gist",
+      ]);
+      expect(beforeReseed!.userinfoUrl).toBe(
+        "https://api.github.com/user/custom",
+      );
+      expect(beforeReseed!.baseUrl).toBe("https://custom.github.com/api");
+
+      // Re-seed with updated implementation fields
+      seedProviders([
+        {
+          providerKey: "github",
+          authUrl: "https://github.com/authorize-v2",
+          tokenUrl: "https://github.com/token-v2",
+          tokenEndpointAuthMethod: "client_secret_basic",
+          defaultScopes: ["repo-only"],
+          scopePolicy: {},
+          userinfoUrl: "https://api.github.com/user-v2",
+          baseUrl: "https://api.github.com/v2",
+          extraParams: { prompt: "login" },
+          callbackTransport: "gateway",
+          loopbackPort: 9999,
+          pingUrl: "https://api.github.com/user-v2",
+        },
+      ]);
+
+      const row = getProvider("github");
+      expect(row).toBeDefined();
+
+      // User-customizable fields should retain their manual values
+      expect(JSON.parse(row!.defaultScopes)).toEqual(["repo", "user", "gist"]);
+      expect(JSON.parse(row!.scopePolicy)).toEqual({
+        required: ["repo"],
+        allowAdditionalScopes: true,
+      });
+      expect(row!.userinfoUrl).toBe("https://api.github.com/user/custom");
+      expect(row!.baseUrl).toBe("https://custom.github.com/api");
+
+      // Implementation fields should be overwritten from the seed data
+      expect(row!.authUrl).toBe("https://github.com/authorize-v2");
+      expect(row!.tokenUrl).toBe("https://github.com/token-v2");
+      expect(row!.tokenEndpointAuthMethod).toBe("client_secret_basic");
+      expect(JSON.parse(row!.extraParams!)).toEqual({ prompt: "login" });
+      expect(row!.callbackTransport).toBe("gateway");
+      expect(row!.loopbackPort).toBe(9999);
+      expect(row!.pingUrl).toBe("https://api.github.com/user-v2");
     });
   });
 

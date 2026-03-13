@@ -890,6 +890,74 @@ describe("assistant oauth connections connect <provider-key>", () => {
     expect(parsed.error).toBe("Something went wrong");
   });
 
+  test("succeeds when callbackTransport is null (loopback default)", async () => {
+    // Provider row has callbackTransport: null — orchestrator should default
+    // to loopback and not require a public ingress URL.
+    mockGetMostRecentAppByProvider = () => ({
+      id: "app-loopback",
+      clientId: "loopback-client",
+      clientSecretCredentialPath: "oauth_app/app-loopback/client_secret",
+      providerKey: "integration:test-loopback",
+      createdAt: 0,
+      updatedAt: 0,
+    });
+
+    let capturedOpts: Record<string, unknown> | undefined;
+    mockOrchestrateOAuthConnect = async (opts) => {
+      capturedOpts = opts;
+      return {
+        success: true,
+        deferred: true,
+        authUrl: "https://example.com/auth?loopback",
+        state: "state-loopback",
+        service: "integration:test-loopback",
+      };
+    };
+
+    const { exitCode, stdout } = await runCli([
+      "connections",
+      "connect",
+      "integration:test-loopback",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.deferred).toBe(true);
+    expect(capturedOpts).toBeDefined();
+    expect(capturedOpts!.clientId).toBe("loopback-client");
+  });
+
+  test("returns ingress URL error when callbackTransport is explicitly gateway", async () => {
+    // Provider row has callbackTransport: "gateway" — orchestrator should
+    // require a public ingress URL, which is not configured in the test env.
+    mockGetMostRecentAppByProvider = () => ({
+      id: "app-gateway",
+      clientId: "gateway-client",
+      clientSecretCredentialPath: "oauth_app/app-gateway/client_secret",
+      providerKey: "integration:test-gateway",
+      createdAt: 0,
+      updatedAt: 0,
+    });
+
+    mockOrchestrateOAuthConnect = async () => ({
+      success: false,
+      error:
+        "oauth2_connect from a non-interactive session requires a public ingress URL. Configure ingress.publicBaseUrl first.",
+    });
+
+    const { exitCode, stdout } = await runCli([
+      "connections",
+      "connect",
+      "integration:test-gateway",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("requires a public ingress URL");
+  });
+
   test("fails when client_secret is required but missing", async () => {
     mockGetAppByProviderAndClientId = () => ({
       id: "app-1",
