@@ -4,7 +4,6 @@ import { dirname } from "node:path";
 import * as readline from "node:readline";
 
 import { httpSend } from "./cli/http-client.js";
-import { isHttpHealthy } from "./daemon/daemon-control.js";
 import {
   type MainScreenLayout,
   renderMainScreen,
@@ -12,6 +11,7 @@ import {
   updateStatusText,
 } from "./cli/main-screen.jsx";
 import { shouldAutoStartDaemon } from "./daemon/connection-policy.js";
+import { isHttpHealthy } from "./daemon/daemon-control.js";
 import { ensureDaemonRunning } from "./daemon/lifecycle.js";
 import type {
   ConfirmationRequest,
