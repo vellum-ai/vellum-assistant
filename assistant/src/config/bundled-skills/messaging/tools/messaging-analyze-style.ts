@@ -91,7 +91,7 @@ export async function run(
 
   try {
     const provider = resolveProvider(platform);
-    const conn = getProviderConnection(provider);
+    const conn = await getProviderConnection(provider);
     // Search for sent messages using the platform's search
     const query =
       queryFilter ?? (provider.id === "gmail" ? "in:sent" : "from:me");

@@ -130,9 +130,9 @@ export function resolveProvider(platformInput?: string): MessagingProvider {
  * Non-OAuth providers (e.g. Telegram) use isConnected() and don't need
  * tokens — they receive an empty string which the string overload handles.
  */
-export function getProviderConnection(
+export async function getProviderConnection(
   provider: MessagingProvider,
-): OAuthConnection | string {
+): Promise<OAuthConnection | string> {
   if (provider.isConnected?.()) return "";
   return resolveOAuthConnection(provider.credentialService);
 }

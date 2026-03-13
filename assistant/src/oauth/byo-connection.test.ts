@@ -488,29 +488,31 @@ describe("BYOOAuthConnection", () => {
 });
 
 describe("resolveOAuthConnection", () => {
-  test("returns a BYOOAuthConnection for valid credential", () => {
+  test("returns a BYOOAuthConnection for valid credential", async () => {
     setupCredential("integration:google");
-    const conn = resolveOAuthConnection("integration:google");
+    const conn = await resolveOAuthConnection("integration:google");
 
     expect(conn).toBeInstanceOf(BYOOAuthConnection);
     expect(conn.providerKey).toBe("integration:google");
     expect(conn.grantedScopes).toEqual(["read", "write"]);
   });
 
-  test("throws when no credential metadata exists", () => {
-    expect(() => resolveOAuthConnection("integration:unknown")).toThrow(
+  test("throws when no credential metadata exists", async () => {
+    await expect(resolveOAuthConnection("integration:unknown")).rejects.toThrow(
       /No credential found for "integration:unknown"/,
     );
   });
 
-  test("throws when no base URL configured", () => {
+  test("throws when no base URL configured", async () => {
     setupCredential("integration:custom-service");
-    expect(() => resolveOAuthConnection("integration:custom-service")).toThrow(
+    await expect(
+      resolveOAuthConnection("integration:custom-service"),
+    ).rejects.toThrow(
       /No base URL configured for "integration:custom-service"/,
     );
   });
 
-  test("resolves base URL via app's canonical providerKey for custom credential_service", () => {
+  test("resolves base URL via app's canonical providerKey for custom credential_service", async () => {
     // Set up a well-known provider with a baseUrl
     mockProviders.set("github", {
       key: "github",
@@ -541,7 +543,7 @@ describe("resolveOAuthConnection", () => {
     });
     setSecureKey(`oauth_connection/${connId}/access_token`, "ghp-test-token");
 
-    const conn = resolveOAuthConnection("integration:github-work");
+    const conn = await resolveOAuthConnection("integration:github-work");
 
     expect(conn).toBeInstanceOf(BYOOAuthConnection);
     expect(conn.providerKey).toBe("integration:github-work");

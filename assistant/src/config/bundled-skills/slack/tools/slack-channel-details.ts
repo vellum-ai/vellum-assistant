@@ -16,7 +16,7 @@ export async function run(
   }
 
   try {
-    const connection = getSlackConnection();
+    const connection = await getSlackConnection();
     const resp = await slack.conversationInfo(connection, channelId);
     const conv = resp.channel;
 

@@ -15,7 +15,7 @@ export async function run(
   const calendarIds = (input.calendar_ids as string[]) ?? ["primary"];
   const timezone = input.timezone as string | undefined;
 
-  const connection = getCalendarConnection(account);
+  const connection = await getCalendarConnection(account);
   const result = await calendar.freeBusy(connection, {
     timeMin,
     timeMax,
