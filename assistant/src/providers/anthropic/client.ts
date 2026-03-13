@@ -107,7 +107,6 @@ function buildSyntheticToolResult(
   };
 }
 
-
 /**
  * Collect ordered IDs of client-side tool_use blocks only.
  * Server-side tools (server_tool_use / web_search_tool_result) are self-paired
@@ -228,7 +227,10 @@ function normalizeFollowingUserContent(
     toolResultPrefix: orderedResults,
     remainingContent: remaining,
     missingIds,
-    hadOrderedPrefix: hasOrderedToolResultPrefix(nextContent, orderedToolUseIds),
+    hadOrderedPrefix: hasOrderedToolResultPrefix(
+      nextContent,
+      orderedToolUseIds,
+    ),
   };
 }
 
@@ -712,20 +714,26 @@ export class AnthropicProvider implements Provider {
               type: "server_tool_start",
               name: event.content_block.name,
               toolUseId: event.content_block.id,
-              input: (
-                event.content_block as { input?: Record<string, unknown> }
-              ).input ?? {},
+              input:
+                (event.content_block as { input?: Record<string, unknown> })
+                  .input ?? {},
             });
           }
           if (
             event.type === "content_block_start" &&
             event.content_block.type === "web_search_tool_result"
           ) {
+            const block = event.content_block as {
+              tool_use_id: string;
+              content?: { type: "web_search_tool_result_error" } | unknown[];
+            };
+            const isError =
+              !Array.isArray(block.content) &&
+              block.content?.type === "web_search_tool_result_error";
             onEvent?.({
               type: "server_tool_complete",
-              toolUseId: (
-                event.content_block as { tool_use_id: string }
-              ).tool_use_id,
+              toolUseId: block.tool_use_id,
+              isError: !!isError,
             });
           }
           if (event.type === "content_block_stop") {
