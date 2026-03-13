@@ -57,7 +57,7 @@ export async function clearSession(): Promise<void> {
 }
 
 /**
- * Import cookies that the daemon saved to the credential store under the
+ * Import cookies that the assistant saved to the credential store under the
  * target domain key. Validates Amazon-specific required cookies, then
  * copies them to the canonical amazon:session:cookies key.
  */
