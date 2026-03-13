@@ -6,7 +6,6 @@ struct SettingsAppearanceTab: View {
     private static let knownTimezones: [String] = TimeZone.knownTimeZoneIdentifiers.sorted()
 
     @ObservedObject var store: SettingsStore
-    var afterTimezone: AnyView? = nil
     @AppStorage("themePreference") private var themePreference: String = "system"
     @State private var newAllowlistDomain = ""
     @State private var isRecordingGlobalHotkey = false
@@ -183,8 +182,6 @@ struct SettingsAppearanceTab: View {
                     selectedTimezone = mapped
                 }
             }
-
-            if let afterTimezone { afterTimezone }
 
             // KEYBOARD SHORTCUTS section
             SettingsCard(title: "Keyboard Shortcuts") {
