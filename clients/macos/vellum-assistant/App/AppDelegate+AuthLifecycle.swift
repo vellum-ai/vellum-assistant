@@ -567,12 +567,14 @@ extension AppDelegate {
     /// Consolidates three bug fixes:
     /// 1. Resets `hasSetupHotKey` so `setupHotKey()` re-registers on next login
     /// 2. Clears `lastRegisteredGlobalHotkey`, `lastRegisteredQuickInputHotkey`, and
-    ///    `lastRegisteredQuickInputAboveDockShortcut` so re-registration is not short-circuited
+    ///    `lastRegisteredCommandPaletteShortcut`, and `lastRegisteredQuickInputAboveDockShortcut`
+    ///    so re-registration is not short-circuited
     /// 3. Tears down quick-input monitors (including `cmdKLocalMonitor`)
     func tearDownHotKeyState() {
         hasSetupHotKey = false
         lastRegisteredGlobalHotkey = nil
         lastRegisteredQuickInputHotkey = nil
+        lastRegisteredCommandPaletteShortcut = nil
         lastRegisteredQuickInputAboveDockShortcut = nil
         lastRegisteredZoomInShortcut = nil
         lastRegisteredZoomOutShortcut = nil
