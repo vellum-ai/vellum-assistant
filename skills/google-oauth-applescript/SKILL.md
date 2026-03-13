@@ -103,12 +103,14 @@ Every step follows this rhythm:
 Before beginning, look up information about the google oauth app, which we'll need later.
 
 Find the gmail or google oauth provider
+
 ```
 bash:
   command: assistant oauth providers list --provider-key "gmail, google" --json
 ```
 
 If one doesn't yet exist, then register a new one with a provider key of "integration:google"
+
 ```
 bash:
   command: assistant oauth providers register --help
@@ -350,7 +352,6 @@ Wait for the user to confirm the dialog is showing.
 This value is not secret and can safely be provided conversationally.
 
 > Copy the Client ID from the Google Cloud dialog and paste it here in the chat. This is not a secret value and can be safely provided here.
-
 
 ### 7b: Client Secret
 
