@@ -960,6 +960,20 @@ function buildDynamicSkillWorkflowSection(
     );
   }
 
+  lines.push(
+    "",
+    "### Community Skills Discovery",
+    "",
+    "When no built-in skill satisfies a request, search the community skills.sh registry:",
+    "1. Run `assistant skills search <query>` to find community skills. Results include install counts and security audit badges (ATH, Socket, Snyk).",
+    "2. Present the search results to the user, highlighting the security audit status. ATH is Gen Agent Trust Hub. Audits show PASS (safe/low risk), WARN (medium risk), or FAIL (high/critical risk) for each provider.",
+    '3. **Always ask the user for permission before installing a community skill.** Say something like: "I found a skill that could help with this. Would you like me to install it?" — share the skill name, source, and audit results.',
+    "4. After user consent, install with `assistant skills add <owner>/<repo>@<skill-name>` (e.g., `assistant skills add vercel-labs/skills@find-skills`).",
+    "5. After installation, load the skill with `skill_load` as usual.",
+    "",
+    "**Never install community skills without explicit user confirmation.** The user should always see the security audit information and make an informed choice.",
+  );
+
   return lines.join("\n");
 }
 
