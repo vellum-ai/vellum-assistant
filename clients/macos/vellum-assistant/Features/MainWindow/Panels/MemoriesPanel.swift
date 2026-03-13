@@ -200,7 +200,9 @@ struct MemoriesPanel: View {
                     }
                 }
                 .padding(VSpacing.md)
+                .background { OverlayScrollerStyle() }
             }
+            .scrollContentBackground(.hidden)
         }
     }
 }
