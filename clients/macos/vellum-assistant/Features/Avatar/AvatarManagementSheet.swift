@@ -84,7 +84,10 @@ struct AvatarManagementSheet: View {
                     subtitle: "Build your own character"
                 ) {
                     withAnimation(VAnimation.fast) {
-                        draftImage = nil
+                        draftBody = AvatarBodyShape.allCases.randomElement()!
+                        draftEyes = AvatarEyeStyle.allCases.randomElement()!
+                        draftColor = AvatarColor.allCases.randomElement()! // color-literal-ok
+                        renderDraft()
                         showingCharacterBuilder = true
                     }
                 }
@@ -186,6 +189,23 @@ struct AvatarManagementSheet: View {
     private var cycleControls: some View {
         VStack(spacing: VSpacing.sm) {
             cycleRow(
+                label: "Color",
+                onLeft: {
+                    ensureDraftsInitialized()
+                    draftColor = cycleBackward(draftColor)
+                    renderDraft()
+                },
+                onRight: {
+                    ensureDraftsInitialized()
+                    draftColor = cycleForward(draftColor)
+                    renderDraft()
+                }
+            ) {
+                Circle()
+                    .fill(draftColor.map { Color(nsColor: $0.nsColor) } ?? VColor.contentTertiary)
+                    .frame(width: 20, height: 20)
+            }
+            cycleRow(
                 label: "Body",
                 onLeft: {
                     ensureDraftsInitialized()
@@ -224,23 +244,6 @@ struct AvatarManagementSheet: View {
                         .aspectRatio(contentMode: .fit)
                         .frame(width: 32, height: 32)
                 }
-            }
-            cycleRow(
-                label: "Color",
-                onLeft: {
-                    ensureDraftsInitialized()
-                    draftColor = cycleBackward(draftColor)
-                    renderDraft()
-                },
-                onRight: {
-                    ensureDraftsInitialized()
-                    draftColor = cycleForward(draftColor)
-                    renderDraft()
-                }
-            ) {
-                Circle()
-                    .fill(draftColor.map { Color(nsColor: $0.nsColor) } ?? VColor.contentTertiary)
-                    .frame(width: 20, height: 20)
             }
         }
     }
