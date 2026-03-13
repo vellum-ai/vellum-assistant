@@ -311,26 +311,34 @@ struct MessageListView: View {
     @ViewBuilder
     private var conversationTailAvatar: some View {
         if shouldShowConversationTailAvatar {
-            HStack {
-                if let body = appearance.characterBodyShape,
-                   let eyes = appearance.characterEyeStyle,
-                   let color = appearance.characterColor {
+            if let body = appearance.characterBodyShape,
+               let eyes = appearance.characterEyeStyle,
+               let color = appearance.characterColor {
+                HStack {
                     AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color,
                                        size: ConversationAvatarFollower.avatarSize,
                                        breathingEnabled: false)
                         .frame(width: ConversationAvatarFollower.avatarSize,
                                height: ConversationAvatarFollower.avatarSize)
-                } else {
-                    VAvatarImage(image: appearance.chatAvatarImage, size: ConversationAvatarFollower.avatarSize)
+                    Spacer()
                 }
-                Spacer()
+                .padding(.horizontal, VSpacing.xl)
+                .frame(maxWidth: VSpacing.chatColumnMaxWidth)
+                .frame(maxWidth: .infinity)
+                .offset(y: avatarDisplayY)
+                .accessibilityHidden(true)
+            } else {
+                HStack {
+                    VAvatarImage(image: appearance.chatAvatarImage, size: ConversationAvatarFollower.avatarSize)
+                    Spacer()
+                }
+                .padding(.horizontal, VSpacing.xl)
+                .frame(maxWidth: VSpacing.chatColumnMaxWidth)
+                .frame(maxWidth: .infinity)
+                .offset(y: avatarDisplayY)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
             }
-            .padding(.horizontal, VSpacing.xl)
-            .frame(maxWidth: VSpacing.chatColumnMaxWidth)
-            .frame(maxWidth: .infinity)
-            .offset(y: avatarDisplayY)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
         }
     }
 
