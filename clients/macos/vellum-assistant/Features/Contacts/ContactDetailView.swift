@@ -829,7 +829,7 @@ struct ContactDetailView: View {
         case "telegram": return "Telegram"
         case "email": return "Email"
         case "whatsapp": return "WhatsApp"
-        case "phone": return "Voice"
+        case "phone": return "Phone"
         case "slack": return "Slack"
         default: return type.capitalized
         }
@@ -976,7 +976,11 @@ struct ContactDetailView: View {
         inviteResult = nil
         Task {
             do {
-                let phoneNumber = type == "phone" ? invitePhoneNumber.trimmingCharacters(in: .whitespaces) : nil
+                var phoneNumber: String? = nil
+                if type == "phone" {
+                    let trimmed = invitePhoneNumber.trimmingCharacters(in: .whitespaces)
+                    phoneNumber = trimmed.hasPrefix("+") ? trimmed : "+1\(trimmed)"
+                }
                 let resolvedGuardianName = type == "phone" ? (guardianName ?? "your guardian") : nil
 
                 if let result = try await daemonClient.createInvite(
