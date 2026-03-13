@@ -246,44 +246,44 @@ struct ContactDetailView: View {
     // MARK: - Channels Section
 
     private var channelsSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Channels")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.contentDefault)
+        let channelsByType = Dictionary(
+            grouping: displayContact.channels.filter { $0.status != "revoked" },
+            by: { $0.type }
+        )
 
-            let channelsByType = Dictionary(
-                grouping: displayContact.channels.filter { $0.status != "revoked" },
-                by: { $0.type }
-            )
+        let visibleTypes = Self.allChannelTypes.filter { type in
+            // Always show channels the contact already has configured
+            channelsByType[type] != nil
+                // Otherwise only show channels the assistant has successfully set up
+                || channelReadiness[type]?.ready == true
+        }
 
-            let visibleTypes = Self.allChannelTypes.filter { type in
-                // Always show channels the contact already has configured
-                channelsByType[type] != nil
-                    // Otherwise only show channels the assistant has successfully set up
-                    || channelReadiness[type]?.ready == true
-            }
-            let lastVisibleType = visibleTypes.last
-
-            ForEach(Array(Self.allChannelTypes.enumerated()), id: \.element) { _, type in
-                if let channels = channelsByType[type] {
-                    // Configured channel — always show
-                    ForEach(Array(channels.enumerated()), id: \.element.id) { channelIndex, channel in
-                        channelRow(channel)
-
-                        if channelIndex < channels.count - 1 {
-                            Divider().background(VColor.borderBase)
+        return VStack(alignment: .leading, spacing: VSpacing.md) {
+            if visibleTypes.isEmpty {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    Text("No channels available")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.contentDefault)
+                    Text("This contact does not have any channels configured yet. Channels will appear here once the assistant has them set up and the contact is invited.")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentTertiary)
+                }
+                .padding(VSpacing.lg)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .vCard(background: VColor.surfaceOverlay)
+            } else {
+                ForEach(visibleTypes, id: \.self) { type in
+                    SettingsCard(title: channelLabel(for: type), subtitle: channelSubtitle(for: type)) {
+                        if let channels = channelsByType[type] {
+                            ForEach(Array(channels.enumerated()), id: \.element.id) { channelIndex, channel in
+                                channelRow(channel)
+                                if channelIndex < channels.count - 1 {
+                                    SettingsDivider()
+                                }
+                            }
+                        } else {
+                            unconfiguredChannelRow(type: type)
                         }
-                    }
-
-                    if type != lastVisibleType {
-                        Divider().background(VColor.borderBase)
-                    }
-                } else if channelReadiness[type]?.ready == true {
-                    // Unconfigured but assistant has this channel set up — show
-                    unconfiguredChannelRow(type: type)
-
-                    if type != lastVisibleType {
-                        Divider().background(VColor.borderBase)
                     }
                 }
             }
@@ -300,9 +300,6 @@ struct ContactDetailView: View {
                     .foregroundColor(VColor.systemNegativeStrong)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceOverlay)
         .task {
             do {
                 channelReadiness = try await daemonClient?.fetchChannelReadiness() ?? [:]
@@ -707,6 +704,15 @@ struct ContactDetailView: View {
         case "phone": return "Phone"
         case "slack": return "Slack"
         default: return type.capitalized
+        }
+    }
+
+    private func channelSubtitle(for type: String) -> String {
+        switch type {
+        case "telegram": return "Message your assistant from Telegram"
+        case "phone": return "Call or text your assistant via phone"
+        case "slack": return "Message your assistant from Slack"
+        default: return "Connect via \(type.capitalized)"
         }
     }
 
