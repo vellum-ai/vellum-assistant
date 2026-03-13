@@ -374,6 +374,22 @@ describe("fetchSkillFromGitHub", () => {
           ),
         );
       }
+      // Subdirectory listing (must precede parent path check — both use
+      // .includes() and the parent path is a prefix of this one)
+      if (urlStr.includes("/contents/examples/skills/csv/scripts")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify([
+              {
+                name: "filter.sh",
+                type: "file",
+                download_url: "https://raw.example.com/filter.sh",
+              },
+            ]),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
       // Contents API for the discovered path
       if (urlStr.includes("/contents/examples/skills/csv")) {
         return Promise.resolve(
@@ -388,21 +404,6 @@ describe("fetchSkillFromGitHub", () => {
                 name: "scripts",
                 type: "dir",
                 download_url: null,
-              },
-            ]),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          ),
-        );
-      }
-      // Subdirectory listing
-      if (urlStr.includes("/contents/examples/skills/csv/scripts")) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify([
-              {
-                name: "filter.sh",
-                type: "file",
-                download_url: "https://raw.example.com/filter.sh",
               },
             ]),
             { status: 200, headers: { "Content-Type": "application/json" } },
