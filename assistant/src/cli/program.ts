@@ -4,6 +4,7 @@ import { registerHooksCommand } from "../hooks/cli.js";
 import { APP_VERSION } from "../version.js";
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerAutonomyCommand } from "./commands/autonomy.js";
+import { registerBashCommand } from "./commands/bash.js";
 import { registerBrowserRelayCommand } from "./commands/browser-relay.js";
 import { registerChannelVerificationSessionsCommand } from "./commands/channel-verification-sessions.js";
 import { registerCompletionsCommand } from "./commands/completions.js";
@@ -33,6 +34,7 @@ export function buildCliProgram(): Command {
     .version(APP_VERSION);
 
   registerDefaultAction(program);
+  registerBashCommand(program);
   registerSessionsCommand(program);
   registerConfigCommand(program);
   registerKeysCommand(program);
