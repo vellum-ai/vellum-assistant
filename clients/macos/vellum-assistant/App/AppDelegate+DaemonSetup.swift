@@ -211,6 +211,7 @@ extension AppDelegate {
         // the user sees them in the sidebar without restarting the app.
         daemonClient.onTaskRunThreadCreated = { [weak self] msg in
             guard let self, !self.isBootstrapping else { return }
+            self.ensureMainWindowExists()
             self.mainWindow?.threadManager.createTaskRunThread(
                 conversationId: msg.conversationId,
                 workItemId: msg.workItemId,
@@ -221,6 +222,7 @@ extension AppDelegate {
         // Schedule threads — created when the scheduler fires and creates a conversation.
         daemonClient.onScheduleThreadCreated = { [weak self] msg in
             guard let self, !self.isBootstrapping else { return }
+            self.ensureMainWindowExists()
             self.mainWindow?.threadManager.createScheduleThread(
                 conversationId: msg.conversationId,
                 scheduleJobId: msg.scheduleJobId,
