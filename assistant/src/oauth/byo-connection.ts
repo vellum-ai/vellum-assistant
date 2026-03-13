@@ -48,61 +48,67 @@ export class BYOOAuthConnection implements OAuthConnection {
   }
 
   async request(req: OAuthConnectionRequest): Promise<OAuthConnectionResponse> {
-    return withValidToken(this.credentialService, async (token) => {
-      const effectiveBaseUrl = req.baseUrl ?? this.baseUrl;
-      let fullUrl = `${effectiveBaseUrl}${req.path}`;
+    return withValidToken(
+      this.credentialService,
+      async (token) => {
+        const effectiveBaseUrl = req.baseUrl ?? this.baseUrl;
+        let fullUrl = `${effectiveBaseUrl}${req.path}`;
 
-      if (req.query && Object.keys(req.query).length > 0) {
-        const params = new URLSearchParams();
-        for (const [key, value] of Object.entries(req.query)) {
-          if (Array.isArray(value)) {
-            for (const v of value) params.append(key, v);
-          } else {
-            params.append(key, value);
+        if (req.query && Object.keys(req.query).length > 0) {
+          const params = new URLSearchParams();
+          for (const [key, value] of Object.entries(req.query)) {
+            if (Array.isArray(value)) {
+              for (const v of value) params.append(key, v);
+            } else {
+              params.append(key, value);
+            }
+          }
+          fullUrl += `?${params.toString()}`;
+        }
+
+        log.debug(
+          { method: req.method, url: fullUrl, provider: this.providerKey },
+          "Making authenticated request",
+        );
+
+        // Use the Headers API for case-insensitive merging. Set defaults
+        // first so caller-supplied headers (in any casing) override them.
+        const headers = new Headers();
+        if (req.body) {
+          headers.set("Content-Type", "application/json");
+        }
+        if (req.headers) {
+          for (const [key, value] of Object.entries(req.headers)) {
+            headers.set(key, value);
           }
         }
-        fullUrl += `?${params.toString()}`;
-      }
+        headers.set("Authorization", `Bearer ${token}`);
 
-      log.debug(
-        { method: req.method, url: fullUrl, provider: this.providerKey },
-        "Making authenticated request",
-      );
+        const resp = await fetch(fullUrl, {
+          method: req.method,
+          headers,
+          body: req.body ? JSON.stringify(req.body) : undefined,
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        });
 
-      // Use the Headers API for case-insensitive merging. Set defaults
-      // first so caller-supplied headers (in any casing) override them.
-      const headers = new Headers();
-      if (req.body) {
-        headers.set("Content-Type", "application/json");
-      }
-      if (req.headers) {
-        for (const [key, value] of Object.entries(req.headers)) {
-          headers.set(key, value);
+        if (resp.status === 401) {
+          // Throw with a status property so withValidToken detects the 401
+          // and triggers its refresh-and-retry logic.
+          const err = new Error(`HTTP 401 from ${this.providerKey}`);
+          (err as Error & { status: number }).status = 401;
+          throw err;
         }
-      }
-      headers.set("Authorization", `Bearer ${token}`);
 
-      const resp = await fetch(fullUrl, {
-        method: req.method,
-        headers,
-        body: req.body ? JSON.stringify(req.body) : undefined,
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      });
-
-      if (resp.status === 401) {
-        // Throw with a status property so withValidToken detects the 401
-        // and triggers its refresh-and-retry logic.
-        const err = new Error(`HTTP 401 from ${this.providerKey}`);
-        (err as Error & { status: number }).status = 401;
-        throw err;
-      }
-
-      return buildResponse(resp);
-    });
+        return buildResponse(resp);
+      },
+      { connectionId: this.id },
+    );
   }
 
   async withToken<T>(fn: (token: string) => Promise<T>): Promise<T> {
-    return withValidToken(this.credentialService, fn);
+    return withValidToken(this.credentialService, fn, {
+      connectionId: this.id,
+    });
   }
 }
 
