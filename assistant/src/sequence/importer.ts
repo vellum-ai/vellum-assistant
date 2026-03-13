@@ -47,7 +47,13 @@ function normalizeForPathCheck(path: string): string {
 }
 
 function validateImportPath(filePath: string, workspaceRoot?: string): string {
-  const resolvedPath = resolve(filePath);
+  // Use the caller-supplied workspace root (e.g. ToolContext.workingDir) so that validation
+  // is anchored to the same directory the tool operates in, not process.cwd() which may
+  // differ when the daemon is launched without forcing cwd.
+  // Also use root as the base for resolve() so that relative paths (e.g. "contacts.csv")
+  // are interpreted relative to the workspace, not process.cwd().
+  const root = workspaceRoot ?? process.cwd();
+  const resolvedPath = resolve(root, filePath);
 
   // Resolve symlinks to prevent symlink-based escapes (e.g. workspace/evil.csv -> /etc/shadow).
   // Fall back to the resolve()-d path if the file doesn't exist yet.
@@ -57,11 +63,6 @@ function validateImportPath(filePath: string, workspaceRoot?: string): string {
   } catch {
     realPath = resolvedPath;
   }
-
-  // Use the caller-supplied workspace root (e.g. ToolContext.workingDir) so that validation
-  // is anchored to the same directory the tool operates in, not process.cwd() which may
-  // differ when the daemon is launched without forcing cwd.
-  const root = workspaceRoot ?? process.cwd();
 
   // Also resolve the workspace root's real path (e.g. /tmp -> /private/tmp on macOS).
   let realWorkspace: string;
