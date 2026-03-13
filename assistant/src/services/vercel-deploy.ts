@@ -55,27 +55,3 @@ export async function deployHtmlToVercel(opts: {
 
   return { url: publicUrl, deploymentId: data.id };
 }
-
-export async function deleteVercelDeployment(
-  deploymentId: string,
-  token: string,
-): Promise<void> {
-  const response = await fetch(
-    `https://api.vercel.com/v13/deployments/${deploymentId}`,
-    {
-      method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    },
-  );
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new ProviderError(
-      `Vercel delete deployment failed (${response.status}): ${text}`,
-      "vercel",
-      response.status,
-    );
-  }
-}

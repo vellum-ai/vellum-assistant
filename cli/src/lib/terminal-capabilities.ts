@@ -108,22 +108,6 @@ export function getTerminalCapabilities(): TerminalCapabilities {
 }
 
 /**
- * Clear the cached capabilities so the next `getTerminalCapabilities()`
- * call re-detects from the current environment. Useful after modifying
- * `process.env.NO_COLOR` at startup or in tests.
- */
-export function resetCapabilitiesCache(): void {
-  _cached = undefined;
-}
-
-// ── Convenience helpers ──────────────────────────────────────
-
-/** True when colors should be used (any level above "none"). */
-export function supportsColor(): boolean {
-  return getTerminalCapabilities().colorLevel !== "none";
-}
-
-/**
  * Return `fancy` when unicode is supported, otherwise `fallback`.
  *
  * Example: `unicodeOrFallback("🟢", "[ok]")`
