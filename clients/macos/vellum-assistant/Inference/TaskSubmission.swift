@@ -71,7 +71,7 @@ struct TaskAttachment: Identifiable {
         )
     }
 
-    static func fromPastedImage(_ data: Data, fileName: String = "pasted-image.png", mimeType: String = "image/png") throws -> TaskAttachment {
+    static func fromPastedImage(_ data: Data, fileName: String = "pasted-image.png", mimeType: String = "image/png") -> TaskAttachment {
         return TaskAttachment(
             id: UUID(),
             fileName: fileName,
