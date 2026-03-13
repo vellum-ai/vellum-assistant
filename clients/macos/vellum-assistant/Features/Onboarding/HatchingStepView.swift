@@ -12,7 +12,9 @@ struct HatchingStepView: View {
     @State private var showCharacter = true
     @State private var hatchStarted = false
     @State private var failureReason: String?
-    @State private var selectedPreset = PresetAvatar.random()
+    @State private var hatchBody = AvatarBodyShape.allCases.randomElement()!
+    @State private var hatchEyes = AvatarEyeStyle.allCases.randomElement()!
+    @State private var hatchColor = AvatarColor.allCases.randomElement()! // color-literal-ok
     @State private var completionTask: Task<Void, Never>?
 
     var body: some View {
@@ -61,11 +63,17 @@ struct HatchingStepView: View {
         }
     }
 
+    // MARK: - Avatar
+
+    private var hatchAvatarImage: NSImage? {
+        AvatarCompositor.render(bodyShape: hatchBody, eyeStyle: hatchEyes, color: hatchColor)
+    }
+
     // MARK: - Character Animation
 
     private var characterAnimation: some View {
         ZStack {
-            if let image = selectedPreset.image {
+            if let image = hatchAvatarImage {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
@@ -154,15 +162,15 @@ struct HatchingStepView: View {
         state.resetForRetry()
     }
 
-    /// Called when the CLI process finishes successfully. Saves the preset avatar
+    /// Called when the CLI process finishes successfully. Saves the random avatar
     /// (for non-pairing flows) then signals completion after a brief delay.
     private func handleHatchSuccess() {
-        // Save the randomly-assigned preset as the user's avatar, but only for
+        // Save the randomly-generated avatar as the user's avatar, but only for
         // non-pairing flows and only if one hasn't already been uploaded/generated
         // (preserves existing avatars when replaying onboarding during development).
         if !isCustomHardware,
            AvatarAppearanceManager.shared.customAvatarImage == nil,
-           let image = selectedPreset.image {
+           let image = hatchAvatarImage {
             AvatarAppearanceManager.shared.setCustomAvatar(image)
         }
 
