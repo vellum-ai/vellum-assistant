@@ -73,6 +73,21 @@ async function ensureDockerInstalled(): Promise<void> {
   try {
     await exec("docker", ["info"]);
   } catch {
+    let hasColima = false;
+    try {
+      await execOutput("colima", ["version"]);
+      hasColima = true;
+    } catch {
+      // colima not found
+    }
+
+    if (!hasColima) {
+      throw new Error(
+        "Docker daemon is not running and Colima is not installed.\n" +
+          "Please start Docker Desktop, or install Colima with 'brew install colima' and run 'colima start'.",
+      );
+    }
+
     console.log("🚀 Docker daemon not running. Starting Colima...");
     try {
       await exec("colima", ["start"]);
