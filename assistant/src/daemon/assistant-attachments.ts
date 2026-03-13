@@ -17,8 +17,8 @@ import {
 // Constants
 // ---------------------------------------------------------------------------
 
-/** No practical limit on a single assistant attachment. */
-export const MAX_ASSISTANT_ATTACHMENT_BYTES = Infinity;
+/** Maximum size in bytes for a single assistant attachment (20 MB). */
+export const MAX_ASSISTANT_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Types
