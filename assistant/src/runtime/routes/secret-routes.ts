@@ -89,6 +89,8 @@ export async function handleAddSecret(req: Request): Promise<Response> {
         );
       }
       upsertCredentialMetadata(service, field, {});
+      invalidateConfigCache();
+      initializeProviders(getConfig());
       log.info({ service, field }, "Credential added via HTTP");
       return Response.json({ success: true, type, name }, { status: 201 });
     }
@@ -181,6 +183,8 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
         );
       }
       deleteCredentialMetadata(service, field);
+      invalidateConfigCache();
+      initializeProviders(getConfig());
       log.info({ service, field }, "Credential deleted via HTTP");
       return Response.json({ success: true, type, name });
     }
