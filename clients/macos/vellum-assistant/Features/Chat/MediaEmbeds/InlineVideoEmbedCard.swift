@@ -115,16 +115,8 @@ struct InlineVideoEmbedCard: View {
     }
 
     private var fallbackPlaceholder: some View {
-        VStack(spacing: VSpacing.sm) {
-            VIconView(.play, size: 44)
-                .foregroundStyle(VColor.contentSecondary)
-
-            Text(provider.capitalized)
-                .font(VFont.caption)
-                .foregroundStyle(VColor.contentSecondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(VColor.surfaceBase)
+        Color.black.opacity(0.8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     /// Single view for both .initializing and .playing so SwiftUI preserves
