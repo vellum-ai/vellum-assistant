@@ -33,11 +33,18 @@ const REQUEST_TIMEOUT_MS = 5_000;
  *  back); `{ found: false }` means the key doesn't exist in the keychain. */
 export type BrokerGetResult = { found: boolean; value?: string } | null;
 
+/** Result of a `set()` call — distinguishes broker-unreachable from an active
+ *  rejection so callers can log meaningful diagnostics. */
+export type BrokerSetResult =
+  | { status: "ok" }
+  | { status: "unreachable" }
+  | { status: "rejected"; code: string; message: string };
+
 export interface KeychainBrokerClient {
   isAvailable(): boolean;
   ping(): Promise<{ pong: boolean } | null>;
   get(account: string): Promise<BrokerGetResult>;
-  set(account: string, value: string): Promise<boolean>;
+  set(account: string, value: string): Promise<BrokerSetResult>;
   del(account: string): Promise<boolean>;
   list(): Promise<string[]>;
 }
@@ -360,12 +367,18 @@ export function createBrokerClient(): KeychainBrokerClient {
       }
     },
 
-    async set(account: string, value: string): Promise<boolean> {
+    async set(account: string, value: string): Promise<BrokerSetResult> {
       try {
         const response = await doRequest("key.set", { account, value });
-        return response?.ok === true;
+        if (!response) return { status: "unreachable" };
+        if (response.ok) return { status: "ok" };
+        return {
+          status: "rejected",
+          code: response.error?.code ?? "UNKNOWN",
+          message: response.error?.message ?? "unknown error",
+        };
       } catch {
-        return false;
+        return { status: "unreachable" };
       }
     },
 

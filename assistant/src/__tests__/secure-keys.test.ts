@@ -46,9 +46,14 @@ mock.module("../security/keychain-broker-client.js", () => ({
       return { found: false };
     },
     set: async (account: string, value: string) => {
-      if (mockBrokerSetError) return false;
+      if (mockBrokerSetError)
+        return {
+          status: "rejected" as const,
+          code: "KEYCHAIN_ERROR",
+          message: "mock error",
+        };
       mockBrokerStore.set(account, value);
-      return true;
+      return { status: "ok" as const };
     },
     del: async (account: string) => {
       if (mockBrokerDelError) return false;
