@@ -53,6 +53,9 @@ class AvatarLayerView: NSView {
     /// Pre-computed open and closed eye CGPaths for blink animation.
     private var openEyePaths: [CGPath] = []
     private var closedEyePaths: [CGPath] = []
+    private var widenedEyePaths: [CGPath] = []
+    private var trackingArea: NSTrackingArea?
+    private var isHovered = false
 
     /// Timer that fires random blinks.
     private var blinkTask: Task<Void, Never>?
@@ -82,6 +85,54 @@ class AvatarLayerView: NSView {
     override func resetCursorRects() {
         if configPokeEnabled {
             addCursorRect(bounds, cursor: .pointingHand)
+        }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let existing = trackingArea {
+            removeTrackingArea(existing)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        guard animationsActive else { return }
+        isHovered = true
+        guard !eyeLayers.isEmpty,
+              eyeLayers.count == widenedEyePaths.count else { return }
+
+        for (i, eyeLayer) in eyeLayers.enumerated() {
+            let animation = CABasicAnimation(keyPath: "path")
+            animation.fromValue = eyeLayer.path
+            animation.toValue = widenedEyePaths[i]
+            animation.duration = 0.12
+            animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            eyeLayer.path = widenedEyePaths[i]
+            eyeLayer.add(animation, forKey: "eyeWiden")
+        }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+        guard !eyeLayers.isEmpty,
+              eyeLayers.count == openEyePaths.count else { return }
+
+        for (i, eyeLayer) in eyeLayers.enumerated() {
+            let animation = CABasicAnimation(keyPath: "path")
+            animation.fromValue = eyeLayer.path
+            animation.toValue = openEyePaths[i]
+            animation.duration = 0.2
+            animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            eyeLayer.path = openEyePaths[i]
+            eyeLayer.add(animation, forKey: "eyeWiden")
         }
     }
 
@@ -145,6 +196,7 @@ class AvatarLayerView: NSView {
         // Pre-compute blink paths
         openEyePaths.removeAll()
         closedEyePaths.removeAll()
+        widenedEyePaths.removeAll()
 
         for eyePath in eyeStyle.paths {
             let eyeEditable = parseSVGPathToEditable(eyePath.svgPath)
@@ -167,6 +219,12 @@ class AvatarLayerView: NSView {
             let closedCGPath = closedEditable.toCGPath()
             var closedTransform = eyeXform
             closedEyePaths.append(closedCGPath.copy(using: &closedTransform)!)
+
+            // Widened path — expand Y away from center for alert/hover look
+            let widenedEditable = eyeEditable.blinked(amount: -0.15)
+            let widenedCGPath = widenedEditable.toCGPath()
+            var widenedTransform = eyeXform
+            widenedEyePaths.append(widenedCGPath.copy(using: &widenedTransform)!)
         }
 
         CATransaction.commit()
@@ -349,19 +407,20 @@ class AvatarLayerView: NSView {
               eyeLayers.count == openEyePaths.count,
               eyeLayers.count == closedEyePaths.count else { return }
 
-        // ~20% chance of a double blink
         let isDoubleBlink = Double.random(in: 0...1) < 0.2
 
         for (i, eyeLayer) in eyeLayers.enumerated() {
+            let restPath = isHovered && i < widenedEyePaths.count ? widenedEyePaths[i] : openEyePaths[i]
+
             let animation: CAKeyframeAnimation
             if isDoubleBlink {
                 animation = CAKeyframeAnimation(keyPath: "path")
                 animation.values = [
-                    openEyePaths[i],    // Start open
-                    closedEyePaths[i],  // First close
-                    openEyePaths[i],    // First open
-                    closedEyePaths[i],  // Second close
-                    openEyePaths[i],    // Final open
+                    restPath,
+                    closedEyePaths[i],
+                    restPath,
+                    closedEyePaths[i],
+                    restPath,
                 ]
                 animation.keyTimes = [0, 0.15, 0.35, 0.50, 1.0]
                 animation.duration = 0.45
@@ -373,7 +432,7 @@ class AvatarLayerView: NSView {
                 ]
             } else {
                 animation = CAKeyframeAnimation(keyPath: "path")
-                animation.values = [openEyePaths[i], closedEyePaths[i], openEyePaths[i]]
+                animation.values = [restPath, closedEyePaths[i], restPath]
                 animation.keyTimes = [0, 0.3, 1.0]
                 animation.duration = 0.25
                 animation.timingFunctions = [
