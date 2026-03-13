@@ -398,7 +398,9 @@ struct ContactDetailView: View {
                         }
                         VButton(label: "Cancel", style: .outlined) {
                             inviteExpanded.remove(type)
-                            inviteResult = nil
+                            if inviteResult?.type == type {
+                                inviteResult = nil
+                            }
                             inviteError = nil
                         }
                     }
@@ -435,7 +437,9 @@ struct ContactDetailView: View {
                             }
                             VButton(label: "Cancel", style: .outlined) {
                                 inviteExpanded.remove(type)
-                                inviteResult = nil
+                                if inviteResult?.type == type {
+                                    inviteResult = nil
+                                }
                                 inviteError = nil
                             }
                         }
@@ -531,7 +535,9 @@ struct ContactDetailView: View {
                 }
                 VButton(label: "Cancel", style: .outlined) {
                     inviteExpanded.remove(type)
-                    inviteResult = nil
+                    if inviteResult?.type == type {
+                        inviteResult = nil
+                    }
                     inviteError = nil
                     inviteHandleInput = ""
                     inviteCodeRevealed = false
