@@ -167,12 +167,15 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 <details>
 <summary><strong>Token reference</strong></summary>
 
-**VColor** — Semantic color tokens mapped to Tailwind-style scales (Slate, Violet, Emerald, Rose, Amber, Indigo):
-- Backgrounds: `surfaceBase` (Slate._950), `backgroundSubtle` (Slate._800), `surface` (Slate._800), `surfaceBorder` (Slate._700)
-- Text: `textPrimary` (Slate._50), `textSecondary` (Slate._400), `textMuted` (Slate._500)
-- Accent: `accent` (Violet._600), `accentSubtle` (Violet._100)
-- Status: `success` (Emerald._600), `error` (Rose._600), `warning` (Amber._600)
-- Use raw scales (e.g. `Slate._300`, `Violet._700`) only when semantic tokens don't cover the need.
+**VColor** — Adaptive semantic color tokens sourced from Figma. Each token resolves to a light/dark pair via `adaptiveColor()`:
+- Surface: `surfaceBase`, `surfaceOverlay`, `surfaceActive`, `surfaceLift`
+- Border: `borderDisabled`, `borderBase`, `borderHover`, `borderActive`
+- Content: `contentEmphasized`, `contentDefault`, `contentSecondary`, `contentTertiary`, `contentDisabled`, `contentBackground`, `contentInset`
+- Primary: `primaryDisabled`, `primaryBase`, `primaryHover`, `primaryActive`
+- System: `systemPositiveStrong`/`Weak`, `systemNegativeStrong`/`Hover`/`Weak`, `systemMidStrong`/`Weak`
+- Utility: `auxWhite`, `auxBlack` (non-adaptive)
+- Fun: `funYellow`, `funRed`, `funPurple`, `funPink`, `funCoral`, `funTeal`, `funGreen` (non-adaptive, decorative)
+- Raw palettes (Moss, Stone/Slate, Forest/Sage, Emerald, Danger, Amber) are internal — use semantic tokens above.
 
 **VFont** — macOS HIG-aligned type scale:
 - `largeTitle` (26pt bold), `title` (22pt semibold), `headline` (13pt bold)
