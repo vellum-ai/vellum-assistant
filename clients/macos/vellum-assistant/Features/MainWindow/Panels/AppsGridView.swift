@@ -137,7 +137,7 @@ struct AppsGridView: View {
                     .font(VFont.bodyBold)
                     .foregroundColor(VColor.contentSecondary)
 
-                Text("Ask the assistant to build something")
+                Text("Ask your assistant to build something")
                     .font(VFont.body)
                     .foregroundColor(VColor.contentTertiary)
             }
