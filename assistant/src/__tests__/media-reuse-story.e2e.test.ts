@@ -80,6 +80,7 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (account: string) => secureKeyValues.get(account),
+  getSecureKeyAsync: async (account: string) => secureKeyValues.get(account),
   setSecureKey: () => true,
   deleteSecureKey: () => "deleted",
   listSecureKeys: () => [],
