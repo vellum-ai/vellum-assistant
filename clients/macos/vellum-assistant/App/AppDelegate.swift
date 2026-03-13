@@ -212,6 +212,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 profilingOptions.sessionSampleRate = perfOptIn ? 1.0 : 0
             }
             options.sendDefaultPii = false
+            options.maxAttachmentSize = MetricKitManager.sentryMaxAttachmentSize
         }
         SentryDeviceInfo.configureSentryScope()
 
