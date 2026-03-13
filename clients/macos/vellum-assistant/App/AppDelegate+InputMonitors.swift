@@ -277,14 +277,32 @@ extension AppDelegate {
         cmdNLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
     }
 
-    /// Registers Cmd+K as a local shortcut to open the command palette.
+    /// Registers a local shortcut to open the command palette.
     /// Only active when the app is focused (local monitor, not global).
+    /// Reads the shortcut from UserDefaults. Skips re-registration if unchanged.
     func registerCmdKMonitor() {
+        let shortcut = UserDefaults.standard.string(forKey: "commandPaletteShortcut") ?? "cmd+k"
+
+        if shortcut == lastRegisteredCommandPaletteShortcut { return }
+
+        // Tear down previous registration
+        if let monitor = cmdKLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            cmdKLocalMonitor = nil
+        }
+
+        guard !shortcut.isEmpty else {
+            lastRegisteredCommandPaletteShortcut = shortcut
+            log.info("Command Palette: shortcut disabled")
+            return
+        }
+
+        let (targetModifiers, targetKey) = ShortcutHelper.parseShortcut(shortcut)
+
         let handler: (NSEvent) -> NSEvent? = { [weak self] event in
-            // Cmd+K: keyCode 40 is kVK_ANSI_K
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            guard event.keyCode == 40,
-                  mods == [.command] else {
+            guard mods == targetModifiers,
+                  event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else {
                 return event
             }
             Task { @MainActor in
@@ -294,6 +312,8 @@ extension AppDelegate {
             return nil // consume the event
         }
         cmdKLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+
+        lastRegisteredCommandPaletteShortcut = shortcut
     }
 
     /// Registers Cmd+[ and Cmd+] as local shortcuts for back/forward navigation.
