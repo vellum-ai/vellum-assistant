@@ -20,7 +20,6 @@ struct GuardianChannelsDetailView: View {
     @State private var verificationCountdownNow: Date = Date()
     @State private var verificationCountdownTimer: Timer?
     @State private var verificationStoreRevision: Int = 0
-    @State private var errorMessage: String?
 
     var displayContact: ContactPayload {
         currentContact ?? contact
@@ -74,7 +73,7 @@ struct GuardianChannelsDetailView: View {
             let existingChannels = displayContact.channels.filter { $0.type == type && $0.status != "revoked" }
 
             if let channel = existingChannels.first, channel.status == "active", channel.verifiedAt != nil {
-                // Verified channel — show verified badge row with revoke option
+                // Verified channel — delegate to ChannelVerificationFlowView
                 verifiedChannelContent(channel: channel, type: type)
             } else if !existingChannels.isEmpty || channelReadiness[type]?.ready == true {
                 // Unverified/pending channel or no channel but assistant has this channel ready
@@ -90,11 +89,6 @@ struct GuardianChannelsDetailView: View {
                 }
             }
 
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.systemNegativeStrong)
-            }
         }
     }
 
@@ -102,62 +96,28 @@ struct GuardianChannelsDetailView: View {
 
     @ViewBuilder
     private func verifiedChannelContent(channel: ContactChannelPayload, type: String) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.sm) {
-                VIconView(channelIcon(for: type), size: 14)
-                    .foregroundColor(VColor.contentSecondary)
-                    .frame(width: 20, alignment: .center)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: VSpacing.sm) {
-                        Text(channel.address)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.contentDefault)
-                            .lineLimit(1)
-
-                        Text("Verified")
-                            .font(VFont.captionMedium)
-                            .foregroundColor(VColor.systemPositiveStrong)
-                            .padding(.horizontal, VSpacing.sm)
-                            .padding(.vertical, VSpacing.xxs)
-                            .background(VColor.systemPositiveWeak)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
-                    }
-
-                    if let verifiedAt = channel.verifiedAt, verifiedAt > 0 {
-                        let dateStr = formatDate(epochMs: verifiedAt)
-                        let via = channel.verifiedVia ?? "unknown"
-                        Text("Verified via \(via) on \(dateStr)")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
-                    }
-                }
-
-                Spacer()
-            }
-
-            // Revoke via ChannelVerificationFlowView
-            if let store {
-                let state = store.channelVerificationState(for: type)
-                let destinationBinding = Binding<String>(
-                    get: { verificationDestinationTexts[type] ?? "" },
-                    set: { verificationDestinationTexts[type] = $0 }
-                )
-                ChannelVerificationFlowView(
-                    state: state,
-                    countdownNow: $verificationCountdownNow,
-                    destinationText: destinationBinding,
-                    onStartOutbound: { dest in store.startOutboundVerification(channel: type, destination: dest) },
-                    onResend: { store.resendOutboundVerification(channel: type) },
-                    onCancelOutbound: { store.cancelOutboundVerification(channel: type) },
-                    onRevoke: { store.revokeChannelVerification(channel: type) },
-                    onStartSession: { rebind in store.startChannelVerification(channel: type, rebind: rebind) },
-                    onCancelSession: { store.cancelVerificationSession(channel: type) },
-                    botUsername: store.telegramBotUsername,
-                    phoneNumber: store.twilioPhoneNumber,
-                    showLabel: false
-                )
-            }
+        // ChannelVerificationFlowView already renders the full verified state
+        // (identity text + "Revoke" button), so we delegate entirely to it.
+        if let store {
+            let state = store.channelVerificationState(for: type)
+            let destinationBinding = Binding<String>(
+                get: { verificationDestinationTexts[type] ?? "" },
+                set: { verificationDestinationTexts[type] = $0 }
+            )
+            ChannelVerificationFlowView(
+                state: state,
+                countdownNow: $verificationCountdownNow,
+                destinationText: destinationBinding,
+                onStartOutbound: { dest in store.startOutboundVerification(channel: type, destination: dest) },
+                onResend: { store.resendOutboundVerification(channel: type) },
+                onCancelOutbound: { store.cancelOutboundVerification(channel: type) },
+                onRevoke: { store.revokeChannelVerification(channel: type) },
+                onStartSession: { rebind in store.startChannelVerification(channel: type, rebind: rebind) },
+                onCancelSession: { store.cancelVerificationSession(channel: type) },
+                botUsername: store.telegramBotUsername,
+                phoneNumber: store.twilioPhoneNumber,
+                showLabel: false
+            )
         }
     }
 
@@ -207,21 +167,6 @@ struct GuardianChannelsDetailView: View {
 
     // MARK: - Helpers
 
-    private func channelIcon(for type: String) -> VIcon {
-        switch type {
-        case "telegram":
-            return .send
-        case "phone":
-            return .phoneCall
-        case "email":
-            return .mail
-        case "whatsapp", "slack":
-            return .messageCircle
-        default:
-            return .globe
-        }
-    }
-
     private func channelLabel(for type: String) -> String {
         switch type {
         case "telegram": return "Telegram"
@@ -242,11 +187,4 @@ struct GuardianChannelsDetailView: View {
         }
     }
 
-    private func formatDate(epochMs: Int) -> String {
-        let date = Date(timeIntervalSince1970: Double(epochMs) / 1000)
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        return formatter.string(from: date)
-    }
 }

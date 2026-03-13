@@ -223,25 +223,15 @@ struct ContactDetailView: View {
     }
 
     private var roleBadge: some View {
-        Group {
-            if displayContact.role == "guardian" {
-                Text("Guardian")
-                    .font(VFont.captionMedium)
-                    .foregroundColor(VColor.primaryBase)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xxs)
-                    .background(VColor.systemPositiveWeak)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
-            } else {
-                Text("Contact")
-                    .font(VFont.captionMedium)
-                    .foregroundColor(VColor.contentSecondary)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xxs)
-                    .background(VColor.surfaceOverlay)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
-            }
-        }
+        // Guardians route to GuardianChannelsDetailView, so this view only
+        // renders non-guardian contacts.
+        Text("Contact")
+            .font(VFont.captionMedium)
+            .foregroundColor(VColor.contentSecondary)
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.xxs)
+            .background(VColor.surfaceOverlay)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
     }
 
     private var contactTypeBadge: some View {
