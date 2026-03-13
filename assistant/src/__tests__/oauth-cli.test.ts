@@ -46,6 +46,16 @@ let mockUpsertAppResult: Record<string, unknown> = {
   createdAt: 1700000000000,
   updatedAt: 1700000000000,
 };
+let mockUpsertAppImpl:
+  | ((
+      provider: string,
+      clientId: string,
+      clientSecretOpts?: {
+        clientSecretValue?: string;
+        clientSecretCredentialPath?: string;
+      },
+    ) => Promise<Record<string, unknown>>)
+  | undefined;
 
 // Connect mock state
 let mockOrchestrateOAuthConnect: (
@@ -65,6 +75,10 @@ let mockGetProviderBehavior: (
   providerKey: string,
 ) => Record<string, unknown> | undefined = () => undefined;
 let mockGetSecureKey: (account: string) => string | undefined = () => undefined;
+let mockGetCredentialMetadata: (
+  service: string,
+  field: string,
+) => Record<string, unknown> | undefined = () => undefined;
 
 function nextUUID(): string {
   idCounter += 1;
@@ -116,6 +130,9 @@ mock.module("../oauth/oauth-store.js", () => ({
       clientSecretCredentialPath?: string;
     },
   ) => {
+    if (mockUpsertAppImpl) {
+      return mockUpsertAppImpl(provider, clientId, clientSecretOpts);
+    }
     mockUpsertAppCalls.push({ provider, clientId, clientSecretOpts });
     return mockUpsertAppResult;
   },
@@ -164,7 +181,8 @@ mock.module("../security/secure-keys.js", () => ({
 
 mock.module("../tools/credentials/metadata-store.js", () => ({
   assertMetadataWritable: () => {},
-  getCredentialMetadata: () => undefined,
+  getCredentialMetadata: (service: string, field: string) =>
+    mockGetCredentialMetadata(service, field),
   upsertCredentialMetadata: () => ({}),
   listCredentialMetadata: () => [],
   deleteCredentialMetadata: (service: string, field: string): boolean => {
@@ -936,6 +954,8 @@ describe("assistant oauth apps upsert --client-secret-credential-path", () => {
     mockGetProvider = () => undefined;
     mockGetProviderBehavior = () => undefined;
     mockGetSecureKey = () => undefined;
+    mockGetCredentialMetadata = () => undefined;
+    mockUpsertAppImpl = undefined;
   });
 
   test("upsert with --client-secret-credential-path passes path to upsertApp", async () => {
@@ -1023,6 +1043,100 @@ describe("assistant oauth apps upsert --client-secret-credential-path", () => {
       clientId: "abc123",
       clientSecretOpts: undefined,
     });
+  });
+
+  test("upsert resolves non-prefixed credential path via metadata store", async () => {
+    // The resolution logic splits on the FIRST colon, so
+    // "integration:google:client_secret" → service="integration", field="google:client_secret"
+    mockGetCredentialMetadata = (service, field) =>
+      service === "integration" && field === "google:client_secret"
+        ? {
+            credentialId: "cred-1",
+            service: "integration",
+            field: "google:client_secret",
+            allowedTools: [],
+            allowedDomains: [],
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          }
+        : undefined;
+
+    const { exitCode, stdout } = await runCli([
+      "apps",
+      "upsert",
+      "--provider",
+      "integration:google",
+      "--client-id",
+      "abc",
+      "--client-secret-credential-path",
+      "integration:google:client_secret",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    expect(mockUpsertAppCalls).toHaveLength(1);
+    // The non-prefixed path should have been resolved to the full credential key
+    expect(mockUpsertAppCalls[0]).toEqual({
+      provider: "integration:google",
+      clientId: "abc",
+      clientSecretOpts: {
+        clientSecretCredentialPath:
+          "credential/integration/google:client_secret",
+      },
+    });
+    const parsed = JSON.parse(stdout);
+    expect(parsed.id).toBe("app-upsert-1");
+  });
+
+  test("upsert passes prefixed credential path through unchanged", async () => {
+    const { exitCode, stdout } = await runCli([
+      "apps",
+      "upsert",
+      "--provider",
+      "integration:google",
+      "--client-id",
+      "abc",
+      "--client-secret-credential-path",
+      "credential/integration:google/client_secret",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    expect(mockUpsertAppCalls).toHaveLength(1);
+    // Already-prefixed path should be passed through as-is
+    expect(mockUpsertAppCalls[0]).toEqual({
+      provider: "integration:google",
+      clientId: "abc",
+      clientSecretOpts: {
+        clientSecretCredentialPath:
+          "credential/integration:google/client_secret",
+      },
+    });
+    const parsed = JSON.parse(stdout);
+    expect(parsed.id).toBe("app-upsert-1");
+  });
+
+  test("upsert with invalid credential path returns error when no secret found", async () => {
+    // Override upsertApp to throw when given an unresolvable credential path
+    mockUpsertAppImpl = async (_provider, _clientId, clientSecretOpts) => {
+      throw new Error(
+        `No secret found at credential path: ${clientSecretOpts?.clientSecretCredentialPath}`,
+      );
+    };
+
+    const { exitCode, stdout } = await runCli([
+      "apps",
+      "upsert",
+      "--provider",
+      "integration:google",
+      "--client-id",
+      "abc",
+      "--client-secret-credential-path",
+      "bogus:nonexistent:path",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("No secret found");
   });
 });
 
