@@ -84,6 +84,10 @@ class AvatarLayerView: NSView {
         bodyLayer.fillColor = color.nsColor.cgColor
         bodyLayer.frame = CGRect(x: 0, y: 0, width: size, height: size)
 
+        // Anchor scale from the center of the body layer so breathing animates symmetrically
+        bodyLayer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        bodyLayer.position = CGPoint(x: frame.width / 2, y: frame.height / 2)
+
         // --- Eye layers ---
         // Remove old eye layers
         for layer in eyeLayers { layer.removeFromSuperlayer() }
@@ -128,6 +132,7 @@ class AvatarLayerView: NSView {
         CATransaction.commit()
 
         startBlinkTimer()
+        startBreathing()
     }
 
     private func startBlinkTimer() {
@@ -144,6 +149,19 @@ class AvatarLayerView: NSView {
                 }
             }
         }
+    }
+
+    private func startBreathing() {
+        bodyLayer.removeAnimation(forKey: "breathing")
+
+        let breathe = CABasicAnimation(keyPath: "transform.scale")
+        breathe.fromValue = 1.0
+        breathe.toValue = 1.03  // 3% expansion
+        breathe.duration = 2.0  // 2s inhale
+        breathe.autoreverses = true  // 2s exhale
+        breathe.repeatCount = .infinity
+        breathe.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        bodyLayer.add(breathe, forKey: "breathing")
     }
 
     private func performBlink() {
