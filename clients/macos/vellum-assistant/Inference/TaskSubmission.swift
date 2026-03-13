@@ -53,6 +53,10 @@ struct TaskAttachment: Identifiable {
 
         let data = try Data(contentsOf: url)
 
+        if data.count > 100 * 1024 * 1024 {
+            log.warning("Large attachment (\(data.count / (1024 * 1024)) MB): \(fileName). Server may reject files over 20 MB.")
+        }
+
         let mimeType = try Self.validateMimeType(fileName: fileName, expectedMimeType: extensionMimeType, data: data)
         let extractedText = kind == .document ? Self.extractText(data: data, mimeType: mimeType) : nil
 
