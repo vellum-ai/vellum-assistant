@@ -86,26 +86,29 @@ export function isDowngradedFromKeychain(): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * Async version of `getSecureKey`. When the broker is available it is
- * queried first. A `null` return from the broker means error (fall back
- * to encrypted store). A `{ found: false }` also falls back to the
- * encrypted store — keys may exist only in `keys.enc` (e.g. written
- * while the broker was unavailable or via sync `setSecureKey`).
+ * Async version of `getSecureKey`. Checks the encrypted store first
+ * (instant) since `setSecureKeyAsync` always writes to both stores.
+ * Falls back to the broker for keys that may exist only in the macOS
+ * Keychain. Returns `undefined` if the key is not found in either store.
  */
 export async function getSecureKeyAsync(
   account: string,
 ): Promise<string | undefined> {
+  // Check encrypted store first (sync, instant). Since setSecureKeyAsync
+  // always writes to both broker and encrypted store, a hit here is
+  // authoritative and avoids the broker IPC round-trip.
+  const encResult = encryptedStore.getKey(account);
+  if (encResult != null && encResult.length > 0) return encResult;
+
+  // Not in encrypted store — try broker as fallback for keys that may
+  // exist only in the macOS Keychain (e.g. written by the app directly).
   const broker = getBroker();
   if (broker.isAvailable()) {
     const result = await broker.get(account);
-    // null = broker error, fall back to encrypted store
-    if (result == null) return encryptedStore.getKey(account);
-    // Broker found the key — use it
-    if (result.found) return result.value;
-    // Broker says not found — check encrypted store as fallback
-    return encryptedStore.getKey(account);
+    if (result?.found) return result.value;
   }
-  return encryptedStore.getKey(account);
+
+  return undefined;
 }
 
 /**
