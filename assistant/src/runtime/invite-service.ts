@@ -165,6 +165,10 @@ export async function createIngressInvite(params: {
     return { ok: false, error: "sourceChannel is required for create" };
   }
 
+  if (!params.contactId) {
+    return { ok: false, error: "contactId is required" };
+  }
+
   // For voice invites: generate a one-time numeric code, hash it, and pass
   // the hash to the store. The plaintext code is included in the response
   // exactly once and never stored.
