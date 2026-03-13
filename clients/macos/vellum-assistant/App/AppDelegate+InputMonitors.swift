@@ -260,12 +260,32 @@ extension AppDelegate {
         fnVLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
     }
 
-    /// Registers Cmd+N as a local shortcut to create a new thread.
+    /// Registers a local shortcut to create a new thread.
+    /// Reads the shortcut from UserDefaults (`newThreadShortcut`), defaulting to "cmd+n".
+    /// Skips re-registration if the shortcut hasn't changed.
     func registerCmdNMonitor() {
+        let shortcut = UserDefaults.standard.string(forKey: "newThreadShortcut") ?? "cmd+n"
+
+        if shortcut == lastRegisteredNewThreadShortcut { return }
+
+        // Tear down previous monitor
+        if let monitor = cmdNLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            cmdNLocalMonitor = nil
+        }
+
+        guard !shortcut.isEmpty else {
+            lastRegisteredNewThreadShortcut = shortcut
+            log.info("New Thread: shortcut disabled")
+            return
+        }
+
+        let (targetModifiers, targetKey) = ShortcutHelper.parseShortcut(shortcut)
+
         let handler: (NSEvent) -> NSEvent? = { [weak self] event in
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            guard event.keyCode == 45, // kVK_ANSI_N
-                  mods == [.command] else {
+            guard mods == targetModifiers,
+                  event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else {
                 return event
             }
             Task { @MainActor in
@@ -275,6 +295,8 @@ extension AppDelegate {
             return nil
         }
         cmdNLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+
+        lastRegisteredNewThreadShortcut = shortcut
     }
 
     /// Registers Cmd+K as a local shortcut to open the command palette.
