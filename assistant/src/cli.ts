@@ -1,15 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import * as readline from "node:readline";
 
+import { httpSend } from "./cli/http-client.js";
 import {
   type MainScreenLayout,
   renderMainScreen,
   updateDaemonText,
   updateStatusText,
 } from "./cli/main-screen.jsx";
-import { getRuntimeHttpPort } from "./config/env.js";
 import { shouldAutoStartDaemon } from "./daemon/connection-policy.js";
 import { isHttpHealthy } from "./daemon/daemon-control.js";
 import { ensureDaemonRunning } from "./daemon/lifecycle.js";
@@ -17,13 +17,15 @@ import type {
   ConfirmationRequest,
   ServerMessage,
 } from "./daemon/message-protocol.js";
+import type { UserDecision } from "./permissions/types.js";
+import * as pendingInteractions from "./runtime/pending-interactions.js";
 import {
   copyToClipboard,
   extractLastCodeBlock,
   formatSessionForExport,
 } from "./util/clipboard.js";
 import { formatDiff, formatNewFileDiff } from "./util/diff.js";
-import { getHistoryPath, getRootDir } from "./util/platform.js";
+import { getHistoryPath } from "./util/platform.js";
 import { Spinner } from "./util/spinner.js";
 import { timeAgo } from "./util/time.js";
 import { truncate } from "./util/truncate.js";
@@ -125,33 +127,6 @@ export function formatConfirmationCommandPreview(
   return req.toolName;
 }
 
-/** Read the HTTP bearer token for daemon authentication. */
-function readHttpToken(): string | undefined {
-  try {
-    const token = readFileSync(
-      join(getRootDir(), "http-token"),
-      "utf-8",
-    ).trim();
-    return token || undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/** Make an authenticated HTTP request to the daemon's runtime server. */
-function daemonFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const token = readHttpToken();
-  const url = `http://127.0.0.1:${getRuntimeHttpPort()}${path}`;
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(init.headers as Record<string, string> | undefined),
-  };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-  return fetch(url, { ...init, headers });
-}
-
 export async function startCli(): Promise<void> {
   let conversationKey = CLI_CONVERSATION_KEY;
   let sessionId = "";
@@ -247,16 +222,19 @@ export async function startCli(): Promise<void> {
     rl.prompt();
   }
 
-  /** Send a confirmation decision via HTTP. */
-  async function sendConfirmation(
-    requestId: string,
-    decision: string,
-  ): Promise<void> {
+  /** Resolve a pending confirmation directly in-process. */
+  function sendConfirmation(requestId: string, decision: UserDecision): void {
     try {
-      await daemonFetch("/v1/confirm", {
-        method: "POST",
-        body: JSON.stringify({ requestId, decision }),
-      });
+      const interaction = pendingInteractions.resolve(requestId);
+      if (!interaction) return;
+      interaction.session.handleConfirmationResponse(
+        requestId,
+        decision,
+        undefined,
+        undefined,
+        undefined,
+        { source: "button" },
+      );
     } catch {
       process.stdout.write("[Failed to send confirmation]\n");
     }
@@ -272,7 +250,7 @@ export async function startCli(): Promise<void> {
     options?: { allowHighRisk?: boolean },
   ): Promise<void> {
     try {
-      await daemonFetch("/v1/trust-rules", {
+      await httpSend("/v1/trust-rules", {
         method: "POST",
         body: JSON.stringify({
           requestId,
@@ -282,7 +260,7 @@ export async function startCli(): Promise<void> {
           ...(options?.allowHighRisk ? { allowHighRisk: true } : {}),
         }),
       });
-      await daemonFetch("/v1/confirm", {
+      await httpSend("/v1/confirm", {
         method: "POST",
         body: JSON.stringify({ requestId, decision: confirmDecision }),
       });
@@ -294,7 +272,7 @@ export async function startCli(): Promise<void> {
   /** Send a user message via HTTP POST. */
   async function sendUserMessage(content: string): Promise<boolean> {
     try {
-      const response = await daemonFetch("/v1/messages", {
+      const response = await httpSend("/v1/messages", {
         method: "POST",
         body: JSON.stringify({
           conversationKey,
@@ -562,7 +540,7 @@ export async function startCli(): Promise<void> {
         } else {
           try {
             const newKey = `builtin-cli:${selected.id}`;
-            const resp = await daemonFetch("/v1/conversations/switch", {
+            const resp = await httpSend("/v1/conversations/switch", {
               method: "POST",
               body: JSON.stringify({
                 conversationId: selected.id,
@@ -919,7 +897,7 @@ export async function startCli(): Promise<void> {
     const url = `/v1/events?conversationKey=${encodeURIComponent(conversationKey)}`;
 
     try {
-      const response = await daemonFetch(url, {
+      const response = await httpSend(url, {
         method: "GET",
         headers: { Accept: "text/event-stream" },
         signal: controller.signal,
@@ -1078,7 +1056,7 @@ export async function startCli(): Promise<void> {
     if (content === "/sessions") {
       pendingSessionPick = true;
       // Fetch session list via HTTP
-      daemonFetch("/v1/conversations/search?q=*&limit=20", { method: "GET" })
+      httpSend("/v1/conversations/search?q=*&limit=20", { method: "GET" })
         .then(async (resp) => {
           if (resp.ok) {
             const data = (await resp.json()) as {
@@ -1126,7 +1104,7 @@ export async function startCli(): Promise<void> {
 
     if (content === "/copy-session") {
       // Fetch history via HTTP
-      daemonFetch(
+      httpSend(
         `/v1/messages?conversationKey=${encodeURIComponent(conversationKey)}`,
         { method: "GET" },
       )
@@ -1196,7 +1174,7 @@ export async function startCli(): Promise<void> {
     if (content === "/model" || content.startsWith("/model ")) {
       const modelArg = content.slice("/model".length).trim();
       if (modelArg) {
-        daemonFetch("/v1/model", {
+        httpSend("/v1/model", {
           method: "PUT",
           body: JSON.stringify({ modelId: modelArg }),
         })
@@ -1219,7 +1197,7 @@ export async function startCli(): Promise<void> {
             prompt();
           });
       } else {
-        daemonFetch("/v1/model", { method: "GET" })
+        httpSend("/v1/model", { method: "GET" })
           .then(async (resp) => {
             if (resp.ok) {
               const data = (await resp.json()) as {
@@ -1243,7 +1221,7 @@ export async function startCli(): Promise<void> {
     }
 
     if (content === "/history") {
-      daemonFetch(
+      httpSend(
         `/v1/messages?conversationKey=${encodeURIComponent(conversationKey)}`,
         { method: "GET" },
       )
@@ -1283,7 +1261,7 @@ export async function startCli(): Promise<void> {
         prompt();
         return;
       }
-      daemonFetch(`/v1/conversations/${encodeURIComponent(sessionId)}/undo`, {
+      httpSend(`/v1/conversations/${encodeURIComponent(sessionId)}/undo`, {
         method: "POST",
       })
         .then(async (resp) => {
@@ -1369,7 +1347,7 @@ export async function startCli(): Promise<void> {
   process.on("SIGINT", () => {
     spinner.stop();
     if (generating && sessionId) {
-      daemonFetch(`/v1/conversations/${encodeURIComponent(sessionId)}/cancel`, {
+      httpSend(`/v1/conversations/${encodeURIComponent(sessionId)}/cancel`, {
         method: "POST",
       }).catch(() => {
         // Best-effort cancel
