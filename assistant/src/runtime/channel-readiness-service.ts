@@ -77,7 +77,7 @@ function checkIngress(): ReadinessCheckResult {
 const voiceProbe: ChannelProbe = {
   channel: "phone",
   async runLocalChecks(): Promise<ReadinessCheckResult[]> {
-    const hasCreds = hasTwilioCredentials();
+    const hasCreds = await hasTwilioCredentials();
     const hasPhone = !!resolveTwilioPhoneNumber();
     const ingress = checkIngress();
 

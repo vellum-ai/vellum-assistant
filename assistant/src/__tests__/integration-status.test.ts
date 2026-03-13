@@ -10,6 +10,7 @@ const connectedProviders = new Set<string>();
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (account: string) => secureKeyValues.get(account),
+  getSecureKeyAsync: async (account: string) => secureKeyValues.get(account),
 }));
 
 mock.module("../config/loader.js", () => ({

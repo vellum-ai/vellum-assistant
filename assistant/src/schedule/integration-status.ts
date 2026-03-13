@@ -44,16 +44,13 @@ export async function getIntegrationSummary(): Promise<
     connected: boolean;
   }>
 > {
-  const results: Array<{ name: string; category: string; connected: boolean }> =
-    [];
-  for (const probe of INTEGRATION_PROBES) {
-    results.push({
+  return Promise.all(
+    INTEGRATION_PROBES.map(async (probe) => ({
       name: probe.name,
       category: probe.category,
       connected: await probe.isConnected(),
-    });
-  }
-  return results;
+    })),
+  );
 }
 
 export async function formatIntegrationSummary(): Promise<string> {
@@ -64,10 +61,10 @@ export async function formatIntegrationSummary(): Promise<string> {
 }
 
 export async function hasCapability(category: string): Promise<boolean> {
-  for (const probe of INTEGRATION_PROBES) {
-    if (probe.category === category && (await probe.isConnected())) {
-      return true;
-    }
-  }
-  return false;
+  const results = await Promise.all(
+    INTEGRATION_PROBES.filter((probe) => probe.category === category).map(
+      (probe) => probe.isConnected(),
+    ),
+  );
+  return results.some(Boolean);
 }

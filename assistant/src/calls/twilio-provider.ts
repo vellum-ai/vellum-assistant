@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { credentialKey } from "../security/credential-key.js";
-import { getSecureKey } from "../security/secure-keys.js";
+import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -24,8 +24,11 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
 
   // ── Credential helpers ──────────────────────────────────────────────
 
-  private getCredentials(): { accountSid: string; authToken: string } {
-    return getTwilioCredentials();
+  private async getCredentials(): Promise<{
+    accountSid: string;
+    authToken: string;
+  }> {
+    return await getTwilioCredentials();
   }
 
   private authHeader(accountSid: string, authToken: string): string {
@@ -39,7 +42,7 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
   // ── VoiceProvider interface ─────────────────────────────────────────
 
   async initiateCall(opts: InitiateCallOptions): Promise<{ callSid: string }> {
-    const { accountSid, authToken } = this.getCredentials();
+    const { accountSid, authToken } = await this.getCredentials();
 
     const body = new URLSearchParams({
       From: opts.from,
@@ -104,7 +107,7 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
   }
 
   async endCall(callSid: string): Promise<void> {
-    const { accountSid, authToken } = this.getCredentials();
+    const { accountSid, authToken } = await this.getCredentials();
 
     log.info({ callSid }, "Ending Twilio call");
 
@@ -139,7 +142,7 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
   }
 
   async getCallStatus(callSid: string): Promise<string> {
-    const { accountSid, authToken } = this.getCredentials();
+    const { accountSid, authToken } = await this.getCredentials();
 
     const res = await fetch(
       `${this.baseUrl(accountSid)}/Calls/${callSid}.json`,
@@ -179,7 +182,7 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
   async checkCallerIdEligibility(
     phoneNumber: string,
   ): Promise<{ eligible: boolean; reason?: string }> {
-    const { accountSid, authToken } = this.getCredentials();
+    const { accountSid, authToken } = await this.getCredentials();
     const encodedNumber = encodeURIComponent(phoneNumber);
 
     let incomingOk = false;
@@ -280,8 +283,10 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
    * Exposed as a static method so callers (e.g. the HTTP server webhook
    * middleware) can check availability independently.
    */
-  static getAuthToken(): string | null {
-    return getSecureKey(credentialKey("twilio", "auth_token")) || null;
+  static async getAuthToken(): Promise<string | null> {
+    return (
+      (await getSecureKeyAsync(credentialKey("twilio", "auth_token"))) || null
+    );
   }
 
   /**
