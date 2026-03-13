@@ -286,6 +286,13 @@ public final class ChatAttachmentManager: ObservableObject {
             #error("Unsupported platform")
             #endif
 
+            // Memory safety guard for pasted/dropped images
+            let memorySafetyLimit = 500 * 1024 * 1024
+            if pngData.count > memorySafetyLimit {
+                let sizeMB = pngData.count / (1024 * 1024)
+                return .failure(.message("This image is \(sizeMB) MB which is too large to process safely. Please choose a smaller image."))
+            }
+
             // Compress image if needed
             let (finalData, wasCompressed) = Self.compressImageIfNeeded(data: pngData, maxSize: Self.maxImageSize)
 
