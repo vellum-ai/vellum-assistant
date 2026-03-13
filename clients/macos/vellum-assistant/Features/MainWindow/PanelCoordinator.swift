@@ -570,6 +570,7 @@ struct ActiveChatViewWrapper: View {
     /// the empty state during first-launch bootstrap.
     @AppStorage("bootstrapState") private var bootstrapStateRaw: String = "complete"
     private var isBootstrapping: Bool { bootstrapStateRaw != "complete" }
+    private var isBootstrapTimedOut: Bool { bootstrapStateRaw == "timedOut" }
 
     var body: some View {
         ChatView(
@@ -682,7 +683,11 @@ struct ActiveChatViewWrapper: View {
             hasMoreMessages: viewModel.hasMoreMessages,
             isLoadingMoreMessages: viewModel.isLoadingMoreMessages,
             loadPreviousMessagePage: { await viewModel.loadPreviousMessagePage() },
-            isBootstrapping: isBootstrapping
+            isBootstrapping: isBootstrapping,
+            isBootstrapTimedOut: isBootstrapTimedOut,
+            onRetryBootstrap: {
+                NotificationCenter.default.post(name: .bootstrapRetryRequested, object: nil)
+            }
         )
         .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
     }

@@ -11,6 +11,7 @@ enum BootstrapState: String {
     case pendingDaemon = "pendingDaemon"
     case pendingWakeupSend = "pendingWakeupSend"
     case pendingFirstReply = "pendingFirstReply"
+    case timedOut = "timedOut"
     case complete = "complete"
 }
 
@@ -39,7 +40,7 @@ extension AppDelegate {
                 log.info("bootstrap.wakeup_sent_ms: \(elapsedMs)")
             case .complete:
                 log.info("bootstrap.first_reply_ms: \(elapsedMs)")
-            case .pendingDaemon:
+            case .pendingDaemon, .timedOut:
                 break
             }
         }
@@ -67,74 +68,20 @@ extension AppDelegate {
         return daemonClient.isConnected
     }
 
-    // MARK: - Bootstrap Retry Coordinator
+    // MARK: - Bootstrap Retry
 
-    /// Starts a background task that polls daemon readiness every 2 seconds.
-    /// When the daemon connects, proceeds with the mandatory wake-up send.
-    func startBootstrapRetryCoordinator() {
-        bootstrapRetryTask?.cancel()
-
-        bootstrapRetryTask = Task {
-            while !Task.isCancelled {
-                if daemonClient.isConnected {
-                    // Daemon is connected — check gateway health before proceeding.
-                    // Remote assistants don't run a local gateway, so skip the check.
-                    let gatewayHealthy = await isGatewayHealthy()
-                    let gatewayOk = isCurrentAssistantRemote || gatewayHealthy
-                    if !gatewayOk {
-                        // Gateway is unhealthy but daemon is connected. Proceed
-                        // anyway — the gateway being down only affects external
-                        // ingress (Twilio, OAuth), not core assistant functionality.
-                        log.warning("Gateway unhealthy during bootstrap retry but daemon is connected — proceeding anyway (some features like Twilio/OAuth ingress may be unavailable)")
-                    } else {
-                        log.info("Daemon connected during bootstrap retry — proceeding to wake-up send")
-                    }
-                    transitionBootstrap(to: .pendingWakeupSend)
-                    await performRetriableWakeUpSend()
-                    if !Task.isCancelled {
-                        bootstrapRetryTask = nil
-                    }
-                    return
-                }
-
-                // If the daemon process isn't running (e.g. hatch failed),
-                // re-attempt hatch so we don't loop forever on connect-only retries.
-                // Managed mode skips local hatch — the platform hosts the daemon.
-                if !isCurrentAssistantManaged {
-                    if !DaemonClient.isDaemonProcessAlive() {
-                        log.info("Daemon process not alive during bootstrap retry — re-attempting hatch")
-                        try? await assistantCli.hatch(daemonOnly: true)
-                    }
-                }
-
-                // Attempt a connection if not already connected or in progress.
-                if !daemonClient.isConnected && !daemonClient.isConnecting {
-                    do {
-                        try await daemonClient.connect()
-                    } catch {
-                        log.error("Bootstrap retry connect attempt failed: \(error)")
-                    }
-                }
-
-                if daemonClient.isConnected {
-                    // Connected — verify gateway health before proceeding.
-                    // Remote assistants don't run a local gateway, so skip the check.
-                    let gatewayHealthy = await isGatewayHealthy()
-                    let gatewayOk = isCurrentAssistantRemote || gatewayHealthy
-                    if !gatewayOk {
-                        log.warning("Gateway unhealthy after bootstrap retry connect but daemon is connected — proceeding anyway (some features like Twilio/OAuth ingress may be unavailable)")
-                    } else {
-                        log.info("Daemon connected after bootstrap retry connect — proceeding to wake-up send")
-                    }
-                    transitionBootstrap(to: .pendingWakeupSend)
-                    await performRetriableWakeUpSend()
-                    if !Task.isCancelled {
-                        bootstrapRetryTask = nil
-                    }
-                    return
-                }
-
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
+    /// Retries the daemon connection after a bootstrap timeout. Called when
+    /// the user taps "Try Again" on the bootstrap timeout screen.
+    func retryBootstrap() {
+        transitionBootstrap(to: .pendingDaemon)
+        Task {
+            let ready = await awaitDaemonReady(timeout: 15)
+            if ready {
+                transitionBootstrap(to: .pendingWakeupSend)
+                await performRetriableWakeUpSend()
+            } else {
+                log.warning("Daemon still not ready after retry — showing timeout screen")
+                transitionBootstrap(to: .timedOut)
             }
         }
     }
@@ -151,8 +98,8 @@ extension AppDelegate {
             log.warning("Daemon disconnected during wake-up send — waiting for reconnection")
             let reconnected = await awaitDaemonReady(timeout: 15)
             if !reconnected {
-                log.warning("Daemon did not reconnect — restarting retry coordinator")
-                startBootstrapRetryCoordinator()
+                log.warning("Daemon did not reconnect — showing timeout screen")
+                transitionBootstrap(to: .timedOut)
                 return
             }
         }

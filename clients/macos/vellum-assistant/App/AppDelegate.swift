@@ -79,8 +79,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var crashReportWindowObserver: NSObjectProtocol?
     var logReportWindow: NSWindow?
     var logReportWindowObserver: NSObjectProtocol?
-    /// Active task for the bootstrap retry coordinator.
-    var bootstrapRetryTask: Task<Void, Never>?
+    /// Opaque observer token for the bootstrap-retry notification.
+    var bootstrapRetryObserver: NSObjectProtocol?
     /// Background task that retries actor-token bootstrap until success.
     var actorTokenBootstrapTask: Task<Void, Never>?
     /// Opaque token returned by `NotificationCenter.addObserver(forName:)` for
@@ -351,6 +351,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         ensureLocalAssistantApiKey()
 
         if isFirstLaunch {
+            // Listen for retry requests from the bootstrap timeout screen.
+            if bootstrapRetryObserver == nil {
+                bootstrapRetryObserver = NotificationCenter.default.addObserver(
+                    forName: .bootstrapRetryRequested, object: nil, queue: .main
+                ) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        self?.retryBootstrap()
+                    }
+                }
+            }
+
             // Enter the bootstrap state machine. The sequence is:
             // pendingDaemon → pendingWakeupSend → pendingFirstReply → complete
             // Each transition is persisted so a restart resumes correctly.
@@ -365,11 +376,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                     transitionBootstrap(to: .pendingWakeupSend)
                     await performRetriableWakeUpSend()
                 } else {
-                    // Daemon not ready yet — start the retry coordinator
-                    // which polls every 2s and proceeds to wake-up send
-                    // once the daemon connects.
-                    log.warning("Daemon not ready after timeout — starting retry coordinator")
-                    startBootstrapRetryCoordinator()
+                    // Daemon not ready — show the main window with a
+                    // timeout screen so the user can retry manually.
+                    log.warning("Daemon not ready after timeout — showing timeout screen")
+                    transitionBootstrap(to: .timedOut)
+                    showMainWindow()
+                    debugStateWriter.start(appDelegate: self)
                 }
             }
         } else {
@@ -394,6 +406,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             NSEvent.removeMonitor(monitor)
         }
         if let observer = windowObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = bootstrapRetryObserver {
             NotificationCenter.default.removeObserver(observer)
         }
         statusIconCancellable?.cancel()
