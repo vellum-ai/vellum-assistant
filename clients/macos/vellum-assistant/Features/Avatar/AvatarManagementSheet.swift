@@ -195,14 +195,6 @@ struct AvatarManagementSheet: View {
         return all[(idx - 1 + all.count) % all.count]
     }
 
-    private func ensureDraftsInitialized() {
-        if draftBody == nil || draftEyes == nil || draftColor == nil {
-            if draftBody == nil { draftBody = AvatarBodyShape.allCases.first }
-            if draftEyes == nil { draftEyes = AvatarEyeStyle.allCases.first }
-            if draftColor == nil { draftColor = AvatarColor.allCases.first }
-        }
-    }
-
     // MARK: - Cycle Controls
 
     @ViewBuilder
@@ -211,13 +203,15 @@ struct AvatarManagementSheet: View {
             cycleRow(
                 label: "Body",
                 onLeft: {
-                    ensureDraftsInitialized()
                     draftBody = cycleBackward(draftBody)
+                    if draftEyes == nil { draftEyes = AvatarEyeStyle.allCases.first }
+                    if draftColor == nil { draftColor = AvatarColor.allCases.first }
                     renderDraft()
                 },
                 onRight: {
-                    ensureDraftsInitialized()
                     draftBody = cycleForward(draftBody)
+                    if draftEyes == nil { draftEyes = AvatarEyeStyle.allCases.first }
+                    if draftColor == nil { draftColor = AvatarColor.allCases.first }
                     renderDraft()
                 }
             ) {
@@ -231,13 +225,15 @@ struct AvatarManagementSheet: View {
             cycleRow(
                 label: "Eyes",
                 onLeft: {
-                    ensureDraftsInitialized()
                     draftEyes = cycleBackward(draftEyes)
+                    if draftBody == nil { draftBody = AvatarBodyShape.allCases.first }
+                    if draftColor == nil { draftColor = AvatarColor.allCases.first }
                     renderDraft()
                 },
                 onRight: {
-                    ensureDraftsInitialized()
                     draftEyes = cycleForward(draftEyes)
+                    if draftBody == nil { draftBody = AvatarBodyShape.allCases.first }
+                    if draftColor == nil { draftColor = AvatarColor.allCases.first }
                     renderDraft()
                 }
             ) {
@@ -251,13 +247,15 @@ struct AvatarManagementSheet: View {
             cycleRow(
                 label: "Color",
                 onLeft: {
-                    ensureDraftsInitialized()
                     draftColor = cycleBackward(draftColor)
+                    if draftBody == nil { draftBody = AvatarBodyShape.allCases.first }
+                    if draftEyes == nil { draftEyes = AvatarEyeStyle.allCases.first }
                     renderDraft()
                 },
                 onRight: {
-                    ensureDraftsInitialized()
                     draftColor = cycleForward(draftColor)
+                    if draftBody == nil { draftBody = AvatarBodyShape.allCases.first }
+                    if draftEyes == nil { draftEyes = AvatarEyeStyle.allCases.first }
                     renderDraft()
                 }
             ) {
