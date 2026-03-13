@@ -41,7 +41,7 @@ final class WorkspaceBrowserState {
         }
     }
 
-    func loadFile(path targetPath: String, using daemonClient: DaemonClient, showHidden: Bool = false) async {
+    func loadFile(path targetPath: String, using daemonClient: DaemonClient) async {
         selectedFilePath = targetPath
         isLoadingFile = true
         selectedFileDetail = nil
@@ -49,7 +49,7 @@ final class WorkspaceBrowserState {
         editableContent = ""
         fileLoadTask?.cancel()
         let task = Task {
-            let detail = await daemonClient.fetchWorkspaceFile(path: targetPath, showHidden: showHidden)
+            let detail = await daemonClient.fetchWorkspaceFile(path: targetPath, showHidden: showHiddenFiles)
             guard !Task.isCancelled, selectedFilePath == targetPath else { return }
             selectedFileDetail = detail
             editableContent = detail?.content ?? ""
@@ -88,7 +88,7 @@ struct WorkspacePanel: View {
             Button("Discard", role: .destructive) {
                 if let targetPath = state.pendingSwitchPath {
                     state.pendingSwitchPath = nil
-                    Task { await state.loadFile(path: targetPath, using: daemonClient, showHidden: state.showHiddenFiles) }
+                    Task { await state.loadFile(path: targetPath, using: daemonClient) }
                 } else if let newValue = state.pendingHiddenFilesToggle {
                     state.pendingHiddenFilesToggle = nil
                     applyHiddenFilesToggle(newValue)
@@ -569,7 +569,7 @@ private struct WorkspaceTreeRow: View {
                 state.pendingSwitchPath = targetPath
                 state.showingDirtyAlert = true
             } else {
-                await state.loadFile(path: targetPath, using: daemonClient, showHidden: state.showHiddenFiles)
+                await state.loadFile(path: targetPath, using: daemonClient)
             }
         }
     }
