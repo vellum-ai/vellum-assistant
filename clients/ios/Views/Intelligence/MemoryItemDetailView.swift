@@ -15,6 +15,7 @@ struct MemoryItemDetailView: View {
     @State private var editImportance: Double
     @State private var showDeleteConfirm = false
     @State private var showSaveError = false
+    @State private var showDeleteError = false
 
     /// Live item data from store (updates after save).
     private var liveItem: MemoryItemPayload {
@@ -72,8 +73,14 @@ struct MemoryItemDetailView: View {
         .alert("Delete Memory?", isPresented: $showDeleteConfirm) {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {
-                Task { await store.deleteItem(id: liveItem.id) }
-                dismiss()
+                Task {
+                    let success = await store.deleteItem(id: liveItem.id)
+                    if success {
+                        dismiss()
+                    } else {
+                        showDeleteError = true
+                    }
+                }
             }
         } message: {
             Text("Are you sure you want to delete this memory? This action cannot be undone.")
@@ -82,6 +89,11 @@ struct MemoryItemDetailView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text("Unable to save changes. Please try again.")
+        }
+        .alert("Delete Failed", isPresented: $showDeleteError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Unable to delete memory. Please try again.")
         }
         .task {
             await store.fetchDetail(id: item.id)
