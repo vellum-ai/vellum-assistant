@@ -41,7 +41,7 @@ export async function run(
     eventBody.attendees = attendees.map((email) => ({ email }));
   }
 
-  const connection = getCalendarConnection(account);
+  const connection = getCalendarConnection(account, calendarId);
   const event = await calendar.createEvent(connection, eventBody, calendarId);
   const link = event.htmlLink ? ` View it here: ${event.htmlLink}` : "";
   return ok(`Event created (ID: ${event.id}).${link}`);
