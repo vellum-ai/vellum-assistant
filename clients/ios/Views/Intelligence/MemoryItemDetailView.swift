@@ -14,6 +14,12 @@ struct MemoryItemDetailView: View {
     @State private var editStatus: String
     @State private var editImportance: Double
     @State private var showDeleteConfirm = false
+    @State private var showSaveError = false
+
+    /// Live item data from store (updates after save).
+    private var liveItem: MemoryItemPayload {
+        store.items.first { $0.id == item.id } ?? item
+    }
 
     init(item: MemoryItemPayload, store: MemoryItemsStore) {
         self.item = item
@@ -32,11 +38,11 @@ struct MemoryItemDetailView: View {
             metricsSection
             timelineSection
 
-            if item.supersedes != nil || item.supersededBy != nil {
+            if liveItem.supersedes != nil || liveItem.supersededBy != nil {
                 relationshipsSection
             }
         }
-        .navigationTitle(item.subject)
+        .navigationTitle(liveItem.subject)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if isEditing {
@@ -66,11 +72,16 @@ struct MemoryItemDetailView: View {
         .alert("Delete Memory?", isPresented: $showDeleteConfirm) {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {
-                Task { await store.deleteItem(id: item.id) }
+                Task { await store.deleteItem(id: liveItem.id) }
                 dismiss()
             }
         } message: {
             Text("Are you sure you want to delete this memory? This action cannot be undone.")
+        }
+        .alert("Save Failed", isPresented: $showSaveError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Unable to save changes. Please try again.")
         }
     }
 
@@ -96,13 +107,13 @@ struct MemoryItemDetailView: View {
                         .frame(minHeight: 100)
                 }
             } else {
-                detailRow(label: "Subject", value: item.subject)
+                detailRow(label: "Subject", value: liveItem.subject)
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Statement")
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
-                    Text(item.statement)
+                    Text(liveItem.statement)
                         .font(VFont.body)
                         .foregroundColor(VColor.contentDefault)
                 }
@@ -133,13 +144,13 @@ struct MemoryItemDetailView: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentTertiary)
                     Spacer()
-                    kindBadge(item.kind)
+                    kindBadge(liveItem.kind)
                 }
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("Kind: \(MemoryKind(rawValue: item.kind)?.label ?? item.kind)")
+                .accessibilityLabel("Kind: \(MemoryKind(rawValue: liveItem.kind)?.label ?? liveItem.kind)")
 
-                detailRow(label: "Status", value: item.status.capitalized)
-                detailRow(label: "Verification", value: formatVerificationState(item.verificationState))
+                detailRow(label: "Status", value: liveItem.status.capitalized)
+                detailRow(label: "Verification", value: formatVerificationState(liveItem.verificationState))
             }
         }
     }
@@ -162,9 +173,9 @@ struct MemoryItemDetailView: View {
                     Slider(value: $editImportance, in: 0...1, step: 0.1)
                 }
             } else {
-                detailRow(label: "Confidence", value: "\(Int(item.confidence * 100))%")
-                detailRow(label: "Importance", value: "\(Int((item.importance ?? 0) * 100))%")
-                detailRow(label: "Access Count", value: "\(item.accessCount)")
+                detailRow(label: "Confidence", value: "\(Int(liveItem.confidence * 100))%")
+                detailRow(label: "Importance", value: "\(Int((liveItem.importance ?? 0) * 100))%")
+                detailRow(label: "Access Count", value: "\(liveItem.accessCount)")
             }
         }
     }
@@ -173,10 +184,10 @@ struct MemoryItemDetailView: View {
 
     private var timelineSection: some View {
         Section("Timeline") {
-            detailRow(label: "First Seen", value: formatDate(item.firstSeenDate))
-            detailRow(label: "Last Seen", value: formatDate(item.lastSeenDate))
+            detailRow(label: "First Seen", value: formatDate(liveItem.firstSeenDate))
+            detailRow(label: "Last Seen", value: formatDate(liveItem.lastSeenDate))
 
-            if let lastUsedDate = item.lastUsedDate {
+            if let lastUsedDate = liveItem.lastUsedDate {
                 detailRow(label: "Last Used", value: formatDate(lastUsedDate))
             }
         }
@@ -186,15 +197,15 @@ struct MemoryItemDetailView: View {
 
     private var relationshipsSection: some View {
         Section("Relationships") {
-            if let supersedesSubject = item.supersedesSubject {
+            if let supersedesSubject = liveItem.supersedesSubject {
                 detailRow(label: "Supersedes", value: supersedesSubject)
-            } else if item.supersedes != nil {
+            } else if liveItem.supersedes != nil {
                 detailRow(label: "Supersedes", value: "Another memory")
             }
 
-            if let supersededBySubject = item.supersededBySubject {
+            if let supersededBySubject = liveItem.supersededBySubject {
                 detailRow(label: "Superseded By", value: supersededBySubject)
-            } else if item.supersededBy != nil {
+            } else if liveItem.supersededBy != nil {
                 detailRow(label: "Superseded By", value: "Another memory")
             }
         }
@@ -204,7 +215,7 @@ struct MemoryItemDetailView: View {
 
     private func saveEdits() {
         Task {
-            _ = await store.updateItem(
+            let result = await store.updateItem(
                 id: item.id,
                 subject: editSubject != item.subject ? editSubject : nil,
                 statement: editStatement != item.statement ? editStatement : nil,
@@ -212,16 +223,20 @@ struct MemoryItemDetailView: View {
                 status: editStatus != item.status ? editStatus : nil,
                 importance: editImportance != (item.importance ?? 0.5) ? editImportance : nil
             )
+            if result != nil {
+                isEditing = false
+            } else {
+                showSaveError = true
+            }
         }
-        isEditing = false
     }
 
     private func cancelEditing() {
-        editSubject = item.subject
-        editStatement = item.statement
-        editKind = item.kind
-        editStatus = item.status
-        editImportance = item.importance ?? 0.5
+        editSubject = liveItem.subject
+        editStatement = liveItem.statement
+        editKind = liveItem.kind
+        editStatus = liveItem.status
+        editImportance = liveItem.importance ?? 0.5
         isEditing = false
     }
 
