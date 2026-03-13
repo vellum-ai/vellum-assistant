@@ -32,9 +32,21 @@ set -euo pipefail
 swift_with_retry() {
     local max_attempts="${SWIFT_RETRY_ATTEMPTS:-3}"
     local attempt=1
+    local _pch_cleaned=0
+    local _stderr_log
+    _stderr_log=$(mktemp)
+    trap "rm -f '$_stderr_log'" RETURN
     while true; do
-        if "$@"; then
+        if "$@" 2> >(tee "$_stderr_log" >&2); then
             return 0
+        fi
+        # Auto-clean stale PCH module cache (happens when switching between
+        # worktrees that share the same .build directory via symlink).
+        if [ "$_pch_cleaned" -eq 0 ] && grep -q "PCH was compiled with module cache path" "$_stderr_log" 2>/dev/null; then
+            echo "warning: stale module cache detected, cleaning and retrying..."
+            find "$SCRIPT_DIR/../.build" -type d -name "ModuleCache" -exec rm -rf {} + 2>/dev/null || true
+            _pch_cleaned=1
+            continue
         fi
         if [ "$attempt" -ge "$max_attempts" ]; then
             echo "ERROR: swift command failed after $max_attempts attempts: $*"
