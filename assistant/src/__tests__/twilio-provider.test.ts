@@ -46,6 +46,11 @@ mock.module("../security/secure-keys.js", () => ({
     if (key === credentialKey("twilio", "account_sid")) return mockAccountSid;
     return undefined;
   },
+  getSecureKeyAsync: async (key: string) => {
+    if (key === credentialKey("twilio", "auth_token")) return mockAuthToken;
+    if (key === credentialKey("twilio", "account_sid")) return mockAccountSid;
+    return undefined;
+  },
 }));
 
 import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
@@ -143,15 +148,15 @@ describe("TwilioConversationRelayProvider", () => {
   });
 
   describe("getAuthToken", () => {
-    test("returns the auth token when configured", () => {
+    test("returns the auth token when configured", async () => {
       mockAuthToken = "my-secret-token";
-      const token = TwilioConversationRelayProvider.getAuthToken();
+      const token = await TwilioConversationRelayProvider.getAuthToken();
       expect(token).toBe("my-secret-token");
     });
 
-    test("returns null when auth token is not configured", () => {
+    test("returns null when auth token is not configured", async () => {
       mockAuthToken = undefined;
-      const token = TwilioConversationRelayProvider.getAuthToken();
+      const token = await TwilioConversationRelayProvider.getAuthToken();
       expect(token).toBeNull();
     });
   });

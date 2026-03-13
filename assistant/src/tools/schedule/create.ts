@@ -115,7 +115,7 @@ export async function executeScheduleCreate(
       });
 
       const fireDate = formatLocalDate(job.nextRunAt);
-      const integrations = formatIntegrationSummary();
+      const integrations = await formatIntegrationSummary();
       return {
         content: [
           `One-shot schedule created successfully.`,
@@ -197,7 +197,7 @@ export async function executeScheduleCreate(
           : describeCronExpression(job.cronExpression);
 
     const nextRunDate = formatLocalDate(job.nextRunAt);
-    const integrations = formatIntegrationSummary();
+    const integrations = await formatIntegrationSummary();
     return {
       content: [
         `Recurring schedule created successfully.`,
