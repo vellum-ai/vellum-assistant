@@ -327,14 +327,35 @@ Examples:
 
           const pingUrl = provider.pingUrl;
 
+          const PING_TIMEOUT_MS = 15_000;
+
           const result = await withValidToken(
             providerKey,
             async (token) => {
-              const res = await fetch(pingUrl, {
-                method: "GET",
-                headers: { Authorization: `Bearer ${token}` },
-              });
-              return { status: res.status, ok: res.ok };
+              const controller = new AbortController();
+              const timer = setTimeout(
+                () => controller.abort(),
+                PING_TIMEOUT_MS,
+              );
+              try {
+                const res = await fetch(pingUrl, {
+                  method: "GET",
+                  headers: { Authorization: `Bearer ${token}` },
+                  signal: controller.signal,
+                });
+
+                if (res.status === 401) {
+                  const err = new Error(
+                    `Ping returned HTTP 401 from ${pingUrl}`,
+                  );
+                  (err as unknown as { status: number }).status = 401;
+                  throw err;
+                }
+
+                return { status: res.status, ok: res.ok };
+              } finally {
+                clearTimeout(timer);
+              }
             },
             opts.clientId,
           );
