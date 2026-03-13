@@ -473,11 +473,10 @@ private func resolveOverlap(
 /// Each category's subtree stays within its angular sector to prevent cross-category overlap.
 /// Skills are placed in compact grids extending outward from their parent.
 /// Every node is checked against all previously-placed nodes to prevent overlap.
-private func buildTree(center: CGPoint, groups: [CategoryGroup]) -> (nodes: [TreeNode], edges: [EdgeLine]) {
+private func buildTree(center: CGPoint, groups: [CategoryGroup], centerSize: CGFloat = 90) -> (nodes: [TreeNode], edges: [EdgeLine]) {
     var nodes: [TreeNode] = []
     var edges: [EdgeLine] = []
 
-    let centerSize: CGFloat = 90
     let catSize: CGFloat = 80
     let subCatSize: CGFloat = 56
     let skillSize: CGFloat = 64
@@ -700,8 +699,13 @@ struct ConstellationView: View {
     // Node sizes
     private let categoryNodeSize: CGFloat = 80
     private let skillNodeSize: CGFloat = 64
-    private let centerAvatarSize: CGFloat = 90
+    private let customAvatarSize: CGFloat = 90
+    private let nativeCharacterAvatarSize: CGFloat = 112
     private let subCatNodeSize: CGFloat = 56
+
+    private var centerAvatarSize: CGFloat {
+        hasCustomAvatar ? customAvatarSize : nativeCharacterAvatarSize
+    }
 
     /// Tree layout positions, keyed by node ID.
     @State private var treePositions: [String: CGPoint] = [:]
@@ -766,7 +770,7 @@ struct ConstellationView: View {
 
     /// Computes tree layout synchronously and populates all state vars.
     private func computeLayout(center: CGPoint) {
-        let result = buildTree(center: center, groups: groups)
+        let result = buildTree(center: center, groups: groups, centerSize: centerAvatarSize)
         treeNodes = result.nodes
         treeEdges = result.edges
         var positions: [String: CGPoint] = [:]
