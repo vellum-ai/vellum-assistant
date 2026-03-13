@@ -7,7 +7,7 @@
  * request from the expected status wins.
  */
 
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { IntegrityError } from "../util/errors.js";
@@ -460,11 +460,28 @@ export function resolveCanonicalGuardianRequest(
 }
 
 /**
- * Expire all pending canonical guardian requests in a single bulk update.
+ * Request kinds whose resolution depends on the in-memory
+ * `pendingInteractions` Map. These kinds become unresolvable after a daemon
+ * restart because the Map is wiped, so they should be expired on startup.
+ *
+ * Persistent kinds (`access_request`, `tool_grant_request`) resolve without
+ * pending interactions and remain valid across restarts — they must NOT be
+ * expired here.
+ */
+const INTERACTION_BOUND_KINDS = ["tool_approval", "pending_question"];
+
+/**
+ * Expire pending interaction-bound canonical guardian requests in a single
+ * bulk update.
  *
  * Called at daemon startup to clean up requests that can never be completed
  * because the in-memory pending-interactions Map (which holds session
  * references needed by resolvers) was wiped on restart.
+ *
+ * Only expires request kinds that depend on in-memory pending interactions
+ * (`tool_approval`, `pending_question`). Persistent kinds like
+ * `access_request` and `tool_grant_request` resolve without pending
+ * interactions and remain valid across restarts.
  *
  * Returns the number of requests transitioned from pending → expired.
  */
@@ -474,7 +491,12 @@ export function expireAllPendingCanonicalRequests(): number {
 
   db.update(canonicalGuardianRequests)
     .set({ status: "expired", updatedAt: now })
-    .where(eq(canonicalGuardianRequests.status, "pending"))
+    .where(
+      and(
+        eq(canonicalGuardianRequests.status, "pending"),
+        inArray(canonicalGuardianRequests.kind, INTERACTION_BOUND_KINDS),
+      ),
+    )
     .run();
 
   return rawChanges();

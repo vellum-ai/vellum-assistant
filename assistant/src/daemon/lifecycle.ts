@@ -177,15 +177,17 @@ export async function runDaemon(): Promise<void> {
     }
     log.info("Daemon startup: DB initialized");
 
-    // Expire any pending canonical guardian requests left over from before
-    // this process started.  Their in-memory pending-interaction session
-    // references are gone, so they can never be completed.  The agent loop
-    // will re-request tool approvals on the next turn.
+    // Expire pending interaction-bound canonical guardian requests left over
+    // from before this process started.  Their in-memory pending-interaction
+    // session references are gone, so they can never be completed.  Only
+    // interaction-bound kinds (tool_approval, pending_question) are expired;
+    // persistent kinds (access_request, tool_grant_request) remain valid
+    // across restarts.
     const expiredCount = expireAllPendingCanonicalRequests();
     if (expiredCount > 0) {
       log.info(
         { event: "startup_expired_stale_requests", expiredCount },
-        `Expired ${expiredCount} stale pending canonical request(s) from previous process`,
+        `Expired ${expiredCount} stale interaction-bound canonical request(s) from previous process`,
       );
     }
 
