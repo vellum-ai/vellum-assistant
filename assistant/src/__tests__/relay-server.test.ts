@@ -4055,7 +4055,7 @@ describe("relay-server", () => {
       .filter((m) => m.type === "text");
     expect(
       textMessages.some((m) =>
-        (m.token ?? "").includes("said I can speak with you"),
+        (m.token ?? "").includes("verified that you are Eve"),
       ),
     ).toBe(true);
 

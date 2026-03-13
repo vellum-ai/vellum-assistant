@@ -772,6 +772,12 @@ export class RelayConnection {
     fromNumber: string;
     callerName?: string;
     skipMemberActivation?: boolean;
+    activationReason?:
+      | "invite_redeemed"
+      | "access_approved"
+      | "trusted_contact_verified";
+    friendName?: string;
+    guardianName?: string;
   }): void {
     const { assistantId, fromNumber, callerName } = params;
 
@@ -808,7 +814,25 @@ export class RelayConnection {
     updateCallSession(this.callSessionId, { status: "in_progress" });
 
     const guardianLabel = this.resolveGuardianLabel();
-    const handoffText = `Great! ${guardianLabel} said I can speak with you. How can I help?`;
+    let handoffText: string;
+
+    if (params.activationReason === "invite_redeemed") {
+      const name = params.friendName;
+      const assistantName = this.resolveAssistantLabel();
+      const gLabel = params.guardianName || guardianLabel;
+      if (name) {
+        handoffText = assistantName
+          ? `Great, I've verified that you are ${name}. It's nice to meet you! I'm ${assistantName}, ${gLabel}'s assistant. How can I help?`
+          : `Great, I've verified that you are ${name}. It's nice to meet you! How can I help?`;
+      } else {
+        handoffText = assistantName
+          ? `Great, I've verified your identity. It's nice to meet you! I'm ${assistantName}, ${gLabel}'s assistant. How can I help?`
+          : `Great, I've verified your identity. It's nice to meet you! How can I help?`;
+      }
+    } else {
+      handoffText = `Great! ${guardianLabel} said I can speak with you. How can I help?`;
+    }
+
     this.sendTextToken(handoffText, true);
 
     recordCallEvent(this.callSessionId, "assistant_spoke", {
@@ -1000,6 +1024,7 @@ export class RelayConnection {
         this.continueCallAfterTrustedContactActivation({
           assistantId,
           fromNumber,
+          activationReason: "trusted_contact_verified",
         });
       } else {
         // Inbound guardian verification: binding already handled above,
@@ -1358,6 +1383,7 @@ export class RelayConnection {
       assistantId,
       fromNumber,
       callerName: callerName ?? undefined,
+      activationReason: "access_approved",
     });
 
     recordCallEvent(
@@ -1541,6 +1567,9 @@ export class RelayConnection {
         fromNumber: this.inviteRedemptionFromNumber,
         callerName: this.inviteRedemptionFriendName ?? undefined,
         skipMemberActivation: true,
+        activationReason: "invite_redeemed",
+        friendName: this.inviteRedemptionFriendName ?? undefined,
+        guardianName: this.inviteRedemptionGuardianName ?? undefined,
       });
     } else {
       this.inviteRedemptionActive = false;
