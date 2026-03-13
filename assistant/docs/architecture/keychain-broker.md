@@ -197,7 +197,6 @@ These call sites use sync `getSecureKey` in contexts that could potentially supp
 | File                                                          | Sync functions used | Reason deferred                                                                                                       |
 | ------------------------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `assistant/src/tools/credentials/broker.ts`                   | `getSecureKey`      | Credential broker read paths are called synchronously from multiple consumers; converting requires async propagation. |
-| `assistant/src/security/token-manager.ts`                     | `getSecureKey`      | Token resolution is called in sync context during connection token lookup; async would require refactoring callers.   |
 | `assistant/src/runtime/routes/integrations/slack/share.ts`    | `getSecureKey`      | Slack share route reads OAuth token synchronously; converting requires making the route handler async-aware.          |
 | `assistant/src/runtime/channel-invite-transports/telegram.ts` | `getSecureKey`      | Telegram transport reads bot token synchronously; converting requires async transport initialization.                 |
 | `assistant/src/tools/network/web-search.ts`                   | `getSecureKey`      | Web search tool reads API keys synchronously; converting requires async tool execution path.                          |
