@@ -279,6 +279,11 @@ struct ComposerView: View {
             }
         }
         .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isComposerDropTargeted) { providers in
+            // Reset overlay immediately — SwiftUI's isTargeted binding may not
+            // reset reliably when AppKit's NSDraggingDestination (e.g. the
+            // NSTextView inside the composer) intercepts the drag session.
+            isComposerDropTargeted = false
+
             let group = DispatchGroup()
             // Collect URLs on the main queue to avoid concurrent Array mutation
             // from loadObject callbacks that may fire on different threads.
@@ -290,9 +295,14 @@ struct ComposerView: View {
                         || provider.hasItemConformingToTypeIdentifier(UTType.png.identifier)
                         || provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier)
                     group.enter()
-                    _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                    _ = provider.loadObject(ofClass: URL.self) { url, error in
                         DispatchQueue.main.async {
                             if let url, FileManager.default.fileExists(atPath: url.path) {
+                                urls.append(url)
+                                group.leave()
+                            } else if let url, url.isFileURL {
+                                // File promise or security-scoped URL — try it
+                                // anyway and let the attachment loader report errors.
                                 urls.append(url)
                                 group.leave()
                             } else if hasImageFallback, let onDropImageData {

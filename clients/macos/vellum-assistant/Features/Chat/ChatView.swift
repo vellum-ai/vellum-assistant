@@ -401,6 +401,11 @@ struct ChatView: View {
     /// is used as a fallback for providers without a backing file (e.g. screenshot
     /// thumbnails or images dragged from certain apps).
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
+        // Reset overlay immediately — SwiftUI's isTargeted binding may not
+        // reset reliably when AppKit's NSDraggingDestination (e.g. the
+        // NSTextView inside the composer) intercepts the drag session.
+        isDropTargeted = false
+
         var urls: [URL] = []
         var imageDataItems: [NSItemProvider] = []
         let group = DispatchGroup()
@@ -411,9 +416,16 @@ struct ChatView: View {
                     || provider.hasItemConformingToTypeIdentifier(UTType.png.identifier)
                     || provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier)
                 group.enter()
-                _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                _ = provider.loadObject(ofClass: URL.self) { url, error in
                     DispatchQueue.main.async {
                         if let url, FileManager.default.fileExists(atPath: url.path) {
+                            urls.append(url)
+                            group.leave()
+                        } else if let url, url.isFileURL {
+                            // The URL is a file reference but doesn't exist yet
+                            // (e.g. file promises from Music.app, Voice Memos).
+                            // Try using it anyway — the attachment loader will
+                            // report an error if the file is truly inaccessible.
                             urls.append(url)
                             group.leave()
                         } else if hasImageFallback {
