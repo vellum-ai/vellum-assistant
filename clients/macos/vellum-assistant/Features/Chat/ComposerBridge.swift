@@ -72,6 +72,22 @@ struct ComposerFocusBridge: NSViewRepresentable {
             candidate = view.superview
         }
         window.composerContainerView = container
+
+        // Prevent the internal NSTextView from intercepting file drops.
+        // SwiftUI's TextField wraps an NSTextView that registers for file URL
+        // drag types by default, causing it to insert file paths as text.
+        // Re-register with only text types so file drops fall through to the
+        // SwiftUI .onDrop handler on the parent ScrollView.
+        Self.unregisterFileDragTypes(in: container)
+    }
+
+    private static func unregisterFileDragTypes(in view: NSView) {
+        if view is NSTextView {
+            view.registerForDraggedTypes([.string, .rtf, .rtfd])
+        }
+        for subview in view.subviews {
+            unregisterFileDragTypes(in: subview)
+        }
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
