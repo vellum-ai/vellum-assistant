@@ -492,6 +492,11 @@ struct ContactDetailView: View {
             }
 
             // Handle input section
+            // NOTE: The handle input is informational for this iteration. It lets the
+            // guardian note which user they're inviting, but the value is not yet sent
+            // to the backend. The invite is already created when the card expands (with
+            // the shareable URL/code). Backend integration to proactively message the
+            // contact via their handle is deferred to a future iteration.
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Or enter their \(channelLabel(for: type)) handle:")
                     .font(VFont.caption)
@@ -504,7 +509,8 @@ struct ContactDetailView: View {
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
             }
 
-            // Buttons: Send + Cancel
+            // Buttons: Send reveals the already-generated invite code (the invite
+            // was created when the card expanded). Cancel collapses the section.
             HStack(spacing: VSpacing.sm) {
                 VButton(label: "Send", style: .outlined) {
                     inviteCodeRevealed = true
