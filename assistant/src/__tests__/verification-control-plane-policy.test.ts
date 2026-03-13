@@ -436,6 +436,15 @@ describe("isVerificationControlPlaneInvocation", () => {
       ).toBe(true);
     });
 
+    test("detects endpoint when path fragments are split across variables", () => {
+      expect(
+        isVerificationControlPlaneInvocation("bash", {
+          command:
+            'part1=channel-verification; part2=sessions; curl "http://localhost:3000/v1/${part1}-${part2}"',
+        }),
+      ).toBe(true);
+    });
+
     test("detects endpoint via heredoc-style construction", () => {
       expect(
         isVerificationControlPlaneInvocation("bash", {

@@ -84,7 +84,19 @@ function containsVerificationEndpointPath(value: string): boolean {
  */
 function containsVerificationFragments(command: string): boolean {
   const lower = command.toLowerCase();
-  return lower.includes("channel-verification-sessions");
+
+  // Match contiguous endpoint assignment first.
+  if (lower.includes("channel-verification-sessions")) {
+    return true;
+  }
+
+  // Catch shell-built variants where `channel-verification` and `sessions`
+  // are assembled through variable expansion and are not contiguous.
+  const hasChannelVerification =
+    lower.includes("channel-verification") ||
+    (lower.includes("channel") && lower.includes("verification"));
+
+  return hasChannelVerification && lower.includes("sessions");
 }
 
 /**
