@@ -37,9 +37,10 @@ struct ContactDetailView: View {
     @State private var inviteInProgress: String?
     @State private var inviteResult: (
         type: String,
-        token: String,
+        token: String?,
         shareUrl: String?,
         inviteCode: String?,
+        voiceCode: String?,
         guardianInstruction: String?,
         channelHandle: String?
     )?
@@ -489,7 +490,7 @@ struct ContactDetailView: View {
     private func inviteResultDisplay(for type: String) -> some View {
         let result = inviteResult!
 
-        if let inviteCode = result.inviteCode {
+        if let inviteCode = result.inviteCode ?? result.voiceCode {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 if let instruction = result.guardianInstruction {
                     Text(instruction)
@@ -576,10 +577,9 @@ struct ContactDetailView: View {
                     }
                 }
             }
-        } else {
+        } else if let shareableText = result.shareUrl ?? result.token {
             // Fallback: no invite code available, show raw token
             HStack(spacing: VSpacing.sm) {
-                let shareableText = result.shareUrl ?? result.token
                 let truncated = shareableText.count > 20
                     ? String(shareableText.prefix(20)) + "..."
                     : shareableText
@@ -992,6 +992,7 @@ struct ContactDetailView: View {
                         token: result.token,
                         shareUrl: result.shareUrl,
                         inviteCode: result.inviteCode,
+                        voiceCode: result.voiceCode,
                         guardianInstruction: result.guardianInstruction,
                         channelHandle: result.channelHandle
                     )
