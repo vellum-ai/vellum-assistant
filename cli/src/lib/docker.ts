@@ -33,6 +33,22 @@ async function ensureDockerInstalled(): Promise<void> {
   }
 
   if (!installed) {
+    // Check whether Homebrew is available before attempting to use it.
+    let hasBrew = false;
+    try {
+      await execOutput("brew", ["--version"]);
+      hasBrew = true;
+    } catch {
+      // brew not found
+    }
+
+    if (!hasBrew) {
+      throw new Error(
+        "Docker is not installed and Homebrew is not available.\n" +
+          "Please install Docker Desktop from https://www.docker.com/products/docker-desktop/",
+      );
+    }
+
     console.log("🐳 Docker not found. Installing via Homebrew...");
     try {
       await exec("brew", ["install", "colima", "docker"]);
