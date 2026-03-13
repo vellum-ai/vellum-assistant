@@ -2422,6 +2422,137 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
     }
 
+    // MARK: - Memory Items
+
+    /// Fetch a paginated list of memory items with optional filters.
+    public func fetchMemoryItems(
+        kind: String? = nil,
+        status: String? = "active",
+        search: String? = nil,
+        sort: String? = "lastSeenAt",
+        order: String? = "desc",
+        limit: Int = 100,
+        offset: Int = 0
+    ) async -> MemoryItemsListResponse? {
+        if let httpTransport {
+            return await httpTransport.fetchMemoryItems(
+                kind: kind, status: status, search: search,
+                sort: sort, order: order, limit: limit, offset: offset
+            )
+        }
+
+        var queryParts = ["limit=\(limit)", "offset=\(offset)"]
+        if let kind { queryParts.append("kind=\(kind.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? kind)") }
+        if let status { queryParts.append("status=\(status)") }
+        if let search, !search.isEmpty { queryParts.append("search=\(search.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? search)") }
+        if let sort { queryParts.append("sort=\(sort)") }
+        if let order { queryParts.append("order=\(order)") }
+        let qs = queryParts.joined(separator: "&")
+        return await executeLocalRequest(path: "v1/memory-items?\(qs)")
+    }
+
+    /// Fetch a single memory item by ID.
+    public func fetchMemoryItem(id: String) async -> MemoryItemPayload? {
+        if let httpTransport {
+            return await httpTransport.fetchMemoryItem(id: id)
+        }
+
+        struct Wrapper: Decodable { let item: MemoryItemPayload }
+        let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        guard let wrapper: Wrapper = await executeLocalRequest(path: "v1/memory-items/\(encoded)") else { return nil }
+        return wrapper.item
+    }
+
+    /// Create a new memory item.
+    public func createMemoryItem(
+        kind: String,
+        subject: String,
+        statement: String,
+        importance: Double? = nil
+    ) async -> MemoryItemPayload? {
+        if let httpTransport {
+            return await httpTransport.createMemoryItem(
+                kind: kind, subject: subject, statement: statement, importance: importance
+            )
+        }
+
+        var body: [String: Any] = [
+            "kind": kind,
+            "subject": subject,
+            "statement": statement
+        ]
+        if let importance { body["importance"] = importance }
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+
+        struct Wrapper: Decodable { let item: MemoryItemPayload }
+        guard let wrapper: Wrapper = await executeLocalRequest(path: "v1/memory-items", method: "POST", body: bodyData) else { return nil }
+        return wrapper.item
+    }
+
+    /// Update an existing memory item.
+    public func updateMemoryItem(
+        id: String,
+        subject: String? = nil,
+        statement: String? = nil,
+        kind: String? = nil,
+        status: String? = nil,
+        importance: Double? = nil,
+        verificationState: String? = nil
+    ) async -> MemoryItemPayload? {
+        if let httpTransport {
+            return await httpTransport.updateMemoryItem(
+                id: id, subject: subject, statement: statement,
+                kind: kind, status: status, importance: importance,
+                verificationState: verificationState
+            )
+        }
+
+        var body: [String: Any] = [:]
+        if let subject { body["subject"] = subject }
+        if let statement { body["statement"] = statement }
+        if let kind { body["kind"] = kind }
+        if let status { body["status"] = status }
+        if let importance { body["importance"] = importance }
+        if let verificationState { body["verificationState"] = verificationState }
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+
+        let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        struct Wrapper: Decodable { let item: MemoryItemPayload }
+        guard let wrapper: Wrapper = await executeLocalRequest(path: "v1/memory-items/\(encoded)", method: "PATCH", body: bodyData) else { return nil }
+        return wrapper.item
+    }
+
+    /// Delete a memory item by ID.
+    public func deleteMemoryItem(id: String) async -> Bool {
+        if let httpTransport {
+            return await httpTransport.deleteMemoryItem(id: id)
+        }
+
+        let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        guard var request = buildLocalRequest(target: .daemon, path: "v1/memory-items/\(encoded)", method: "DELETE") else { return false }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return false }
+
+            if http.statusCode == 401 {
+                guard let platform = recoveryPlatform, let deviceId = recoveryDeviceId else { return false }
+                let success = await bootstrapActorToken(platform: platform, deviceId: deviceId)
+                guard success else { return false }
+
+                guard let retryRequest = buildLocalRequest(target: .daemon, path: "v1/memory-items/\(encoded)", method: "DELETE") else { return false }
+                let (_, retryResponse) = try await URLSession.shared.data(for: retryRequest)
+                guard let retryHttp = retryResponse as? HTTPURLResponse else { return false }
+                return retryHttp.statusCode == 204
+            }
+
+            return http.statusCode == 204
+        } catch {
+            log.error("deleteMemoryItem failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
     // MARK: - Actor Token Bootstrap
 
     /// Response from `POST /v1/guardian/init`.
