@@ -54,12 +54,19 @@ function writeResult(requestId: string, result: BashSignalResult): void {
  */
 export function handleBashSignal(filename: string): void {
   const signalPath = join(getWorkspaceDir(), "signals", filename);
+  let raw: string;
+  try {
+    raw = readFileSync(signalPath, "utf-8");
+  } catch {
+    // File may already be deleted (e.g. re-trigger from our own unlinkSync).
+    return;
+  }
+
   let payload: BashSignalPayload;
   try {
-    const content = readFileSync(signalPath, "utf-8");
-    payload = JSON.parse(content) as BashSignalPayload;
+    payload = JSON.parse(raw) as BashSignalPayload;
   } catch (err) {
-    log.error({ err, filename }, "Failed to read bash signal file");
+    log.error({ err, filename }, "Failed to parse bash signal file");
     return;
   }
 
