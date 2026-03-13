@@ -412,6 +412,9 @@ struct ComposerView: View {
                 .stroke(VColor.borderBase.opacity(isComposerFocused ? 0.12 : 0), lineWidth: 3)
         )
         .shadow(color: .clear, radius: 0)
+        .contentShape(Rectangle())
+        .onTapGesture { composerFocus = true }
+        .iBeamCursor()
     }
 
     @ViewBuilder
