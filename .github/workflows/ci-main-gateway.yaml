@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - 'gateway/**'
+      - 'meta/feature-flags/**'
       - '.github/workflows/ci-main-gateway.yaml'
 
 jobs:

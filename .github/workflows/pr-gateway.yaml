@@ -5,6 +5,7 @@ on:
     types: [labeled, synchronize, opened, reopened]
     paths:
       - 'gateway/**'
+      - 'meta/feature-flags/**'
       - '.github/workflows/pr-gateway.yaml'
 
 concurrency:

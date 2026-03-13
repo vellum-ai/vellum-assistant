@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - 'assistant/**'
+      - 'meta/feature-flags/**'
       - '.github/workflows/ci-main-assistant.yaml'
 
 jobs:

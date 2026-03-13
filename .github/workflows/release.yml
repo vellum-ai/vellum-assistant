@@ -190,6 +190,9 @@ jobs:
         id: image
         run: echo "name=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
 
+      - name: Sync feature flag registry for Docker context
+        run: cp meta/feature-flags/feature-flag-registry.json assistant/src/config/feature-flag-registry.json
+
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@v6
