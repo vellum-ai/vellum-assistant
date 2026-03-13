@@ -79,12 +79,12 @@ struct GuardianChannelsDetailView: View {
             for channel in Self.verificationSupportedChannels {
                 store?.refreshChannelVerificationStatus(channel: channel)
             }
-            Task {
-                channelReadiness = (try? await daemonClient?.fetchChannelReadiness()) ?? [:]
-            }
         }
         .onDisappear {
             stopVerificationCountdownTimer()
+        }
+        .task {
+            channelReadiness = (try? await daemonClient?.fetchChannelReadiness()) ?? [:]
         }
         .onReceive(store?.objectWillChange.map { _ in () }.eraseToAnyPublisher() ?? Empty().eraseToAnyPublisher()) { _ in
             verificationStoreRevision += 1
@@ -98,7 +98,12 @@ struct GuardianChannelsDetailView: View {
         SettingsCard(title: channelLabel(for: type), subtitle: channelSubtitle(for: type)) {
             let existingChannels = displayContact.channels.filter { $0.type == type && $0.status != "revoked" }
 
-            if let channel = existingChannels.first, channel.status == "active", channel.verifiedAt != nil {
+            // Prefer the latest verified channel to avoid showing stale status when
+            // multiple non-revoked rows exist for the same channel type.
+            let activeChannel = existingChannels.first(where: { $0.status == "active" && $0.verifiedAt != nil })
+                ?? existingChannels.first
+
+            if let channel = activeChannel, channel.status == "active", channel.verifiedAt != nil {
                 // Verified channel — delegate to ChannelVerificationFlowView
                 verifiedChannelContent(channel: channel, type: type)
             } else if !existingChannels.isEmpty || setupExpanded.contains(type) {
