@@ -28,7 +28,6 @@ import {
   getWorkspaceSkillsDir,
 } from "../util/platform.js";
 import { handleConfirmationSignal } from "./confirmation-signal-service.js";
-import { reloadMcpServers } from "./mcp-reload-service.js";
 
 const log = getLogger("config-watcher");
 
@@ -208,7 +207,7 @@ export class ConfigWatcher {
       );
     }
 
-    this.startSignalsWatcher();
+    this.startSignalsWatcher(onMcpReload);
     this.startSkillsWatchers(onSessionEvict);
   }
 
@@ -220,7 +219,7 @@ export class ConfigWatcher {
     this.watchers = [];
   }
 
-  private startSignalsWatcher(): void {
+  private startSignalsWatcher(onMcpReload?: () => void): void {
     const signalsDir = join(getWorkspaceDir(), "signals");
     try {
       if (!existsSync(signalsDir)) {
@@ -231,11 +230,7 @@ export class ConfigWatcher {
     }
 
     const signalHandlers: Record<string, () => void> = {
-      "mcp-reload": () => {
-        reloadMcpServers().catch((err: unknown) => {
-          log.error({ err }, "MCP reload triggered by signal file failed");
-        });
-      },
+      ...(onMcpReload ? { "mcp-reload": onMcpReload } : {}),
       confirm: handleConfirmationSignal,
     };
 
