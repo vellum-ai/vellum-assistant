@@ -138,20 +138,6 @@ public final class SettingsStore: ObservableObject {
     @Published var voiceOutboundSendCount: Int = 0
     @Published var voiceOutboundCode: String?
 
-    // MARK: - Approved Ingress Contacts (Telegram)
-
-    struct ApprovedMember: Identifiable, Equatable {
-        let id: String
-        let displayName: String?
-        let username: String?
-        let externalUserId: String?
-    }
-
-    @Published var telegramApprovedMembers: [ApprovedMember] = []
-    @Published var telegramApprovedMembersLoading: Bool = false
-    @Published var telegramApprovedMembersError: String?
-    @Published var telegramRevokingMemberIds: Set<String> = []
-
     // MARK: - Slack Channel Integration State
 
     @Published var slackChannelHasBotToken: Bool = false
@@ -172,13 +158,6 @@ public final class SettingsStore: ObservableObject {
     @Published var slackVerificationInstruction: String?
     @Published var slackVerificationError: String?
     @Published var slackVerificationAlreadyBound: Bool = false
-
-    // MARK: - Approved Ingress Contacts (Slack)
-
-    @Published var slackApprovedMembers: [ApprovedMember] = []
-    @Published var slackApprovedMembersLoading: Bool = false
-    @Published var slackApprovedMembersError: String?
-    @Published var slackRevokingMemberIds: Set<String> = []
 
     // MARK: - Outbound Verification Session State (Slack)
 
@@ -1496,172 +1475,6 @@ public final class SettingsStore: ObservableObject {
             try daemonClient?.sendChannelVerificationSession(action: "revoke", channel: channel)
         } catch {
             log.error("Failed to revoke \(channel) verification: \(error)")
-        }
-    }
-
-    // MARK: - Approved Ingress Contacts Actions
-
-    func refreshTelegramApprovedMembers() {
-        guard var request = buildDaemonRequest(path: "v1/contacts", method: "GET") else { return }
-        // Append query parameter — buildDaemonRequest already set the base URL
-        if let url = request.url, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
-            var items = components.queryItems ?? []
-            items.append(URLQueryItem(name: "channelType", value: "telegram"))
-            components.queryItems = items
-            request.url = components.url
-        }
-        request.timeoutInterval = 10
-        telegramApprovedMembersLoading = true
-        telegramApprovedMembersError = nil
-        Task {
-            do {
-                let (data, response) = try await URLSession.shared.data(for: request)
-                self.telegramApprovedMembersLoading = false
-                guard let httpResp = response as? HTTPURLResponse else { return }
-                if httpResp.statusCode == 200 {
-                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let contactsList = json["contacts"] as? [[String: Any]] {
-                        let verifiedIdentityId = self.telegramVerificationIdentity
-                        var approvedMembers: [ApprovedMember] = []
-                        for contact in contactsList {
-                            let displayName = contact["displayName"] as? String
-                            guard let channels = contact["channels"] as? [[String: Any]] else { continue }
-                            for channel in channels {
-                                guard let channelType = channel["type"] as? String,
-                                      channelType == "telegram",
-                                      let status = channel["status"] as? String,
-                                      status == "active",
-                                      let channelId = channel["id"] as? String else { continue }
-                                let externalUserId = channel["externalUserId"] as? String
-                                // Skip the verified identity — they're already shown in the Channel Verification row
-                                if let verifiedIdentityId, let externalUserId, externalUserId == verifiedIdentityId {
-                                    continue
-                                }
-                                approvedMembers.append(ApprovedMember(
-                                    id: channelId,
-                                    displayName: displayName,
-                                    username: channel["address"] as? String,
-                                    externalUserId: externalUserId
-                                ))
-                            }
-                        }
-                        self.telegramApprovedMembers = approvedMembers
-                        self.telegramApprovedMembersError = nil
-                    }
-                } else {
-                    self.telegramApprovedMembersError = "Failed to load (HTTP \(httpResp.statusCode))"
-                }
-            } catch {
-                self.telegramApprovedMembersLoading = false
-                self.telegramApprovedMembersError = "Failed to load: \(error.localizedDescription)"
-            }
-        }
-    }
-
-    func revokeTelegramApprovedMember(memberId: String) {
-        guard var request = buildDaemonRequest(path: "v1/contact-channels/\(memberId)", method: "PATCH") else { return }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["status": "revoked"])
-        request.timeoutInterval = 10
-        telegramRevokingMemberIds.insert(memberId)
-        let removed = telegramApprovedMembers.filter { $0.id == memberId }
-        telegramApprovedMembers.removeAll { $0.id == memberId }
-        Task {
-            do {
-                let (_, response) = try await URLSession.shared.data(for: request)
-                self.telegramRevokingMemberIds.remove(memberId)
-                guard let httpResp = response as? HTTPURLResponse else { return }
-                if !(200..<300).contains(httpResp.statusCode) {
-                    // Rollback on failure
-                    self.telegramApprovedMembers.append(contentsOf: removed)
-                    self.telegramApprovedMembersError = "Failed to revoke (HTTP \(httpResp.statusCode))"
-                }
-            } catch {
-                self.telegramRevokingMemberIds.remove(memberId)
-                self.telegramApprovedMembers.append(contentsOf: removed)
-                self.telegramApprovedMembersError = "Failed to revoke: \(error.localizedDescription)"
-            }
-        }
-    }
-
-    func refreshSlackApprovedMembers() {
-        guard var request = buildDaemonRequest(path: "v1/contacts", method: "GET") else { return }
-        if let url = request.url, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
-            var items = components.queryItems ?? []
-            items.append(URLQueryItem(name: "channelType", value: "slack"))
-            components.queryItems = items
-            request.url = components.url
-        }
-        request.timeoutInterval = 10
-        slackApprovedMembersLoading = true
-        slackApprovedMembersError = nil
-        Task {
-            do {
-                let (data, response) = try await URLSession.shared.data(for: request)
-                self.slackApprovedMembersLoading = false
-                guard let httpResp = response as? HTTPURLResponse else { return }
-                if httpResp.statusCode == 200 {
-                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let contactsList = json["contacts"] as? [[String: Any]] {
-                        let verifiedIdentityId = self.slackVerificationIdentity
-                        var approvedMembers: [ApprovedMember] = []
-                        for contact in contactsList {
-                            let displayName = contact["displayName"] as? String
-                            guard let channels = contact["channels"] as? [[String: Any]] else { continue }
-                            for channel in channels {
-                                guard let channelType = channel["type"] as? String,
-                                      channelType == "slack",
-                                      let status = channel["status"] as? String,
-                                      status == "active",
-                                      let channelId = channel["id"] as? String else { continue }
-                                let externalUserId = channel["externalUserId"] as? String
-                                // Skip the verified identity — they're already shown in the Channel Verification row
-                                if let verifiedIdentityId, let externalUserId, externalUserId == verifiedIdentityId {
-                                    continue
-                                }
-                                approvedMembers.append(ApprovedMember(
-                                    id: channelId,
-                                    displayName: displayName,
-                                    username: channel["address"] as? String,
-                                    externalUserId: externalUserId
-                                ))
-                            }
-                        }
-                        self.slackApprovedMembers = approvedMembers
-                        self.slackApprovedMembersError = nil
-                    }
-                } else {
-                    self.slackApprovedMembersError = "Failed to load (HTTP \(httpResp.statusCode))"
-                }
-            } catch {
-                self.slackApprovedMembersLoading = false
-                self.slackApprovedMembersError = "Failed to load: \(error.localizedDescription)"
-            }
-        }
-    }
-
-    func revokeSlackApprovedMember(memberId: String) {
-        guard var request = buildDaemonRequest(path: "v1/contact-channels/\(memberId)", method: "PATCH") else { return }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["status": "revoked"])
-        request.timeoutInterval = 10
-        slackRevokingMemberIds.insert(memberId)
-        let removed = slackApprovedMembers.filter { $0.id == memberId }
-        slackApprovedMembers.removeAll { $0.id == memberId }
-        Task {
-            do {
-                let (_, response) = try await URLSession.shared.data(for: request)
-                self.slackRevokingMemberIds.remove(memberId)
-                guard let httpResp = response as? HTTPURLResponse else { return }
-                if !(200..<300).contains(httpResp.statusCode) {
-                    self.slackApprovedMembers.append(contentsOf: removed)
-                    self.slackApprovedMembersError = "Failed to revoke (HTTP \(httpResp.statusCode))"
-                }
-            } catch {
-                self.slackRevokingMemberIds.remove(memberId)
-                self.slackApprovedMembers.append(contentsOf: removed)
-                self.slackApprovedMembersError = "Failed to revoke: \(error.localizedDescription)"
-            }
         }
     }
 
