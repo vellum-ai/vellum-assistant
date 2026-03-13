@@ -358,7 +358,7 @@ describe("redeemVoiceInviteCode", () => {
     expect(result).toEqual({ ok: false, reason: "invalid_or_expired" });
   });
 
-  test("returns invalid_or_expired for a revoked guardian to prevent invite-based reactivation", () => {
+  test("downgrades a revoked guardian to contact when they redeem a voice invite", () => {
     const phone = "+15559998888";
     const { code } = createVoiceInvite({ callerPhone: phone });
 
@@ -382,7 +382,16 @@ describe("redeemVoiceInviteCode", () => {
       code,
     });
 
-    // Must reject — guardian channels are managed via the binding flow, not invites
-    expect(result).toEqual({ ok: false, reason: "invalid_or_expired" });
+    // Should succeed — guardian is downgraded to a regular contact
+    expect(result.ok).toBe(true);
+    expect((result as { type: string }).type).toBe("redeemed");
+
+    // Verify the contact was downgraded from guardian to contact
+    const contactResult = findContactChannel({
+      channelType: "phone",
+      externalUserId: phone,
+    });
+    expect(contactResult?.contact.role).toBe("contact");
+    expect(contactResult?.channel.status).toBe("active");
   });
 });
