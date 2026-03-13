@@ -62,6 +62,14 @@ class AvatarLayerView: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .pointingHand)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        performPoke()
+    }
+
     deinit {
         blinkTask?.cancel()
         for observer in notificationObservers {
@@ -229,6 +237,42 @@ class AvatarLayerView: NSView {
         bodyLayer.beginTime = 0
         let timeSincePause = bodyLayer.convertTime(CACurrentMediaTime(), from: nil) - pausedTime
         bodyLayer.beginTime = timeSincePause
+    }
+
+    private func performPoke() {
+        guard let rootLayer = layer else { return }
+
+        // Remove any in-progress poke animation (enables interruptible rapid clicks)
+        rootLayer.removeAnimation(forKey: "poke")
+
+        let animation = CAKeyframeAnimation(keyPath: "transform")
+
+        // Squash-and-spring keyframes:
+        // 1. Impact: quick squash (compress vertically, expand horizontally for volume preservation)
+        // 2. Rebound: spring back with overshoot
+        // 3. Settle: damped oscillation back to rest
+        let identity = CATransform3DIdentity
+        let squash = CATransform3DMakeScale(1.08, 0.88, 1.0)     // Hit: wide + short
+        let stretch = CATransform3DMakeScale(0.97, 1.04, 1.0)     // Overshoot: narrow + tall
+        let settle = CATransform3DMakeScale(1.01, 0.99, 1.0)      // Slight undershoot
+
+        animation.values = [
+            NSValue(caTransform3D: identity),   // Start: normal
+            NSValue(caTransform3D: squash),      // Impact: squashed
+            NSValue(caTransform3D: stretch),     // Rebound: overshoot
+            NSValue(caTransform3D: settle),      // Settle: slight undershoot
+            NSValue(caTransform3D: identity),    // Rest: back to normal
+        ]
+        animation.keyTimes = [0, 0.15, 0.45, 0.72, 1.0]
+        animation.duration = 0.45
+        animation.timingFunctions = [
+            CAMediaTimingFunction(name: .easeIn),       // Quick squash
+            CAMediaTimingFunction(name: .easeOut),      // Springy rebound
+            CAMediaTimingFunction(name: .easeInEaseOut), // Gentle settle
+            CAMediaTimingFunction(name: .easeOut),      // Final ease to rest
+        ]
+        animation.isRemovedOnCompletion = true
+        rootLayer.add(animation, forKey: "poke")
     }
 
     private func performBlink() {
