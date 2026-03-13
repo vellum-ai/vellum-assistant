@@ -728,7 +728,7 @@ describe("assistant oauth connections connect <provider-key>", () => {
     });
   });
 
-  test("returns auth URL in url-only mode (JSON)", async () => {
+  test("returns auth URL in default (non-interactive) mode (JSON)", async () => {
     mockOrchestrateOAuthConnect = async () => ({
       success: true,
       deferred: true,
@@ -743,7 +743,6 @@ describe("assistant oauth connections connect <provider-key>", () => {
       "integration:gmail",
       "--client-id",
       "test-id",
-      "--url-only",
       "--json",
     ]);
     expect(exitCode).toBe(0);
