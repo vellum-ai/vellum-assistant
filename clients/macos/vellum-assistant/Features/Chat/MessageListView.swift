@@ -314,19 +314,16 @@ struct MessageListView: View {
             if let body = appearance.characterBodyShape,
                let eyes = appearance.characterEyeStyle,
                let color = appearance.characterColor {
-                HStack {
-                    AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color,
-                                       size: ConversationAvatarFollower.avatarSize,
-                                       breathingEnabled: false)
-                        .frame(width: ConversationAvatarFollower.avatarSize,
-                               height: ConversationAvatarFollower.avatarSize)
-                    Spacer()
-                }
-                .padding(.horizontal, VSpacing.xl)
-                .frame(maxWidth: VSpacing.chatColumnMaxWidth)
-                .frame(maxWidth: .infinity)
-                .offset(y: avatarDisplayY)
-                .accessibilityHidden(true)
+                AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color,
+                                   size: ConversationAvatarFollower.avatarSize,
+                                   breathingEnabled: false)
+                    .frame(width: ConversationAvatarFollower.avatarSize,
+                           height: ConversationAvatarFollower.avatarSize)
+                    .frame(maxWidth: VSpacing.chatColumnMaxWidth, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, VSpacing.xl)
+                    .offset(y: avatarDisplayY)
+                    .accessibilityHidden(true)
             } else {
                 HStack {
                     VAvatarImage(image: appearance.chatAvatarImage, size: ConversationAvatarFollower.avatarSize)
