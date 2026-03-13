@@ -16,11 +16,7 @@ import {
 } from "../oauth/oauth-store.js";
 import { getLogger } from "../util/logger.js";
 import { refreshOAuth2Token, type TokenEndpointAuthMethod } from "./oauth2.js";
-import {
-  getSecureKey,
-  getSecureKeyAsync,
-  setSecureKeyAsync,
-} from "./secure-keys.js";
+import { getSecureKeyAsync, setSecureKeyAsync } from "./secure-keys.js";
 
 const log = getLogger("token-manager");
 
@@ -378,7 +374,7 @@ export async function withValidToken<T>(
 ): Promise<T> {
   const conn = getConnectionByProvider(service, clientId);
   let token = conn
-    ? getSecureKey(`oauth_connection/${conn.id}/access_token`)
+    ? await getSecureKeyAsync(`oauth_connection/${conn.id}/access_token`)
     : undefined;
   if (!token || !conn) {
     throw new TokenExpiredError(
