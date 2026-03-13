@@ -2,21 +2,25 @@ import SwiftUI
 import UniformTypeIdentifiers
 import VellumAssistantShared
 
-/// Modal overlay for managing the avatar: choose from presets, generate random, upload, or delete.
+/// Modal overlay for managing the avatar: build a character, upload, or delete.
 struct AvatarManagementSheet: View {
     let onClose: () -> Void
 
     @State private var appearance = AvatarAppearanceManager.shared
-    @State private var showingPresets = false
+    @State private var showingCharacterBuilder = false
+    @State private var draftImage: NSImage?
+    @State private var selectedPresetID: String?
 
     var body: some View {
         VStack(spacing: 0) {
             // Header with close/back button
             HStack {
-                if showingPresets {
+                if showingCharacterBuilder {
                     Button {
                         withAnimation(VAnimation.fast) {
-                            showingPresets = false
+                            draftImage = nil
+                            selectedPresetID = nil
+                            showingCharacterBuilder = false
                         }
                     } label: {
                         HStack(spacing: VSpacing.xs) {
@@ -49,8 +53,8 @@ struct AvatarManagementSheet: View {
             .padding(.top, VSpacing.xl)
             .padding(.bottom, VSpacing.lg)
 
-            if showingPresets {
-                presetGrid
+            if showingCharacterBuilder {
+                characterBuilder
             } else {
                 actionList
             }
@@ -75,29 +79,15 @@ struct AvatarManagementSheet: View {
             // Action rows
             VStack(spacing: 0) {
                 actionRow(
-                    icon: "square.grid.2x2",
-                    label: "Choose from Presets",
-                    subtitle: "Pick one of the preset characters"
+                    icon: "paintbrush",
+                    label: "Build a Character",
+                    subtitle: "Choose or randomize a preset character"
                 ) {
                     withAnimation(VAnimation.fast) {
-                        showingPresets = true
+                        draftImage = nil
+                        selectedPresetID = nil
+                        showingCharacterBuilder = true
                     }
-                }
-
-                Divider().background(VColor.borderBase)
-                    .padding(.horizontal, VSpacing.xl)
-
-                actionRow(
-                    icon: "dice",
-                    label: "Generate Random",
-                    subtitle: "Random body, eyes, and color combo"
-                ) {
-                    let body = AvatarBodyShape.allCases.randomElement()!
-                    let eyes = AvatarEyeStyle.allCases.randomElement()!
-                    let color = AvatarColor.allCases.randomElement()! // color-literal-ok
-                    let image = AvatarCompositor.render(bodyShape: body, eyeStyle: eyes, color: color)
-                    appearance.setCustomAvatar(image)
-                    onClose()
                 }
 
                 Divider().background(VColor.borderBase)
@@ -130,42 +120,81 @@ struct AvatarManagementSheet: View {
         }
     }
 
-    // MARK: - Preset Grid
+    // MARK: - Character Builder
 
-    private var presetGrid: some View {
-        LazyVGrid(
-            columns: Array(repeating: GridItem(.flexible(), spacing: VSpacing.sm), count: 5),
-            spacing: VSpacing.sm
-        ) {
-            ForEach(PresetAvatar.all) { preset in
-                if let image = preset.image {
-                    Button {
-                        appearance.setCustomAvatar(image)
-                        onClose()
-                    } label: {
-                        Image(nsImage: image)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(maxWidth: .infinity)
-                            .padding(VSpacing.md)
-                            .background(
-                                RoundedRectangle(cornerRadius: VRadius.lg)
-                                    .fill(VColor.surfaceBase)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: VRadius.lg)
-                                    .stroke(VColor.borderBase, lineWidth: 1)
-                            )
-                            .contentShape(Rectangle())
+    private var characterBuilder: some View {
+        VStack(spacing: 0) {
+            // Draft avatar preview
+            Image(nsImage: draftImage ?? appearance.fullAvatarImage)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: 120, height: 120)
+                .clipShape(Circle())
+                .padding(.bottom, VSpacing.lg)
+
+            // Generate Random button
+            VButton(label: "Generate Random", icon: "dice", style: .outlined) {
+                let body = AvatarBodyShape.allCases.randomElement()!
+                let eyes = AvatarEyeStyle.allCases.randomElement()!
+                let color = AvatarColor.allCases.randomElement()! // color-literal-ok
+                draftImage = AvatarCompositor.render(bodyShape: body, eyeStyle: eyes, color: color)
+                selectedPresetID = nil
+            }
+            .padding(.bottom, VSpacing.lg)
+
+            // Preset grid
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(), spacing: VSpacing.sm), count: 5),
+                spacing: VSpacing.sm
+            ) {
+                ForEach(PresetAvatar.all) { preset in
+                    if let image = preset.image {
+                        Button {
+                            draftImage = image
+                            selectedPresetID = preset.id
+                        } label: {
+                            Image(nsImage: image)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(maxWidth: .infinity)
+                                .padding(VSpacing.md)
+                                .background(
+                                    RoundedRectangle(cornerRadius: VRadius.lg)
+                                        .fill(VColor.surfaceBase)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: VRadius.lg)
+                                        .stroke(
+                                            selectedPresetID == preset.id ? VColor.primaryBase : VColor.borderBase,
+                                            lineWidth: selectedPresetID == preset.id ? 2 : 1
+                                        )
+                                )
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .pointerCursor()
+                        .accessibilityLabel(preset.name)
                     }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                    .accessibilityLabel(preset.name)
                 }
             }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.bottom, VSpacing.lg)
+
+            // Confirm and Discard buttons
+            HStack(spacing: VSpacing.md) {
+                VButton(label: "Discard", style: .outlined) {
+                    onClose()
+                }
+                VButton(label: "Confirm", style: .primary, isDisabled: draftImage == nil) {
+                    if let draftImage {
+                        appearance.setCustomAvatar(draftImage)
+                    }
+                    onClose()
+                }
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.lg)
         }
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.bottom, VSpacing.xl)
     }
 
     // MARK: - Action Row
