@@ -536,6 +536,7 @@ struct ContactDetailView: View {
                 VButton(label: "Send", style: .outlined) {
                     inviteCodeRevealed = true
                 }
+                .disabled(inviteHandleInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 VButton(label: "Cancel", style: .outlined) {
                     inviteExpanded.remove(type)
                     if inviteResult?.type == type {
