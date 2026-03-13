@@ -7,7 +7,6 @@ import { saveAssistantEntry, setActiveAssistant } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
 import { DEFAULT_GATEWAY_PORT } from "./constants";
 import type { Species } from "./constants";
-import { discoverPublicUrl } from "./local";
 import { generateRandomSuffix } from "./random-name";
 import { exec, execOutput } from "./step-runner";
 import {
@@ -326,8 +325,10 @@ export async function hatchDocker(
     );
   }
 
-  const publicUrl = await discoverPublicUrl(gatewayPort);
-  const runtimeUrl = publicUrl || `http://localhost:${gatewayPort}`;
+  // Docker containers bind to 0.0.0.0 so localhost always works. Skip
+  // mDNS/LAN discovery — the .local hostname often fails to resolve on the
+  // host machine itself (mDNS is designed for cross-device discovery).
+  const runtimeUrl = `http://localhost:${gatewayPort}`;
   const dockerEntry: AssistantEntry = {
     assistantId: instanceName,
     runtimeUrl,
