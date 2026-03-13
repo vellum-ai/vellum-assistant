@@ -42,6 +42,11 @@ struct ImproveExperienceStepView: View {
                     UserDefaults.standard.set(true, forKey: "sendPerformanceReports")
                 }
 
+                // Pre-check ToS if the user has previously accepted
+                if OnboardingState.hasAcceptedToS {
+                    state.tosAccepted = true
+                }
+
                 // Reset stale cloud provider when the user didn't go through CloudCredentials
                 if !state.needsCloudCredentials && state.cloudProvider != "local" && state.cloudProvider != "docker" {
                     state.cloudProvider = "local"
@@ -238,6 +243,9 @@ struct ImproveExperienceStepView: View {
                 UserDefaults.standard.set(state.userEmail, forKey: "user.email")
                 UserDefaults.standard.set(collectUsageData, forKey: "collectUsageDataEnabled")
                 UserDefaults.standard.set(sharePerformanceMetrics, forKey: "sendPerformanceReports")
+                if state.tosAccepted {
+                    UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "tos.acceptedAt")
+                }
                 state.isHatching = true
             }
 
