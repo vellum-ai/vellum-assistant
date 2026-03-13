@@ -95,7 +95,14 @@ struct SettingsAppearanceTab: View {
                         if focused && timezoneSearchText.isEmpty {
                             // Show all when focused with empty search
                             isTimezoneDropdownOpen = true
+                        } else if !focused {
+                            isTimezoneDropdownOpen = false
                         }
+                    }
+                    .onExitCommand {
+                        isTimezoneDropdownOpen = false
+                        isTimezoneSearchFocused = false
+                        timezoneSearchText = ""
                     }
 
                     if isTimezoneDropdownOpen {
