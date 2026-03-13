@@ -109,14 +109,13 @@ struct ContactCreateView: View {
 
     private var actionButtons: some View {
         HStack(spacing: VSpacing.md) {
-            VButton(label: "Cancel", style: .tertiary, size: .medium) {
+            VButton(label: "Cancel", style: .outlined) {
                 isPresented = false
             }
             Spacer()
             VButton(
                 label: isSubmitting ? "Creating..." : "Create",
                 style: .primary,
-                size: .medium,
                 isDisabled: !canSubmit
             ) {
                 submit()

@@ -137,7 +137,7 @@ struct SurfaceContainerView: View {
     private func buttonStyle(for style: SurfaceActionStyle) -> VButton.Style {
         switch style {
         case .primary: return .primary
-        case .secondary: return .tertiary
+        case .secondary: return .outlined
         case .destructive: return .danger
         }
     }

@@ -63,7 +63,7 @@ struct SettingsGeneralTab: View {
                         .foregroundColor(VColor.systemNegativeHover)
                 }
             } else {
-                VButton(label: "Pair Device", leftIcon: VIcon.qrCode.rawValue, style: .primary, size: .medium) {
+                VButton(label: "Pair Device", leftIcon: VIcon.qrCode.rawValue, style: .primary) {
                     showingPairingQR = true
                 }
             }
@@ -83,14 +83,13 @@ struct SettingsGeneralTab: View {
                         .foregroundColor(VColor.contentSecondary)
                 }
             } else if authManager.currentUser != nil {
-                VButton(label: "Log Out", style: .danger, size: .medium) {
+                VButton(label: "Log Out", style: .danger) {
                     Task { await authManager.logout() }
                 }
             } else {
                 VButton(
                     label: authManager.isSubmitting ? "Signing in..." : "Sign In",
                     style: .primary,
-                    size: .medium,
                     isDisabled: authManager.isSubmitting
                 ) {
                     Task { await authManager.startWorkOSLogin() }

@@ -323,7 +323,7 @@ struct ContactsListView: View {
                 .foregroundColor(VColor.contentTertiary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 300)
-            VButton(label: "Add Contact", leftIcon: VIcon.plus.rawValue, style: .primary, size: .medium) {
+            VButton(label: "Add Contact", leftIcon: VIcon.plus.rawValue, style: .primary) {
                 viewModel.isCreatingContact = true
             }
         }

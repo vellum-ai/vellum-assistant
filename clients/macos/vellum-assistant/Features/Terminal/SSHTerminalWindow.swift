@@ -118,19 +118,19 @@ private struct SSHTerminalContentView: View {
             Spacer()
 
             if case .error = sessionManager.status {
-                VButton(label: "Reconnect", style: .secondary, size: .small) {
+                VButton(label: "Reconnect", style: .outlined) {
                     sessionManager.reconnect()
                 }
             }
 
             if case .connected = sessionManager.status {
-                VButton(label: "Disconnect", style: .secondary, size: .small) {
+                VButton(label: "Disconnect", style: .outlined) {
                     sessionManager.close()
                 }
             }
 
             if case .closed = sessionManager.status {
-                VButton(label: "Connect", style: .primary, size: .small) {
+                VButton(label: "Connect", style: .primary) {
                     sessionManager.connect()
                 }
             }

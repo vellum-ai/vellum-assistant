@@ -214,7 +214,7 @@ struct SettingsDeveloperTab: View {
                     .foregroundColor(VColor.contentDefault)
                     .focused($isPlatformUrlFocused)
 
-                VButton(label: "Save", style: .primary, size: .medium, isDisabled: platformUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                VButton(label: "Save", style: .primary, isDisabled: platformUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                     store.savePlatformBaseUrl(platformUrlText)
                     isPlatformUrlFocused = false
                 }
@@ -531,7 +531,7 @@ struct SettingsDeveloperTab: View {
             title: "Restart Assistant",
             subtitle: "The assistant will be briefly unavailable during restart."
         ) {
-            VButton(label: "Restart", style: .secondary, size: .medium) {
+            VButton(label: "Restart", style: .outlined) {
                 showingRestartConfirmation = true
             }
         }
@@ -583,7 +583,7 @@ struct SettingsDeveloperTab: View {
             title: "SSH Terminal",
             subtitle: "Open a terminal session to the assistant's host machine."
         ) {
-            VButton(label: "Open Terminal", style: .secondary, size: .medium) {
+            VButton(label: "Open Terminal", style: .outlined) {
                 openTerminalWindow()
             }
         }
@@ -616,7 +616,7 @@ struct SettingsDeveloperTab: View {
                 ? "Stops the current assistant and switches to another."
                 : "Stops the daemon, removes local data, and returns to initial setup."
         ) {
-            VButton(label: "Retire", style: .danger, size: .medium) {
+            VButton(label: "Retire", style: .danger) {
                 showingRetireConfirmation = true
             }
         }
@@ -652,7 +652,7 @@ struct SettingsDeveloperTab: View {
     private var hatchNewAssistantSection: some View {
         if isHatchFlagEnabled {
             SettingsCard(title: "Hatch New Assistant", subtitle: "Starts the initial setup flow to create a new assistant.") {
-                VButton(label: "Hatch...", style: .primary, size: .medium) {
+                VButton(label: "Hatch...", style: .primary) {
                     showingHatchConfirmation = true
                 }
                 .alert("Hatch New Assistant", isPresented: $showingHatchConfirmation) {
@@ -828,7 +828,7 @@ struct SettingsDeveloperTab: View {
     private var environmentVariablesSection: some View {
         if daemonClient != nil {
             SettingsCard(title: "Environment Variables", subtitle: "View env vars for both the app and daemon processes") {
-                VButton(label: "View", style: .secondary, size: .medium) {
+                VButton(label: "View", style: .outlined) {
                         appEnvVars = ProcessInfo.processInfo.environment
                             .sorted(by: { $0.key < $1.key })
                             .map { ($0.key, $0.value) }
@@ -874,7 +874,7 @@ struct SettingsDeveloperTab: View {
 
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    VButton(label: "Trigger Fatal Crash", style: .danger, size: .medium) {
+                    VButton(label: "Trigger Fatal Crash", style: .danger) {
                         fatalError("Sentry test crash")
                     }
                     Text("Calls fatalError() — will terminate the app immediately.")
@@ -885,7 +885,7 @@ struct SettingsDeveloperTab: View {
                 SettingsDivider()
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    VButton(label: "Send Test Error", style: .secondary, size: .medium) {
+                    VButton(label: "Send Test Error", style: .outlined) {
                         sendSentryTestEvent(level: .error, label: "error")
                     }
                     Text("Captures a Sentry event with level .error")
@@ -896,7 +896,7 @@ struct SettingsDeveloperTab: View {
                 SettingsDivider()
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    VButton(label: "Send Test Warning", style: .secondary, size: .medium) {
+                    VButton(label: "Send Test Warning", style: .outlined) {
                         sendSentryTestEvent(level: .warning, label: "warning")
                     }
                     Text("Captures a Sentry event with level .warning")
@@ -907,7 +907,7 @@ struct SettingsDeveloperTab: View {
                 SettingsDivider()
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    VButton(label: "Send Test Message", style: .secondary, size: .medium) {
+                    VButton(label: "Send Test Message", style: .outlined) {
                         sendSentryTestEvent(level: .info, label: "info message")
                     }
                     Text("Captures a Sentry event with level .info")
@@ -918,7 +918,7 @@ struct SettingsDeveloperTab: View {
                 SettingsDivider()
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    VButton(label: "Test Performance Transaction", style: .secondary, size: .medium) {
+                    VButton(label: "Test Performance Transaction", style: .outlined) {
                         guard isSentryEnabled else {
                             showSentryStatus("Sentry is disabled — transaction not sent.")
                             return

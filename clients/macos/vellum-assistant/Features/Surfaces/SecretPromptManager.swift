@@ -222,7 +222,7 @@ struct SecretPromptView: View {
                     // Buttons
                     HStack(spacing: VSpacing.lg) {
                         Spacer()
-                        VButton(label: "Cancel", style: .tertiary, accessibilityID: "secure-credential-cancel") {
+                        VButton(label: "Cancel", style: .outlined, accessibilityID: "secure-credential-cancel") {
                             onCancel()
                         }
                         .accessibilityLabel("Cancel")
@@ -241,7 +241,7 @@ struct SecretPromptView: View {
                         HStack(spacing: VSpacing.xs) {
                             VIconView(.triangleAlert, size: 10)
                                 .foregroundColor(VColor.systemNegativeHover)
-                            VButton(label: "Send Once (not saved)", style: .tertiary) {
+                            VButton(label: "Send Once (not saved)", style: .outlined) {
                                 let trimmed = secretValue.trimmingCharacters(in: .whitespacesAndNewlines)
                                 guard !trimmed.isEmpty else { return }
                                 _ = onSendOnce(trimmed)

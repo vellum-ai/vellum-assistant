@@ -275,8 +275,8 @@ struct VoiceSettingsView: View {
         SettingsCard(title: "Text-to-Speech", subtitle: "ElevenLabs provides high-quality voice responses during voice conversations. An API key is required.") {
             if store.hasElevenLabsKey {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
-                    VButton(label: "Disconnect", style: .danger, size: .medium) {
+                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
+                    VButton(label: "Disconnect", style: .danger) {
                         store.clearElevenLabsKey()
                         elevenLabsKeyText = ""
                         ttsSetupExpanded = false
@@ -302,19 +302,19 @@ struct VoiceSettingsView: View {
                     }
 
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connect", style: .secondary, size: .medium, isDisabled: elevenLabsKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                        VButton(label: "Connect", style: .outlined, isDisabled: elevenLabsKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                             store.saveElevenLabsKey(elevenLabsKeyText)
                             elevenLabsKeyText = ""
                             ttsSetupExpanded = false
                         }
-                        VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                        VButton(label: "Cancel", style: .outlined) {
                             ttsSetupExpanded = false
                             elevenLabsKeyText = ""
                         }
                     }
                 }
             } else {
-                VButton(label: "Set Up", style: .secondary, size: .medium) {
+                VButton(label: "Set Up", style: .outlined) {
                     ttsSetupExpanded = true
                 }
             }

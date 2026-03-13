@@ -23,14 +23,14 @@ struct ButtonsGallerySection: View {
                         VSegmentedControl(
                             items: [
                                 (label: "Primary", tag: VButton.Style.primary),
-                                (label: "Tertiary", tag: VButton.Style.tertiary),
-                                (label: "Secondary", tag: VButton.Style.secondary),
+                                (label: "Outlined", tag: VButton.Style.outlined),
                                 (label: "Danger", tag: VButton.Style.danger),
+                                (label: "Danger Outline", tag: VButton.Style.dangerOutline),
                             ],
                             selection: $selectedStyle,
                             style: .pill
                         )
-                        .frame(maxWidth: 300)
+                        .frame(maxWidth: 500)
 
                         Toggle("Full Width", isOn: $isFullWidth)
                         Toggle("Disabled", isOn: $isDisabled)
@@ -39,12 +39,29 @@ struct ButtonsGallerySection: View {
                     Divider().background(VColor.borderBase)
 
                     // Live preview
-                    VButton(
-                        label: "Click Me",
-                        style: selectedStyle,
-                        isFullWidth: isFullWidth,
-                        isDisabled: isDisabled
-                    ) {}
+                    HStack(spacing: VSpacing.lg) {
+                        VButton(
+                            label: "With Icons",
+                            leftIcon: VIcon.zap.rawValue,
+                            rightIcon: VIcon.arrowUpRight.rawValue,
+                            style: selectedStyle,
+                            isFullWidth: isFullWidth,
+                            isDisabled: isDisabled
+                        ) {}
+                        VButton(
+                            label: "Left Icon",
+                            leftIcon: VIcon.zap.rawValue,
+                            style: selectedStyle,
+                            isFullWidth: isFullWidth,
+                            isDisabled: isDisabled
+                        ) {}
+                        VButton(
+                            label: "Text Only",
+                            style: selectedStyle,
+                            isFullWidth: isFullWidth,
+                            isDisabled: isDisabled
+                        ) {}
+                    }
                 }
             }
 
@@ -55,33 +72,11 @@ struct ButtonsGallerySection: View {
 
             VCard {
                 HStack(spacing: VSpacing.xl) {
-                    ForEach([VButton.Style.primary, .tertiary, .secondary, .danger], id: \.self) { style in
+                    ForEach([VButton.Style.primary, .outlined, .danger, .dangerOutline], id: \.self) { style in
                         VStack(spacing: VSpacing.md) {
                             VButton(label: styleName(style), style: style) {}
                             VButton(label: "Disabled", style: style, isDisabled: true) {}
                             VButton(label: "Full Width", style: style, isFullWidth: true) {}
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                }
-            }
-
-            // All Sizes
-            Text("All Sizes")
-                .font(VFont.headline)
-                .foregroundColor(VColor.contentSecondary)
-
-            VCard {
-                HStack(spacing: VSpacing.xl) {
-                    ForEach([VButton.Size.small, .medium, .large], id: \.self) { size in
-                        VStack(spacing: VSpacing.md) {
-                            Text(sizeName(size))
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.contentTertiary)
-                            VButton(label: sizeName(size), style: .primary, size: size) {}
-                            VButton(label: sizeName(size), style: .secondary, size: size) {}
-                            VButton(label: sizeName(size), style: .tertiary, size: size) {}
-                            VButton(label: sizeName(size), style: .danger, size: size) {}
                         }
                         .frame(maxWidth: .infinity)
                     }
@@ -227,20 +222,9 @@ struct ButtonsGallerySection: View {
     private func styleName(_ style: VButton.Style) -> String {
         switch style {
         case .primary: return "Primary"
-        case .tertiary: return "Tertiary"
-        case .secondary: return "Secondary"
         case .danger: return "Danger"
-        case .ghost: return "Ghost"
         case .outlined: return "Outlined"
-        case .success: return "Success"
-        }
-    }
-
-    private func sizeName(_ size: VButton.Size) -> String {
-        switch size {
-        case .small: return "Small"
-        case .medium: return "Medium"
-        case .large: return "Large"
+        case .dangerOutline: return "Danger Outline"
         }
     }
 }

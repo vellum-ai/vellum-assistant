@@ -786,11 +786,11 @@ struct DynamicWorkspaceWrapper: View {
             HStack {
                 // Left: Close Chat primary CTA in edit mode, Edit primary button otherwise
                 if case .appEditing = windowState.selection {
-                    VButton(label: "Close chat", icon: VIcon.x.rawValue, style: .primary, size: .medium) {
+                    VButton(label: "Close chat", icon: VIcon.x.rawValue, style: .primary) {
                         onToggleChatDock()
                     }
                 } else {
-                    VButton(label: "Edit", icon: VIcon.pencil.rawValue, style: .primary, size: .medium) {
+                    VButton(label: "Edit", icon: VIcon.pencil.rawValue, style: .primary) {
                         if !isChatDockOpen {
                             windowState.workspaceComposerExpanded = false
                         }
@@ -1125,13 +1125,13 @@ private struct AppLoadingView: View {
                     .frame(maxWidth: 280)
                 HStack(spacing: VSpacing.sm) {
                     if let appId {
-                        VButton(label: "Retry", icon: "arrow.clockwise", style: .secondary) {
+                        VButton(label: "Retry", icon: "arrow.clockwise", style: .outlined) {
                             timedOut = false
                             onRetry(appId)
                         }
                         .controlSize(.small)
                     }
-                    VButton(label: "Close", style: .tertiary) {
+                    VButton(label: "Close", style: .outlined) {
                         onClose()
                     }
                     .controlSize(.small)

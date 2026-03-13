@@ -145,7 +145,7 @@ struct ContactDetailView: View {
 
                 if isEditing {
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Save", style: .primary, size: .medium, isDisabled: isSaving) {
+                        VButton(label: "Save", style: .primary, isDisabled: isSaving) {
                             Task { await saveCardEdits() }
                         }
                         Button {
@@ -488,8 +488,7 @@ struct ContactDetailView: View {
                 } else {
                     VButton(
                         label: "Invite",
-                        style: .secondary,
-                        size: .medium,
+                        style: .outlined,
                         isDisabled: inviteInProgress != nil
                     ) {
                         createInviteForChannel(type: type)
@@ -559,8 +558,7 @@ struct ContactDetailView: View {
                         VButton(
                             label: inviteCopiedType == "\(type)-link" ? "Copied!" : "Copy Link",
                             icon: VIcon.copy.rawValue,
-                            style: .secondary,
-                            size: .medium
+                            style: .outlined
                         ) {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(shareUrl, forType: .string)
@@ -585,8 +583,7 @@ struct ContactDetailView: View {
                         VButton(
                             label: inviteCopiedType == "\(type)-handle" ? "Copied!" : "Copy Address",
                             icon: VIcon.copy.rawValue,
-                            style: .secondary,
-                            size: .medium
+                            style: .outlined
                         ) {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(channelHandle, forType: .string)
@@ -612,8 +609,7 @@ struct ContactDetailView: View {
                 VButton(
                     label: inviteCopiedType == type ? "Copied!" : "Copy Code",
                     icon: VIcon.copy.rawValue,
-                    style: (result.shareUrl != nil || result.channelHandle != nil) ? .tertiary : .secondary,
-                    size: .medium
+                    style: .outlined
                 ) {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(inviteCode, forType: .string)
@@ -641,8 +637,7 @@ struct ContactDetailView: View {
                 VButton(
                     label: inviteCopiedType == type ? "Copied!" : "Copy",
                     icon: VIcon.copy.rawValue,
-                    style: .tertiary,
-                    size: .medium
+                    style: .outlined
                 ) {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(shareableText, forType: .string)
@@ -672,8 +667,7 @@ struct ContactDetailView: View {
                 case "revoked":
                     VButton(
                         label: "Restore Access",
-                        style: .secondary,
-                        size: .medium,
+                        style: .outlined,
                         isDisabled: anyActionInFlight
                     ) {
                         updateChannelStatus(channelId: channel.id, status: "active")
@@ -681,8 +675,7 @@ struct ContactDetailView: View {
                 case "blocked":
                     VButton(
                         label: "Restore Access",
-                        style: .secondary,
-                        size: .medium,
+                        style: .outlined,
                         isDisabled: anyActionInFlight
                     ) {
                         updateChannelStatus(channelId: channel.id, status: "active")
@@ -691,7 +684,6 @@ struct ContactDetailView: View {
                     VButton(
                         label: "Send Verification",
                         style: .primary,
-                        size: .medium,
                         isDisabled: anyActionInFlight
                     ) {
                         initiateVerification(for: channel)
@@ -699,7 +691,6 @@ struct ContactDetailView: View {
                     VButton(
                         label: "Revoke Access",
                         style: .danger,
-                        size: .medium,
                         isDisabled: anyActionInFlight
                     ) {
                         updateChannelStatus(channelId: channel.id, status: "revoked")
@@ -708,7 +699,6 @@ struct ContactDetailView: View {
                     VButton(
                         label: "Revoke Access",
                         style: .danger,
-                        size: .medium,
                         isDisabled: anyActionInFlight
                     ) {
                         updateChannelStatus(channelId: channel.id, status: "revoked")
@@ -716,7 +706,6 @@ struct ContactDetailView: View {
                     VButton(
                         label: "Block",
                         style: .danger,
-                        size: .medium,
                         isDisabled: anyActionInFlight
                     ) {
                         updateChannelStatus(channelId: channel.id, status: "blocked")

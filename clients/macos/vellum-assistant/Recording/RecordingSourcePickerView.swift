@@ -325,11 +325,11 @@ struct RecordingSourcePickerView: View {
 
             // Buttons
             HStack(spacing: VSpacing.md) {
-                VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                VButton(label: "Cancel", style: .outlined) {
                     onCancel()
                 }
                 Spacer()
-                VButton(label: "Start Recording", style: .primary, size: .medium, isDisabled: !viewModel.canStart) {
+                VButton(label: "Start Recording", style: .primary, isDisabled: !viewModel.canStart) {
                     onStart(viewModel.selectedRecordingOptions)
                 }
             }

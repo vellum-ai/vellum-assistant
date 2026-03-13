@@ -20,11 +20,11 @@ struct SkillDeleteConfirmView: View {
             }
 
             HStack(spacing: VSpacing.md) {
-                VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                VButton(label: "Cancel", style: .outlined) {
                     onCancel()
                 }
 
-                VButton(label: "Delete", style: .danger, size: .medium) {
+                VButton(label: "Delete", style: .danger) {
                     onDelete()
                 }
             }

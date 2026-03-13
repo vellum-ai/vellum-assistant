@@ -649,7 +649,6 @@ struct AgentPanelContent: View {
                 label: isSuccess ? "Installed!" : (isInstalling ? "Installing..." : "Install"),
                 icon: isSuccess ? "checkmark.circle.fill" : (isInstalling ? nil : "arrow.down.circle.fill"),
                 style: .primary,
-                size: .small,
                 isFullWidth: false,
                 isDisabled: isInstalling || isSuccess
             ) {
@@ -876,8 +875,7 @@ struct AgentPanelContent: View {
                 VButton(
                     label: "Details",
                     rightIcon: isExpanded ? "chevron.up" : "chevron.down",
-                    style: .ghost,
-                    size: .small
+                    style: .outlined
                 ) {
                     withAnimation(VAnimation.fast) {
                         if isExpanded {
@@ -967,7 +965,7 @@ struct AgentPanelContent: View {
                 Spacer()
 
                 if skill.source == "managed" {
-                    VButton(label: "Remove", icon: VIcon.trash.rawValue, style: .danger, size: .small) {
+                    VButton(label: "Remove", icon: VIcon.trash.rawValue, style: .danger) {
                         skillToDelete = skill
                     }
                 }
