@@ -763,7 +763,7 @@ async function hatchLocal(
   // Pass the CLI package version to the daemon so `assistant --version`
   // resolves correctly in compiled desktop-app binaries where the daemon
   // cannot find its own package.json.
-  if (!process.env.APP_VERSION && IS_DESKTOP) {
+  if (!process.env.APP_VERSION) {
     process.env.APP_VERSION = cliPkg.version;
   }
 
