@@ -255,13 +255,6 @@ export async function upsertApp(
   const id = uuid();
   const credPath = clientSecretCredentialPath ?? defaultCredPath(id);
 
-  if (clientSecretValue) {
-    const stored = await setSecureKeyAsync(credPath, clientSecretValue);
-    if (!stored) {
-      throw new Error("Failed to store client_secret in secure storage");
-    }
-  }
-
   const row = {
     id,
     providerKey,
@@ -271,7 +264,16 @@ export async function upsertApp(
     updatedAt: now,
   };
 
+  // Insert the DB row first so that a failed insert doesn't leave an
+  // orphaned secret in secure storage.
   db.insert(oauthApps).values(row).run();
+
+  if (clientSecretValue) {
+    const stored = await setSecureKeyAsync(credPath, clientSecretValue);
+    if (!stored) {
+      throw new Error("Failed to store client_secret in secure storage");
+    }
+  }
 
   return row;
 }
