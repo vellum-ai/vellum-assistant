@@ -2469,6 +2469,9 @@ public final class HTTPTransport {
         note: String? = nil,
         maxUses: Int? = nil,
         contactName: String? = nil,
+        expectedExternalUserId: String? = nil,
+        friendName: String? = nil,
+        guardianName: String? = nil,
         isRetry: Bool = false
     ) async throws -> (inviteId: String, token: String, shareUrl: String?, inviteCode: String?, guardianInstruction: String?, channelHandle: String?)? {
         guard let url = buildURL(for: .contactsInvitesCreate) else { return nil }
@@ -2482,6 +2485,9 @@ public final class HTTPTransport {
         if let note { body["note"] = note }
         if let maxUses { body["maxUses"] = maxUses }
         if let contactName { body["contactName"] = contactName }
+        if let expectedExternalUserId { body["expectedExternalUserId"] = expectedExternalUserId }
+        if let friendName { body["friendName"] = friendName }
+        if let guardianName { body["guardianName"] = guardianName }
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -2490,7 +2496,7 @@ public final class HTTPTransport {
             if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                 if case .success = refreshResult {
-                    return try await createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses, contactName: contactName, isRetry: true)
+                    return try await createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses, contactName: contactName, expectedExternalUserId: expectedExternalUserId, friendName: friendName, guardianName: guardianName, isRetry: true)
                 }
                 return nil
             }
