@@ -1,6 +1,7 @@
 import SwiftUI
 import VellumAssistantShared
 import Foundation
+import UniformTypeIdentifiers
 import UserNotifications
 import os
 import Combine
@@ -1099,6 +1100,18 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             content.body = String(responseText.prefix(200))
             content.sound = .default
             content.categoryIdentifier = "VOICE_RESPONSE_COMPLETE"
+
+            // Attach assistant avatar as notification icon
+            let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+            let iconProvider = NotificationIconProvider()
+            if let iconURL = iconProvider.notificationIconURL(for: assistantId),
+               let attachment = try? UNNotificationAttachment(
+                   identifier: "assistant-avatar",
+                   url: iconURL,
+                   options: [UNNotificationAttachmentOptionsTypeHintKey: UTType.png.identifier]
+               ) {
+                content.attachments = [attachment]
+            }
 
             let request = UNNotificationRequest(
                 identifier: "voice-response-\(UUID().uuidString)",
