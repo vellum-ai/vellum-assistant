@@ -131,12 +131,10 @@ struct OnboardingView: View {
             UserDefaults.standard.set(platformBaseURL, forKey: UserDefaultsKeys.managedPlatformBaseURL)
             UserDefaults.standard.set(assistant.id, forKey: "connectedAssistantId")
 
-            // Rebuild the daemon client with managed transport config and connect.
+            // Rebuild the daemon client with managed transport config.
+            // ContentView.attemptInitialConnection() handles connecting with
+            // proper retries and timeout once onboarding completes.
             clientProvider.rebuildClient()
-
-            Task {
-                try? await clientProvider.client.connect()
-            }
 
             isBootstrappingManaged = false
             currentStep = .permissions
