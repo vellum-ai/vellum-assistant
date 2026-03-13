@@ -1,5 +1,6 @@
 import AppKit
 
+@MainActor
 enum AvatarCompositor {
     /// Renders a composite avatar from body shape + eye style + color into an NSImage.
     static func render(
@@ -51,10 +52,10 @@ enum AvatarCompositor {
             let remapScale = min(viewBox.width / srcVB.width, viewBox.height / srcVB.height)
             let remapTx = (viewBox.width - srcVB.width * remapScale) / 2
             let remapTy = (viewBox.height - srcVB.height * remapScale) / 2
-            // Remap: translate + scale within body viewBox, then apply the canvas transform.
-            eyeTransform = CGAffineTransform(translationX: remapTx, y: remapTy)
-                .scaledBy(x: remapScale, y: remapScale)
-            eyeTransform = eyeTransform.concatenating(transform)
+            // Remap: scale within body viewBox, then translate to center, then apply the canvas transform.
+            let remapT = CGAffineTransform(scaleX: remapScale, y: remapScale)
+                .concatenating(CGAffineTransform(translationX: remapTx, y: remapTy))
+            eyeTransform = remapT.concatenating(transform)
         }
 
         for eyePath in eyeStyle.paths {
