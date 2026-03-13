@@ -2,7 +2,7 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Displays the list of contacts, with an assistant section at the top,
-/// a guardian ("Me") section, search, channel icons, and status indicators.
+/// a guardian section, search, channel icons, and status indicators.
 @MainActor
 struct ContactsListView: View {
     @ObservedObject var viewModel: ContactsViewModel
@@ -57,7 +57,7 @@ struct ContactsListView: View {
             // Assistant section (always visible, unaffected by search)
             assistantSection
 
-            // Guardian ("Me") section
+            // Guardian section
             if let guardian = viewModel.guardianContact {
                 guardianSection(guardian)
             }
@@ -93,27 +93,10 @@ struct ContactsListView: View {
                 selection = .assistant
             } label: {
                 HStack(spacing: VSpacing.md) {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        HStack(spacing: VSpacing.sm) {
-                            Text(cachedAssistantDisplayName)
-                                .font(VFont.bodyBold)
-                                .foregroundColor(VColor.contentDefault)
-                                .lineLimit(1)
-
-                            Text("Assistant")
-                                .font(VFont.small)
-                                .foregroundColor(VColor.auxWhite)
-                                .padding(.horizontal, VSpacing.sm)
-                                .padding(.vertical, VSpacing.xxs)
-                                .background(VColor.primaryBase)
-                                .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
-                        }
-
-                        Text(assistantChannelSummary)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentSecondary)
-                            .lineLimit(1)
-                    }
+                    Text(cachedAssistantDisplayName)
+                        .font(VFont.bodyBold)
+                        .foregroundColor(VColor.contentDefault)
+                        .lineLimit(1)
 
                     Spacer()
                 }
@@ -130,21 +113,11 @@ struct ContactsListView: View {
         }
     }
 
-    /// Summarizes which assistant channels are configured.
-    private var assistantChannelSummary: String {
-        var channels: [String] = []
-        if store?.telegramHasBotToken == true { channels.append("Telegram") }
-        if store?.slackChannelHasBotToken == true && store?.slackChannelHasAppToken == true { channels.append("Slack") }
-        if store?.twilioHasCredentials == true { channels.append("Phone") }
-        if store?.assistantEmail != nil { channels.append("Email") }
-        return channels.isEmpty ? "No channels configured" : channels.joined(separator: ", ")
-    }
-
     // MARK: - Guardian Section
 
     private func guardianSection(_ contact: ContactPayload) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Me")
+            Text("Guardian (You)")
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.contentDefault)
 
@@ -152,34 +125,12 @@ struct ContactsListView: View {
                 selection = .contact(contact.id)
             } label: {
                 HStack(spacing: VSpacing.md) {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        HStack(spacing: VSpacing.sm) {
-                            Text(contact.displayName)
-                                .font(VFont.bodyBold)
-                                .foregroundColor(VColor.contentDefault)
-                                .lineLimit(1)
-
-                            Text("Guardian")
-                                .font(VFont.small)
-                                .foregroundColor(VColor.auxWhite)
-                                .padding(.horizontal, VSpacing.sm)
-                                .padding(.vertical, VSpacing.xxs)
-                                .background(VColor.primaryBase)
-                                .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
-                        }
-
-                        let summary = channelSummary(contact.channels)
-                        if !summary.isEmpty {
-                            Text(summary)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.contentSecondary)
-                                .lineLimit(1)
-                        }
-                    }
+                    Text(contact.displayName)
+                        .font(VFont.bodyBold)
+                        .foregroundColor(VColor.contentDefault)
+                        .lineLimit(1)
 
                     Spacer()
-
-                    statusIndicator(for: contact)
                 }
                 .padding(VSpacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -346,12 +297,6 @@ struct ContactsListView: View {
     }
 
     // MARK: - Helpers
-
-    /// Summarizes channel types into a human-readable string (e.g. "Telegram, Voice").
-    private func channelSummary(_ channels: [ContactChannelPayload]) -> String {
-        let types = Set(channels.filter { $0.status != "revoked" }.map(\.type))
-        return types.sorted().map { channelLabel(for: $0) }.joined(separator: ", ")
-    }
 
     /// Maps channel type to a VIcon.
     private func channelIcon(for type: String) -> VIcon {
