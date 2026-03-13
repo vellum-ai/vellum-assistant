@@ -166,7 +166,7 @@ function resolveProviderModelCommand(content: string): SlashResolution | null {
   if (provider !== "ollama" && !config.apiKeys[provider]) {
     return {
       kind: "unknown",
-      message: `Cannot switch to ${displayName}. No API key configured for ${provider}.\n\nSet it with: \`config set apiKeys.${provider} <your-key>\``,
+      message: `Cannot switch to ${displayName}. No API key configured for ${provider}.\n\nSet it with: \`keys set ${provider} <your-key>\``,
     };
   }
 
@@ -216,9 +216,7 @@ function resolveModelList(): SlashResolution {
   }
 
   lines.push("\n✓ = API key configured, ✗ = not configured");
-  lines.push(
-    "\nTip: Configure a provider with `config set apiKeys.<provider> <key>`",
-  );
+  lines.push("\nTip: Configure a provider with `keys set <provider> <key>`");
 
   return {
     kind: "unknown",
@@ -286,7 +284,7 @@ function resolveModelCommand(content: string): SlashResolution | null {
     const displayName = MODEL_DISPLAY_NAMES[matched] ?? matched;
     return {
       kind: "unknown",
-      message: `Cannot switch to ${displayName}. No API key configured for Anthropic.\n\nSet it with: \`config set apiKeys.anthropic <your-key>\``,
+      message: `Cannot switch to ${displayName}. No API key configured for Anthropic.\n\nSet it with: \`keys set anthropic <your-key>\``,
     };
   }
 

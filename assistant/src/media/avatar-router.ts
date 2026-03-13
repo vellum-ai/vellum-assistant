@@ -32,7 +32,7 @@ export async function generateAvatar(
 
   if (!credentials) {
     throw new ConfigError(
-      "Gemini API key is not configured. Set it via `config set apiKeys.gemini <key>` or the GEMINI_API_KEY environment variable.",
+      "Gemini API key is not configured. Set it via `keys set gemini <key>` or the GEMINI_API_KEY environment variable.",
     );
   }
 
