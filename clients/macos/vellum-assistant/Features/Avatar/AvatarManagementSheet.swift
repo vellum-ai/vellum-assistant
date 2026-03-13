@@ -12,6 +12,10 @@ struct AvatarManagementSheet: View {
     @State private var draftBody: AvatarBodyShape?
     @State private var draftEyes: AvatarEyeStyle?
     @State private var draftColor: AvatarColor?
+    // Snapshot of values when builder opened, for dirty tracking
+    @State private var initialBody: AvatarBodyShape?
+    @State private var initialEyes: AvatarEyeStyle?
+    @State private var initialColor: AvatarColor?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -95,6 +99,9 @@ struct AvatarManagementSheet: View {
                             draftEyes = AvatarEyeStyle.allCases.randomElement()!
                             draftColor = AvatarColor.allCases.randomElement()! // color-literal-ok
                         }
+                        initialBody = draftBody
+                        initialEyes = draftEyes
+                        initialColor = draftColor
                         renderDraft()
                         showingCharacterBuilder = true
                     }
@@ -132,6 +139,11 @@ struct AvatarManagementSheet: View {
 
     // MARK: - Character Builder
 
+    private var isDirty: Bool {
+        guard let body = draftBody, let eyes = draftEyes, let color = draftColor else { return false }
+        return body != initialBody || eyes != initialEyes || color != initialColor
+    }
+
     private var characterBuilder: some View {
         VStack(spacing: 0) {
             // Draft avatar preview
@@ -139,7 +151,7 @@ struct AvatarManagementSheet: View {
                 .padding(.bottom, VSpacing.lg)
 
             // Generate Random button
-            VButton(label: "Generate Random", icon: "dice", style: .outlined) {
+            VButton(label: "Generate Random", icon: VIcon.dices.rawValue, style: .outlined) {
                 draftBody = AvatarBodyShape.allCases.randomElement()!
                 draftEyes = AvatarEyeStyle.allCases.randomElement()!
                 draftColor = AvatarColor.allCases.randomElement()! // color-literal-ok
@@ -154,7 +166,7 @@ struct AvatarManagementSheet: View {
 
             // Confirm and Discard buttons
             HStack(spacing: VSpacing.md) {
-                VButton(label: "Discard", style: .outlined) {
+                VButton(label: "Discard", style: .dangerOutline, isDisabled: !isDirty) {
                     onClose()
                 }
                 VButton(label: "Confirm", style: .primary, isDisabled: draftImage == nil) {
@@ -197,23 +209,6 @@ struct AvatarManagementSheet: View {
     private var cycleControls: some View {
         VStack(spacing: VSpacing.sm) {
             cycleRow(
-                label: "Color",
-                onLeft: {
-                    ensureDraftsInitialized()
-                    draftColor = cycleBackward(draftColor)
-                    renderDraft()
-                },
-                onRight: {
-                    ensureDraftsInitialized()
-                    draftColor = cycleForward(draftColor)
-                    renderDraft()
-                }
-            ) {
-                Circle()
-                    .fill(draftColor.map { Color(nsColor: $0.nsColor) } ?? VColor.contentTertiary)
-                    .frame(width: 20, height: 20)
-            }
-            cycleRow(
                 label: "Body",
                 onLeft: {
                     ensureDraftsInitialized()
@@ -226,11 +221,11 @@ struct AvatarManagementSheet: View {
                     renderDraft()
                 }
             ) {
-                if let body = draftBody, let color = draftColor {
-                    Image(nsImage: AvatarCompositor.renderBodyOnly(bodyShape: body, color: color, size: 32))
+                if let body = draftBody {
+                    Image(nsImage: AvatarCompositor.renderBodyOutline(bodyShape: body, size: 36))
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .frame(width: 32, height: 32)
+                        .frame(width: 36, height: 36)
                 }
             }
             cycleRow(
@@ -247,11 +242,28 @@ struct AvatarManagementSheet: View {
                 }
             ) {
                 if let eyes = draftEyes {
-                    Image(nsImage: AvatarCompositor.renderEyesOnly(eyeStyle: eyes, size: 32))
+                    Image(nsImage: AvatarCompositor.renderEyesOnly(eyeStyle: eyes, size: 56))
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .frame(width: 32, height: 32)
+                        .frame(width: 56, height: 56)
                 }
+            }
+            cycleRow(
+                label: "Color",
+                onLeft: {
+                    ensureDraftsInitialized()
+                    draftColor = cycleBackward(draftColor)
+                    renderDraft()
+                },
+                onRight: {
+                    ensureDraftsInitialized()
+                    draftColor = cycleForward(draftColor)
+                    renderDraft()
+                }
+            ) {
+                Circle()
+                    .fill(draftColor.map { Color(nsColor: $0.nsColor) } ?? VColor.contentTertiary)
+                    .frame(width: 20, height: 20)
             }
         }
     }
@@ -265,7 +277,7 @@ struct AvatarManagementSheet: View {
     ) -> some View {
         HStack(spacing: 0) {
             Button(action: onLeft) {
-                VIconView(.chevronLeft, size: 10)
+                VIconView(.arrowLeft, size: 14)
                     .foregroundColor(VColor.contentTertiary)
                     .frame(width: 36, height: 36)
                     .contentShape(Rectangle())
@@ -281,7 +293,7 @@ struct AvatarManagementSheet: View {
             Spacer()
 
             Button(action: onRight) {
-                VIconView(.chevronRight, size: 10)
+                VIconView(.arrowRight, size: 14)
                     .foregroundColor(VColor.contentTertiary)
                     .frame(width: 36, height: 36)
                     .contentShape(Rectangle())
@@ -291,8 +303,8 @@ struct AvatarManagementSheet: View {
             .accessibilityLabel("Next \(label.lowercased())")
         }
         .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.md)
         .frame(maxWidth: .infinity)
+        .frame(height: 52)
         .background(
             RoundedRectangle(cornerRadius: VRadius.xl)
                 .fill(VColor.surfaceBase)

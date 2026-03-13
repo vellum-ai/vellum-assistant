@@ -17,6 +17,7 @@ public enum VIcon: String, CaseIterable, Sendable {
     case chevronRight = "lucide-chevron-right"
     case arrowUp = "lucide-arrow-up"
     case arrowDown = "lucide-arrow-down"
+    case arrowLeft = "lucide-arrow-left"
     case arrowRight = "lucide-arrow-right"
     case arrowUpRight = "lucide-arrow-up-right"
     case arrowDownToLine = "lucide-arrow-down-to-line"
@@ -214,6 +215,7 @@ public enum VIcon: String, CaseIterable, Sendable {
 
     // MARK: - Misc
 
+    case dices = "lucide-dices"
     case sparkles = "lucide-sparkles"
     case sparkle = "lucide-sparkle"
     case bug = "lucide-bug"
