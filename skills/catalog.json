@@ -171,7 +171,9 @@
         "emoji": "🔐",
         "vellum": {
           "display-name": "Guardian Verify Setup",
-          "user-invocable": "true"
+          "user-invocable": "true",
+          "activation-hints": {},
+          "avoid-when": {}
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -484,7 +486,9 @@
           ],
           "includes": [
             "elevenlabs-voice"
-          ]
+          ],
+          "activation-hints": {},
+          "avoid-when": {}
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
