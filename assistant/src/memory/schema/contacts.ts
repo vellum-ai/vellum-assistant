@@ -87,6 +87,7 @@ export const assistantIngressInvites = sqliteTable(
     // Display metadata for personalized voice prompts (nullable — non-voice invites leave these NULL)
     friendName: text("friend_name"),
     guardianName: text("guardian_name"),
+    contactId: text("contact_id").notNull(),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },

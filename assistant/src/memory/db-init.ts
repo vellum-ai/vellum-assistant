@@ -67,6 +67,7 @@ import {
   migrateGuardianVerificationPurpose,
   migrateGuardianVerificationSessions,
   migrateInviteCodeHashColumn,
+  migrateInviteContactId,
   migrateMemoryItemSupersession,
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
@@ -371,6 +372,9 @@ export function initializeDb(): void {
 
   // 59. Add invite metadata columns to call_sessions for outbound invite call routing
   migrateCallSessionInviteMetadata(database);
+
+  // 60. Add required contact_id to assistant_ingress_invites and clean up legacy rows
+  migrateInviteContactId(database);
 
   validateMigrationState(database);
 
