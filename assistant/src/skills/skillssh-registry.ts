@@ -3,8 +3,8 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 
-import { upsertSkillsIndex } from "./catalog-install.js";
 import { getWorkspaceSkillsDir } from "../util/platform.js";
+import { upsertSkillsIndex } from "./catalog-install.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -108,7 +108,8 @@ export async function searchSkillsRegistry(
     );
   }
 
-  return (await response.json()) as SkillsShSearchResult[];
+  const data = (await response.json()) as { skills: SkillsShSearchResult[] };
+  return data.skills ?? [];
 }
 
 export async function fetchSkillAudits(
@@ -221,7 +222,10 @@ export async function fetchSkillFromGitHub(
 ): Promise<SkillFiles> {
   const headers = githubHeaders();
 
-  async function fetchDir(subpath: string, prefix: string): Promise<SkillFiles> {
+  async function fetchDir(
+    subpath: string,
+    prefix: string,
+  ): Promise<SkillFiles> {
     let apiUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${subpath}`;
     if (ref) {
       apiUrl += `?ref=${encodeURIComponent(ref)}`;
@@ -257,7 +261,10 @@ export async function fetchSkillFromGitHub(
 
       if (entry.type === "dir") {
         // Recursively fetch subdirectory contents
-        const subFiles = await fetchDir(`${subpath}/${entry.name}`, relativePath);
+        const subFiles = await fetchDir(
+          `${subpath}/${entry.name}`,
+          relativePath,
+        );
         Object.assign(files, subFiles);
         continue;
       }

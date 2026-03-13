@@ -26,7 +26,7 @@ beforeEach(() => {
     Promise.resolve(new Response("not mocked", { status: 500 }));
   globalThis.fetch = mock((input: string | URL | Request) =>
     mockFetchImpl(typeof input === "string" ? input : input.toString()),
-  ) as typeof fetch;
+  ) as unknown as typeof fetch;
 });
 
 afterEach(() => {
@@ -53,7 +53,7 @@ describe("searchSkillsRegistry", () => {
       expect(urlStr).toContain("q=react");
       expect(urlStr).toContain("limit=5");
       return Promise.resolve(
-        new Response(JSON.stringify(mockResults), {
+        new Response(JSON.stringify({ skills: mockResults }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         }),
@@ -69,7 +69,7 @@ describe("searchSkillsRegistry", () => {
       const urlStr = url.toString();
       expect(urlStr).not.toContain("limit=");
       return Promise.resolve(
-        new Response(JSON.stringify([]), {
+        new Response(JSON.stringify({ skills: [] }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         }),
@@ -142,13 +142,11 @@ describe("fetchSkillAudits", () => {
 
   test("throws on non-OK response", async () => {
     mockFetchImpl = () =>
-      Promise.resolve(
-        new Response("Internal Server Error", { status: 500 }),
-      );
+      Promise.resolve(new Response("Internal Server Error", { status: 500 }));
 
-    await expect(
-      fetchSkillAudits("some/source", ["slug"]),
-    ).rejects.toThrow("Audit fetch failed: HTTP 500");
+    await expect(fetchSkillAudits("some/source", ["slug"])).rejects.toThrow(
+      "Audit fetch failed: HTTP 500",
+    );
   });
 });
 
@@ -281,9 +279,9 @@ describe("resolveSkillSource", () => {
   });
 
   test("rejects path traversal in @ format slug", () => {
-    expect(() =>
-      resolveSkillSource("owner/repo@../../malicious"),
-    ).toThrow('Invalid skill source "owner/repo@../../malicious"');
+    expect(() => resolveSkillSource("owner/repo@../../malicious")).toThrow(
+      'Invalid skill source "owner/repo@../../malicious"',
+    );
   });
 
   test("rejects uppercase slug in @ format", () => {
