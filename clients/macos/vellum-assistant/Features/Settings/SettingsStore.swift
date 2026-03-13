@@ -505,6 +505,7 @@ public final class SettingsStore: ObservableObject {
                 self.fetchChannelSetupStatus()
             } else {
                 self.telegramError = response.error
+                self.fetchChannelSetupStatus()
             }
         }
 
@@ -1126,13 +1127,21 @@ public final class SettingsStore: ObservableObject {
     }
 
     func clearSlackChannelConfig() {
+        slackChannelSaveInProgress = true
         slackChannelError = nil
-        guard var request = buildDaemonRequest(path: "v1/integrations/slack/channel/config", method: "DELETE") else { return }
+        guard var request = buildDaemonRequest(path: "v1/integrations/slack/channel/config", method: "DELETE") else {
+            slackChannelSaveInProgress = false
+            return
+        }
         request.timeoutInterval = 10
         Task {
             do {
                 let (_, response) = try await URLSession.shared.data(for: request)
-                guard let httpResp = response as? HTTPURLResponse else { return }
+                guard let httpResp = response as? HTTPURLResponse else {
+                    self.slackChannelSaveInProgress = false
+                    self.fetchChannelSetupStatus()
+                    return
+                }
                 if (200..<300).contains(httpResp.statusCode) {
                     self.slackChannelHasBotToken = false
                     self.slackChannelHasAppToken = false
@@ -1141,8 +1150,15 @@ public final class SettingsStore: ObservableObject {
                     self.slackChannelTeamName = nil
                     self.slackChannelError = nil
                     self.fetchChannelSetupStatus()
+                } else {
+                    self.slackChannelError = "Failed to disconnect: HTTP \(httpResp.statusCode)"
+                    self.fetchChannelSetupStatus()
                 }
+                self.slackChannelSaveInProgress = false
             } catch {
+                self.slackChannelSaveInProgress = false
+                self.slackChannelError = error.localizedDescription
+                self.fetchChannelSetupStatus()
                 log.error("Failed to clear Slack channel config: \(error)")
             }
         }
