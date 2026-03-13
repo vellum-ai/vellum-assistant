@@ -18,8 +18,8 @@ struct TaskAttachment: Identifiable {
     let data: Data
     let extractedText: String?
 
-    /// Aligned with the daemon's upload body limit (30 MB).
-    static let maxAttachmentBytes = 30 * 1024 * 1024
+    /// Aligned with the daemon's per-attachment limit (MAX_UPLOAD_BYTES = 20 MB).
+    static let maxAttachmentBytes = 20 * 1024 * 1024
     static let maxExtractedChars = 8_000
     private static let unsupportedOfficeMimeTypes: Set<String> = [
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
