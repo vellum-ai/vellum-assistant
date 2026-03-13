@@ -586,8 +586,8 @@ Examples:
                       stderr: "ignore",
                     });
                   } else {
-                    // Fallback: print URL for manual opening
-                    process.stdout.write(
+                    // Fallback: print URL for manual opening (stderr to keep --json stdout clean)
+                    process.stderr.write(
                       `Open this URL to authorize:\n\n${url}\n`,
                     );
                   }
