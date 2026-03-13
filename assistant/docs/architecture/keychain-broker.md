@@ -163,21 +163,30 @@ XPC provides stronger caller identity guarantees via audit tokens and code requi
 
 ## Callsite Policy
 
+### Async-first policy
+
+**All credential access should use the async functions** (`getSecureKeyAsync`, `setSecureKeyAsync`, `deleteSecureKeyAsync`). The async variants are the primary API: they check the encrypted store first (instant) and fall back to the keychain broker, ensuring secrets stored in the macOS Keychain are always reachable. The sync variants (`getSecureKey`, `setSecureKey`, `deleteSecureKey`) are **deprecated** and bypass the keychain broker entirely.
+
+New code must not introduce sync secure-key calls. Existing sync call sites should be converted to async when their surrounding code paths support it.
+
 ### Runtime request handlers (secret-routes, etc.)
 
 All runtime HTTP handlers that write or delete secrets **must** use the async APIs (`setSecureKeyAsync`, `deleteSecureKeyAsync`). These are the primary entry points for macOS app flows and must go through the broker to reach keychain.
-
-### CLI commands (keys, credentials)
-
-CLI commands may use sync APIs (`setSecureKey`, `deleteSecureKey`, `getSecureKey`) since they run outside the macOS app process and the broker may not be available. The sync path uses the encrypted store directly, which is correct for headless/CLI environments.
 
 ### Gateway (credential-reader)
 
 The gateway reads credentials via async `readCredential()` which tries the broker first (native async UDS), falling back to the encrypted store. The gateway never writes credentials — that responsibility belongs to the assistant runtime.
 
-### Startup / initialization code
+### Known sync exceptions
 
-Sync APIs are acceptable for startup paths (e.g. provider initialization, config loading) where async is impractical or the broker may not yet be available.
+The following call sites still use the deprecated sync variants because they run in contexts where async I/O is not feasible:
+
+| File                                               | Reason                                                                                                                                                                                                                |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/config/loader.ts`                   | Config loading runs synchronously at startup before the event loop is available. The broker socket may not be ready yet, and converting to async would require rearchitecting the entire config initialization chain. |
+| `assistant/src/providers/managed-proxy/context.ts` | Provider context initialization is synchronous. The managed proxy context must resolve credentials before the first request can be processed, and the initialization path does not support awaiting.                  |
+
+These are the only sanctioned sync call sites. Any new sync usage requires explicit justification and should be documented here.
 
 ## Migration
 
