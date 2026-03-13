@@ -1033,6 +1033,7 @@ struct ContactDetailView: View {
                     sourceChannel: type,
                     note: "Invite for \(displayContact.displayName)",
                     contactName: displayContact.displayName,
+                    contactId: displayContact.id,
                     expectedExternalUserId: phoneNumber,
                     friendName: type == "phone" ? displayContact.displayName : nil,
                     guardianName: resolvedGuardianName

@@ -2048,12 +2048,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         note: String? = nil,
         maxUses: Int? = nil,
         contactName: String? = nil,
+        contactId: String? = nil,
         expectedExternalUserId: String? = nil,
         friendName: String? = nil,
         guardianName: String? = nil
     ) async throws -> (inviteId: String, token: String?, shareUrl: String?, inviteCode: String?, voiceCode: String?, guardianInstruction: String?, channelHandle: String?)? {
         if let httpTransport {
-            return try await httpTransport.createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses, contactName: contactName, expectedExternalUserId: expectedExternalUserId, friendName: friendName, guardianName: guardianName)
+            return try await httpTransport.createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses, contactName: contactName, contactId: contactId, expectedExternalUserId: expectedExternalUserId, friendName: friendName, guardianName: guardianName)
         }
 
         #if os(macOS)
@@ -2064,6 +2065,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         if let note { body["note"] = note }
         if let maxUses { body["maxUses"] = maxUses }
         if let contactName { body["contactName"] = contactName }
+        if let contactId { body["contactId"] = contactId }
         if let expectedExternalUserId { body["expectedExternalUserId"] = expectedExternalUserId }
         if let friendName { body["friendName"] = friendName }
         if let guardianName { body["guardianName"] = guardianName }
