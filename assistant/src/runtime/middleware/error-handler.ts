@@ -2,6 +2,7 @@
  * Centralized error handling for runtime HTTP request dispatch.
  */
 
+import { resolveManagedProxyContext } from "../../providers/managed-proxy/context.js";
 import {
   ConfigError,
   IngressBlockedError,
@@ -33,11 +34,13 @@ export async function withErrorHandling(
     if (err instanceof ProviderNotConfiguredError) {
       log.warn({ err, endpoint }, "No LLM provider configured");
       const envVar = `${err.requestedProvider.toUpperCase()}_API_KEY`;
-      return httpError(
-        "UNPROCESSABLE_ENTITY",
-        `No API key configured. Set ${envVar} in your environment or run \`vellum hatch\` to set up your assistant.`,
-        422,
-      );
+      const { assistantApiKey } = resolveManagedProxyContext();
+
+      const message = assistantApiKey
+        ? `No API key configured for ${err.requestedProvider}. Your Vellum API key is set but the managed proxy could not be initialized. Try running \`vellum hatch\` to reconfigure.`
+        : `No API key configured. Run \`vellum hatch\` to set up your assistant, or set ${envVar} in your environment.`;
+
+      return httpError("UNPROCESSABLE_ENTITY", message, 422);
     }
     if (err instanceof ConfigError) {
       log.warn({ err, endpoint }, "Runtime HTTP config error");
