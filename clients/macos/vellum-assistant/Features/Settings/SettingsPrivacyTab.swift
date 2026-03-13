@@ -8,8 +8,107 @@ struct SettingsPrivacyTab: View {
     var daemonClient: DaemonClient?
     @ObservedObject var store: SettingsStore
 
+    // Identity editing state
+    @State private var displayName: String = UserDefaults.standard.string(forKey: "user.displayName") ?? ""
+    @State private var email: String = UserDefaults.standard.string(forKey: "user.email") ?? ""
+    @State private var isEditingIdentity: Bool = false
+    @State private var editingName: String = ""
+    @State private var editingEmail: String = ""
+
     var body: some View {
-        privacySection
+        VStack(spacing: VSpacing.lg) {
+            identitySection
+
+            Text("This information is attached to crash reports and log submissions to help us respond to your issues.")
+                .font(VFont.caption)
+                .foregroundColor(VColor.contentTertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, VSpacing.xs)
+
+            privacySection
+        }
+    }
+
+    // MARK: - Identity Section
+
+    private var identitySection: some View {
+        SettingsCard(title: "Identity") {
+            if isEditingIdentity {
+                identityEditingView
+            } else {
+                identityDisplayView
+            }
+        }
+    }
+
+    private var identityDisplayView: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Name")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                    Text(displayName.isEmpty ? "Not set" : displayName)
+                        .font(VFont.body)
+                        .foregroundColor(displayName.isEmpty ? VColor.contentTertiary : VColor.contentSecondary)
+                }
+                Spacer()
+            }
+
+            HStack {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Email")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                    Text(email.isEmpty ? "Not set" : email)
+                        .font(VFont.body)
+                        .foregroundColor(email.isEmpty ? VColor.contentTertiary : VColor.contentSecondary)
+                }
+                Spacer()
+            }
+
+            HStack {
+                Spacer()
+                VButton(label: "Edit", style: .outlined) {
+                    editingName = displayName
+                    editingEmail = email
+                    isEditingIdentity = true
+                }
+            }
+        }
+    }
+
+    private var identityEditingView: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Name")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
+                VTextField(placeholder: "Your name", text: $editingName)
+            }
+
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Email")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentTertiary)
+                VTextField(placeholder: "your@email.com", text: $editingEmail)
+            }
+
+            HStack {
+                Spacer()
+                VButton(label: "Cancel", style: .outlined) {
+                    isEditingIdentity = false
+                }
+                VButton(label: "Save", style: .primary) {
+                    displayName = editingName
+                    email = editingEmail
+                    UserDefaults.standard.set(displayName, forKey: "user.displayName")
+                    UserDefaults.standard.set(email, forKey: "user.email")
+                    SentryDeviceInfo.configureSentryScope()
+                    isEditingIdentity = false
+                }
+            }
+        }
     }
 
     // MARK: - Privacy Section
