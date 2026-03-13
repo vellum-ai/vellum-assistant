@@ -31,6 +31,7 @@ final class WorkspaceBrowserState {
     var renamingPath: String? = nil
     var renamingText: String = ""
     var pendingSwitchPath: String?
+    var pendingHiddenFilesToggle: Bool?
     var showingDirtyAlert: Bool = false
     var showHiddenFiles: Bool = false
 
@@ -69,7 +70,7 @@ struct WorkspacePanel: View {
 
     var body: some View {
         HSplitView {
-            WorkspaceTreeSidebar(state: state, daemonClient: daemonClient)
+            WorkspaceTreeSidebar(state: state, daemonClient: daemonClient, onToggleHiddenFiles: applyHiddenFilesToggle)
                 .frame(minWidth: 200, idealWidth: 250, maxWidth: 300)
             WorkspaceFileViewer(state: state, daemonClient: daemonClient)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -85,15 +86,20 @@ struct WorkspacePanel: View {
             isPresented: $state.showingDirtyAlert
         ) {
             Button("Discard", role: .destructive) {
-                guard let targetPath = state.pendingSwitchPath else { return }
-                state.pendingSwitchPath = nil
-                Task { await state.loadFile(path: targetPath, using: daemonClient, showHidden: state.showHiddenFiles) }
+                if let targetPath = state.pendingSwitchPath {
+                    state.pendingSwitchPath = nil
+                    Task { await state.loadFile(path: targetPath, using: daemonClient, showHidden: state.showHiddenFiles) }
+                } else if let newValue = state.pendingHiddenFilesToggle {
+                    state.pendingHiddenFilesToggle = nil
+                    applyHiddenFilesToggle(newValue)
+                }
             }
             Button("Cancel", role: .cancel) {
                 state.pendingSwitchPath = nil
+                state.pendingHiddenFilesToggle = nil
             }
         } message: {
-            Text("You have unsaved changes. Discard them and switch files?")
+            Text("You have unsaved changes. Discard them?")
         }
         .alert(
             "Delete \"\(state.deleteConfirmName)\"?",
@@ -141,6 +147,30 @@ struct WorkspacePanel: View {
         state.isLoadingTree = false
     }
 
+    private func applyHiddenFilesToggle(_ newValue: Bool) {
+        state.showHiddenFiles = newValue
+        state.directoryCache.removeAll()
+        state.expandedDirs.removeAll()
+        state.selectedFilePath = nil
+        state.selectedFileDetail = nil
+        state.editableContent = ""
+        state.originalContent = ""
+        state.isDirty = false
+        state.isLoadingTree = true
+        let expectedValue = newValue
+        Task {
+            if let response = await daemonClient.fetchWorkspaceTree(path: "", showHidden: newValue) {
+                // Guard against stale response from a rapid toggle
+                guard state.showHiddenFiles == expectedValue else { return }
+                state.directoryCache[""] = response.entries
+            }
+            // Only clear loading if we're still on the expected toggle value
+            if state.showHiddenFiles == expectedValue {
+                state.isLoadingTree = false
+            }
+        }
+    }
+
     private func parentDirectory(of path: String) -> String {
         let components = path.split(separator: "/")
         guard components.count > 1 else { return "" }
@@ -153,6 +183,7 @@ struct WorkspacePanel: View {
 private struct WorkspaceTreeSidebar: View {
     @Bindable var state: WorkspaceBrowserState
     let daemonClient: DaemonClient
+    let onToggleHiddenFiles: (Bool) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -194,19 +225,11 @@ private struct WorkspaceTreeSidebar: View {
                 VToggle(isOn: Binding(
                     get: { state.showHiddenFiles },
                     set: { newValue in
-                        state.showHiddenFiles = newValue
-                        state.directoryCache.removeAll()
-                        state.expandedDirs.removeAll()
-                        // Reset selected file state so stale selections don't linger
-                        state.selectedFilePath = nil
-                        state.selectedFileDetail = nil
-                        state.editableContent = ""
-                        state.originalContent = ""
-                        state.isDirty = false
-                        Task {
-                            if let response = await daemonClient.fetchWorkspaceTree(path: "", showHidden: newValue) {
-                                state.directoryCache[""] = response.entries
-                            }
+                        if state.isDirty {
+                            state.pendingHiddenFilesToggle = newValue
+                            state.showingDirtyAlert = true
+                        } else {
+                            onToggleHiddenFiles(newValue)
                         }
                     }
                 ), label: "Show hidden files")
