@@ -50,6 +50,9 @@ class AvatarLayerView: NSView {
     /// Whether blinks are currently enabled (paused when window is inactive).
     private var blinkEnabled = true
 
+    /// Notification observers for window key/resign-key events.
+    private var notificationObservers: [NSObjectProtocol] = []
+
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
@@ -60,6 +63,9 @@ class AvatarLayerView: NSView {
 
     deinit {
         blinkTask?.cancel()
+        for observer in notificationObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     func configure(bodyShape: AvatarBodyShape, eyeStyle: AvatarEyeStyle, color: AvatarColor, size: CGFloat) {
@@ -131,8 +137,10 @@ class AvatarLayerView: NSView {
 
         CATransaction.commit()
 
-        startBlinkTimer()
-        startBreathing()
+        if blinkEnabled {
+            startBlinkTimer()
+            startBreathing()
+        }
     }
 
     private func startBlinkTimer() {
@@ -162,6 +170,57 @@ class AvatarLayerView: NSView {
         breathe.repeatCount = .infinity
         breathe.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         bodyLayer.add(breathe, forKey: "breathing")
+    }
+
+    // MARK: - Window-aware lifecycle
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // Clean up old observers
+        for observer in notificationObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        notificationObservers.removeAll()
+
+        guard let window else {
+            pauseAnimations()
+            return
+        }
+
+        let keyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            self?.resumeAnimations()
+        }
+        let resignKeyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            self?.pauseAnimations()
+        }
+        notificationObservers = [keyObserver, resignKeyObserver]
+
+        // Start in correct state
+        if window.isKeyWindow {
+            resumeAnimations()
+        } else {
+            pauseAnimations()
+        }
+    }
+
+    private func pauseAnimations() {
+        blinkEnabled = false
+        blinkTask?.cancel()
+        bodyLayer.removeAnimation(forKey: "breathing")
+    }
+
+    private func resumeAnimations() {
+        blinkEnabled = true
+        startBlinkTimer()
+        startBreathing()
     }
 
     private func performBlink() {
