@@ -409,24 +409,11 @@ struct SettingsDeveloperTab: View {
             inlineUpgradeError = "No assistant selected"
             return
         }
-        let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
-        guard let token = SessionTokenManager.getToken(), !token.isEmpty else {
+        guard var request = GatewayHTTPClient.buildRequest(assistant: assistant, path: "upgrade", method: "POST") else {
             inlineUpgradeError = "Not authenticated"
             return
         }
-        guard let url = URL(string: "\(baseURL)/v1/assistants/upgrade/") else {
-            inlineUpgradeError = "Unable to start upgrade"
-            return
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 30
-        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
-            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
-        }
 
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
@@ -449,17 +436,12 @@ struct SettingsDeveloperTab: View {
 
     private func fetchHealthz() async {
         guard let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) else { return }
-        let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
-        guard let token = SessionTokenManager.getToken(), !token.isEmpty else { return }
-        guard let url = URL(string: "\(baseURL)/v1/assistants/\(assistant.assistantId)/healthz/") else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.timeoutInterval = 10
-        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
-        if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
-            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
-        }
+        guard let request = GatewayHTTPClient.buildRequest(
+            assistant: assistant,
+            path: "\(assistant.assistantId)/healthz",
+            method: "GET",
+            timeout: 10
+        ) else { return }
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
