@@ -319,5 +319,9 @@ public enum SFSymbolMapping {
         // HTTP / Composition
         "app.fill": .layoutGrid,
         "shippingbox.fill": .package,
+
+        // Dice / Random
+        "dice": .dices,
+        "dice.fill": .dices,
     ]
 }

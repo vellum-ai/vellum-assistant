@@ -191,6 +191,7 @@ public enum VIcon: String, CaseIterable, Sendable {
     case star = "lucide-star"
     case lightbulb = "lucide-lightbulb"
     case shoppingCart = "lucide-shopping-cart"
+    case dices = "lucide-dices"
     case gamepad = "lucide-gamepad-2"
     case map = "lucide-map"
     case heart = "lucide-heart"
