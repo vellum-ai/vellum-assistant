@@ -53,17 +53,12 @@ public final class ChatAttachmentManager: ObservableObject {
         didSet { isLoadingAttachment = loadingCount > 0 }
     }
 
-    /// Limits concurrent attachment I/O. Each attachment can consume up to ~27 MB
-    /// (20 MB raw + base64 overhead), so 4 concurrent loads keeps peak under ~108 MB.
+    /// Limits concurrent attachment I/O to keep memory usage reasonable.
     private static let maxConcurrentLoads = 4
     private let loadSemaphore = AsyncSemaphore(value: maxConcurrentLoads)
 
     // MARK: - Limits
 
-    /// Client-side attachment cap aligned with the daemon's per-attachment limit
-    /// (MAX_UPLOAD_BYTES = 20 MB in attachments-store.ts). The daemon's HTTP body
-    /// limit is 30 MB (MAX_UPLOAD_BODY_BYTES) to accommodate base64 overhead.
-    nonisolated static let maxFileSize = 20 * 1024 * 1024
     /// Maximum image size before compression (4 MB - leaves headroom for base64 encoding).
     /// Anthropic has a 5 MB limit per image; base64 encoding adds ~33% overhead.
     nonisolated static let maxImageSize = 4 * 1024 * 1024
@@ -172,11 +167,6 @@ public final class ChatAttachmentManager: ObservableObject {
                 return Result<ChatAttachment, AttachmentError>.failure(.message("Could not read file."))
             }
 
-            guard data.count <= Self.maxFileSize else {
-                let sizeMB = data.count / (1024 * 1024)
-                return .failure(.message("File is \(sizeMB) MB — too large to attach safely."))
-            }
-
             let filename = url.lastPathComponent
             var mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
 
@@ -282,11 +272,6 @@ public final class ChatAttachmentManager: ObservableObject {
             #else
             #error("Unsupported platform")
             #endif
-
-            guard pngData.count <= Self.maxFileSize else {
-                let sizeMB = pngData.count / (1024 * 1024)
-                return .failure(.message("Image is \(sizeMB) MB — too large to attach safely."))
-            }
 
             // Compress image if needed
             let (finalData, wasCompressed) = Self.compressImageIfNeeded(data: pngData, maxSize: Self.maxImageSize)

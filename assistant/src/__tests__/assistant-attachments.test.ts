@@ -9,7 +9,6 @@ import {
   drainDirectiveDisplayBuffer,
   estimateBase64Bytes,
   inferMimeType,
-  MAX_ASSISTANT_ATTACHMENT_BYTES,
   validateDrafts,
 } from "../daemon/assistant-attachments.js";
 
@@ -148,20 +147,6 @@ describe("validateDrafts", () => {
     expect(result.warnings).toHaveLength(0);
   });
 
-  test("rejects oversized attachments", () => {
-    const drafts = [
-      makeDraft({
-        filename: "big.bin",
-        sizeBytes: MAX_ASSISTANT_ATTACHMENT_BYTES + 1,
-      }),
-    ];
-    const result = validateDrafts(drafts);
-    expect(result.accepted).toHaveLength(0);
-    expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0]).toContain("big.bin");
-    expect(result.warnings[0]).toContain("exceeds");
-  });
-
   test("accepts many drafts without count limit", () => {
     const drafts = Array.from({ length: 20 }, (_, i) =>
       makeDraft({ filename: `file-${i}.txt` }),
@@ -169,22 +154,6 @@ describe("validateDrafts", () => {
     const result = validateDrafts(drafts);
     expect(result.accepted).toHaveLength(20);
     expect(result.warnings).toHaveLength(0);
-  });
-
-  test("rejects oversized while accepting all valid drafts", () => {
-    const drafts = [
-      makeDraft({
-        filename: "big.bin",
-        sizeBytes: MAX_ASSISTANT_ATTACHMENT_BYTES + 1,
-      }),
-      ...Array.from({ length: 10 }, (_, i) =>
-        makeDraft({ filename: `ok-${i}.txt` }),
-      ),
-    ];
-    const result = validateDrafts(drafts);
-    expect(result.accepted).toHaveLength(10);
-    expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0]).toContain("big.bin");
   });
 
   test("returns empty accepted for empty input", () => {

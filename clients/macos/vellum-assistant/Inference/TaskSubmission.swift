@@ -18,8 +18,6 @@ struct TaskAttachment: Identifiable {
     let data: Data
     let extractedText: String?
 
-    /// Aligned with the daemon's per-attachment limit (MAX_UPLOAD_BYTES = 20 MB).
-    static let maxAttachmentBytes = 20 * 1024 * 1024
     static let maxExtractedChars = 8_000
     private static let unsupportedOfficeMimeTypes: Set<String> = [
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -53,27 +51,7 @@ struct TaskAttachment: Identifiable {
         }
         let kind: TaskAttachmentKind = extensionMimeType.hasPrefix("image/") ? .image : .document
 
-        // Preflight size check to avoid reading very large files into memory.
-        do {
-            let resourceValues = try url.resourceValues(forKeys: [.fileSizeKey])
-            if let declaredSize = resourceValues.fileSize, declaredSize > maxAttachmentBytes {
-                throw NSError(domain: "TaskAttachment", code: 1, userInfo: [
-                    NSLocalizedDescriptionKey: "\(fileName) is too large to attach (\(declaredSize / (1024 * 1024)) MB)."
-                ])
-            }
-        } catch let error as NSError where error.domain == "TaskAttachment" {
-            throw error
-        } catch {
-            log.warning("Could not read file size for '\(fileName)': \(error)")
-        }
-
         let data = try Data(contentsOf: url)
-
-        guard data.count <= maxAttachmentBytes else {
-            throw NSError(domain: "TaskAttachment", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "\(fileName) is too large to attach (\(data.count / (1024 * 1024)) MB)."
-            ])
-        }
 
         let mimeType = try Self.validateMimeType(fileName: fileName, expectedMimeType: extensionMimeType, data: data)
         let extractedText = kind == .document ? Self.extractText(data: data, mimeType: mimeType) : nil
@@ -90,12 +68,6 @@ struct TaskAttachment: Identifiable {
     }
 
     static func fromPastedImage(_ data: Data, fileName: String = "pasted-image.png", mimeType: String = "image/png") throws -> TaskAttachment {
-        guard data.count <= maxAttachmentBytes else {
-            throw NSError(domain: "TaskAttachment", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "Pasted image is too large (\(data.count / (1024 * 1024)) MB)."
-            ])
-        }
-
         return TaskAttachment(
             id: UUID(),
             fileName: fileName,

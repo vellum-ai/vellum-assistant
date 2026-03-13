@@ -45,7 +45,6 @@ import {
   getAttachmentsForMessage,
   isValidBase64,
   linkAttachmentToMessage,
-  MAX_UPLOAD_BYTES,
   uploadAttachment,
   validateAttachmentUpload,
 } from "../memory/attachments-store.js";
@@ -145,17 +144,6 @@ describe("uploadAttachment", () => {
     expect(second.id).not.toBe(first.id);
   });
 
-  test("rejects payloads exceeding MAX_UPLOAD_BYTES", () => {
-    // Build a base64 string that decodes to just over the limit.
-    // 4 base64 chars → 3 bytes, so we need ceil((MAX_UPLOAD_BYTES+1)/3)*4 chars.
-    const oversizedLength = Math.ceil((MAX_UPLOAD_BYTES + 1) / 3) * 4;
-    const oversizedData = "A".repeat(oversizedLength);
-
-    expect(() =>
-      uploadAttachment("huge.bin", "application/octet-stream", oversizedData),
-    ).toThrow(AttachmentUploadError);
-  });
-
   test("rejects invalid base64 data", () => {
     expect(() =>
       uploadAttachment("bad.txt", "text/plain", "!!!not-base64!!!"),
@@ -165,17 +153,6 @@ describe("uploadAttachment", () => {
   test("accepts base64 with non-standard padding/length", () => {
     // Lenient on length — only character set is validated
     expect(() => uploadAttachment("ok.txt", "text/plain", "AAA")).not.toThrow();
-  });
-
-  test("accepts payload exactly at MAX_UPLOAD_BYTES", () => {
-    // MAX_UPLOAD_BYTES (20 MB) is divisible by 3, so (MAX/3)*4 base64 chars
-    // decodes to exactly MAX bytes with no padding.
-    const exactLength = (MAX_UPLOAD_BYTES / 3) * 4;
-    const exactData = "A".repeat(exactLength);
-
-    expect(() =>
-      uploadAttachment("exact.bin", "application/octet-stream", exactData),
-    ).not.toThrow();
   });
 });
 
