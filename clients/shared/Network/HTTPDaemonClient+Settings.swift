@@ -98,7 +98,7 @@ extension HTTPTransport {
 
             // --- Suggestion ---
             if let msg = message as? SuggestionRequest {
-                Task { await self.sendEncodablePost(.suggestion, body: msg, label: "suggestion_request") }
+                Task { await self.sendSuggestionGetAndDispatch(sessionId: msg.sessionId, requestId: msg.requestId) }
                 return true
             }
 
@@ -429,6 +429,50 @@ extension HTTPTransport {
             onMessage?(serverMessage)
         } catch {
             log.error("channel_verification_status error: \(error.localizedDescription)")
+        }
+    }
+
+    /// Fetch a follow-up suggestion via GET and dispatch the response through
+    /// the message handler chain so `suggestionResponse` fires in the view model.
+    private func sendSuggestionGetAndDispatch(sessionId: String, requestId: String) async {
+        guard var url = buildURL(for: .suggestion) else {
+            log.error("Failed to build URL for suggestion_request")
+            return
+        }
+        if var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            var items = components.queryItems ?? []
+            items.append(URLQueryItem(name: "conversationKey", value: sessionId))
+            components.queryItems = items
+            if let resolved = components.url {
+                url = resolved
+            }
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if !(200...299).contains(http.statusCode) {
+                log.error("suggestion_request failed: \(http.statusCode)")
+                return
+            }
+
+            guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                log.error("suggestion_request: failed to parse response JSON")
+                return
+            }
+            json["type"] = "suggestion_response"
+            json["requestId"] = requestId
+            let enriched = try JSONSerialization.data(withJSONObject: json)
+            let serverMessage = try decoder.decode(ServerMessage.self, from: enriched)
+            onMessage?(serverMessage)
+        } catch {
+            log.error("suggestion_request error: \(error.localizedDescription)")
         }
     }
 }
