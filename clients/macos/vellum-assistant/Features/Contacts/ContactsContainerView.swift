@@ -75,18 +75,28 @@ struct ContactsContainerView: View {
                     }
                 case .contact(let contactId):
                     if let contact = viewModel.contacts.first(where: { $0.id == contactId }) {
-                        ContactDetailView(
-                            contact: contact,
-                            daemonClient: daemonClient,
-                            store: store,
-                            onDelete: {
-                                selection = .assistant
-                                viewModel.loadContacts()
-                            },
-                            guardianName: viewModel.guardianContact?.displayName
-                        )
-                        .id(contactId)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        if contact.role == "guardian" {
+                            GuardianChannelsDetailView(
+                                contact: contact,
+                                daemonClient: daemonClient,
+                                store: store
+                            )
+                            .id(contactId)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        } else {
+                            ContactDetailView(
+                                contact: contact,
+                                daemonClient: daemonClient,
+                                store: store,
+                                onDelete: {
+                                    selection = .assistant
+                                    viewModel.loadContacts()
+                                },
+                                guardianName: viewModel.guardianContact?.displayName
+                            )
+                            .id(contactId)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        }
                     }
                 case nil:
                     // True empty state — contacts loaded but none selected

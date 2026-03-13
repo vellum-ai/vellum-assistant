@@ -1,4 +1,3 @@
-import Combine
 import SwiftUI
 import VellumAssistantShared
 
@@ -7,8 +6,6 @@ import VellumAssistantShared
 @MainActor
 struct ContactDetailView: View {
     private static let allChannelTypes = ["telegram", "phone", "slack"]
-
-    private static let verificationSupportedChannels: Set<String> = ["telegram", "phone", "slack"]
 
     /// Channels that support 6-digit code invites from this view.
     private static let codeInviteChannels: Set<String> = ["telegram", "slack", "phone"]
@@ -48,12 +45,6 @@ struct ContactDetailView: View {
     @State private var inviteCopiedType: String?
     @State private var channelReadiness: [String: DaemonClient.ChannelReadinessInfo] = [:]
     @State private var readinessFetchFailed = false
-    @State private var verificationDestinationTexts: [String: String] = [:]
-    @State private var verificationCountdownNow: Date = Date()
-    @State private var verificationCountdownTimer: Timer?
-    /// Incremented whenever SettingsStore publishes a change, forcing SwiftUI to
-    /// re-evaluate channel verification state derived from the store.
-    @State private var verificationStoreRevision: Int = 0
     /// Monotonically increasing counter that correlates a verification attempt
     /// with its one-shot response / timeout so stale callbacks are ignored.
     @State private var verificationAttempt: UInt64 = 0
@@ -70,16 +61,9 @@ struct ContactDetailView: View {
     }
 
     var body: some View {
-        // Read verificationStoreRevision so SwiftUI tracks it; the .onReceive
-        // below increments it whenever SettingsStore publishes, forcing
-        // re-evaluation of channel verification state.
-        let _ = verificationStoreRevision
-
         ScrollView {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
-                if displayContact.role != "guardian" {
-                    headerSection
-                }
+                headerSection
                 channelsSection
             }
             .padding(VSpacing.xl)
@@ -99,18 +83,8 @@ struct ContactDetailView: View {
         }
         .onAppear {
             currentContact = contact
-            if contact.role == "guardian" {
-                startVerificationCountdownTimer()
-                // Refresh channel verification state for all supported channels
-                // so the view shows current status even if the user hasn't visited
-                // the Channels settings tab yet.
-                for channel in Self.verificationSupportedChannels {
-                    store?.refreshChannelVerificationStatus(channel: channel)
-                }
-            }
         }
         .onDisappear {
-            stopVerificationCountdownTimer()
             verificationTimeoutTask?.cancel()
             verificationTimeoutTask = nil
             verificationSuccessAnimationTask?.cancel()
@@ -123,9 +97,6 @@ struct ContactDetailView: View {
                 verificationInProgress = nil
             }
         }
-        .onReceive(store?.objectWillChange.map { _ in () }.eraseToAnyPublisher() ?? Empty().eraseToAnyPublisher()) { _ in
-            verificationStoreRevision += 1
-        }
     }
 
     // MARK: - Header Section
@@ -133,7 +104,7 @@ struct ContactDetailView: View {
     private var headerSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack {
-                if isEditing && displayContact.role != "guardian" {
+                if isEditing {
                     TextField("Display name", text: $editedName)
                         .font(VFont.largeTitle)
                         .foregroundColor(VColor.contentDefault)
@@ -176,23 +147,21 @@ struct ContactDetailView: View {
                     .animation(VAnimation.fast, value: isHoveringHeader)
                     .accessibilityLabel("Edit contact")
 
-                    if displayContact.role != "guardian" {
-                        Button(action: { showDeleteConfirmation = true }) {
-                            if isDeleting {
-                                ProgressView()
-                                    .controlSize(.small)
-                            } else {
-                                VIconView(.trash, size: 14)
-                                    .foregroundColor(VColor.systemNegativeStrong)
-                            }
+                    Button(action: { showDeleteConfirmation = true }) {
+                        if isDeleting {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            VIconView(.trash, size: 14)
+                                .foregroundColor(VColor.systemNegativeStrong)
                         }
-                        .buttonStyle(.plain)
-                        .disabled(isDeleting || actionInProgress != nil || verificationInProgress != nil)
-                        .help("Delete contact")
-                        .opacity(isHoveringHeader ? 1 : 0)
-                        .animation(VAnimation.fast, value: isHoveringHeader)
-                        .accessibilityLabel("Delete contact")
                     }
+                    .buttonStyle(.plain)
+                    .disabled(isDeleting || actionInProgress != nil || verificationInProgress != nil)
+                    .help("Delete contact")
+                    .opacity(isHoveringHeader ? 1 : 0)
+                    .animation(VAnimation.fast, value: isHoveringHeader)
+                    .accessibilityLabel("Delete contact")
                 }
             }
 
@@ -399,12 +368,7 @@ struct ContactDetailView: View {
                 Spacer()
             }
 
-            // Guardian contacts get the full channel verification flow; others get standard actions
-            if displayContact.role == "guardian" {
-                channelVerificationActions(for: channel)
-            } else {
-                channelActions(for: channel)
-            }
+            channelActions(for: channel)
         }
     }
 
@@ -430,30 +394,7 @@ struct ContactDetailView: View {
                 Spacer()
             }
 
-            // Guardian contacts get the full channel verification flow; others get invite button
-            if displayContact.role == "guardian" {
-                if Self.verificationSupportedChannels.contains(type), let store {
-                    let state = store.channelVerificationState(for: type)
-                    let destinationBinding = Binding<String>(
-                        get: { verificationDestinationTexts[type] ?? "" },
-                        set: { verificationDestinationTexts[type] = $0 }
-                    )
-                    ChannelVerificationFlowView(
-                        state: state,
-                        countdownNow: $verificationCountdownNow,
-                        destinationText: destinationBinding,
-                        onStartOutbound: { dest in store.startOutboundVerification(channel: type, destination: dest) },
-                        onResend: { store.resendOutboundVerification(channel: type) },
-                        onCancelOutbound: { store.cancelOutboundVerification(channel: type) },
-                        onRevoke: { store.revokeChannelVerification(channel: type) },
-                        onStartSession: { rebind in store.startChannelVerification(channel: type, rebind: rebind) },
-                        onCancelSession: { store.cancelVerificationSession(channel: type) },
-                        botUsername: store.telegramBotUsername,
-                        phoneNumber: store.twilioPhoneNumber,
-                        showLabel: false
-                    )
-                }
-            } else if Self.codeInviteChannels.contains(type) {
+            if Self.codeInviteChannels.contains(type) {
                 if inviteInProgress == type {
                     ProgressView()
                         .controlSize(.small)
@@ -707,52 +648,6 @@ struct ContactDetailView: View {
         }
     }
 
-    // MARK: - Channel Verification Actions
-
-    @ViewBuilder
-    private func channelVerificationActions(for channel: ContactChannelPayload) -> some View {
-        if Self.verificationSupportedChannels.contains(channel.type), let store {
-            let state = store.channelVerificationState(for: channel.type)
-            let destinationBinding = Binding<String>(
-                get: { verificationDestinationTexts[channel.type] ?? "" },
-                set: { verificationDestinationTexts[channel.type] = $0 }
-            )
-
-            ChannelVerificationFlowView(
-                state: state,
-                countdownNow: $verificationCountdownNow,
-                destinationText: destinationBinding,
-                onStartOutbound: { dest in store.startOutboundVerification(channel: channel.type, destination: dest) },
-                onResend: { store.resendOutboundVerification(channel: channel.type) },
-                onCancelOutbound: { store.cancelOutboundVerification(channel: channel.type) },
-                onRevoke: { store.revokeChannelVerification(channel: channel.type) },
-                onStartSession: { rebind in store.startChannelVerification(channel: channel.type, rebind: rebind) },
-                onCancelSession: { store.cancelVerificationSession(channel: channel.type) },
-                botUsername: store.telegramBotUsername,
-                phoneNumber: store.twilioPhoneNumber,
-                showLabel: false
-            )
-        }
-        // Email and other unsupported channel types: show nothing (display-only)
-    }
-
-    // MARK: - Verification Countdown Timer
-
-    private func startVerificationCountdownTimer() {
-        guard verificationCountdownTimer == nil else { return }
-        verificationCountdownNow = Date()
-        verificationCountdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            Task { @MainActor in
-                verificationCountdownNow = Date()
-            }
-        }
-    }
-
-    private func stopVerificationCountdownTimer() {
-        verificationCountdownTimer?.invalidate()
-        verificationCountdownTimer = nil
-    }
-
     // MARK: - Status Badge
 
     @ViewBuilder
@@ -843,8 +738,7 @@ struct ContactDetailView: View {
     // MARK: - Actions
 
     private func saveCardEdits() async {
-        let isGuardian = displayContact.role == "guardian"
-        let trimmedName = isGuardian ? displayContact.displayName : editedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedName = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else { return }
         let trimmedNotes = editedNotes.trimmingCharacters(in: .whitespacesAndNewlines)
 
