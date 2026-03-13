@@ -488,6 +488,12 @@ extension AppDelegate {
         lastRegisteredZoomResetShortcut = zoomReset
     }
 
+    /// Returns a display string for a shortcut stored in UserDefaults, or `nil` if the shortcut is unbound.
+    private func shortcutHint(forKey key: String, default defaultShortcut: String) -> String? {
+        let shortcut = UserDefaults.standard.string(forKey: key) ?? defaultShortcut
+        return shortcut.isEmpty ? nil : ShortcutHelper.displayString(for: shortcut)
+    }
+
     func toggleCommandPalette() {
         if let window = commandPaletteWindow, window.isVisible {
             window.dismiss()
@@ -498,7 +504,7 @@ extension AppDelegate {
 
         // Static actions
         window.actions = [
-            CommandPaletteAction(id: "new-conversation", icon: VIcon.squarePen.rawValue, label: "New Conversation", shortcutHint: "\u{2318}N") { [weak self] in
+            CommandPaletteAction(id: "new-conversation", icon: VIcon.squarePen.rawValue, label: "New Conversation", shortcutHint: shortcutHint(forKey: "newThreadShortcut", default: "cmd+n")) { [weak self] in
                 self?.mainWindow?.threadManager.createThread()
                 if let id = self?.mainWindow?.threadManager.activeThreadId {
                     self?.mainWindow?.windowState.selection = .thread(id)
@@ -513,19 +519,19 @@ extension AppDelegate {
             CommandPaletteAction(id: "intelligence", icon: VIcon.brain.rawValue, label: "Intelligence", shortcutHint: nil) { [weak self] in
                 self?.mainWindow?.windowState.showPanel(.intelligence)
             },
-            CommandPaletteAction(id: "navigate-back", icon: VIcon.chevronLeft.rawValue, label: "Back", shortcutHint: "\u{2318}[") { [weak self] in
+            CommandPaletteAction(id: "navigate-back", icon: VIcon.chevronLeft.rawValue, label: "Back", shortcutHint: shortcutHint(forKey: "navigateBackShortcut", default: "cmd+[")) { [weak self] in
                 self?.mainWindow?.windowState.navigateBack()
             },
-            CommandPaletteAction(id: "navigate-forward", icon: VIcon.chevronRight.rawValue, label: "Forward", shortcutHint: "\u{2318}]") { [weak self] in
+            CommandPaletteAction(id: "navigate-forward", icon: VIcon.chevronRight.rawValue, label: "Forward", shortcutHint: shortcutHint(forKey: "navigateForwardShortcut", default: "cmd+]")) { [weak self] in
                 self?.mainWindow?.windowState.navigateForward()
             },
-            CommandPaletteAction(id: "zoom-in", icon: VIcon.zoomIn.rawValue, label: "Zoom In", shortcutHint: "\u{2318}+") { [weak self] in
+            CommandPaletteAction(id: "zoom-in", icon: VIcon.zoomIn.rawValue, label: "Zoom In", shortcutHint: shortcutHint(forKey: "zoomInShortcut", default: "cmd+=")) { [weak self] in
                 self?.zoomManager.zoomIn()
             },
-            CommandPaletteAction(id: "zoom-out", icon: VIcon.zoomOut.rawValue, label: "Zoom Out", shortcutHint: "\u{2318}-") { [weak self] in
+            CommandPaletteAction(id: "zoom-out", icon: VIcon.zoomOut.rawValue, label: "Zoom Out", shortcutHint: shortcutHint(forKey: "zoomOutShortcut", default: "cmd+-")) { [weak self] in
                 self?.zoomManager.zoomOut()
             },
-            CommandPaletteAction(id: "zoom-reset", icon: VIcon.search.rawValue, label: "Actual Size", shortcutHint: "\u{2318}0") { [weak self] in
+            CommandPaletteAction(id: "zoom-reset", icon: VIcon.search.rawValue, label: "Actual Size", shortcutHint: shortcutHint(forKey: "zoomResetShortcut", default: "cmd+0")) { [weak self] in
                 self?.zoomManager.resetZoom()
             },
         ]
