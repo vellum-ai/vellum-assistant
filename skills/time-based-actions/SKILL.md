@@ -13,7 +13,7 @@ Quick-reference decision guide for choosing the right tool when users ask about 
 ## Decision Tree
 
 1. **Does the request have a specific future time AND should fire only once?**
-   - YES -> `reminder_create`
+   - YES -> `schedule_create` with `fire_at` and `mode: "notify"` (for simple reminders) or `mode: "execute"` (for assistant-driven tasks)
    - Examples: "remind me at 3pm", "remind me in 5 minutes", "alert me tomorrow at 9am"
 
 2. **Does the request have a recurring pattern?**
@@ -31,19 +31,21 @@ Quick-reference decision guide for choosing the right tool when users ask about 
 ## Critical Warning: `send_notification` is IMMEDIATE-ONLY
 
 `send_notification` fires **instantly** when called. It has **NO delay, scheduling, or future-time capability**. NEVER use it for:
-- "Remind me in 5 minutes" -> use `reminder_create`
-- "Alert me at 3pm" -> use `reminder_create`
-- "Notify me tomorrow" -> use `reminder_create`
+
+- "Remind me in 5 minutes" -> use `schedule_create` with `fire_at`
+- "Alert me at 3pm" -> use `schedule_create` with `fire_at`
+- "Notify me tomorrow" -> use `schedule_create` with `fire_at`
 
 If you use `send_notification` for any of these, the notification fires immediately and the user misses their intended reminder.
 
 ## Critical Warning: `task_list_add` has NO time trigger
 
-`task_list_add` creates a work queue item. It does **NOT** fire at a specific time. NEVER use it as a workaround for delayed notifications. If the user wants a timed alert, use `reminder_create`.
+`task_list_add` creates a work queue item. It does **NOT** fire at a specific time. NEVER use it as a workaround for delayed notifications. If the user wants a timed alert, use `schedule_create` with `fire_at`.
 
 ## Time Grounding Source
 
 Use the injected `<temporal_context>` block as the authoritative clock source:
+
 - `Current UTC time` is the canonical current instant (from assistant host clock).
 - `Current local time` + `Timezone` are the active local-calendar interpretation.
 - `User timezone` + `Timezone source` tell you whether local-time interpretation is user-specific or host fallback.
@@ -54,10 +56,11 @@ If the user confirms a timezone, suggest saving it in Settings -> Appearance -> 
 ## Relative Time Parsing
 
 When the user says "in X minutes/hours", compute the ISO 8601 timestamp yourself:
+
 - Take `Current UTC time` (or `Current local time` in the active `Timezone`)
 - Add the offset
 - Format as ISO 8601 with timezone: `2025-03-15T09:05:00-05:00`
-- Pass to `reminder_create` as `fire_at`
+- Pass to `schedule_create` as `fire_at`
 
 ### Anchored & Ambiguous Relative Time
 
@@ -77,6 +80,7 @@ Phrases like "at the 45 minute mark", "at the top of the hour", "on the half-hou
 3. **Ask only if truly ambiguous** — if neither rule 1 nor rule 2 resolves, ask: "Do you mean [clock time] or [X minutes from now]?" Never silently default to "from now."
 
 **Examples:**
+
 - "meeting started at 2:10, remind me at the 45 minute mark" → 2:55 PM (start + 45 min)
 - "20 minutes in, I started at 2pm" → 2:20 PM (start + 20 min)
 - "at the 45 min mark" (no start time, now: 9:39) → 9:45 AM (wall-clock)
@@ -89,24 +93,27 @@ Phrases like "at the 45 minute mark", "at the top of the hour", "on the half-hou
 
 The word "remind" is ambiguous. Route based on whether a time is specified:
 
-| User says | Time present? | Tool |
-|-----------|--------------|------|
-| "Remind me to buy milk" | No | `task_list_add` |
-| "Remind me to buy milk at 5pm" | Yes | `reminder_create` |
-| "Remind me in 10 minutes to check the oven" | Yes (relative) | `reminder_create` |
-| "Remind me every morning to take vitamins" | Yes (recurring) | `schedule_create` |
+| User says                                   | Time present?   | Tool                                                |
+| ------------------------------------------- | --------------- | --------------------------------------------------- |
+| "Remind me to buy milk"                     | No              | `task_list_add`                                     |
+| "Remind me to buy milk at 5pm"              | Yes             | `schedule_create` with `fire_at`, `mode: "notify"`  |
+| "Remind me in 10 minutes to check the oven" | Yes (relative)  | `schedule_create` with `fire_at`, `mode: "notify"`  |
+| "Remind me every morning to take vitamins"  | Yes (recurring) | `schedule_create`                                   |
+| "At 5pm, check my email and summarize it"   | Yes             | `schedule_create` with `fire_at`, `mode: "execute"` |
 
-## Reminder Modes
+## Schedule Modes
 
-`reminder_create` supports two modes:
-- **`notify`** (default) — shows a notification to the user when the reminder fires
-- **`execute`** — sends the reminder message to a background assistant conversation for autonomous handling
+`schedule_create` supports two modes via the `mode` parameter:
 
-Use `notify` for simple alerts. Use `execute` when the reminder should trigger the assistant to do something (e.g., "in 30 minutes, check if the build passed").
+- **`execute`** (default) — sends the schedule's message to a background assistant conversation for autonomous handling
+- **`notify`** — sends a notification to the user via the notification pipeline. No assistant processing occurs.
 
-## Reminder Routing
+**Important:** For simple reminder-style requests ("remind me at 3pm"), always set `mode: "notify"`. The default `execute` mode runs a background assistant message, which is not what users expect for simple reminders. Use `execute` when the reminder should trigger the assistant to do something (e.g., "in 30 minutes, check if the build passed").
 
-`reminder_create` supports a `routing_intent` parameter that controls how the reminder is delivered at trigger time:
+## Schedule Routing (notify mode)
+
+Control how notify-mode schedules are delivered at trigger time with `routing_intent`:
+
 - **`single_channel`** — deliver to one best channel
 - **`multi_channel`** — deliver to a subset of channels
 - **`all_channels`** (default) — deliver to every available channel
@@ -128,18 +135,18 @@ Use the following heuristics to pick `routing_intent`:
 
 ### Examples
 
-| Scenario | routing_intent | routing_hints |
-|---|---|---|
-| User sets reminder from desktop app | `all_channels` | `{ preferred_channels: ["vellum"] }` |
-| User says "remind me on Telegram" | `single_channel` | `{ preferred_channels: ["telegram"] }` |
-| User sets reminder from Telegram | `all_channels` | `{ preferred_channels: ["telegram"] }` |
-| No channel preference expressed | `all_channels` | `{}` |
+| Scenario                              | routing_intent   | routing_hints                          |
+| ------------------------------------- | ---------------- | -------------------------------------- |
+| User sets reminder from desktop app   | `all_channels`   | `{ preferred_channels: ["vellum"] }`   |
+| User says "remind me on Telegram"     | `single_channel` | `{ preferred_channels: ["telegram"] }` |
+| User sets reminder from Telegram      | `all_channels`   | `{ preferred_channels: ["telegram"] }` |
+| No channel preference expressed       | `all_channels`   | `{}`                                   |
 
 ## Tool Summary
 
-| Tool | Timing | Recurrence | Purpose |
-|------|--------|------------|---------|
-| `reminder_create` | Future time (one-shot) | No | Timed notification or timed autonomous action |
-| `schedule_create` | Recurring pattern | Yes (cron/RRULE) | Recurring automated jobs |
-| `send_notification` | **Immediate only** | No | Alert the user right now |
-| `task_list_add` | **No time trigger** | No | Track work in the task queue |
+| Tool                | Timing                   | Recurrence          | Purpose                                                       |
+| ------------------- | ------------------------ | ------------------- | ------------------------------------------------------------- |
+| `schedule_create`   | Future time (one-shot)   | No (with `fire_at`) | Timed notification (`notify`) or timed action (`execute`)     |
+| `schedule_create`   | Recurring pattern        | Yes (cron/RRULE)    | Recurring automated jobs                                      |
+| `send_notification` | **Immediate only**       | No                  | Alert the user right now                                      |
+| `task_list_add`     | **No time trigger**      | No                  | Track work in the task queue                                  |
