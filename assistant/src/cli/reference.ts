@@ -10,6 +10,7 @@ Options:
   -h, --help                               display help for command
 
 Commands:
+  bash [options] <command>                 Execute a shell command through the daemon process for debugging
   sessions                                 Manage sessions
   config                                   Manage configuration
   keys                                     Manage API keys in secure storage
