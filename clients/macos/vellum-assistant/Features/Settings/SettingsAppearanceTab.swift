@@ -556,6 +556,14 @@ private struct ConfigurableShortcutRow: View {
                     .padding(.bottom, VSpacing.xs)
             }
         }
+        .onDisappear {
+            stopRecording()
+        }
+        .onChange(of: activeRecordingId) { _, newValue in
+            if newValue != registryId && (shortcutMonitor != nil || flagsMonitor != nil) {
+                stopRecording()
+            }
+        }
     }
 
     private func startRecording() {
