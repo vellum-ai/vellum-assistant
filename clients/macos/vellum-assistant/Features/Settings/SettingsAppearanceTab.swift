@@ -9,6 +9,7 @@ struct SettingsAppearanceTab: View {
     var afterTimezone: AnyView? = nil
     @AppStorage("themePreference") private var themePreference: String = "system"
     @State private var newAllowlistDomain = ""
+    @State private var isVideoDomainsExpanded: Bool = false
     @State private var isRecordingGlobalHotkey = false
     @State private var isRecordingQuickInputHotkey = false
     @State private var shortcutMonitor: Any?
@@ -296,49 +297,52 @@ struct SettingsAppearanceTab: View {
                 if store.mediaEmbedsEnabled {
                     SettingsDivider()
 
-                    Text("Video Domain Allowlist")
-                        .font(VFont.bodyBold)
-                        .foregroundColor(VColor.contentDefault)
+                    VDisclosureSection(
+                        title: "Video Domain Allowlist",
+                        isExpanded: $isVideoDomainsExpanded
+                    ) {
+                        VStack(alignment: .leading, spacing: VSpacing.sm) {
+                            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                                Text("Add Domain")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.contentTertiary)
 
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Add Domain")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
+                                HStack(spacing: VSpacing.sm) {
+                                    TextField("Add domain (e.g. example.com)", text: $newAllowlistDomain)
+                                        .vInputStyle()
+                                        .font(VFont.body)
+                                        .foregroundColor(VColor.contentDefault)
+                                        .onSubmit {
+                                            addAllowlistDomain()
+                                        }
 
-                        HStack(spacing: VSpacing.sm) {
-                            TextField("Add domain (e.g. example.com)", text: $newAllowlistDomain)
-                                .vInputStyle()
-                                .font(VFont.body)
-                                .foregroundColor(VColor.contentDefault)
-                                .onSubmit {
-                                    addAllowlistDomain()
+                                    VButton(label: "Add", style: .primary, isDisabled: newAllowlistDomain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                                        addAllowlistDomain()
+                                    }
                                 }
+                            }
 
-                            VButton(label: "Add", style: .primary, isDisabled: newAllowlistDomain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
-                                addAllowlistDomain()
+                            ForEach(store.mediaEmbedVideoAllowlistDomains, id: \.self) { domain in
+                                HStack {
+                                    Text(domain)
+                                        .font(VFont.body)
+                                        .foregroundColor(VColor.contentDefault)
+                                        .textSelection(.enabled)
+                                    Spacer()
+                                    VButton(label: "Remove domain", iconOnly: VIcon.trash.rawValue, style: .danger) {
+                                        var domains = store.mediaEmbedVideoAllowlistDomains
+                                        domains.removeAll { $0 == domain }
+                                        store.setMediaEmbedVideoAllowlistDomains(domains)
+                                    }
+                                }
+                                .padding(.horizontal, VSpacing.md)
+                                .padding(.vertical, VSpacing.sm)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: VRadius.lg)
+                                        .strokeBorder(VColor.borderBase, lineWidth: 1)
+                                )
                             }
                         }
-                    }
-
-                    ForEach(store.mediaEmbedVideoAllowlistDomains, id: \.self) { domain in
-                        HStack {
-                            Text(domain)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.contentDefault)
-                                .textSelection(.enabled)
-                            Spacer()
-                            VButton(label: "Remove domain", iconOnly: VIcon.trash.rawValue, style: .danger) {
-                                var domains = store.mediaEmbedVideoAllowlistDomains
-                                domains.removeAll { $0 == domain }
-                                store.setMediaEmbedVideoAllowlistDomains(domains)
-                            }
-                        }
-                        .padding(.horizontal, VSpacing.md)
-                        .padding(.vertical, VSpacing.sm)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.lg)
-                                .strokeBorder(VColor.borderBase, lineWidth: 1)
-                        )
                     }
                 }
             }
