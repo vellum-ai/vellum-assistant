@@ -97,6 +97,7 @@ export { migrateMemoryItemSupersession } from "./152-memory-item-supersession.js
 export { migrateDropEntityTables } from "./153-drop-entity-tables.js";
 export { migrateDropMemorySegmentFts } from "./154-drop-fts.js";
 export { migrateDropConflicts } from "./155-drop-conflicts.js";
+export { migrateCallSessionInviteMetadata } from "./156-call-session-invite-metadata.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

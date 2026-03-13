@@ -99,28 +99,24 @@ export function routeSetup(ctx: SetupContext): {
     actorTrust,
   };
 
-  // ── Outbound invite redemption ────────────────────────────────────
-  if (!isInbound && ctx.customParameters?.inviteRedemptionMode === "true") {
-    const fromNumber = ctx.customParameters
-      .inviteRedemptionFromNumber as string;
-    const friendName = ctx.customParameters
-      .inviteRedemptionFriendName as string;
-    const guardianName = ctx.customParameters
-      .inviteRedemptionGuardianName as string;
+  // ── Outbound flow selection based on persisted call mode ──────────
+  const persistedMode = ctx.session?.callMode;
+
+  // ── Outbound invite redemption (persisted mode) ─────────────────
+  if (persistedMode === "invite") {
     return {
       outcome: {
         action: "invite_redemption" as const,
         assistantId,
-        fromNumber,
-        friendName,
-        guardianName,
+        fromNumber: ctx.to,
+        friendName: ctx.session?.inviteFriendName ?? null,
+        guardianName: ctx.session?.inviteGuardianName ?? null,
       },
       resolved,
     };
   }
 
   // ── Outbound guardian verification (persisted mode) ──────────────
-  const persistedMode = ctx.session?.callMode;
   const persistedVsId = ctx.session?.verificationSessionId;
   const customParamVsId = ctx.customParameters?.verificationSessionId;
   const verificationSessionId = persistedVsId ?? customParamVsId;
