@@ -83,8 +83,7 @@ public final class ChatAttachmentManager: ObservableObject {
 
     public func addAttachment(url: URL) {
         // Move file reading, compression, and thumbnail generation off the main
-        // thread — Data(contentsOf:) is a blocking syscall that can stall the UI
-        // for up to 20 MB worth of I/O before we even begin image processing.
+        // thread — Data(contentsOf:) is a blocking syscall that can stall the UI.
         loadingCount += 1
         Task {
             defer { self.loadingCount -= 1 }
