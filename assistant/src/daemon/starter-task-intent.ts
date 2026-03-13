@@ -13,6 +13,13 @@ export type StarterTaskIntentResult =
       rewrittenContent: string;
     };
 
+/** Known starter task IDs — must match the playbooks in onboarding-starter-tasks SKILL.md. */
+const KNOWN_TASK_IDS = new Set([
+  "make_it_yours",
+  "research_topic",
+  "research_to_ui",
+]);
+
 /** Pattern matching `[STARTER_TASK:<task_id>]` kickoff messages. */
 const STARTER_TASK_PATTERN = /^\[STARTER_TASK:(\w+)\]$/;
 
@@ -33,6 +40,10 @@ export function resolveStarterTaskIntent(
   }
 
   const taskId = match[1];
+
+  if (!KNOWN_TASK_IDS.has(taskId)) {
+    return { kind: "none" };
+  }
 
   const lines = [
     `The user clicked the "${taskId}" starter task card.`,

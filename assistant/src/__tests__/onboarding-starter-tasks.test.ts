@@ -119,6 +119,16 @@ describe("resolveStarterTaskIntent", () => {
     );
     expect(result.kind).toBe("starter_task");
   });
+
+  test("returns none for unknown task IDs", () => {
+    const result = resolveStarterTaskIntent("[STARTER_TASK:foo]");
+    expect(result.kind).toBe("none");
+  });
+
+  test("returns none for typo in task ID", () => {
+    const result = resolveStarterTaskIntent("[STARTER_TASK:make_it_your]");
+    expect(result.kind).toBe("none");
+  });
 });
 
 // ---------------------------------------------------------------------------
