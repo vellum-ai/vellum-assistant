@@ -19,6 +19,7 @@ struct ChannelVerificationFlowView: View {
     let onRevoke: () -> Void
     let onStartSession: (Bool) -> Void
     let onCancelSession: () -> Void
+    var onCancel: (() -> Void)?
 
     // Optional layout/display parameters
     var botUsername: String?
@@ -395,10 +396,18 @@ struct ChannelVerificationFlowView: View {
                     .foregroundColor(VColor.contentTertiary)
             }
 
-            VButton(label: "Send", style: .outlined) {
-                onStartOutbound(destination)
+            HStack(spacing: VSpacing.sm) {
+                VButton(label: "Send", style: .outlined) {
+                    onStartOutbound(destination)
+                }
+                .disabled(destination.isEmpty)
+
+                if let onCancel {
+                    VButton(label: "Cancel", style: .outlined) {
+                        onCancel()
+                    }
+                }
             }
-            .disabled(destination.isEmpty)
         }
     }
 

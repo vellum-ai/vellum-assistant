@@ -163,6 +163,7 @@ struct GuardianChannelsDetailView: View {
                 onRevoke: { store.revokeChannelVerification(channel: type) },
                 onStartSession: { rebind in store.startChannelVerification(channel: type, rebind: rebind) },
                 onCancelSession: { store.cancelVerificationSession(channel: type) },
+                onCancel: { setupExpanded.remove(type) },
                 botUsername: store.telegramBotUsername,
                 phoneNumber: store.twilioPhoneNumber,
                 showLabel: false
