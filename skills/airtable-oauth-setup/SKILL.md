@@ -20,7 +20,7 @@ This skill follows the **Collaborative Guided Flow** pattern from the included `
 - **Provider key:** `integration:airtable`
 - **Dashboard:** `https://airtable.com/create/oauth`
 - **Ping URL:** `https://api.airtable.com/v0/meta/whoami`
-- **Callback transport:** Loopback (port 17322)
+- **Callback transport:** Loopback (port 17329)
 - **Token endpoint auth method:** secret via POST body
 - **Requires secret:** Yes (token endpoint needs both client ID and app secret)
 
@@ -62,23 +62,9 @@ Then:
 
 ### Step 3: Set Up Redirect URL
 
-Before this step, resolve the redirect URI:
-
-```
-bash:
-  command: assistant oauth providers list --provider-key "integration:airtable" --json
-```
-
-Check the `redirectUri` from `credential_store describe`:
-
-```
-credential_store describe:
-  service: "integration:airtable"
-```
-
-- If `redirectUri` says **"automatic"** or the callback transport is loopback with no ingress requirement, skip adding a redirect URL — tell the user: "The redirect URL is handled automatically for this setup, so we can skip this part."
-- If `redirectUri` mentions `ingress.publicBaseUrl` or says "not currently configured", stop and help the user configure public ingress first.
-- Otherwise, tell the user to find the **OAuth redirect URL** field, paste the URI, and save.
+> Find the **OAuth redirect URL** field, paste this URL, and save:
+>
+> `http://localhost:17329/oauth/callback`
 
 ---
 

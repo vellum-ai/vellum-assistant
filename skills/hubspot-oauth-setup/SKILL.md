@@ -20,7 +20,7 @@ This skill follows the **Collaborative Guided Flow** pattern from the included `
 - **Provider key:** `integration:hubspot`
 - **Dashboard:** `https://app.hubspot.com/developer`
 - **Ping URL:** `https://api.hubapi.com/crm/v3/objects/contacts?limit=1`
-- **Callback transport:** Loopback (port 17322)
+- **Callback transport:** Loopback (port 17330)
 - **Requires secret:** Yes (token endpoint needs both client ID and app secret)
 
 ## HubSpot-Specific Flow
@@ -82,18 +82,9 @@ If the user already has a developer account, skip to the next step.
 
 ### Step 6: Add Redirect URL
 
-Before this step, resolve the redirect URI:
-
-```
-credential_store describe:
-  service: "integration:hubspot"
-```
-
-- If `redirectUri` says **"automatic"** or the callback transport is loopback with no ingress requirement, skip adding a redirect URL — tell the user: "The redirect URL is handled automatically for this setup, so we can skip this part."
-- If `redirectUri` mentions `ingress.publicBaseUrl` or says "not currently configured", stop and help the user configure public ingress first.
-- Otherwise, tell the user:
-
-> On the **Auth** tab, find the **Redirect URLs** section. Click **Add URL**, paste the redirect URI, and click **Save**.
+> On the **Auth** tab, find the **Redirect URLs** section. Click **Add URL**, paste this URL, and click **Save**:
+>
+> `http://localhost:17330/oauth/callback`
 
 ---
 

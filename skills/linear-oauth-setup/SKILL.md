@@ -21,7 +21,7 @@ This skill follows the **Collaborative Guided Flow** pattern from the included `
 - **Auth URL:** `https://linear.app/oauth/authorize`
 - **Token URL:** `https://api.linear.app/oauth/token`
 - **Ping URL:** `https://api.linear.app/graphql`
-- **Callback transport:** Loopback (port 17322)
+- **Callback transport:** Loopback (port 17324)
 - **Requires secret:** Yes (token endpoint needs both client ID and secret)
 - **Extra params:** `prompt=consent`
 
@@ -53,16 +53,7 @@ After the user clicks:
 
 > Set the **Application name** to **Vellum Assistant**.
 
-Before filling in the redirect URL, resolve it:
-
-```
-credential_store describe:
-  service: "integration:linear"
-```
-
-- If `redirectUri` says **"automatic"** or the callback transport is loopback with no ingress requirement, tell the user: "For the **Redirect URL**, enter `http://localhost:17322/oauth/callback`."
-- If `redirectUri` mentions `ingress.publicBaseUrl` or says "not currently configured", stop and help the user configure public ingress first.
-- Otherwise, tell the user to paste the resolved redirect URI.
+> For the **Redirect URL**, enter `http://localhost:17324/oauth/callback`.
 
 > Now click **Create**.
 

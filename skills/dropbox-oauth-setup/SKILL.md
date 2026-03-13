@@ -20,7 +20,7 @@ This skill follows the **Collaborative Guided Flow** pattern from the included `
 - **Provider key:** `integration:dropbox`
 - **Dashboard:** `https://www.dropbox.com/developers/apps`
 - **Ping URL:** `https://api.dropboxapi.com/2/users/get_current_account` (POST, no body)
-- **Callback transport:** Loopback (port 17322)
+- **Callback transport:** Loopback (port 17327)
 - **Requires secret:** Yes (token endpoint needs both client ID and app secret)
 - **Extra params:** `token_access_type=offline`
 
@@ -98,29 +98,11 @@ Wait for the user to confirm all 4 scopes are enabled.
 
 ### Step 5: Set Up Redirect URI
 
-Before this step, resolve the redirect URI:
-
-```
-bash:
-  command: assistant oauth providers list --provider-key "integration:dropbox" --json
-```
-
-Check the `redirectUri` from `credential_store describe`:
-
-```
-credential_store describe:
-  service: "integration:dropbox"
-```
-
-- If `redirectUri` says **"automatic"** or the callback transport is loopback with no ingress requirement, skip adding a redirect URI — tell the user: "The redirect URL is handled automatically for this setup, so we can skip this part."
-- If `redirectUri` mentions `ingress.publicBaseUrl` or says "not currently configured", stop and help the user configure public ingress first.
-- Otherwise, tell the user:
-
 > Click the **Settings** tab. Scroll down to the **OAuth 2** section and find the **Redirect URIs** field.
 >
 > Paste this URI and click **Add**:
 >
-> `<redirect URI>`
+> `http://localhost:17327/oauth/callback`
 
 ---
 

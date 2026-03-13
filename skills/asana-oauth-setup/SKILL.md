@@ -20,7 +20,7 @@ This skill follows the **Collaborative Guided Flow** pattern from the included `
 - **Provider key:** `integration:asana`
 - **Dashboard:** `https://app.asana.com/0/my-apps`
 - **Ping URL:** `https://app.asana.com/api/1.0/users/me`
-- **Callback transport:** Loopback (port 17322)
+- **Callback transport:** Loopback (port 17328)
 - **Requires secret:** Yes (token endpoint needs both client ID and secret)
 - **Scopes:** `default` (Asana uses a single default scope)
 
@@ -62,20 +62,9 @@ After the user clicks:
 
 ### Step 3: Set Up Redirect URL
 
-Before this step, resolve the redirect URI:
-
-```
-credential_store describe:
-  service: "integration:asana"
-```
-
-- If `redirectUri` says **"automatic"** or the callback transport is loopback with no ingress requirement, skip adding a redirect URL — tell the user: "The redirect URL is handled automatically for this setup, so we can skip this part."
-- If `redirectUri` mentions `ingress.publicBaseUrl` or says "not currently configured", stop and help the user configure public ingress first.
-- Otherwise, tell the user:
-
-> In the app settings, look for the **OAuth** section or tab. Under **Redirect URLs**, click **Add redirect URL**, paste the URL I'll give you, and save.
-
-Provide the redirect URI from the `credential_store describe` output.
+> In the app settings, look for the **OAuth** section or tab. Under **Redirect URLs**, click **Add redirect URL**, paste this URL, and save:
+>
+> `http://localhost:17328/oauth/callback`
 
 **Milestone (3 of 7):** "Redirect URL is configured — now let's grab the credentials."
 

@@ -20,7 +20,7 @@ This skill follows the **Collaborative Guided Flow** pattern from the included `
 - **Provider key:** `integration:figma`
 - **Dashboard:** `https://www.figma.com/developers/apps`
 - **Ping URL:** `https://api.figma.com/v1/me`
-- **Callback transport:** Loopback (port 17322)
+- **Callback transport:** Loopback (port 17331)
 - **Requires secret:** Yes (token endpoint needs both client ID and app secret)
 
 ## Figma-Specific Flow
@@ -66,20 +66,9 @@ After the user clicks:
 
 ### Step 3: Set Up Redirect URI
 
-Before this step, resolve the redirect URI:
-
-```
-credential_store describe:
-  service: "integration:figma"
-```
-
-- If `redirectUri` says **"automatic"** or the callback transport is loopback with no ingress requirement, skip adding a redirect URL — tell the user: "The redirect URL is handled automatically for this setup, so we can skip this part."
-- If `redirectUri` mentions `ingress.publicBaseUrl` or says "not currently configured", stop and help the user configure public ingress first.
-- Otherwise, tell the user:
-
 > On the app settings page, find the **Callback URL** or **Redirect URI** field. Paste in this URL:
 >
-> `<redirect URI from credential_store>`
+> `http://localhost:17331/oauth/callback`
 >
 > Then click **Save**.
 
