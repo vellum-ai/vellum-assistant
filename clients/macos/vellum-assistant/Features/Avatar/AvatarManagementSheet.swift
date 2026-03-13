@@ -2,7 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import VellumAssistantShared
 
-/// Modal overlay for managing the avatar: upload, choose from presets, or delete.
+/// Modal overlay for managing the avatar: choose from presets, generate random, upload, or delete.
 struct AvatarManagementSheet: View {
     let onClose: () -> Void
 
