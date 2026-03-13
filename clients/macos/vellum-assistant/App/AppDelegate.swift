@@ -75,17 +75,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var bundleConfirmationWindow: BundleConfirmationWindow?
 
     var pairingApprovalWindow: PairingApprovalWindow?
-    /// Window shown during first-launch bootstrap when daemon is slow to start.
-    var bootstrapInterstitialWindow: NSWindow?
     var crashReportWindow: NSWindow?
     var crashReportWindowObserver: NSObjectProtocol?
     var logReportWindow: NSWindow?
     var logReportWindowObserver: NSObjectProtocol?
-    /// Active task for the bootstrap retry coordinator. Cancelled on dismiss.
+    /// Active task for the bootstrap retry coordinator.
     var bootstrapRetryTask: Task<Void, Never>?
-    /// Tracks the most recent failure kind during bootstrap retries so that
-    /// diagnostic messages reflect the actual problem, not generic escalating text.
-    var bootstrapFailureKind: BootstrapFailureKind = .unknown
     /// Background task that retries actor-token bootstrap until success.
     var actorTokenBootstrapTask: Task<Void, Never>?
     /// Opaque token returned by `NotificationCenter.addObserver(forName:)` for
@@ -370,12 +365,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                     transitionBootstrap(to: .pendingWakeupSend)
                     await performRetriableWakeUpSend()
                 } else {
-                    // Daemon not ready — show blocking interstitial instead
-                    // of the chat empty state. The interstitial auto-retries
-                    // daemon connection and proceeds to wake-up send once
-                    // connected.
-                    log.warning("Daemon not ready after timeout — showing bootstrap interstitial")
-                    showBootstrapInterstitial()
+                    // Daemon not ready yet — start the retry coordinator
+                    // which polls every 2s and proceeds to wake-up send
+                    // once the daemon connects.
+                    log.warning("Daemon not ready after timeout — starting retry coordinator")
+                    startBootstrapRetryCoordinator()
                 }
             }
         } else {
