@@ -54,6 +54,17 @@ mock.module("../daemon/session-tool-setup.js", () => ({
   buildToolDefinitions: () => MOCK_TOOLS,
 }));
 
+const mockCheckIngressForSecrets = mock((content: string) => ({
+  blocked: false,
+  userNotice: "",
+  detectedTypes: [] as string[],
+  normalizedContent: content,
+}));
+
+mock.module("../security/secret-ingress.js", () => ({
+  checkIngressForSecrets: mockCheckIngressForSecrets,
+}));
+
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
@@ -216,6 +227,34 @@ describe("POST /v1/btw", () => {
     };
     expect(body.error.code).toBe("BAD_REQUEST");
     expect(body.error.message).toContain("content");
+  });
+
+  test("returns 422 when content includes a blocked secret", async () => {
+    mockCheckIngressForSecrets.mockReturnValueOnce({
+      blocked: true,
+      userNotice: "Secret detected",
+      detectedTypes: ["api_key"],
+      normalizedContent: "sk-test-123",
+    });
+
+    const provider = makeMockProvider();
+    const session = makeMockSession(provider);
+    const res = await callHandler(
+      { conversationKey: "key", content: "sk-test-123" },
+      { sendMessageDeps: makeSendMessageDeps(session) },
+    );
+
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as {
+      accepted: boolean;
+      error: string;
+      message: string;
+      detectedTypes: string[];
+    };
+    expect(body.accepted).toBe(false);
+    expect(body.error).toBe("secret_blocked");
+    expect(body.detectedTypes).toEqual(["api_key"]);
+    expect(provider.sendMessage).not.toHaveBeenCalled();
   });
 
   // -- Service unavailability (503) --
