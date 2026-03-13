@@ -44,6 +44,12 @@ struct SettingsDeveloperTab: View {
     @State private var showingRestartConfirmation: Bool = false
     @State private var isRestarting: Bool = false
 
+    // -- Inline upgrade state --
+    @State private var isUpgradingInline = false
+    @State private var showingInlineUpgradeConfirmation = false
+    @State private var inlineUpgradeError: String?
+    @State private var inlineUpgradeSuccess: String?
+
     // -- Sentry testing state --
     @State private var lastSentryStatus: String?
     @State private var sentryDismissTask: Task<Void, Never>?
@@ -149,6 +155,14 @@ struct SettingsDeveloperTab: View {
             } else {
                 Text("This will stop the assistant daemon, remove local data, and return to initial setup. This action cannot be undone.")
             }
+        }
+        .alert("Upgrade Assistant", isPresented: $showingInlineUpgradeConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Upgrade") {
+                Task { await performInlineUpgrade() }
+            }
+        } message: {
+            Text("Upgrade the assistant to match the desktop app version? The assistant will be briefly unavailable during the upgrade.")
         }
         .alert("Restart Assistant", isPresented: $showingRestartConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -276,11 +290,70 @@ struct SettingsDeveloperTab: View {
 
     // MARK: - Healthz Info
 
+    private var desktopAppVersion: String? {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+    }
+
+    private var assistantVersionBehind: Bool {
+        guard let assistantVersion = healthz?.version, !assistantVersion.isEmpty,
+              let appVersion = desktopAppVersion, !appVersion.isEmpty else {
+            return false
+        }
+        return assistantVersion.compare(appVersion, options: .numeric) == .orderedAscending
+    }
+
     @ViewBuilder
     private var healthzInfoRows: some View {
         if let healthz {
             if let version = healthz.version, !version.isEmpty {
-                infoRow(label: "Version", value: version, mono: true)
+                HStack(alignment: .top) {
+                    Text("Version")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                        .frame(width: 100, alignment: .leading)
+
+                    Text(version)
+                        .font(VFont.mono)
+                        .foregroundColor(assistantVersionBehind ? VColor.systemNegativeStrong : VColor.contentDefault)
+                        .textSelection(.enabled)
+
+                    if assistantVersionBehind {
+                        if isUpgradingInline {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            VButton(label: "Upgrade", style: .primary) {
+                                showingInlineUpgradeConfirmation = true
+                            }
+                            .disabled(isUpgradingInline)
+                        }
+                    }
+
+                    Spacer()
+                }
+
+                if assistantVersionBehind, let appVersion = desktopAppVersion {
+                    HStack(spacing: VSpacing.xs) {
+                        Text("Desktop is on")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentTertiary)
+                        Text(appVersion)
+                            .font(VFont.mono)
+                            .foregroundColor(VColor.primaryBase)
+                    }
+                }
+
+                if let error = inlineUpgradeError {
+                    Text(error)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.systemNegativeStrong)
+                }
+
+                if let success = inlineUpgradeSuccess {
+                    Text(success)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.systemPositiveStrong)
+                }
             }
 
             if let disk = healthz.disk {
@@ -324,6 +397,54 @@ struct SettingsDeveloperTab: View {
             return String(format: "%.1f GB", mb / 1024.0)
         }
         return String(format: "%.0f MB", mb)
+    }
+
+    private func performInlineUpgrade() async {
+        inlineUpgradeError = nil
+        inlineUpgradeSuccess = nil
+        isUpgradingInline = true
+        defer { isUpgradingInline = false }
+
+        guard let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) else {
+            inlineUpgradeError = "No assistant selected"
+            return
+        }
+        let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
+        guard let token = SessionTokenManager.getToken(), !token.isEmpty else {
+            inlineUpgradeError = "Not authenticated"
+            return
+        }
+        guard let url = URL(string: "\(baseURL)/v1/assistants/upgrade/") else {
+            inlineUpgradeError = "Unable to start upgrade"
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
+            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
+        }
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                inlineUpgradeError = "Invalid response"
+                return
+            }
+            if httpResponse.statusCode >= 200 && httpResponse.statusCode < 300 {
+                inlineUpgradeSuccess = "Upgrade initiated. The assistant may be briefly unavailable."
+                // Refresh healthz after a short delay to pick up the new version
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                await fetchHealthz()
+            } else {
+                inlineUpgradeError = "Upgrade failed (HTTP \(httpResponse.statusCode))"
+            }
+        } catch {
+            inlineUpgradeError = "Upgrade failed: \(error.localizedDescription)"
+        }
     }
 
     private func fetchHealthz() async {
