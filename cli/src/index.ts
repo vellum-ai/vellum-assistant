@@ -19,6 +19,7 @@ import {
   getActiveAssistant,
   findAssistantByName,
   loadLatestAssistant,
+  setActiveAssistant,
 } from "./lib/assistant-config";
 import { checkHealth } from "./lib/health-check";
 
@@ -84,6 +85,10 @@ async function tryLaunchClient(): Promise<boolean> {
 
   const result = await checkHealth(url, entry.bearerToken);
   if (result.status !== "healthy") return false;
+
+  // Ensure the resolved assistant is active so client() can find it
+  // (client() independently reads the active assistant from config).
+  setActiveAssistant(String(entry.assistantId));
 
   await client();
   return true;
