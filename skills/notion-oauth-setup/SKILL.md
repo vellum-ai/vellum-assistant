@@ -54,12 +54,14 @@ Open: `https://www.notion.so/profile/integrations`
 > Look for the **"New integration"** button (or a **"+"** button) and click it.
 >
 > On the creation form:
+>
 > 1. Set the name to **Vellum Assistant**
 > 2. Select your workspace from the **Associated workspace** dropdown
 > 3. For the **Type**, select **Public** — this is required for OAuth
 > 4. Click **Submit**
 
 **Known issues:**
+
 - If "Public" is not available as a type, the user may need to check their workspace settings or plan level
 - If they already have an integration named "Vellum Assistant", ask if they'd like to reuse it — skip ahead to Step 3
 
@@ -89,6 +91,7 @@ host_bash:
 ```
 
 **Known issues:**
+
 - Notion may require a "Website" or "Redirect URI" domain to be filled in as well — if so, use the base domain from `ingress.publicBaseUrl`
 - If the page shows "Internal integration" with no Distribution tab, the integration was created as Internal — they'll need to recreate it as Public
 
@@ -97,6 +100,7 @@ host_bash:
 ### Step 4: Copy Client ID and Client Secret
 
 > Now look for the **Secrets** section on the integration page. You should see:
+>
 > - **OAuth client ID**
 > - **OAuth client secret** (you may need to click **Show** to reveal it)
 >
@@ -126,6 +130,7 @@ Register the OAuth app and start the authorization flow. See the collaborative g
 > You should see a Notion consent page asking you to **select which pages** to share with Vellum Assistant. Pick the pages or databases you'd like to connect, then click **Allow access**.
 
 **Known issues:**
+
 - If the consent page shows an error about the redirect URI, double-check that the URI in Step 3 matches exactly
 - The user can always re-authorize later to share additional pages
 
@@ -150,5 +155,6 @@ bash:
 For non-interactive channels, see [references/path-b-manual-setup.md](references/path-b-manual-setup.md).
 
 Key Notion-specific differences for Path B:
+
 - Still requires public ingress for the redirect URI (no loopback alternative)
 - Client Secret prefix is `secret_` — use `credential_store prompt` to collect it securely; split entry is not needed since this prefix doesn't trigger channel scanners

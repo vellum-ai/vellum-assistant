@@ -21,6 +21,7 @@ You will be given a `service` name (e.g., "discord", "linear", "spotify"). If no
 ## Step 1: Read the service config
 
 Use `credential_store` with `action: "describe"` and `service: "<name>"` to get the well-known OAuth config. This returns:
+
 - `scopes` — permissions to request
 - `redirectUri` — the callback URL to register
 - `callbackTransport` — loopback or gateway
@@ -28,6 +29,7 @@ Use `credential_store` with `action: "describe"` and `service: "<name>"` to get 
 - `authUrl` / `tokenUrl` — OAuth endpoints
 
 It may also include a `setup` object with rich metadata:
+
 - `setup.displayName` — the provider's name
 - `setup.dashboardUrl` — where to create the app
 - `setup.appType` — what kind of app to create
@@ -88,6 +90,7 @@ Wait for user confirmation before proceeding.
 > Look for a button to create a new app or integration — it might say "Create App", "New Application", or "New Integration". Go ahead and click it.
 
 Guide the user through the creation flow:
+
 1. Name it "Vellum Assistant"
 2. Follow any guidance from `setup.notes` (e.g., select "Public" for Notion, "From scratch" for Slack)
 3. Complete the creation
@@ -111,6 +114,7 @@ If scopes are empty (e.g. Notion), skip this step.
 ### Step 8: Set redirect URL
 
 Check the `redirectUri` from the config:
+
 - If it says "automatic" — skip this step entirely (no redirect URI needed for loopback)
 - If it mentions `ingress.publicBaseUrl` — the user needs a public gateway URL. Check if one is configured; if not, load the `public-ingress` skill first
 - Otherwise, tell the user exactly where to add the redirect URI

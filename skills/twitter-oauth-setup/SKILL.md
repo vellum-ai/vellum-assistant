@@ -47,6 +47,7 @@ Open: `https://developer.x.com/en/portal/dashboard`
 > I've opened the Twitter Developer Portal. If it's asking you to sign in, go ahead and do that first.
 
 **Known issues:**
+
 - First-time developers will see a sign-up flow — they need to agree to the developer agreement and describe their use case. "Personal project" or "Building a tool" works fine for the description.
 - Free tier is sufficient for OAuth 2.0 with PKCE.
 
@@ -64,6 +65,7 @@ Guide through project creation:
 > 4. Click **Next** through each step
 
 **Known issues:**
+
 - Free tier allows only one project — if the user already has one, reuse it
 - If they see "You've reached your project limit", use the existing project
 
@@ -203,6 +205,7 @@ bash:
 For non-interactive channels, see [references/path-b-manual-setup.md](references/path-b-manual-setup.md).
 
 Key Twitter-specific differences for Path B:
+
 - Gateway callback requires public ingress — must be configured before starting
 - OAuth 2.0 Client Secret doesn't have a known prefix that triggers channel scanners, but still use `credential_store store` for security
 - App type must be **Web App, Automated App or Bot** (same as Path A, since gateway transport is used in both paths)

@@ -57,6 +57,7 @@ Then:
 > Set the app name to **Vellum Assistant** and select your workspace from the dropdown. Then click **Create App**.
 
 **Known issues:**
+
 - If the workspace dropdown is empty, the user may need to sign in to a different workspace
 - Some workspaces require admin approval for new apps — if blocked, explain that they'll need an admin to approve the app
 
@@ -190,6 +191,7 @@ bash:
 For non-interactive channels, see [references/path-b-manual-setup.md](references/path-b-manual-setup.md).
 
 Key Slack-specific differences for Path B:
+
 - Loopback callback won't work from a remote channel — need public ingress configured
 - Add the ingress-based redirect URI under **Redirect URLs** on the OAuth & Permissions page
 - Client Secret doesn't have a known prefix that triggers scanners, but still use `credential_store prompt` or `credential_store store` for security

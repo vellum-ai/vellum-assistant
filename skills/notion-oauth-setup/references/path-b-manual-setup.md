@@ -29,6 +29,7 @@ Tell the user:
 > If you need to sign in, do that first.
 >
 > Then:
+>
 > 1. Click **"New integration"** (or the **"+"** button)
 > 2. Set the name to **Vellum Assistant**
 > 3. Select your workspace from the **Associated workspace** dropdown
@@ -66,6 +67,7 @@ Tell the user:
 > **Step 3: Copy your credentials**
 >
 > In your integration settings, find the **Secrets** section. You should see:
+>
 > - **OAuth client ID**
 > - **OAuth client secret** (you may need to click **Show** to reveal it)
 >

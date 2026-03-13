@@ -55,6 +55,18 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "collaborative-oauth-flow",
+      "name": "collaborative-oauth-flow",
+      "description": "Reusable pattern for walking users through OAuth app setup via AppleScript browser navigation",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "Collaborative OAuth Flow"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "deploy-fullstack-vercel",
       "name": "deploy-fullstack-vercel",
       "description": "Build and deploy a full-stack app (React frontend + Python/FastAPI backend) to Vercel as a serverless demo with seeded data",
@@ -129,18 +141,6 @@
       "description": "Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, artifacts, posters, or applications (examples include websites, landing pages, dashboards, React components, HTML/CSS layouts, or when styling/beautifying any web UI). Generates creative, polished code and UI design that avoids generic AI aesthetics.",
       "metadata": {
         "emoji": "🎨"
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
-      "id": "collaborative-oauth-flow",
-      "name": "collaborative-oauth-flow",
-      "description": "Reusable pattern for walking users through OAuth app setup via AppleScript browser navigation",
-      "metadata": {
-        "emoji": "🔑",
-        "vellum": {
-          "display-name": "Collaborative OAuth Flow"
-        }
       },
       "compatibility": "Designed for Vellum personal assistants"
     },
@@ -232,15 +232,15 @@
     {
       "id": "notion-oauth-setup",
       "name": "notion-oauth-setup",
-      "description": "Create a Notion integration and OAuth credentials for Notion integration using browser automation",
+      "description": "Set up Notion OAuth credentials for Notion integration using a collaborative guided flow",
       "metadata": {
         "emoji": "🔑",
         "vellum": {
           "display-name": "Notion OAuth Setup",
           "user-invocable": "true",
+          "credential-setup-for": "notion",
           "includes": [
-            "browser",
-            "public-ingress"
+            "collaborative-oauth-flow"
           ]
         }
       },
@@ -249,14 +249,14 @@
     {
       "id": "oauth-setup",
       "name": "oauth-setup",
-      "description": "Connect any OAuth service — create app credentials and authorize via browser automation",
+      "description": "Connect any OAuth service — walk users through app setup via a collaborative guided flow",
       "metadata": {
         "emoji": "🔑",
         "vellum": {
           "display-name": "OAuth Setup",
           "user-invocable": "true",
           "includes": [
-            "browser"
+            "collaborative-oauth-flow"
           ]
         }
       },
@@ -323,7 +323,7 @@
     {
       "id": "skills-catalog",
       "name": "skills-catalog",
-      "description": "Discover bundled skills and search/install community skills from Clawhub",
+      "description": "Discover bundled skills and search/install community skills from the skills.sh registry",
       "metadata": {
         "emoji": "🧩",
         "vellum": {
@@ -369,14 +369,15 @@
     {
       "id": "slack-oauth-setup",
       "name": "slack-oauth-setup",
-      "description": "Create Slack App and OAuth credentials for Slack integration using browser automation",
+      "description": "Set up Slack OAuth credentials for Slack integration using a collaborative guided flow",
       "metadata": {
         "emoji": "🔑",
         "vellum": {
           "display-name": "Slack OAuth Setup",
           "user-invocable": "true",
+          "credential-setup-for": "slack",
           "includes": [
-            "browser"
+            "collaborative-oauth-flow"
           ]
         }
       },
@@ -434,6 +435,23 @@
           "user-invocable": "true",
           "includes": [
             "public-ingress"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "twitter-oauth-setup",
+      "name": "twitter-oauth-setup",
+      "description": "Set up Twitter/X OAuth credentials for Twitter integration using a collaborative guided flow",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "Twitter / X OAuth Setup",
+          "user-invocable": "true",
+          "credential-setup-for": "twitter",
+          "includes": [
+            "collaborative-oauth-flow"
           ]
         }
       },
