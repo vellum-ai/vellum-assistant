@@ -2,10 +2,9 @@ import SwiftUI
 import UniformTypeIdentifiers
 import VellumAssistantShared
 
-/// Modal overlay for managing the avatar: upload, choose from presets, edit in chat, or delete.
+/// Modal overlay for managing the avatar: upload, choose from presets, or delete.
 struct AvatarManagementSheet: View {
     let onClose: () -> Void
-    let onEditAvatar: () -> Void
 
     @State private var appearance = AvatarAppearanceManager.shared
     @State private var showingPresets = false
@@ -94,17 +93,6 @@ struct AvatarManagementSheet: View {
                     subtitle: "Choose a PNG or JPEG from your Mac"
                 ) {
                     pickImage()
-                }
-
-                Divider().background(VColor.borderBase)
-                    .padding(.horizontal, VSpacing.xl)
-
-                actionRow(
-                    icon: "bubble.left.and.text.bubble.right",
-                    label: "Edit in Chat",
-                    subtitle: "Describe changes and let AI generate it"
-                ) {
-                    onEditAvatar()
                 }
 
                 if appearance.customAvatarImage != nil {

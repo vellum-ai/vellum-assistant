@@ -5,7 +5,6 @@ import VellumAssistantShared
 
 struct IntelligencePanel: View {
     var onClose: () -> Void
-    var onEditAvatar: () -> Void
     var onInvokeSkill: ((SkillInfo) -> Void)?
     let daemonClient: DaemonClient
 
@@ -84,7 +83,6 @@ struct IntelligencePanel: View {
         case .identity:
             IdentityPanel(
                 onClose: onClose,
-                onEditAvatar: onEditAvatar,
                 daemonClient: daemonClient
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -114,5 +112,5 @@ struct IntelligencePanel: View {
 }
 
 #Preview {
-    IntelligencePanel(onClose: {}, onEditAvatar: {}, daemonClient: DaemonClient())
+    IntelligencePanel(onClose: {}, daemonClient: DaemonClient())
 }
