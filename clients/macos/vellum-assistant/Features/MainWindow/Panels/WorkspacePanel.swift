@@ -32,9 +32,10 @@ final class WorkspaceBrowserState {
     var renamingText: String = ""
     var pendingSwitchPath: String?
     var showingDirtyAlert: Bool = false
+    var showHiddenFiles: Bool = false
 
     func refreshDirectory(_ dirPath: String, using daemonClient: DaemonClient) async {
-        if let response = await daemonClient.fetchWorkspaceTree(path: dirPath) {
+        if let response = await daemonClient.fetchWorkspaceTree(path: dirPath, showHidden: showHiddenFiles) {
             directoryCache[dirPath] = response.entries
         }
     }
@@ -134,7 +135,7 @@ struct WorkspacePanel: View {
 
     private func loadRoot() async {
         state.isLoadingTree = true
-        if let response = await daemonClient.fetchWorkspaceTree(path: "") {
+        if let response = await daemonClient.fetchWorkspaceTree(path: "", showHidden: state.showHiddenFiles) {
             state.directoryCache[""] = response.entries
         }
         state.isLoadingTree = false
@@ -188,6 +189,30 @@ private struct WorkspaceTreeSidebar: View {
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
+
+            HStack {
+                VToggle(isOn: Binding(
+                    get: { state.showHiddenFiles },
+                    set: { newValue in
+                        state.showHiddenFiles = newValue
+                        state.directoryCache.removeAll()
+                        state.expandedDirs.removeAll()
+                        // Reset selected file state so stale selections don't linger
+                        state.selectedFilePath = nil
+                        state.selectedFileDetail = nil
+                        state.editableContent = ""
+                        state.originalContent = ""
+                        state.isDirty = false
+                        Task {
+                            if let response = await daemonClient.fetchWorkspaceTree(path: "", showHidden: newValue) {
+                                state.directoryCache[""] = response.entries
+                            }
+                        }
+                    }
+                ), label: "Show hidden files")
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.bottom, VSpacing.xs)
 
             Divider().background(VColor.borderBase)
 
@@ -504,7 +529,7 @@ private struct WorkspaceTreeRow: View {
                 state.expandedDirs.insert(entry.path)
                 // Load children if not cached
                 if state.directoryCache[entry.path] == nil {
-                    if let response = await daemonClient.fetchWorkspaceTree(path: entry.path) {
+                    if let response = await daemonClient.fetchWorkspaceTree(path: entry.path, showHidden: state.showHiddenFiles) {
                         state.directoryCache[entry.path] = response.entries
                     }
                 }
