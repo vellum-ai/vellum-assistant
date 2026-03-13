@@ -64,23 +64,3 @@ export async function httpSend(
   }
   return fetch(url, { ...init, headers });
 }
-
-// ---------------------------------------------------------------------------
-// Health check
-// ---------------------------------------------------------------------------
-
-/**
- * Perform an HTTP health check against the daemon's `/healthz` endpoint.
- * Returns true if the daemon responds with HTTP 200, false otherwise.
- */
-export async function httpHealthCheck(timeoutMs = 2000): Promise<boolean> {
-  try {
-    const url = `${getHttpBaseUrl()}/healthz`;
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
