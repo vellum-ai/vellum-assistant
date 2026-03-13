@@ -57,10 +57,9 @@ public final class ChatAttachmentManager: ObservableObject {
     private static let maxConcurrentLoads = 4
     private let loadSemaphore = AsyncSemaphore(value: maxConcurrentLoads)
 
-    // MARK: - Limits
-
-    /// Maximum image size before compression (4 MB - leaves headroom for base64 encoding).
-    /// Anthropic has a 5 MB limit per image; base64 encoding adds ~33% overhead.
+    /// Maximum image size before compression (4 MB). Images above this threshold
+    /// are JPEG-compressed, not rejected. Anthropic has a 5 MB limit per image;
+    /// base64 encoding adds ~33% overhead, so 4 MB raw keeps us well within bounds.
     nonisolated static let maxImageSize = 4 * 1024 * 1024
 
     // MARK: - Error callback
