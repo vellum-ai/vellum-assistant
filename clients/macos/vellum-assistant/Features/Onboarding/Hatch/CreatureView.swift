@@ -50,11 +50,7 @@ struct CreatureView: View {
     }
 
     private var avatarImage: some View {
-        Image(nsImage: appearance.fullAvatarImage)
-            .resizable()
-            .aspectRatio(contentMode: .fill)
-            .frame(width: 200, height: 200)
-            .clipShape(Circle())
+        VAvatarImage(image: appearance.fullAvatarImage, size: 200, showBorder: false)
             .shadow(radius: 8)
     }
 }

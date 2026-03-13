@@ -128,11 +128,7 @@ struct AvatarRevealStepView: View {
     private var revealedAvatar: some View {
         Group {
             if let image = avatarImage {
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 160, height: 160)
-                    .clipShape(Circle())
+                VAvatarImage(image: image, size: 160, showBorder: false)
                     .shadow(color: VColor.primaryBase.opacity(0.3), radius: 12, y: 4)
                     .scaleEffect(showAvatar ? 1.0 : 0.8)
                     .opacity(showAvatar ? 1 : 0)
