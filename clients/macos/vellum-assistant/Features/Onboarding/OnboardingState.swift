@@ -67,6 +67,10 @@ final class OnboardingState {
     var sshPrivateKey: String = ""
     var customQRCodeImageData: Data = Data()
     var selectedModel: String = "claude-opus-4-6"
+    var userDisplayName: String = ""
+    var userEmail: String = ""
+    var tosAccepted: Bool = false
+
     var isHatching: Bool = false
     var isManagedHatch: Bool = false
     var hasExistingManagedAssistant: Bool = false
@@ -132,6 +136,8 @@ final class OnboardingState {
             hasHatched = UserDefaults.standard.bool(forKey: "onboarding.hatched")
             interviewCompleted = UserDefaults.standard.bool(forKey: "onboarding.interviewCompleted")
             cloudProvider = UserDefaults.standard.string(forKey: "onboarding.cloudProvider") ?? "local"
+            userDisplayName = UserDefaults.standard.string(forKey: "onboarding.userDisplayName") ?? ""
+            userEmail = UserDefaults.standard.string(forKey: "onboarding.userEmail") ?? ""
         }
         if let rawVariant = UserDefaults.standard.string(forKey: "onboarding.variant"),
            let variant = OnboardingVariant(rawValue: rawVariant) {
@@ -183,6 +189,8 @@ final class OnboardingState {
         UserDefaults.standard.set(cloudProvider, forKey: "onboarding.cloudProvider")
         UserDefaults.standard.set(onboardingVariant.rawValue, forKey: "onboarding.variant")
         UserDefaults.standard.set(Double(firstMeetingCrackProgress), forKey: "onboarding.firstMeetingCrackProgress")
+        UserDefaults.standard.set(userDisplayName, forKey: "onboarding.userDisplayName")
+        UserDefaults.standard.set(userEmail, forKey: "onboarding.userEmail")
         UserDefaults.standard.set(Self.currentFlowVersion, forKey: "onboarding.flowVersion")
     }
 
@@ -219,7 +227,7 @@ final class OnboardingState {
     }
 
     static func clearPersistedState() {
-        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.variant", "onboarding.firstMeetingCrackProgress", "onboarding.flowVersion", "onboarding.cloudProvider"] {
+        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.variant", "onboarding.firstMeetingCrackProgress", "onboarding.flowVersion", "onboarding.cloudProvider", "onboarding.userDisplayName", "onboarding.userEmail"] {
             UserDefaults.standard.removeObject(forKey: key)
         }
     }
