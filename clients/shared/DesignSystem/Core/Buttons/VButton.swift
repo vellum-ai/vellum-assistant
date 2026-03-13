@@ -1,7 +1,7 @@
 import SwiftUI
 
 public struct VButton: View {
-    public enum Style: Hashable { case primary, danger, dangerOutline, outlined, ghost, neutral }
+    public enum Style: Hashable { case primary, danger, dangerOutline, outlined, ghost, contrast }
 
     public let label: String
     public var leftIcon: String? = nil
@@ -83,8 +83,10 @@ public struct VButton: View {
 
     private var iconOnlyForegroundColor: Color {
         switch style {
-        case .primary, .danger, .neutral:
+        case .primary, .danger:
             return VColor.auxWhite
+        case .contrast:
+            return VColor.contentInset
         case .ghost, .outlined, .dangerOutline:
             if isActive { return VColor.primaryActive }
             return VColor.primaryBase
@@ -184,8 +186,8 @@ public struct VButtonStyle: ButtonStyle {
                 if isHovered { return VColor.surfaceBase }
                 return .clear
             }
-        case .neutral:
-            guard isEnabled else { return VColor.contentDisabled }
+        case .contrast:
+            guard isEnabled else { return VColor.primaryDisabled }
             if isPressed { return VColor.contentEmphasized }
             if isHovered { return VColor.contentSecondary }
             return VColor.contentDefault
@@ -197,7 +199,7 @@ public struct VButtonStyle: ButtonStyle {
         switch style {
         case .primary: return VColor.auxWhite
         case .danger: return VColor.auxWhite
-        case .neutral: return VColor.auxWhite
+        case .contrast: return VColor.contentInset
         case .outlined: return isHovered ? VColor.primaryHover : VColor.primaryBase
         case .dangerOutline: return isHovered ? VColor.systemNegativeHover : VColor.systemNegativeStrong
         case .ghost:

@@ -187,7 +187,7 @@ struct InputBarView: View {
                 VButton(
                     label: "Stop generation",
                     iconOnly: VIcon.square.rawValue,
-                    style: .neutral,
+                    style: .contrast,
                     action: onStop
                 )
             } else {

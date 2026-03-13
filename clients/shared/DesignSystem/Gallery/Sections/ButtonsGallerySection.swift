@@ -26,7 +26,7 @@ struct ButtonsGallerySection: View {
                                 (label: "Danger", tag: VButton.Style.danger),
                                 (label: "Danger Outline", tag: VButton.Style.dangerOutline),
                                 (label: "Ghost", tag: VButton.Style.ghost),
-                                (label: "Neutral", tag: VButton.Style.neutral),
+                                (label: "Contrast", tag: VButton.Style.contrast),
                             ],
                             selection: $selectedStyle,
                             style: .pill
@@ -73,7 +73,7 @@ struct ButtonsGallerySection: View {
 
             VCard {
                 HStack(spacing: VSpacing.xl) {
-                    ForEach([VButton.Style.primary, .outlined, .danger, .dangerOutline, .ghost, .neutral], id: \.self) { style in
+                    ForEach([VButton.Style.primary, .outlined, .danger, .dangerOutline, .ghost, .contrast], id: \.self) { style in
                         VStack(spacing: VSpacing.md) {
                             VButton(label: styleName(style), style: style) {}
                             VButton(label: "Disabled", style: style, isDisabled: true) {}
@@ -153,8 +153,8 @@ struct ButtonsGallerySection: View {
                         VButton(label: "Delete", iconOnly: VIcon.trash.rawValue, style: .danger) {}
                     }
                     VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("Neutral").font(VFont.caption).foregroundColor(VColor.contentTertiary)
-                        VButton(label: "Stop", iconOnly: VIcon.square.rawValue, style: .neutral) {}
+                        Text("Contrast").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        VButton(label: "Stop", iconOnly: VIcon.square.rawValue, style: .contrast) {}
                     }
                 }
             }
@@ -222,7 +222,7 @@ struct ButtonsGallerySection: View {
         case .outlined: return "Outlined"
         case .dangerOutline: return "Danger Outline"
         case .ghost: return "Ghost"
-        case .neutral: return "Neutral"
+        case .contrast: return "Contrast"
         }
     }
 }

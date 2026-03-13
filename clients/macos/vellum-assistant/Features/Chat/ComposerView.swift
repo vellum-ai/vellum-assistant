@@ -432,7 +432,7 @@ struct ComposerView: View {
                 VButton(
                     label: "Stop generation",
                     iconOnly: VIcon.square.rawValue,
-                    style: .neutral,
+                    style: .contrast,
                     iconSize: composerActionButtonSize,
                     action: onStop
                 )
@@ -573,7 +573,7 @@ VStreamingWaveform(
                     VButton(
                         label: manager.state == .listening ? "Mute" : "Unmute",
                         iconOnly: manager.state == .listening ? VIcon.mic.rawValue : VIcon.micOff.rawValue,
-                        style: .neutral,
+                        style: .contrast,
                         iconSize: composerActionButtonSize,
                         action: { manager.toggleListening() }
                     )
