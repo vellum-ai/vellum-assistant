@@ -1440,6 +1440,7 @@ function ChatApp({
     if (!busy) {
       setSpinnerText(null);
       setInputFocused(true);
+      process.stdout.write("\x07");
     }
   }, []);
 
