@@ -206,7 +206,7 @@ export class SkillLoadTool implements Tool {
         // Lazily resolve catalog on first round with missing includes
         if (!remoteCatalog) {
           try {
-            remoteCatalog = await resolveCatalog();
+            remoteCatalog = await resolveCatalog([...missing][0]);
           } catch (err) {
             log.warn(
               { err, skillId: skill.id },
