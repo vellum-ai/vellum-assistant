@@ -11,6 +11,7 @@ struct MemoryItemCreateView: View {
     @State private var statement: String = ""
     @State private var importance: Double = 0.8
     @State private var isCreating = false
+    @State private var errorMessage: String?
 
     private var canCreate: Bool {
         !subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -61,6 +62,14 @@ struct MemoryItemCreateView: View {
                     Slider(value: $importance, in: 0...1, step: 0.1)
                 }
             }
+
+            if let errorMessage {
+                Section {
+                    Text(errorMessage)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.systemNegativeStrong)
+                }
+            }
         }
         .navigationTitle("New Memory")
         .navigationBarTitleDisplayMode(.inline)
@@ -82,14 +91,20 @@ struct MemoryItemCreateView: View {
 
     private func createMemory() {
         isCreating = true
+        errorMessage = nil
         Task {
-            _ = await store.createItem(
+            let result = await store.createItem(
                 kind: kind,
                 subject: subject.trimmingCharacters(in: .whitespacesAndNewlines),
                 statement: statement.trimmingCharacters(in: .whitespacesAndNewlines),
                 importance: importance
             )
-            dismiss()
+            isCreating = false
+            if result != nil {
+                dismiss()
+            } else {
+                errorMessage = "Failed to create memory. Please try again."
+            }
         }
     }
 }
