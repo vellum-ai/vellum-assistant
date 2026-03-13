@@ -8,7 +8,7 @@ struct PresetAvatar: Identifiable, Equatable {
 
     var id: String { name }
 
-    var image: NSImage? {
+    @MainActor var image: NSImage? {
         AvatarCompositor.render(bodyShape: bodyShape, eyeStyle: eyeStyle, color: color)
     }
 
