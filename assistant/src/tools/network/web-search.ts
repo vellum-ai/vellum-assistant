@@ -1,7 +1,7 @@
 import { getConfig } from "../../config/loader.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
-import { getSecureKey } from "../../security/secure-keys.js";
+import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import {
   DEFAULT_BASE_DELAY_MS,
@@ -50,10 +50,12 @@ function getWebSearchProvider(): WebSearchProvider {
   return configured as WebSearchProvider;
 }
 
-function getApiKey(provider: WebSearchProvider): string | undefined {
+async function getApiKey(
+  provider: WebSearchProvider,
+): Promise<string | undefined> {
   if (provider === "brave") {
     if (process.env.BRAVE_API_KEY) return process.env.BRAVE_API_KEY;
-    const secureKey = getSecureKey("brave");
+    const secureKey = await getSecureKeyAsync("brave");
     if (secureKey) return secureKey;
     const config = getConfig();
     return config.apiKeys.brave;
@@ -61,7 +63,7 @@ function getApiKey(provider: WebSearchProvider): string | undefined {
 
   // Perplexity
   if (process.env.PERPLEXITY_API_KEY) return process.env.PERPLEXITY_API_KEY;
-  const secureKey = getSecureKey("perplexity");
+  const secureKey = await getSecureKeyAsync("perplexity");
   if (secureKey) return secureKey;
   const config = getConfig();
   return config.apiKeys.perplexity;
@@ -321,13 +323,13 @@ class WebSearchTool implements Tool {
     }
 
     let provider = getWebSearchProvider();
-    let apiKey = getApiKey(provider);
+    let apiKey = await getApiKey(provider);
 
     // Fallback: if the configured provider has no key, try the other provider
     if (!apiKey) {
       const fallback: WebSearchProvider =
         provider === "perplexity" ? "brave" : "perplexity";
-      const fallbackKey = getApiKey(fallback);
+      const fallbackKey = await getApiKey(fallback);
       if (fallbackKey) {
         log.info(
           { from: provider, to: fallback },
