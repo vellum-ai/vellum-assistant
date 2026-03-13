@@ -723,18 +723,14 @@ export async function startLocalDaemon(
   watch: boolean = false,
   resources: LocalInstanceResources,
 ): Promise<void> {
-  if (process.env.VELLUM_DESKTOP_APP && !watch) {
-    // When running inside the desktop app, the CLI owns the daemon lifecycle.
-    // Find the vellum-daemon binary adjacent to the CLI binary.
+  // Check for a compiled daemon binary adjacent to the CLI executable.
+  // This covers both the desktop app (VELLUM_DESKTOP_APP) and the case where
+  // the user runs the compiled CLI directly from the terminal (e.g. via a
+  // /usr/local/bin/vellum symlink into the app bundle).
+  const daemonBinary = join(dirname(process.execPath), "vellum-daemon");
+  if (existsSync(daemonBinary) && !watch) {
     // In watch mode, skip the bundled binary and use source (bun --watch
     // only works with source files, not compiled binaries).
-    const daemonBinary = join(dirname(process.execPath), "vellum-daemon");
-    if (!existsSync(daemonBinary)) {
-      throw new Error(
-        `vellum-daemon binary not found at ${daemonBinary}.\n` +
-          "  Ensure the daemon binary is bundled alongside the CLI in the app bundle.",
-      );
-    }
 
     const pidFile = resources.pidFile;
 
@@ -974,18 +970,11 @@ export async function startGateway(
 
   let gateway;
 
-  if (process.env.VELLUM_DESKTOP_APP && !watch) {
-    // Desktop app: spawn the compiled gateway binary directly (mirrors daemon pattern).
-    // In watch mode, skip the bundled binary and use source (bun --watch
-    // only works with source files, not compiled binaries).
-    const gatewayBinary = join(dirname(process.execPath), "vellum-gateway");
-    if (!existsSync(gatewayBinary)) {
-      throw new Error(
-        `vellum-gateway binary not found at ${gatewayBinary}.\n` +
-          "  Ensure the gateway binary is bundled alongside the CLI in the app bundle.",
-      );
-    }
-
+  const gatewayBinary = join(dirname(process.execPath), "vellum-gateway");
+  if (existsSync(gatewayBinary) && !watch) {
+    // Use the compiled gateway binary when available (desktop app or compiled
+    // CLI invoked from the terminal). In watch mode, skip the bundled binary
+    // and use source (bun --watch only works with source files).
     const gatewayLogFd = openLogFile("hatch.log");
     gateway = spawn(gatewayBinary, [], {
       detached: true,
