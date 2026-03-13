@@ -76,7 +76,7 @@ function validateImportPath(filePath: string): string {
     throw new Error("file_path must be inside the current workspace.");
   }
 
-  const extension = extname(resolvedPath).toLowerCase();
+  const extension = extname(realPath).toLowerCase();
   if (!ALLOWED_IMPORT_EXTENSIONS.has(extension)) {
     throw new Error("file_path must be a .csv or .tsv file.");
   }
