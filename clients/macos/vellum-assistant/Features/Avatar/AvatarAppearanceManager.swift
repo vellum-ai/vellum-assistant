@@ -325,6 +325,51 @@ final class AvatarAppearanceManager {
         source.resume()
     }
 
+    // MARK: - Notification Icon Export
+
+    /// Exports the currently connected assistant's avatar as a PNG file suitable
+    /// for `UNNotificationAttachment`. Always uses `chatAvatarImage`, which
+    /// renders the *connected* assistant's avatar (custom upload or fallback).
+    /// The destination path is derived from `connectedAssistantId` in
+    /// UserDefaults, matching the same resolution used by `customAvatarURL`.
+    ///
+    /// Writes to `{baseDataDir}/workspace/data/avatar/notification-icon.png`.
+    /// Returns the file URL on success, nil on failure.
+    func exportNotificationIcon() -> URL? {
+        // 1. Resolve the destination path from the connected assistant
+        let destURL: URL
+        if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+           let assistant = LockfileAssistant.loadByName(assistantId),
+           let baseDataDir = assistant.baseDataDir {
+            destURL = URL(fileURLWithPath: baseDataDir)
+                .appendingPathComponent("workspace/data/avatar/notification-icon.png")
+        } else {
+            // No assistant-scoped path available — return nil to avoid
+            // writing to a shared location that could serve the wrong avatar.
+            return nil
+        }
+
+        // 2. Get the current avatar image (chatAvatarImage handles all fallbacks)
+        let image = chatAvatarImage
+
+        // 3. Export to PNG
+        guard let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmap.representation(using: .png, properties: [:]) else {
+            return nil
+        }
+
+        // 4. Ensure directory exists and write
+        let dir = destURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        do {
+            try pngData.write(to: destURL)
+            return destURL
+        } catch {
+            return nil
+        }
+    }
+
     // MARK: - Image Utilities
 
     /// Resize an NSImage to a square of the given point size using aspect-fill:
