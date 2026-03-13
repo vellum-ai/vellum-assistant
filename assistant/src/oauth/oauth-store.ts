@@ -16,7 +16,6 @@ import {
 } from "../memory/schema/oauth.js";
 import {
   deleteSecureKeyAsync,
-  getSecureKey,
   getSecureKeyAsync,
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
@@ -499,10 +498,15 @@ export function listActiveConnectionsByProvider(
  * but the secure-key write for the access token failed, which would make
  * `resolveOAuthConnection()` throw at usage time.
  */
-export function isProviderConnected(providerKey: string): boolean {
+export async function isProviderConnected(
+  providerKey: string,
+): Promise<boolean> {
   const conn = getConnectionByProvider(providerKey);
   if (!conn || conn.status !== "active") return false;
-  return getSecureKey(`oauth_connection/${conn.id}/access_token`) !== undefined;
+  return (
+    (await getSecureKeyAsync(`oauth_connection/${conn.id}/access_token`)) !==
+    undefined
+  );
 }
 
 /**

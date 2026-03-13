@@ -7,7 +7,7 @@ import {
 interface IntegrationProbe {
   name: string;
   category: string;
-  isConnected: () => boolean | Promise<boolean>;
+  isConnected: () => Promise<boolean>;
 }
 
 // Registry — add new integrations here:
@@ -25,12 +25,12 @@ const INTEGRATION_PROBES: IntegrationProbe[] = [
   {
     name: "Twilio",
     category: "telephony",
-    isConnected: () => hasTwilioCredentials(),
+    isConnected: async () => hasTwilioCredentials(),
   },
   {
     name: "Telegram",
     category: "messaging",
-    isConnected: () => {
+    isConnected: async () => {
       const conn = getConnectionByProvider("telegram");
       return !!(conn && conn.status === "active");
     },
