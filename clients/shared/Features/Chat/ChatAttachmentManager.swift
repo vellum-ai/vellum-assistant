@@ -53,17 +53,13 @@ public final class ChatAttachmentManager: ObservableObject {
         didSet { isLoadingAttachment = loadingCount > 0 }
     }
 
-    /// Limits concurrent attachment I/O to avoid unbounded memory spikes when
-    /// many files are selected at once (each can read up to 20 MB).
+    /// Limits concurrent attachment I/O to keep memory usage reasonable.
     private static let maxConcurrentLoads = 4
     private let loadSemaphore = AsyncSemaphore(value: maxConcurrentLoads)
 
-    // MARK: - Limits
-
-    /// Maximum file size per attachment (20 MB).
-    nonisolated static let maxFileSize = 20 * 1024 * 1024
-    /// Maximum image size before compression (4 MB - leaves headroom for base64 encoding).
-    /// Anthropic has a 5 MB limit per image; base64 encoding adds ~33% overhead.
+    /// Maximum image size before compression (4 MB). Images above this threshold
+    /// are JPEG-compressed, not rejected. Anthropic has a 5 MB limit per image;
+    /// base64 encoding adds ~33% overhead, so 4 MB raw keeps us well within bounds.
     nonisolated static let maxImageSize = 4 * 1024 * 1024
 
     // MARK: - Error callback
@@ -171,11 +167,6 @@ public final class ChatAttachmentManager: ObservableObject {
                 return Result<ChatAttachment, AttachmentError>.failure(.message("Could not read file."))
             }
 
-            // Belt-and-suspenders: validate the actual byte count after reading.
-            guard data.count <= Self.maxFileSize else {
-                return .failure(.message("File exceeds 20 MB limit."))
-            }
-
             let filename = url.lastPathComponent
             var mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
 
@@ -281,10 +272,6 @@ public final class ChatAttachmentManager: ObservableObject {
             #else
             #error("Unsupported platform")
             #endif
-
-            guard pngData.count <= Self.maxFileSize else {
-                return .failure(.message("Image exceeds 20 MB limit."))
-            }
 
             // Compress image if needed
             let (finalData, wasCompressed) = Self.compressImageIfNeeded(data: pngData, maxSize: Self.maxImageSize)
