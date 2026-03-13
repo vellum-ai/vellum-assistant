@@ -10,14 +10,14 @@ struct ContactDetailView: View {
 
     private static let verificationSupportedChannels: Set<String> = ["telegram", "phone", "slack"]
 
-    /// Channels that support 6-digit code invites from this view. Voice invites
-    /// require additional fields not available here, so they are excluded.
-    private static let codeInviteChannels: Set<String> = ["telegram", "slack"]
+    /// Channels that support 6-digit code invites from this view.
+    private static let codeInviteChannels: Set<String> = ["telegram", "slack", "phone"]
 
     let contact: ContactPayload
     var daemonClient: DaemonClient?
     var store: SettingsStore?
     var onDelete: (() -> Void)?
+    var guardianName: String?
 
     @State var currentContact: ContactPayload?
     @State private var showDeleteConfirmation = false
@@ -33,6 +33,7 @@ struct ContactDetailView: View {
     @State private var verificationSuccessChannelId: String?
     @State private var telegramBootstrapUrl: String?
     @State private var telegramBootstrapChannelId: String?
+    @State private var invitePhoneNumber = ""
     @State private var inviteInProgress: String?
     @State private var inviteResult: (
         type: String,
@@ -454,21 +455,26 @@ struct ContactDetailView: View {
                     )
                 }
             } else if Self.codeInviteChannels.contains(type) {
-                // Channels that support 6-digit code invites can be invited directly
-                // from this view. Voice invites require additional fields (phone number,
-                // friend/guardian names) that aren't available in this context.
-                // Row visibility is already gated on channelReadiness[type]?.ready == true,
-                // so no additional readiness check is needed here.
                 if inviteInProgress == type {
                     ProgressView()
                         .controlSize(.small)
                 } else {
-                    VButton(
-                        label: "Invite",
-                        style: .outlined,
-                        isDisabled: inviteInProgress != nil
-                    ) {
-                        createInviteForChannel(type: type)
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        if type == "phone" {
+                            TextField("+1234567890", text: $invitePhoneNumber)
+                                .font(VFont.mono)
+                                .textFieldStyle(.plain)
+                                .padding(VSpacing.sm)
+                                .background(VColor.surfaceActive)
+                                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                        }
+                        VButton(
+                            label: "Invite",
+                            style: .outlined,
+                            isDisabled: inviteInProgress != nil || (type == "phone" && invitePhoneNumber.trimmingCharacters(in: .whitespaces).isEmpty)
+                        ) {
+                            createInviteForChannel(type: type)
+                        }
                     }
                 }
             }
@@ -970,10 +976,16 @@ struct ContactDetailView: View {
         inviteResult = nil
         Task {
             do {
+                let phoneNumber = type == "phone" ? invitePhoneNumber.trimmingCharacters(in: .whitespaces) : nil
+                let resolvedGuardianName = type == "phone" ? (guardianName ?? "your guardian") : nil
+
                 if let result = try await daemonClient.createInvite(
                     sourceChannel: type,
                     note: "Invite for \(displayContact.displayName)",
-                    contactName: displayContact.displayName
+                    contactName: displayContact.displayName,
+                    expectedExternalUserId: phoneNumber,
+                    friendName: type == "phone" ? displayContact.displayName : nil,
+                    guardianName: resolvedGuardianName
                 ) {
                     inviteResult = (
                         type: type,

@@ -82,7 +82,8 @@ struct ContactsContainerView: View {
                             onDelete: {
                                 selection = .assistant
                                 viewModel.loadContacts()
-                            }
+                            },
+                            guardianName: viewModel.guardianContact?.displayName
                         )
                         .id(contactId)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
