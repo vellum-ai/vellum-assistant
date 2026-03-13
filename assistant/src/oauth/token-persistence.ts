@@ -10,15 +10,11 @@
  * `oauth_connection/{id}/...`).
  */
 
-import type {
-  OAuth2FlowResult,
-  TokenEndpointAuthMethod,
-} from "../security/oauth2.js";
+import type { OAuth2FlowResult } from "../security/oauth2.js";
 import {
   deleteSecureKeyAsync,
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
-import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
 import { runPostConnectHook } from "../tools/credentials/post-connect-hooks.js";
 import {
   createConnection,
@@ -40,11 +36,7 @@ export interface StoreOAuth2TokensParams {
   rawTokenResponse: Record<string, unknown>;
   clientId: string;
   clientSecret?: string;
-  tokenUrl: string;
-  tokenEndpointAuthMethod?: TokenEndpointAuthMethod;
   userinfoUrl?: string;
-  allowedTools?: string[];
-  wellKnownInjectionTemplates?: CredentialInjectionTemplate[];
   /** Fallback account info from an identity verifier (e.g. @username, email). */
   identityAccountInfo?: string;
   /** Pre-resolved oauth_app ID — skips the upsertApp() call if provided. */
