@@ -23,7 +23,10 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { findContactChannel } from "../contacts/contact-store.js";
+import {
+  findContactChannel,
+  upsertContact,
+} from "../contacts/contact-store.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
 import {
@@ -273,6 +276,67 @@ describe("invite-redemption-service", () => {
       rawToken,
       sourceChannel: "telegram",
       externalUserId: "blocked-user",
+    });
+
+    expect(outcome).toEqual({ ok: false, reason: "invalid_token" });
+  });
+
+  test("returns invalid_token for a revoked guardian to prevent invite-based reactivation", () => {
+    const { rawToken } = createInvite({
+      sourceChannel: "telegram",
+      maxUses: 5,
+    });
+
+    // Pre-create a guardian contact with a revoked telegram channel
+    upsertContact({
+      displayName: "Guardian",
+      role: "guardian",
+      channels: [
+        {
+          type: "telegram",
+          address: "guardian-tg-id",
+          externalUserId: "guardian-tg-id",
+          status: "revoked",
+        },
+      ],
+    });
+
+    const outcome = redeemInvite({
+      rawToken,
+      sourceChannel: "telegram",
+      externalUserId: "guardian-tg-id",
+    });
+
+    // Must reject — guardian channels are managed via the binding flow, not invites
+    expect(outcome).toEqual({ ok: false, reason: "invalid_token" });
+  });
+
+  test("returns invalid_token for a revoked guardian via 6-digit invite code", () => {
+    const code = "123456";
+    const inviteCodeHash = hashVoiceCode(code);
+    createInvite({
+      sourceChannel: "telegram",
+      maxUses: 5,
+      inviteCodeHash,
+    });
+
+    upsertContact({
+      displayName: "Guardian",
+      role: "guardian",
+      channels: [
+        {
+          type: "telegram",
+          address: "guardian-code-id",
+          externalUserId: "guardian-code-id",
+          status: "revoked",
+        },
+      ],
+    });
+
+    const outcome = redeemInviteByCode({
+      code,
+      sourceChannel: "telegram",
+      externalUserId: "guardian-code-id",
     });
 
     expect(outcome).toEqual({ ok: false, reason: "invalid_token" });
