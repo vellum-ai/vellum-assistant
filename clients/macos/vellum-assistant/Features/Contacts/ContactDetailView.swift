@@ -6,13 +6,13 @@ import VellumAssistantShared
 /// channels with verification status, and action buttons.
 @MainActor
 struct ContactDetailView: View {
-    private static let allChannelTypes = ["telegram", "email", "whatsapp", "phone", "slack"]
+    private static let allChannelTypes = ["telegram", "phone", "slack"]
 
     private static let verificationSupportedChannels: Set<String> = ["telegram", "phone", "slack"]
 
     /// Channels that support 6-digit code invites from this view. Voice invites
     /// require additional fields not available here, so they are excluded.
-    private static let codeInviteChannels: Set<String> = ["telegram", "email", "whatsapp", "slack"]
+    private static let codeInviteChannels: Set<String> = ["telegram", "slack"]
 
     let contact: ContactPayload
     var daemonClient: DaemonClient?
@@ -294,11 +294,11 @@ struct ContactDetailView: View {
             )
             let extraChannels = displayContact.channels.filter { !Self.allChannelTypes.contains($0.type) }
 
-            // Compute which standard types are visible (have channels, readiness info,
-            // or should appear as unavailable after a readiness fetch failure)
             let visibleTypes = Self.allChannelTypes.filter { type in
-                channelsByType[type] != nil || channelReadiness[type] != nil
-                    || (readinessFetchFailed && Self.codeInviteChannels.contains(type))
+                // Always show channels the contact already has configured
+                channelsByType[type] != nil
+                    // Otherwise only show channels the assistant has successfully set up
+                    || channelReadiness[type]?.ready == true
             }
             let lastVisibleType = visibleTypes.last
             let hasExtraChannels = !extraChannels.isEmpty
@@ -317,22 +317,9 @@ struct ContactDetailView: View {
                     if type != lastVisibleType || hasExtraChannels {
                         Divider().background(VColor.borderBase)
                     }
-                } else if let readiness = channelReadiness[type] {
-                    if readiness.ready {
-                        // Unconfigured but assistant has this channel set up — show
-                        unconfiguredChannelRow(type: type)
-                    } else {
-                        // Channel exists but is not ready — show with reason
-                        unavailableChannelRow(type: type, reason: readiness.reasonSummary)
-                    }
-
-                    if type != lastVisibleType || hasExtraChannels {
-                        Divider().background(VColor.borderBase)
-                    }
-                } else if readinessFetchFailed && Self.codeInviteChannels.contains(type) {
-                    // Readiness fetch failed — show as unavailable so channels
-                    // aren't silently hidden by a transient error.
-                    unavailableChannelRow(type: type, reason: "Unable to check readiness")
+                } else if channelReadiness[type]?.ready == true {
+                    // Unconfigured but assistant has this channel set up — show
+                    unconfiguredChannelRow(type: type)
 
                     if type != lastVisibleType || hasExtraChannels {
                         Divider().background(VColor.borderBase)
@@ -499,36 +486,6 @@ struct ContactDetailView: View {
 
             if inviteResult?.type == type {
                 inviteResultDisplay(for: type)
-            }
-        }
-    }
-
-    /// Row for a channel that the assistant knows about but is not ready.
-    /// Shows the channel name with an explanation of why it is unavailable.
-    @ViewBuilder
-    private func unavailableChannelRow(type: String, reason: String?) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.sm) {
-                VIconView(channelIcon(for: type), size: 14)
-                    .foregroundColor(VColor.contentTertiary)
-                    .frame(width: 20, alignment: .center)
-
-                Text(channelLabel(for: type))
-                    .font(VFont.body)
-                    .foregroundColor(VColor.contentTertiary)
-
-                Spacer()
-
-                Text("Unavailable")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-            }
-
-            if let reason {
-                Text(reason)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
