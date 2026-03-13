@@ -1106,12 +1106,7 @@ struct ConstellationView: View {
                 endRadius: min(size.width, size.height) * 0.5
             )
 
-            // Native character avatar rendered BEHIND edges (no glow)
-            if !hasCustomAvatar {
-                centerAvatarView(showGlow: false)
-            }
-
-            // Edge lines (behind nodes, on top of native avatar)
+            // Edge lines (behind nodes)
             // Uses SwiftUI Path shapes instead of Canvas so edges are never clipped
             // to the view bounds — they extend as far as the nodes go.
             ForEach(treeEdges) { edge in
@@ -1191,10 +1186,8 @@ struct ConstellationView: View {
                 }
             }
 
-            // Custom avatar rendered ON TOP of everything with glow
-            if hasCustomAvatar {
-                centerAvatarView(showGlow: true)
-            }
+            // Center avatar on top of edges/nodes; glow only for custom uploads
+            centerAvatarView(showGlow: hasCustomAvatar)
         }
     }
 }
