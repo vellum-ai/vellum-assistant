@@ -41,7 +41,7 @@ export async function saveSession(session: AmazonSession): Promise<void> {
     throw new Error(
       `Failed to save Amazon session: ${
         err instanceof Error ? err.message : String(err)
-      }`
+      }`,
     );
   }
 }
@@ -64,7 +64,7 @@ export async function clearSession(): Promise<void> {
  * copies them to the canonical amazon:session:cookies key.
  */
 export async function importFromCredentialStore(
-  targetDomain: string
+  targetDomain: string,
 ): Promise<AmazonSession> {
   const { stdout } = await execFileAsync("assistant", [
     "credentials",
@@ -79,17 +79,17 @@ export async function importFromCredentialStore(
   const cookieNames = new Set(cookies.map((c) => c.name));
   if (!cookieNames.has("session-id")) {
     throw new Error(
-      "Credential store cookies are missing required Amazon cookie: session-id."
+      "Credential store cookies are missing required Amazon cookie: session-id.",
     );
   }
   if (!cookieNames.has("ubid-main")) {
     throw new Error(
-      "Credential store cookies are missing required Amazon cookie: ubid-main."
+      "Credential store cookies are missing required Amazon cookie: ubid-main.",
     );
   }
   if (!cookieNames.has("at-main") && !cookieNames.has("x-main")) {
     throw new Error(
-      "Credential store cookies are missing required Amazon auth cookie (at-main or x-main)."
+      "Credential store cookies are missing required Amazon auth cookie (at-main or x-main).",
     );
   }
 
