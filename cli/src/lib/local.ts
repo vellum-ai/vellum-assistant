@@ -799,6 +799,7 @@ export async function startLocalDaemon(
       // Forward optional config env vars the daemon may need
       for (const key of [
         "ANTHROPIC_API_KEY",
+        "APP_VERSION",
         "BASE_DATA_DIR",
         "QDRANT_HTTP_PORT",
         "QDRANT_URL",
