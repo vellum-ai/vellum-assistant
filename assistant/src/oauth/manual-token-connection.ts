@@ -80,10 +80,12 @@ export function removeManualTokenConnection(providerKey: string): void {
 export async function backfillManualTokenConnections(): Promise<void> {
   // Telegram: requires both bot_token and webhook_secret
   if (!getConnectionByProvider("telegram")) {
-    const hasBotToken = !!await getSecureKeyAsync(credentialKey("telegram", "bot_token"));
-    const hasWebhookSecret = !!await getSecureKeyAsync(
+    const hasBotToken = !!(await getSecureKeyAsync(
+      credentialKey("telegram", "bot_token"),
+    ));
+    const hasWebhookSecret = !!(await getSecureKeyAsync(
       credentialKey("telegram", "webhook_secret"),
-    );
+    ));
     if (hasBotToken && hasWebhookSecret) {
       await ensureManualTokenConnection("telegram");
     }
@@ -91,12 +93,12 @@ export async function backfillManualTokenConnections(): Promise<void> {
 
   // Slack channel: requires both bot_token and app_token
   if (!getConnectionByProvider("slack_channel")) {
-    const hasBotToken = !!await getSecureKeyAsync(
+    const hasBotToken = !!(await getSecureKeyAsync(
       credentialKey("slack_channel", "bot_token"),
-    );
-    const hasAppToken = !!await getSecureKeyAsync(
+    ));
+    const hasAppToken = !!(await getSecureKeyAsync(
       credentialKey("slack_channel", "app_token"),
-    );
+    ));
     if (hasBotToken && hasAppToken) {
       await ensureManualTokenConnection("slack_channel");
     }
