@@ -13,6 +13,7 @@ struct GuardianChannelsDetailView: View {
     let contact: ContactPayload
     var daemonClient: DaemonClient?
     var store: SettingsStore?
+    var onSelectAssistant: (() -> Void)?
 
     @State var currentContact: ContactPayload?
     @State private var channelReadiness: [String: DaemonClient.ChannelReadinessInfo] = [:]
@@ -40,9 +41,33 @@ struct GuardianChannelsDetailView: View {
                         .foregroundColor(VColor.contentTertiary)
                 }
 
-                // One card per channel type
-                ForEach(Self.allChannelTypes, id: \.self) { type in
-                    channelCard(for: type)
+                // One card per channel type (only show configured or existing)
+                let visibleTypes = Self.allChannelTypes.filter { type in
+                    let hasExisting = displayContact.channels.contains { $0.type == type && $0.status != "revoked" }
+                    return hasExisting || channelReadiness[type]?.ready == true
+                }
+
+                if visibleTypes.isEmpty {
+                    VStack(spacing: VSpacing.md) {
+                        VIconView(.messageCircle, size: 24)
+                            .foregroundColor(VColor.contentTertiary)
+                        Text("No Channels Available")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentSecondary)
+                        Text("Set up channels on your assistant first to verify your identity.")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentTertiary)
+                            .multilineTextAlignment(.center)
+                        VButton(label: "Set Up Assistant", style: .outlined) {
+                            onSelectAssistant?()
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, VSpacing.xl)
+                } else {
+                    ForEach(visibleTypes, id: \.self) { type in
+                        channelCard(for: type)
+                    }
                 }
             }
             .padding(VSpacing.lg)
@@ -78,15 +103,6 @@ struct GuardianChannelsDetailView: View {
             } else if !existingChannels.isEmpty || channelReadiness[type]?.ready == true {
                 // Unverified/pending channel or no channel but assistant has this channel ready
                 verificationFlowContent(for: type)
-            } else {
-                // Channel not configured on the assistant
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(.triangleAlert, size: 12)
-                        .foregroundColor(VColor.systemNegativeHover)
-                    Text("Set up this channel on your assistant first")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                }
             }
 
         }

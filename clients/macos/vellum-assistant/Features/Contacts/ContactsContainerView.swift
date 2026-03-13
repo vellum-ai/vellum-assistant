@@ -79,7 +79,8 @@ struct ContactsContainerView: View {
                             GuardianChannelsDetailView(
                                 contact: contact,
                                 daemonClient: daemonClient,
-                                store: store
+                                store: store,
+                                onSelectAssistant: { selection = .assistant }
                             )
                             .id(contactId)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
