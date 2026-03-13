@@ -19,13 +19,21 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-const mockGetOrCreateConversation = mock((_key: string) => ({
-  conversationId: "conv-test-123",
-  created: false,
-}));
+const mockGetConversationByKey = mock(
+  (_key: string): { conversationId: string } | null => ({
+    conversationId: "conv-test-123",
+  }),
+);
 
 mock.module("../memory/conversation-key-store.js", () => ({
-  getOrCreateConversation: mockGetOrCreateConversation,
+  getConversationByKey: mockGetConversationByKey,
+  // Ensure getOrCreateConversation is never called — BTW must not create
+  // persistent conversations.
+  getOrCreateConversation: () => {
+    throw new Error(
+      "getOrCreateConversation must not be called from btw-routes",
+    );
+  },
 }));
 
 const mockAddMessage = mock(() => {});
@@ -322,5 +330,53 @@ describe("POST /v1/btw", () => {
 
     // processing should still be false — the handler never sets it
     expect(session.processing).toBe(false);
+  });
+
+  // -- No conversation creation (regression) --
+
+  test("unknown conversationKey does not create a DB conversation", async () => {
+    // Simulate a greeting request for a draft thread — no conversation exists.
+    mockGetConversationByKey.mockReturnValueOnce(null);
+
+    const session = makeMockSession();
+    const deps = makeSendMessageDeps(session);
+    const getOrCreateSessionSpy = deps.getOrCreateSession as ReturnType<
+      typeof mock
+    >;
+
+    const res = await callHandler(
+      { conversationKey: "greeting-abc123", content: "Generate a greeting" },
+      { sendMessageDeps: deps },
+    );
+    await readStream(res);
+
+    expect(res.status).toBe(200);
+
+    // Read-only lookup should be called
+    expect(mockGetConversationByKey).toHaveBeenCalledWith("greeting-abc123");
+
+    // Session should be created with the raw key (no DB conversation created)
+    expect(getOrCreateSessionSpy).toHaveBeenCalledWith("greeting-abc123");
+  });
+
+  test("known conversationKey resolves to existing conversation ID", async () => {
+    mockGetConversationByKey.mockReturnValueOnce({
+      conversationId: "existing-conv-id",
+    });
+
+    const session = makeMockSession();
+    const deps = makeSendMessageDeps(session);
+    const getOrCreateSessionSpy = deps.getOrCreateSession as ReturnType<
+      typeof mock
+    >;
+
+    const res = await callHandler(
+      { conversationKey: "my-thread-key", content: "What is 2+2?" },
+      { sendMessageDeps: deps },
+    );
+    await readStream(res);
+
+    expect(res.status).toBe(200);
+    expect(getOrCreateSessionSpy).toHaveBeenCalledWith("existing-conv-id");
   });
 });
