@@ -225,6 +225,47 @@ struct DisplayGallerySection: View {
             Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
             #endif
 
+            // MARK: - VInitialsAvatar
+            GallerySectionHeader(
+                title: "VInitialsAvatar",
+                description: "Circular avatar showing the initials of a name. Configurable size and color."
+            )
+
+            HStack(spacing: VSpacing.lg) {
+                VStack(spacing: VSpacing.xs) {
+                    VInitialsAvatar(name: "Alice Chen", size: 24)
+                    Text("24pt")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                }
+                VStack(spacing: VSpacing.xs) {
+                    VInitialsAvatar(name: "Bob Williams")
+                    Text("28pt (default)")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                }
+                VStack(spacing: VSpacing.xs) {
+                    VInitialsAvatar(name: "Charlie", size: 40)
+                    Text("40pt")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                }
+                VStack(spacing: VSpacing.xs) {
+                    VInitialsAvatar(name: "D", size: 52)
+                    Text("52pt")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                }
+                VStack(spacing: VSpacing.xs) {
+                    VInitialsAvatar(name: "Eve Fox", color: VColor.contentTertiary)
+                    Text("Custom color")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                }
+            }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
             // MARK: - VStreamingWaveform
             GallerySectionHeader(
                 title: "VStreamingWaveform",

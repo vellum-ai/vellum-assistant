@@ -65,6 +65,15 @@ struct FeedbackGallerySection: View {
                         VBadge(style: .label("Error"), color: VColor.systemNegativeStrong)
                         VBadge(style: .label("Warn"), color: VColor.systemNegativeHover)
                     }
+
+                    // Subtle label row
+                    Text("Subtle Label").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                    HStack(spacing: VSpacing.lg) {
+                        VBadge(style: .subtleLabel("Guardian"), color: VColor.primaryBase)
+                        VBadge(style: .subtleLabel("Active"), color: VColor.systemPositiveStrong)
+                        VBadge(style: .subtleLabel("Blocked"), color: VColor.systemNegativeStrong)
+                        VBadge(style: .subtleLabel("Human"), color: VColor.contentSecondary)
+                    }
                 }
             }
 

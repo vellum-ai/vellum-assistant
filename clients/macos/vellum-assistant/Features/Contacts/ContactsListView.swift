@@ -183,7 +183,7 @@ struct ContactsListView: View {
                                 .foregroundColor(VColor.contentDefault)
                                 .lineLimit(1)
 
-                            VBadge(style: .subtleLabel("Human"), color: VColor.contentSecondary)
+                            VBadge(style: .subtleLabel(contactBadgeLabel(contact)), color: VColor.contentSecondary)
                         }
 
                         if !contact.channels.isEmpty {
@@ -318,6 +318,13 @@ struct ContactsListView: View {
     }
 
     // MARK: - Helpers
+
+    private func contactBadgeLabel(_ contact: ContactPayload) -> String {
+        if let contactType = contact.contactType, !contactType.isEmpty {
+            return contactType.capitalized
+        }
+        return "Human"
+    }
 
     private func channelIcon(for type: String) -> VIcon {
         switch type {
