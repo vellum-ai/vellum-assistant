@@ -49,7 +49,6 @@ import {
 } from "../util/platform.js";
 import { registerDaemonCallbacks } from "../work-items/work-item-runner.js";
 import { ConfigWatcher } from "./config-watcher.js";
-import { handleConfirmationSignal } from "./confirmation-signal-service.js";
 import { parseIdentityFields } from "./handlers/identity.js";
 import type {
   HandlerContext,
@@ -399,7 +398,6 @@ export class DaemonServer {
           log.error({ err }, "MCP reload triggered by config change failed");
         });
       },
-      () => handleConfirmationSignal(),
     );
 
     // Broadcast contacts_changed to all clients when any contact mutation occurs.
