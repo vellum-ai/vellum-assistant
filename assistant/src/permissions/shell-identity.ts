@@ -86,10 +86,12 @@ function getScriptIdentityToken(
     return null;
   }
 
-  const scriptArg = args.find(
-    (arg) => arg.includes("/") || arg.startsWith("."),
-  );
-  if (!scriptArg) {
+  // Only use args[1] (the direct run target) as the script identity.
+  // Scanning later args risks deriving identity from ancillary path arguments
+  // (e.g. `bun run lint ./src/index.ts` would otherwise key on `index` instead
+  // of `lint`, allowing unrelated commands to share the same allowlist entry).
+  const scriptArg = args[1];
+  if (!scriptArg || (!scriptArg.includes("/") && !scriptArg.startsWith("."))) {
     return null;
   }
 
