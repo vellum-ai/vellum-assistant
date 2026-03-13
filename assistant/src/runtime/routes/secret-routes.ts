@@ -101,6 +101,7 @@ export async function handleAddSecret(req: Request): Promise<Response> {
       }
       upsertCredentialMetadata(service, field, {});
       if (isManagedProxyCredential(service, field)) {
+        invalidateConfigCache();
         initializeProviders(getConfig());
       }
       log.info({ service, field }, "Credential added via HTTP");
@@ -196,6 +197,7 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
       }
       deleteCredentialMetadata(service, field);
       if (isManagedProxyCredential(service, field)) {
+        invalidateConfigCache();
         initializeProviders(getConfig());
       }
       log.info({ service, field }, "Credential deleted via HTTP");
