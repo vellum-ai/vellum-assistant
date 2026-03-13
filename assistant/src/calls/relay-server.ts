@@ -575,6 +575,7 @@ export class RelayConnection {
           outcome.fromNumber,
           outcome.friendName,
           outcome.guardianName,
+          !resolved.isInbound,
         );
         return;
       case "name_capture":
@@ -1096,6 +1097,7 @@ export class RelayConnection {
     fromNumber: string,
     friendName: string | null,
     guardianName: string | null,
+    isOutbound: boolean,
   ): void {
     this.inviteRedemptionActive = true;
     this.inviteRedemptionAssistantId = assistantId;
@@ -1116,10 +1118,17 @@ export class RelayConnection {
 
     const displayFriend = friendName ?? "there";
     const displayGuardian = guardianName ?? "your contact";
-    this.sendTextToken(
-      `Welcome ${displayFriend}. Please enter the 6-digit code that ${displayGuardian} provided you to verify your identity.`,
-      true,
-    );
+
+    let promptText: string;
+    if (isOutbound) {
+      const assistantName = this.resolveAssistantLabel();
+      promptText = assistantName
+        ? `Hi ${displayFriend}, this is ${assistantName}, ${displayGuardian}'s assistant. To get started, please enter the 6-digit code that ${displayGuardian} shared with you.`
+        : `Hi ${displayFriend}, this is ${displayGuardian}'s assistant. To get started, please enter the 6-digit code that ${displayGuardian} shared with you.`;
+    } else {
+      promptText = `Welcome ${displayFriend}. Please enter the 6-digit code that ${displayGuardian} provided you to verify your identity.`;
+    }
+    this.sendTextToken(promptText, true);
 
     log.info(
       { callSessionId: this.callSessionId, assistantId },
