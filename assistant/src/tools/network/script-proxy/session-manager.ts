@@ -19,7 +19,7 @@ import {
   routeConnection,
   stripQueryString,
 } from "../../../outbound-proxy/index.js";
-import { getSecureKey } from "../../../security/secure-keys.js";
+import { getSecureKeyAsync } from "../../../security/secure-keys.js";
 import { getLogger } from "../../../util/logger.js";
 import { silentlyWithLog } from "../../../util/silently.js";
 import {
@@ -97,10 +97,10 @@ const acquireLocks = new Map<string, Promise<ProxySession>>();
  * Handles optional composition with a second credential and value transforms.
  * Returns null if any referenced credential cannot be resolved.
  */
-function buildInjectedValue(
+async function buildInjectedValue(
   tpl: CredentialInjectionTemplate,
   primaryValue: string,
-): string | null {
+): Promise<string | null> {
   let value = primaryValue;
 
   if (tpl.composeWith) {
@@ -109,7 +109,7 @@ function buildInjectedValue(
       tpl.composeWith.field,
     );
     if (!composed) return null;
-    const composedValue = getSecureKey(composed.storageKey);
+    const composedValue = await getSecureKeyAsync(composed.storageKey);
     if (!composedValue) return null;
     value = `${value}${tpl.composeWith.separator}${composedValue}`;
   }
@@ -311,10 +311,10 @@ export async function startSession(
           if (tpl.injectionType === "header" && tpl.headerName) {
             const resolved = resolveById(credId);
             if (!resolved) return req.headers;
-            const value = getSecureKey(resolved.storageKey);
+            const value = await getSecureKeyAsync(resolved.storageKey);
             if (!value) return req.headers;
 
-            const headerValue = buildInjectedValue(tpl, value);
+            const headerValue = await buildInjectedValue(tpl, value);
             if (!headerValue) {
               log.warn(
                 { host: req.hostname, credentialId: credId },
@@ -399,11 +399,11 @@ export async function startSession(
         const { credentialId, template } = decision;
         const resolved = resolveById(credentialId);
         if (!resolved) return {};
-        const value = getSecureKey(resolved.storageKey);
+        const value = await getSecureKeyAsync(resolved.storageKey);
         if (!value) return {};
 
         if (template.injectionType === "header" && template.headerName) {
-          const headerValue = buildInjectedValue(template, value);
+          const headerValue = await buildInjectedValue(template, value);
           if (!headerValue) {
             log.warn(
               { hostname, credentialId },

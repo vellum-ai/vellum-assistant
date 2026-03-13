@@ -16,7 +16,7 @@ import { getConnectionByProvider } from "../../oauth/oauth-store.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
-  getSecureKey,
+  getSecureKeyAsync,
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
 import { getTelegramBotUsername } from "../../telegram/bot-username.js";
@@ -65,11 +65,13 @@ export type TelegramConfigResult = Omit<TelegramConfigResponse, "type">;
 
 // -- Extracted business logic functions --
 
-export function getTelegramConfig(): TelegramConfigResult {
-  const hasBotToken = !!getSecureKey(credentialKey("telegram", "bot_token"));
-  const hasWebhookSecret = !!getSecureKey(
+export async function getTelegramConfig(): Promise<TelegramConfigResult> {
+  const hasBotToken = !!(await getSecureKeyAsync(
+    credentialKey("telegram", "bot_token"),
+  ));
+  const hasWebhookSecret = !!(await getSecureKeyAsync(
     credentialKey("telegram", "webhook_secret"),
-  );
+  ));
   const conn = getConnectionByProvider("telegram");
   const connected = !!(conn && conn.status === "active");
   const botUsername = getTelegramBotUsername();
@@ -89,7 +91,8 @@ export async function setTelegramConfig(
   // Track provenance so we only rollback tokens that were freshly provided.
   const isNewToken = !!botToken;
   const resolvedToken =
-    botToken || getSecureKey(credentialKey("telegram", "bot_token"));
+    botToken ||
+    (await getSecureKeyAsync(credentialKey("telegram", "bot_token")));
   if (!resolvedToken) {
     return {
       success: false,
@@ -166,9 +169,9 @@ export async function setTelegramConfig(
   invalidateConfigCache();
 
   // Ensure webhook secret exists (generate if missing)
-  let hasWebhookSecret = !!getSecureKey(
+  let hasWebhookSecret = !!(await getSecureKeyAsync(
     credentialKey("telegram", "webhook_secret"),
-  );
+  ));
   if (!hasWebhookSecret) {
     const { randomUUID } = await import("node:crypto");
     const webhookSecret = randomUUID();
@@ -241,7 +244,9 @@ export async function clearTelegramConfig(): Promise<TelegramConfigResult> {
   // The gateway reconcile short-circuits when credentials are absent,
   // so we must call the Telegram API directly while the token is still
   // available.
-  const botToken = getSecureKey(credentialKey("telegram", "bot_token"));
+  const botToken = await getSecureKeyAsync(
+    credentialKey("telegram", "bot_token"),
+  );
   if (botToken) {
     try {
       await fetch(`https://api.telegram.org/bot${botToken}/deleteWebhook`);
@@ -260,10 +265,12 @@ export async function clearTelegramConfig(): Promise<TelegramConfigResult> {
 
   if (r1 === "error" || r2 === "error") {
     // Check each key individually so partial deletions report accurate status.
-    const hasBotToken = !!getSecureKey(credentialKey("telegram", "bot_token"));
-    const hasWebhookSecret = !!getSecureKey(
+    const hasBotToken = !!(await getSecureKeyAsync(
+      credentialKey("telegram", "bot_token"),
+    ));
+    const hasWebhookSecret = !!(await getSecureKeyAsync(
       credentialKey("telegram", "webhook_secret"),
-    );
+    ));
     return {
       success: false,
       hasBotToken,
@@ -297,7 +304,9 @@ export async function clearTelegramConfig(): Promise<TelegramConfigResult> {
 export async function setTelegramCommands(
   commands?: Array<{ command: string; description: string }>,
 ): Promise<TelegramConfigResult> {
-  const storedToken = getSecureKey(credentialKey("telegram", "bot_token"));
+  const storedToken = await getSecureKeyAsync(
+    credentialKey("telegram", "bot_token"),
+  );
   if (!storedToken) {
     return {
       success: false,
@@ -398,7 +407,7 @@ export async function handleTelegramConfig(
     let result: TelegramConfigResult;
 
     if (msg.action === "get") {
-      result = getTelegramConfig();
+      result = await getTelegramConfig();
     } else if (msg.action === "set") {
       result = await setTelegramConfig(msg.botToken);
     } else if (msg.action === "clear") {

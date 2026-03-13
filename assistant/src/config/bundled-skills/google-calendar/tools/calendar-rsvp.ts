@@ -14,7 +14,7 @@ export async function run(
   const response = input.response as "accepted" | "declined" | "tentative";
   const calendarId = (input.calendar_id as string) ?? "primary";
 
-  const connection = getCalendarConnection(account);
+  const connection = getCalendarConnection(account, calendarId);
 
   // First get the event to find the user's attendee entry
   const event = await calendar.getEvent(connection, eventId, calendarId);

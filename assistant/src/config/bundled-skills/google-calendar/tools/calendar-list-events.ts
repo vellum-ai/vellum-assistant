@@ -18,7 +18,7 @@ export async function run(
   const singleEvents = (input.single_events as boolean) ?? true;
   const orderBy = input.order_by as "startTime" | "updated" | undefined;
 
-  const connection = getCalendarConnection(account);
+  const connection = getCalendarConnection(account, calendarId);
   const result = await calendar.listEvents(connection, calendarId, {
     timeMin,
     timeMax,

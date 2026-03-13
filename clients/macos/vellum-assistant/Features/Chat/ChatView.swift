@@ -97,9 +97,15 @@ struct ChatView: View {
     @State private var isSearchActive = false
     @State private var searchText = ""
     @State private var currentMatchIndex = 0
+    @State private var showSkeleton = false
+    @State private var skeletonDebounceTask: Task<Void, Never>? = nil
 
     private var isEmptyState: Bool {
         messages.isEmpty && isHistoryLoaded
+    }
+
+    private var shouldShowSkeleton: Bool {
+        messages.isEmpty && !isHistoryLoaded
     }
 
     /// Message IDs whose text contains the search query, ordered chronologically.
@@ -112,7 +118,7 @@ struct ChatView: View {
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
-                if messages.isEmpty && !isHistoryLoaded {
+                if showSkeleton {
                     ChatLoadingSkeleton()
                         .padding(VSpacing.lg)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -348,6 +354,18 @@ struct ChatView: View {
                 return
             }
             activateSearch()
+        }
+        .onChange(of: shouldShowSkeleton) { _, shouldShow in
+            skeletonDebounceTask?.cancel()
+            if shouldShow {
+                skeletonDebounceTask = Task {
+                    try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
+                    guard !Task.isCancelled else { return }
+                    showSkeleton = true
+                }
+            } else {
+                showSkeleton = false
+            }
         }
     }
 
