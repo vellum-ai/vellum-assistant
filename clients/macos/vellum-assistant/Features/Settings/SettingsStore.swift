@@ -71,6 +71,14 @@ public final class SettingsStore: ObservableObject {
     @Published var globalHotkeyShortcut: String
     @Published var quickInputHotkeyShortcut: String
     @Published var quickInputHotkeyKeyCode: Int
+    @Published var quickInputAboveDockShortcut: String
+    @Published var newThreadShortcut: String
+    @Published var commandPaletteShortcut: String
+    @Published var navigateBackShortcut: String
+    @Published var navigateForwardShortcut: String
+    @Published var zoomInShortcut: String
+    @Published var zoomOutShortcut: String
+    @Published var zoomResetShortcut: String
     @Published var cmdEnterToSend: Bool
 
     // MARK: - Media Embed Settings
@@ -316,6 +324,47 @@ public final class SettingsStore: ObservableObject {
         let storedQIKeyCode = UserDefaults.standard.object(forKey: "quickInputHotkeyKeyCode") as? Int
         self.quickInputHotkeyKeyCode = storedQIKeyCode ?? kVK_ANSI_Slash
 
+        if UserDefaults.standard.object(forKey: "quickInputAboveDockShortcut") == nil {
+            self.quickInputAboveDockShortcut = "cmd+shift+v"
+        } else {
+            self.quickInputAboveDockShortcut = UserDefaults.standard.string(forKey: "quickInputAboveDockShortcut") ?? ""
+        }
+        if UserDefaults.standard.object(forKey: "newThreadShortcut") == nil {
+            self.newThreadShortcut = "cmd+n"
+        } else {
+            self.newThreadShortcut = UserDefaults.standard.string(forKey: "newThreadShortcut") ?? ""
+        }
+        if UserDefaults.standard.object(forKey: "commandPaletteShortcut") == nil {
+            self.commandPaletteShortcut = "cmd+k"
+        } else {
+            self.commandPaletteShortcut = UserDefaults.standard.string(forKey: "commandPaletteShortcut") ?? ""
+        }
+        if UserDefaults.standard.object(forKey: "navigateBackShortcut") == nil {
+            self.navigateBackShortcut = "cmd+["
+        } else {
+            self.navigateBackShortcut = UserDefaults.standard.string(forKey: "navigateBackShortcut") ?? ""
+        }
+        if UserDefaults.standard.object(forKey: "navigateForwardShortcut") == nil {
+            self.navigateForwardShortcut = "cmd+]"
+        } else {
+            self.navigateForwardShortcut = UserDefaults.standard.string(forKey: "navigateForwardShortcut") ?? ""
+        }
+        if UserDefaults.standard.object(forKey: "zoomInShortcut") == nil {
+            self.zoomInShortcut = "cmd+="
+        } else {
+            self.zoomInShortcut = UserDefaults.standard.string(forKey: "zoomInShortcut") ?? ""
+        }
+        if UserDefaults.standard.object(forKey: "zoomOutShortcut") == nil {
+            self.zoomOutShortcut = "cmd+-"
+        } else {
+            self.zoomOutShortcut = UserDefaults.standard.string(forKey: "zoomOutShortcut") ?? ""
+        }
+        if UserDefaults.standard.object(forKey: "zoomResetShortcut") == nil {
+            self.zoomResetShortcut = "cmd+0"
+        } else {
+            self.zoomResetShortcut = UserDefaults.standard.string(forKey: "zoomResetShortcut") ?? ""
+        }
+
         #if DEBUG
         self.isDevMode = UserDefaults.standard.object(forKey: "devModeEnabled") as? Bool ?? true
         #else
@@ -402,6 +451,46 @@ public final class SettingsStore: ObservableObject {
         $quickInputHotkeyKeyCode
             .dropFirst()
             .sink { value in UserDefaults.standard.set(value, forKey: "quickInputHotkeyKeyCode") }
+            .store(in: &cancellables)
+
+        $quickInputAboveDockShortcut
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "quickInputAboveDockShortcut") }
+            .store(in: &cancellables)
+
+        $newThreadShortcut
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "newThreadShortcut") }
+            .store(in: &cancellables)
+
+        $commandPaletteShortcut
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "commandPaletteShortcut") }
+            .store(in: &cancellables)
+
+        $navigateBackShortcut
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "navigateBackShortcut") }
+            .store(in: &cancellables)
+
+        $navigateForwardShortcut
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "navigateForwardShortcut") }
+            .store(in: &cancellables)
+
+        $zoomInShortcut
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "zoomInShortcut") }
+            .store(in: &cancellables)
+
+        $zoomOutShortcut
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "zoomOutShortcut") }
+            .store(in: &cancellables)
+
+        $zoomResetShortcut
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "zoomResetShortcut") }
             .store(in: &cancellables)
 
         $isDevMode
