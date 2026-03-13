@@ -4,10 +4,15 @@ import { seedProviders } from "./oauth-store.js";
  * Protocol-level seed data for each well-known OAuth provider.
  *
  * These values are upserted into the `oauth_providers` SQLite table on
- * every startup so that corrections (e.g. a fixed baseUrl) propagate to
- * existing installations. Code-side behavioral fields (identityVerifier,
- * injectionTemplates, setup, etc.) live in `provider-behaviors.ts` and
- * are never persisted to the DB.
+ * every startup. Only Vellum implementation fields (authUrl, tokenUrl,
+ * tokenEndpointAuthMethod, extraParams, callbackTransport, loopbackPort,
+ * pingUrl) are overwritten on subsequent startups — user-customizable
+ * fields (defaultScopes, scopePolicy, userinfoUrl, baseUrl) are only
+ * written on initial insert and preserved across restarts.
+ *
+ * Code-side behavioral fields (identityVerifier, injectionTemplates,
+ * setup, etc.) live in `provider-behaviors.ts` and are never persisted
+ * to the DB.
  */
 const PROVIDER_SEED_DATA: Record<
   string,
@@ -103,6 +108,7 @@ const PROVIDER_SEED_DATA: Record<
     },
     extraParams: { owner: "user" },
     tokenEndpointAuthMethod: "client_secret_basic",
+    callbackTransport: "gateway",
   },
 
   "integration:twitter": {
