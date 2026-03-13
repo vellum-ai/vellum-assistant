@@ -240,6 +240,7 @@ class AvatarLayerView: NSView {
     }
 
     private func performPoke() {
+        guard blinkEnabled else { return }
         guard let rootLayer = layer else { return }
 
         // Remove any in-progress poke animation (enables interruptible rapid clicks)
