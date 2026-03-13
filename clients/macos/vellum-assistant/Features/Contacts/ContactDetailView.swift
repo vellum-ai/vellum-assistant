@@ -42,6 +42,7 @@ struct ContactDetailView: View {
         channelHandle: String?
     )?
     @State private var inviteError: String?
+    @State private var inviteErrorChannel: String?
     @State private var inviteCopiedType: String?
     @State private var inviteExpanded: Set<String> = []
     @State private var inviteHandleInput = ""
@@ -93,6 +94,7 @@ struct ContactDetailView: View {
             inviteExpanded = []
             inviteResult = nil
             inviteError = nil
+            inviteErrorChannel = nil
         }
         .onDisappear {
             verificationTimeoutTask?.cancel()
@@ -402,12 +404,13 @@ struct ContactDetailView: View {
                                 inviteResult = nil
                             }
                             inviteError = nil
+                            inviteErrorChannel = nil
                         }
                     }
                 }
 
                 // Inline error display so the message appears inside the channel card
-                if let inviteError {
+                if let inviteError, inviteErrorChannel == type {
                     Text(inviteError)
                         .font(VFont.caption)
                         .foregroundColor(VColor.systemNegativeStrong)
@@ -441,6 +444,7 @@ struct ContactDetailView: View {
                                     inviteResult = nil
                                 }
                                 inviteError = nil
+                                inviteErrorChannel = nil
                             }
                         }
                     }
@@ -451,7 +455,7 @@ struct ContactDetailView: View {
                 }
 
                 // Inline error display so the message appears inside the channel card
-                if let inviteError {
+                if let inviteError, inviteErrorChannel == type {
                     Text(inviteError)
                         .font(VFont.caption)
                         .foregroundColor(VColor.systemNegativeStrong)
@@ -539,6 +543,7 @@ struct ContactDetailView: View {
                         inviteResult = nil
                     }
                     inviteError = nil
+                    inviteErrorChannel = nil
                     inviteHandleInput = ""
                     inviteCodeRevealed = false
                 }
@@ -1048,6 +1053,7 @@ struct ContactDetailView: View {
         guard let daemonClient, inviteInProgress == nil else { return }
         inviteInProgress = type
         inviteError = nil
+        inviteErrorChannel = nil
         inviteResult = nil
         inviteCallInProgress = false
         inviteCallTriggered = false
@@ -1083,9 +1089,11 @@ struct ContactDetailView: View {
                     )
                 } else {
                     inviteError = "Failed to create invite"
+                    inviteErrorChannel = type
                 }
             } catch {
                 inviteError = "Failed to create invite: \(error.localizedDescription)"
+                inviteErrorChannel = type
             }
             inviteInProgress = nil
         }
@@ -1101,9 +1109,11 @@ struct ContactDetailView: View {
                     inviteCallTriggered = true
                 } else {
                     inviteError = "Failed to initiate call"
+                    inviteErrorChannel = "phone"
                 }
             } catch {
                 inviteError = "Failed to initiate call: \(error.localizedDescription)"
+                inviteErrorChannel = "phone"
             }
             inviteCallInProgress = false
         }
