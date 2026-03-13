@@ -401,18 +401,14 @@ struct ComposerView: View {
         .overlay {
             if isComposerDropTargeted {
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .strokeBorder(VColor.primaryBase, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .fill(VColor.primaryBase.opacity(0.08))
-                    )
+                    .fill(VColor.surfaceActive)
                     .overlay {
-                        VStack(spacing: VSpacing.xs) {
-                            VIconView(.paperclip, size: 20)
-                                .foregroundColor(VColor.primaryBase)
+                        HStack(spacing: VSpacing.sm) {
+                            VIconView(.paperclip, size: 16)
+                                .foregroundColor(VColor.contentSecondary)
                             Text("Drop files to attach")
-                                .font(VFont.bodyMedium)
-                                .foregroundColor(VColor.primaryBase)
+                                .font(VFont.body)
+                                .foregroundColor(VColor.contentSecondary)
                         }
                     }
                     .allowsHitTesting(false)
