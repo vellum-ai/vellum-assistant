@@ -8,20 +8,11 @@ let chatBackgroundImage: UIImage? = {
     return UIImage(contentsOfFile: url.path)
 }()
 
-private let greetingChoices = [
-    "What are we working on?",
-    "I'm here whenever you need me.",
-    "What's on your mind?",
-    "Let's make something happen.",
-    "Ready when you are.",
-]
-
 struct ChatContentView: View {
     @ObservedObject var viewModel: ChatViewModel
     @FocusState private var isInputFocused: Bool
     @Environment(\.colorScheme) private var colorScheme
     @State private var emptyStateVisible = false
-    @State private var greeting: String = greetingChoices.randomElement()!
 
     /// The slice of messages shown in the view, honoring the pagination window.
     private var visibleMessages: [ChatMessage] {
@@ -67,11 +58,6 @@ struct ChatContentView: View {
         .background(VColor.surfaceOverlay)
         .animation(VAnimation.standard, value: viewModel.sessionError != nil)
         .animation(VAnimation.standard, value: viewModel.errorText)
-        .onChange(of: viewModel.messages.isEmpty) { _, isEmpty in
-            if isEmpty {
-                greeting = greetingChoices.randomElement()!
-            }
-        }
     }
 
     // MARK: - Messages Scroll View
@@ -447,37 +433,40 @@ struct ChatContentView: View {
         VStack(spacing: VSpacing.lg) {
             Spacer()
             Spacer()
-            VIconView(.sparkles, size: 48)
-                .foregroundColor(VColor.primaryBase)
-                .opacity(emptyStateVisible ? 1 : 0)
-                .scaleEffect(emptyStateVisible ? 1 : 0.8)
-            Text(greeting)
-                .font(.system(size: 22, weight: .medium))
-                .foregroundColor(VColor.contentSecondary)
-                .multilineTextAlignment(.center)
-                .opacity(emptyStateVisible ? 1 : 0)
-                .offset(y: emptyStateVisible ? 0 : 8)
-                .padding(.horizontal, VSpacing.xl)
+
+            HStack(spacing: VSpacing.md) {
+                VIconView(.sparkles, size: 48)
+                    .foregroundColor(VColor.primaryBase)
+
+                if let greeting = viewModel.emptyStateGreeting {
+                    Text(greeting)
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundColor(VColor.contentSecondary)
+                        .multilineTextAlignment(.leading)
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: 0.4), value: viewModel.emptyStateGreeting != nil)
+            .opacity(emptyStateVisible ? 1 : 0)
+            .scaleEffect(emptyStateVisible ? 1 : 0.8)
+
             Spacer()
             Spacer()
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            RadialGradient(
-                gradient: Gradient(colors: [
-                    VColor.primaryBase.opacity(0.07),
-                    VColor.primaryBase.opacity(0.02),
-                    Color.clear,
-                ]),
-                center: .center,
-                startRadius: 20,
-                endRadius: 350
-            )
-            .offset(y: -40)
-            .opacity(emptyStateVisible ? 1 : 0)
-        )
+        .background(RadialGradient(
+            gradient: Gradient(colors: [
+                VColor.primaryBase.opacity(0.07),
+                VColor.primaryBase.opacity(0.02),
+                Color.clear,
+            ]),
+            center: .center,
+            startRadius: 20,
+            endRadius: 350
+        ).offset(y: -40).allowsHitTesting(false))
         .onAppear {
+            viewModel.generateGreeting()
             withAnimation(.easeOut(duration: 0.5)) {
                 emptyStateVisible = true
             }

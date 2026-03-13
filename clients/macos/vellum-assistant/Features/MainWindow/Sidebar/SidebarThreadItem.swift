@@ -31,6 +31,7 @@ struct SidebarThreadItem: View {
     private var interactionState: ThreadInteractionState { threadManager.interactionState(for: thread.id) }
     // Reserve trailing space when hovered for archive button overlay.
     private var hasTrailingIcon: Bool { isHovered || sidebar.threadPendingDeletion == thread.id }
+    private var isPendingDeletion: Bool { sidebar.threadPendingDeletion == thread.id }
     private var canMarkUnread: Bool {
         !thread.hasUnseenLatestAssistantMessage &&
             thread.sessionId != nil &&
@@ -106,10 +107,11 @@ struct SidebarThreadItem: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .help(thread.title)
+
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, VSpacing.xs)
-            .padding(.trailing, hasTrailingIcon ? (VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs) : VSpacing.sm)
+            .padding(.trailing, isPendingDeletion ? SidebarLayoutMetrics.archiveConfirmTrailingPadding : hasTrailingIcon ? VSpacing.xs : VSpacing.sm)
             .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
             .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
             .background {
@@ -138,10 +140,11 @@ struct SidebarThreadItem: View {
         }
         .overlay(alignment: .trailing) {
             if sidebar.threadPendingDeletion == thread.id {
-                VButton(label: "Confirm", style: .danger) {
+                VButton(label: "Confirm", style: .dangerOutline, size: .pill) {
                     threadManager.archiveThread(id: thread.id)
                     sidebar.threadPendingDeletion = nil
                 }
+                .fixedSize()
                 .padding(.trailing, VSpacing.xs)
                 .accessibilityLabel("Confirm archive \(thread.title)")
             } else if isHovered {
@@ -158,7 +161,7 @@ struct SidebarThreadItem: View {
                 .accessibilityLabel("Archive \(thread.title)")
             }
         }
-        .padding(.horizontal, VSpacing.sm)
+        .padding(.horizontal, 0)
         .contextMenu {
             Button {
                 withAnimation(VAnimation.standard) {

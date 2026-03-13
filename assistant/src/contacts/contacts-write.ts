@@ -24,6 +24,7 @@ import {
 import type {
   ChannelPolicy,
   ChannelStatus,
+  ContactRole,
   ContactWriteResult,
 } from "./types.js";
 
@@ -146,6 +147,8 @@ export function upsertContactChannel(params: {
   createdBySessionId?: string;
   verifiedAt?: number;
   verifiedVia?: string;
+  role?: ContactRole;
+  contactId?: string;
 }): ContactWriteResult | null {
   let address: string;
 
@@ -173,7 +176,9 @@ export function upsertContactChannel(params: {
     : null;
 
   upsertContact({
+    id: params.contactId,
     displayName,
+    role: params.role,
     channels: [
       {
         type: params.sourceChannel,
@@ -189,6 +194,10 @@ export function upsertContactChannel(params: {
         verifiedVia: params.verifiedVia ?? undefined,
       },
     ],
+    // When a specific contactId is provided, reassign conflicting channels from
+    // other contacts. This enables invite redemption to bind a redeemer's
+    // existing channel identity to the invite's target contact.
+    reassignConflictingChannels: !!params.contactId,
   });
 
   const contactResult = findContactChannel({

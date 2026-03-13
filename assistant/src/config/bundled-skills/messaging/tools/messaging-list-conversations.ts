@@ -13,8 +13,9 @@ export async function run(
   const limit = input.limit as number | undefined;
 
   try {
-    const provider = resolveProvider(platform);
-    const conn = getProviderConnection(provider);
+    const provider = await resolveProvider(platform);
+    const account = input.account as string | undefined;
+    const conn = await getProviderConnection(provider, account);
     const conversations = await provider.listConversations(conn, {
       types: types as Array<"channel" | "dm" | "group" | "inbox"> | undefined,
       limit,

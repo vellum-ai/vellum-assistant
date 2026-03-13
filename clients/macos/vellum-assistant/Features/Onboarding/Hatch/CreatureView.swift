@@ -8,6 +8,9 @@ struct CreatureView: View {
     var animated: Bool = true
     @State private var appearance = AvatarAppearanceManager.shared
 
+    // Precomputed transparency flag — avoids expensive bitmap analysis during animation frames.
+    @State private var avatarIsTransparent = false
+
     @State private var appeared = false
     @State private var bounceOffset: CGFloat = 0
     @State private var breatheScaleY: CGFloat = 1.0
@@ -21,6 +24,7 @@ struct CreatureView: View {
                 .scaleEffect(appeared ? 1.0 : 0.0)
                 .opacity(appeared ? 1.0 : 0.0)
                 .onAppear {
+                    avatarIsTransparent = VAvatarImage.imageHasTransparency(appearance.fullAvatarImage)
                     if animated {
                         withAnimation(.spring(response: 0.6, dampingFraction: 0.5, blendDuration: 0)) {
                             appeared = true
@@ -50,7 +54,7 @@ struct CreatureView: View {
     }
 
     private var avatarImage: some View {
-        VAvatarImage(image: appearance.fullAvatarImage, size: 200, showBorder: false)
+        VAvatarImage(image: appearance.fullAvatarImage, size: 200, isTransparent: avatarIsTransparent, showBorder: false)
             .shadow(radius: 8)
     }
 }

@@ -3,6 +3,7 @@ import { orchestrateOAuthConnect } from "../../oauth/connect-orchestrator.js";
 import {
   disconnectOAuthProvider,
   getAppByProviderAndClientId,
+  getConnectionByProviderAndAccount,
   getMostRecentAppByProvider,
   getProvider,
 } from "../../oauth/oauth-store.js";
@@ -19,7 +20,7 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
-  getSecureKey,
+  getSecureKeyAsync,
   listSecureKeys,
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
@@ -71,6 +72,11 @@ class CredentialStoreTool implements Tool {
           service: {
             type: "string",
             description: "Service name, e.g. gmail, github",
+          },
+          account: {
+            type: "string",
+            description:
+              "Account identifier (e.g. email address) to target a specific connection when multiple accounts are connected for the same service. If omitted, uses the most recently connected account.",
           },
           field: {
             type: "string",
@@ -453,7 +459,19 @@ class CredentialStoreTool implements Tool {
         }
         // Also clean up any OAuth connection for this service (best-effort)
         try {
-          const oauthResult = await disconnectOAuthProvider(service);
+          const accountHint = input.account as string | undefined;
+          let oauthResult: "disconnected" | "not-found" | "error";
+          if (accountHint) {
+            const targetConn = getConnectionByProviderAndAccount(
+              service,
+              accountHint,
+            );
+            oauthResult = targetConn
+              ? await disconnectOAuthProvider(service, undefined, targetConn.id)
+              : "not-found";
+          } else {
+            oauthResult = await disconnectOAuthProvider(service);
+          }
           if (oauthResult === "error") {
             log.warn(
               { service },
@@ -723,7 +741,7 @@ class CredentialStoreTool implements Tool {
             isError: true,
           };
 
-        // Resolve aliases (e.g. "gmail" → "integration:gmail")
+        // Resolve aliases (e.g. "gmail" → "integration:google")
         const service = resolveService(rawService);
 
         // Code-side behavioral fields (identityVerifier, setup, etc.)
@@ -747,7 +765,7 @@ class CredentialStoreTool implements Tool {
           if (dbApp) {
             if (!clientId) clientId = dbApp.clientId;
             if (!clientSecret) {
-              clientSecret = getSecureKey(dbApp.clientSecretCredentialPath);
+              clientSecret = await getSecureKeyAsync(dbApp.clientSecretCredentialPath);
             }
           }
         }
@@ -794,7 +812,6 @@ class CredentialStoreTool implements Tool {
           clientSecret,
           isInteractive: !!context.isInteractive,
           sendToClient: context.sendToClient,
-          allowedTools: input.allowed_tools as string[] | undefined,
           ...(inputScopes ? { requestedScopes: inputScopes } : {}),
           onDeferredComplete: (deferredResult) => {
             // Emit oauth_connect_result to all connected SSE clients so the

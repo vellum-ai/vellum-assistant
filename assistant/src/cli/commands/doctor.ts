@@ -7,6 +7,7 @@ import { getRuntimeHttpPort } from "../../config/env.js";
 import { loadRawConfig } from "../../config/loader.js";
 import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
 import { isHttpHealthy } from "../../daemon/daemon-control.js";
+import { getSecureKey } from "../../security/secure-keys.js";
 import {
   getDbPath,
   getLogPath,
@@ -83,21 +84,22 @@ Examples:
         fireworks: "FIREWORKS_API_KEY",
         openrouter: "OPENROUTER_API_KEY",
       };
-      const configKey = (raw.apiKeys as Record<string, string> | undefined)?.[
-        provider
-      ];
+      const configKey = getSecureKey(provider);
       const envVar = providerEnvVar[provider];
       const envKey = envVar ? process.env[envVar] : undefined;
+      const plaintextKey = (
+        raw.apiKeys as Record<string, string> | undefined
+      )?.[provider];
 
       if (provider === "ollama") {
         pass("Provider configured (Ollama; API key optional)");
-      } else if (envKey || configKey) {
+      } else if (envKey || configKey || plaintextKey) {
         pass("API key configured");
       } else {
         fail(
           "API key configured",
           envVar
-            ? `set ${envVar} or run: assistant config set apiKeys.${provider} <key>`
+            ? `set ${envVar} or run: assistant keys set ${provider} <key>`
             : `set API key for provider "${provider}"`,
         );
       }

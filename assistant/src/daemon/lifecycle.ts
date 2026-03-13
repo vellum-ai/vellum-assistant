@@ -167,7 +167,14 @@ export async function runDaemon(): Promise<void> {
     // Backfill oauth_connection rows for manual-token providers (Telegram,
     // Slack channel) that already have keychain credentials from before the
     // oauth_connection migration. Safe to call on every startup.
-    await backfillManualTokenConnections();
+    try {
+      await backfillManualTokenConnections();
+    } catch (err) {
+      log.warn(
+        { err },
+        "Manual-token connection backfill failed — continuing startup",
+      );
+    }
     log.info("Daemon startup: DB initialized");
 
     // Expire any pending canonical guardian requests left over from before

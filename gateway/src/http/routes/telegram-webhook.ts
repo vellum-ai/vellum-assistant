@@ -357,7 +357,9 @@ export function createTelegramWebhookHandler(
 
       // Forward to runtime with command-intent metadata so the assistant
       // generates a natural greeting via the normal agent loop.
-      if (!normalized.message.callbackQueryId) {
+      // Skip the ACK when the /start includes a payload (e.g. invite token) —
+      // the runtime will send its own contextual reply during ACL enforcement.
+      if (!normalized.message.callbackQueryId && !startCmd.payload) {
         sendTelegramReply(
           config,
           normalized.message.conversationExternalId,

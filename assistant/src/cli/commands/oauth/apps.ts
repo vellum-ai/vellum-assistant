@@ -8,6 +8,8 @@ import {
   listApps,
   upsertApp,
 } from "../../../oauth/oauth-store.js";
+import { credentialKey } from "../../../security/credential-key.js";
+import { getCredentialMetadata } from "../../../tools/credentials/metadata-store.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 
@@ -45,8 +47,8 @@ client_secret linked to a provider. Each provider can have multiple apps
 Examples:
   $ assistant oauth apps list
   $ assistant oauth apps get --id <uuid>
-  $ assistant oauth apps get --provider integration:gmail
-  $ assistant oauth apps upsert --provider integration:gmail --client-id abc123
+  $ assistant oauth apps get --provider integration:google
+  $ assistant oauth apps upsert --provider integration:google --client-id abc123
   $ assistant oauth apps delete <id>`,
   );
 
@@ -96,7 +98,7 @@ Examples:
       "Look up an OAuth app by ID, provider + client-id, or provider",
     )
     .option("--id <id>", "App ID (UUID)")
-    .option("--provider <key>", "Provider key (e.g. integration:gmail)")
+    .option("--provider <key>", "Provider key (e.g. integration:google)")
     .option("--client-id <id>", "OAuth client ID (requires --provider)")
     .addHelpText(
       "after",
@@ -107,10 +109,10 @@ Three lookup modes are supported:
      $ assistant oauth apps get --id <uuid>
 
   2. By provider + client ID (exact match):
-     $ assistant oauth apps get --provider integration:gmail --client-id abc123
+     $ assistant oauth apps get --provider integration:google --client-id abc123
 
   3. By provider only (returns the most recently created app):
-     $ assistant oauth apps get --provider integration:gmail
+     $ assistant oauth apps get --provider integration:google
 
 At least --id or --provider must be specified.`,
     )
@@ -159,7 +161,10 @@ At least --id or --provider must be specified.`,
   apps
     .command("upsert")
     .description("Create or return an existing OAuth app registration")
-    .requiredOption("--provider <key>", "Provider key (e.g. integration:gmail)")
+    .requiredOption(
+      "--provider <key>",
+      "Provider key (e.g. integration:google)",
+    )
     .requiredOption("--client-id <id>", "OAuth client ID")
     .option(
       "--client-secret <secret>",
@@ -183,11 +188,17 @@ You can supply the client secret directly via --client-secret, or reference an
 existing credential in the store via --client-secret-credential-path. These two
 options are mutually exclusive — providing both is an error.
 
+The --client-secret-credential-path accepts two formats:
+  1. Full credential path: "credential/integration:google/client_secret"
+  2. Short name (service:field): "integration:google:client_secret"
+     Resolved via the metadata store by splitting on the last colon.
+
 Examples:
-  $ assistant oauth apps upsert --provider integration:gmail --client-id abc123
+  $ assistant oauth apps upsert --provider integration:google --client-id abc123
   $ assistant oauth apps upsert --provider integration:slack --client-id def456 --client-secret s3cret
-  $ assistant oauth apps upsert --provider integration:slack --client-id def456 --client-secret-credential-path "custom/path"
-  $ assistant oauth apps upsert --provider integration:gmail --client-id abc123 --json`,
+  $ assistant oauth apps upsert --provider integration:slack --client-id def456 --client-secret-credential-path "credential/integration:slack/client_secret"
+  $ assistant oauth apps upsert --provider integration:slack --client-id def456 --client-secret-credential-path "integration:slack:client_secret"
+  $ assistant oauth apps upsert --provider integration:google --client-id abc123 --json`,
     )
     .action(
       async (
@@ -210,10 +221,28 @@ Examples:
             return;
           }
 
+          let resolvedCredentialPath = opts.clientSecretCredentialPath;
+          if (
+            resolvedCredentialPath &&
+            !resolvedCredentialPath.startsWith("credential/")
+          ) {
+            // Attempt to interpret as a credential key — split on the LAST colon to get service/field
+            const lastColon = resolvedCredentialPath.lastIndexOf(":");
+            if (lastColon > 0) {
+              const asService = resolvedCredentialPath.slice(0, lastColon);
+              const asField = resolvedCredentialPath.slice(lastColon + 1);
+              // If a credential exists in metadata with these coordinates, resolve it
+              const meta = getCredentialMetadata(asService, asField);
+              if (meta) {
+                resolvedCredentialPath = credentialKey(asService, asField);
+              }
+            }
+          }
+
           const clientSecretOpts = opts.clientSecret
             ? { clientSecretValue: opts.clientSecret }
-            : opts.clientSecretCredentialPath
-              ? { clientSecretCredentialPath: opts.clientSecretCredentialPath }
+            : resolvedCredentialPath
+              ? { clientSecretCredentialPath: resolvedCredentialPath }
               : undefined;
           const row = await upsertApp(
             opts.provider,

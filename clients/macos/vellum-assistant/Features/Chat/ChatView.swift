@@ -64,6 +64,8 @@ struct ChatView: View {
     var onDictateToggle: (() -> Void)? = nil
     var onVoiceModeToggle: (() -> Void)? = nil
     var threadId: UUID?
+    var daemonGreeting: String? = nil
+    var onRequestGreeting: (() -> Void)? = nil
     /// When set, scroll to this message ID and clear the binding.
     @Binding var anchorMessageId: UUID?
 
@@ -87,6 +89,10 @@ struct ChatView: View {
     /// and shows a loading panel instead.
     var isBootstrapping: Bool = false
 
+    /// When true during bootstrap, the daemon failed to connect within the
+    /// timeout window. Shows a failure screen instead of the loading skeleton.
+    var isBootstrapTimedOut: Bool = false
+
     @State private var isNearBottom = true
     @State private var isDropTargeted = false
     @State private var containerWidth: CGFloat = 0
@@ -95,9 +101,15 @@ struct ChatView: View {
     @State private var isSearchActive = false
     @State private var searchText = ""
     @State private var currentMatchIndex = 0
+    @State private var showSkeleton = false
+    @State private var skeletonDebounceTask: Task<Void, Never>? = nil
 
     private var isEmptyState: Bool {
         messages.isEmpty && isHistoryLoaded
+    }
+
+    private var shouldShowSkeleton: Bool {
+        messages.isEmpty && !isHistoryLoaded
     }
 
     /// Message IDs whose text contains the search query, ordered chronologically.
@@ -110,17 +122,18 @@ struct ChatView: View {
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
-                if messages.isEmpty && !isHistoryLoaded {
+                if showSkeleton {
                     ChatLoadingSkeleton()
                         .padding(VSpacing.lg)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel("Loading chat history")
                 } else if isEmptyState && isBootstrapping {
-                    // During first-launch bootstrap, suppress the empty state
-                    // and show a simple loading panel until the first assistant
-                    // reply arrives and populates the chat.
-                    ChatBootstrapLoadingView()
+                    if isBootstrapTimedOut {
+                        ChatBootstrapTimeoutView()
+                    } else {
+                        ChatBootstrapLoadingView()
+                    }
                 } else if isEmptyState {
                     if isTemporaryChat {
                         ChatTemporaryChatEmptyStateView(
@@ -166,7 +179,9 @@ struct ChatView: View {
                             recordingAmplitude: recordingAmplitude,
                             onDictateToggle: onDictateToggle,
                             onVoiceModeToggle: onVoiceModeToggle,
-                            threadId: threadId
+                            threadId: threadId,
+                            daemonGreeting: daemonGreeting,
+                            onRequestGreeting: onRequestGreeting
                         )
                     }
                 } else {
@@ -345,6 +360,18 @@ struct ChatView: View {
             }
             activateSearch()
         }
+        .onChange(of: shouldShowSkeleton, initial: true) { _, shouldShow in
+            skeletonDebounceTask?.cancel()
+            if shouldShow {
+                skeletonDebounceTask = Task {
+                    try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
+                    guard !Task.isCancelled else { return }
+                    showSkeleton = true
+                }
+            } else {
+                showSkeleton = false
+            }
+        }
     }
 
     @Environment(\.colorScheme) private var colorScheme
@@ -397,6 +424,11 @@ struct ChatView: View {
     /// is used as a fallback for providers without a backing file (e.g. screenshot
     /// thumbnails or images dragged from certain apps).
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
+        // Reset overlay immediately — SwiftUI's isTargeted binding may not
+        // reset reliably when AppKit's NSDraggingDestination (e.g. the
+        // NSTextView inside the composer) intercepts the drag session.
+        isDropTargeted = false
+
         var urls: [URL] = []
         var imageDataItems: [NSItemProvider] = []
         let group = DispatchGroup()
@@ -407,7 +439,7 @@ struct ChatView: View {
                     || provider.hasItemConformingToTypeIdentifier(UTType.png.identifier)
                     || provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier)
                 group.enter()
-                _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                _ = provider.loadObject(ofClass: URL.self) { url, error in
                     DispatchQueue.main.async {
                         if let url, FileManager.default.fileExists(atPath: url.path) {
                             urls.append(url)
@@ -426,10 +458,22 @@ struct ChatView: View {
                                 DispatchQueue.main.async {
                                     if let data {
                                         onDropImageData(data, suggestedName)
+                                    } else if let url, url.isFileURL {
+                                        // Image data load failed — fall back to
+                                        // the file URL (may be a file promise).
+                                        urls.append(url)
                                     }
                                     group.leave()
                                 }
                             }
+                        } else if let url, url.isFileURL {
+                            // File URL doesn't exist on disk yet (e.g. file
+                            // promises from Music.app, Voice Memos) and no
+                            // image data fallback is available. Try the URL
+                            // anyway — the attachment loader will report an
+                            // error if the file is truly inaccessible.
+                            urls.append(url)
+                            group.leave()
                         } else {
                             group.leave()
                         }
@@ -516,6 +560,42 @@ private struct ChatBootstrapLoadingView: View {
                     visible = true
                 }
             }
+    }
+}
+
+/// Shown during first-launch bootstrap when the daemon fails to connect
+/// within the timeout window. Mirrors the hatch-failure pattern from
+/// onboarding: a centered error message.
+private struct ChatBootstrapTimeoutView: View {
+    @State private var visible = false
+
+    var body: some View {
+        VStack(spacing: VSpacing.lg) {
+            Spacer()
+
+            VIconView(.triangleAlert, size: 28)
+                .foregroundColor(VColor.systemNegativeHover)
+
+            VStack(spacing: VSpacing.sm) {
+                Text("Something went wrong")
+                    .font(.system(size: 24, weight: .regular, design: .serif))
+                    .foregroundColor(VColor.contentDefault)
+                Text("Your assistant didn\u{2019}t connect in time. Please quit and reopen the app.")
+                    .font(.system(size: 14))
+                    .foregroundColor(VColor.contentSecondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 320)
+            }
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .opacity(visible ? 1 : 0)
+        .onAppear {
+            withAnimation(VAnimation.standard) {
+                visible = true
+            }
+        }
     }
 }
 

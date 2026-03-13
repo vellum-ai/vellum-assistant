@@ -120,6 +120,14 @@ mock.module("../providers/registry.js", () => ({
   initializeProviders: () => {},
 }));
 
+mock.module("../signals/mcp-reload.js", () => ({
+  handleMcpReloadSignal: () => {},
+}));
+
+mock.module("../signals/confirm.js", () => ({
+  handleConfirmationSignal: () => {},
+}));
+
 let resetAllowlistCallCount = 0;
 mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {

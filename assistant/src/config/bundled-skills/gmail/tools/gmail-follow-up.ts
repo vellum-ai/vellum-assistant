@@ -30,6 +30,7 @@ export async function run(
   input: Record<string, unknown>,
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  const account = input.account as string | undefined;
   const action = input.action as string;
 
   if (!action) {
@@ -37,7 +38,10 @@ export async function run(
   }
 
   try {
-    const connection = resolveOAuthConnection("integration:gmail");
+    const connection = await resolveOAuthConnection(
+      "integration:google",
+      account,
+    );
     switch (action) {
       case "track": {
         const messageId = input.message_id as string;

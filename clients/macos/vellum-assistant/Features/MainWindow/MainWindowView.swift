@@ -419,7 +419,7 @@ struct MainWindowView: View {
         }
         .padding(.leading, trafficLightPadding)
         .padding(.trailing, VSpacing.lg)
-        .frame(height: 36)
+        .frame(height: 48)
         .background(VColor.surfaceOverlay)
     }
 

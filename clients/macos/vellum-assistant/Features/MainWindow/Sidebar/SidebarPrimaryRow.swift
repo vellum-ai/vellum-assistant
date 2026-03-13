@@ -59,7 +59,7 @@ struct SidebarPrimaryRow: View {
         .contentShape(Rectangle())
         .onTapGesture { action() }
         .onHover { isHovered = $0 }
-        .padding(.horizontal, isExpanded ? VSpacing.sm : VSpacing.xs)
+        .padding(.horizontal, 0)
         .help(isExpanded ? "" : label)
         .pointerCursor()
     }

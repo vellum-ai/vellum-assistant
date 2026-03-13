@@ -10,20 +10,17 @@
  * `oauth_connection/{id}/...`).
  */
 
-import type {
-  OAuth2FlowResult,
-  TokenEndpointAuthMethod,
-} from "../security/oauth2.js";
+import type { OAuth2FlowResult } from "../security/oauth2.js";
 import {
   deleteSecureKeyAsync,
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
-import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
 import { runPostConnectHook } from "../tools/credentials/post-connect-hooks.js";
 import {
   createConnection,
   getApp,
   getConnectionByProvider,
+  getConnectionByProviderAndAccount,
   updateConnection,
   upsertApp,
 } from "./oauth-store.js";
@@ -39,11 +36,7 @@ export interface StoreOAuth2TokensParams {
   rawTokenResponse: Record<string, unknown>;
   clientId: string;
   clientSecret?: string;
-  tokenUrl: string;
-  tokenEndpointAuthMethod?: TokenEndpointAuthMethod;
   userinfoUrl?: string;
-  allowedTools?: string[];
-  wellKnownInjectionTemplates?: CredentialInjectionTemplate[];
   /** Fallback account info from an identity verifier (e.g. @username, email). */
   identityAccountInfo?: string;
   /** Pre-resolved oauth_app ID — skips the upsertApp() call if provided. */
@@ -123,14 +116,28 @@ export async function storeOAuth2Tokens(
     }
   }
 
-  // 2. Upsert oauth_connection — reuse existing active connection for this
-  //    provider, or create a new one.
-  const existingConn = getConnectionByProvider(service);
+  // 2. Upsert oauth_connection — reuse existing active connection for the
+  //    same account, or create a new one for a different account.
+  //    First try to match by account info (email); fall back to provider-only
+  //    lookup so that re-auth without userinfo still updates the right row.
+  const existingConn = resolvedAccountInfo
+    ? getConnectionByProviderAndAccount(service, resolvedAccountInfo)
+    : getConnectionByProvider(service);
   let connId: string;
 
   const hasRefreshToken = !!tokens.refreshToken;
 
-  if (existingConn) {
+  // Only reuse the existing connection if it's the same account (or we can't
+  // tell). When the user connects a different account for the same service,
+  // create a separate connection so we don't overwrite the first account's
+  // tokens.
+  const isNewAccount =
+    existingConn &&
+    resolvedAccountInfo !== undefined &&
+    existingConn.accountInfo !== undefined &&
+    resolvedAccountInfo !== existingConn.accountInfo;
+
+  if (existingConn && !isNewAccount) {
     connId = existingConn.id;
     updateConnection(connId, {
       oauthAppId: app.id,

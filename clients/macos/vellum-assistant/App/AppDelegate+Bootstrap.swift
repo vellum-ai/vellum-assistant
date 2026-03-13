@@ -1,6 +1,5 @@
 import AppKit
 import VellumAssistantShared
-import SwiftUI
 import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate")
@@ -12,17 +11,8 @@ enum BootstrapState: String {
     case pendingDaemon = "pendingDaemon"
     case pendingWakeupSend = "pendingWakeupSend"
     case pendingFirstReply = "pendingFirstReply"
+    case timedOut = "timedOut"
     case complete = "complete"
-}
-
-/// Categorises the most recent bootstrap failure so diagnostic messages
-/// can be specific rather than generic escalating text.
-enum BootstrapFailureKind {
-    case daemonNotRunning
-    case connectionRefused
-    case gatewayUnhealthy
-    case authFailed
-    case unknown
 }
 
 // MARK: - Bootstrap State Machine
@@ -50,7 +40,7 @@ extension AppDelegate {
                 log.info("bootstrap.wakeup_sent_ms: \(elapsedMs)")
             case .complete:
                 log.info("bootstrap.first_reply_ms: \(elapsedMs)")
-            case .pendingDaemon:
+            case .pendingDaemon, .timedOut:
                 break
             }
         }
@@ -78,237 +68,6 @@ extension AppDelegate {
         return daemonClient.isConnected
     }
 
-    // MARK: - Bootstrap Interstitial
-
-    /// Shows a blocking interstitial window during first-launch bootstrap when
-    /// the daemon is slow to start. The interstitial auto-retries daemon
-    /// connection every 2 seconds and transitions to the chat with the wake-up
-    /// greeting once the daemon connects.
-    func showBootstrapInterstitial() {
-        guard bootstrapInterstitialWindow == nil else { return }
-
-        let interstitialView = BootstrapInterstitialView(
-            isRetrying: true,
-            onRetry: { [weak self] in
-                self?.bootstrapInterstitialRetry()
-            }
-        )
-
-        let hostingController = NSHostingController(rootView: interstitialView)
-        hostingController.sizingOptions = []  // Prevent auto-resizing from SwiftUI
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 380, height: 300),
-            styleMask: [.titled, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentViewController = hostingController
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.isMovableByWindowBackground = true
-        window.backgroundColor = NSColor(VColor.surfaceOverlay)
-        window.isReleasedWhenClosed = false
-        window.setContentSize(NSSize(width: 380, height: 300))
-        window.center()
-
-        NSApp.activateAsDockAppIfNeeded()
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-
-        bootstrapInterstitialWindow = window
-
-        // Start auto-retry polling for daemon readiness
-        startBootstrapRetryCoordinator()
-    }
-
-    /// Updates the interstitial view content (error message and retry state).
-    func updateBootstrapInterstitial(errorMessage: String? = nil, isRetrying: Bool = true) {
-        guard let window = bootstrapInterstitialWindow else { return }
-
-        let updatedView = BootstrapInterstitialView(
-            errorMessage: errorMessage,
-            isRetrying: isRetrying,
-            onRetry: { [weak self] in
-                self?.bootstrapInterstitialRetry()
-            }
-        )
-        let hostingController = NSHostingController(rootView: updatedView)
-        hostingController.sizingOptions = []  // Prevent auto-resizing from SwiftUI
-        window.contentViewController = hostingController
-    }
-
-    /// Dismisses the bootstrap interstitial window and cancels any retry tasks.
-    /// Use this for external cleanup callers that need to stop the retry loop.
-    func dismissBootstrapInterstitial() {
-        bootstrapRetryTask?.cancel()
-        bootstrapRetryTask = nil
-        bootstrapInterstitialWindow?.close()
-        bootstrapInterstitialWindow = nil
-    }
-
-    /// Closes only the interstitial window without cancelling the retry task.
-    /// Use this from within `startBootstrapRetryCoordinator()` to avoid
-    /// self-cancellation when the task dismisses the window upon success.
-    func dismissBootstrapInterstitialWindow() {
-        bootstrapInterstitialWindow?.close()
-        bootstrapInterstitialWindow = nil
-    }
-
-    /// Manual retry triggered by the "Try Again" button in the interstitial.
-    func bootstrapInterstitialRetry() {
-        bootstrapRetryTask?.cancel()
-        startBootstrapRetryCoordinator()
-    }
-
-    /// Starts a background task that polls daemon readiness every 2 seconds.
-    /// When the daemon connects, dismisses the interstitial and proceeds
-    /// with the mandatory wake-up send. Shows escalating diagnostic messages
-    /// if the daemon takes too long to connect.
-    func startBootstrapRetryCoordinator() {
-        bootstrapRetryTask?.cancel()
-        updateBootstrapInterstitial(isRetrying: true)
-
-        let retryStart = CFAbsoluteTimeGetCurrent()
-
-        bootstrapRetryTask = Task {
-            while !Task.isCancelled {
-                // Reset so the displayed message always reflects the most
-                // recent failure, not a stale one from a previous iteration.
-                bootstrapFailureKind = .unknown
-
-                if daemonClient.isConnected {
-                    // Daemon is connected — check gateway health before proceeding.
-                    // Remote assistants don't run a local gateway, so skip the check.
-                    let gatewayHealthy = await isGatewayHealthy()
-                    let gatewayOk = isCurrentAssistantRemote || gatewayHealthy
-                    if !gatewayOk {
-                        // Gateway is unhealthy but daemon is connected. Record for
-                        // diagnostics but proceed anyway — the gateway being down
-                        // only affects external ingress (Twilio, OAuth), not core
-                        // assistant functionality. Blocking here causes a deadlock
-                        // when the lockfile-exists fallback hatches with daemonOnly.
-                        bootstrapFailureKind = .gatewayUnhealthy
-                        log.warning("Gateway unhealthy during bootstrap retry but daemon is connected — proceeding anyway (some features like Twilio/OAuth ingress may be unavailable)")
-                    } else {
-                        log.info("Daemon connected during bootstrap retry — proceeding to wake-up send")
-                    }
-                    transitionBootstrap(to: .pendingWakeupSend)
-                    dismissBootstrapInterstitialWindow()
-                    await performRetriableWakeUpSend()
-                    if !Task.isCancelled {
-                        bootstrapRetryTask = nil
-                    }
-                    return
-                }
-
-                // If the daemon process isn't running (e.g. hatch failed),
-                // re-attempt hatch so we don't loop forever on connect-only retries.
-                // Managed mode skips local hatch — the platform hosts the daemon.
-                if !isCurrentAssistantManaged {
-                    if !DaemonClient.isDaemonProcessAlive() {
-                        bootstrapFailureKind = .daemonNotRunning
-                        log.info("Daemon process not alive during bootstrap retry — re-attempting hatch")
-                        try? await assistantCli.hatch(daemonOnly: true)
-                    }
-                }
-
-                // Attempt a connection if not already connected or in progress.
-                if !daemonClient.isConnected && !daemonClient.isConnecting {
-                    do {
-                        try await daemonClient.connect()
-                    } catch {
-                        if bootstrapFailureKind == .unknown {
-                            if error is DaemonClient.AuthError {
-                                bootstrapFailureKind = .authFailed
-                            } else {
-                                bootstrapFailureKind = .connectionRefused
-                            }
-                        }
-                        log.error("Bootstrap retry connect attempt failed: \(error)")
-                    }
-                }
-
-                if daemonClient.isConnected {
-                    // Connected — verify gateway health before proceeding.
-                    // Remote assistants don't run a local gateway, so skip the check.
-                    let gatewayHealthy = await isGatewayHealthy()
-                    let gatewayOk = isCurrentAssistantRemote || gatewayHealthy
-                    if !gatewayOk {
-                        // Same rationale as the check above: gateway health is a
-                        // warning, not a gate. Blocking here deadlocks when hatch
-                        // ran with daemonOnly (lockfile-exists fallback).
-                        bootstrapFailureKind = .gatewayUnhealthy
-                        log.warning("Gateway unhealthy after bootstrap retry connect but daemon is connected — proceeding anyway (some features like Twilio/OAuth ingress may be unavailable)")
-                    } else {
-                        log.info("Daemon connected after bootstrap retry connect — proceeding to wake-up send")
-                    }
-                    transitionBootstrap(to: .pendingWakeupSend)
-                    dismissBootstrapInterstitialWindow()
-                    await performRetriableWakeUpSend()
-                    if !Task.isCancelled {
-                        bootstrapRetryTask = nil
-                    }
-                    return
-                }
-
-                // Surface diagnostics so the user isn't staring at a
-                // spinner with no context.
-                let elapsed = CFAbsoluteTimeGetCurrent() - retryStart
-                if elapsed > 30 {
-                    updateBootstrapInterstitial(
-                        errorMessage: bootstrapDiagnosticMessage(elapsed: elapsed),
-                        isRetrying: true
-                    )
-                }
-
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-            }
-        }
-    }
-
-    /// Returns a user-facing diagnostic message based on the current failure
-    /// kind and how long the bootstrap retry has been running.
-    func bootstrapDiagnosticMessage(elapsed: CFAbsoluteTime) -> String {
-        switch bootstrapFailureKind {
-        case .daemonNotRunning:
-            if elapsed > 60 {
-                return "Unable to restart assistant. Try quitting (\u{2318}Q) and reopening."
-            }
-            return "Assistant process stopped \u{2014} restarting\u{2026}"
-
-        case .connectionRefused:
-            if elapsed > 60 {
-                return "Connection keeps failing. Try quitting (\u{2318}Q) and reopening."
-            }
-            return "Connecting to your assistant\u{2026}"
-
-        case .gatewayUnhealthy:
-            if elapsed > 60 {
-                return "Network services are not responding. Try quitting (\u{2318}Q) and reopening."
-            }
-            return "Waiting for network services\u{2026}"
-
-        case .authFailed:
-            if elapsed > 60 {
-                return "Authentication issue. You may need to re-pair your assistant."
-            }
-            return "Authenticating\u{2026}"
-
-        case .unknown:
-            if elapsed > 120 {
-                return "Your assistant is taking unusually long to start. "
-                    + "Try quitting the app (\u{2318}Q) and reopening it. "
-                    + "If the issue persists, retire and re-hatch your assistant."
-            } else if elapsed > 60 {
-                return "This is taking longer than expected. "
-                    + "A background process may have crashed. "
-                    + "The app will keep retrying automatically."
-            } else {
-                return "Still working on it \u{2014} this can take a minute on first launch."
-            }
-        }
-    }
-
     /// Sends the wake-up greeting. If the daemon is disconnected, waits for
     /// reconnection before proceeding. Since `showMainWindow` always creates
     /// the window (via `ensureMainWindowExists`), there is no need for a
@@ -321,12 +80,10 @@ extension AppDelegate {
             log.warning("Daemon disconnected during wake-up send — waiting for reconnection")
             let reconnected = await awaitDaemonReady(timeout: 15)
             if !reconnected {
-                log.warning("Daemon did not reconnect — showing interstitial for manual retry")
-                showBootstrapInterstitial()
-                updateBootstrapInterstitial(
-                    errorMessage: "Lost connection to your assistant. Retrying...",
-                    isRetrying: true
-                )
+                log.warning("Daemon did not reconnect — showing timeout screen")
+                transitionBootstrap(to: .timedOut)
+                showMainWindow(isFirstLaunch: true)
+                debugStateWriter.start(appDelegate: self)
                 return
             }
         }
@@ -337,11 +94,6 @@ extension AppDelegate {
         // showMainWindow always creates mainWindow, but guard defensively.
         guard let main = mainWindow else {
             log.error("MainWindow not created after showMainWindow — cannot send wake-up")
-            showBootstrapInterstitial()
-            updateBootstrapInterstitial(
-                errorMessage: "Could not start your assistant. Please try again.",
-                isRetrying: false
-            )
             return
         }
 

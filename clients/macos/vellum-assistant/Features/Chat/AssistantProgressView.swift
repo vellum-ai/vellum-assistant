@@ -426,7 +426,7 @@ struct AssistantProgressView: View {
                         onAlwaysAllow: onAlwaysAllow ?? { _, _, _, _ in },
                         onTemporaryAllow: onTemporaryAllow
                     )
-                    .padding(.leading, VSpacing.md)
+                    .padding(.horizontal, VSpacing.md)
                     .padding(.vertical, VSpacing.xs)
                 }
             }

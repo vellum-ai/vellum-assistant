@@ -1,10 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname } from "node:path";
+import {
+  appendFileSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 import * as readline from "node:readline";
 
 import { httpSend } from "./cli/http-client.js";
-import { isHttpHealthy } from "./daemon/daemon-control.js";
 import {
   type MainScreenLayout,
   renderMainScreen,
@@ -12,6 +16,7 @@ import {
   updateStatusText,
 } from "./cli/main-screen.jsx";
 import { shouldAutoStartDaemon } from "./daemon/connection-policy.js";
+import { isHttpHealthy } from "./daemon/daemon-control.js";
 import { ensureDaemonRunning } from "./daemon/lifecycle.js";
 import type {
   ConfirmationRequest,
@@ -23,7 +28,7 @@ import {
   formatSessionForExport,
 } from "./util/clipboard.js";
 import { formatDiff, formatNewFileDiff } from "./util/diff.js";
-import { getHistoryPath } from "./util/platform.js";
+import { getHistoryPath, getWorkspaceDir } from "./util/platform.js";
 import { Spinner } from "./util/spinner.js";
 import { timeAgo } from "./util/time.js";
 import { truncate } from "./util/truncate.js";
@@ -220,16 +225,15 @@ export async function startCli(): Promise<void> {
     rl.prompt();
   }
 
-  /** Send a confirmation decision via HTTP. */
-  async function sendConfirmation(
-    requestId: string,
-    decision: string,
-  ): Promise<void> {
+  /** Send a confirmation decision via signal file (read by the daemon). */
+  function sendConfirmation(requestId: string, decision: string): void {
     try {
-      await httpSend("/v1/confirm", {
-        method: "POST",
-        body: JSON.stringify({ requestId, decision }),
-      });
+      const signalsDir = join(getWorkspaceDir(), "signals");
+      mkdirSync(signalsDir, { recursive: true });
+      writeFileSync(
+        join(signalsDir, "confirm"),
+        JSON.stringify({ requestId, decision }),
+      );
     } catch {
       process.stdout.write("[Failed to send confirmation]\n");
     }

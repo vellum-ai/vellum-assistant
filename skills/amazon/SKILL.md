@@ -69,7 +69,7 @@ Alternatively, run `bun run {baseDir}/scripts/amazon.ts variations <asin> --json
 Session cookies are stored in the encrypted credential store under the key `amazon:session:cookies`. You can inspect the stored session with:
 
 ```bash
-assistant credentials inspect amazon:session:cookies
+assistant credentials inspect --service amazon --field session:cookies
 ```
 
 Session capture (`bun run {baseDir}/scripts/amazon.ts refresh`) and session checks (`bun run {baseDir}/scripts/amazon.ts status`) use the credential store automatically — no manual file management is needed.

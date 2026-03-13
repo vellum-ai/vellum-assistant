@@ -55,11 +55,11 @@ graph LR
 
 ### TypeScript side (runtime + gateway)
 
-| File                                               | Role                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `assistant/src/security/keychain-broker-client.ts` | Async UDS client for the runtime. Persistent socket connection, request/response correlation, auth token caching with auto-refresh on `UNAUTHORIZED`. Falls back gracefully (returns safe defaults, never throws).                                                                                                                                                                                                                                                      |
-| `assistant/src/security/secure-keys.ts`            | Unified API surface. Sync variants use encrypted store only. Async variants (`getSecureKeyAsync`, `setSecureKeyAsync`, `deleteSecureKeyAsync`) try broker first. **Reads** fall back to the encrypted store when the broker is unavailable or key is not found. **Writes** return `false` on broker failure (no encrypted-store fallback). **Deletes** return `"deleted"`, `"not-found"`, or `"error"` to let callers distinguish idempotent no-ops from real failures. |
-| `gateway/src/credential-reader.ts`                 | Read-only credential reader. Tries broker via native async UDS connection (`node:net`), falls back to encrypted store. All public credential read functions are async.                                                                                                                                                                                                                                                                                                  |
+| File                                               | Role                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/security/keychain-broker-client.ts` | Async UDS client for the runtime. Persistent socket connection, request/response correlation, auth token caching with auto-refresh on `UNAUTHORIZED`. Falls back gracefully (returns safe defaults, never throws).                                                                                                                                                                                                                                                                                            |
+| `assistant/src/security/secure-keys.ts`            | Unified API surface. Sync variants use encrypted store only. Async variants (`getSecureKeyAsync`, `setSecureKeyAsync`, `deleteSecureKeyAsync`) check the encrypted store first for reads (instant), falling back to the broker for keys that may exist only in the macOS Keychain. **Writes** go to both stores; return `false` on broker failure (no encrypted-store fallback). **Deletes** return `"deleted"`, `"not-found"`, or `"error"` to let callers distinguish idempotent no-ops from real failures. |
+| `gateway/src/credential-reader.ts`                 | Read-only credential reader. Tries broker via native async UDS connection (`node:net`), falls back to encrypted store. All public credential read functions are async.                                                                                                                                                                                                                                                                                                                                        |
 
 ## Message Contract
 
@@ -163,24 +163,50 @@ XPC provides stronger caller identity guarantees via audit tokens and code requi
 
 ## Callsite Policy
 
+### Async-first policy
+
+**All credential access should use the async functions** (`getSecureKeyAsync`, `setSecureKeyAsync`, `deleteSecureKeyAsync`). The async variants are the primary API: they check the encrypted store first (instant) and fall back to the keychain broker, ensuring secrets stored in the macOS Keychain are always reachable. The sync variants (`getSecureKey`, `setSecureKey`, `deleteSecureKey`) are **deprecated** and bypass the keychain broker entirely.
+
+New code must not introduce sync secure-key calls. Existing sync call sites should be converted to async when their surrounding code paths support it.
+
 ### Runtime request handlers (secret-routes, etc.)
 
 All runtime HTTP handlers that write or delete secrets **must** use the async APIs (`setSecureKeyAsync`, `deleteSecureKeyAsync`). These are the primary entry points for macOS app flows and must go through the broker to reach keychain.
-
-### CLI commands (keys, credentials)
-
-CLI commands may use sync APIs (`setSecureKey`, `deleteSecureKey`, `getSecureKey`) since they run outside the macOS app process and the broker may not be available. The sync path uses the encrypted store directly, which is correct for headless/CLI environments.
 
 ### Gateway (credential-reader)
 
 The gateway reads credentials via async `readCredential()` which tries the broker first (native async UDS), falling back to the encrypted store. The gateway never writes credentials — that responsibility belongs to the assistant runtime.
 
-### Startup / initialization code
+### Known sync exceptions
 
-Sync APIs are acceptable for startup paths (e.g. provider initialization, config loading) where async is impractical or the broker may not yet be available.
+The migration from sync to async secure-key functions is **incremental**. The following call sites still use the deprecated sync variants. They are grouped by category and tracked for future conversion.
+
+#### Startup / top-level config (must remain sync)
+
+These call sites run in synchronous initialization contexts where async I/O is not feasible:
+
+| File                                               | Sync functions used                               | Reason                                                                                                                                                                                                                |
+| -------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/config/loader.ts`                   | `getSecureKey`, `setSecureKey`, `deleteSecureKey` | Config loading runs synchronously at startup before the event loop is available. The broker socket may not be ready yet, and converting to async would require rearchitecting the entire config initialization chain. |
+| `assistant/src/providers/managed-proxy/context.ts` | `getSecureKey`                                    | Provider context initialization is synchronous. The managed proxy context must resolve credentials before the first request can be processed, and the initialization path does not support awaiting.                  |
+
+#### Tracked for future conversion
+
+These call sites use sync `getSecureKey` in contexts that could potentially support async, but conversion has been deferred to avoid scope creep during the initial broker rollout:
+
+| File                                                          | Sync functions used | Reason deferred                                                                                                       |
+| ------------------------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/tools/credentials/broker.ts`                   | `getSecureKey`      | Credential broker read paths are called synchronously from multiple consumers; converting requires async propagation. |
+| `assistant/src/runtime/routes/integrations/slack/share.ts`    | `getSecureKey`      | Slack share route reads OAuth token synchronously; converting requires making the route handler async-aware.          |
+| `assistant/src/runtime/channel-invite-transports/telegram.ts` | `getSecureKey`      | Telegram transport reads bot token synchronously; converting requires async transport initialization.                 |
+| `assistant/src/tools/network/web-search.ts`                   | `getSecureKey`      | Web search tool reads API keys synchronously; converting requires async tool execution path.                          |
+| `assistant/src/cli/commands/doctor.ts`                        | `getSecureKey`      | Doctor diagnostic command reads provider keys synchronously; converting requires async CLI command execution.         |
+| `assistant/src/cli/commands/oauth/connections.ts`             | `getSecureKey`      | OAuth connections CLI reads client secrets synchronously during display; converting requires async command handler.   |
+
+Any new sync usage requires explicit justification and should be documented here.
 
 ## Migration
 
-Existing encrypted store keys remain accessible — the encrypted store is always consulted as a **read** fallback when the broker does not have a key. Successful writes from async code paths go to both the broker (keychain) and the encrypted store, keeping both in sync. If a broker write or delete fails, the operation returns `false` without falling back to the encrypted store alone, preventing stale divergence. Callers must inspect the boolean return value and handle failures (typically by logging a warning). There is no one-time migration step required.
+Existing encrypted store keys remain accessible — async reads check the encrypted store **first** (instant), falling back to the broker for keys that may exist only in the macOS Keychain. Successful writes from async code paths go to both the broker (keychain) and the encrypted store, keeping both in sync. If a broker write or delete fails, the operation returns `false` without falling back to the encrypted store alone, preventing stale divergence. Callers must inspect the boolean return value and handle failures (typically by logging a warning). There is no one-time migration step required.
 
 The old `keychain.ts` module (which called `/usr/bin/security` CLI directly) has been deleted. The old keychain-to-encrypted migration code has been removed. All keychain access now flows exclusively through the broker.

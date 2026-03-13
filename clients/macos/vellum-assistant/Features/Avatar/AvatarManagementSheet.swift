@@ -195,14 +195,6 @@ struct AvatarManagementSheet: View {
         return all[(idx - 1 + all.count) % all.count]
     }
 
-    private func ensureDraftsInitialized() {
-        if draftBody == nil || draftEyes == nil || draftColor == nil {
-            if draftBody == nil { draftBody = AvatarBodyShape.allCases.first }
-            if draftEyes == nil { draftEyes = AvatarEyeStyle.allCases.first }
-            if draftColor == nil { draftColor = AvatarColor.allCases.first }
-        }
-    }
-
     // MARK: - Cycle Controls
 
     @ViewBuilder
@@ -210,14 +202,17 @@ struct AvatarManagementSheet: View {
         VStack(spacing: VSpacing.sm) {
             cycleRow(
                 label: "Body",
+                value: draftBody?.rawValue.capitalized ?? "None",
                 onLeft: {
-                    ensureDraftsInitialized()
                     draftBody = cycleBackward(draftBody)
+                    if draftEyes == nil { draftEyes = AvatarEyeStyle.allCases.first }
+                    if draftColor == nil { draftColor = AvatarColor.allCases.first }
                     renderDraft()
                 },
                 onRight: {
-                    ensureDraftsInitialized()
                     draftBody = cycleForward(draftBody)
+                    if draftEyes == nil { draftEyes = AvatarEyeStyle.allCases.first }
+                    if draftColor == nil { draftColor = AvatarColor.allCases.first }
                     renderDraft()
                 }
             ) {
@@ -230,14 +225,17 @@ struct AvatarManagementSheet: View {
             }
             cycleRow(
                 label: "Eyes",
+                value: draftEyes?.rawValue.capitalized ?? "None",
                 onLeft: {
-                    ensureDraftsInitialized()
                     draftEyes = cycleBackward(draftEyes)
+                    if draftBody == nil { draftBody = AvatarBodyShape.allCases.first }
+                    if draftColor == nil { draftColor = AvatarColor.allCases.first }
                     renderDraft()
                 },
                 onRight: {
-                    ensureDraftsInitialized()
                     draftEyes = cycleForward(draftEyes)
+                    if draftBody == nil { draftBody = AvatarBodyShape.allCases.first }
+                    if draftColor == nil { draftColor = AvatarColor.allCases.first }
                     renderDraft()
                 }
             ) {
@@ -250,14 +248,17 @@ struct AvatarManagementSheet: View {
             }
             cycleRow(
                 label: "Color",
+                value: draftColor?.rawValue.capitalized ?? "None",
                 onLeft: {
-                    ensureDraftsInitialized()
                     draftColor = cycleBackward(draftColor)
+                    if draftBody == nil { draftBody = AvatarBodyShape.allCases.first }
+                    if draftEyes == nil { draftEyes = AvatarEyeStyle.allCases.first }
                     renderDraft()
                 },
                 onRight: {
-                    ensureDraftsInitialized()
                     draftColor = cycleForward(draftColor)
+                    if draftBody == nil { draftBody = AvatarBodyShape.allCases.first }
+                    if draftEyes == nil { draftEyes = AvatarEyeStyle.allCases.first }
                     renderDraft()
                 }
             ) {
@@ -271,6 +272,7 @@ struct AvatarManagementSheet: View {
     @ViewBuilder
     private func cycleRow<Content: View>(
         label: String,
+        value: String,
         onLeft: @escaping () -> Void,
         onRight: @escaping () -> Void,
         @ViewBuilder content: () -> Content
@@ -289,6 +291,7 @@ struct AvatarManagementSheet: View {
             Spacer()
 
             content()
+                .accessibilityHidden(true)
 
             Spacer()
 
@@ -313,6 +316,9 @@ struct AvatarManagementSheet: View {
             RoundedRectangle(cornerRadius: VRadius.xl)
                 .stroke(VColor.borderBase, lineWidth: 1)
         )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(label)
+        .accessibilityValue(value)
     }
 
     // MARK: - Draft Rendering

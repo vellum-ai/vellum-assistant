@@ -9,7 +9,7 @@ import {
 
 const DEFAULT_OPTIONS = {
   id: "conn-1",
-  providerKey: "integration:gmail",
+  providerKey: "integration:google",
   externalId: "ext-123",
   accountInfo: "user@example.com",
   grantedScopes: ["https://www.googleapis.com/auth/gmail.readonly"],

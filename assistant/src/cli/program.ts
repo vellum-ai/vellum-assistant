@@ -1,10 +1,10 @@
-import { createRequire } from "node:module";
-
 import { Command } from "commander";
 
 import { registerHooksCommand } from "../hooks/cli.js";
+import { APP_VERSION } from "../version.js";
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerAutonomyCommand } from "./commands/autonomy.js";
+import { registerBashCommand } from "./commands/bash.js";
 import { registerBrowserRelayCommand } from "./commands/browser-relay.js";
 import { registerChannelVerificationSessionsCommand } from "./commands/channel-verification-sessions.js";
 import { registerCompletionsCommand } from "./commands/completions.js";
@@ -25,15 +25,16 @@ import { registerSessionsCommand } from "./commands/sessions.js";
 import { registerSkillsCommand } from "./commands/skills.js";
 import { registerTrustCommand } from "./commands/trust.js";
 
-const require = createRequire(import.meta.url);
-const { version } = require("../../package.json") as { version: string };
-
 export function buildCliProgram(): Command {
   const program = new Command();
 
-  program.name("assistant").description("Local AI assistant").version(version);
+  program
+    .name("assistant")
+    .description("Local AI assistant")
+    .version(APP_VERSION);
 
   registerDefaultAction(program);
+  registerBashCommand(program);
   registerSessionsCommand(program);
   registerConfigCommand(program);
   registerKeysCommand(program);

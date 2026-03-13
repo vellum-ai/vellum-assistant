@@ -6,6 +6,7 @@ on:
     paths:
       - 'assistant/**'
       - 'scripts/skills/**'
+      - 'meta/feature-flags/**'
       - '.github/workflows/pr-assistant.yaml'
 
 concurrency:
@@ -46,6 +47,9 @@ jobs:
 
       - name: Lint
         run: bun run lint
+
+      - name: Lint unused code
+        run: bun run lint:unused
 
   typecheck:
     if: contains(github.event.pull_request.labels.*.name, 'preview')

@@ -436,7 +436,7 @@ public final class MainWindow {
         guard let origin = defaultTrafficLightOrigin else { return }
         containerView.setFrameOrigin(NSPoint(
             x: origin.x + 2,
-            y: origin.y - 2.5
+            y: origin.y - 8
         ))
     }
 

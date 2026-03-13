@@ -8,7 +8,7 @@
 
 import { loadConfig } from "../config/loader.js";
 import { credentialKey } from "../security/credential-key.js";
-import { getSecureKey } from "../security/secure-keys.js";
+import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { ConfigError, ProviderError } from "../util/errors.js";
 
 export interface TwilioCredentials {
@@ -28,14 +28,17 @@ function resolveAccountSid(): string | undefined {
 }
 
 /** Resolve the Twilio Auth Token from the credential store. */
-function resolveAuthToken(): string | undefined {
-  return getSecureKey(credentialKey("twilio", "auth_token")) || undefined;
+async function resolveAuthToken(): Promise<string | undefined> {
+  return (
+    (await getSecureKeyAsync(credentialKey("twilio", "auth_token"))) ||
+    undefined
+  );
 }
 
 /** Resolve Twilio credentials from config (SID) and credential store (token). Throws if not configured. */
-export function getTwilioCredentials(): TwilioCredentials {
+export async function getTwilioCredentials(): Promise<TwilioCredentials> {
   const accountSid = resolveAccountSid();
-  const authToken = resolveAuthToken();
+  const authToken = await resolveAuthToken();
   if (!accountSid || !authToken) {
     throw new ConfigError(
       "Twilio credentials not configured. Set twilio.accountSid via config and store auth token via credential store.",
@@ -45,9 +48,9 @@ export function getTwilioCredentials(): TwilioCredentials {
 }
 
 /** Check whether Twilio credentials are present (non-throwing). */
-export function hasTwilioCredentials(): boolean {
+export async function hasTwilioCredentials(): Promise<boolean> {
   try {
-    return !!resolveAccountSid() && !!resolveAuthToken();
+    return !!resolveAccountSid() && !!(await resolveAuthToken());
   } catch {
     return false;
   }

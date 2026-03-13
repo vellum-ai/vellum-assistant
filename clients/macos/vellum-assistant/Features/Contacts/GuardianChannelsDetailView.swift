@@ -16,11 +16,13 @@ struct GuardianChannelsDetailView: View {
     var onSelectAssistant: (() -> Void)?
 
     @State var currentContact: ContactPayload?
+    @State private var isLoadingReadiness: Bool = true
     @State private var channelReadiness: [String: DaemonClient.ChannelReadinessInfo] = [:]
     @State private var verificationDestinationTexts: [String: String] = [:]
     @State private var verificationCountdownNow: Date = Date()
     @State private var verificationCountdownTimer: Timer?
     @State private var setupExpanded: Set<String> = []
+    @State private var dismissedChannels: Set<String> = []
     @State private var verificationStoreRevision: Int = 0
 
     var displayContact: ContactPayload {
@@ -48,7 +50,11 @@ struct GuardianChannelsDetailView: View {
                     return hasExisting || channelReadiness[type]?.ready == true
                 }
 
-                if visibleTypes.isEmpty {
+                if isLoadingReadiness && visibleTypes.isEmpty {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, VSpacing.xl)
+                } else if visibleTypes.isEmpty {
                     VStack(spacing: VSpacing.md) {
                         VIconView(.messageCircle, size: 24)
                             .foregroundColor(VColor.contentTertiary)
@@ -79,12 +85,13 @@ struct GuardianChannelsDetailView: View {
             for channel in Self.verificationSupportedChannels {
                 store?.refreshChannelVerificationStatus(channel: channel)
             }
-            Task {
-                channelReadiness = (try? await daemonClient?.fetchChannelReadiness()) ?? [:]
-            }
         }
         .onDisappear {
             stopVerificationCountdownTimer()
+        }
+        .task {
+            channelReadiness = (try? await daemonClient?.fetchChannelReadiness()) ?? [:]
+            isLoadingReadiness = false
         }
         .onReceive(store?.objectWillChange.map { _ in () }.eraseToAnyPublisher() ?? Empty().eraseToAnyPublisher()) { _ in
             verificationStoreRevision += 1
@@ -98,15 +105,21 @@ struct GuardianChannelsDetailView: View {
         SettingsCard(title: channelLabel(for: type), subtitle: channelSubtitle(for: type)) {
             let existingChannels = displayContact.channels.filter { $0.type == type && $0.status != "revoked" }
 
-            if let channel = existingChannels.first, channel.status == "active", channel.verifiedAt != nil {
-                // Verified channel — delegate to ChannelVerificationFlowView
+            // Prefer the latest verified channel to avoid showing stale status when
+            // multiple non-revoked rows exist for the same channel type.
+            let activeChannel = existingChannels.first(where: { $0.status == "active" && $0.verifiedAt != nil })
+                ?? existingChannels.first
+
+            if let channel = activeChannel, channel.status == "active", channel.verifiedAt != nil {
+                // Verified channel — show address + disconnect
                 verifiedChannelContent(channel: channel, type: type)
-            } else if !existingChannels.isEmpty || setupExpanded.contains(type) {
+            } else if (!existingChannels.isEmpty && !dismissedChannels.contains(type)) || setupExpanded.contains(type) {
                 // Existing unverified channel or user clicked "Set Up" — show verification flow
                 verificationFlowContent(for: type)
             } else {
                 // Channel ready on assistant but not yet started — show "Set Up"
                 VButton(label: "Set Up", style: .outlined) {
+                    dismissedChannels.remove(type)
                     setupExpanded.insert(type)
                 }
             }
@@ -118,28 +131,20 @@ struct GuardianChannelsDetailView: View {
 
     @ViewBuilder
     private func verifiedChannelContent(channel: ContactChannelPayload, type: String) -> some View {
-        // ChannelVerificationFlowView already renders the full verified state
-        // (identity text + "Revoke" button), so we delegate entirely to it.
-        if let store {
-            let state = store.channelVerificationState(for: type)
-            let destinationBinding = Binding<String>(
-                get: { verificationDestinationTexts[type] ?? "" },
-                set: { verificationDestinationTexts[type] = $0 }
-            )
-            ChannelVerificationFlowView(
-                state: state,
-                countdownNow: $verificationCountdownNow,
-                destinationText: destinationBinding,
-                onStartOutbound: { dest in store.startOutboundVerification(channel: type, destination: dest) },
-                onResend: { store.resendOutboundVerification(channel: type) },
-                onCancelOutbound: { store.cancelOutboundVerification(channel: type) },
-                onRevoke: { store.revokeChannelVerification(channel: type) },
-                onStartSession: { rebind in store.startChannelVerification(channel: type, rebind: rebind) },
-                onCancelSession: { store.cancelVerificationSession(channel: type) },
-                botUsername: store.telegramBotUsername,
-                phoneNumber: store.twilioPhoneNumber,
-                showLabel: false
-            )
+        // Guardian verified channels show only the address and a Disconnect button.
+        // Verification metadata (badge, date, identity) is omitted since the guardian
+        // owns the assistant — only trusted contacts need that detail.
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text(channel.address)
+                .font(VFont.body)
+                .foregroundColor(VColor.contentDefault)
+                .lineLimit(1)
+
+            if let store {
+                VButton(label: "Disconnect", style: .danger) {
+                    store.revokeChannelVerification(channel: type)
+                }
+            }
         }
     }
 
@@ -163,7 +168,10 @@ struct GuardianChannelsDetailView: View {
                 onRevoke: { store.revokeChannelVerification(channel: type) },
                 onStartSession: { rebind in store.startChannelVerification(channel: type, rebind: rebind) },
                 onCancelSession: { store.cancelVerificationSession(channel: type) },
-                onCancel: { setupExpanded.remove(type) },
+                onCancel: {
+                    setupExpanded.remove(type)
+                    dismissedChannels.insert(type)
+                },
                 botUsername: store.telegramBotUsername,
                 phoneNumber: store.twilioPhoneNumber,
                 showLabel: false

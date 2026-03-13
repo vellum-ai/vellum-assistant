@@ -16,7 +16,7 @@ import * as externalConversationStore from "../../../memory/external-conversatio
 import type { OAuthConnection } from "../../../oauth/connection.js";
 import { mintDaemonDeliveryToken } from "../../../runtime/auth/token-service.js";
 import { credentialKey } from "../../../security/credential-key.js";
-import { getSecureKey } from "../../../security/secure-keys.js";
+import { getSecureKeyAsync } from "../../../security/secure-keys.js";
 import type { MessagingProvider } from "../../provider.js";
 import type {
   ConnectionInfo,
@@ -42,11 +42,15 @@ function getBearerToken(): string {
 }
 
 /** Check whether WhatsApp credentials are stored. */
-function hasWhatsAppCredentials(): boolean {
-  return (
-    !!getSecureKey(credentialKey("whatsapp", "phone_number_id")) &&
-    !!getSecureKey(credentialKey("whatsapp", "access_token"))
+async function hasWhatsAppCredentials(): Promise<boolean> {
+  const phoneNumberId = await getSecureKeyAsync(
+    credentialKey("whatsapp", "phone_number_id"),
   );
+  if (!phoneNumberId) return false;
+  const accessToken = await getSecureKeyAsync(
+    credentialKey("whatsapp", "access_token"),
+  );
+  return !!accessToken;
 }
 
 export const whatsappMessagingProvider: MessagingProvider = {
@@ -58,14 +62,14 @@ export const whatsappMessagingProvider: MessagingProvider = {
   /**
    * WhatsApp is connected when Meta Cloud API credentials are stored.
    */
-  isConnected(): boolean {
+  async isConnected(): Promise<boolean> {
     return hasWhatsAppCredentials();
   },
 
   async testConnection(
     _connectionOrToken: OAuthConnection | string,
   ): Promise<ConnectionInfo> {
-    if (!hasWhatsAppCredentials()) {
+    if (!(await hasWhatsAppCredentials())) {
       return {
         connected: false,
         user: "unknown",
@@ -77,9 +81,9 @@ export const whatsappMessagingProvider: MessagingProvider = {
       };
     }
 
-    const phoneNumberId = getSecureKey(
+    const phoneNumberId = (await getSecureKeyAsync(
       credentialKey("whatsapp", "phone_number_id"),
-    )!;
+    ))!;
 
     return {
       connected: true,

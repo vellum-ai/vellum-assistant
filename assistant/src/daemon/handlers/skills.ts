@@ -250,12 +250,20 @@ export interface SkillListItem {
   provenance: SkillProvenance;
 }
 
+/** Sorting rank for provenance-based ordering: first-party first, local last. */
+function provenanceSortRank(p: SkillProvenance): number {
+  if (p.kind === "first-party") return 0;
+  if (p.kind === "third-party" && p.provider) return 1;
+  if (p.kind === "third-party") return 2;
+  return 3; // local
+}
+
 export function listSkills(_ctx: SkillOperationContext): SkillListItem[] {
   const config = getConfig();
   const catalog = loadSkillCatalog();
   const resolved = resolveSkillStates(catalog, config);
 
-  return resolved.map((r) => ({
+  const items = resolved.map((r) => ({
     id: r.summary.id,
     name: r.summary.displayName,
     description: r.summary.description,
@@ -272,6 +280,17 @@ export function listSkills(_ctx: SkillOperationContext): SkillListItem[] {
     userInvocable: r.summary.userInvocable,
     provenance: resolveProvenance(r.summary),
   }));
+
+  // Sort: first-party > third-party with provider > third-party without > local,
+  // alphabetical by name within each tier.
+  items.sort((a, b) => {
+    const rankDiff =
+      provenanceSortRank(a.provenance) - provenanceSortRank(b.provenance);
+    if (rankDiff !== 0) return rankDiff;
+    return a.name.localeCompare(b.name);
+  });
+
+  return items;
 }
 
 export function enableSkill(

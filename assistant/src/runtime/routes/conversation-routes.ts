@@ -315,16 +315,53 @@ export function handleListMessages(
   let prevAssistantTimestamp = 0;
   const messages: RuntimeMessagePayload[] = parsed.map((m) => {
     let msgAttachments: RuntimeAttachmentMetadata[] = [];
-    if (m.role === "assistant" && m.id) {
-      const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
-      if (linked.length > 0) {
-        msgAttachments = linked.map((a) => ({
-          id: a.id,
-          filename: a.originalFilename,
-          mimeType: a.mimeType,
-          sizeBytes: a.sizeBytes,
-          kind: a.kind,
-        }));
+    if (m.id) {
+      if (m.role === "user") {
+        // Use metadata-only query first to avoid loading large base64
+        // blobs for non-image attachments (documents, audio). Then
+        // selectively fetch full data only for images so the client can
+        // generate thumbnails for inline display on history restore.
+        const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
+        if (linked.length > 0) {
+          msgAttachments = linked.map((a) => {
+            if (a.mimeType.startsWith("image/")) {
+              const full = attachmentsStore.getAttachmentById(a.id);
+              return {
+                id: a.id,
+                filename: a.originalFilename,
+                mimeType: a.mimeType,
+                sizeBytes: a.sizeBytes,
+                kind: a.kind,
+                ...(full?.dataBase64 ? { data: full.dataBase64 } : {}),
+                ...(a.thumbnailBase64
+                  ? { thumbnailData: a.thumbnailBase64 }
+                  : {}),
+              };
+            }
+            return {
+              id: a.id,
+              filename: a.originalFilename,
+              mimeType: a.mimeType,
+              sizeBytes: a.sizeBytes,
+              kind: a.kind,
+              ...(a.thumbnailBase64
+                ? { thumbnailData: a.thumbnailBase64 }
+                : {}),
+            };
+          });
+        }
+      } else {
+        const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
+        if (linked.length > 0) {
+          msgAttachments = linked.map((a) => ({
+            id: a.id,
+            filename: a.originalFilename,
+            mimeType: a.mimeType,
+            sizeBytes: a.sizeBytes,
+            kind: a.kind,
+            ...(a.thumbnailBase64 ? { thumbnailData: a.thumbnailBase64 } : {}),
+          }));
+        }
       }
     }
 

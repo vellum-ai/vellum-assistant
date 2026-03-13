@@ -23,11 +23,15 @@ export function getMessagingProvider(id: string): MessagingProvider {
 }
 
 /** Return all registered providers that have stored credentials. */
-export function getConnectedProviders(): MessagingProvider[] {
-  return Array.from(providers.values()).filter((p) => {
-    if (p.isConnected) return p.isConnected();
-    return isProviderConnected(p.credentialService);
-  });
+export async function getConnectedProviders(): Promise<MessagingProvider[]> {
+  const results: MessagingProvider[] = [];
+  for (const p of providers.values()) {
+    const connected = p.isConnected
+      ? await p.isConnected()
+      : await isProviderConnected(p.credentialService);
+    if (connected) results.push(p);
+  }
+  return results;
 }
 
 /** Return all registered provider IDs. */

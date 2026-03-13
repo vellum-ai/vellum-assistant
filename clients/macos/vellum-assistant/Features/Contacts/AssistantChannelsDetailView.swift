@@ -58,8 +58,6 @@ struct AssistantChannelsDetailView: View {
             store.refreshChannelVerificationStatus(channel: "telegram")
             store.refreshChannelVerificationStatus(channel: "phone")
             store.refreshChannelVerificationStatus(channel: "slack")
-            store.refreshTelegramApprovedMembers()
-            store.refreshSlackApprovedMembers()
             store.fetchSlackChannelConfig()
             if store.twilioHasCredentials {
                 store.refreshTwilioNumbers()
@@ -138,14 +136,15 @@ struct AssistantChannelsDetailView: View {
         let status = store.channelSetupStatus["telegram"]
         return SettingsCard(title: "Telegram", subtitle: "Message your assistant from Telegram") {
             if status == "ready" {
-                HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
-                    VButton(label: "Disconnect", style: .danger, isDisabled: store.telegramSaveInProgress) {
-                        store.clearTelegramCredentials()
-                        telegramBotTokenText = ""
-                        telegramSetupExpanded = false
-                        store.channelSetupStatus["telegram"] = "not_configured"
-                    }
+                VBadge(style: .label("Connected"), color: VColor.systemPositiveStrong)
+            }
+        } content: {
+            if status == "ready" {
+                VButton(label: "Disconnect", style: .danger, isDisabled: store.telegramSaveInProgress) {
+                    store.clearTelegramCredentials()
+                    telegramBotTokenText = ""
+                    telegramSetupExpanded = false
+                    store.channelSetupStatus["telegram"] = "not_configured"
                 }
             } else if (status == "incomplete" && store.telegramHasBotToken) || telegramSetupExpanded {
                 telegramCredentialEntry
@@ -159,64 +158,6 @@ struct AssistantChannelsDetailView: View {
                 Text(error).font(VFont.caption).foregroundColor(VColor.systemNegativeStrong)
             }
 
-            if (status == "ready" || status == "incomplete") && store.telegramVerificationVerified {
-                SettingsDivider()
-                telegramApprovedUsersSection
-            }
-        }
-    }
-
-    // MARK: - Telegram Approved Users
-
-    private var telegramApprovedUsersSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.xs) {
-                Text("Approved Users")
-                VInfoTooltip("Users who have been granted access to interact with your assistant via Telegram.")
-            }
-            .font(VFont.caption)
-            .foregroundColor(VColor.contentSecondary)
-
-            if store.telegramApprovedMembersLoading {
-                HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Loading...")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                }
-            } else if store.telegramApprovedMembers.isEmpty {
-                Text("No approved users.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-            } else {
-                ForEach(store.telegramApprovedMembers) { member in
-                    HStack(spacing: VSpacing.sm) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(member.displayName ?? member.username ?? member.externalUserId ?? member.id)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.contentDefault)
-                                .lineLimit(1)
-                            if let username = member.username, member.displayName != nil {
-                                Text("@\(username)")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.contentTertiary)
-                                    .lineLimit(1)
-                            }
-                        }
-                        Spacer()
-                        VButton(label: "Revoke", style: .outlined, isDisabled: store.telegramRevokingMemberIds.contains(member.id)) {
-                            store.revokeTelegramApprovedMember(memberId: member.id)
-                        }
-                    }
-                }
-            }
-
-            if let error = store.telegramApprovedMembersError {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.systemNegativeStrong)
-            }
         }
     }
 
@@ -266,15 +207,16 @@ struct AssistantChannelsDetailView: View {
         let status = store.channelSetupStatus["slack"]
         return SettingsCard(title: "Slack", subtitle: "Message your assistant from Slack") {
             if status == "ready" {
-                HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
-                    VButton(label: "Disconnect", style: .danger, isDisabled: store.slackChannelSaveInProgress) {
-                        store.clearSlackChannelConfig()
-                        slackChannelBotTokenInput = ""
-                        slackChannelAppTokenInput = ""
-                        slackChannelSetupExpanded = false
-                        store.channelSetupStatus["slack"] = "not_configured"
-                    }
+                VBadge(style: .label("Connected"), color: VColor.systemPositiveStrong)
+            }
+        } content: {
+            if status == "ready" {
+                VButton(label: "Disconnect", style: .danger, isDisabled: store.slackChannelSaveInProgress) {
+                    store.clearSlackChannelConfig()
+                    slackChannelBotTokenInput = ""
+                    slackChannelAppTokenInput = ""
+                    slackChannelSetupExpanded = false
+                    store.channelSetupStatus["slack"] = "not_configured"
                 }
             } else if (status == "incomplete" && (store.slackChannelHasBotToken || store.slackChannelHasAppToken)) || slackChannelSetupExpanded {
                 slackChannelCredentialEntry
@@ -288,64 +230,6 @@ struct AssistantChannelsDetailView: View {
                 Text(error).font(VFont.caption).foregroundColor(VColor.systemNegativeStrong)
             }
 
-            if (status == "ready" || status == "incomplete") && store.slackVerificationVerified {
-                SettingsDivider()
-                slackApprovedUsersSection
-            }
-        }
-    }
-
-    // MARK: - Slack Approved Users
-
-    private var slackApprovedUsersSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.xs) {
-                Text("Approved Users")
-                VInfoTooltip("Users who have been granted access to interact with your assistant via Slack.")
-            }
-            .font(VFont.caption)
-            .foregroundColor(VColor.contentSecondary)
-
-            if store.slackApprovedMembersLoading {
-                HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Loading...")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                }
-            } else if store.slackApprovedMembers.isEmpty {
-                Text("No approved users.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-            } else {
-                ForEach(store.slackApprovedMembers) { member in
-                    HStack(spacing: VSpacing.sm) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(member.displayName ?? member.username ?? member.externalUserId ?? member.id)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.contentDefault)
-                                .lineLimit(1)
-                            if let username = member.username, member.displayName != nil {
-                                Text("@\(username)")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.contentTertiary)
-                                    .lineLimit(1)
-                            }
-                        }
-                        Spacer()
-                        VButton(label: "Revoke", style: .outlined, isDisabled: store.slackRevokingMemberIds.contains(member.id)) {
-                            store.revokeSlackApprovedMember(memberId: member.id)
-                        }
-                    }
-                }
-            }
-
-            if let error = store.slackApprovedMembersError {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.systemNegativeStrong)
-            }
         }
     }
 
@@ -410,24 +294,11 @@ struct AssistantChannelsDetailView: View {
         let status = store.channelSetupStatus["phone"]
         return SettingsCard(title: "Phone Calling", subtitle: "Receive and make phone calls via Twilio") {
             if status == "ready" {
-                HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
-                    VButton(label: "Disconnect", style: .danger, isDisabled: store.twilioSaveInProgress) {
-                        store.clearTwilioCredentials()
-                        store.channelSetupStatus["phone"] = "not_configured"
-                    }
-                }
-            } else if (status == "incomplete" && store.twilioHasCredentials) || voiceSetupExpanded {
-                voiceCredentialEntry
-            } else {
-                VButton(label: "Set Up", style: .outlined) {
-                    voiceSetupExpanded = true
-                }
+                VBadge(style: .label("Connected"), color: VColor.systemPositiveStrong)
             }
-
+        } content: {
             // Phone number dropdown: show when credentials are configured
             if (status == "ready" || status == "incomplete") && store.twilioHasCredentials {
-                SettingsDivider()
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Phone Number")
                         .font(VFont.inputLabel)
@@ -444,6 +315,19 @@ struct AssistantChannelsDetailView: View {
                         emptyValue: ""
                     )
                     .frame(maxWidth: 360)
+                }
+            }
+
+            if status == "ready" {
+                VButton(label: "Disconnect", style: .danger, isDisabled: store.twilioSaveInProgress) {
+                    store.clearTwilioCredentials()
+                    store.channelSetupStatus["phone"] = "not_configured"
+                }
+            } else if (status == "incomplete" && store.twilioHasCredentials) || voiceSetupExpanded {
+                voiceCredentialEntry
+            } else {
+                VButton(label: "Set Up", style: .outlined) {
+                    voiceSetupExpanded = true
                 }
             }
 

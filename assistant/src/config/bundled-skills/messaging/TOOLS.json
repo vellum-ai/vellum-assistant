@@ -13,6 +13,10 @@
             "type": "string",
             "description": "Platform to test (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected."
           },
+          "account": {
+            "type": "string",
+            "description": "Email address of the account to use. Required when multiple accounts are connected for the same platform. If omitted, uses the most recently connected account."
+          },
           "reason": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
@@ -33,6 +37,10 @@
           "platform": {
             "type": "string",
             "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected."
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the account to use. Required when multiple accounts are connected for the same platform. If omitted, uses the most recently connected account."
           },
           "types": {
             "type": "array",
@@ -66,6 +74,10 @@
           "platform": {
             "type": "string",
             "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected."
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the account to use. Required when multiple accounts are connected for the same platform. If omitted, uses the most recently connected account."
           },
           "conversation_id": {
             "type": "string",
@@ -101,6 +113,10 @@
             "type": "string",
             "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected."
           },
+          "account": {
+            "type": "string",
+            "description": "Email address of the account to use. Required when multiple accounts are connected for the same platform. If omitted, uses the most recently connected account."
+          },
           "query": {
             "type": "string",
             "description": "Search query using the platform's native syntax"
@@ -130,6 +146,10 @@
           "platform": {
             "type": "string",
             "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected."
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the account to use. Required when multiple accounts are connected for the same platform. If omitted, uses the most recently connected account."
           },
           "conversation_id": {
             "type": "string",
@@ -184,6 +204,10 @@
             "type": "string",
             "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected."
           },
+          "account": {
+            "type": "string",
+            "description": "Email address of the account to use. Required when multiple accounts are connected for the same platform. If omitted, uses the most recently connected account."
+          },
           "conversation_id": {
             "type": "string",
             "description": "Conversation/channel ID"
@@ -213,6 +237,10 @@
           "platform": {
             "type": "string",
             "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected."
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the account to use. Required when multiple accounts are connected for the same platform. If omitted, uses the most recently connected account."
           },
           "max_messages": {
             "type": "number",
@@ -247,6 +275,10 @@
           "platform": {
             "type": "string",
             "description": "Platform (e.g. \"slack\", \"gmail\"). Required for create/list."
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the account to use. Required when multiple accounts are connected for the same platform. If omitted, uses the most recently connected account."
           },
           "conversation_id": {
             "type": "string",
@@ -290,6 +322,10 @@
             "type": "string",
             "description": "Platform (e.g. \"gmail\"). Auto-detected if only one is connected."
           },
+          "account": {
+            "type": "string",
+            "description": "Email address of the account to use. Required when multiple accounts are connected for the same platform. If omitted, uses the most recently connected account."
+          },
           "query": {
             "type": "string",
             "description": "Search query (default 'category:promotions newer_than:90d')"
@@ -304,7 +340,7 @@
           },
           "page_token": {
             "type": "string",
-            "description": "Resume token from a previous scan (rarely needed \u2014 scans now cover up to 5,000 messages in a single call)"
+            "description": "Resume token from a previous scan (rarely needed — scans now cover up to 5,000 messages in a single call)"
           },
           "reason": {
             "type": "string",
@@ -326,6 +362,10 @@
           "platform": {
             "type": "string",
             "description": "Platform (e.g. \"gmail\"). Auto-detected if only one is connected."
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the account to use. Required when multiple accounts are connected for the same platform. If omitted, uses the most recently connected account."
           },
           "query": {
             "type": "string",

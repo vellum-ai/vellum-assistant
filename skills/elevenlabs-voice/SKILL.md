@@ -75,21 +75,21 @@ Users with an ElevenLabs API key can go beyond the curated list above.
 ### Check for an existing key
 
 ```bash
-assistant credentials inspect elevenlabs:api_key --json
+assistant credentials inspect --service elevenlabs --field api_key --json
 ```
 
 ### Browse the voice library
 
 ```bash
 curl -s "https://api.elevenlabs.io/v2/voices?category=premade&page_size=50" \
-  -H "xi-api-key: $(assistant credentials reveal elevenlabs:api_key)" | python3 -m json.tool
+  -H "xi-api-key: $(assistant credentials reveal --service elevenlabs --field api_key)" | python3 -m json.tool
 ```
 
 ### Search for a specific style
 
 ```bash
 curl -s "https://api.elevenlabs.io/v2/voices?search=warm+female&page_size=10" \
-  -H "xi-api-key: $(assistant credentials reveal elevenlabs:api_key)" | python3 -m json.tool
+  -H "xi-api-key: $(assistant credentials reveal --service elevenlabs --field api_key)" | python3 -m json.tool
 ```
 
 ### Custom and cloned voices

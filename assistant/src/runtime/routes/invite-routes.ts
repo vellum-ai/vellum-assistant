@@ -2,10 +2,11 @@
  * Route handlers for invite management.
  *
  * Invites:
- *   GET    /v1/contacts/invites        — list invites
- *   POST   /v1/contacts/invites        — create an invite (supports voice)
- *   DELETE /v1/contacts/invites/:id    — revoke an invite
- *   POST   /v1/contacts/invites/redeem — redeem an invite (token or voice code)
+ *   GET    /v1/contacts/invites           — list invites
+ *   POST   /v1/contacts/invites           — create an invite (supports voice)
+ *   DELETE /v1/contacts/invites/:id       — revoke an invite
+ *   POST   /v1/contacts/invites/redeem    — redeem an invite (token or voice code)
+ *   POST   /v1/contacts/invites/:id/call  — trigger an outbound call for a phone invite
  */
 
 import type { RouteDefinition } from "../http-router.js";
@@ -15,6 +16,7 @@ import {
   redeemIngressInvite,
   redeemVoiceInviteCode,
   revokeIngressInvite,
+  triggerInviteCall,
 } from "../invite-service.js";
 
 // ---------------------------------------------------------------------------
@@ -57,6 +59,7 @@ export async function handleCreateInvite(req: Request): Promise<Response> {
     voiceCodeDigits: body.voiceCodeDigits as number | undefined,
     friendName: body.friendName as string | undefined,
     guardianName: body.guardianName as string | undefined,
+    contactId: body.contactId as string,
   });
 
   if (!result.ok) {
@@ -141,6 +144,22 @@ export async function handleRedeemInvite(req: Request): Promise<Response> {
   return Response.json({ ok: true, invite: result.data });
 }
 
+/**
+ * POST /v1/contacts/invites/:id/call
+ *
+ * Trigger an outbound call for a phone invite. The invite must be active and
+ * have sourceChannel "phone" with the required voice metadata populated.
+ */
+export async function handleTriggerInviteCall(
+  inviteId: string,
+): Promise<Response> {
+  const result = await triggerInviteCall(inviteId);
+  if (!result.ok) {
+    return Response.json({ ok: false, error: result.error }, { status: 400 });
+  }
+  return Response.json({ ok: true, callSid: result.data.callSid });
+}
+
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
@@ -167,6 +186,12 @@ export function inviteRouteDefinitions(): RouteDefinition[] {
       method: "DELETE",
       policyKey: "contacts/invites",
       handler: ({ params }) => handleRevokeInvite(params.id),
+    },
+    {
+      endpoint: "contacts/invites/:id/call",
+      method: "POST",
+      policyKey: "contacts/invites",
+      handler: async ({ params }) => handleTriggerInviteCall(params.id),
     },
   ];
 }

@@ -26,16 +26,6 @@ export const SLACK_CHANNEL_TRANSPORT_HINTS = [
 export const SLACK_CHANNEL_TRANSPORT_UX_BRIEF =
   "Slack is a threaded channel medium. Replies should stay in-thread when a thread_ts is present. Use plain text or Slack mrkdwn formatting; avoid markdown tables and complex block layouts.";
 
-export function buildSlackTransportMetadata(): {
-  hints: string[];
-  uxBrief: string;
-} {
-  return {
-    hints: [...SLACK_CHANNEL_TRANSPORT_HINTS],
-    uxBrief: SLACK_CHANNEL_TRANSPORT_UX_BRIEF,
-  };
-}
-
 export const WHATSAPP_CHANNEL_TRANSPORT_HINTS = [
   "chat-first-medium",
   "channel-safe-onboarding",

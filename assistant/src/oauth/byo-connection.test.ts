@@ -100,6 +100,12 @@ const mockProviders = new Map<
 
 mock.module("./oauth-store.js", () => ({
   getConnectionByProvider: (service: string) => mockConnections.get(service),
+  getConnection: (id: string) => {
+    for (const conn of mockConnections.values()) {
+      if (conn.id === id) return conn;
+    }
+    return undefined;
+  },
   getApp: (id: string) => mockApps.get(id),
   getProvider: (key: string) => mockProviders.get(key),
   updateConnection: () => {},
@@ -189,7 +195,7 @@ function setupCredential(
     tokenUrl: "https://oauth2.googleapis.com/token",
     // Only well-known providers (gmail) have a baseUrl; custom services don't
     baseUrl:
-      service === "integration:gmail"
+      service === "integration:google"
         ? "https://gmail.googleapis.com/gmail/v1/users/me"
         : undefined,
   });
@@ -218,7 +224,7 @@ function setupCredential(
   upsertCredentialMetadata(service, "access_token", {});
 }
 
-function createConnection(service = "integration:gmail"): BYOOAuthConnection {
+function createConnection(service = "integration:google"): BYOOAuthConnection {
   return new BYOOAuthConnection({
     id: "test-cred-id",
     providerKey: service,
@@ -236,7 +242,7 @@ function createConnection(service = "integration:gmail"): BYOOAuthConnection {
 describe("BYOOAuthConnection", () => {
   describe("request()", () => {
     test("makes authenticated request with Bearer token", async () => {
-      setupCredential("integration:gmail");
+      setupCredential("integration:google");
       const conn = createConnection();
 
       const result = await conn.request({
@@ -260,7 +266,7 @@ describe("BYOOAuthConnection", () => {
     });
 
     test("appends query parameters", async () => {
-      setupCredential("integration:gmail");
+      setupCredential("integration:google");
       const conn = createConnection();
 
       await conn.request({
@@ -276,7 +282,7 @@ describe("BYOOAuthConnection", () => {
     });
 
     test("uses per-request baseUrl override", async () => {
-      setupCredential("integration:gmail");
+      setupCredential("integration:google");
       const conn = createConnection();
 
       await conn.request({
@@ -290,7 +296,7 @@ describe("BYOOAuthConnection", () => {
     });
 
     test("sends JSON body for POST requests", async () => {
-      setupCredential("integration:gmail");
+      setupCredential("integration:google");
       const conn = createConnection();
 
       await conn.request({
@@ -310,7 +316,7 @@ describe("BYOOAuthConnection", () => {
     });
 
     test("retries once on 401 response", async () => {
-      setupCredential("integration:gmail");
+      setupCredential("integration:google");
       const conn = createConnection();
 
       // First call returns 401, second returns 200
@@ -338,7 +344,7 @@ describe("BYOOAuthConnection", () => {
     });
 
     test("handles empty response body", async () => {
-      setupCredential("integration:gmail");
+      setupCredential("integration:google");
       const conn = createConnection();
 
       globalThis.fetch = mock(() =>
@@ -355,7 +361,7 @@ describe("BYOOAuthConnection", () => {
     });
 
     test("handles non-JSON response body", async () => {
-      setupCredential("integration:gmail");
+      setupCredential("integration:google");
       const conn = createConnection();
 
       globalThis.fetch = mock(() =>
@@ -372,7 +378,7 @@ describe("BYOOAuthConnection", () => {
     });
 
     test("returns response headers", async () => {
-      setupCredential("integration:gmail");
+      setupCredential("integration:google");
       const conn = createConnection();
 
       globalThis.fetch = mock(() =>
@@ -396,7 +402,7 @@ describe("BYOOAuthConnection", () => {
     });
 
     test("includes custom request headers", async () => {
-      setupCredential("integration:gmail");
+      setupCredential("integration:google");
       const conn = createConnection();
 
       await conn.request({
@@ -415,7 +421,7 @@ describe("BYOOAuthConnection", () => {
   describe("proactive token refresh", () => {
     test("refreshes token when near expiry (within 5-minute buffer)", async () => {
       // Set token to expire in 2 minutes (within 5-min buffer)
-      setupCredential("integration:gmail", {
+      setupCredential("integration:google", {
         expiresAt: Date.now() + 2 * 60 * 1000,
       });
       const conn = createConnection();
@@ -439,7 +445,7 @@ describe("BYOOAuthConnection", () => {
 
   describe("withToken()", () => {
     test("provides valid token to callback", async () => {
-      setupCredential("integration:gmail");
+      setupCredential("integration:google");
       const conn = createConnection();
 
       const result = await conn.withToken(async (token) => {
@@ -450,7 +456,7 @@ describe("BYOOAuthConnection", () => {
     });
 
     test("retries callback on 401 error", async () => {
-      setupCredential("integration:gmail");
+      setupCredential("integration:google");
       const conn = createConnection();
 
       let callCount = 0;
@@ -482,29 +488,31 @@ describe("BYOOAuthConnection", () => {
 });
 
 describe("resolveOAuthConnection", () => {
-  test("returns a BYOOAuthConnection for valid credential", () => {
-    setupCredential("integration:gmail");
-    const conn = resolveOAuthConnection("integration:gmail");
+  test("returns a BYOOAuthConnection for valid credential", async () => {
+    setupCredential("integration:google");
+    const conn = await resolveOAuthConnection("integration:google");
 
     expect(conn).toBeInstanceOf(BYOOAuthConnection);
-    expect(conn.providerKey).toBe("integration:gmail");
+    expect(conn.providerKey).toBe("integration:google");
     expect(conn.grantedScopes).toEqual(["read", "write"]);
   });
 
-  test("throws when no credential metadata exists", () => {
-    expect(() => resolveOAuthConnection("integration:unknown")).toThrow(
+  test("throws when no credential metadata exists", async () => {
+    await expect(resolveOAuthConnection("integration:unknown")).rejects.toThrow(
       /No credential found for "integration:unknown"/,
     );
   });
 
-  test("throws when no base URL configured", () => {
+  test("throws when no base URL configured", async () => {
     setupCredential("integration:custom-service");
-    expect(() => resolveOAuthConnection("integration:custom-service")).toThrow(
+    await expect(
+      resolveOAuthConnection("integration:custom-service"),
+    ).rejects.toThrow(
       /No base URL configured for "integration:custom-service"/,
     );
   });
 
-  test("resolves base URL via app's canonical providerKey for custom credential_service", () => {
+  test("resolves base URL via app's canonical providerKey for custom credential_service", async () => {
     // Set up a well-known provider with a baseUrl
     mockProviders.set("github", {
       key: "github",
@@ -535,7 +543,7 @@ describe("resolveOAuthConnection", () => {
     });
     setSecureKey(`oauth_connection/${connId}/access_token`, "ghp-test-token");
 
-    const conn = resolveOAuthConnection("integration:github-work");
+    const conn = await resolveOAuthConnection("integration:github-work");
 
     expect(conn).toBeInstanceOf(BYOOAuthConnection);
     expect(conn.providerKey).toBe("integration:github-work");

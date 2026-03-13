@@ -16,7 +16,6 @@ import {
 } from "../memory/schema/oauth.js";
 import {
   deleteSecureKeyAsync,
-  getSecureKey,
   getSecureKeyAsync,
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
@@ -38,8 +37,11 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
 
 /**
  * Seed well-known provider profiles into the database. Uses INSERT … ON
- * CONFLICT DO UPDATE so that corrections to seed data (e.g. a fixed baseUrl)
- * propagate to existing installations on the next startup.
+ * CONFLICT DO UPDATE so that implementation fields (authUrl, tokenUrl,
+ * tokenEndpointAuthMethod, extraParams, callbackTransport, loopbackPort,
+ * pingUrl) propagate to existing installations on every startup, while
+ * user-customizable fields (defaultScopes, scopePolicy, userinfoUrl,
+ * baseUrl) are only written on the initial insert.
  */
 export function seedProviders(
   profiles: Array<{
@@ -95,10 +97,6 @@ export function seedProviders(
           authUrl,
           tokenUrl,
           tokenEndpointAuthMethod,
-          userinfoUrl,
-          baseUrl,
-          defaultScopes,
-          scopePolicy,
           extraParams,
           callbackTransport,
           loopbackPort,
@@ -255,13 +253,6 @@ export async function upsertApp(
   const id = uuid();
   const credPath = clientSecretCredentialPath ?? defaultCredPath(id);
 
-  if (clientSecretValue) {
-    const stored = await setSecureKeyAsync(credPath, clientSecretValue);
-    if (!stored) {
-      throw new Error("Failed to store client_secret in secure storage");
-    }
-  }
-
   const row = {
     id,
     providerKey,
@@ -271,7 +262,16 @@ export async function upsertApp(
     updatedAt: now,
   };
 
+  // Insert the DB row first so that a failed insert doesn't leave an
+  // orphaned secret in secure storage.
   db.insert(oauthApps).values(row).run();
+
+  if (clientSecretValue) {
+    const stored = await setSecureKeyAsync(credPath, clientSecretValue);
+    if (!stored) {
+      throw new Error("Failed to store client_secret in secure storage");
+    }
+  }
 
   return row;
 }
@@ -336,6 +336,9 @@ export async function deleteApp(id: string): Promise<boolean> {
 
   const result = await deleteSecureKeyAsync(app.clientSecretCredentialPath);
   if (result === "error") {
+    // Throw (rather than returning "error" like disconnectOAuthProvider) because
+    // the DB row is already deleted above. The caller should surface this to the
+    // user so they can retry or manually clean up the orphaned secret.
     throw new Error(
       `Deleted app ${id} but failed to remove client_secret from secure storage`,
     );
@@ -442,6 +445,52 @@ export function getConnectionByProvider(
 }
 
 /**
+ * Get the active connection for a provider matching a specific account.
+ * Falls back to getConnectionByProvider when accountInfo is undefined.
+ */
+export function getConnectionByProviderAndAccount(
+  providerKey: string,
+  accountInfo?: string,
+): OAuthConnectionRow | undefined {
+  if (!accountInfo) return getConnectionByProvider(providerKey);
+
+  const db = getDb();
+  return db
+    .select()
+    .from(oauthConnections)
+    .where(
+      and(
+        eq(oauthConnections.providerKey, providerKey),
+        eq(oauthConnections.accountInfo, accountInfo),
+        eq(oauthConnections.status, "active"),
+      ),
+    )
+    .orderBy(desc(oauthConnections.createdAt), sql`rowid DESC`)
+    .limit(1)
+    .get();
+}
+
+/**
+ * Get ALL active connections for a provider (supports multi-account).
+ */
+export function listActiveConnectionsByProvider(
+  providerKey: string,
+): OAuthConnectionRow[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(oauthConnections)
+    .where(
+      and(
+        eq(oauthConnections.providerKey, providerKey),
+        eq(oauthConnections.status, "active"),
+      ),
+    )
+    .orderBy(desc(oauthConnections.createdAt), sql`rowid DESC`)
+    .all();
+}
+
+/**
  * Check whether a provider has a usable OAuth connection: an active row in the
  * database AND a corresponding access token in secure storage.
  *
@@ -449,10 +498,15 @@ export function getConnectionByProvider(
  * but the secure-key write for the access token failed, which would make
  * `resolveOAuthConnection()` throw at usage time.
  */
-export function isProviderConnected(providerKey: string): boolean {
+export async function isProviderConnected(
+  providerKey: string,
+): Promise<boolean> {
   const conn = getConnectionByProvider(providerKey);
   if (!conn || conn.status !== "active") return false;
-  return getSecureKey(`oauth_connection/${conn.id}/access_token`) !== undefined;
+  return (
+    (await getSecureKeyAsync(`oauth_connection/${conn.id}/access_token`)) !==
+    undefined
+  );
 }
 
 /**
@@ -544,6 +598,10 @@ export function deleteConnection(id: string): boolean {
  * Fully disconnect an OAuth provider: delete the new-format secure keys
  * (access_token and refresh_token) and remove the connection row from SQLite.
  *
+ * When `connectionId` is provided, disconnects that specific connection
+ * (useful for multi-account providers). Otherwise falls back to the most
+ * recent active connection.
+ *
  * Returns `"disconnected"` if a connection was found and cleaned up,
  * `"not-found"` if no active connection existed for the given provider,
  * or `"error"` if secure key deletion failed (connection row is preserved
@@ -552,8 +610,11 @@ export function deleteConnection(id: string): boolean {
 export async function disconnectOAuthProvider(
   providerKey: string,
   clientId?: string,
+  connectionId?: string,
 ): Promise<"disconnected" | "not-found" | "error"> {
-  const conn = getConnectionByProvider(providerKey, clientId);
+  const conn = connectionId
+    ? getConnection(connectionId)
+    : getConnectionByProvider(providerKey, clientId);
   if (!conn) return "not-found";
 
   const r1 = await deleteSecureKeyAsync(
@@ -564,6 +625,11 @@ export async function disconnectOAuthProvider(
   );
 
   if (r1 === "error" || r2 === "error") {
+    // Return "error" (rather than throwing like deleteApp) so the connection row
+    // is preserved. This avoids orphaning secrets in secure storage — the caller
+    // can retry later and the row acts as a pointer to the keys that still need
+    // cleanup. In deleteApp the DB row is already gone, so throwing is the only
+    // way to surface the failure.
     log.warn(
       {
         providerKey,

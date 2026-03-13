@@ -25,6 +25,18 @@ public struct VAvatarImage: View {
         self.isTransparent = Self.imageHasTransparency(image)
     }
 
+    /// Initializer that accepts a precomputed transparency flag, avoiding the expensive
+    /// bitmap analysis in `imageHasTransparency`. Use this in animated render paths
+    /// where the view is rebuilt frequently (e.g. scale/opacity animations) and the
+    /// underlying image doesn't change between frames.
+    public init(image: NSImage, size: CGFloat, isTransparent: Bool, borderColor: Color = VColor.borderBase, showBorder: Bool = true) {
+        self.image = image
+        self.size = size
+        self.borderColor = borderColor
+        self.showBorder = showBorder
+        self.isTransparent = isTransparent
+    }
+
     public var body: some View {
         Image(nsImage: image)
             .interpolation(.none)
@@ -42,7 +54,9 @@ public struct VAvatarImage: View {
     }
 
     /// Detect whether an NSImage contains transparent pixels by sampling its bitmap.
-    private static func imageHasTransparency(_ nsImage: NSImage) -> Bool {
+    /// Public so callers in animated render paths can precompute the result once
+    /// (e.g. in `@State` + `.task {}`) and pass it to the `isTransparent:` initializer.
+    public static func imageHasTransparency(_ nsImage: NSImage) -> Bool {
         guard let tiffData = nsImage.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffData) else {
             return false

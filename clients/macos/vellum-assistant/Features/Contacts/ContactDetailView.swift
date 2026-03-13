@@ -7,9 +7,6 @@ import VellumAssistantShared
 struct ContactDetailView: View {
     private static let allChannelTypes = ["telegram", "phone", "slack"]
 
-    /// Channels that support 6-digit code invites from this view.
-    private static let codeInviteChannels: Set<String> = ["telegram", "slack", "phone"]
-
     let contact: ContactPayload
     var daemonClient: DaemonClient?
     var store: SettingsStore?
@@ -32,8 +29,11 @@ struct ContactDetailView: View {
     @State private var telegramBootstrapChannelId: String?
     @State private var invitePhoneNumber = ""
     @State private var inviteInProgress: String?
+    @State private var inviteCallInProgress = false
+    @State private var inviteCallTriggered = false
     @State private var inviteResult: (
         type: String,
+        inviteId: String,
         token: String?,
         shareUrl: String?,
         inviteCode: String?,
@@ -42,10 +42,13 @@ struct ContactDetailView: View {
         channelHandle: String?
     )?
     @State private var inviteError: String?
+    @State private var inviteErrorChannel: String?
     @State private var inviteCopiedType: String?
     @State private var inviteExpanded: Set<String> = []
+    @State private var inviteHandleInput = ""
+    @State private var inviteCodeRevealed = false
     @State private var channelReadiness: [String: DaemonClient.ChannelReadinessInfo] = [:]
-    @State private var readinessFetchFailed = false
+    @State private var channelReadinessLoaded = false
     /// Monotonically increasing counter that correlates a verification attempt
     /// with its one-shot response / timeout so stale callbacks are ignored.
     @State private var verificationAttempt: UInt64 = 0
@@ -84,6 +87,14 @@ struct ContactDetailView: View {
         }
         .onAppear {
             currentContact = contact
+        }
+        .onChange(of: contact.id) { _, _ in
+            inviteCodeRevealed = false
+            inviteHandleInput = ""
+            inviteExpanded = []
+            inviteResult = nil
+            inviteError = nil
+            inviteErrorChannel = nil
         }
         .onDisappear {
             verificationTimeoutTask?.cancel()
@@ -167,11 +178,7 @@ struct ContactDetailView: View {
             }
 
             HStack(spacing: VSpacing.sm) {
-                roleBadge
                 contactTypeBadge
-            }
-
-            HStack(spacing: VSpacing.sm) {
                 Text("\(displayContact.interactionCount) interaction\(displayContact.interactionCount == 1 ? "" : "s")")
                     .font(VFont.caption)
                     .foregroundColor(VColor.contentTertiary)
@@ -223,18 +230,6 @@ struct ContactDetailView: View {
         }
     }
 
-    private var roleBadge: some View {
-        // Guardians route to GuardianChannelsDetailView, so this view only
-        // renders non-guardian contacts.
-        Text("Contact")
-            .font(VFont.captionMedium)
-            .foregroundColor(VColor.contentSecondary)
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xxs)
-            .background(VColor.surfaceOverlay)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
-    }
-
     private var contactTypeBadge: some View {
         VBadge(
             style: .label(formatContactType(displayContact.contactType)),
@@ -260,7 +255,20 @@ struct ContactDetailView: View {
         }
 
         return VStack(alignment: .leading, spacing: VSpacing.md) {
-            if visibleTypes.isEmpty {
+            if !channelReadinessLoaded && visibleTypes.isEmpty {
+                // Still loading channel readiness — show a spinner instead of a
+                // false "No channels available" message.
+                HStack(spacing: VSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Loading channels...")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentTertiary)
+                }
+                .padding(VSpacing.lg)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .vCard(background: VColor.surfaceOverlay)
+            } else if visibleTypes.isEmpty {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("No channels available")
                         .font(VFont.sectionTitle)
@@ -283,12 +291,22 @@ struct ContactDetailView: View {
                                 }
                             }
                         } else {
+                            if let handle = channelReadiness[type]?.channelHandle {
+                                Text(handle)
+                                    .font(VFont.monoSmall)
+                                    .foregroundColor(VColor.contentTertiary)
+                                    .lineLimit(1)
+                            }
                             if inviteExpanded.contains(type) {
                                 unconfiguredChannelContent(type: type)
                             } else {
                                 VButton(label: "Invite", style: .outlined) {
                                     inviteExpanded.insert(type)
+                                    if type == "telegram" || type == "slack" {
+                                        createInviteForChannel(type: type)
+                                    }
                                 }
+                                .accessibilityHint("\(channelLabel(for: type)) is not connected for this contact")
                             }
                         }
                     }
@@ -300,20 +318,16 @@ struct ContactDetailView: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.systemNegativeStrong)
             }
-
-            if let inviteError {
-                Text(inviteError)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.systemNegativeStrong)
-            }
         }
         .task {
             do {
                 channelReadiness = try await daemonClient?.fetchChannelReadiness() ?? [:]
-                readinessFetchFailed = false
             } catch {
-                readinessFetchFailed = true
+                // Channel readiness fetch failed — fall back to showing only
+                // channels the contact already has configured (channelReadiness
+                // stays empty so no unconfigured channel cards appear).
             }
+            channelReadinessLoaded = true
         }
     }
 
@@ -369,7 +383,40 @@ struct ContactDetailView: View {
     @ViewBuilder
     private func unconfiguredChannelContent(type: String) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            if Self.codeInviteChannels.contains(type) {
+            if type == "telegram" || type == "slack" {
+                // Two-stage invite flow for Telegram/Slack
+                if inviteInProgress == type && inviteResult?.type != type {
+                    // Stage 0: Loading while invite is being created
+                    ProgressView()
+                        .controlSize(.small)
+                } else if let result = inviteResult, result.type == type {
+                    // Stage 1: Show invite URL + handle input (invite created)
+                    telegramSlackInviteContent(type: type)
+                } else {
+                    // Fallback: re-show Invite/Cancel if no result yet
+                    HStack(spacing: VSpacing.sm) {
+                        VButton(label: "Invite", style: .outlined, isDisabled: inviteInProgress != nil) {
+                            createInviteForChannel(type: type)
+                        }
+                        VButton(label: "Cancel", style: .outlined) {
+                            inviteExpanded.remove(type)
+                            if inviteResult?.type == type {
+                                inviteResult = nil
+                            }
+                            inviteError = nil
+                            inviteErrorChannel = nil
+                        }
+                    }
+                }
+
+                // Inline error display so the message appears inside the channel card
+                if let inviteError, inviteErrorChannel == type {
+                    Text(inviteError)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.systemNegativeStrong)
+                }
+            } else if type == "phone" {
+                // Phone channel: code-based invite flow
                 if inviteInProgress == type {
                     ProgressView()
                         .controlSize(.small)
@@ -383,26 +430,158 @@ struct ContactDetailView: View {
                                 .background(VColor.surfaceActive)
                                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                         }
-                        HStack(spacing: VSpacing.sm) {
-                            VButton(
-                                label: "Invite",
-                                style: .outlined,
-                                isDisabled: inviteInProgress != nil || (type == "phone" && invitePhoneNumber.trimmingCharacters(in: .whitespaces).isEmpty)
-                            ) {
-                                createInviteForChannel(type: type)
-                            }
-                            VButton(label: "Cancel", style: .outlined) {
-                                inviteExpanded.remove(type)
-                                inviteResult = nil
-                                inviteError = nil
+                        if inviteResult?.type != type {
+                            HStack(spacing: VSpacing.sm) {
+                                VButton(
+                                    label: "Invite",
+                                    style: .outlined,
+                                    isDisabled: inviteInProgress != nil || (type == "phone" && invitePhoneNumber.trimmingCharacters(in: .whitespaces).isEmpty)
+                                ) {
+                                    createInviteForChannel(type: type)
+                                }
+                                VButton(label: "Cancel", style: .outlined) {
+                                    inviteExpanded.remove(type)
+                                    inviteError = nil
+                                    inviteErrorChannel = nil
+                                }
                             }
                         }
                     }
                 }
+
+                if inviteResult?.type == type {
+                    inviteResultDisplay(for: type)
+                }
+
+                // Inline error display so the message appears inside the channel card
+                if let inviteError, inviteErrorChannel == type {
+                    Text(inviteError)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.systemNegativeStrong)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func telegramSlackInviteContent(type: String) -> some View {
+        let result = inviteResult!
+
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            // Invite URL section (Telegram has a deep link; Slack shows channel handle)
+            if let shareUrl = result.shareUrl {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Share this invite link:")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentSecondary)
+                    HStack(spacing: VSpacing.sm) {
+                        let truncated = shareUrl.count > 40
+                            ? String(shareUrl.prefix(40)) + "..."
+                            : shareUrl
+                        Text(truncated)
+                            .font(VFont.monoSmall)
+                            .foregroundColor(VColor.contentDefault)
+                            .textSelection(.enabled)
+                        VButton(
+                            label: inviteCopiedType == "\(type)-link" ? "Copied!" : "Copy Link",
+                            icon: VIcon.copy.rawValue,
+                            style: .outlined
+                        ) {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(shareUrl, forType: .string)
+                            inviteCopiedType = "\(type)-link"
+                            Task {
+                                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                                guard !Task.isCancelled else { return }
+                                if inviteCopiedType == "\(type)-link" {
+                                    inviteCopiedType = nil
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if let channelHandle = result.channelHandle {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Your assistant's \(channelLabel(for: type)) handle:")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentSecondary)
+                    Text(channelHandle)
+                        .font(VFont.monoSmall)
+                        .foregroundColor(VColor.contentDefault)
+                        .textSelection(.enabled)
+                }
             }
 
-            if inviteResult?.type == type {
-                inviteResultDisplay(for: type)
+            // Handle input section
+            // NOTE: The handle input is informational for this iteration. It lets the
+            // guardian note which user they're inviting, but the value is not yet sent
+            // to the backend. The invite is already created when the card expands (with
+            // the shareable URL/code). Backend integration to proactively message the
+            // contact via their handle is deferred to a future iteration.
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Or enter their \(channelLabel(for: type)) handle:")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentSecondary)
+                TextField(type == "telegram" ? "@username" : "@display_name", text: $inviteHandleInput)
+                    .font(VFont.mono)
+                    .textFieldStyle(.plain)
+                    .padding(VSpacing.sm)
+                    .background(VColor.surfaceActive)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+            }
+
+            // Buttons: Send reveals the already-generated invite code (the invite
+            // was created when the card expanded). Cancel collapses the section.
+            HStack(spacing: VSpacing.sm) {
+                VButton(label: "Send", style: .outlined) {
+                    inviteCodeRevealed = true
+                }
+                .disabled(inviteHandleInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                VButton(label: "Cancel", style: .outlined) {
+                    inviteExpanded.remove(type)
+                    if inviteResult?.type == type {
+                        inviteResult = nil
+                    }
+                    inviteError = nil
+                    inviteErrorChannel = nil
+                    inviteHandleInput = ""
+                    inviteCodeRevealed = false
+                }
+            }
+
+            // Stage 2: Show the invite code after "Send" is clicked
+            if inviteCodeRevealed {
+                if let instruction = result.guardianInstruction {
+                    Text(instruction)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if let inviteCode = result.inviteCode ?? result.voiceCode {
+                    Text(inviteCode)
+                        .font(VFont.inviteCode)
+                        .foregroundColor(VColor.contentDefault)
+                        .tracking(4)
+                        .padding(.vertical, VSpacing.xs)
+
+                    VButton(
+                        label: inviteCopiedType == type ? "Copied!" : "Copy Code",
+                        icon: VIcon.copy.rawValue,
+                        style: .outlined
+                    ) {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(inviteCode, forType: .string)
+                        inviteCopiedType = type
+                        Task {
+                            try? await Task.sleep(nanoseconds: 2_000_000_000)
+                            guard !Task.isCancelled else { return }
+                            if inviteCopiedType == type {
+                                inviteCopiedType = nil
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -481,20 +660,50 @@ struct ContactDetailView: View {
                     .tracking(4)
                     .padding(.vertical, VSpacing.xs)
 
-                VButton(
-                    label: inviteCopiedType == type ? "Copied!" : "Copy Code",
-                    icon: VIcon.copy.rawValue,
-                    style: .outlined
-                ) {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(inviteCode, forType: .string)
-                    inviteCopiedType = type
-                    Task {
-                        try? await Task.sleep(nanoseconds: 2_000_000_000)
-                        guard !Task.isCancelled else { return }
-                        if inviteCopiedType == type {
-                            inviteCopiedType = nil
+                HStack(spacing: VSpacing.sm) {
+                    VButton(
+                        label: inviteCopiedType == type ? "Copied!" : "Copy Code",
+                        icon: VIcon.copy.rawValue,
+                        style: .outlined
+                    ) {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(inviteCode, forType: .string)
+                        inviteCopiedType = type
+                        Task {
+                            try? await Task.sleep(nanoseconds: 2_000_000_000)
+                            guard !Task.isCancelled else { return }
+                            if inviteCopiedType == type {
+                                inviteCopiedType = nil
+                            }
                         }
+                    }
+
+                    if type == "phone", let result = inviteResult {
+                        if inviteCallTriggered {
+                            HStack(spacing: VSpacing.sm) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(VColor.systemPositiveStrong)
+                                Text("Call started")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.systemPositiveStrong)
+                            }
+                        } else {
+                            VButton(
+                                label: inviteCallInProgress ? "Calling..." : "Call \(displayContact.displayName)",
+                                icon: VIcon.phoneCall.rawValue,
+                                style: .primary,
+                                isDisabled: inviteCallInProgress
+                            ) {
+                                triggerInviteCallAction(inviteId: result.inviteId)
+                            }
+                        }
+                    }
+
+                    VButton(label: "Cancel", style: .outlined) {
+                        inviteExpanded.remove(type)
+                        inviteResult = nil
+                        inviteError = nil
+                        inviteErrorChannel = nil
                     }
                 }
             }
@@ -525,6 +734,11 @@ struct ContactDetailView: View {
                     }
                 }
             }
+        } else {
+            // Fallback: invite was created but no displayable fields are available
+            Text("Invite created but no details available")
+                .font(VFont.caption)
+                .foregroundColor(VColor.contentSecondary)
         }
     }
 
@@ -556,7 +770,7 @@ struct ContactDetailView: View {
                     }
                     VButton(
                         label: "Revoke Access",
-                        style: .danger,
+                        style: .dangerOutline,
                         isDisabled: anyActionInFlight
                     ) {
                         updateChannelStatus(channelId: channel.id, status: "revoked")
@@ -564,14 +778,14 @@ struct ContactDetailView: View {
                 default:
                     VButton(
                         label: "Revoke Access",
-                        style: .danger,
+                        style: .dangerOutline,
                         isDisabled: anyActionInFlight
                     ) {
                         updateChannelStatus(channelId: channel.id, status: "revoked")
                     }
                     VButton(
                         label: "Block",
-                        style: .danger,
+                        style: .dangerOutline,
                         isDisabled: anyActionInFlight
                     ) {
                         updateChannelStatus(channelId: channel.id, status: "blocked")
@@ -848,7 +1062,12 @@ struct ContactDetailView: View {
         guard let daemonClient, inviteInProgress == nil else { return }
         inviteInProgress = type
         inviteError = nil
+        inviteErrorChannel = nil
         inviteResult = nil
+        inviteCallInProgress = false
+        inviteCallTriggered = false
+        inviteCodeRevealed = false
+        inviteHandleInput = ""
         Task {
             do {
                 var phoneNumber: String? = nil
@@ -862,12 +1081,14 @@ struct ContactDetailView: View {
                     sourceChannel: type,
                     note: "Invite for \(displayContact.displayName)",
                     contactName: displayContact.displayName,
+                    contactId: displayContact.id,
                     expectedExternalUserId: phoneNumber,
                     friendName: type == "phone" ? displayContact.displayName : nil,
                     guardianName: resolvedGuardianName
                 ) {
                     inviteResult = (
                         type: type,
+                        inviteId: result.inviteId,
                         token: result.token,
                         shareUrl: result.shareUrl,
                         inviteCode: result.inviteCode,
@@ -877,11 +1098,33 @@ struct ContactDetailView: View {
                     )
                 } else {
                     inviteError = "Failed to create invite"
+                    inviteErrorChannel = type
                 }
             } catch {
                 inviteError = "Failed to create invite: \(error.localizedDescription)"
+                inviteErrorChannel = type
             }
             inviteInProgress = nil
+        }
+    }
+
+    private func triggerInviteCallAction(inviteId: String) {
+        guard let daemonClient, !inviteCallInProgress else { return }
+        inviteCallInProgress = true
+        Task {
+            do {
+                let success = try await daemonClient.triggerInviteCall(inviteId: inviteId)
+                if success {
+                    inviteCallTriggered = true
+                } else {
+                    inviteError = "Failed to initiate call"
+                    inviteErrorChannel = "phone"
+                }
+            } catch {
+                inviteError = "Failed to initiate call: \(error.localizedDescription)"
+                inviteErrorChannel = "phone"
+            }
+            inviteCallInProgress = false
         }
     }
 

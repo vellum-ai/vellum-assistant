@@ -17,7 +17,7 @@ The oauth command group manages the full OAuth lifecycle:
 
   providers   Protocol-level configurations (auth URLs, scopes, endpoints)
   apps        Client credentials (client ID / secret pairs)
-  connections Active token grants per provider (list, get, token)
+  connections Active token grants per provider (list, get, token, disconnect)
 
 Providers are seeded on startup for built-in integrations. Apps and connections
 are created during the OAuth authorization flow or can be managed manually via
@@ -26,9 +26,9 @@ their respective subcommands.
 Examples:
   $ assistant oauth connections token integration:twitter
   $ assistant oauth connections list
-  $ assistant oauth connections get --provider integration:gmail
+  $ assistant oauth connections get --provider integration:google
   $ assistant oauth providers list
-  $ assistant oauth providers get integration:gmail
+  $ assistant oauth providers get integration:google
   $ assistant oauth providers register --provider-key custom:myapi --auth-url https://example.com/auth --token-url https://example.com/token`,
   );
 

@@ -13,6 +13,8 @@ struct AvatarRevealStepView: View {
     @State private var isGenerating = true
     @State private var generationFailed = false
     @State private var avatarImage: NSImage?
+    // Precomputed transparency flag — avoids expensive bitmap analysis during animation frames.
+    @State private var avatarIsTransparent = false
     @State private var showAvatar = false
     @State private var showText = false
     @State private var showButton = false
@@ -128,7 +130,7 @@ struct AvatarRevealStepView: View {
     private var revealedAvatar: some View {
         Group {
             if let image = avatarImage {
-                VAvatarImage(image: image, size: 160, showBorder: false)
+                VAvatarImage(image: image, size: 160, isTransparent: avatarIsTransparent, showBorder: false)
                     .shadow(color: VColor.primaryBase.opacity(0.3), radius: 12, y: 4)
                     .scaleEffect(showAvatar ? 1.0 : 0.8)
                     .opacity(showAvatar ? 1 : 0)
@@ -154,10 +156,12 @@ struct AvatarRevealStepView: View {
                     // Connection failed — show fallback avatar immediately
                     // instead of falling through to the generate request.
                     await MainActor.run {
-                        avatarImage = AvatarAppearanceManager.buildInitialLetterAvatar(
+                        let fallback = AvatarAppearanceManager.buildInitialLetterAvatar(
                             name: assistantName,
                             size: 160
                         )
+                        avatarImage = fallback
+                        avatarIsTransparent = VAvatarImage.imageHasTransparency(fallback)
                         generationFailed = true
 
                         withAnimation(.spring(duration: 0.6, bounce: 0.2)) {
@@ -228,14 +232,18 @@ struct AvatarRevealStepView: View {
                 if success {
                     // Reload avatar from disk
                     AvatarAppearanceManager.shared.reloadAvatar()
-                    avatarImage = AvatarAppearanceManager.shared.fullAvatarImage
+                    let image = AvatarAppearanceManager.shared.fullAvatarImage
+                    avatarImage = image
+                    avatarIsTransparent = VAvatarImage.imageHasTransparency(image)
                     generationFailed = false
                 } else {
                     // Use fallback initial-letter avatar
-                    avatarImage = AvatarAppearanceManager.buildInitialLetterAvatar(
+                    let fallback = AvatarAppearanceManager.buildInitialLetterAvatar(
                         name: assistantName,
                         size: 160
                     )
+                    avatarImage = fallback
+                    avatarIsTransparent = VAvatarImage.imageHasTransparency(fallback)
                     generationFailed = true
                 }
 

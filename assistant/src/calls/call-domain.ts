@@ -21,7 +21,7 @@ import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { isGuardian } from "../runtime/channel-verification-service.js";
 import { credentialKey } from "../security/credential-key.js";
-import { getSecureKey } from "../security/secure-keys.js";
+import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { upsertActiveCallLease } from "./active-call-lease.js";
 import { isDeniedNumber } from "./call-constants.js";
@@ -177,7 +177,7 @@ export async function resolveCallerIdentity(
   }
 
   if (mode === "assistant_number") {
-    const twilioConfig = getTwilioConfig();
+    const twilioConfig = await getTwilioConfig();
     log.info(
       { mode, source, fromNumber: twilioConfig.phoneNumber },
       "Resolved caller identity",
@@ -193,7 +193,7 @@ export async function resolveCallerIdentity(
     userNumber = identityConfig.userNumber;
     numberSource = "user_config";
   } else {
-    const secureKeyValue = getSecureKey(
+    const secureKeyValue = await getSecureKeyAsync(
       credentialKey("twilio", "user_phone_number"),
     );
     if (secureKeyValue) {
@@ -1088,7 +1088,6 @@ export async function startInviteCall(
       callMode: "invite",
       inviteFriendName: friendName,
       inviteGuardianName: guardianName,
-      initiatedFromConversationId: conversationId,
     });
     sessionId = session.id;
 

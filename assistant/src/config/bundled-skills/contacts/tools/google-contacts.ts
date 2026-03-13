@@ -43,7 +43,7 @@ export async function run(
   }
 
   try {
-    const connection = resolveOAuthConnection("integration:gmail");
+    const connection = await resolveOAuthConnection("integration:google");
     switch (action) {
       case "list": {
         const pageSize = (input.page_size as number) ?? 50;

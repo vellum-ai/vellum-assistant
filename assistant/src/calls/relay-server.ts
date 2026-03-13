@@ -1157,7 +1157,7 @@ export class RelayConnection {
 
     log.info(
       { callSessionId: this.callSessionId, assistantId },
-      "Inbound voice invite redemption started",
+      `${isOutbound ? "Outbound" : "Inbound"} voice invite redemption started`,
     );
   }
 

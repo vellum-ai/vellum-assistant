@@ -7,7 +7,7 @@ import {
 interface IntegrationProbe {
   name: string;
   category: string;
-  isConnected: () => boolean;
+  isConnected: () => Promise<boolean>;
 }
 
 // Registry — add new integrations here:
@@ -15,7 +15,7 @@ const INTEGRATION_PROBES: IntegrationProbe[] = [
   {
     name: "Gmail",
     category: "email",
-    isConnected: () => isProviderConnected("integration:gmail"),
+    isConnected: () => isProviderConnected("integration:google"),
   },
   {
     name: "Slack",
@@ -25,39 +25,46 @@ const INTEGRATION_PROBES: IntegrationProbe[] = [
   {
     name: "Twilio",
     category: "telephony",
-    isConnected: () => hasTwilioCredentials(),
+    isConnected: async () => hasTwilioCredentials(),
   },
   {
     name: "Telegram",
     category: "messaging",
-    isConnected: () => {
+    isConnected: async () => {
       const conn = getConnectionByProvider("telegram");
       return !!(conn && conn.status === "active");
     },
   },
 ];
 
-export function getIntegrationSummary(): Array<{
-  name: string;
-  category: string;
-  connected: boolean;
-}> {
-  return INTEGRATION_PROBES.map((probe) => ({
-    name: probe.name,
-    category: probe.category,
-    connected: probe.isConnected(),
-  }));
+export async function getIntegrationSummary(): Promise<
+  Array<{
+    name: string;
+    category: string;
+    connected: boolean;
+  }>
+> {
+  return Promise.all(
+    INTEGRATION_PROBES.map(async (probe) => ({
+      name: probe.name,
+      category: probe.category,
+      connected: await probe.isConnected(),
+    })),
+  );
 }
 
-export function formatIntegrationSummary(): string {
-  const summary = getIntegrationSummary();
+export async function formatIntegrationSummary(): Promise<string> {
+  const summary = await getIntegrationSummary();
   return summary
     .map((s) => `${s.name} ${s.connected ? "\u2713" : "\u2717"}`)
     .join(" | ");
 }
 
-export function hasCapability(category: string): boolean {
-  return INTEGRATION_PROBES.some(
-    (probe) => probe.category === category && probe.isConnected(),
+export async function hasCapability(category: string): Promise<boolean> {
+  const results = await Promise.all(
+    INTEGRATION_PROBES.filter((probe) => probe.category === category).map(
+      (probe) => probe.isConnected(),
+    ),
   );
+  return results.some(Boolean);
 }

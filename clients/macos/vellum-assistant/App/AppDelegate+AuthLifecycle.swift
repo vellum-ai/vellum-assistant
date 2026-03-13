@@ -273,10 +273,6 @@ extension AppDelegate {
         mainWindow?.close()
         mainWindow = nil
 
-        // Cancel any in-progress bootstrap tasks from the previous assistant
-        bootstrapRetryTask?.cancel()
-        bootstrapRetryTask = nil
-
         // 3. Persist the new assistant selection
         UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")
         SentryDeviceInfo.updateAssistantTag(assistant.assistantId)
@@ -442,10 +438,6 @@ extension AppDelegate {
         // a fresh instance during re-onboarding (equivalent to `vellum sleep`).
         daemonClient.disconnect()
         assistantCli.stop()
-        // Cancel any in-progress bootstrap retry so it doesn't race with the
-        // new onboarding flow.
-        bootstrapRetryTask?.cancel()
-        bootstrapRetryTask = nil
         actorTokenBootstrapTask?.cancel()
         actorTokenBootstrapTask = nil
         ActorTokenManager.deleteToken()

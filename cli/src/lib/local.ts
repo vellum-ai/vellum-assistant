@@ -528,46 +528,77 @@ export async function discoverPublicUrl(
 ): Promise<string | undefined> {
   const effectivePort = port ?? GATEWAY_PORT;
 
-  // Discover local and cloud addresses in parallel so the cloud metadata
-  // timeout (1s) doesn't block startup when a local address is immediately
-  // available.
+  // Start cloud metadata lookup (may take up to 1s on non-cloud hosts).
   const cloudIpPromise = discoverCloudExternalIp();
 
-  // Resolve local address synchronously (no I/O).
-  const localUrl = discoverLocalUrl(effectivePort);
+  // Resolve local address synchronously (no I/O) — does not log.
+  const localResult = discoverLocalUrl(effectivePort);
 
-  const cloudIp = await cloudIpPromise;
+  // Race: if cloud IP resolves quickly, prefer it; otherwise return the
+  // local URL immediately instead of blocking on the full metadata timeout.
+  const cloudIp = await Promise.race([
+    cloudIpPromise,
+    // Give cloud metadata a short grace period (150ms) before falling back
+    // to the local address. This is enough for on-cloud hosts where the
+    // metadata endpoint responds in single-digit ms, but avoids the full
+    // 1s timeout on non-cloud machines.
+    new Promise<undefined>((resolve) =>
+      setTimeout(() => resolve(undefined), 150),
+    ),
+  ]);
+
   if (cloudIp) {
     console.log(`   Discovered external IP: ${cloudIp}`);
     return `http://${cloudIp}:${effectivePort}`;
   }
 
-  return localUrl;
+  // Log the local address source only when we actually use it.
+  if (localResult.source === "hostname") {
+    console.log(`   Discovered macOS local hostname: ${localResult.label}`);
+  } else if (localResult.source === "lan") {
+    console.log(`   Discovered LAN IP: ${localResult.label}`);
+  }
+
+  return localResult.url;
 }
 
 /**
  * Resolve a LAN-reachable URL without any async I/O. Returns the best local
- * address or falls back to localhost.
+ * address or falls back to localhost. Does not emit any logs — the caller
+ * decides whether to log based on which result is actually used.
  */
-function discoverLocalUrl(effectivePort: number): string {
+function discoverLocalUrl(effectivePort: number): {
+  url: string;
+  source: "hostname" | "lan" | "localhost";
+  label?: string;
+} {
   // On macOS, prefer the .local hostname (Bonjour/mDNS) so other devices on
   // the same network can reach the gateway by name.
   if (platform() === "darwin") {
     const localHostname = getMacLocalHostname();
     if (localHostname) {
-      console.log(`   Discovered macOS local hostname: ${localHostname}`);
-      return `http://${localHostname}:${effectivePort}`;
+      return {
+        url: `http://${localHostname}:${effectivePort}`,
+        source: "hostname",
+        label: localHostname,
+      };
     }
   }
 
   const lanIp = getLocalLanIPv4();
   if (lanIp) {
-    console.log(`   Discovered LAN IP: ${lanIp}`);
-    return `http://${lanIp}:${effectivePort}`;
+    return {
+      url: `http://${lanIp}:${effectivePort}`,
+      source: "lan",
+      label: lanIp,
+    };
   }
 
   // Final fallback to localhost when no LAN address could be discovered.
-  return `http://localhost:${effectivePort}`;
+  return {
+    url: `http://localhost:${effectivePort}`,
+    source: "localhost",
+  };
 }
 
 /**
@@ -692,18 +723,14 @@ export async function startLocalDaemon(
   watch: boolean = false,
   resources: LocalInstanceResources,
 ): Promise<void> {
-  if (process.env.VELLUM_DESKTOP_APP && !watch) {
-    // When running inside the desktop app, the CLI owns the daemon lifecycle.
-    // Find the vellum-daemon binary adjacent to the CLI binary.
+  // Check for a compiled daemon binary adjacent to the CLI executable.
+  // This covers both the desktop app (VELLUM_DESKTOP_APP) and the case where
+  // the user runs the compiled CLI directly from the terminal (e.g. via a
+  // /usr/local/bin/vellum symlink into the app bundle).
+  const daemonBinary = join(dirname(process.execPath), "vellum-daemon");
+  if (existsSync(daemonBinary) && !watch) {
     // In watch mode, skip the bundled binary and use source (bun --watch
     // only works with source files, not compiled binaries).
-    const daemonBinary = join(dirname(process.execPath), "vellum-daemon");
-    if (!existsSync(daemonBinary)) {
-      throw new Error(
-        `vellum-daemon binary not found at ${daemonBinary}.\n` +
-          "  Ensure the daemon binary is bundled alongside the CLI in the app bundle.",
-      );
-    }
 
     const pidFile = resources.pidFile;
 
@@ -772,6 +799,7 @@ export async function startLocalDaemon(
       // Forward optional config env vars the daemon may need
       for (const key of [
         "ANTHROPIC_API_KEY",
+        "APP_VERSION",
         "BASE_DATA_DIR",
         "QDRANT_HTTP_PORT",
         "QDRANT_URL",
@@ -943,18 +971,11 @@ export async function startGateway(
 
   let gateway;
 
-  if (process.env.VELLUM_DESKTOP_APP && !watch) {
-    // Desktop app: spawn the compiled gateway binary directly (mirrors daemon pattern).
-    // In watch mode, skip the bundled binary and use source (bun --watch
-    // only works with source files, not compiled binaries).
-    const gatewayBinary = join(dirname(process.execPath), "vellum-gateway");
-    if (!existsSync(gatewayBinary)) {
-      throw new Error(
-        `vellum-gateway binary not found at ${gatewayBinary}.\n` +
-          "  Ensure the gateway binary is bundled alongside the CLI in the app bundle.",
-      );
-    }
-
+  const gatewayBinary = join(dirname(process.execPath), "vellum-gateway");
+  if (existsSync(gatewayBinary) && !watch) {
+    // Use the compiled gateway binary when available (desktop app or compiled
+    // CLI invoked from the terminal). In watch mode, skip the bundled binary
+    // and use source (bun --watch only works with source files).
     const gatewayLogFd = openLogFile("hatch.log");
     gateway = spawn(gatewayBinary, [], {
       detached: true,

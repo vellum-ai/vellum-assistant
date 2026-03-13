@@ -62,7 +62,7 @@ export function migrateOAuthAppsClientSecretPath(database: DrizzleDb): void {
             id TEXT PRIMARY KEY,
             provider_key TEXT NOT NULL REFERENCES oauth_providers(provider_key),
             client_id TEXT NOT NULL,
-            client_secret_credential_path TEXT NOT NULL,
+            client_secret_credential_path TEXT NOT NULL DEFAULT '',
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
           )

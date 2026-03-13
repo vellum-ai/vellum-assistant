@@ -56,7 +56,7 @@ public struct VTab: View {
             }
             .foregroundColor(isSelected && (style == .pill || style == .rectangular) ? VColor.contentDefault : (isSelected ? VColor.contentDefault : VColor.contentSecondary))
             .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.sm)
+            .frame(height: 32)
             .contentShape(RoundedRectangle(cornerRadius: cornerRadius))
         }
         .buttonStyle(.plain)

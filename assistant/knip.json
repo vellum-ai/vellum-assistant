@@ -1,0 +1,32 @@
+{
+  "entry": ["src/**/*.test.ts", "src/**/__tests__/**/*.ts", "scripts/**/*.ts"],
+  "project": ["src/**/*.ts", "src/**/*.tsx", "scripts/**/*.ts"],
+  "ignore": [
+    "src/browser-extension-relay/client.ts",
+    "src/contacts/index.ts",
+    "src/daemon/main.ts",
+    "src/daemon/tls-certs.ts",
+    "src/errors.ts",
+    "src/events/index.ts",
+    "src/followups/index.ts",
+    "src/playbooks/index.ts",
+    "src/runtime/auth/index.ts",
+    "src/tasks/candidate-store.ts",
+    "src/tools/browser/api-map.ts",
+    "src/tools/browser/auto-navigate.ts",
+    "src/tools/browser/headless-browser.ts",
+    "src/tools/browser/recording-store.ts",
+    "src/tools/tasks/index.ts"
+  ],
+  "ignoreDependencies": [
+    "@hono/node-server",
+    "@vellumai/cli",
+    "esbuild",
+    "hono",
+    "ink",
+    "preact",
+    "quicktype-core",
+    "tree-sitter-bash",
+    "typescript-json-schema"
+  ]
+}

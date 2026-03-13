@@ -16,11 +16,11 @@ import {
 } from "../oauth/oauth-store.js";
 import { getLogger } from "../util/logger.js";
 import { refreshOAuth2Token, type TokenEndpointAuthMethod } from "./oauth2.js";
-import { getSecureKey, setSecureKeyAsync } from "./secure-keys.js";
+import { getSecureKeyAsync, setSecureKeyAsync } from "./secure-keys.js";
 
 const log = getLogger("token-manager");
 
-const MESSAGING_SERVICES = new Set(["integration:gmail", "integration:slack"]);
+const MESSAGING_SERVICES = new Set(["integration:google", "integration:slack"]);
 
 function recoveryHint(service: string): string {
   const shortName = service.startsWith("integration:")
@@ -185,7 +185,10 @@ interface RefreshConfig {
  * authMethod. Throws `TokenExpiredError` if the connection is not found
  * or incomplete.
  */
-function resolveRefreshConfig(service: string, connId: string): RefreshConfig {
+async function resolveRefreshConfig(
+  service: string,
+  connId: string,
+): Promise<RefreshConfig> {
   const conn = getConnection(connId);
   if (!conn) {
     throw new TokenExpiredError(
@@ -219,9 +222,9 @@ function resolveRefreshConfig(service: string, connId: string): RefreshConfig {
     );
   }
 
-  const secret = getSecureKey(app.clientSecretCredentialPath);
+  const secret = await getSecureKeyAsync(app.clientSecretCredentialPath);
 
-  const refreshToken = getSecureKey(
+  const refreshToken = await getSecureKeyAsync(
     `oauth_connection/${conn.id}/refresh_token`,
   );
 
@@ -249,7 +252,7 @@ function resolveRefreshConfig(service: string, connId: string): RefreshConfig {
  * Throws `TokenExpiredError` if refresh is not possible.
  */
 async function doRefresh(service: string, connId: string): Promise<string> {
-  const refreshConfig = resolveRefreshConfig(service, connId);
+  const refreshConfig = await resolveRefreshConfig(service, connId);
   const {
     tokenUrl,
     clientId: resolvedClientId,
@@ -367,11 +370,14 @@ async function doRefresh(service: string, connId: string): Promise<string> {
 export async function withValidToken<T>(
   service: string,
   callback: (token: string) => Promise<T>,
-  clientId?: string,
+  opts?: string | { connectionId: string },
 ): Promise<T> {
-  const conn = getConnectionByProvider(service, clientId);
+  const conn =
+    opts && typeof opts === "object"
+      ? getConnection(opts.connectionId)
+      : getConnectionByProvider(service, opts);
   let token = conn
-    ? getSecureKey(`oauth_connection/${conn.id}/access_token`)
+    ? await getSecureKeyAsync(`oauth_connection/${conn.id}/access_token`)
     : undefined;
   if (!token || !conn) {
     throw new TokenExpiredError(

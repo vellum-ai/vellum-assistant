@@ -130,7 +130,7 @@ export const githubProvider: WatcherProvider = {
     _config: Record<string, unknown>,
     _watcherKey: string,
   ): Promise<FetchResult> {
-    const connection = resolveOAuthConnection(credentialService);
+    const connection = await resolveOAuthConnection(credentialService);
     const since = watermark ?? new Date().toISOString();
     const items: WatcherItem[] = [];
     let page = 1;

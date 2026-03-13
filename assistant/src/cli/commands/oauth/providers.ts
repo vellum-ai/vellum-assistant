@@ -39,7 +39,7 @@ authorization URL, token URL, default scopes, and other endpoint details.
 They are seeded on startup for built-in integrations (e.g. Gmail, Twitter,
 Slack) but can also be registered dynamically via the "register" subcommand.
 
-Each provider is identified by a provider key (e.g. "integration:gmail").`,
+Each provider is identified by a provider key (e.g. "integration:google").`,
   );
 
   // ---------------------------------------------------------------------------
@@ -115,7 +115,7 @@ Examples:
       "after",
       `
 Arguments:
-  provider-key   The full provider key (e.g. "integration:gmail").
+  provider-key   The full provider key (e.g. "integration:google").
                  Must match the key used during registration or seeding.
 
 Returns the full provider configuration including auth URL, token URL,
@@ -123,7 +123,7 @@ default scopes, scope policy, and extra parameters. Exits with code 1
 if the provider key is not found.
 
 Examples:
-  $ assistant oauth providers get integration:gmail
+  $ assistant oauth providers get integration:google
   $ assistant oauth providers get integration:twitter --json`,
     )
     .action((providerKey: string, _opts: unknown, cmd: Command) => {

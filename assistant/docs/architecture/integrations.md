@@ -151,7 +151,7 @@ sequenceDiagram
 
     Note over UI,API: Tool Execution Flow
     Tool->>TokenMgr: withValidToken("gmail", callback)
-    TokenMgr->>Store: getConnectionByProvider("integration:gmail")
+    TokenMgr->>Store: getConnectionByProvider("integration:google")
     TokenMgr->>Vault: getSecureKey("oauth_connection/{conn.id}/access_token")
     TokenMgr->>Store: check oauth_connections.expires_at
     alt Token expired
@@ -228,7 +228,7 @@ The OAuth extensibility layer makes adding a new OAuth provider a declarative op
 
 Protocol fields (`authUrl`, `tokenUrl`, `defaultScopes`, `scopePolicy`, `callbackTransport`) are stored in the `oauth_providers` database table rather than in code.
 
-Registered providers: `integration:gmail`, `integration:slack`, `integration:notion`. Short aliases (e.g. `gmail`, `slack`) are resolved via `resolveService()`.
+Registered providers: `integration:google`, `integration:slack`, `integration:notion`. Short aliases (e.g. `gmail`, `slack`) are resolved via `resolveService()`.
 
 ### Scope Policy Engine
 

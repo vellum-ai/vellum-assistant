@@ -32,9 +32,21 @@ set -euo pipefail
 swift_with_retry() {
     local max_attempts="${SWIFT_RETRY_ATTEMPTS:-3}"
     local attempt=1
+    local _pch_cleaned=0
+    local _stderr_log
+    _stderr_log=$(mktemp)
+    trap "rm -f '$_stderr_log'" RETURN
     while true; do
-        if "$@"; then
+        if "$@" 2> >(tee "$_stderr_log" >&2); then
             return 0
+        fi
+        # Auto-clean stale PCH module cache (happens when switching between
+        # worktrees that share the same .build directory via symlink).
+        if [ "$_pch_cleaned" -eq 0 ] && grep -q "PCH was compiled with module cache path" "$_stderr_log" 2>/dev/null; then
+            echo "warning: stale module cache detected, cleaning and retrying..."
+            find "$SCRIPT_DIR/../.build" -type d -name "ModuleCache" -exec rm -rf {} + 2>/dev/null || true
+            _pch_cleaned=1
+            continue
         fi
         if [ "$attempt" -ge "$max_attempts" ]; then
             echo "ERROR: swift command failed after $max_attempts attempts: $*"
@@ -136,8 +148,10 @@ ASSISTANT_SRC_DIR="$SCRIPT_DIR/../../assistant"
 CLI_SRC_DIR="$SCRIPT_DIR/../../cli"
 GATEWAY_SRC_DIR="$SCRIPT_DIR/../../gateway"
 
-# Packages that must stay external in the compiled daemon binary.
-DAEMON_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*")
+# Packages that must stay external in compiled Bun binaries.
+# playwright-core has optional requires (electron, chromium-bidi) that cannot
+# be resolved at bundle time.  Mark them external so bun --compile skips them.
+BUN_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*")
 
 # ---------------------------------------------------------------------------
 # build_bun_binary — compile a TypeScript project to a native binary via Bun.
@@ -184,7 +198,7 @@ build_binaries() {
     command -v bun &>/dev/null || { echo "ERROR: bun is required but not found"; exit 1; }
 
     # Daemon
-    local daemon_flags=("${DAEMON_EXTERNAL_FLAGS[@]}")
+    local daemon_flags=("${BUN_EXTERNAL_FLAGS[@]}")
     if [ -n "${DISPLAY_VERSION:-}" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
         daemon_flags+=(--define "process.env.APP_VERSION='$DISPLAY_VERSION'")
     fi
@@ -211,6 +225,10 @@ build_binaries() {
     rm -rf "$SCRIPT_DIR/daemon-bin/brain-graph"
     mkdir -p "$SCRIPT_DIR/daemon-bin/brain-graph"
     cp "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" "$SCRIPT_DIR/daemon-bin/brain-graph/"
+    # Assistant CLI
+    build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/index.ts" \
+        "$SCRIPT_DIR/assistant-bin" "vellum-assistant" "${BUN_EXTERNAL_FLAGS[@]}"
+
     # CLI
     build_bun_binary "$CLI_SRC_DIR" "$CLI_SRC_DIR/src/index.ts" \
         "$SCRIPT_DIR/cli-bin" "vellum-cli"
@@ -356,7 +374,7 @@ if [ -d "$ASSISTANT_SRC_DIR/src" ] && command -v bun &>/dev/null; then
     fi
 fi
 if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
-    local_daemon_flags=("${DAEMON_EXTERNAL_FLAGS[@]}")
+    local_daemon_flags=("${BUN_EXTERNAL_FLAGS[@]}")
     if [ -n "${DISPLAY_VERSION:-}" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
         local_daemon_flags+=(--define "process.env.APP_VERSION='$DISPLAY_VERSION'")
     fi
@@ -398,6 +416,32 @@ fi
 # Also rebuild if daemon binary changed or newly added
 if [ -f "$SCRIPT_DIR/daemon-bin/vellum-daemon" ]; then
     if [ ! -f "$MACOS_DIR/vellum-daemon" ] || [ "$SCRIPT_DIR/daemon-bin/vellum-daemon" -nt "$MACOS_DIR/vellum-daemon" ]; then
+        NEEDS_REBUILD=true
+    fi
+fi
+
+# Auto-build assistant CLI binary if missing or stale (source changed) and bun is available
+ASSISTANT_CLI_BIN_NEEDS_BUILD=false
+if [ -d "$ASSISTANT_SRC_DIR/src" ] && command -v bun &>/dev/null; then
+    if [ ! -f "$SCRIPT_DIR/assistant-bin/vellum-assistant" ]; then
+        ASSISTANT_CLI_BIN_NEEDS_BUILD=true
+    elif [ -n "$(find "$ASSISTANT_SRC_DIR/src" \( -name '*.ts' -o -name '*.json' \) -newer "$SCRIPT_DIR/assistant-bin/vellum-assistant" -print -quit 2>/dev/null)" ]; then
+        ASSISTANT_CLI_BIN_NEEDS_BUILD=true
+    elif [ "$ASSISTANT_SRC_DIR/package.json" -nt "$SCRIPT_DIR/assistant-bin/vellum-assistant" ] || \
+         [ "$ASSISTANT_SRC_DIR/bun.lock" -nt "$SCRIPT_DIR/assistant-bin/vellum-assistant" ]; then
+        ASSISTANT_CLI_BIN_NEEDS_BUILD=true
+    elif [ "$SCRIPT_DIR/build.sh" -nt "$SCRIPT_DIR/assistant-bin/vellum-assistant" ]; then
+        ASSISTANT_CLI_BIN_NEEDS_BUILD=true
+    fi
+fi
+if [ "$ASSISTANT_CLI_BIN_NEEDS_BUILD" = true ]; then
+    build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/index.ts" \
+        "$SCRIPT_DIR/assistant-bin" "vellum-assistant" "${BUN_EXTERNAL_FLAGS[@]}"
+fi
+
+# Also rebuild if assistant CLI binary changed or newly added
+if [ -f "$SCRIPT_DIR/assistant-bin/vellum-assistant" ]; then
+    if [ ! -f "$MACOS_DIR/vellum-assistant" ] || [ "$SCRIPT_DIR/assistant-bin/vellum-assistant" -nt "$MACOS_DIR/vellum-assistant" ]; then
         NEEDS_REBUILD=true
     fi
 fi
@@ -474,6 +518,16 @@ if [ "$NEEDS_REBUILD" = true ]; then
         rm -rf "$MACOS_DIR/node_modules"
     else
         echo "No daemon binary at $DAEMON_BIN — skipping (dev mode)"
+    fi
+
+    # Copy bundled assistant CLI binary (if available — built by CI or locally)
+    ASSISTANT_CLI_BIN="$SCRIPT_DIR/assistant-bin/vellum-assistant"
+    if [ -f "$ASSISTANT_CLI_BIN" ]; then
+        echo "Bundling assistant CLI binary..."
+        cp "$ASSISTANT_CLI_BIN" "$MACOS_DIR/vellum-assistant"
+        chmod +x "$MACOS_DIR/vellum-assistant"
+    else
+        echo "No assistant CLI binary at $ASSISTANT_CLI_BIN — skipping (dev mode)"
     fi
 
     # Copy bundled CLI binary (if available — built by CI or locally)

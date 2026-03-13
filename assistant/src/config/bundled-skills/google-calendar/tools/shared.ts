@@ -10,6 +10,12 @@ export function ok(content: string): ToolExecutionResult {
  * Calendar uses the same OAuth credential service as Gmail since both
  * scopes are granted in a single OAuth consent flow.
  */
-export function getCalendarConnection(): OAuthConnection {
-  return resolveOAuthConnection("integration:gmail");
+export async function getCalendarConnection(
+  account?: string,
+  calendarId?: string,
+): Promise<OAuthConnection> {
+  // If no explicit account but calendar_id looks like an email, use it as the account hint
+  const resolved =
+    account ?? (calendarId?.includes("@") ? calendarId : undefined);
+  return resolveOAuthConnection("integration:google", resolved);
 }

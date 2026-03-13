@@ -15,6 +15,8 @@ struct IdentityPanel: View {
     @State private var viewingFilePath: String?
     @State private var isFullscreen: Bool = false
     @State private var showAvatarSheet: Bool = false
+    @State private var introText: String? = nil
+    @State private var introTask: Task<Void, Never>? = nil
 
     private let sidebarMinWidth: CGFloat = 200
     private let sidebarMaxWidth: CGFloat = 280
@@ -40,20 +42,32 @@ struct IdentityPanel: View {
                 if !isFullscreen {
                     VStack(spacing: 0) {
                         VStack(spacing: 0) {
-                            // "I'm [name]!" heading
-                            Text("I'm \(assistantDisplayName)!")
-                                .font(.system(size: 22, weight: .regular, design: .rounded))
-                                .foregroundColor(VColor.contentDefault)
-                                .multilineTextAlignment(.center)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                                .padding(.top, VSpacing.xxl)
-                                .padding(.horizontal, VSpacing.lg)
+                            // Daemon-generated intro heading (nil = loading, shows nothing)
+                            if let introText {
+                                Text(introText)
+                                    .font(.system(size: 22, weight: .regular, design: .rounded))
+                                    .foregroundColor(VColor.contentDefault)
+                                    .multilineTextAlignment(.center)
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                                    .padding(.top, VSpacing.xxl)
+                                    .padding(.horizontal, VSpacing.lg)
+                            }
 
                             Spacer()
 
                             // Large centered avatar
-                            VAvatarImage(image: appearance.fullAvatarImage, size: avatarSize, showBorder: false)
-                                .frame(maxWidth: .infinity, alignment: .center)
+                            Group {
+                                if let body = appearance.characterBodyShape,
+                                   let eyes = appearance.characterEyeStyle,
+                                   let color = appearance.characterColor {
+                                    AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color, size: avatarSize)
+                                        .frame(width: avatarSize, height: avatarSize)
+                                        .frame(maxWidth: .infinity, alignment: .center)
+                                } else {
+                                    VAvatarImage(image: appearance.fullAvatarImage, size: avatarSize, showBorder: false)
+                                        .frame(maxWidth: .infinity, alignment: .center)
+                                }
+                            }
 
                             // Update Avatar button
                             VButton(label: "Update Avatar", style: .outlined) { showAvatarSheet = true }
@@ -153,6 +167,38 @@ struct IdentityPanel: View {
                         remoteIdentity = await daemonClient.fetchRemoteIdentity()
                     }
                 }
+
+                generateIntro()
+            }
+            .onDisappear { introTask?.cancel() }
+        }
+    }
+
+    // MARK: - Intro Generation
+
+    private func generateIntro() {
+        introTask?.cancel()
+        introText = nil
+
+        introTask = Task {
+            let key = "identity-intro-\(UUID().uuidString)"
+            let prompt = "Generate a very short intro for yourself (2-5 words). This should feel natural to your personality — playful, formal, chill, whatever fits you. Some examples for inspiration (don't limit yourself to these): \"I'm [name]!\", \"It's [name]\", \"Hey, I'm [name]\", \"[name] here.\", \"[name], at your service.\" Output ONLY the intro text, nothing else."
+            var result = ""
+            do {
+                let stream = daemonClient.sendBtwMessage(
+                    content: prompt,
+                    conversationKey: key
+                )
+                for try await delta in stream {
+                    guard !Task.isCancelled else { return }
+                    result += delta
+                }
+                self.introText = result.isEmpty ? nil : result
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.introText = "I'm \(assistantDisplayName)!"
             }
         }
     }

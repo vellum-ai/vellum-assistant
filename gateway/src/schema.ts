@@ -1145,6 +1145,41 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/contacts/invites/{inviteId}/call": {
+        post: {
+          summary: "Call a contacts invite",
+          description:
+            "Authenticated gateway endpoint that initiates a call for a contacts invite via the assistant runtime.",
+          operationId: "contactsInvitesCallPost",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "inviteId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Invite call initiated" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "404": { description: "Invite not found" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
       "/v1/contacts/invites/{inviteId}": {
         delete: {
           summary: "Revoke contacts invite",

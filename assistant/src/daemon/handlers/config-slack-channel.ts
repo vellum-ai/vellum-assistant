@@ -13,7 +13,7 @@ import { getConnectionByProvider } from "../../oauth/oauth-store.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
-  getSecureKey,
+  getSecureKeyAsync,
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
 import {
@@ -39,13 +39,13 @@ export interface SlackChannelConfigResult {
 
 // -- Business logic --
 
-export function getSlackChannelConfig(): SlackChannelConfigResult {
-  const hasBotToken = !!getSecureKey(
+export async function getSlackChannelConfig(): Promise<SlackChannelConfigResult> {
+  const hasBotToken = !!(await getSecureKeyAsync(
     credentialKey("slack_channel", "bot_token"),
-  );
-  const hasAppToken = !!getSecureKey(
+  ));
+  const hasAppToken = !!(await getSecureKeyAsync(
     credentialKey("slack_channel", "app_token"),
-  );
+  ));
   const conn = getConnectionByProvider("slack_channel");
   const connected =
     !!(conn && conn.status === "active") && hasBotToken && hasAppToken;
@@ -91,13 +91,17 @@ export async function setSlackChannelConfig(
         user?: string;
       };
       if (!data.ok) {
-        const errConn = getConnectionByProvider("slack_channel");
-        const errConnected = !!(errConn && errConn.status === "active");
+        const errHasBotToken = !!(await getSecureKeyAsync(
+          credentialKey("slack_channel", "bot_token"),
+        ));
+        const errHasAppToken = !!(await getSecureKeyAsync(
+          credentialKey("slack_channel", "app_token"),
+        ));
         return {
           success: false,
-          hasBotToken: errConnected,
-          hasAppToken: errConnected,
-          connected: errConnected,
+          hasBotToken: errHasBotToken,
+          hasAppToken: errHasAppToken,
+          connected: errHasBotToken && errHasAppToken,
           error: `Slack API validation failed: ${
             data.error ?? "unknown error"
           }`,
@@ -111,13 +115,17 @@ export async function setSlackChannelConfig(
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const errConn = getConnectionByProvider("slack_channel");
-      const errConnected = !!(errConn && errConn.status === "active");
+      const errHasBotToken = !!(await getSecureKeyAsync(
+        credentialKey("slack_channel", "bot_token"),
+      ));
+      const errHasAppToken = !!(await getSecureKeyAsync(
+        credentialKey("slack_channel", "app_token"),
+      ));
       return {
         success: false,
-        hasBotToken: errConnected,
-        hasAppToken: errConnected,
-        connected: errConnected,
+        hasBotToken: errHasBotToken,
+        hasAppToken: errHasAppToken,
+        connected: errHasBotToken && errHasAppToken,
         error: `Failed to validate bot token: ${message}`,
       };
     }
@@ -127,13 +135,17 @@ export async function setSlackChannelConfig(
       botToken,
     );
     if (!stored) {
-      const errConn = getConnectionByProvider("slack_channel");
-      const errConnected = !!(errConn && errConn.status === "active");
+      const errHasBotToken = !!(await getSecureKeyAsync(
+        credentialKey("slack_channel", "bot_token"),
+      ));
+      const errHasAppToken = !!(await getSecureKeyAsync(
+        credentialKey("slack_channel", "app_token"),
+      ));
       return {
         success: false,
-        hasBotToken: errConnected,
-        hasAppToken: errConnected,
-        connected: errConnected,
+        hasBotToken: errHasBotToken,
+        hasAppToken: errHasAppToken,
+        connected: errHasBotToken && errHasAppToken,
         error: "Failed to store bot token in secure storage",
       };
     }
@@ -161,13 +173,17 @@ export async function setSlackChannelConfig(
   // Validate and store app token
   if (appToken) {
     if (!appToken.startsWith("xapp-")) {
-      const errConn = getConnectionByProvider("slack_channel");
-      const errConnected = !!(errConn && errConn.status === "active");
+      const errHasBotToken = !!(await getSecureKeyAsync(
+        credentialKey("slack_channel", "bot_token"),
+      ));
+      const errHasAppToken = !!(await getSecureKeyAsync(
+        credentialKey("slack_channel", "app_token"),
+      ));
       return {
         success: false,
-        hasBotToken: errConnected,
-        hasAppToken: errConnected,
-        connected: errConnected,
+        hasBotToken: errHasBotToken,
+        hasAppToken: errHasAppToken,
+        connected: errHasBotToken && errHasAppToken,
         error: 'Invalid app token: must start with "xapp-"',
       };
     }
@@ -177,13 +193,17 @@ export async function setSlackChannelConfig(
       appToken,
     );
     if (!stored) {
-      const errConn = getConnectionByProvider("slack_channel");
-      const errConnected = !!(errConn && errConn.status === "active");
+      const errHasBotToken = !!(await getSecureKeyAsync(
+        credentialKey("slack_channel", "bot_token"),
+      ));
+      const errHasAppToken = !!(await getSecureKeyAsync(
+        credentialKey("slack_channel", "app_token"),
+      ));
       return {
         success: false,
-        hasBotToken: errConnected,
-        hasAppToken: errConnected,
-        connected: errConnected,
+        hasBotToken: errHasBotToken,
+        hasAppToken: errHasAppToken,
+        connected: errHasBotToken && errHasAppToken,
         error: "Failed to store app token in secure storage",
       };
     }
@@ -191,12 +211,12 @@ export async function setSlackChannelConfig(
     upsertCredentialMetadata("slack_channel", "app_token", {});
   }
 
-  const hasBotToken = !!getSecureKey(
+  const hasBotToken = !!(await getSecureKeyAsync(
     credentialKey("slack_channel", "bot_token"),
-  );
-  const hasAppToken = !!getSecureKey(
+  ));
+  const hasAppToken = !!(await getSecureKeyAsync(
     credentialKey("slack_channel", "app_token"),
-  );
+  ));
 
   if (hasBotToken && !hasAppToken) {
     warning =
@@ -237,12 +257,12 @@ export async function clearSlackChannelConfig(): Promise<SlackChannelConfigResul
 
   if (r1 === "error" || r2 === "error") {
     // Check each key individually so partial deletions report accurate status.
-    const hasBotToken = !!getSecureKey(
+    const hasBotToken = !!(await getSecureKeyAsync(
       credentialKey("slack_channel", "bot_token"),
-    );
-    const hasAppToken = !!getSecureKey(
+    ));
+    const hasAppToken = !!(await getSecureKeyAsync(
       credentialKey("slack_channel", "app_token"),
-    );
+    ));
     return {
       success: false,
       hasBotToken,

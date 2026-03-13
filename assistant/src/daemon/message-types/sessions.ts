@@ -85,35 +85,6 @@ export interface ImageGenModelSetRequest {
   model: string;
 }
 
-export interface HistoryRequest {
-  type: "history_request";
-  sessionId: string;
-  /** Max messages to return. When omitted, all messages are returned (unlimited). */
-  limit?: number;
-  /** Pagination cursor: return messages with timestamp before this value. */
-  beforeTimestamp?: number;
-  /** Pagination cursor tie-breaker: exclude this message ID when beforeTimestamp matches. */
-  beforeMessageId?: string;
-  /** Include attachment base64 data. Defaults to false in light mode. */
-  includeAttachments?: boolean;
-  /** Include tool screenshot base64 data. Defaults to false in light mode. */
-  includeToolImages?: boolean;
-  /** Include surface HTML payloads. Defaults to false in light mode. */
-  includeSurfaceData?: boolean;
-  /** Shorthand: 'light' = all include flags false (default), 'full' = all include flags true. */
-  mode?: "light" | "full";
-  /** Truncate message text fields beyond this character limit. When omitted, full text is returned. */
-  maxTextChars?: number;
-  /** Truncate tool result strings beyond this character limit. When omitted, full results are returned. */
-  maxToolResultChars?: number;
-}
-
-export interface MessageContentRequest {
-  type: "message_content_request";
-  sessionId: string;
-  messageId: string;
-}
-
 export interface MessageContentResponse {
   type: "message_content_response";
   sessionId: string;
@@ -143,16 +114,6 @@ export interface UsageRequest {
 
 export interface SessionsClearRequest {
   type: "sessions_clear";
-}
-
-export interface ConversationSearchRequest {
-  type: "conversation_search";
-  /** The search query string. */
-  query: string;
-  /** Maximum number of conversations to return. Defaults to 20. */
-  limit?: number;
-  /** Maximum number of matching messages to return per conversation. Defaults to 3. */
-  maxMessagesPerConversation?: number;
 }
 
 export interface ReorderThreadsRequest {
@@ -431,7 +392,6 @@ export type _SessionsClientMessages =
   | ModelGetRequest
   | ModelSetRequest
   | ImageGenModelSetRequest
-  | HistoryRequest
   | UndoRequest
   | RegenerateRequest
   | UsageRequest
@@ -440,8 +400,6 @@ export type _SessionsClientMessages =
   | SessionSwitchRequest
   | SessionRenameRequest
   | SessionsClearRequest
-  | ConversationSearchRequest
-  | MessageContentRequest
   | ReorderThreadsRequest;
 
 export type _SessionsServerMessages =

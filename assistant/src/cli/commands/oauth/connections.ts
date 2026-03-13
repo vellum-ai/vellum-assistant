@@ -47,7 +47,13 @@ function redactMetadata(obj: Record<string, unknown>): Record<string, unknown> {
   for (const [key, value] of Object.entries(obj)) {
     if (REDACTED_METADATA_KEYS.has(key)) {
       result[key] = "[REDACTED]";
-    } else if (value && typeof value === "object" && !Array.isArray(value)) {
+    } else if (Array.isArray(value)) {
+      result[key] = value.map((item) =>
+        item && typeof item === "object" && !Array.isArray(item)
+          ? redactMetadata(item as Record<string, unknown>)
+          : item,
+      );
+    } else if (value && typeof value === "object") {
       result[key] = redactMetadata(value as Record<string, unknown>);
     } else {
       result[key] = value;
@@ -85,15 +91,16 @@ token expiry, refresh token availability, account info, and status.
 
 Examples:
   $ assistant oauth connections list
-  $ assistant oauth connections list --provider integration:gmail
+  $ assistant oauth connections list --provider integration:google
   $ assistant oauth connections list --client-id abc123
   $ assistant oauth connections get --id <uuid>
-  $ assistant oauth connections get --provider integration:gmail
-  $ assistant oauth connections get --provider integration:gmail --client-id abc123
+  $ assistant oauth connections get --provider integration:google
+  $ assistant oauth connections get --provider integration:google --client-id abc123
   $ assistant oauth connections token integration:twitter
-  $ assistant oauth connections ping integration:gmail
-  $ assistant oauth connections connect integration:gmail
-  $ assistant oauth connections connect integration:gmail --open-browser`,
+  $ assistant oauth connections ping integration:google
+  $ assistant oauth connections connect integration:google
+  $ assistant oauth connections connect integration:google --open-browser
+  $ assistant oauth connections disconnect integration:google`,
   );
 
   // ---------------------------------------------------------------------------
@@ -105,7 +112,7 @@ Examples:
     .description("List all OAuth connections")
     .option(
       "--provider <key>",
-      "Filter by provider key (e.g. integration:gmail)",
+      "Filter by provider key (e.g. integration:google)",
     )
     .option("--client-id <id>", "Filter by OAuth client ID")
     .addHelpText(
@@ -118,7 +125,7 @@ expiry, refresh token availability, and status.
 
 Examples:
   $ assistant oauth connections list
-  $ assistant oauth connections list --provider integration:gmail
+  $ assistant oauth connections list --provider integration:google
   $ assistant oauth connections list --client-id abc123`,
     )
     .action((opts: { provider?: string; clientId?: string }, cmd: Command) => {
@@ -164,8 +171,8 @@ Two lookup modes are supported:
      $ assistant oauth connections get --id <uuid>
 
   2. By provider (returns the most recent active connection):
-     $ assistant oauth connections get --provider integration:gmail
-     $ assistant oauth connections get --provider integration:gmail --client-id abc123
+     $ assistant oauth connections get --provider integration:google
+     $ assistant oauth connections get --provider integration:google --client-id abc123
 
 At least --id or --provider must be specified.`,
     )
@@ -222,7 +229,7 @@ At least --id or --provider must be specified.`,
       "after",
       `
 Arguments:
-  provider-key   Provider key (e.g. integration:gmail, integration:twitter)
+  provider-key   Provider key (e.g. integration:google, integration:twitter)
 
 Returns a valid OAuth access token for the given provider. If the stored token
 is expired or near-expiry, it is refreshed automatically before being returned.
@@ -234,8 +241,8 @@ Exits with code 1 if no access token exists or refresh fails.
 
 Examples:
   $ assistant oauth connections token integration:twitter
-  $ assistant oauth connections token integration:gmail --json
-  $ assistant oauth connections token integration:gmail --client-id abc123`,
+  $ assistant oauth connections token integration:google --json
+  $ assistant oauth connections token integration:google --client-id abc123`,
     )
     .action(
       async (
@@ -279,7 +286,7 @@ Examples:
       "after",
       `
 Arguments:
-  provider-key   Provider key (e.g. integration:gmail, integration:twitter)
+  provider-key   Provider key (e.g. integration:google, integration:twitter)
 
 Fetches a valid access token (refreshing if needed) and sends a GET request
 to the provider's configured ping URL. Reports success (HTTP 2xx) or failure.
@@ -288,9 +295,9 @@ The ping URL is set per-provider in seed data or via "providers register --ping-
 If no ping URL is configured for the provider, exits with an error.
 
 Examples:
-  $ assistant oauth connections ping integration:gmail
+  $ assistant oauth connections ping integration:google
   $ assistant oauth connections ping integration:twitter --json
-  $ assistant oauth connections ping integration:gmail --client-id abc123`,
+  $ assistant oauth connections ping integration:google --client-id abc123`,
     )
     .action(
       async (
@@ -320,14 +327,35 @@ Examples:
 
           const pingUrl = provider.pingUrl;
 
+          const PING_TIMEOUT_MS = 15_000;
+
           const result = await withValidToken(
             providerKey,
             async (token) => {
-              const res = await fetch(pingUrl, {
-                method: "GET",
-                headers: { Authorization: `Bearer ${token}` },
-              });
-              return { status: res.status, ok: res.ok };
+              const controller = new AbortController();
+              const timer = setTimeout(
+                () => controller.abort(),
+                PING_TIMEOUT_MS,
+              );
+              try {
+                const res = await fetch(pingUrl, {
+                  method: "GET",
+                  headers: { Authorization: `Bearer ${token}` },
+                  signal: controller.signal,
+                });
+
+                if (res.status === 401) {
+                  const err = new Error(
+                    `Ping returned HTTP 401 from ${pingUrl}`,
+                  );
+                  (err as unknown as { status: number }).status = 401;
+                  throw err;
+                }
+
+                return { status: res.status, ok: res.ok };
+              } finally {
+                clearTimeout(timer);
+              }
             },
             opts.clientId,
           );
@@ -381,7 +409,7 @@ Examples:
       "after",
       `
 Arguments:
-  provider-key   The full provider key (e.g. integration:gmail, integration:slack)
+  provider-key   The full provider key (e.g. integration:google, integration:slack)
 
 Removes the OAuth connection, tokens, and any legacy credential metadata for
 the provider. The <provider-key> argument is the full provider key as-is — it
@@ -391,9 +419,9 @@ Legacy credential keys for common fields (access_token, refresh_token,
 client_id, client_secret) are also cleaned up if present.
 
 Examples:
-  $ assistant oauth connections disconnect integration:gmail
+  $ assistant oauth connections disconnect integration:google
   $ assistant oauth connections disconnect integration:slack
-  $ assistant oauth connections disconnect integration:gmail --client-id abc123`,
+  $ assistant oauth connections disconnect integration:google --client-id abc123`,
     )
     .action(
       async (
@@ -482,7 +510,7 @@ Examples:
       "after",
       `
 Arguments:
-  provider-key   Provider key (e.g. integration:gmail) or alias (e.g. gmail)
+  provider-key   Provider key (e.g. integration:google) or alias (e.g. gmail)
 
 Initiates an OAuth2 authorization flow for the given provider. By default,
 prints the authorization URL to stdout — useful for headless/remote sessions.
@@ -495,10 +523,10 @@ Client credentials are resolved from the OAuth app store. Use --client-id
 to select a specific app when multiple apps exist for the same provider.
 
 Examples:
-  $ assistant oauth connections connect integration:gmail
+  $ assistant oauth connections connect integration:google
   $ assistant oauth connections connect gmail --open-browser
   $ assistant oauth connections connect integration:slack --client-id abc123
-  $ assistant oauth connections connect integration:gmail --scopes calendar.readonly --json`,
+  $ assistant oauth connections connect integration:google --scopes calendar.readonly --json`,
     )
     .action(
       async (
@@ -526,6 +554,14 @@ Examples:
             if (!clientId) clientId = dbApp.clientId;
             const storedSecret = getSecureKey(dbApp.clientSecretCredentialPath);
             if (storedSecret) clientSecret = storedSecret;
+          } else if (opts.clientId) {
+            // --client-id was explicitly provided but no matching app exists
+            writeOutput(cmd, {
+              ok: false,
+              error: `No registered app found for "${resolvedServiceKey}" with client ID "${opts.clientId}". Register it first with 'assistant oauth apps upsert --client-id ${opts.clientId}'.`,
+            });
+            process.exitCode = 1;
+            return;
           }
 
           // c. Validate client_id
@@ -579,8 +615,8 @@ Examples:
                       stderr: "ignore",
                     });
                   } else {
-                    // Fallback: print URL for manual opening
-                    process.stdout.write(
+                    // Fallback: print URL for manual opening (stderr to keep --json stdout clean)
+                    process.stderr.write(
                       `Open this URL to authorize:\n\n${url}\n`,
                     );
                   }

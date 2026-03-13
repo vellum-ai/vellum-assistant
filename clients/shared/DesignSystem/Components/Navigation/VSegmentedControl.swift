@@ -6,12 +6,19 @@ public enum VSegmentedControlStyle {
 }
 
 public struct VSegmentedControl<SelectionValue: Hashable>: View {
-    public let items: [(label: String, tag: SelectionValue)]
+    public let items: [(label: String, icon: String?, tag: SelectionValue)]
     @Binding public var selection: SelectionValue
     public let style: VSegmentedControlStyle
 
-    public init(items: [(label: String, tag: SelectionValue)], selection: Binding<SelectionValue>, style: VSegmentedControlStyle = .underline) {
+    public init(items: [(label: String, icon: String?, tag: SelectionValue)], selection: Binding<SelectionValue>, style: VSegmentedControlStyle = .underline) {
         self.items = items
+        self._selection = selection
+        self.style = style
+    }
+
+    /// Convenience init without icons.
+    public init(items: [(label: String, tag: SelectionValue)], selection: Binding<SelectionValue>, style: VSegmentedControlStyle = .underline) {
+        self.items = items.map { (label: $0.label, icon: nil, tag: $0.tag) }
         self._selection = selection
         self.style = style
     }
@@ -63,6 +70,7 @@ public struct VSegmentedControl<SelectionValue: Hashable>: View {
                 let item = items[index]
                 PillSegment(
                     label: item.label,
+                    icon: item.icon,
                     isSelected: selection == item.tag,
                     action: { selection = item.tag }
                 )
@@ -82,7 +90,7 @@ public struct VSegmentedControl<SelectionValue: Hashable>: View {
 public extension VSegmentedControl where SelectionValue == Int {
     init(items: [String], selection: Binding<Int>, style: VSegmentedControlStyle = .underline) {
         self.init(
-            items: items.enumerated().map { (label: $0.element, tag: $0.offset) },
+            items: items.enumerated().map { (label: $0.element, icon: nil as String?, tag: $0.offset) },
             selection: selection,
             style: style
         )
@@ -93,6 +101,7 @@ public extension VSegmentedControl where SelectionValue == Int {
 
 private struct PillSegment: View {
     let label: String
+    var icon: String? = nil
     let isSelected: Bool
     let action: () -> Void
 
@@ -100,19 +109,26 @@ private struct PillSegment: View {
 
     var body: some View {
         Button(action: action) {
-            Text(label)
-                .font(VFont.body)
-                .fixedSize()
-                .foregroundColor(isSelected ? selectedTextColor : VColor.contentSecondary)
-                .padding(.horizontal, VSpacing.lg)
-                .frame(maxWidth: .infinity)
-                .frame(height: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.md - 1)
-                        .fill(segmentBackground)
-                        .shadow(color: isSelected ? VColor.auxBlack.opacity(0.08) : .clear, radius: 2, x: 0, y: 1)
-                )
-                .contentShape(Rectangle())
+            Group {
+                if let icon {
+                    VIconView(.resolve(icon), size: 12)
+                        .foregroundColor(isSelected ? VColor.contentDefault : VColor.contentTertiary)
+                } else {
+                    Text(label)
+                        .font(VFont.body)
+                        .fixedSize()
+                        .foregroundColor(isSelected ? selectedTextColor : VColor.contentSecondary)
+                }
+            }
+            .padding(.horizontal, icon != nil ? VSpacing.sm : VSpacing.lg)
+            .frame(maxWidth: .infinity)
+            .frame(height: 32)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md - 1)
+                    .fill(segmentBackground)
+                    .shadow(color: isSelected ? VColor.auxBlack.opacity(0.08) : .clear, radius: 2, x: 0, y: 1)
+            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }

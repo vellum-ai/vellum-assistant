@@ -760,6 +760,10 @@ async function hatchLocal(
   console.log(`   Species: ${species}`);
   console.log("");
 
+  if (!process.env.APP_VERSION) {
+    process.env.APP_VERSION = cliPkg.version;
+  }
+
   await startLocalDaemon(watch, resources);
 
   let runtimeUrl: string;

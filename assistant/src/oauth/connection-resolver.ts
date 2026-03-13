@@ -1,25 +1,39 @@
-import { getSecureKey } from "../security/secure-keys.js";
+import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { BYOOAuthConnection } from "./byo-connection.js";
 import type { OAuthConnection } from "./connection.js";
-import { getApp, getConnectionByProvider, getProvider } from "./oauth-store.js";
+import {
+  getApp,
+  getConnectionByProvider,
+  getConnectionByProviderAndAccount,
+  getProvider,
+} from "./oauth-store.js";
 
 /**
  * Resolve an OAuthConnection for a given credential service.
  *
+ * When `accountInfo` is provided, resolves the connection for that specific
+ * account (e.g. "user@gmail.com"). Otherwise falls back to the most recent
+ * active connection.
+ *
  * Reads exclusively from the SQLite oauth-store. Throws if no connection
  * exists (authorization required).
  */
-export function resolveOAuthConnection(
+export async function resolveOAuthConnection(
   credentialService: string,
-): OAuthConnection {
-  const conn = getConnectionByProvider(credentialService);
+  accountInfo?: string,
+): Promise<OAuthConnection> {
+  const conn = accountInfo
+    ? getConnectionByProviderAndAccount(credentialService, accountInfo)
+    : getConnectionByProvider(credentialService);
   if (!conn) {
     throw new Error(
       `No credential found for "${credentialService}". Authorization required.`,
     );
   }
 
-  const accessToken = getSecureKey(`oauth_connection/${conn.id}/access_token`);
+  const accessToken = await getSecureKeyAsync(
+    `oauth_connection/${conn.id}/access_token`,
+  );
 
   if (!accessToken) {
     throw new Error(

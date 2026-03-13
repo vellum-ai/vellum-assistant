@@ -15,8 +15,8 @@ public struct VSlider: View {
 
     // MARK: - Layout Constants
 
-    private let trackHeight: CGFloat = 28
-    private let thumbWidth: CGFloat = 28
+    private let trackHeight: CGFloat = 32
+    private let thumbWidth: CGFloat = 32
     private let tickMarkWidth: CGFloat = 1
     private let gripLineCount: Int = 3
     private let gripLineWidth: CGFloat = 1

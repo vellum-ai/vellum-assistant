@@ -77,7 +77,7 @@ struct ServiceCredentialCard<ExtraContent: View>: View {
                     onSave()
                 }
                 if isConnected {
-                    VButton(label: "Reset (disconnect)", style: .danger) {
+                    VButton(label: "Clear", style: .danger) {
                         onReset()
                     }
                 }

@@ -10,6 +10,7 @@ export async function run(
   input: Record<string, unknown>,
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  const account = input.account as string | undefined;
   const messageId = input.message_id as string;
 
   if (!messageId) {
@@ -17,7 +18,10 @@ export async function run(
   }
 
   try {
-    const connection = resolveOAuthConnection("integration:gmail");
+    const connection = await resolveOAuthConnection(
+      "integration:google",
+      account,
+    );
     await trashMessage(connection, messageId);
     return ok("Message moved to trash.");
   } catch (e) {

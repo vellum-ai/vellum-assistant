@@ -11,7 +11,7 @@ public struct VInputStyleModifier: ViewModifier {
             .textFieldStyle(.plain)
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.xs)
-            .frame(height: 28)
+            .frame(height: 32)
             .background(VColor.surfaceActive)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .overlay(
@@ -69,7 +69,7 @@ public struct VTextField: View {
         }
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.xs)
-        .frame(height: 28)
+        .frame(height: 32)
         .background(VColor.surfaceActive)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
