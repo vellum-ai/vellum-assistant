@@ -73,7 +73,7 @@ Examples:
         return;
       }
 
-      // Write the command signal for the daemon to pick up.
+      // Write the command signal for the assistant to pick up.
       const signalPath = join(signalsDir, "bash");
       const resultPath = join(signalsDir, "bash-result");
 
@@ -88,17 +88,17 @@ Examples:
         return;
       }
 
-      log.info(`Sent command to daemon (requestId: ${requestId})`);
+      log.info(`Sent command to assistant (requestId: ${requestId})`);
       log.info("Waiting for result...");
 
       // Poll for the result file until timeout.
-      const deadline = Date.now() + timeoutMs + 5_000; // extra buffer for daemon overhead
+      const deadline = Date.now() + timeoutMs + 5_000; // extra buffer for assistant overhead
 
       const poll = setInterval(() => {
         if (Date.now() > deadline) {
           clearInterval(poll);
           log.error(
-            "Timed out waiting for daemon response. Is the assistant running?",
+            "Timed out waiting for response. Is the assistant running?",
           );
           process.exitCode = 1;
           return;
@@ -141,7 +141,7 @@ Examples:
         }
 
         if (result.timedOut) {
-          log.info(`Command timed out in daemon.`);
+          log.info(`Command timed out in assistant.`);
         }
 
         if (result.exitCode != null && result.exitCode !== 0) {
