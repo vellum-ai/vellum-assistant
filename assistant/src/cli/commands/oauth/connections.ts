@@ -17,7 +17,7 @@ import {
 import { credentialKey } from "../../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
-  getSecureKey,
+  getSecureKeyAsync,
 } from "../../../security/secure-keys.js";
 import { withValidToken } from "../../../security/token-manager.js";
 import {
@@ -552,7 +552,9 @@ Examples:
 
           if (dbApp) {
             if (!clientId) clientId = dbApp.clientId;
-            const storedSecret = getSecureKey(dbApp.clientSecretCredentialPath);
+            const storedSecret = await getSecureKeyAsync(
+              dbApp.clientSecretCredentialPath,
+            );
             if (storedSecret) clientSecret = storedSecret;
           } else if (opts.clientId) {
             // --client-id was explicitly provided but no matching app exists
