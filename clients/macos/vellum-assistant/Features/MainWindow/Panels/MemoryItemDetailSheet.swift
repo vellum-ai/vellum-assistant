@@ -12,9 +12,13 @@ struct MemoryItemDetailSheet: View {
     @State private var editKind: String
     @State private var editStatus: String
     @State private var editImportance: Double
+    @State private var detailItem: MemoryItemPayload?
     @State private var isSaving = false
     @State private var showDeleteConfirm = false
     @State private var errorMessage: String?
+
+    /// The item with full detail (supersession subjects resolved), falling back to the list item.
+    private var displayItem: MemoryItemPayload { detailItem ?? item }
 
     init(item: MemoryItemPayload, store: MemoryItemsStore, onDismiss: @escaping () -> Void) {
         self.item = item
@@ -72,6 +76,9 @@ struct MemoryItemDetailSheet: View {
         } message: {
             Text("This action cannot be undone.")
         }
+        .task {
+            detailItem = await store.fetchDetail(id: item.id)
+        }
     }
 
     // MARK: - Header
@@ -79,7 +86,7 @@ struct MemoryItemDetailSheet: View {
     private var header: some View {
         HStack(spacing: VSpacing.sm) {
             kindBadge
-            Text(item.subject)
+            Text(displayItem.subject)
                 .font(VFont.headline)
                 .foregroundColor(VColor.contentDefault)
                 .lineLimit(1)
@@ -131,7 +138,7 @@ struct MemoryItemDetailSheet: View {
             Text("Statement")
                 .font(VFont.caption)
                 .foregroundColor(VColor.contentTertiary)
-            Text(item.statement)
+            Text(displayItem.statement)
                 .font(VFont.body)
                 .foregroundColor(VColor.contentDefault)
                 .textSelection(.enabled)
@@ -143,10 +150,10 @@ struct MemoryItemDetailSheet: View {
                 .font(VFont.caption)
                 .foregroundColor(VColor.contentTertiary)
 
-            metadataRow(label: "Kind", value: memoryKind?.label ?? item.kind.capitalized)
-            metadataRow(label: "Status", value: item.status.capitalized)
-            metadataRow(label: "Confidence", value: "\(Int(item.confidence * 100))%")
-            if let importance = item.importance {
+            metadataRow(label: "Kind", value: memoryKind?.label ?? displayItem.kind.capitalized)
+            metadataRow(label: "Status", value: displayItem.status.capitalized)
+            metadataRow(label: "Confidence", value: "\(Int(displayItem.confidence * 100))%")
+            if let importance = displayItem.importance {
                 metadataRow(label: "Importance", value: "\(Int(importance * 100))%")
             }
 
@@ -156,7 +163,7 @@ struct MemoryItemDetailSheet: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.contentTertiary)
                     .frame(width: 100, alignment: .leading)
-                if item.isUserConfirmed {
+                if displayItem.isUserConfirmed {
                     VIconView(.circleCheck, size: 12)
                         .foregroundColor(VColor.systemPositiveStrong)
                     Text("Confirmed by you")
@@ -171,18 +178,18 @@ struct MemoryItemDetailSheet: View {
                 }
             }
 
-            metadataRow(label: "First seen", value: formattedDate(item.firstSeenDate))
-            metadataRow(label: "Last seen", value: formattedDate(item.lastSeenDate))
-            if let lastUsedDate = item.lastUsedDate {
+            metadataRow(label: "First seen", value: formattedDate(displayItem.firstSeenDate))
+            metadataRow(label: "Last seen", value: formattedDate(displayItem.lastSeenDate))
+            if let lastUsedDate = displayItem.lastUsedDate {
                 metadataRow(label: "Last used", value: formattedDate(lastUsedDate))
             }
-            metadataRow(label: "Access count", value: "\(item.accessCount)")
+            metadataRow(label: "Access count", value: "\(displayItem.accessCount)")
 
             // Supersession
-            if let supersededBySubject = item.supersededBySubject {
+            if let supersededBySubject = displayItem.supersededBySubject {
                 metadataRow(label: "Superseded by", value: supersededBySubject)
             }
-            if let supersedesSubject = item.supersedesSubject {
+            if let supersedesSubject = displayItem.supersedesSubject {
                 metadataRow(label: "Supersedes", value: supersedesSubject)
             }
         }
@@ -333,13 +340,13 @@ struct MemoryItemDetailSheet: View {
     // MARK: - Helpers
 
     private var memoryKind: MemoryKind? {
-        MemoryKind(rawValue: item.kind)
+        MemoryKind(rawValue: displayItem.kind)
     }
 
     @ViewBuilder
     private var kindBadge: some View {
         let color = memoryKind?.color ?? VColor.contentTertiary
-        let label = memoryKind?.label ?? item.kind.capitalized
+        let label = memoryKind?.label ?? displayItem.kind.capitalized
         VBadge(style: .label(label), color: color)
     }
 
