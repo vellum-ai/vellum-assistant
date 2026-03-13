@@ -500,6 +500,9 @@ async function handleScopeSelection(
 
 export const TYPING_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
+/** ASCII-safe spinner frames for the connection screen. */
+const CONNECTION_SPINNER_FRAMES = ["|", "/", "-", "\\"];
+
 export interface ToolCallInfo {
   name: string;
   input: Record<string, unknown>;
@@ -672,6 +675,75 @@ function SpinnerDisplay({ text }: { text: string }): ReactElement {
     <Text dimColor>
       {TYPING_FRAMES[frameIndex]} {text}
     </Text>
+  );
+}
+
+type ConnectionState = "connecting" | "connected" | "error";
+
+function ConnectionScreen({
+  state,
+  errorMessage,
+  species,
+  terminalRows,
+  terminalColumns,
+  onRetry,
+  onExit,
+}: {
+  state: ConnectionState;
+  errorMessage?: string;
+  species: Species;
+  terminalRows: number;
+  terminalColumns: number;
+  onRetry: () => void;
+  onExit: () => void;
+}): ReactElement {
+  const [frameIndex, setFrameIndex] = useState(0);
+
+  useEffect(() => {
+    if (state !== "connecting") return;
+    const timer = setInterval(() => {
+      setFrameIndex((prev) => (prev + 1) % CONNECTION_SPINNER_FRAMES.length);
+    }, 150);
+    return () => clearInterval(timer);
+  }, [state]);
+
+  useInput((input, key) => {
+    if (key.ctrl && input === "c") {
+      onExit();
+    }
+    if (state === "error" && input === "r") {
+      onRetry();
+    }
+  });
+
+  const config = SPECIES_CONFIG[species];
+  const title = `Vellum ${config.hatchedEmoji} ${species}`;
+  const width = Math.min(terminalColumns, MAX_TOTAL_WIDTH);
+
+  return (
+    <Box
+      flexDirection="column"
+      height={terminalRows}
+      width={width}
+      justifyContent="center"
+      alignItems="center"
+    >
+      <Text dimColor bold>
+        {title}
+      </Text>
+      <Text> </Text>
+      {state === "connecting" ? (
+        <Text dimColor>
+          {CONNECTION_SPINNER_FRAMES[frameIndex]} Connecting to assistant...
+        </Text>
+      ) : (
+        <>
+          <Text color="red">Failed to connect: {errorMessage}</Text>
+          <Text> </Text>
+          <Text dimColor>Press r to retry or Ctrl+C to quit</Text>
+        </>
+      )}
+    </Box>
   );
 }
 
@@ -1224,6 +1296,11 @@ function ChatApp({
   const [healthStatus, setHealthStatus] = useState<string | undefined>(
     undefined,
   );
+  const [connectionState, setConnectionState] =
+    useState<ConnectionState>("connecting");
+  const [connectionError, setConnectionError] = useState<string | undefined>(
+    undefined,
+  );
   const prevFeedLengthRef = useRef(0);
   const busyRef = useRef(false);
   const connectedRef = useRef(false);
@@ -1476,6 +1553,8 @@ function ChatApp({
       return false;
     }
     connectingRef.current = true;
+    setConnectionState("connecting");
+    setConnectionError(undefined);
     const h = handleRef_.current;
 
     h.showSpinner("Connecting...");
@@ -1538,12 +1617,15 @@ function ChatApp({
 
       connectedRef.current = true;
       connectingRef.current = false;
+      setConnectionState("connected");
       return true;
     } catch (err) {
       h.hideSpinner();
       connectingRef.current = false;
       h.updateHealthStatus("unreachable");
       const msg = err instanceof Error ? err.message : String(err);
+      setConnectionState("error");
+      setConnectionError(msg);
       h.addStatus(
         `${statusEmoji("unreachable")} Failed to connect: ${msg}`,
         "red",
@@ -2174,6 +2256,12 @@ function ChatApp({
     updateHealthStatus,
   ]);
 
+  const retryConnection = useCallback(() => {
+    connectedRef.current = false;
+    connectingRef.current = false;
+    ensureConnected();
+  }, [ensureConnected]);
+
   useEffect(() => {
     ensureConnected();
   }, [ensureConnected]);
@@ -2261,6 +2349,20 @@ function ChatApp({
       resolve(-1);
     }
   }, [selection]);
+
+  if (connectionState !== "connected") {
+    return (
+      <ConnectionScreen
+        state={connectionState}
+        errorMessage={connectionError}
+        species={species}
+        terminalRows={terminalRows}
+        terminalColumns={terminalColumns}
+        onRetry={retryConnection}
+        onExit={onExit}
+      />
+    );
+  }
 
   return (
     <Box flexDirection="column" height={terminalRows}>
