@@ -16,6 +16,7 @@ struct GuardianChannelsDetailView: View {
     var onSelectAssistant: (() -> Void)?
 
     @State var currentContact: ContactPayload?
+    @State private var isLoadingReadiness: Bool = true
     @State private var channelReadiness: [String: DaemonClient.ChannelReadinessInfo] = [:]
     @State private var verificationDestinationTexts: [String: String] = [:]
     @State private var verificationCountdownNow: Date = Date()
@@ -48,7 +49,11 @@ struct GuardianChannelsDetailView: View {
                     return hasExisting || channelReadiness[type]?.ready == true
                 }
 
-                if visibleTypes.isEmpty {
+                if isLoadingReadiness && visibleTypes.isEmpty {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, VSpacing.xl)
+                } else if visibleTypes.isEmpty {
                     VStack(spacing: VSpacing.md) {
                         VIconView(.messageCircle, size: 24)
                             .foregroundColor(VColor.contentTertiary)
@@ -85,6 +90,7 @@ struct GuardianChannelsDetailView: View {
         }
         .task {
             channelReadiness = (try? await daemonClient?.fetchChannelReadiness()) ?? [:]
+            isLoadingReadiness = false
         }
         .onReceive(store?.objectWillChange.map { _ in () }.eraseToAnyPublisher() ?? Empty().eraseToAnyPublisher()) { _ in
             verificationStoreRevision += 1
