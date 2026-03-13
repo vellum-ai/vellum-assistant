@@ -239,30 +239,29 @@ export async function startCli(): Promise<void> {
     }
   }
 
-  /** Add a trust rule and then confirm via HTTP. */
-  async function sendTrustRuleAndConfirm(
+  /** Add a trust rule and confirm via signal file (read by the daemon). */
+  function sendTrustRuleAndConfirm(
     requestId: string,
     pattern: string,
     scope: string,
     decision: "allow" | "deny",
     confirmDecision: string,
     options?: { allowHighRisk?: boolean },
-  ): Promise<void> {
+  ): void {
     try {
-      await httpSend("/v1/trust-rules", {
-        method: "POST",
-        body: JSON.stringify({
+      const signalsDir = join(getWorkspaceDir(), "signals");
+      mkdirSync(signalsDir, { recursive: true });
+      writeFileSync(
+        join(signalsDir, "trust-rule-confirm"),
+        JSON.stringify({
           requestId,
           pattern,
           scope,
           decision,
+          confirmDecision,
           ...(options?.allowHighRisk ? { allowHighRisk: true } : {}),
         }),
-      });
-      await httpSend("/v1/confirm", {
-        method: "POST",
-        body: JSON.stringify({ requestId, decision: confirmDecision }),
-      });
+      );
     } catch {
       process.stdout.write("[Failed to send trust rule]\n");
     }

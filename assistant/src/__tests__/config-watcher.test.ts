@@ -128,6 +128,10 @@ mock.module("../signals/confirm.js", () => ({
   handleConfirmationSignal: () => {},
 }));
 
+mock.module("../signals/trust-rule-confirm.js", () => ({
+  handleTrustRuleConfirmSignal: () => {},
+}));
+
 let resetAllowlistCallCount = 0;
 mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {
