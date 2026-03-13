@@ -24,6 +24,7 @@ import {
   createConnection,
   getApp,
   getConnectionByProvider,
+  getConnectionByProviderAndAccount,
   updateConnection,
   upsertApp,
 } from "./oauth-store.js";
@@ -123,14 +124,28 @@ export async function storeOAuth2Tokens(
     }
   }
 
-  // 2. Upsert oauth_connection — reuse existing active connection for this
-  //    provider, or create a new one.
-  const existingConn = getConnectionByProvider(service);
+  // 2. Upsert oauth_connection — reuse existing active connection for the
+  //    same account, or create a new one for a different account.
+  //    First try to match by account info (email); fall back to provider-only
+  //    lookup so that re-auth without userinfo still updates the right row.
+  const existingConn = resolvedAccountInfo
+    ? getConnectionByProviderAndAccount(service, resolvedAccountInfo)
+    : getConnectionByProvider(service);
   let connId: string;
 
   const hasRefreshToken = !!tokens.refreshToken;
 
-  if (existingConn) {
+  // Only reuse the existing connection if it's the same account (or we can't
+  // tell). When the user connects a different account for the same service,
+  // create a separate connection so we don't overwrite the first account's
+  // tokens.
+  const isNewAccount =
+    existingConn &&
+    resolvedAccountInfo !== undefined &&
+    existingConn.accountInfo !== undefined &&
+    resolvedAccountInfo !== existingConn.accountInfo;
+
+  if (existingConn && !isNewAccount) {
     connId = existingConn.id;
     updateConnection(connId, {
       oauthAppId: app.id,
