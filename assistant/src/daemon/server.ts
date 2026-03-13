@@ -655,7 +655,12 @@ export class DaemonServer {
     session.setAuthContext(options?.authContext ?? null);
     await session.ensureActorScopedHistory();
     session.setChannelCapabilities(
-      resolveChannelCapabilities(sourceChannel, sourceInterface),
+      resolveChannelCapabilities(
+        sourceChannel,
+        sourceInterface,
+        null,
+        options?.transport?.chatType,
+      ),
     );
     // Only create the host bash proxy for desktop client interfaces that can
     // execute commands on the user's machine. Non-desktop sessions (CLI,

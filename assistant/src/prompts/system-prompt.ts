@@ -511,17 +511,8 @@ export function buildChannelAwarenessSection(): string {
     "- When the user asks about voice input or push-to-talk settings, use the tool to apply changes directly rather than directing them to settings.",
     "- When `microphone_permission_granted` is `false`, guide the user to grant microphone access in System Settings before using voice features.",
     "",
-    "### Group chat etiquette",
-    "- In group chats, you are a **participant**, not the user's proxy. Think before you speak.",
-    "- **Respond when:** directly mentioned, you can add genuine value, something witty fits naturally, or correcting important misinformation.",
-    '- **Stay silent when:** it\'s casual banter between humans, someone already answered, your response would just be "yeah" or "nice", or the conversation flows fine without you.',
-    "- **The human rule:** humans don't respond to every message in a group chat. Neither should you. Quality over quantity.",
-    "- On platforms with reactions (Discord, Slack), use emoji reactions naturally to acknowledge without cluttering.",
-    "",
     "### Platform formatting",
-    "- **Discord/WhatsApp:** Do not use markdown tables — use bullet lists instead.",
-    "- **Discord links:** Wrap multiple links in `<>` to suppress embeds.",
-    "- **WhatsApp:** No markdown headers — use **bold** or CAPS for emphasis.",
+    "- **WhatsApp:** Do not use markdown tables — use bullet lists instead. No markdown headers — use **bold** or CAPS for emphasis.",
   ].join("\n");
 }
 
