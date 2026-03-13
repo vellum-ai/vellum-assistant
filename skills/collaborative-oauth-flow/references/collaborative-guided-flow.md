@@ -178,9 +178,9 @@ bash:
 For non-interactive channels, provide all URLs and instructions as text messages. Key differences from Path A:
 
 - The user navigates on their own — give them the URLs to open
-- Use **Web application** credentials (not Desktop app) because the OAuth callback goes through the public gateway URL
+- For providers with `callbackTransport: "gateway"`, use **Web application** credentials and resolve the redirect URI from `ingress.publicBaseUrl`; if not configured, load the `public-ingress` skill first
+- For providers with `callbackTransport: "loopback"`, the redirect URI is handled automatically in Path A; in Path B (remote channel), public ingress is still required since the loopback port is not reachable
 - Collect the Client Secret via split entry if the secret prefix could trigger channel scanners (e.g., Slack's `xoxp-`, Google's `GOCSPX-`)
-- Resolve the redirect URI from `ingress.publicBaseUrl` before sending instructions; if not configured, load the `public-ingress` skill first
 
 ---
 
@@ -194,16 +194,16 @@ For non-interactive channels, provide all URLs and instructions as text messages
 
 ### Recovery Patterns
 
-| Situation                              | Response                                                                  |
-| -------------------------------------- | ------------------------------------------------------------------------- |
-| User lands on unexpected page          | Offer to screenshot, identify where they are, navigate back               |
-| User not signed in                     | Tell them to sign in, wait, continue                                      |
-| Feature already configured             | "Looks like this is already set up — great, let's skip ahead."            |
-| Quota / billing issue                  | Explain clearly, help resolve or use a different project                  |
-| Secret not shown after creation        | Guide to credential detail page as fallback                               |
-| Auth URL returned instead of auto-open | Send URL to user to open manually                                         |
-| User is confused or frustrated         | Pause, acknowledge, simplify: "Let's take a step back..."                 |
-| `open` command fails                   | Fall back to Path B (give URLs manually)                                  |
+| Situation                              | Response                                                       |
+| -------------------------------------- | -------------------------------------------------------------- |
+| User lands on unexpected page          | Offer to screenshot, identify where they are, navigate back    |
+| User not signed in                     | Tell them to sign in, wait, continue                           |
+| Feature already configured             | "Looks like this is already set up — great, let's skip ahead." |
+| Quota / billing issue                  | Explain clearly, help resolve or use a different project       |
+| Secret not shown after creation        | Guide to credential detail page as fallback                    |
+| Auth URL returned instead of auto-open | Send URL to user to open manually                              |
+| User is confused or frustrated         | Pause, acknowledge, simplify: "Let's take a step back..."      |
+| `open` command fails                   | Fall back to Path B (give URLs manually)                       |
 
 ## Tone & Voice
 
