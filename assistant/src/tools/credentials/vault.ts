@@ -812,7 +812,6 @@ class CredentialStoreTool implements Tool {
           clientSecret,
           isInteractive: !!context.isInteractive,
           sendToClient: context.sendToClient,
-          allowedTools: input.allowed_tools as string[] | undefined,
           ...(inputScopes ? { requestedScopes: inputScopes } : {}),
           onDeferredComplete: (deferredResult) => {
             // Emit oauth_connect_result to all connected SSE clients so the

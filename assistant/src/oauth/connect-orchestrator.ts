@@ -48,7 +48,6 @@ function resolveBehavior(providerKey: string): {
   setup?: OAuthProviderBehavior["setup"];
   setupSkillId?: string;
   postConnectHookId?: string;
-  injectionTemplates?: OAuthProviderBehavior["injectionTemplates"];
 } {
   const behavior = getProviderBehavior(providerKey);
   if (!behavior) return {};
@@ -57,7 +56,6 @@ function resolveBehavior(providerKey: string): {
     setup: behavior.setup,
     setupSkillId: behavior.setupSkillId,
     postConnectHookId: behavior.postConnectHookId,
-    injectionTemplates: behavior.injectionTemplates,
   };
 }
 
@@ -90,8 +88,6 @@ export interface OAuthConnectOptions {
   openUrl?: (url: string) => void;
   /** Send a message to the client (e.g. open_url). */
   sendToClient?: (msg: { type: string; [key: string]: unknown }) => void;
-  /** Tools allowed to use the resulting credential. */
-  allowedTools?: string[];
 
   /**
    * Called when the deferred (non-interactive) flow completes — either
@@ -216,11 +212,7 @@ export async function orchestrateOAuthConnect(
     service: resolvedService,
     clientId: options.clientId,
     clientSecret: options.clientSecret,
-    tokenUrl,
-    tokenEndpointAuthMethod,
     userinfoUrl,
-    allowedTools: options.allowedTools,
-    wellKnownInjectionTemplates: behavior.injectionTemplates,
   };
 
   // -----------------------------------------------------------------------
