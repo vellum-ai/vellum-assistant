@@ -27,13 +27,16 @@ struct MemoriesListView: View {
     @State private var searchDebounceTask: Task<Void, Never>?
 
     var body: some View {
-        Group {
-            if store.isLoading && store.items.isEmpty {
-                loadingState
-            } else if store.items.isEmpty {
-                emptyState
-            } else {
-                memoriesList
+        VStack(spacing: 0) {
+            filterBar
+            Group {
+                if store.isLoading && store.items.isEmpty {
+                    loadingState
+                } else if store.items.isEmpty {
+                    emptyState
+                } else {
+                    memoriesList
+                }
             }
         }
         .searchable(text: $searchText, prompt: "Search memories...")
@@ -66,37 +69,38 @@ struct MemoriesListView: View {
         }
     }
 
+    // MARK: - Filter Bar
+
+    private var filterBar: some View {
+        VStack(spacing: VSpacing.sm) {
+            Picker("Status", selection: $statusFilter) {
+                ForEach(MemoryStatusFilter.allCases, id: \.self) { filter in
+                    Text(filter.rawValue).tag(filter)
+                }
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: statusFilter) { _, newValue in
+                store.statusFilter = newValue.apiValue
+                Task { await store.loadItems() }
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: VSpacing.sm) {
+                    kindFilterChip("All", kind: nil)
+                    ForEach(MemoryKind.allCases) { kind in
+                        kindFilterChip(kind.label, kind: kind.rawValue)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, VSpacing.sm)
+    }
+
     // MARK: - Memories List
 
     private var memoriesList: some View {
         List {
-            // Status filter
-            Section {
-                Picker("Status", selection: $statusFilter) {
-                    ForEach(MemoryStatusFilter.allCases, id: \.self) { filter in
-                        Text(filter.rawValue).tag(filter)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .onChange(of: statusFilter) { _, newValue in
-                    store.statusFilter = newValue.apiValue
-                    Task { await store.loadItems() }
-                }
-            }
-
-            // Kind filter chips
-            Section {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: VSpacing.sm) {
-                        kindFilterChip("All", kind: nil)
-                        ForEach(MemoryKind.allCases) { kind in
-                            kindFilterChip(kind.label, kind: kind.rawValue)
-                        }
-                    }
-                }
-            }
-
-            // Memory items
             Section {
                 ForEach(store.items) { item in
                     NavigationLink {
