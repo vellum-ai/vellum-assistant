@@ -147,7 +147,7 @@ struct InstalledSkillsView: View {
                 .font(VFont.title)
                 .foregroundColor(VColor.contentDefault)
 
-            Text("Browse the community to discover and install skills for your assistant.")
+            Text("Ask your assistant in chat to search for and install new skills.")
                 .font(VFont.body)
                 .foregroundColor(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
@@ -155,7 +155,7 @@ struct InstalledSkillsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("No skills installed. Browse the community to discover and install skills for your assistant.")
+        .accessibilityLabel("No skills installed. Ask your assistant in chat to search for and install new skills.")
     }
 
     private var loadingState: some View {

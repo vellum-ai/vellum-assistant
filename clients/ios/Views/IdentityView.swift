@@ -146,23 +146,6 @@ struct IdentityView: View {
                 }
                 .disabled(viewModel.skillsStore == nil)
 
-                // Community Skills
-                NavigationLink {
-                    if let store = viewModel.skillsStore {
-                        CommunitySkillsView(skillsStore: store)
-                    }
-                } label: {
-                    HStack(spacing: VSpacing.sm) {
-                        VIconView(.globe, size: 16)
-                            .foregroundColor(VColor.primaryBase)
-                            .frame(width: 24)
-                        Text("Community Skills")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.contentDefault)
-                    }
-                }
-                .disabled(viewModel.skillsStore == nil)
-
                 // Contacts
                 NavigationLink {
                     if let store = viewModel.contactsStore {
