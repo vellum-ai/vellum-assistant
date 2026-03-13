@@ -111,6 +111,7 @@ export class ConfigWatcher {
     onSessionEvict: () => void,
     onIdentityChanged?: () => void,
     onMcpReload?: () => void,
+    onConfirmSignal?: () => void,
   ): void {
     const workspaceDir = getWorkspaceDir();
     const protectedDir = join(getRootDir(), "protected");
@@ -206,7 +207,7 @@ export class ConfigWatcher {
       );
     }
 
-    this.startSignalsWatcher(onMcpReload);
+    this.startSignalsWatcher(onMcpReload, onConfirmSignal);
     this.startSkillsWatchers(onSessionEvict);
   }
 
@@ -218,7 +219,10 @@ export class ConfigWatcher {
     this.watchers = [];
   }
 
-  private startSignalsWatcher(onMcpReload?: () => void): void {
+  private startSignalsWatcher(
+    onMcpReload?: () => void,
+    onConfirmSignal?: () => void,
+  ): void {
     const signalsDir = join(getWorkspaceDir(), "signals");
     try {
       if (!existsSync(signalsDir)) {
@@ -231,6 +235,9 @@ export class ConfigWatcher {
     const signalHandlers: Record<string, () => void> = {
       "mcp-reload": () => {
         onMcpReload?.();
+      },
+      confirm: () => {
+        onConfirmSignal?.();
       },
     };
 

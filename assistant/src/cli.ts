@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname } from "node:path";
+import {
+  appendFileSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 import * as readline from "node:readline";
 
 import { httpSend } from "./cli/http-client.js";
@@ -17,15 +22,13 @@ import type {
   ConfirmationRequest,
   ServerMessage,
 } from "./daemon/message-protocol.js";
-import type { UserDecision } from "./permissions/types.js";
-import * as pendingInteractions from "./runtime/pending-interactions.js";
 import {
   copyToClipboard,
   extractLastCodeBlock,
   formatSessionForExport,
 } from "./util/clipboard.js";
 import { formatDiff, formatNewFileDiff } from "./util/diff.js";
-import { getHistoryPath } from "./util/platform.js";
+import { getHistoryPath, getWorkspaceDir } from "./util/platform.js";
 import { Spinner } from "./util/spinner.js";
 import { timeAgo } from "./util/time.js";
 import { truncate } from "./util/truncate.js";
@@ -222,18 +225,14 @@ export async function startCli(): Promise<void> {
     rl.prompt();
   }
 
-  /** Resolve a pending confirmation directly in-process. */
-  function sendConfirmation(requestId: string, decision: UserDecision): void {
+  /** Send a confirmation decision via signal file (read by the daemon). */
+  function sendConfirmation(requestId: string, decision: string): void {
     try {
-      const interaction = pendingInteractions.resolve(requestId);
-      if (!interaction) return;
-      interaction.session.handleConfirmationResponse(
-        requestId,
-        decision,
-        undefined,
-        undefined,
-        undefined,
-        { source: "button" },
+      const signalsDir = join(getWorkspaceDir(), "signals");
+      mkdirSync(signalsDir, { recursive: true });
+      writeFileSync(
+        join(signalsDir, "confirm"),
+        JSON.stringify({ requestId, decision }),
       );
     } catch {
       process.stdout.write("[Failed to send confirmation]\n");
