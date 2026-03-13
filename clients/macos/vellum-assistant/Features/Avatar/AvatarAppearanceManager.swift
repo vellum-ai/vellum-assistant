@@ -325,6 +325,45 @@ final class AvatarAppearanceManager {
         source.resume()
     }
 
+    // MARK: - Notification Icon Export
+
+    /// Exports the current avatar as a PNG file suitable for UNNotificationAttachment.
+    /// Writes to `{baseDataDir}/workspace/data/avatar/notification-icon.png`.
+    /// Returns the file URL on success, nil on failure.
+    func exportNotificationIcon(for assistantId: String) -> URL? {
+        // 1. Resolve the destination path
+        let destURL: URL
+        if let assistant = LockfileAssistant.loadByName(assistantId),
+           let baseDataDir = assistant.baseDataDir {
+            destURL = URL(fileURLWithPath: baseDataDir)
+                .appendingPathComponent("workspace/data/avatar/notification-icon.png")
+        } else {
+            destURL = Self.workspaceCustomAvatarURL()
+                .deletingLastPathComponent()
+                .appendingPathComponent("notification-icon.png")
+        }
+
+        // 2. Get the current avatar image (chatAvatarImage handles all fallbacks)
+        let image = chatAvatarImage
+
+        // 3. Export to PNG
+        guard let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmap.representation(using: .png, properties: [:]) else {
+            return nil
+        }
+
+        // 4. Ensure directory exists and write
+        let dir = destURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        do {
+            try pngData.write(to: destURL)
+            return destURL
+        } catch {
+            return nil
+        }
+    }
+
     // MARK: - Image Utilities
 
     /// Resize an NSImage to a square of the given point size using aspect-fill:
