@@ -8,7 +8,7 @@
  */
 
 import type { ChannelId } from "../channels/types.js";
-import { findContactChannel } from "../contacts/contact-store.js";
+import { findContactChannel, getContact } from "../contacts/contact-store.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getSqlite } from "../memory/db.js";
 import {
@@ -235,6 +235,16 @@ export function redeemInvite(params: {
 
   // Fresh member creation: upsert into contacts tables and consume an invite
   // use atomically, mirroring the reactivation path above.
+  // When the invite targets a specific contact (targetMismatch path), preserve
+  // the target contact's guardian-assigned display name if it has one.
+  let freshDisplayName = displayName;
+  if (invite.contactId) {
+    const targetContact = getContact(invite.contactId);
+    if (targetContact?.displayName?.trim().length) {
+      freshDisplayName = targetContact.displayName;
+    }
+  }
+
   const STALE_INVITE_FRESH = Symbol("stale_invite_fresh");
   let freshResult: ReturnType<typeof upsertContactChannel> | undefined;
   try {
@@ -244,7 +254,7 @@ export function redeemInvite(params: {
           sourceChannel,
           externalUserId,
           externalChatId,
-          displayName,
+          displayName: freshDisplayName,
           username,
           status: "active",
           policy: "allow",
@@ -386,9 +396,17 @@ export function redeemVoiceInviteCode(params: {
   const STALE_INVITE = Symbol("stale_invite");
   let memberId: string | undefined;
 
-  const preservedDisplayName = voiceContact?.displayName?.trim().length
+  // When the invite targets a specific contact (targetMismatch path), preserve
+  // the target contact's guardian-assigned display name if it has one.
+  let preservedDisplayName = voiceContact?.displayName?.trim().length
     ? voiceContact.displayName
     : (invite.friendName ?? undefined);
+  if (targetMismatch && invite.contactId) {
+    const targetContact = getContact(invite.contactId);
+    if (targetContact?.displayName?.trim().length) {
+      preservedDisplayName = targetContact.displayName;
+    }
+  }
 
   try {
     getSqlite()
@@ -596,6 +614,16 @@ export function redeemInviteByCode(params: {
 
   // Fresh member creation: upsert into contacts tables and consume an invite
   // use atomically.
+  // When the invite targets a specific contact (targetMismatch path), preserve
+  // the target contact's guardian-assigned display name if it has one.
+  let freshDisplayName = displayName;
+  if (invite.contactId) {
+    const targetContact = getContact(invite.contactId);
+    if (targetContact?.displayName?.trim().length) {
+      freshDisplayName = targetContact.displayName;
+    }
+  }
+
   const STALE_INVITE_FRESH = Symbol("stale_invite_fresh");
   let freshResult: ReturnType<typeof upsertContactChannel> | undefined;
   try {
@@ -605,7 +633,7 @@ export function redeemInviteByCode(params: {
           sourceChannel,
           externalUserId,
           externalChatId,
-          displayName,
+          displayName: freshDisplayName,
           username,
           status: "active",
           policy: "allow",
