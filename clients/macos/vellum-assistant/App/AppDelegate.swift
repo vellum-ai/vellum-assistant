@@ -24,6 +24,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var lastRegisteredCommandPaletteShortcut: String?
     var lastRegisteredQuickInputAboveDockShortcut: String?
     var lastRegisteredNewThreadShortcut: String?
+    var lastRegisteredNavBackShortcut: String?
+    var lastRegisteredNavForwardShortcut: String?
     var lastRegisteredZoomInShortcut: String?
     var lastRegisteredZoomOutShortcut: String?
     var lastRegisteredZoomResetShortcut: String?

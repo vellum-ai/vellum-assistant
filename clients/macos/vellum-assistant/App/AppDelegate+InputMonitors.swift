@@ -372,29 +372,63 @@ extension AppDelegate {
     /// Only consumes the event when navigation actually occurs — if the history
     /// stack is empty, the event passes through to the responder chain.
     func registerNavigationMonitor() {
-        guard navLocalMonitor == nil else { return }
+        let backShortcut = UserDefaults.standard.string(forKey: "navigateBackShortcut") ?? "cmd+["
+        let forwardShortcut = UserDefaults.standard.string(forKey: "navigateForwardShortcut") ?? "cmd+]"
+
+        // Skip re-registration if neither shortcut changed.
+        if backShortcut == lastRegisteredNavBackShortcut,
+           forwardShortcut == lastRegisteredNavForwardShortcut { return }
+
+        // Tear down existing monitor before re-registration.
+        if let monitor = navLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            navLocalMonitor = nil
+        }
+
+        // If both shortcuts are disabled, record state and return.
+        guard !backShortcut.isEmpty || !forwardShortcut.isEmpty else {
+            lastRegisteredNavBackShortcut = backShortcut
+            lastRegisteredNavForwardShortcut = forwardShortcut
+            log.info("Navigation: both shortcuts disabled")
+            return
+        }
+
+        // Parse shortcuts into modifier flags and key strings.
+        let backParsed: (NSEvent.ModifierFlags, String)? = backShortcut.isEmpty ? nil : ShortcutHelper.parseShortcut(backShortcut)
+        let forwardParsed: (NSEvent.ModifierFlags, String)? = forwardShortcut.isEmpty ? nil : ShortcutHelper.parseShortcut(forwardShortcut)
+
         let handler: (NSEvent) -> NSEvent? = { [weak self] event in
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            guard mods == [.command] else { return event }
             guard let chars = event.charactersIgnoringModifiers else { return event }
-            switch chars {
-            case "[":
+
+            // Check back shortcut
+            if let (backMods, backKey) = backParsed,
+               mods == backMods,
+               chars.lowercased() == backKey.lowercased() {
                 guard self?.mainWindow?.windowState.navigationHistory.canGoBack == true else { return event }
                 Task { @MainActor in
                     self?.mainWindow?.windowState.navigateBack()
                 }
                 return nil
-            case "]":
+            }
+
+            // Check forward shortcut
+            if let (fwdMods, fwdKey) = forwardParsed,
+               mods == fwdMods,
+               chars.lowercased() == fwdKey.lowercased() {
                 guard self?.mainWindow?.windowState.navigationHistory.canGoForward == true else { return event }
                 Task { @MainActor in
                     self?.mainWindow?.windowState.navigateForward()
                 }
                 return nil
-            default:
-                return event
             }
+
+            return event
         }
         navLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+
+        lastRegisteredNavBackShortcut = backShortcut
+        lastRegisteredNavForwardShortcut = forwardShortcut
     }
 
     /// Registers zoom shortcuts as local event monitors for window zoom.
