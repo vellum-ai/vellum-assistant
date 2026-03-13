@@ -59,6 +59,16 @@ if [ -z "${DEVELOPER_DIR:-}" ]; then
 fi
 export DEVELOPER_DIR
 
+if [ -z "${CURRENT_SDK:-}" ]; then
+    # Apple containerization 0.1.1 still relies on its older-SDK compatibility
+    # path when building on Xcode 16.x.
+    _xcode_major=$(xcodebuild -version 2>/dev/null | awk '/Xcode/ { split($2, parts, "."); print parts[1]; exit }' || true)
+    if [[ "$_xcode_major" =~ ^[0-9]+$ ]] && [ "$_xcode_major" -lt 26 ]; then
+        export CURRENT_SDK=1
+    fi
+    unset _xcode_major
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
@@ -70,6 +80,13 @@ CONTENTS="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
 RESOURCES_DIR="$CONTENTS/Resources"
 FRAMEWORKS_DIR="$CONTENTS/Frameworks"
+KATA_KERNEL_VERSION="3.17.0"
+KATA_KERNEL_ARCHIVE_URL="${KATA_KERNEL_ARCHIVE_URL:-https://github.com/kata-containers/kata-containers/releases/download/3.17.0/kata-static-3.17.0-arm64.tar.xz}"
+KATA_KERNEL_CACHE_DIR="${KATA_KERNEL_CACHE_DIR:-$SCRIPT_DIR/../.build/developer-vm/kata-$KATA_KERNEL_VERSION-arm64}"
+KATA_KERNEL_ARCHIVE_PATH="$KATA_KERNEL_CACHE_DIR/$(basename "$KATA_KERNEL_ARCHIVE_URL")"
+KATA_KERNEL_STAGED_DIR="$KATA_KERNEL_CACHE_DIR/staged-kata-$KATA_KERNEL_VERSION-arm64"
+KATA_KERNEL_BUNDLE_PARENT="$RESOURCES_DIR/DeveloperVM"
+KATA_KERNEL_BUNDLE_DIR="$KATA_KERNEL_BUNDLE_PARENT/kata-$KATA_KERNEL_VERSION-arm64"
 
 # Version (overridable via env for CI, defaults to Package.swift)
 if [ -z "${DISPLAY_VERSION:-}" ]; then
@@ -218,6 +235,76 @@ build_binaries() {
     # Gateway
     build_bun_binary "$GATEWAY_SRC_DIR" "$GATEWAY_SRC_DIR/src/index.ts" \
         "$SCRIPT_DIR/gateway-bin" "vellum-gateway"
+}
+
+bundle_kata_kernel() {
+    local staged_kernel_path="$KATA_KERNEL_STAGED_DIR/vmlinux.container"
+
+    mkdir -p "$KATA_KERNEL_CACHE_DIR"
+
+    if [ ! -f "$KATA_KERNEL_ARCHIVE_PATH" ]; then
+        local tmp_archive="${KATA_KERNEL_ARCHIVE_PATH}.download"
+        echo "Downloading Kata $KATA_KERNEL_VERSION ARM64 kernel for app bundle..."
+        rm -f "$tmp_archive"
+        curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 30 \
+            --output "$tmp_archive" "$KATA_KERNEL_ARCHIVE_URL"
+        mv "$tmp_archive" "$KATA_KERNEL_ARCHIVE_PATH"
+    fi
+
+    if [ ! -f "$staged_kernel_path" ]; then
+        local temp_extract
+        local temp_stage
+        local kernel_directory
+        local kernel_link
+        local kernel_target
+        temp_extract=$(mktemp -d "$KATA_KERNEL_CACHE_DIR/extract.XXXXXX")
+        temp_stage=$(mktemp -d "$KATA_KERNEL_CACHE_DIR/stage.XXXXXX")
+
+        echo "Extracting bundled Kata kernel..."
+        tar -xJf "$KATA_KERNEL_ARCHIVE_PATH" -C "$temp_extract"
+
+        kernel_directory="$temp_extract/opt/kata/share/kata-containers"
+        kernel_link="$kernel_directory/vmlinux.container"
+
+        if [ ! -e "$kernel_link" ]; then
+            rm -rf "$temp_extract" "$temp_stage"
+            echo "ERROR: Kata kernel archive did not contain opt/kata/share/kata-containers/vmlinux.container"
+            exit 1
+        fi
+
+        if [ -L "$kernel_link" ]; then
+            kernel_target=$(readlink "$kernel_link")
+            if [ -z "$kernel_target" ] || [ ! -f "$kernel_directory/$kernel_target" ]; then
+                rm -rf "$temp_extract" "$temp_stage"
+                echo "ERROR: Kata kernel symlink target was missing from the archive"
+                exit 1
+            fi
+            cp "$kernel_directory/$kernel_target" "$temp_stage/$kernel_target"
+            ln -s "$kernel_target" "$temp_stage/vmlinux.container"
+        else
+            cp "$kernel_link" "$temp_stage/vmlinux.container"
+        fi
+
+        if [ ! -f "$temp_stage/vmlinux.container" ]; then
+            rm -rf "$temp_extract" "$temp_stage"
+            echo "ERROR: Failed to stage a usable Kata kernel for app bundling"
+            exit 1
+        fi
+
+        rm -rf "$KATA_KERNEL_STAGED_DIR"
+        mv "$temp_stage" "$KATA_KERNEL_STAGED_DIR"
+        rm -rf "$temp_extract"
+    fi
+
+    echo "Bundling Kata kernel resources..."
+    rm -rf "$KATA_KERNEL_BUNDLE_DIR"
+    mkdir -p "$KATA_KERNEL_BUNDLE_PARENT"
+    cp -R "$KATA_KERNEL_STAGED_DIR" "$KATA_KERNEL_BUNDLE_DIR"
+
+    if [ ! -f "$KATA_KERNEL_BUNDLE_DIR/vmlinux.container" ]; then
+        echo "ERROR: Failed to bundle Kata kernel into app resources"
+        exit 1
+    fi
 }
 
 case "$CMD" in
@@ -545,6 +632,10 @@ FEATURE_FLAG_REGISTRY="$GATEWAY_SRC_DIR/src/feature-flag-registry.json"
 if [ -f "$FEATURE_FLAG_REGISTRY" ]; then
     cp "$FEATURE_FLAG_REGISTRY" "$RESOURCES_DIR/feature-flag-registry.json"
 fi
+
+# Bundle the developer VM kernel directly into the app so the macOS client can
+# boot the hello-world VM without a first-run kernel download.
+bundle_kata_kernel
 
 # Always check resource bundles (they change independently of binaries)
 # Copy SPM resource bundles into Contents/Resources/
@@ -907,7 +998,7 @@ if [ -f "$MACOS_DIR/vellum-daemon" ]; then
 fi
 
 # Sign the outer app bundle (without --deep to preserve nested signatures)
-APP_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
+APP_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$SCRIPT_DIR/app-entitlements.plist")
 if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
     APP_SIGN_FLAGS+=(--timestamp --options runtime)
 fi

@@ -117,14 +117,14 @@ All releases are available at [github.com/vellum-ai/velly/releases](https://gith
 ## Requirements
 
 ### Local Mode
-- macOS 14.0 (Sonoma) or later
-- Xcode 15+ (for building from source)
+- macOS 15.0 (Sequoia) or later
+- Xcode 16.2+ (for building from source)
 - Anthropic API key
 - Local daemon running (`vellum wake`)
 
 ### Managed Mode
-- macOS 14.0 (Sonoma) or later
-- Xcode 15+ (for building from source)
+- macOS 15.0 (Sequoia) or later
+- Xcode 16.2+ (for building from source)
 - Internet connection (assistant runs on the Vellum platform)
 - No API key or local daemon required
 
@@ -172,6 +172,8 @@ The build script uses incremental compilation and caching:
 - Running `./build.sh` again without code changes takes ~1-2s (skips binary copying, still updates Info.plist/assets/codesigning)
 - Small code changes rebuild in ~4 seconds
 - Use `./build.sh clean` if you encounter build issues, need to force a complete rebuild, or after removing resources/frameworks (incremental builds don't detect deletions)
+- On Xcode 16.x, `./build.sh` exports `CURRENT_SDK=1` automatically so Apple `containerization` `0.1.1` builds against the older public SDK
+- The first app build downloads and caches the Kata 3.17.0 ARM64 kernel in `clients/.build/developer-vm/`, then bundles it into `Vellum.app/Contents/Resources/DeveloperVM/`
 
 ### First-Time Setup: Code Signing (Optional but Recommended)
 
@@ -234,16 +236,16 @@ The raw SwiftPM commands also work if you prefer:
 
 ```bash
 # Resolve dependencies
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift package resolve
+CURRENT_SDK=1 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift package resolve
 
 # Build
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build
+CURRENT_SDK=1 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build
 
 # Run tests
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
+CURRENT_SDK=1 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
 
 # Build for release
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build -c release
+CURRENT_SDK=1 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build -c release
 ```
 
 </details>

@@ -99,6 +99,8 @@ struct SettingsDeveloperTab: View {
             macOSFeatureFlagSection
             // Environment Variables
             environmentVariablesSection
+            // Hello World VM
+            DeveloperHelloWorldVMSection()
             // Sentry Testing
             sentryTestingSection
         }

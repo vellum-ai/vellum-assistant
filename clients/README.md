@@ -48,7 +48,7 @@ clients/
 ## Targets
 
 ### VellumAssistantShared (Library)
-**Platforms**: macOS 14+, iOS 17+
+**Platforms**: macOS 15+, iOS 17+
 **Purpose**: Platform-agnostic code shared between macOS and iOS apps
 
 **Contains**:
@@ -67,7 +67,7 @@ clients/
 **Dependencies**: None (only system frameworks: AuthenticationServices, Network, Security)
 
 ### VellumAssistantLib (Library)
-**Platforms**: macOS 14+ only
+**Platforms**: macOS 15+ only
 **Purpose**: macOS application logic
 
 **Contains**:
@@ -75,13 +75,13 @@ clients/
 - Computer-use features (accessibility, screen capture, input injection)
 - macOS-specific integrations (menu bar, hotkeys, voice input)
 
-**Dependencies**: VellumAssistantShared, Sentry, Sparkle
+**Dependencies**: VellumAssistantShared, Apple Containerization, Sentry, Sparkle
 **Frameworks**: AppKit, ApplicationServices, AuthenticationServices, AVKit, CoreGraphics, Network, ScreenCaptureKit, Security, Speech, SpriteKit, Vision
 
 **⚠️ iOS apps should NOT depend on this target** - it links macOS-only frameworks.
 
 ### vellum-assistant (Executable)
-**Platforms**: macOS 14+
+**Platforms**: macOS 15+
 **Purpose**: Thin entry point for macOS app
 
 **Contains**: Just `@main` app delegate setup
@@ -103,8 +103,10 @@ cd clients/macos
 
 The build script:
 1. Runs `swift build` from `clients/macos/` (SPM finds `../Package.swift` automatically)
-2. Packages binary into `dist/Vellum.app` bundle
-3. Codesigns with ad-hoc signature (or release identity)
+2. Exports `CURRENT_SDK=1` automatically when the active Xcode major version is below 26 so Apple `containerization` `0.1.1` builds on Xcode 16.x
+3. Downloads and caches the Kata 3.17.0 ARM64 kernel into `clients/.build/developer-vm/` on the first app build, then bundles it into `dist/Vellum.app/Contents/Resources/DeveloperVM/`
+4. Packages binary into `dist/Vellum.app` bundle
+5. Codesigns with ad-hoc signature (or release identity)
 
 ### iOS App
 
