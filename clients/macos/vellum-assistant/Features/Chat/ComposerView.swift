@@ -300,11 +300,6 @@ struct ComposerView: View {
                             if let url, FileManager.default.fileExists(atPath: url.path) {
                                 urls.append(url)
                                 group.leave()
-                            } else if let url, url.isFileURL {
-                                // File promise or security-scoped URL — try it
-                                // anyway and let the attachment loader report errors.
-                                urls.append(url)
-                                group.leave()
                             } else if hasImageFallback, let onDropImageData {
                                 let typeIdentifier: String
                                 if provider.hasItemConformingToTypeIdentifier(UTType.png.identifier) {
@@ -323,6 +318,12 @@ struct ComposerView: View {
                                         group.leave()
                                     }
                                 }
+                            } else if let url, url.isFileURL {
+                                // File promise (e.g. Music.app, Voice Memos) with
+                                // no image data fallback. Try the URL anyway — the
+                                // attachment loader will report errors if inaccessible.
+                                urls.append(url)
+                                group.leave()
                             } else {
                                 group.leave()
                             }

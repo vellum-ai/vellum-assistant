@@ -421,13 +421,6 @@ struct ChatView: View {
                         if let url, FileManager.default.fileExists(atPath: url.path) {
                             urls.append(url)
                             group.leave()
-                        } else if let url, url.isFileURL {
-                            // The URL is a file reference but doesn't exist yet
-                            // (e.g. file promises from Music.app, Voice Memos).
-                            // Try using it anyway — the attachment loader will
-                            // report an error if the file is truly inaccessible.
-                            urls.append(url)
-                            group.leave()
                         } else if hasImageFallback {
                             let typeIdentifier: String
                             if provider.hasItemConformingToTypeIdentifier(UTType.png.identifier) {
@@ -446,6 +439,14 @@ struct ChatView: View {
                                     group.leave()
                                 }
                             }
+                        } else if let url, url.isFileURL {
+                            // File URL doesn't exist on disk yet (e.g. file
+                            // promises from Music.app, Voice Memos) and no
+                            // image data fallback is available. Try the URL
+                            // anyway — the attachment loader will report an
+                            // error if the file is truly inaccessible.
+                            urls.append(url)
+                            group.leave()
                         } else {
                             group.leave()
                         }
