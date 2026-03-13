@@ -321,7 +321,7 @@ struct MessageListView: View {
                            height: ConversationAvatarFollower.avatarSize)
                     .padding(.horizontal, VSpacing.xl)
                     .frame(maxWidth: VSpacing.chatColumnMaxWidth, alignment: .leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity)
                     .offset(y: avatarDisplayY)
                     .accessibilityHidden(true)
             } else {
