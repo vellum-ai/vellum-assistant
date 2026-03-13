@@ -28,22 +28,6 @@ struct AssistantChannelsDetailView: View {
     // Email copy state
     @State private var emailCopied: Bool = false
 
-    // Outbound verification destination input (keyed by channel)
-    @State private var verificationDestinationText: [String: String] = [:]
-
-    // Countdown timer for outbound verification expiry
-    @State private var countdownNow: Date = Date()
-    @State private var countdownTimer: Timer?
-
-    // Shared label column width for channelStatusRow and channel verification alignment
-    private let labelColumnWidth: CGFloat = 140
-
-    /// True when at least one channel has an active outbound verification session.
-    private var hasAnyOutboundSession: Bool {
-        store.telegramOutboundSessionId != nil ||
-        store.voiceOutboundSessionId != nil ||
-        store.slackOutboundSessionId != nil
-    }
 
     var body: some View {
         ScrollView {
@@ -70,19 +54,6 @@ struct AssistantChannelsDetailView: View {
             store.fetchSlackChannelConfig()
             if store.twilioHasCredentials {
                 store.refreshTwilioNumbers()
-            }
-            if hasAnyOutboundSession {
-                startCountdownTimer()
-            }
-        }
-        .onDisappear {
-            stopCountdownTimer()
-        }
-        .onChange(of: hasAnyOutboundSession) { _, hasOutbound in
-            if hasOutbound {
-                startCountdownTimer()
-            } else {
-                stopCountdownTimer()
             }
         }
         .onChange(of: store.channelSetupStatus["telegram"]) { _, status in
@@ -177,11 +148,6 @@ struct AssistantChannelsDetailView: View {
 
             if let error = store.telegramError {
                 Text(error).font(VFont.caption).foregroundColor(VColor.systemNegativeStrong)
-            }
-
-            if status == "ready" || status == "incomplete" {
-                SettingsDivider()
-                channelVerificationView(channel: "telegram")
             }
 
             if (status == "ready" || status == "incomplete") && store.telegramVerificationVerified {
@@ -313,10 +279,7 @@ struct AssistantChannelsDetailView: View {
                 Text(error).font(VFont.caption).foregroundColor(VColor.systemNegativeStrong)
             }
 
-            if status == "ready" || status == "incomplete" {
-                SettingsDivider()
-                channelVerificationView(channel: "slack")
-
+            if (status == "ready" || status == "incomplete") && store.slackVerificationVerified {
                 SettingsDivider()
                 slackApprovedUsersSection
             }
@@ -487,10 +450,6 @@ struct AssistantChannelsDetailView: View {
                     .foregroundColor(VColor.systemNegativeStrong)
             }
 
-            if (status == "ready" || status == "incomplete") && store.twilioPhoneNumber != nil {
-                SettingsDivider()
-                channelVerificationView(channel: "phone")
-            }
         }
     }
 
@@ -545,44 +504,4 @@ struct AssistantChannelsDetailView: View {
         }
     }
 
-    // MARK: - Channel Verification Row
-
-    @ViewBuilder
-    private func channelVerificationView(channel: String) -> some View {
-        ChannelVerificationFlowView(
-            state: store.channelVerificationState(for: channel),
-            countdownNow: $countdownNow,
-            destinationText: Binding<String>(
-                get: { verificationDestinationText[channel] ?? "" },
-                set: { verificationDestinationText[channel] = $0 }
-            ),
-            onStartOutbound: { dest in store.startOutboundVerification(channel: channel, destination: dest) },
-            onResend: { store.resendOutboundVerification(channel: channel) },
-            onCancelOutbound: { store.cancelOutboundVerification(channel: channel) },
-            onRevoke: { store.revokeChannelVerification(channel: channel) },
-            onStartSession: { rebind in store.startChannelVerification(channel: channel, rebind: rebind) },
-            onCancelSession: { store.cancelVerificationSession(channel: channel) },
-            botUsername: store.telegramBotUsername,
-            phoneNumber: store.twilioPhoneNumber,
-            showLabel: true,
-            labelColumnWidth: labelColumnWidth
-        )
-    }
-
-    // MARK: - Countdown Timer
-
-    private func startCountdownTimer() {
-        guard countdownTimer == nil else { return }
-        countdownNow = Date()
-        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            Task { @MainActor in
-                countdownNow = Date()
-            }
-        }
-    }
-
-    private func stopCountdownTimer() {
-        countdownTimer?.invalidate()
-        countdownTimer = nil
-    }
 }
