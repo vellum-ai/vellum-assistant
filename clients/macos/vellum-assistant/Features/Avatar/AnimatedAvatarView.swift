@@ -151,15 +151,38 @@ class AvatarLayerView: NSView {
               eyeLayers.count == openEyePaths.count,
               eyeLayers.count == closedEyePaths.count else { return }
 
+        // ~20% chance of a double blink
+        let isDoubleBlink = Double.random(in: 0...1) < 0.2
+
         for (i, eyeLayer) in eyeLayers.enumerated() {
-            let animation = CAKeyframeAnimation(keyPath: "path")
-            animation.values = [openEyePaths[i], closedEyePaths[i], openEyePaths[i]]
-            animation.keyTimes = [0, 0.3, 1.0]  // Quick close at 30%, slow open to 100%
-            animation.duration = 0.25
-            animation.timingFunctions = [
-                CAMediaTimingFunction(name: .easeIn),   // Close quickly
-                CAMediaTimingFunction(name: .easeOut),   // Open slowly
-            ]
+            let animation: CAKeyframeAnimation
+            if isDoubleBlink {
+                animation = CAKeyframeAnimation(keyPath: "path")
+                animation.values = [
+                    openEyePaths[i],    // Start open
+                    closedEyePaths[i],  // First close
+                    openEyePaths[i],    // First open
+                    closedEyePaths[i],  // Second close
+                    openEyePaths[i],    // Final open
+                ]
+                animation.keyTimes = [0, 0.15, 0.35, 0.50, 0.75]
+                animation.duration = 0.45
+                animation.timingFunctions = [
+                    CAMediaTimingFunction(name: .easeIn),
+                    CAMediaTimingFunction(name: .easeOut),
+                    CAMediaTimingFunction(name: .easeIn),
+                    CAMediaTimingFunction(name: .easeOut),
+                ]
+            } else {
+                animation = CAKeyframeAnimation(keyPath: "path")
+                animation.values = [openEyePaths[i], closedEyePaths[i], openEyePaths[i]]
+                animation.keyTimes = [0, 0.3, 1.0]
+                animation.duration = 0.25
+                animation.timingFunctions = [
+                    CAMediaTimingFunction(name: .easeIn),
+                    CAMediaTimingFunction(name: .easeOut),
+                ]
+            }
             animation.isRemovedOnCompletion = true
             eyeLayer.add(animation, forKey: "blink")
         }
