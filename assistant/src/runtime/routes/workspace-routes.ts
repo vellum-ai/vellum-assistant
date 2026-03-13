@@ -34,7 +34,9 @@ interface TreeEntry {
 function handleWorkspaceTree(ctx: RouteContext): Response {
   const requestedPath = ctx.url.searchParams.get("path") ?? "";
   const showHidden = ctx.url.searchParams.get("showHidden") === "true";
-  const resolved = resolveWorkspacePath(requestedPath);
+  const resolved = resolveWorkspacePath(requestedPath, {
+    allowHidden: showHidden,
+  });
   if (resolved === undefined) {
     return httpError("BAD_REQUEST", "Invalid path", 400);
   }
@@ -96,7 +98,8 @@ function handleWorkspaceFile(ctx: RouteContext): Response {
     return httpError("BAD_REQUEST", "path query parameter is required", 400);
   }
 
-  const resolved = resolveWorkspacePath(path);
+  const showHidden = ctx.url.searchParams.get("showHidden") === "true";
+  const resolved = resolveWorkspacePath(path, { allowHidden: showHidden });
   if (resolved === undefined) {
     return httpError("BAD_REQUEST", "Invalid path", 400);
   }
@@ -146,7 +149,8 @@ function handleWorkspaceFileContent(ctx: RouteContext): Response {
     );
   }
 
-  const resolved = resolveWorkspacePath(path);
+  const showHidden = ctx.url.searchParams.get("showHidden") === "true";
+  const resolved = resolveWorkspacePath(path, { allowHidden: showHidden });
   if (resolved === undefined) {
     return httpError("BAD_REQUEST", "Invalid path", 400);
   }
