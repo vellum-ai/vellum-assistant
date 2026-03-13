@@ -151,6 +151,7 @@ describe("redeemVoiceInviteCode", () => {
 
     const { invite } = createInvite({
       sourceChannel: "phone",
+      contactId: "test-contact-id",
       maxUses: opts.maxUses ?? 1,
       expiresInMs: opts.expiresInMs,
       expectedExternalUserId: opts.callerPhone ?? "+15551234567",
@@ -285,6 +286,7 @@ describe("redeemVoiceInviteCode", () => {
 
     createInvite({
       sourceChannel: "telegram",
+      contactId: "test-contact-id",
       maxUses: 1,
       expectedExternalUserId: "+15551234567",
       voiceCodeHash: codeHash,

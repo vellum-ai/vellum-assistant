@@ -178,6 +178,7 @@ describe("inbound invite redemption intercept", () => {
   test("non-member with valid invite token becomes active member without guardian approval", async () => {
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: "test-contact-id",
       maxUses: 5,
     });
 
@@ -231,6 +232,7 @@ describe("inbound invite redemption intercept", () => {
   test("non-member with expired token gets appropriate message", async () => {
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: "test-contact-id",
       maxUses: 1,
       expiresInMs: -1, // already expired
     });
@@ -252,6 +254,7 @@ describe("inbound invite redemption intercept", () => {
   test("non-member with revoked token gets refusal text", async () => {
     const { rawToken, invite } = createInvite({
       sourceChannel: "telegram",
+      contactId: "test-contact-id",
       maxUses: 5,
     });
     revokeInvite(invite.id);
@@ -292,6 +295,7 @@ describe("inbound invite redemption intercept", () => {
   test("duplicate Telegram webhook deliveries do not double-redeem", async () => {
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: "test-contact-id",
       maxUses: 5,
     });
 
@@ -353,7 +357,11 @@ describe("inbound invite redemption intercept", () => {
 
   test("channel mismatch returns appropriate message", async () => {
     // Create an invite for voice, but try to redeem via Telegram
-    const { rawToken } = createInvite({ sourceChannel: "phone", maxUses: 5 });
+    const { rawToken } = createInvite({
+      sourceChannel: "phone",
+      contactId: "test-contact-id",
+      maxUses: 5,
+    });
 
     const req = buildInviteRequest(rawToken);
     const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
@@ -372,6 +380,7 @@ describe("inbound invite redemption intercept", () => {
   test("already-active member with invite token gets acknowledgement", async () => {
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: "test-contact-id",
       maxUses: 5,
     });
 
@@ -399,6 +408,7 @@ describe("inbound invite redemption intercept", () => {
   test("reactivation via invite preserves existing guardian-managed member display name", async () => {
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: "test-contact-id",
       maxUses: 5,
     });
 

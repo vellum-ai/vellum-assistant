@@ -158,6 +158,7 @@ export async function createIngressInvite(params: {
   voiceCodeDigits?: number;
   friendName?: string;
   guardianName?: string;
+  contactId: string;
 }): Promise<IngressResult<InviteResponseData>> {
   if (!params.sourceChannel) {
     return { ok: false, error: "sourceChannel is required for create" };
@@ -212,6 +213,7 @@ export async function createIngressInvite(params: {
 
   const { invite, rawToken } = createInvite({
     sourceChannel: params.sourceChannel,
+    contactId: params.contactId,
     note: params.note,
     maxUses: params.maxUses,
     expiresInMs: params.expiresInMs,

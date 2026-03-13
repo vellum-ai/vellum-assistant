@@ -63,6 +63,7 @@ describe("invite-redemption-service", () => {
   test("redeems a valid invite and returns typed outcome", () => {
     const { rawToken, invite } = createInvite({
       sourceChannel: "telegram",
+      contactId: "test-contact-id",
       maxUses: 1,
     });
 
@@ -84,6 +85,7 @@ describe("invite-redemption-service", () => {
   test("marks channel as verified via invite on redemption", () => {
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: "test-contact-id",
       maxUses: 1,
     });
 
@@ -110,6 +112,7 @@ describe("invite-redemption-service", () => {
     const inviteCode = "123456";
     createInvite({
       sourceChannel: "telegram",
+      contactId: "test-contact-id",
       maxUses: 1,
       inviteCodeHash: hashVoiceCode(inviteCode),
     });
@@ -147,6 +150,7 @@ describe("invite-redemption-service", () => {
     // Create an invite that expired 1 ms ago
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: "test-contact-id",
       maxUses: 1,
       expiresInMs: -1,
     });
@@ -163,6 +167,7 @@ describe("invite-redemption-service", () => {
   test("returns revoked for a revoked invite", () => {
     const { rawToken, invite } = createInvite({
       sourceChannel: "telegram",
+      contactId: "test-contact-id",
       maxUses: 1,
     });
     revokeStoreFn(invite.id);
@@ -179,6 +184,7 @@ describe("invite-redemption-service", () => {
   test("returns max_uses_reached when invite is fully consumed", () => {
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: "test-contact-id",
       maxUses: 1,
     });
 
@@ -203,6 +209,7 @@ describe("invite-redemption-service", () => {
   test("returns channel_mismatch when redeeming on wrong channel", () => {
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: "test-contact-id",
       maxUses: 1,
     });
 
@@ -218,6 +225,7 @@ describe("invite-redemption-service", () => {
   test("returns missing_identity when no externalUserId or externalChatId", () => {
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: "test-contact-id",
       maxUses: 1,
     });
 
@@ -232,6 +240,7 @@ describe("invite-redemption-service", () => {
   test("returns already_member when user is already an active member", () => {
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: "test-contact-id",
       maxUses: 5,
     });
 
@@ -262,6 +271,7 @@ describe("invite-redemption-service", () => {
   test("returns invalid_token for a blocked member to avoid leaking membership status", () => {
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: "test-contact-id",
       maxUses: 5,
     });
 
@@ -284,6 +294,7 @@ describe("invite-redemption-service", () => {
   test("downgrades a revoked guardian to contact when they redeem an invite", () => {
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: "test-contact-id",
       maxUses: 5,
     });
 
@@ -325,6 +336,7 @@ describe("invite-redemption-service", () => {
     const inviteCodeHash = hashVoiceCode(code);
     createInvite({
       sourceChannel: "telegram",
+      contactId: "test-contact-id",
       maxUses: 5,
       inviteCodeHash,
     });
@@ -364,6 +376,7 @@ describe("invite-redemption-service", () => {
   test("does not return already_member for a revoked member", () => {
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: "test-contact-id",
       maxUses: 5,
     });
 
@@ -391,6 +404,7 @@ describe("invite-redemption-service", () => {
   test("raw token is not present in the outcome object", () => {
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: "test-contact-id",
       maxUses: 1,
     });
 
@@ -406,7 +420,11 @@ describe("invite-redemption-service", () => {
   });
 
   test("channel enforcement blocks cross-channel redemption (voice invite via slack)", () => {
-    const { rawToken } = createInvite({ sourceChannel: "phone", maxUses: 1 });
+    const { rawToken } = createInvite({
+      sourceChannel: "phone",
+      contactId: "test-contact-id",
+      maxUses: 1,
+    });
 
     const outcome = redeemInvite({
       rawToken,
@@ -439,6 +457,7 @@ describe("invite-redemption-service", () => {
     // Create an expired invite
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: "test-contact-id",
       maxUses: 5,
       expiresInMs: -1,
     });
@@ -464,6 +483,7 @@ describe("invite-redemption-service", () => {
     // Create an invite for voice
     const { rawToken } = createInvite({
       sourceChannel: "phone",
+      contactId: "test-contact-id",
       maxUses: 5,
     });
 

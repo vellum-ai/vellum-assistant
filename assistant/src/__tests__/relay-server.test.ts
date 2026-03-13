@@ -2053,6 +2053,7 @@ describe("relay-server", () => {
     const codeHash = hashVoiceCode(code);
     createInvite({
       sourceChannel: "phone",
+      contactId: "test-contact-id",
       maxUses: 1,
       expectedExternalUserId: "+15558887777",
       voiceCodeHash: codeHash,
@@ -2126,6 +2127,7 @@ describe("relay-server", () => {
     const codeHash = hashVoiceCode(code);
     createInvite({
       sourceChannel: "phone",
+      contactId: "test-contact-id",
       maxUses: 1,
       expectedExternalUserId: "+15558886666",
       voiceCodeHash: codeHash,
@@ -4013,6 +4015,7 @@ describe("relay-server", () => {
     const codeHash = hashVoiceCode(code);
     createInvite({
       sourceChannel: "phone",
+      contactId: "test-contact-id",
       maxUses: 1,
       expectedExternalUserId: "+15557776666",
       voiceCodeHash: codeHash,

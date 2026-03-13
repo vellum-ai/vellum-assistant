@@ -497,6 +497,7 @@ Examples:
       "--guardian-name <name>",
       "Guardian name (required for voice invites)",
     )
+    .requiredOption("--contact-id <id>", "Contact ID to bind the invite to")
     .addHelpText(
       "after",
       `
@@ -529,6 +530,7 @@ Examples:
           expectedExternalUserId?: string;
           friendName?: string;
           guardianName?: string;
+          contactId: string;
         },
         cmd: Command,
       ) => {
@@ -563,6 +565,7 @@ Examples:
             expectedExternalUserId: opts.expectedExternalUserId,
             friendName: opts.friendName,
             guardianName: opts.guardianName,
+            contactId: opts.contactId,
           });
           if (result.ok) {
             writeOutput(cmd, { ok: true, invite: result.data });

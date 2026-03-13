@@ -100,7 +100,7 @@ function rowToInvite(
 
 export function createInvite(params: {
   sourceChannel: string;
-  contactId?: string;
+  contactId: string;
   createdBySessionId?: string;
   note?: string;
   maxUses?: number;
@@ -139,7 +139,7 @@ export function createInvite(params: {
     inviteCodeHash: params.inviteCodeHash ?? null,
     friendName: params.friendName ?? null,
     guardianName: params.guardianName ?? null,
-    contactId: params.contactId ?? "",
+    contactId: params.contactId,
     createdAt: now,
     updatedAt: now,
   };

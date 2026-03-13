@@ -59,6 +59,7 @@ export async function handleCreateInvite(req: Request): Promise<Response> {
     voiceCodeDigits: body.voiceCodeDigits as number | undefined,
     friendName: body.friendName as string | undefined,
     guardianName: body.guardianName as string | undefined,
+    contactId: body.contactId as string,
   });
 
   if (!result.ok) {
