@@ -13,7 +13,7 @@ export interface MainScreenLayout {
 }
 
 export function renderMainScreen(): MainScreenLayout {
-  const httpUrl = resolveRuntimeUrl() ?? "http://127.0.0.1";
+  const httpUrl = resolveRuntimeUrl() ?? "http://127.0.0.1:7830";
   const workspace = getWorkspaceDir();
   const assistantId = workspace.split("/").pop() ?? "vellum";
 
