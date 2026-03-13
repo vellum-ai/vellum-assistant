@@ -107,6 +107,10 @@ When the daemon runs with `BASE_DATA_DIR` set to an instance directory (e.g. `~/
 
 Use `QDRANT_HTTP_PORT` (not `QDRANT_URL`) when allocating per-instance Qdrant ports. Setting `QDRANT_URL` triggers QdrantManager's external/remote mode which bypasses the local managed Qdrant lifecycle (download, start, health checks). The CLI deletes `QDRANT_URL` from the environment when spawning instance daemons to ensure local Qdrant management is used.
 
+## Workspace Export & Secrets
+
+The entire ~/.vellum/workspace directory (minus embedding models and Qdrant vector indices) is included in diagnostic log exports when users choose "Send logs to Vellum". **Never store secrets, API keys, or sensitive credentials in the workspace directory.** Use the credential store (`assistant credentials`) or the `~/.vellum/protected/` directory for sensitive data.
+
 ## Release Update Hygiene
 
 When shipping a release with user/assistant-facing changes, update `assistant/src/prompts/templates/UPDATES.md`. Leave empty for no-op releases. Don't modify `~/.vellum/workspace/UPDATES.md` directly. Checkpoint keys (`updates:active_releases`, `updates:completed_releases`) in `memory_checkpoints` track bulletin lifecycle — don't manipulate directly.
