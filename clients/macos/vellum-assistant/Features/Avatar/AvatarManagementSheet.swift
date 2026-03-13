@@ -10,6 +10,9 @@ struct AvatarManagementSheet: View {
     @State private var showingCharacterBuilder = false
     @State private var draftImage: NSImage?
     @State private var selectedPresetID: String?
+    @State private var draftBody: AvatarBodyShape?
+    @State private var draftEyes: AvatarEyeStyle?
+    @State private var draftColor: AvatarColor?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -20,6 +23,9 @@ struct AvatarManagementSheet: View {
                         withAnimation(VAnimation.fast) {
                             draftImage = nil
                             selectedPresetID = nil
+                            draftBody = nil
+                            draftEyes = nil
+                            draftColor = nil
                             showingCharacterBuilder = false
                         }
                     } label: {
@@ -126,10 +132,10 @@ struct AvatarManagementSheet: View {
 
             // Generate Random button
             VButton(label: "Generate Random", icon: "dice", style: .outlined) {
-                let body = AvatarBodyShape.allCases.randomElement()!
-                let eyes = AvatarEyeStyle.allCases.randomElement()!
-                let color = AvatarColor.allCases.randomElement()! // color-literal-ok
-                draftImage = AvatarCompositor.render(bodyShape: body, eyeStyle: eyes, color: color)
+                draftBody = AvatarBodyShape.allCases.randomElement()!
+                draftEyes = AvatarEyeStyle.allCases.randomElement()!
+                draftColor = AvatarColor.allCases.randomElement()! // color-literal-ok
+                renderDraft()
                 selectedPresetID = nil
             }
             .padding(.bottom, VSpacing.lg)
@@ -142,6 +148,9 @@ struct AvatarManagementSheet: View {
                 ForEach(PresetAvatar.all) { preset in
                     if let image = preset.image {
                         Button {
+                            draftBody = preset.bodyShape
+                            draftEyes = preset.eyeStyle
+                            draftColor = preset.color
                             draftImage = image
                             selectedPresetID = preset.id
                         } label: {
@@ -187,6 +196,13 @@ struct AvatarManagementSheet: View {
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.lg)
         }
+    }
+
+    // MARK: - Draft Rendering
+
+    private func renderDraft() {
+        guard let body = draftBody, let eyes = draftEyes, let color = draftColor else { return }
+        draftImage = AvatarCompositor.render(bodyShape: body, eyeStyle: eyes, color: color)
     }
 
     // MARK: - Action Row
