@@ -641,6 +641,9 @@ enum LogExporter {
             "ttsVoiceId",
             "selectedImageGenModel",
             "activityNotificationsEnabled",
+            "user.displayName",
+            "user.email",
+            "tos.acceptedAt",
         ]
 
         let boolKeys = [
