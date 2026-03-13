@@ -91,13 +91,17 @@ export async function setSlackChannelConfig(
         user?: string;
       };
       if (!data.ok) {
-        const errConn = getConnectionByProvider("slack_channel");
-        const errConnected = !!(errConn && errConn.status === "active");
+        const errHasBotToken = !!getSecureKey(
+          credentialKey("slack_channel", "bot_token"),
+        );
+        const errHasAppToken = !!getSecureKey(
+          credentialKey("slack_channel", "app_token"),
+        );
         return {
           success: false,
-          hasBotToken: errConnected,
-          hasAppToken: errConnected,
-          connected: errConnected,
+          hasBotToken: errHasBotToken,
+          hasAppToken: errHasAppToken,
+          connected: errHasBotToken && errHasAppToken,
           error: `Slack API validation failed: ${
             data.error ?? "unknown error"
           }`,
@@ -111,13 +115,17 @@ export async function setSlackChannelConfig(
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const errConn = getConnectionByProvider("slack_channel");
-      const errConnected = !!(errConn && errConn.status === "active");
+      const errHasBotToken = !!getSecureKey(
+        credentialKey("slack_channel", "bot_token"),
+      );
+      const errHasAppToken = !!getSecureKey(
+        credentialKey("slack_channel", "app_token"),
+      );
       return {
         success: false,
-        hasBotToken: errConnected,
-        hasAppToken: errConnected,
-        connected: errConnected,
+        hasBotToken: errHasBotToken,
+        hasAppToken: errHasAppToken,
+        connected: errHasBotToken && errHasAppToken,
         error: `Failed to validate bot token: ${message}`,
       };
     }
@@ -127,13 +135,17 @@ export async function setSlackChannelConfig(
       botToken,
     );
     if (!stored) {
-      const errConn = getConnectionByProvider("slack_channel");
-      const errConnected = !!(errConn && errConn.status === "active");
+      const errHasBotToken = !!getSecureKey(
+        credentialKey("slack_channel", "bot_token"),
+      );
+      const errHasAppToken = !!getSecureKey(
+        credentialKey("slack_channel", "app_token"),
+      );
       return {
         success: false,
-        hasBotToken: errConnected,
-        hasAppToken: errConnected,
-        connected: errConnected,
+        hasBotToken: errHasBotToken,
+        hasAppToken: errHasAppToken,
+        connected: errHasBotToken && errHasAppToken,
         error: "Failed to store bot token in secure storage",
       };
     }
@@ -161,13 +173,17 @@ export async function setSlackChannelConfig(
   // Validate and store app token
   if (appToken) {
     if (!appToken.startsWith("xapp-")) {
-      const errConn = getConnectionByProvider("slack_channel");
-      const errConnected = !!(errConn && errConn.status === "active");
+      const errHasBotToken = !!getSecureKey(
+        credentialKey("slack_channel", "bot_token"),
+      );
+      const errHasAppToken = !!getSecureKey(
+        credentialKey("slack_channel", "app_token"),
+      );
       return {
         success: false,
-        hasBotToken: errConnected,
-        hasAppToken: errConnected,
-        connected: errConnected,
+        hasBotToken: errHasBotToken,
+        hasAppToken: errHasAppToken,
+        connected: errHasBotToken && errHasAppToken,
         error: 'Invalid app token: must start with "xapp-"',
       };
     }
@@ -177,13 +193,17 @@ export async function setSlackChannelConfig(
       appToken,
     );
     if (!stored) {
-      const errConn = getConnectionByProvider("slack_channel");
-      const errConnected = !!(errConn && errConn.status === "active");
+      const errHasBotToken = !!getSecureKey(
+        credentialKey("slack_channel", "bot_token"),
+      );
+      const errHasAppToken = !!getSecureKey(
+        credentialKey("slack_channel", "app_token"),
+      );
       return {
         success: false,
-        hasBotToken: errConnected,
-        hasAppToken: errConnected,
-        connected: errConnected,
+        hasBotToken: errHasBotToken,
+        hasAppToken: errHasAppToken,
+        connected: errHasBotToken && errHasAppToken,
         error: "Failed to store app token in secure storage",
       };
     }
