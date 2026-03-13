@@ -73,9 +73,11 @@ extension AppDelegate {
     /// Retries the daemon connection after a bootstrap timeout. Called when
     /// the user taps "Try Again" on the bootstrap timeout screen.
     func retryBootstrap() {
+        bootstrapRetryTask?.cancel()
         transitionBootstrap(to: .pendingDaemon)
-        Task {
+        bootstrapRetryTask = Task {
             let ready = await awaitDaemonReady(timeout: 15)
+            guard !Task.isCancelled else { return }
             if ready {
                 transitionBootstrap(to: .pendingWakeupSend)
                 await performRetriableWakeUpSend()

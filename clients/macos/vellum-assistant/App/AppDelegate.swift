@@ -81,6 +81,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var logReportWindowObserver: NSObjectProtocol?
     /// Opaque observer token for the bootstrap-retry notification.
     var bootstrapRetryObserver: NSObjectProtocol?
+    /// In-flight bootstrap retry task so rapid "Try Again" taps don't race.
+    var bootstrapRetryTask: Task<Void, Never>?
     /// Background task that retries actor-token bootstrap until success.
     var actorTokenBootstrapTask: Task<Void, Never>?
     /// Opaque token returned by `NotificationCenter.addObserver(forName:)` for
@@ -411,6 +413,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         if let observer = bootstrapRetryObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        bootstrapRetryTask?.cancel()
         statusIconCancellable?.cancel()
         conversationBadgeCancellable?.cancel()
         NSApp.dockTile.badgeLabel = nil
