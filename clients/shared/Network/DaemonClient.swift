@@ -2532,7 +2532,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         guard var request = buildLocalRequest(target: .daemon, path: "v1/memory-items/\(encoded)", method: "DELETE") else { return false }
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (_, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse else { return false }
 
             if http.statusCode == 401 {
