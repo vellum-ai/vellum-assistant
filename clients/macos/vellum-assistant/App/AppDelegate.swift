@@ -48,7 +48,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var cmdNLocalMonitor: Any?
     var navLocalMonitor: Any?
     var zoomLocalMonitor: Any?
-    public let services = AppServices()
+    public lazy var services = AppServices(notificationIconProvider: notificationIconProvider)
     let assistantCli = AssistantCli()
     public let updateManager = UpdateManager()
     let debugStateWriter = DebugStateWriter()
@@ -63,7 +63,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var zoomManager: ZoomManager { services.zoomManager }
     var conversationZoomManager: ConversationZoomManager { services.conversationZoomManager }
 
-    let toolConfirmationNotificationService = ToolConfirmationNotificationService()
+    let notificationIconProvider: NotificationIconProviding = NotificationIconProvider()
+    lazy var toolConfirmationNotificationService = ToolConfirmationNotificationService(notificationIconProvider: notificationIconProvider)
     lazy var recordingManager: RecordingManager = RecordingManager(daemonClient: daemonClient)
     var recordingPickerWindow: RecordingSourcePickerWindow?
     var recordingHUDWindow: RecordingHUDWindow?

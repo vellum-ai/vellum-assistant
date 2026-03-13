@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 import UserNotifications
 import CoreText
 import VellumAssistantShared
@@ -279,6 +280,17 @@ extension AppDelegate {
             }
         }
         content.userInfo = userInfo
+
+        // Attach assistant avatar icon
+        let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+        if let iconURL = notificationIconProvider.notificationIconURL(for: assistantId),
+           let attachment = try? UNNotificationAttachment(
+               identifier: "assistant-avatar",
+               url: iconURL,
+               options: [UNNotificationAttachmentOptionsTypeHintKey: UTType.png.identifier]
+           ) {
+            content.attachments = [attachment]
+        }
 
         let notificationId = "notification-intent-\(UUID().uuidString)"
         let request = UNNotificationRequest(
