@@ -17,11 +17,7 @@ import { enqueueMemoryJob } from "./jobs-store.js";
 import { extractTextFromStoredMessageContent } from "./message-content.js";
 import { withQdrantBreaker } from "./qdrant-circuit-breaker.js";
 import { getQdrantClient } from "./qdrant-client.js";
-import {
-  memoryItems,
-  memoryItemSources,
-  messages,
-} from "./schema.js";
+import { memoryItems, memoryItemSources, messages } from "./schema.js";
 import { isConversationFailed } from "./task-memory-cleanup.js";
 import { clampUnitInterval } from "./validation.js";
 
@@ -46,6 +42,8 @@ interface ExtractedItem {
   fingerprint: string;
   supersedes: string | null;
   overrideConfidence: OverrideConfidence;
+  /** True when the LLM emitted a supersedes ID that was rejected (hallucinated). */
+  supersedesRejected?: boolean;
 }
 
 const VALID_KINDS = new Set<string>([
@@ -412,6 +410,7 @@ async function extractItemsWithLLM(
           rawSupersedes && existingItemIds.has(rawSupersedes)
             ? rawSupersedes
             : null;
+        const supersedesRejected = !!rawSupersedes && !supersedes;
         const overrideConfidence = VALID_OVERRIDE_CONFIDENCES.has(
           raw.overrideConfidence,
         )
@@ -427,6 +426,7 @@ async function extractItemsWithLLM(
           fingerprint,
           supersedes,
           overrideConfidence,
+          supersedesRejected,
         });
       }
 
@@ -643,9 +643,12 @@ export async function extractAndUpsertMemoryItemsForMessage(
     // Fallback subject-match supersession: only when the LLM did not
     // explicitly handle supersession for this item. This preserves the
     // original behavior for pattern-based extraction and items without
-    // LLM-directed supersession.
+    // LLM-directed supersession. Skip items whose supersedes ID was
+    // rejected (hallucinated) — they should coexist, not trigger
+    // subject-based replacement.
     if (
       !item.supersedes &&
+      !item.supersedesRejected &&
       SUPERSEDE_KINDS.has(item.kind) &&
       effectiveStatus === "active"
     ) {
@@ -815,4 +818,3 @@ function parseScore(value: unknown, fallback: number): number {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
-
