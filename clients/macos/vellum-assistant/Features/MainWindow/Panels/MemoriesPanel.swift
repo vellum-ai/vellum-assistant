@@ -30,12 +30,12 @@ private enum MemoryStatusFilter: String, CaseIterable {
     case inactive = "Inactive"
     case all = "All"
 
-    /// API value: nil means no filter (all).
-    var apiValue: String? {
+    /// API value sent as the `status` query parameter.
+    var apiValue: String {
         switch self {
         case .active: return "active"
         case .inactive: return "inactive"
-        case .all: return nil
+        case .all: return "all"
         }
     }
 }
@@ -64,6 +64,10 @@ struct MemoriesPanel: View {
             contentView
         }
         .task { await store.loadItems() }
+        .onDisappear {
+            searchDebounceTask?.cancel()
+            searchDebounceTask = nil
+        }
         .sheet(item: $selectedItem) { item in
             MemoryItemDetailSheet(
                 item: item,
