@@ -9,7 +9,7 @@ struct LogReportFormView: View {
     let onCancel: () -> Void
 
     @State private var selectedReason: LogReportReason?
-    @State private var name: String = ""
+    @State private var name: String = UserDefaults.standard.string(forKey: "user.displayName") ?? ""
     @State private var message: String = ""
     @AppStorage("logReportEmail") private var email: String = ""
 
@@ -30,6 +30,13 @@ struct LogReportFormView: View {
         .padding(VSpacing.xl)
         .background(VColor.surfaceOverlay)
         .frame(width: 480)
+        .onAppear {
+            if email.isEmpty,
+               let globalEmail = UserDefaults.standard.string(forKey: "user.email"),
+               !globalEmail.isEmpty {
+                email = globalEmail
+            }
+        }
     }
 
     // MARK: - Sections
