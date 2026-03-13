@@ -161,7 +161,7 @@ export async function handleIngressConfig(
       // Best-effort Twilio webhook reconciliation: when ingress is being
       // enabled/updated and Twilio numbers are assigned with valid credentials,
       // push the new webhook URLs to Twilio so calls route correctly.
-      if (isEnabled && hasTwilioCredentials()) {
+      if (isEnabled && (await hasTwilioCredentials())) {
         const currentConfig = loadRawConfig();
         const twilioConfig = (currentConfig?.twilio ?? {}) as Record<
           string,
@@ -188,7 +188,7 @@ export async function handleIngressConfig(
 
         if (assignedNumbers.size > 0) {
           const { accountSid: acctSid, authToken: acctToken } =
-            getTwilioCredentials();
+            await getTwilioCredentials();
           // Fire-and-forget: webhook sync failure must not block the ingress save.
           // Reconcile every assigned number so assistant-scoped mappings do not
           // retain stale Twilio webhook URLs after ingress URL changes.

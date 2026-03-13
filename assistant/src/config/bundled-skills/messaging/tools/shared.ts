@@ -106,10 +106,12 @@ export function extractEmail(address: string): string {
  * If only one provider is connected, auto-select it.
  * Otherwise, throw asking the user to specify.
  */
-export function resolveProvider(platformInput?: string): MessagingProvider {
+export async function resolveProvider(
+  platformInput?: string,
+): Promise<MessagingProvider> {
   if (platformInput) return getMessagingProvider(platformInput);
 
-  const connected = getConnectedProviders();
+  const connected = await getConnectedProviders();
   if (connected.length === 1) return connected[0];
   if (connected.length === 0) {
     throw new Error(
@@ -133,6 +135,6 @@ export function resolveProvider(platformInput?: string): MessagingProvider {
 export async function getProviderConnection(
   provider: MessagingProvider,
 ): Promise<OAuthConnection | string> {
-  if (provider.isConnected?.()) return "";
+  if (await provider.isConnected?.()) return "";
   return resolveOAuthConnection(provider.credentialService);
 }

@@ -17,7 +17,7 @@ export async function run(
   }
 
   try {
-    const provider = resolveProvider(platform);
+    const provider = await resolveProvider(platform);
     if (!provider.markRead) {
       return err(
         `${provider.displayName} does not support marking messages as read.`,

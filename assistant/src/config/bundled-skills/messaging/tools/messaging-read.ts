@@ -18,7 +18,7 @@ export async function run(
   }
 
   try {
-    const provider = resolveProvider(platform);
+    const provider = await resolveProvider(platform);
     const conn = await getProviderConnection(provider);
     let messages;
     if (threadId && provider.getThreadReplies) {

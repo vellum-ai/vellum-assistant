@@ -45,7 +45,7 @@ export async function run(
   }
 
   try {
-    const provider = resolveProvider(platform);
+    const provider = await resolveProvider(platform);
 
     // Non-Gmail platforms: reject attachment_paths
     if (provider.id !== "gmail" && attachmentPaths?.length) {

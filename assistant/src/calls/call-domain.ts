@@ -177,7 +177,7 @@ export async function resolveCallerIdentity(
   }
 
   if (mode === "assistant_number") {
-    const twilioConfig = getTwilioConfig();
+    const twilioConfig = await getTwilioConfig();
     log.info(
       { mode, source, fromNumber: twilioConfig.phoneNumber },
       "Resolved caller identity",

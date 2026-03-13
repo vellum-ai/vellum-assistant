@@ -22,7 +22,7 @@ export async function run(
   }
 
   try {
-    const provider = resolveProvider(platform);
+    const provider = await resolveProvider(platform);
 
     if (!provider.archiveByQuery) {
       return err(

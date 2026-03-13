@@ -15,7 +15,7 @@ export async function run(
   const pageToken = input.page_token as string | undefined;
 
   try {
-    const provider = resolveProvider(platform);
+    const provider = await resolveProvider(platform);
 
     if (!provider.senderDigest) {
       return err(
