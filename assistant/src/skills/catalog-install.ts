@@ -340,6 +340,9 @@ export async function installSkillLocally(
 
 /**
  * Resolve the catalog skill list, checking local (dev mode) first, then remote.
+ * In dev mode with local entries, returns local-only to avoid blocking on
+ * network calls. Use `resolveCatalogWithRemoteFallback` when you need to check
+ * remote for a specific skill that wasn't found locally.
  * Callers that install multiple skills in a loop should call this once and pass
  * the result to `autoInstallFromCatalog` to avoid redundant network requests.
  */
@@ -348,20 +351,45 @@ export async function resolveCatalog(): Promise<CatalogSkill[]> {
   if (repoSkillsDir) {
     const local = readLocalCatalog(repoSkillsDir);
     if (local.length > 0) {
-      // Merge with remote catalog so skills not in local catalog.json
-      // can still be found. Local entries take precedence by id.
-      try {
-        const remote = await fetchCatalog();
-        const localIds = new Set(local.map((s) => s.id));
-        return [...local, ...remote.filter((s) => !localIds.has(s.id))];
-      } catch {
-        // If remote fetch fails, fall back to local-only
-        return local;
-      }
+      return local;
     }
   }
 
   return fetchCatalog();
+}
+
+/**
+ * Merge local catalog with remote, used as a fallback when a specific skill
+ * was not found in the local-only catalog. Uses a short timeout to limit
+ * latency impact in dev mode.
+ */
+async function resolveCatalogWithRemoteFallback(
+  localCatalog: CatalogSkill[],
+): Promise<CatalogSkill[]> {
+  try {
+    const url = `${getPlatformUrl()}/v1/skills/`;
+    const response = await fetch(url, {
+      headers: buildHeaders(),
+      signal: AbortSignal.timeout(3000),
+    });
+
+    if (!response.ok) {
+      return localCatalog;
+    }
+
+    const manifest = (await response.json()) as CatalogManifest;
+    if (!Array.isArray(manifest.skills)) {
+      return localCatalog;
+    }
+
+    const localIds = new Set(localCatalog.map((s) => s.id));
+    return [
+      ...localCatalog,
+      ...manifest.skills.filter((s) => !localIds.has(s.id)),
+    ];
+  } catch {
+    return localCatalog;
+  }
 }
 
 /**
@@ -392,7 +420,29 @@ export async function autoInstallFromCatalog(
     }
   }
 
-  const entry = skills.find((s) => s.id === skillId);
+  let entry = skills.find((s) => s.id === skillId);
+
+  // In dev mode, if the skill wasn't found in the local catalog,
+  // try merging with remote catalog before giving up.
+  // Mutates the provided catalog array so subsequent calls in a loop
+  // benefit from the merged result without redundant network requests.
+  if (!entry && getRepoSkillsDir()) {
+    try {
+      const merged = await resolveCatalogWithRemoteFallback(skills);
+      // Push new remote entries into the original array so callers
+      // passing a cached catalog see the update.
+      const existingIds = new Set(skills.map((s) => s.id));
+      for (const s of merged) {
+        if (!existingIds.has(s.id)) {
+          skills.push(s);
+        }
+      }
+      entry = skills.find((s) => s.id === skillId);
+    } catch {
+      // Remote fallback failed, stick with local-only result
+    }
+  }
+
   if (!entry) {
     return false;
   }
