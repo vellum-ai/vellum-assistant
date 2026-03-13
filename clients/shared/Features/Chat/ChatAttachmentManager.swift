@@ -159,21 +159,21 @@ public final class ChatAttachmentManager: ObservableObject {
         await loadSemaphore.wait()
         // Hop off the main actor for all blocking I/O and CPU work.
         let result = await Task.detached(priority: .userInitiated) {
+            // Pre-read size check to avoid loading huge files into memory.
+            let memorySafetyLimit = 500 * 1024 * 1024
+            if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+               let fileSize = attrs[.size] as? Int,
+               fileSize > memorySafetyLimit {
+                let sizeMB = fileSize / (1024 * 1024)
+                return Result<ChatAttachment, AttachmentError>.failure(.message("This file is \(sizeMB) MB which is too large to process safely. Please choose a smaller file."))
+            }
+
             let data: Data
             do {
                 data = try Data(contentsOf: url)
             } catch {
                 log.error("Failed to read attachment: \(error.localizedDescription)")
                 return Result<ChatAttachment, AttachmentError>.failure(.message("Could not read file."))
-            }
-
-            // Memory safety: base64 encoding allocates ~133% of raw bytes.
-            // With maxConcurrentLoads=4, a 500 MB file could use ~2.6 GB.
-            // Guard against OOM without imposing practical user-facing limits.
-            let memorySafetyLimit = 500 * 1024 * 1024
-            if data.count > memorySafetyLimit {
-                let sizeMB = data.count / (1024 * 1024)
-                return .failure(.message("This file is \(sizeMB) MB which is too large to process safely. Please choose a smaller file."))
             }
 
             if data.count > 20 * 1024 * 1024 {
