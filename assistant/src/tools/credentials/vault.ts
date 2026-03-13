@@ -3,6 +3,7 @@ import { orchestrateOAuthConnect } from "../../oauth/connect-orchestrator.js";
 import {
   disconnectOAuthProvider,
   getAppByProviderAndClientId,
+  getConnectionByProviderAndAccount,
   getMostRecentAppByProvider,
   getProvider,
 } from "../../oauth/oauth-store.js";
@@ -71,6 +72,11 @@ class CredentialStoreTool implements Tool {
           service: {
             type: "string",
             description: "Service name, e.g. gmail, github",
+          },
+          account: {
+            type: "string",
+            description:
+              "Account identifier (e.g. email address) to target a specific connection when multiple accounts are connected for the same service. If omitted, uses the most recently connected account.",
           },
           field: {
             type: "string",
@@ -453,7 +459,19 @@ class CredentialStoreTool implements Tool {
         }
         // Also clean up any OAuth connection for this service (best-effort)
         try {
-          const oauthResult = await disconnectOAuthProvider(service);
+          const accountHint = input.account as string | undefined;
+          let oauthResult: "disconnected" | "not-found" | "error";
+          if (accountHint) {
+            const targetConn = getConnectionByProviderAndAccount(
+              service,
+              accountHint,
+            );
+            oauthResult = targetConn
+              ? await disconnectOAuthProvider(service, undefined, targetConn.id)
+              : "not-found";
+          } else {
+            oauthResult = await disconnectOAuthProvider(service);
+          }
           if (oauthResult === "error") {
             log.warn(
               { service },
