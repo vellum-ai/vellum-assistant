@@ -17,7 +17,7 @@ public struct CardModifier: ViewModifier {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: radius)
-                    .strokeBorder(VColor.borderBase, lineWidth: 2)
+                    .strokeBorder(VColor.borderDisabled, lineWidth: 2)
                     .allowsHitTesting(false)
             )
     }

@@ -75,20 +75,20 @@ struct SettingsPanel: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(VColor.contentSecondary)
+                .foregroundStyle(VColor.primaryBase)
                 .pointerCursor()
                 .accessibilityLabel("Back")
 
                 Text("Settings")
                     .font(VFont.panelTitle)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundColor(VColor.contentEmphasized)
 
                 Spacer()
             }
             .padding(.trailing, VSpacing.xl)
             .padding(.bottom, VSpacing.md)
 
-            VColor.borderBase.frame(height: 1)
+            VColor.borderDisabled.frame(height: 1)
                 .padding(.trailing, VSpacing.xl)
 
             // Body: nav pinned left + centered content with max width
@@ -118,7 +118,7 @@ struct SettingsPanel: View {
         }
         .padding(.top, VSpacing.xl)
         .padding(.leading, VSpacing.xl)
-        .background(VColor.surfaceBase)
+        .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .task {
             // Refresh permission status and feature flags when the view appears
@@ -600,7 +600,7 @@ private struct SettingsNavRow: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .font(VFont.body)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundColor(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
                 Spacer()
             }
             .padding(.leading, VSpacing.sm)
