@@ -53,17 +53,17 @@ public final class ChatAttachmentManager: ObservableObject {
         didSet { isLoadingAttachment = loadingCount > 0 }
     }
 
-    /// Limits concurrent attachment I/O to avoid unbounded memory spikes when
-    /// many files are selected at once.
-    private static let maxConcurrentLoads = 4
+    /// Limits concurrent attachment I/O. Each attachment can consume up to ~270 MB
+    /// (200 MB raw + base64 overhead), so capping at 2 keeps peak memory under ~540 MB.
+    private static let maxConcurrentLoads = 2
     private let loadSemaphore = AsyncSemaphore(value: maxConcurrentLoads)
 
     // MARK: - Limits
 
     /// Safety cap to prevent unbounded memory allocation (200 MB). Files are read
-    /// entirely into memory and then base64-encoded (~33% overhead), so this limits
-    /// peak memory per attachment to ~270 MB. The server-side daemon enforces its
-    /// own 20 MB limit and will reject oversized payloads gracefully.
+    /// entirely into memory and then base64-encoded (~33% overhead). With
+    /// maxConcurrentLoads = 2, worst-case peak memory is ~540 MB. The server-side
+    /// daemon enforces its own limit and will reject oversized payloads gracefully.
     nonisolated static let maxFileSize = 200 * 1024 * 1024
     /// Maximum image size before compression (4 MB - leaves headroom for base64 encoding).
     /// Anthropic has a 5 MB limit per image; base64 encoding adds ~33% overhead.
