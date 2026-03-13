@@ -37,7 +37,6 @@ struct AssistantProgressView: View {
     var onTemporaryAllow: ((String, String) -> Void)? = nil
     var activeConfirmationRequestId: String? = nil  // For keyboard focus
 
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.suppressAutoScroll) private var suppressAutoScroll
     @State private var isExpanded: Bool = false
     @State private var startDate: Date = Date()
