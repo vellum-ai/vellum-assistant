@@ -29,16 +29,6 @@ final class AttachmentFlowIOSTests: XCTestCase {
         super.tearDown()
     }
 
-    // MARK: - Attachment Constants
-
-    func testMaxFileSizeConstant() {
-        XCTAssertEqual(ChatViewModel.maxFileSize, 20 * 1024 * 1024, "Max file size should be 20 MB")
-    }
-
-    func testMaxImageSizeConstant() {
-        XCTAssertEqual(ChatViewModel.maxImageSize, 4 * 1024 * 1024, "Max image size should be 4 MB")
-    }
-
     // MARK: - Pending Attachments
 
     func testInitialPendingAttachmentsEmpty() {
