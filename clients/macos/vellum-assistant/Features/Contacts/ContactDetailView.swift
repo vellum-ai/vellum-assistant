@@ -426,10 +426,6 @@ struct ContactDetailView: View {
                 }
 
                 Spacer()
-
-                Text("Not set up")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
             }
 
             // Guardian contacts get the full channel verification flow; others get invite button
