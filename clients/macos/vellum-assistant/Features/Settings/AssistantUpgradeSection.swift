@@ -1,6 +1,5 @@
 import Foundation
 import SwiftUI
-import VellumAssistantShared
 
 /// Upgrade section for managed/remote assistants.
 ///
@@ -9,7 +8,6 @@ import VellumAssistantShared
 /// Only displayed when the assistant is managed (`isManaged == true`).
 @MainActor
 struct AssistantUpgradeSection: View {
-    let assistant: LockfileAssistant
     let currentVersion: String?
 
     @State private var availableReleases: [AssistantRelease] = []

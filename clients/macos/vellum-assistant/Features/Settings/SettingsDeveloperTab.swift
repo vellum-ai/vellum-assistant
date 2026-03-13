@@ -87,7 +87,7 @@ struct SettingsDeveloperTab: View {
             // Upgrade (managed/remote only)
             if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
                assistant.isManaged || assistant.isRemote {
-                AssistantUpgradeSection(assistant: assistant, currentVersion: healthz?.version)
+                AssistantUpgradeSection(currentVersion: healthz?.version)
             }
             // Hatch New Assistant
             hatchNewAssistantSection
@@ -626,7 +626,7 @@ struct SettingsDeveloperTab: View {
         guard let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) else { return }
 
         if assistant.isManaged || assistant.isRemote {
-            await performManagedRestart(assistant: assistant)
+            await performManagedRestart()
         } else {
             await performLocalRestart()
         }
@@ -635,7 +635,7 @@ struct SettingsDeveloperTab: View {
         await fetchHealthz()
     }
 
-    private func performManagedRestart(assistant: LockfileAssistant) async {
+    private func performManagedRestart() async {
         _ = try? await GatewayHTTPClient.post(path: "restart")
     }
 
