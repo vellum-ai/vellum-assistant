@@ -210,6 +210,35 @@ describe("Memory Item Routes", () => {
       expect(body.items[0].id).toBe("i1");
     });
 
+    test("returns items of all statuses when status=all", async () => {
+      insertItem({
+        id: "i1",
+        kind: "preference",
+        subject: "s1",
+        statement: "st1",
+        status: "active",
+      });
+      insertItem({
+        id: "i2",
+        kind: "identity",
+        subject: "s2",
+        statement: "st2",
+        status: "deleted",
+      });
+
+      const ctx = makeCtx({ status: "all" });
+      const res = await handler(ctx);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        items: Array<{ id: string }>;
+        total: number;
+      };
+      expect(body.total).toBe(2);
+      expect(body.items.length).toBe(2);
+      const ids = body.items.map((i) => i.id).sort();
+      expect(ids).toEqual(["i1", "i2"]);
+    });
+
     test("filters by kind", async () => {
       insertItem({
         id: "i1",
