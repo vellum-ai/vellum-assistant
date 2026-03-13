@@ -1025,7 +1025,6 @@ export type StartInviteCallInput = {
   friendName: string;
   guardianName: string;
   assistantId?: string;
-  originConversationId?: string;
 };
 
 export type StartInviteCallResult = { ok: true; callSid: string } | CallError;
@@ -1040,7 +1039,7 @@ export type StartInviteCallResult = { ok: true; callSid: string } | CallError;
 export async function startInviteCall(
   input: StartInviteCallInput,
 ): Promise<StartInviteCallResult> {
-  const { phoneNumber, friendName, guardianName, originConversationId } = input;
+  const { phoneNumber, friendName, guardianName } = input;
 
   if (!phoneNumber || !E164_REGEX.test(phoneNumber)) {
     return {
@@ -1086,7 +1085,10 @@ export async function startInviteCall(
       provider: "twilio",
       fromNumber: identityResult.fromNumber,
       toNumber: phoneNumber,
-      initiatedFromConversationId: originConversationId,
+      callMode: "invite",
+      inviteFriendName: friendName,
+      inviteGuardianName: guardianName,
+      initiatedFromConversationId: conversationId,
     });
     sessionId = session.id;
 
@@ -1109,12 +1111,6 @@ export async function startInviteCall(
       to: phoneNumber,
       webhookUrl,
       statusCallbackUrl,
-      customParams: {
-        inviteRedemptionMode: "true",
-        inviteRedemptionFromNumber: phoneNumber,
-        inviteRedemptionFriendName: friendName,
-        inviteRedemptionGuardianName: guardianName,
-      },
     });
 
     updateCallSession(session.id, { providerCallSid: callSid });

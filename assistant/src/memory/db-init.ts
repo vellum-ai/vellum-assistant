@@ -37,6 +37,7 @@ import {
   migrateBackfillContactInteractionStats,
   migrateBackfillGuardianPrincipalId,
   migrateBackfillUsageCacheAccounting,
+  migrateCallSessionInviteMetadata,
   migrateCallSessionMode,
   migrateCanonicalGuardianDeliveriesDestinationIndex,
   migrateCanonicalGuardianRequesterChatId,
@@ -367,6 +368,9 @@ export function initializeDb(): void {
 
   // 58. Drop memory_item_conflicts table (conflict resolution system removed)
   migrateDropConflicts(database);
+
+  // 59. Add invite metadata columns to call_sessions for outbound invite call routing
+  migrateCallSessionInviteMetadata(database);
 
   validateMigrationState(database);
 
