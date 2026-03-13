@@ -505,7 +505,7 @@ describe("Invariant 6: oauth2ClientSecret not in metadata, only in secure store"
 
   test("upsertCredentialMetadata does not accept oauth2ClientSecret or other OAuth fields", () => {
     const record = upsertCredentialMetadata(
-      "integration:gmail",
+      "integration:google",
       "access_token",
       {
         allowedTools: ["api_request"],
@@ -518,14 +518,14 @@ describe("Invariant 6: oauth2ClientSecret not in metadata, only in secure store"
 
   test("client secret is read from secure store, not metadata", () => {
     setSecureKey(
-      credentialKey("integration:gmail", "client_secret"),
+      credentialKey("integration:google", "client_secret"),
       "my-secret",
     );
-    upsertCredentialMetadata("integration:gmail", "access_token", {
+    upsertCredentialMetadata("integration:google", "access_token", {
       allowedTools: ["api_request"],
     });
 
-    const meta = getCredentialMetadata("integration:gmail", "access_token");
+    const meta = getCredentialMetadata("integration:google", "access_token");
     expect(meta).toBeDefined();
     expect("oauth2ClientSecret" in meta!).toBe(false);
     // OAuth-specific fields are no longer in metadata (v5)
@@ -534,7 +534,7 @@ describe("Invariant 6: oauth2ClientSecret not in metadata, only in secure store"
 
     // Secret is in secure store
     expect(
-      getSecureKey(credentialKey("integration:gmail", "client_secret")),
+      getSecureKey(credentialKey("integration:google", "client_secret")),
     ).toBe("my-secret");
   });
 
@@ -544,7 +544,7 @@ describe("Invariant 6: oauth2ClientSecret not in metadata, only in secure store"
       credentials: [
         {
           credentialId: "cred-v2-secret",
-          service: "integration:gmail",
+          service: "integration:google",
           field: "access_token",
           allowedTools: [],
           allowedDomains: [],
@@ -562,7 +562,7 @@ describe("Invariant 6: oauth2ClientSecret not in metadata, only in secure store"
       "utf-8",
     );
 
-    const meta = getCredentialMetadata("integration:gmail", "access_token");
+    const meta = getCredentialMetadata("integration:google", "access_token");
     expect(meta).toBeDefined();
     expect("oauth2ClientSecret" in meta!).toBe(false);
 

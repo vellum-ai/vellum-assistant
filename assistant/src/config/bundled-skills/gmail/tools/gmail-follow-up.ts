@@ -38,7 +38,7 @@ export async function run(
   }
 
   try {
-    const connection = resolveOAuthConnection("integration:gmail", account);
+    const connection = resolveOAuthConnection("integration:google", account);
     switch (action) {
       case "track": {
         const messageId = input.message_id as string;

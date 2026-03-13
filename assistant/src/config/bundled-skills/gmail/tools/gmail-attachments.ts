@@ -57,7 +57,7 @@ export async function run(
 
   if (action === "list") {
     try {
-      const connection = resolveOAuthConnection("integration:gmail", account);
+      const connection = resolveOAuthConnection("integration:google", account);
       const message = await getMessage(connection, messageId, "full");
       const attachments = collectAttachments(message.payload?.parts);
 
@@ -79,7 +79,7 @@ export async function run(
     if (!filename) return err("filename is required for download.");
 
     try {
-      const connection = resolveOAuthConnection("integration:gmail", account);
+      const connection = resolveOAuthConnection("integration:google", account);
       const attachment = await getAttachment(
         connection,
         messageId,
