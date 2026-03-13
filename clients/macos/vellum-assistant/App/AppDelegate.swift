@@ -27,18 +27,19 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var fnVGlobalMonitor: Any?
     var fnVLocalMonitor: Any?
     var overlayWindow: SessionOverlayWindow?
-    var currentSession: ComputerUseSession?
-    var currentTextSession: TextSession?
-    /// text_qa session IDs that should auto-enable CU auto-approve if they escalate.
-    var autoApproveEscalationSessionIds: Set<String> = []
+    var currentSession: (any SessionOverlayProviding)?
+    /// Proxy state tracker for host CU overlay (proxy-based computer use sessions).
+    var activeHostCuProxy: HostCuSessionProxy?
+    /// Conversation/session ID of the active host CU overlay.
+    var activeOverlayConversationId: String?
+    /// Cleanup task for dismissing the host CU overlay after completion.
+    var hostCuOverlayCleanupTask: Task<Void, Never>?
+    /// Combine subscriptions for host CU overlay state observation.
+    var hostCuOverlayCancellables = Set<AnyCancellable>()
     var isStartingSession = false
     var startSessionTask: Task<Void, Never>?
-    var textResponseWindow: TextResponseWindow?
     var voiceInput: VoiceInputManager?
-    var wakeWordCoordinator: WakeWordCoordinator?
-    var wakeWordErrorCancellable: AnyCancellable?
     var voiceTranscriptionWindow: VoiceTranscriptionWindow?
-    var thinkingWindow: ThinkingIndicatorWindow?
     var quickInputWindow: QuickInputWindow?
     var quickInputHotKeyRef: EventHotKeyRef?
     var quickInputEventHandlerRef: EventHandlerRef?
@@ -78,6 +79,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var bootstrapInterstitialWindow: NSWindow?
     var crashReportWindow: NSWindow?
     var crashReportWindowObserver: NSObjectProtocol?
+    var logReportWindow: NSWindow?
+    var logReportWindowObserver: NSObjectProtocol?
     /// Active task for the bootstrap retry coordinator. Cancelled on dismiss.
     var bootstrapRetryTask: Task<Void, Never>?
     /// Tracks the most recent failure kind during bootstrap retries so that
@@ -100,6 +103,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var keychainBroker: KeychainBrokerServer?
     #endif
     var windowObserver: Any?
+    /// Timestamp of the last `showMainWindow` call that performed work.
+    /// Used by the debounce guard in `showMainWindow()`.
+    var lastShowMainWindowTime: CFAbsoluteTime = 0
     weak var recordingViewModel: ChatViewModel?
     /// Text that was in the chat input before PTT voice recording started,
     /// so we can prepend it to partial/final transcriptions instead of overwriting.
@@ -140,8 +146,58 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     @AppStorage("themePreference") private var themePreference: String = "system"
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
+        // ── Single-instance guard ──────────────────────────────────────
+        // If another copy of this app is already running (e.g. Sparkle
+        // relaunch race, macOS state restoration, or accidental double-
+        // open), activate the existing instance and terminate this one.
+        // Uses Apple's NSRunningApplication API — the recommended way to
+        // detect running instances on macOS.
+        //
+        // Exception: performRestart() launches a new instance via
+        // NSWorkspace.openApplication (createsNewApplicationInstance: true)
+        // before terminating the old one.  Both processes are briefly
+        // alive.  performRestart() writes a transient sentinel file that
+        // the new instance checks here; if the file exists we are the
+        // replacement process and should proceed normally.
+        let restartSentinel = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent(".vellum/restart-in-progress")
+        let isRestart: Bool = {
+            guard let data = try? Data(contentsOf: restartSentinel),
+                  let stamp = String(data: data, encoding: .utf8),
+                  let written = TimeInterval(stamp) else {
+                // No file or unreadable — not a restart.
+                return false
+            }
+            // Honor the sentinel only if it was written within the last
+            // 30 seconds.  Stale sentinels (e.g. from a crash between
+            // writing and the new instance reading it) are ignored so
+            // the single-instance guard stays effective.
+            return Date().timeIntervalSince1970 - written < 30
+        }()
+        // Always remove the sentinel regardless of freshness so it
+        // doesn't accumulate on disk.
+        try? FileManager.default.removeItem(at: restartSentinel)
+
+        if !isRestart, let bundleId = Bundle.main.bundleIdentifier {
+            let others = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
+                .filter { $0 != .current && !$0.isTerminated }
+            if let existing = others.first {
+                log.info("[singleInstance] Another instance (pid \(existing.processIdentifier)) detected — activating it and terminating self")
+                existing.activate()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    NSApp.terminate(nil)
+                }
+                return
+            }
+        }
+
         Self.shared = self
         metricKitManager = MetricKitManager()
+
+        // Prevent macOS from automatically creating window tabs or restoring
+        // SwiftUI-managed windows (the Settings scene renders EmptyView and
+        // can appear as a blank window during activation policy transitions).
+        NSWindow.allowsAutomaticWindowTabbing = false
 
         // Initialize crash reporting eagerly so crashes before the daemon connects
         // are captured. Privacy opt-out is checked after the daemon is ready and
@@ -149,8 +205,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // lifecycle.ts (init at top, close after config load if flag disabled).
         let collectUsageData = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool ?? true
         let perfOptIn = collectUsageData && UserDefaults.standard.bool(forKey: "sendPerformanceReports")
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+        let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
         SentrySDK.start { options in
-            options.dsn = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
+            options.dsn = MetricKitManager.macosDSN
+            options.releaseName = "vellum-macos@\(appVersion)"
+            options.dist = buildNumber
+            options.environment = SentryDeviceInfo.sentryEnvironment
             options.debug = false
             options.tracesSampleRate = 0.1
             options.configureProfiling = { profilingOptions in
@@ -158,6 +219,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             }
             options.sendDefaultPii = false
         }
+        SentryDeviceInfo.configureSentryScope()
 
         // Surface any crash log from the previous session so the user can send
         // it. Also records this launch timestamp for the next session's check.
@@ -290,7 +352,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         }
 
         // Provision an AssistantAPIKey for local assistants so they can
-        // call platform APIs (e.g. managed avatar generation).
+        // call platform APIs.
         ensureLocalAssistantApiKey()
 
         if isFirstLaunch {
@@ -318,7 +380,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             }
         } else {
             showMainWindow()
-            setupWakeWordCoordinator()
             debugStateWriter.start(appDelegate: self)
         }
     }
@@ -326,6 +387,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     // MARK: - Application Lifecycle
 
     public func applicationWillTerminate(_ notification: Notification) {
+        // If Sparkle has a deferred update ready, install it now during
+        // the quit sequence so the new version launches after termination.
+        updateManager.installDeferredUpdateIfAvailable()
+
         if let monitor = hotKeyMonitor {
             NSEvent.removeMonitor(monitor)
         }

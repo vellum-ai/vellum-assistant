@@ -6,9 +6,23 @@ import { parseConversation, parseMessage } from "./conversation-crud.js";
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { getDb, rawAll } from "./db.js";
 import { conversations, messages } from "./schema.js";
-import { buildFtsMatchQuery } from "./search/lexical.js";
 
 const log = getLogger("conversation-store");
+
+/**
+ * Build an FTS5 MATCH query string from natural text by extracting tokens.
+ * Used for messages_fts full-text search over conversation content.
+ */
+function buildFtsMatchQuery(text: string): string | null {
+  const tokens = text
+    .toLowerCase()
+    .split(/[^a-z0-9_]+/g)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2);
+  if (tokens.length === 0) return null;
+  const unique = [...new Set(tokens)].slice(0, 24);
+  return unique.map((token) => `"${token.replace(/"/g, '""')}"`).join(" OR ");
+}
 
 export function listConversations(
   limit?: number,
@@ -160,7 +174,9 @@ export function isLastUserMessageToolResult(conversationId: string): boolean {
       Array.isArray(parsed) &&
       parsed.length > 0 &&
       parsed.every(
-        (block: Record<string, unknown>) => block.type === "tool_result",
+        (block: Record<string, unknown>) =>
+          block.type === "tool_result" ||
+          block.type === "web_search_tool_result",
       )
     ) {
       return true;
@@ -375,7 +391,10 @@ function buildExcerpt(rawContent: string, query: string): string {
         if (typeof block === "object" && block != null) {
           if (block.type === "text" && typeof block.text === "string") {
             parts.push(block.text);
-          } else if (block.type === "tool_result") {
+          } else if (
+            block.type === "tool_result" ||
+            block.type === "web_search_tool_result"
+          ) {
             const inner = Array.isArray(block.content) ? block.content : [];
             for (const ib of inner) {
               if (ib?.type === "text" && typeof ib.text === "string")

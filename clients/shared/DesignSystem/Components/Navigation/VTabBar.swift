@@ -15,18 +15,7 @@ public struct VTabBar<Content: View>: View {
             .padding(.horizontal, VSpacing.lg)
         }
         .frame(height: 36)
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
     }
 }
 
-#Preview("VTabBar") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        VTabBar {
-            VTab(label: "Home", icon: "house", isSelected: true, onSelect: {})
-            VTab(label: "Sessions", icon: "list.bullet", onSelect: {})
-            VTab(label: "Logs", icon: "doc.text", onSelect: {})
-        }
-    }
-    .frame(width: 500, height: 60)
-}

@@ -37,10 +37,10 @@ struct InlineVideoEmbedCard: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.surface)
+                .fill(VColor.surfaceBase)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.surfaceBorder.opacity(0.4), lineWidth: 0.5)
+                        .stroke(VColor.borderBase.opacity(0.4), lineWidth: 0.5)
                 )
 
             stateContent
@@ -77,11 +77,11 @@ struct InlineVideoEmbedCard: View {
     private var placeholderView: some View {
         VStack(spacing: VSpacing.sm) {
             VIconView(.play, size: 44)
-                .foregroundStyle(VColor.textSecondary)
+                .foregroundStyle(VColor.contentSecondary)
 
             Text(provider.capitalized)
                 .font(VFont.caption)
-                .foregroundStyle(VColor.textSecondary)
+                .foregroundStyle(VColor.contentSecondary)
         }
         .contentShape(Rectangle())
         .onTapGesture {
@@ -108,15 +108,15 @@ struct InlineVideoEmbedCard: View {
     private func failedView(_ message: String) -> some View {
         HStack(spacing: VSpacing.sm) {
             VIconView(.play, size: 16)
-                .foregroundStyle(VColor.textSecondary)
+                .foregroundStyle(VColor.contentSecondary)
 
             Text(provider.capitalized)
                 .font(VFont.caption)
-                .foregroundStyle(VColor.textSecondary)
+                .foregroundStyle(VColor.contentSecondary)
 
             Text(embedURL.absoluteString)
                 .font(VFont.caption)
-                .foregroundStyle(VColor.accent)
+                .foregroundStyle(VColor.primaryBase)
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
@@ -129,28 +129,4 @@ struct InlineVideoEmbedCard: View {
 }
 
 #if DEBUG
-#Preview("InlineVideoEmbedCard") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        VStack(spacing: VSpacing.lg) {
-            InlineVideoEmbedCard(
-                provider: "youtube",
-                videoID: "dQw4w9WgXcQ",
-                embedURL: URL(string: "https://www.youtube.com/embed/dQw4w9WgXcQ")!
-            )
-            InlineVideoEmbedCard(
-                provider: "vimeo",
-                videoID: "76979871",
-                embedURL: URL(string: "https://player.vimeo.com/video/76979871")!
-            )
-            InlineVideoEmbedCard(
-                provider: "loom",
-                videoID: "abc123def456",
-                embedURL: URL(string: "https://www.loom.com/embed/abc123def456")!
-            )
-        }
-        .padding()
-    }
-    .frame(width: 400, height: 640)
-}
 #endif

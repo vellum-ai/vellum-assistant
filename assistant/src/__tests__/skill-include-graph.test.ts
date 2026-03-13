@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { SkillSummary } from "../config/skills.js";
 import {
+  collectAllMissing,
   getImmediateChildren,
   indexCatalogById,
   traverseIncludes,
@@ -296,5 +297,70 @@ describe("validateIncludes — cycle detection", () => {
     if (!result.ok) {
       expect(result.error).toBe("missing");
     }
+  });
+});
+
+describe("collectAllMissing", () => {
+  test("returns empty set when skill has no includes", () => {
+    const catalog = [makeSkill("root")];
+    const index = indexCatalogById(catalog);
+    expect(collectAllMissing("root", index)).toEqual(new Set([]));
+  });
+
+  test("returns empty set when all includes are present", () => {
+    const catalog = [makeSkill("A", ["B"]), makeSkill("B")];
+    const index = indexCatalogById(catalog);
+    expect(collectAllMissing("A", index)).toEqual(new Set([]));
+  });
+
+  test("returns immediate missing children", () => {
+    const catalog = [makeSkill("A", ["B", "C"]), makeSkill("C")];
+    const index = indexCatalogById(catalog);
+    expect(collectAllMissing("A", index)).toEqual(new Set(["B"]));
+  });
+
+  test("returns transitive missing children", () => {
+    const catalog = [makeSkill("A", ["B"]), makeSkill("B", ["C"])];
+    const index = indexCatalogById(catalog);
+    expect(collectAllMissing("A", index)).toEqual(new Set(["C"]));
+  });
+
+  test("returns multiple missing at different levels", () => {
+    // A→B→C, B present but C missing
+    const catalog1 = [makeSkill("A", ["B"]), makeSkill("B", ["C"])];
+    const index1 = indexCatalogById(catalog1);
+    expect(collectAllMissing("A", index1)).toEqual(new Set(["C"]));
+
+    // A includes B and C, both missing
+    const catalog2 = [makeSkill("A", ["B", "C"])];
+    const index2 = indexCatalogById(catalog2);
+    expect(collectAllMissing("A", index2)).toEqual(new Set(["B", "C"]));
+  });
+
+  test("handles diamond with missing leaf", () => {
+    const catalog = [
+      makeSkill("A", ["B", "C"]),
+      makeSkill("B", ["D"]),
+      makeSkill("C", ["D"]),
+    ];
+    const index = indexCatalogById(catalog);
+    const result = collectAllMissing("A", index);
+    expect(result).toEqual(new Set(["D"]));
+    // Verify no duplicates (Set handles this, but confirm size)
+    expect(result.size).toBe(1);
+  });
+
+  test("does not loop infinitely on cycles", () => {
+    const catalog = [makeSkill("A", ["B"]), makeSkill("B", ["A"])];
+    const index = indexCatalogById(catalog);
+    expect(collectAllMissing("A", index)).toEqual(new Set([]));
+  });
+
+  test("handles cycle with missing node", () => {
+    const catalog = [makeSkill("A", ["B"]), makeSkill("B", ["C"])];
+    // C is missing, and if C referenced B it would be a cycle — but C isn't in catalog
+    // So A→B→C, C missing
+    const index = indexCatalogById(catalog);
+    expect(collectAllMissing("A", index)).toEqual(new Set(["C"]));
   });
 });

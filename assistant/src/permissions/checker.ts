@@ -48,7 +48,11 @@ function riskCacheKey(
   workingDir?: string,
   manifestOverride?: ManifestOverride,
 ): string {
-  const inputJson = JSON.stringify(input);
+  // Strip `reason` before computing the cache key — it is cosmetic and varies
+  // per invocation even for identical tool operations, causing unnecessary
+  // cache misses.
+  const { reason: _reason, ...cacheableInput } = input;
+  const inputJson = JSON.stringify(cacheableInput);
   const hash = createHash("sha256")
     .update(inputJson)
     .update("\0")
@@ -139,6 +143,7 @@ const LOW_RISK_PROGRAMS = new Set([
   "tree",
   "du",
   "df",
+  "assistant",
 ]);
 
 // High-risk shell programs / patterns
@@ -800,12 +805,12 @@ export async function check(
   }
 
   // Workspace mode: auto-allow workspace-scoped operations that don't have
-  // an explicit rule. Non-workspace operations fall through to risk-based policy.
-  // High-risk operations always require approval regardless of scope.
+  // an explicit rule, but only when risk is Low. Medium and High risk operations
+  // fall through to risk-based policy and always require approval.
   if (
     permissionsMode === "workspace" &&
     !matchedRule &&
-    risk !== RiskLevel.High
+    risk === RiskLevel.Low
   ) {
     // When sandbox is disabled, bash runs on the host — don't auto-allow
     const sandboxEnabled = getConfig().sandbox.enabled;

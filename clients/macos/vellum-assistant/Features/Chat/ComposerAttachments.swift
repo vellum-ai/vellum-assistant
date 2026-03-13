@@ -32,36 +32,36 @@ extension ComposerView {
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
             } else {
                 RoundedRectangle(cornerRadius: VRadius.sm)
-                    .fill(VColor.surfaceBorder.opacity(0.5))
+                    .fill(VColor.borderBase.opacity(0.5))
                     .frame(width: 28, height: 28)
                     .overlay {
                         VIconView(iconForMimeType(attachment.mimeType, filename: attachment.filename), size: 14)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
             }
 
             Text(attachment.filename)
                 .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
 
             Text("· \(fileSize)")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
 
             Button {
                 onRemoveAttachment(attachment.id)
             } label: {
                 VIconView(.x, size: 10)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Remove \(attachment.filename)")
         }
         .padding(.vertical, VSpacing.xs)
         .padding(.horizontal, VSpacing.sm)
-        .background(VColor.surfaceBorder.opacity(0.3))
+        .background(VColor.borderBase.opacity(0.3))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .frame(maxWidth: 280)
     }

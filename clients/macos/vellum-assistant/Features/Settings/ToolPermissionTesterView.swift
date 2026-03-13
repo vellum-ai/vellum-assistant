@@ -44,11 +44,11 @@ struct ToolPermissionTesterView: View {
             HStack(spacing: VSpacing.xl) {
                 VToggle(isOn: $model.isInteractive, label: "Interactive")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
 
                 VToggle(isOn: $model.forcePromptSideEffects, label: "In Temporary Chat")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
             }
         }
     }
@@ -94,18 +94,18 @@ struct ToolPermissionTesterView: View {
         HStack(spacing: VSpacing.xs) {
             Text(field.id)
                 .font(VFont.monoSmall)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             if field.isRequired {
                 Text("*")
                     .font(VFont.captionMedium)
-                    .foregroundColor(VColor.error)
+                    .foregroundColor(VColor.systemNegativeStrong)
             }
 
             if let desc = field.description {
                 Text(desc)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -139,15 +139,15 @@ struct ToolPermissionTesterView: View {
         case .json:
             TextEditor(text: fieldValueBinding(for: field.id))
                 .font(VFont.mono)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .scrollContentBackground(.hidden)
                 .frame(minHeight: 60, maxHeight: 120)
                 .padding(VSpacing.sm)
-                .background(VColor.inputBackground)
+                .background(VColor.surfaceActive)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.sm)
-                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                        .stroke(VColor.borderBase.opacity(0.5), lineWidth: 1)
                 )
         }
     }
@@ -180,7 +180,7 @@ struct ToolPermissionTesterView: View {
     @ViewBuilder
     private var simulateButton: some View {
         HStack(spacing: VSpacing.sm) {
-            VButton(label: model.isSimulating ? "Simulating\u{2026}" : "Simulate", style: .primary, size: .medium, isDisabled: !model.canSimulate) {
+            VButton(label: model.isSimulating ? "Simulating\u{2026}" : "Simulate", style: .primary, isDisabled: !model.canSimulate) {
                 model.simulate()
             }
 
@@ -198,10 +198,10 @@ struct ToolPermissionTesterView: View {
         if let error = model.lastError {
             HStack(spacing: VSpacing.sm) {
                 VIconView(.triangleAlert, size: 12)
-                    .foregroundColor(VColor.error)
+                    .foregroundColor(VColor.systemNegativeStrong)
                 Text(error)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.error)
+                    .foregroundColor(VColor.systemNegativeStrong)
             }
             .textSelection(.enabled)
         }
@@ -222,7 +222,7 @@ struct ToolPermissionTesterView: View {
                     if let ruleId = result.matchedRuleId {
                         Text("Rule: \(ruleId)")
                             .font(VFont.monoSmall)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
 
                     Spacer()
@@ -232,7 +232,7 @@ struct ToolPermissionTesterView: View {
                 if !result.reason.isEmpty {
                     Text(result.reason)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
 
                 // Prompt preview: reuse the ToolConfirmationBubble from chat
@@ -261,7 +261,7 @@ struct ToolPermissionTesterView: View {
 
                         Text("Allow Once and Don\u{2019}t Allow are simulation-only. Always Allow persists a real trust rule.")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                             .italic()
                     }
                 }
@@ -270,10 +270,10 @@ struct ToolPermissionTesterView: View {
                 if let label = result.localOverrideLabel {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.info, size: 11)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                         Text(label)
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                             .italic()
                     }
                 }
@@ -304,17 +304,17 @@ struct ToolPermissionTesterView: View {
     private func fieldLabel(_ text: String) -> some View {
         Text(text)
             .font(VFont.inputLabel)
-            .foregroundColor(VColor.textSecondary)
+            .foregroundColor(VColor.contentSecondary)
     }
 
     @ViewBuilder
     private func decisionBadge(_ decision: String) -> some View {
         let (color, icon): (Color, VIcon) = {
             switch decision.lowercased() {
-            case "allow": return (VColor.success, .circleCheck)
-            case "deny": return (VColor.error, .circleX)
-            case "prompt": return (VColor.warning, .info)
-            default: return (VColor.textMuted, .circle)
+            case "allow": return (VColor.systemPositiveStrong, .circleCheck)
+            case "deny": return (VColor.systemNegativeStrong, .circleX)
+            case "prompt": return (VColor.systemNegativeHover, .info)
+            default: return (VColor.contentTertiary, .circle)
             }
         }()
 
@@ -329,10 +329,10 @@ struct ToolPermissionTesterView: View {
 
     private func riskColor(_ level: String) -> Color {
         switch level.lowercased() {
-        case "low": return VColor.textMuted
-        case "medium": return VColor.warning
-        case "high": return VColor.error
-        default: return VColor.textMuted
+        case "low": return VColor.contentTertiary
+        case "medium": return VColor.systemNegativeHover
+        case "high": return VColor.systemNegativeStrong
+        default: return VColor.contentTertiary
         }
     }
 }

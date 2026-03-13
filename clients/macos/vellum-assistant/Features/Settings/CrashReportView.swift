@@ -24,7 +24,7 @@ struct CrashReportView: View {
             actionRow
         }
         .padding(VSpacing.lg)
-        .background(VColor.background)
+        .background(VColor.surfaceOverlay)
         .frame(width: 520)
     }
 
@@ -33,14 +33,14 @@ struct CrashReportView: View {
     private var header: some View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
             VIconView(.triangleAlert, size: 22)
-                .foregroundColor(VColor.warning)
+                .foregroundColor(VColor.systemNegativeHover)
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text("The app crashed last session")
                     .font(VFont.headline)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 Text("Would you like to send the crash log to help us fix the issue? No personal data or message content is included.")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -50,23 +50,23 @@ struct CrashReportView: View {
         ScrollView {
             Text(crashLog)
                 .font(VFont.monoSmall)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         }
         .frame(maxHeight: 260)
         .padding(VSpacing.sm)
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
     }
 
     private var sentConfirmation: some View {
         HStack(spacing: VSpacing.xs) {
             VIconView(.circleCheck, size: 14)
-                .foregroundColor(VColor.success)
+                .foregroundColor(VColor.systemPositiveStrong)
             Text("Crash report sent. Thank you!")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
         }
     }
 
@@ -185,7 +185,7 @@ extension AppDelegate {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
-        window.backgroundColor = NSColor(VColor.background)
+        window.backgroundColor = NSColor(VColor.surfaceOverlay)
         window.isReleasedWhenClosed = false
         window.center()
 
@@ -202,7 +202,7 @@ extension AppDelegate {
             }
         }
 
-        NSApp.setActivationPolicy(.regular)
+        NSApp.activateAsDockAppIfNeeded()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
@@ -214,9 +214,12 @@ extension AppDelegate {
             NotificationCenter.default.removeObserver(observer)
             crashReportWindowObserver = nil
         }
+        let closingWindow = crashReportWindow
         crashReportWindow?.close()
         crashReportWindow = nil
-        scheduleActivationPolicyRevert()
+        // The window may still report isVisible briefly after close(),
+        // so exclude it from the visible-window check.
+        revertActivationPolicyIfNoWindows(excluding: closingWindow)
     }
 
     private func handleCrashReportWindowWillClose() {
@@ -224,25 +227,12 @@ extension AppDelegate {
             NotificationCenter.default.removeObserver(observer)
             crashReportWindowObserver = nil
         }
+        // Capture the window before clearing the reference — it is still
+        // isVisible during willCloseNotification, so we must exclude it
+        // from the visible-window check.
+        let closingWindow = crashReportWindow
         crashReportWindow = nil
-        scheduleActivationPolicyRevert()
+        revertActivationPolicyIfNoWindows(excluding: closingWindow)
     }
 }
 
-#Preview("CrashReportView") {
-    CrashReportView(
-        crashURL: URL(fileURLWithPath: "/tmp/vellum-assistant_2026-03-05.crash"),
-        crashLog: """
-        Process:         vellum-assistant [1234]
-        Path:            /Applications/Vellum.app/Contents/MacOS/vellum-assistant
-        Identifier:      com.vellum.vellum-assistant
-        Version:         1.0.0
-
-        Thread 0 Crashed:
-        0   vellum-assistant    0x0000000100abc123 main + 0
-        1   dyld                0x00007fff6bc123ab start + 1
-        """,
-        companionFiles: [],
-        onDismiss: {}
-    )
-}

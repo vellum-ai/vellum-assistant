@@ -220,9 +220,7 @@ registerHook(
     const SETTING_TO_KEY: Record<string, string> = {
       activation_key: "pttActivationKey",
       tts_voice_id: "ttsVoiceId",
-      wake_word_enabled: "wakeWordEnabled",
-      wake_word_keyword: "wakeWordKeyword",
-      wake_word_timeout: "wakeWordTimeoutSeconds",
+      conversation_timeout: "voiceConversationTimeoutSeconds",
     };
     const key = SETTING_TO_KEY[setting];
     if (!key) return;
@@ -231,12 +229,8 @@ registerHook(
     // the validation logic in the tool's execute method.
     const raw = input.value;
     let coerced: string | boolean | number = raw as string;
-    if (setting === "wake_word_enabled") {
-      coerced = raw === true || raw === "true";
-    } else if (setting === "wake_word_timeout") {
+    if (setting === "conversation_timeout") {
       coerced = typeof raw === "number" ? raw : Number(raw);
-    } else if (setting === "wake_word_keyword" && typeof raw === "string") {
-      coerced = raw.trim();
     } else if (setting === "tts_voice_id" && typeof raw === "string") {
       coerced = raw.trim();
     }

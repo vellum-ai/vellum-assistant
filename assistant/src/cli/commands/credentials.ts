@@ -1,6 +1,13 @@
 import type { Command } from "commander";
 
 import {
+  disconnectOAuthProvider,
+  getConnectionByProvider,
+  listConnections,
+  type OAuthConnectionRow,
+} from "../../oauth/oauth-store.js";
+import { credentialKey } from "../../security/credential-key.js";
+import {
   deleteSecureKeyAsync,
   getSecureKey,
   setSecureKeyAsync,
@@ -48,14 +55,44 @@ function scrubSecret(secret: string | undefined): string {
 }
 
 /**
+ * Safely look up an OAuth connection for a credential service.
+ * Returns undefined when the oauth-store has no data or the tables
+ * haven't been created yet (pre-migration).
+ */
+function safeGetConnectionByProvider(
+  service: string,
+): OAuthConnectionRow | undefined {
+  try {
+    return getConnectionByProvider(service);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Safely list all OAuth connections. Returns an empty array when the
+ * oauth-store has no data or the tables haven't been created yet.
+ */
+function safeListConnections(): OAuthConnectionRow[] {
+  try {
+    return listConnections();
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Build a structured credential output object suitable for both `inspect`
  * and `list` responses. Produces an identical shape for every credential.
+ * Optionally enriches with data from the oauth-store when a matching
+ * connection exists.
  */
 function buildCredentialOutput(
   metadata: CredentialMetadata,
   secret: string | undefined,
+  connection?: OAuthConnectionRow,
 ): Record<string, unknown> {
-  return {
+  const output: Record<string, unknown> = {
     ok: true,
     service: metadata.service,
     field: metadata.field,
@@ -66,14 +103,24 @@ function buildCredentialOutput(
     usageDescription: metadata.usageDescription ?? null,
     allowedTools: metadata.allowedTools,
     allowedDomains: metadata.allowedDomains,
-    grantedScopes: metadata.grantedScopes ?? null,
-    expiresAt: metadata.expiresAt
-      ? new Date(metadata.expiresAt).toISOString()
-      : null,
     createdAt: new Date(metadata.createdAt).toISOString(),
     updatedAt: new Date(metadata.updatedAt).toISOString(),
     injectionTemplateCount: metadata.injectionTemplates?.length ?? 0,
+    grantedScopes: connection ? JSON.parse(connection.grantedScopes) : null,
+    expiresAt: connection?.expiresAt
+      ? new Date(connection.expiresAt).toISOString()
+      : null,
   };
+
+  if (connection) {
+    output.oauthConnectionId = connection.id;
+    output.oauthAccountInfo = connection.accountInfo ?? null;
+    output.oauthStatus = connection.status;
+    output.oauthHasRefreshToken = connection.hasRefreshToken === 1;
+    output.oauthLabel = connection.label ?? null;
+  }
+
+  return output;
 }
 
 /**
@@ -100,15 +147,19 @@ function printCredentialHuman(output: Record<string, unknown>): void {
     log.info(
       `    Domains:     ${(output.allowedDomains as string[]).join(", ")}`,
     );
-  if (output.grantedScopes)
-    log.info(
-      `    Scopes:      ${(output.grantedScopes as string[]).join(", ")}`,
-    );
-  if (output.expiresAt) log.info(`    Expires:     ${output.expiresAt}`);
   log.info(`    Created:     ${output.createdAt}`);
   log.info(`    Updated:     ${output.updatedAt}`);
   if ((output.injectionTemplateCount as number) > 0)
     log.info(`    Templates:   ${output.injectionTemplateCount}`);
+
+  // OAuth connection enrichment
+  if (output.oauthStatus) {
+    log.info(`    OAuth:       ${output.oauthStatus}`);
+    if (output.oauthAccountInfo)
+      log.info(`    Account:     ${output.oauthAccountInfo}`);
+    if (output.oauthLabel) log.info(`    OAuth Label: ${output.oauthLabel}`);
+    log.info(`    Refresh:     ${output.oauthHasRefreshToken ? "yes" : "no"}`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -127,7 +178,7 @@ export function registerCredentialsCommand(program: Command): void {
     "after",
     `
 Credentials are identified by name in service:field format, matching the
-storage convention used internally (credential:{service}:{field}):
+storage convention used internally (credential/{service}/{field}):
 
   twilio:account_sid        Twilio account SID
   twilio:auth_token         Twilio auth token
@@ -197,9 +248,24 @@ Examples:
           });
         }
 
+        // Build a lookup of oauth connections keyed by providerKey for enrichment.
+        // listConnections() returns rows in no guaranteed order, so we compare
+        // createdAt to keep the most recent active connection per provider —
+        // matching the behaviour of getConnectionByProvider() used by inspect.
+        const allConnections = safeListConnections();
+        const connectionsByProvider = new Map<string, OAuthConnectionRow>();
+        for (const conn of allConnections) {
+          if (conn.status !== "active") continue;
+          const existing = connectionsByProvider.get(conn.providerKey);
+          if (!existing || conn.createdAt > existing.createdAt) {
+            connectionsByProvider.set(conn.providerKey, conn);
+          }
+        }
+
         const credentials = allMetadata.map((m) => {
-          const secret = getSecureKey(`credential:${m.service}:${m.field}`);
-          return buildCredentialOutput(m, secret);
+          const secret = getSecureKey(credentialKey(m.service, m.field));
+          const connection = connectionsByProvider.get(m.service);
+          return buildCredentialOutput(m, secret, connection);
         });
 
         writeOutput(cmd, { ok: true, credentials });
@@ -273,7 +339,7 @@ Examples:
           }
 
           const { service, field } = parsed;
-          const storageKey = `credential:${service}:${field}`;
+          const storageKey = credentialKey(service, field);
 
           assertMetadataWritable();
 
@@ -350,7 +416,7 @@ Examples:
         }
 
         const { service, field } = parsed;
-        const storageKey = `credential:${service}:${field}`;
+        const storageKey = credentialKey(service, field);
 
         assertMetadataWritable();
 
@@ -366,7 +432,29 @@ Examples:
 
         const metadataDeleted = deleteCredentialMetadata(service, field);
 
-        if (secretResult !== "deleted" && !metadataDeleted) {
+        // Also clean up the OAuth connection and new-format secure keys.
+        // disconnectOAuthProvider is a no-op when no connection exists.
+        let oauthResult: "disconnected" | "not-found" | "error" = "not-found";
+        try {
+          oauthResult = await disconnectOAuthProvider(service);
+        } catch {
+          // Best-effort — OAuth tables may not exist yet
+        }
+
+        if (oauthResult === "error") {
+          writeOutput(cmd, {
+            ok: false,
+            error: "Failed to disconnect OAuth provider — please try again",
+          });
+          process.exitCode = 1;
+          return;
+        }
+
+        if (
+          secretResult !== "deleted" &&
+          !metadataDeleted &&
+          oauthResult !== "disconnected"
+        ) {
           writeOutput(cmd, { ok: false, error: "Credential not found" });
           process.exitCode = 1;
           return;
@@ -424,11 +512,11 @@ Examples:
             return;
           }
           metadata = getCredentialMetadata(parsed.service, parsed.field);
-          storageKey = `credential:${parsed.service}:${parsed.field}`;
+          storageKey = credentialKey(parsed.service, parsed.field);
         } else {
           metadata = getCredentialMetadataById(name);
           if (metadata) {
-            storageKey = `credential:${metadata.service}:${metadata.field}`;
+            storageKey = credentialKey(metadata.service, metadata.field);
           } else {
             // No metadata found by UUID, and we can't determine the storage key
             writeOutput(cmd, { ok: false, error: "Credential not found" });
@@ -463,8 +551,6 @@ Examples:
             usageDescription: null,
             allowedTools: [],
             allowedDomains: [],
-            grantedScopes: null,
-            expiresAt: null,
             createdAt: null,
             updatedAt: null,
             injectionTemplateCount: 0,
@@ -478,7 +564,8 @@ Examples:
           return;
         }
 
-        const output = buildCredentialOutput(metadata, secret);
+        const connection = safeGetConnectionByProvider(metadata.service);
+        const output = buildCredentialOutput(metadata, secret, connection);
         writeOutput(cmd, output);
 
         if (!shouldOutputJson(cmd)) {
@@ -529,11 +616,11 @@ Examples:
             process.exitCode = 1;
             return;
           }
-          storageKey = `credential:${parsed.service}:${parsed.field}`;
+          storageKey = credentialKey(parsed.service, parsed.field);
         } else {
           const metadata = getCredentialMetadataById(name);
           if (metadata) {
-            storageKey = `credential:${metadata.service}:${metadata.field}`;
+            storageKey = credentialKey(metadata.service, metadata.field);
           } else {
             writeOutput(cmd, { ok: false, error: "Credential not found" });
             process.exitCode = 1;

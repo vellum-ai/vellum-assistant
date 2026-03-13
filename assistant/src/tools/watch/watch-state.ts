@@ -24,18 +24,6 @@ export interface WatchSession {
   timeoutHandle?: ReturnType<typeof setTimeout>;
   /** Guards against concurrent generateSummary calls */
   summaryInFlight?: boolean;
-  /** Whether this session was started via ride shotgun (no live commentary) */
-  isRideShotgun?: boolean;
-  /** Learn mode records network traffic alongside screen observations */
-  isLearnMode?: boolean;
-  /** Domain filter for network recording in learn mode */
-  targetDomain?: string;
-  /** Recording ID for learn mode sessions */
-  recordingId?: string;
-  /** Path where the learn recording was successfully saved (undefined if save failed) */
-  savedRecordingPath?: string;
-  /** Reason the learn-mode bootstrap failed (CDP launch vs recorder attach) */
-  bootstrapFailureReason?: string;
 }
 
 /** Module-level map of watch sessions keyed by watchId. */

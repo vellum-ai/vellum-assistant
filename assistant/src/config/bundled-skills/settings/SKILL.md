@@ -9,4 +9,4 @@ metadata:
     user-invocable: true
 ---
 
-Tools for managing assistant settings: voice configuration (TTS voice, PTT activation key, wake word), avatar generation, system settings navigation, and in-app settings tab navigation.
+Tools for managing assistant settings: voice configuration (TTS voice, PTT activation key, conversation timeout), avatar generation, system settings navigation, and in-app settings tab navigation.

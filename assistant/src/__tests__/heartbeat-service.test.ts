@@ -67,7 +67,6 @@ mock.module("../util/logger.js", () => ({
     warn: () => {},
     error: () => {},
   }),
-  isDebug: () => false,
 }));
 
 // Mock conversation title service

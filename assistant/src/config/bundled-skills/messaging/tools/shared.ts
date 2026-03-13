@@ -6,9 +6,9 @@ import type { MessagingProvider } from "../../../../messaging/provider.js";
 import {
   getConnectedProviders,
   getMessagingProvider,
-  isPlatformEnabled,
 } from "../../../../messaging/registry.js";
-import { withValidToken } from "../../../../security/token-manager.js";
+import type { OAuthConnection } from "../../../../oauth/connection.js";
+import { resolveOAuthConnection } from "../../../../oauth/connection-resolver.js";
 import type { ToolExecutionResult } from "../../../../tools/types.js";
 
 export function ok(content: string): ToolExecutionResult {
@@ -109,9 +109,7 @@ export function extractEmail(address: string): string {
 export function resolveProvider(platformInput?: string): MessagingProvider {
   if (platformInput) return getMessagingProvider(platformInput);
 
-  const connected = getConnectedProviders().filter((p) =>
-    isPlatformEnabled(p.id),
-  );
+  const connected = getConnectedProviders();
   if (connected.length === 1) return connected[0];
   if (connected.length === 0) {
     throw new Error(
@@ -126,16 +124,15 @@ export function resolveProvider(platformInput?: string): MessagingProvider {
 }
 
 /**
- * Execute a callback with a valid OAuth token for the given provider.
- * Providers that manage their own auth (e.g. Telegram with a bot token)
- * expose isConnected() and don't need an OAuth access_token lookup.
+ * Resolve an OAuthConnection (or empty string for non-OAuth providers)
+ * for the given messaging provider.
+ *
+ * Non-OAuth providers (e.g. Telegram) use isConnected() and don't need
+ * tokens — they receive an empty string which the string overload handles.
  */
-export async function withProviderToken<T>(
+export function getProviderConnection(
   provider: MessagingProvider,
-  fn: (token: string) => Promise<T>,
-): Promise<T> {
-  if (provider.isConnected?.()) {
-    return fn("");
-  }
-  return withValidToken(provider.credentialService, fn);
+): OAuthConnection | string {
+  if (provider.isConnected?.()) return "";
+  return resolveOAuthConnection(provider.credentialService);
 }

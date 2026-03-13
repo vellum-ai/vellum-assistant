@@ -1,6 +1,5 @@
 import { sendDraft } from "../../../../messaging/providers/gmail/client.js";
-import { getMessagingProvider } from "../../../../messaging/registry.js";
-import { withValidToken } from "../../../../security/token-manager.js";
+import { resolveOAuthConnection } from "../../../../oauth/connection-resolver.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -15,11 +14,9 @@ export async function run(
   if (!draftId) return err("draft_id is required.");
 
   try {
-    const provider = getMessagingProvider("gmail");
-    return await withValidToken(provider.credentialService, async (token) => {
-      const msg = await sendDraft(token, draftId);
-      return ok(`Draft sent (Message ID: ${msg.id}).`);
-    });
+    const connection = resolveOAuthConnection("integration:gmail");
+    const msg = await sendDraft(connection, draftId);
+    return ok(`Draft sent (Message ID: ${msg.id}).`);
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));
   }

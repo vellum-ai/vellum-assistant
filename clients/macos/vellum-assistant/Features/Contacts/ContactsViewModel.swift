@@ -56,8 +56,10 @@ final class ContactsViewModel: ObservableObject {
     }
 
     /// The guardian contact, if present.
+    /// Uses the unfiltered contacts array so the guardian is always found
+    /// regardless of the active search query.
     var guardianContact: ContactPayload? {
-        filteredContacts.first { $0.role == "guardian" }
+        contacts.first { $0.role == "guardian" }
     }
 
     /// All non-guardian contacts from the filtered set.

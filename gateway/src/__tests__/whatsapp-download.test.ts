@@ -2,6 +2,7 @@ import { describe, test, expect, mock, afterEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 import type { CredentialCache } from "../credential-cache.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
+import { credentialKey } from "../credential-key.js";
 
 type FetchFn = (
   input: string | URL | Request,
@@ -60,9 +61,10 @@ function makeConfigFile(overrides?: { maxRetries?: number }): ConfigFileCache {
 function makeCaches(opts?: { maxRetries?: number }) {
   const credentials = {
     get: async (key: string) => {
-      if (key === "credential:whatsapp:access_token")
+      if (key === credentialKey("whatsapp", "access_token"))
         return "test-access-token";
-      if (key === "credential:whatsapp:phone_number_id") return "test-phone-id";
+      if (key === credentialKey("whatsapp", "phone_number_id"))
+        return "test-phone-id";
       return undefined;
     },
     invalidate: () => {},

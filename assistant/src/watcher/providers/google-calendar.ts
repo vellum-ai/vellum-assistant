@@ -11,7 +11,10 @@ import {
   listEvents,
 } from "../../config/bundled-skills/google-calendar/calendar-client.js";
 import type { CalendarEvent } from "../../config/bundled-skills/google-calendar/types.js";
-import { withValidToken } from "../../security/token-manager.js";
+import type { OAuthConnection } from "../../oauth/connection.js";
+import { resolveOAuthConnection } from "../../oauth/connection-resolver.js";
+
+const GOOGLE_CALENDAR_BASE_URL = "https://www.googleapis.com/calendar/v3";
 import { getLogger } from "../../util/logger.js";
 import type {
   FetchResult,
@@ -20,8 +23,6 @@ import type {
 } from "../provider-types.js";
 
 const log = getLogger("watcher:google-calendar");
-
-const CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3";
 
 /** The credential service — calendar shares OAuth tokens with Gmail. */
 const CREDENTIAL_SERVICE = "integration:gmail";
@@ -69,7 +70,7 @@ interface SyncResponse {
  * Returns all accumulated events and the final nextSyncToken.
  */
 async function incrementalSync(
-  token: string,
+  connection: OAuthConnection,
   syncToken: string,
 ): Promise<SyncResponse> {
   let allItems: CalendarEvent[] = [];
@@ -77,27 +78,32 @@ async function incrementalSync(
   let nextSyncToken: string | undefined;
 
   do {
-    const params = new URLSearchParams({ syncToken });
-    if (pageToken) params.set("pageToken", pageToken);
-    const url = `${CALENDAR_API_BASE}/calendars/primary/events?${params}`;
-    const resp = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
+    const query: Record<string, string> = { syncToken };
+    if (pageToken) query.pageToken = pageToken;
+
+    const resp = await connection.request({
+      method: "GET",
+      path: "/calendars/primary/events",
+      query,
+      baseUrl: GOOGLE_CALENDAR_BASE_URL,
     });
 
-    if (!resp.ok) {
-      const body = await resp.text().catch(() => "");
+    if (resp.status < 200 || resp.status >= 300) {
+      const bodyStr =
+        typeof resp.body === "string"
+          ? resp.body
+          : JSON.stringify(resp.body ?? "");
       if (resp.status === 410) {
-        throw new SyncTokenExpiredError(body);
+        throw new SyncTokenExpiredError(bodyStr);
       }
-      // Throw CalendarApiError so withValidToken can detect 401s via the status property
       throw new CalendarApiError(
         resp.status,
-        resp.statusText,
-        `Calendar Sync API ${resp.status}: ${body}`,
+        "",
+        `Calendar Sync API ${resp.status}: ${bodyStr}`,
       );
     }
 
-    const page = (await resp.json()) as SyncResponse;
+    const page = resp.body as SyncResponse;
     if (page.items) allItems = allItems.concat(page.items);
     pageToken = page.nextPageToken;
     nextSyncToken = page.nextSyncToken;
@@ -119,16 +125,48 @@ export const googleCalendarProvider: WatcherProvider = {
   requiredCredentialService: CREDENTIAL_SERVICE,
 
   async getInitialWatermark(credentialService: string): Promise<string> {
-    return withValidToken(credentialService, async (token) => {
-      // Do a full sync with a narrow window to get the initial syncToken.
-      // The API may paginate even for small result sets, so follow nextPageToken
-      // until we reach the final page that carries the nextSyncToken.
+    const connection = resolveOAuthConnection(credentialService);
+
+    // Do a full sync with a narrow window to get the initial syncToken.
+    // The API may paginate even for small result sets, so follow nextPageToken
+    // until we reach the final page that carries the nextSyncToken.
+    const now = new Date().toISOString();
+    let pageToken: string | undefined;
+    let syncToken: string | undefined;
+
+    do {
+      const result = await listEvents(connection, "primary", {
+        timeMin: now,
+        maxResults: 250,
+        singleEvents: true,
+        pageToken,
+      });
+      syncToken = result.nextSyncToken;
+      pageToken = result.nextPageToken;
+    } while (pageToken && !syncToken);
+
+    if (!syncToken) {
+      throw new Error("Calendar API did not return a syncToken");
+    }
+    return syncToken;
+  },
+
+  async fetchNew(
+    credentialService: string,
+    watermark: string | null,
+    _config: Record<string, unknown>,
+    _watcherKey: string,
+  ): Promise<FetchResult> {
+    const connection = resolveOAuthConnection(credentialService);
+
+    if (!watermark) {
+      // No watermark — paginate through to get the initial syncToken, return no items
       const now = new Date().toISOString();
       let pageToken: string | undefined;
       let syncToken: string | undefined;
 
       do {
-        const result = await listEvents(token, "primary", {
+        const result = await listEvents(connection, "primary", {
           timeMin: now,
           maxResults: 250,
           singleEvents: true,
@@ -138,82 +176,52 @@ export const googleCalendarProvider: WatcherProvider = {
         pageToken = result.nextPageToken;
       } while (pageToken && !syncToken);
 
-      if (!syncToken) {
-        throw new Error("Calendar API did not return a syncToken");
-      }
-      return syncToken;
-    });
-  },
+      return { items: [], watermark: syncToken ?? "" };
+    }
 
-  async fetchNew(
-    credentialService: string,
-    watermark: string | null,
-    _config: Record<string, unknown>,
-    _watcherKey: string,
-  ): Promise<FetchResult> {
-    return withValidToken(credentialService, async (token) => {
-      if (!watermark) {
-        // No watermark — paginate through to get the initial syncToken, return no items
-        const now = new Date().toISOString();
-        let pageToken: string | undefined;
-        let syncToken: string | undefined;
+    try {
+      const syncResp = await incrementalSync(connection, watermark);
+      const newWatermark = syncResp.nextSyncToken ?? watermark;
 
-        do {
-          const result = await listEvents(token, "primary", {
-            timeMin: now,
-            maxResults: 250,
-            singleEvents: true,
-            pageToken,
-          });
-          syncToken = result.nextSyncToken;
-          pageToken = result.nextPageToken;
-        } while (pageToken && !syncToken);
-
-        return { items: [], watermark: syncToken ?? "" };
+      if (!syncResp.items || syncResp.items.length === 0) {
+        return { items: [], watermark: newWatermark };
       }
 
-      try {
-        const syncResp = await incrementalSync(token, watermark);
-        const newWatermark = syncResp.nextSyncToken ?? watermark;
+      // Convert events to watcher items, distinguishing new vs updated
+      const items: WatcherItem[] = [];
+      for (const event of syncResp.items) {
+        if (event.status === "cancelled") continue;
 
-        if (!syncResp.items || syncResp.items.length === 0) {
-          return { items: [], watermark: newWatermark };
-        }
-
-        // Convert events to watcher items, distinguishing new vs updated
-        const items: WatcherItem[] = [];
-        for (const event of syncResp.items) {
-          if (event.status === "cancelled") continue;
-
-          const eventType =
-            event.created === event.updated
-              ? "new_calendar_event"
-              : "updated_calendar_event";
-          items.push(eventToItem(event, eventType));
-        }
-
-        log.info(
-          { count: items.length, watermark: newWatermark },
-          "Calendar: fetched event changes",
-        );
-        return { items, watermark: newWatermark };
-      } catch (err) {
-        if (err instanceof SyncTokenExpiredError) {
-          log.warn("Calendar syncToken expired, falling back to recent events");
-          return fallbackFetch(token);
-        }
-        throw err;
+        const eventType =
+          event.created === event.updated
+            ? "new_calendar_event"
+            : "updated_calendar_event";
+        items.push(eventToItem(event, eventType));
       }
-    });
+
+      log.info(
+        { count: items.length, watermark: newWatermark },
+        "Calendar: fetched event changes",
+      );
+      return { items, watermark: newWatermark };
+    } catch (err) {
+      if (err instanceof SyncTokenExpiredError) {
+        log.warn("Calendar syncToken expired, falling back to recent events");
+        return fallbackFetch(connection);
+      }
+      throw err;
+    }
   },
 };
 
 /**
  * Fallback when syncToken expires: list upcoming events from today.
  */
-async function fallbackFetch(token: string): Promise<FetchResult> {
+async function fallbackFetch(
+  connection: OAuthConnection,
+): Promise<FetchResult> {
   const now = new Date().toISOString();
-  const result = await listEvents(token, "primary", {
+  const result = await listEvents(connection, "primary", {
     timeMin: now,
     maxResults: 25,
     singleEvents: true,
@@ -229,7 +237,7 @@ async function fallbackFetch(token: string): Promise<FetchResult> {
   let syncToken: string | undefined;
 
   do {
-    const syncResult = await listEvents(token, "primary", {
+    const syncResult = await listEvents(connection, "primary", {
       timeMin: now,
       maxResults: 250,
       singleEvents: true,

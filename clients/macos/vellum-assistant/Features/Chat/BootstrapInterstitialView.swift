@@ -17,23 +17,22 @@ struct BootstrapInterstitialView: View {
 
     var body: some View {
         ZStack {
-            VColor.background.ignoresSafeArea()
+            VColor.surfaceOverlay.ignoresSafeArea()
 
             VStack(spacing: VSpacing.xl) {
-                VLoadingIndicator(size: 32, color: VColor.accent)
+                VLoadingIndicator(size: 32, color: VColor.primaryBase)
                     .opacity(isRetrying ? 1 : 0.6)
 
                 Text(errorMessage ?? "Still starting your assistant...")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
 
                 VButton(
                     label: "Try Again",
                     icon: "arrow.clockwise",
-                    style: .tertiary,
-                    size: .medium,
+                    style: .outlined,
                     isDisabled: isRetrying
                 ) {
                     onRetry()
@@ -42,10 +41,10 @@ struct BootstrapInterstitialView: View {
             .padding(VSpacing.xxl)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.xl)
-                    .fill(VColor.surface)
+                    .fill(VColor.surfaceBase)
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.xl)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                            .stroke(VColor.borderBase, lineWidth: 1)
                     )
             )
             .frame(maxWidth: 380)
@@ -54,21 +53,4 @@ struct BootstrapInterstitialView: View {
     }
 }
 
-#Preview("BootstrapInterstitialView - Loading") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        BootstrapInterstitialView(isRetrying: true)
-    }
-    .frame(width: 380, height: 300)
-}
 
-#Preview("BootstrapInterstitialView - Error") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        BootstrapInterstitialView(
-            errorMessage: "Could not connect after 5 attempts. Please try again.",
-            isRetrying: false
-        )
-    }
-    .frame(width: 380, height: 300)
-}

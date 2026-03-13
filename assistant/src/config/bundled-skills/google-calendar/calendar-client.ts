@@ -1,3 +1,6 @@
+import type { OAuthConnection } from "../../../oauth/connection.js";
+
+const GOOGLE_CALENDAR_BASE_URL = "https://www.googleapis.com/calendar/v3";
 import type {
   CalendarEvent,
   CalendarEventsListResponse,
@@ -5,8 +8,6 @@ import type {
   FreeBusyRequest,
   FreeBusyResponse,
 } from "./types.js";
-
-const CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3";
 
 export class CalendarApiError extends Error {
   constructor(
@@ -20,39 +21,82 @@ export class CalendarApiError extends Error {
 }
 
 async function request<T>(
-  token: string,
+  connection: OAuthConnection,
   path: string,
   options?: RequestInit,
+  query?: Record<string, string | string[]>,
 ): Promise<T> {
-  const url = `${CALENDAR_API_BASE}${path}`;
-  const resp = await fetch(url, {
-    ...options,
+  const method = (options?.method ?? "GET").toUpperCase();
+
+  // Extract non-auth headers
+  let extraHeaders: Record<string, string> | undefined;
+  if (options?.headers) {
+    const raw = options.headers;
+    const result: Record<string, string> = {};
+    if (raw instanceof Headers) {
+      raw.forEach((v, k) => {
+        if (k.toLowerCase() !== "authorization") result[k] = v;
+      });
+    } else if (Array.isArray(raw)) {
+      for (const [k, v] of raw) {
+        if (k.toLowerCase() !== "authorization") result[k] = v;
+      }
+    } else {
+      for (const [k, v] of Object.entries(raw)) {
+        if (k.toLowerCase() !== "authorization" && v !== undefined)
+          result[k] = v;
+      }
+    }
+    if (Object.keys(result).length > 0) extraHeaders = result;
+  }
+
+  // Extract body
+  let reqBody: unknown | undefined;
+  if (options?.body) {
+    if (typeof options.body === "string") {
+      try {
+        reqBody = JSON.parse(options.body);
+      } catch {
+        reqBody = options.body;
+      }
+    } else {
+      reqBody = options.body;
+    }
+  }
+
+  const resp = await connection.request({
+    method,
+    path,
+    query,
+    baseUrl: GOOGLE_CALENDAR_BASE_URL,
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
-      ...options?.headers,
+      ...extraHeaders,
     },
+    body: reqBody,
   });
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => "");
+
+  if (resp.status < 200 || resp.status >= 300) {
+    const bodyStr =
+      typeof resp.body === "string"
+        ? resp.body
+        : JSON.stringify(resp.body ?? "");
     throw new CalendarApiError(
       resp.status,
-      resp.statusText,
-      `Calendar API ${resp.status}: ${body}`,
+      "",
+      `Calendar API ${resp.status}: ${bodyStr}`,
     );
   }
-  const contentLength = resp.headers.get("content-length");
-  if (resp.status === 204 || contentLength === "0") {
+
+  if (resp.status === 204 || resp.body === undefined) {
     return undefined as T;
   }
-  const text = await resp.text();
-  if (!text) return undefined as T;
-  return JSON.parse(text) as T;
+  return resp.body as T;
 }
 
 /** List events from a calendar. */
 export async function listEvents(
-  token: string,
+  connection: OAuthConnection,
   calendarId = "primary",
   options?: {
     timeMin?: string;
@@ -65,40 +109,42 @@ export async function listEvents(
     syncToken?: string;
   },
 ): Promise<CalendarEventsListResponse> {
-  const params = new URLSearchParams();
+  const query: Record<string, string> = {};
 
-  if (options?.timeMin) params.set("timeMin", options.timeMin);
-  if (options?.timeMax) params.set("timeMax", options.timeMax);
-  params.set("maxResults", String(options?.maxResults ?? 25));
-  if (options?.query) params.set("q", options.query);
+  if (options?.timeMin) query.timeMin = options.timeMin;
+  if (options?.timeMax) query.timeMax = options.timeMax;
+  query.maxResults = String(options?.maxResults ?? 25);
+  if (options?.query) query.q = options.query;
 
   // Default to expanding recurring events into instances
   const singleEvents = options?.singleEvents ?? true;
-  params.set("singleEvents", String(singleEvents));
+  query.singleEvents = String(singleEvents);
 
   if (singleEvents && options?.orderBy) {
-    params.set("orderBy", options.orderBy);
+    query.orderBy = options.orderBy;
   } else if (singleEvents) {
-    params.set("orderBy", "startTime");
+    query.orderBy = "startTime";
   }
 
-  if (options?.pageToken) params.set("pageToken", options.pageToken);
-  if (options?.syncToken) params.set("syncToken", options.syncToken);
+  if (options?.pageToken) query.pageToken = options.pageToken;
+  if (options?.syncToken) query.syncToken = options.syncToken;
 
   return request<CalendarEventsListResponse>(
-    token,
-    `/calendars/${encodeURIComponent(calendarId)}/events?${params}`,
+    connection,
+    `/calendars/${encodeURIComponent(calendarId)}/events`,
+    undefined,
+    query,
   );
 }
 
 /** Get a single event by ID. */
 export async function getEvent(
-  token: string,
+  connection: OAuthConnection,
   eventId: string,
   calendarId = "primary",
 ): Promise<CalendarEvent> {
   return request<CalendarEvent>(
-    token,
+    connection,
     `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(
       eventId,
     )}`,
@@ -107,7 +153,7 @@ export async function getEvent(
 
 /** Create a new event. */
 export async function createEvent(
-  token: string,
+  connection: OAuthConnection,
   event: {
     summary: string;
     start: { dateTime?: string; date?: string; timeZone?: string };
@@ -119,20 +165,20 @@ export async function createEvent(
   calendarId = "primary",
   sendUpdates: "all" | "externalOnly" | "none" = "all",
 ): Promise<CalendarEvent> {
-  const params = new URLSearchParams({ sendUpdates });
   return request<CalendarEvent>(
-    token,
-    `/calendars/${encodeURIComponent(calendarId)}/events?${params}`,
+    connection,
+    `/calendars/${encodeURIComponent(calendarId)}/events`,
     {
       method: "POST",
       body: JSON.stringify(event),
     },
+    { sendUpdates },
   );
 }
 
 /** Update an event (patch). */
 export async function patchEvent(
-  token: string,
+  connection: OAuthConnection,
   eventId: string,
   updates: Partial<{
     summary: string;
@@ -145,25 +191,25 @@ export async function patchEvent(
   calendarId = "primary",
   sendUpdates: "all" | "externalOnly" | "none" = "all",
 ): Promise<CalendarEvent> {
-  const params = new URLSearchParams({ sendUpdates });
   return request<CalendarEvent>(
-    token,
+    connection,
     `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(
       eventId,
-    )}?${params}`,
+    )}`,
     {
       method: "PATCH",
       body: JSON.stringify(updates),
     },
+    { sendUpdates },
   );
 }
 
 /** Query free/busy information. */
 export async function freeBusy(
-  token: string,
+  connection: OAuthConnection,
   query: FreeBusyRequest,
 ): Promise<FreeBusyResponse> {
-  return request<FreeBusyResponse>(token, "/freeBusy", {
+  return request<FreeBusyResponse>(connection, "/freeBusy", {
     method: "POST",
     body: JSON.stringify(query),
   });
@@ -171,7 +217,7 @@ export async function freeBusy(
 
 /** List calendars the user has access to. */
 export async function listCalendars(
-  token: string,
+  connection: OAuthConnection,
 ): Promise<CalendarListResponse> {
-  return request<CalendarListResponse>(token, "/users/me/calendarList");
+  return request<CalendarListResponse>(connection, "/users/me/calendarList");
 }

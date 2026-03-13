@@ -69,7 +69,7 @@ export async function recover(): Promise<void> {
   // 7. Start daemon + gateway (same as wake)
   await startLocalDaemon(false, entry.resources);
   if (!process.env.VELLUM_DESKTOP_APP) {
-    await startGateway(undefined, false, entry.resources);
+    await startGateway(false, entry.resources);
   }
 
   console.log(`✅ Recovered assistant '${name}'.`);

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import * as readline from "node:readline";
@@ -503,7 +504,7 @@ export async function startCli(): Promise<void> {
       const trimmed = answer.trim().toLowerCase();
       if (trimmed === "n") {
         // Create a new conversation by using a unique key
-        conversationKey = `builtin-cli:${Date.now()}`;
+        conversationKey = `builtin-cli:${randomUUID()}`;
         sessionId = "";
         pendingSessionPick = false;
         // Reconnect SSE with new conversation key
@@ -636,7 +637,7 @@ export async function startCli(): Promise<void> {
       case "memory_recalled":
         spinner.stop();
         process.stdout.write(
-          `\n\x1B[2m[Memory recalled: ${msg.injectedTokens} tokens | lexical ${msg.lexicalHits} | semantic ${msg.semanticHits} | recency ${msg.recencyHits} | entity ${msg.entityHits} | merged ${msg.mergedCount} → selected ${msg.selectedCount}${msg.rerankApplied ? " (reranked)" : ""} | ${msg.provider}/${msg.model} | ${msg.latencyMs}ms]\x1B[0m\n`,
+          `\n\x1B[2m[Memory recalled: ${msg.injectedTokens} tokens | t1 ${msg.tier1Count} t2 ${msg.tier2Count} | semantic ${msg.semanticHits} | recency ${msg.recencyHits} | merged ${msg.mergedCount} → selected ${msg.selectedCount}${msg.sparseVectorUsed ? " (sparse)" : ""} | hybrid ${msg.hybridSearchLatencyMs}ms | ${msg.provider}/${msg.model} | ${msg.latencyMs}ms]\x1B[0m\n`,
         );
         spinner.start("Thinking...");
         break;
@@ -1147,7 +1148,7 @@ export async function startCli(): Promise<void> {
 
     if (content === "/new") {
       // Create a new conversation by using a unique key
-      conversationKey = `builtin-cli:${Date.now()}`;
+      conversationKey = `builtin-cli:${randomUUID()}`;
       sessionId = "";
       reconnectSse().then(() => {
         process.stdout.write(

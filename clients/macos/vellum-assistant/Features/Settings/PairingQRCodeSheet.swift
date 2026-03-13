@@ -52,7 +52,7 @@ struct PairingQRCodeSheet: View {
             HStack {
                 Text("Pair iOS Device")
                     .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 Spacer()
                 Button("Done") { dismiss() }
             }
@@ -67,7 +67,7 @@ struct PairingQRCodeSheet: View {
                             .controlSize(.large)
                         Text("Registering pairing request...")
                             .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
                     .frame(width: 220, height: 220)
 
@@ -79,7 +79,7 @@ struct PairingQRCodeSheet: View {
                             .scaledToFit()
                             .frame(width: 220, height: 220)
                             .padding(VSpacing.md)
-                            .background(Color.white)
+                            .background(VColor.auxWhite)
                             .cornerRadius(VRadius.md)
                     } else {
                         errorContent("Failed to generate QR code.")
@@ -93,19 +93,19 @@ struct PairingQRCodeSheet: View {
                 if canGenerateQR {
                     HStack(spacing: VSpacing.sm) {
                         VIconView(.circleCheck, size: 14)
-                            .foregroundColor(VColor.success)
+                            .foregroundColor(VColor.systemPositiveStrong)
                         Text("Ready to pair with iOS")
                             .font(VFont.body)
-                            .foregroundColor(VColor.success)
+                            .foregroundColor(VColor.systemPositiveStrong)
                     }
 
                     if localLanUrl != nil {
                         HStack(spacing: VSpacing.xs) {
                             VIconView(.wifi, size: 12)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                             Text("LAN pairing available")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                         }
                     }
                 }
@@ -113,7 +113,7 @@ struct PairingQRCodeSheet: View {
 
             Text("Scan this QR code with the Vellum iOS app. You will be asked to approve the pairing on this Mac.")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
 
             if registrationState == .failed && daemonClient != nil {
@@ -144,10 +144,10 @@ struct PairingQRCodeSheet: View {
     private func errorContent(_ message: String) -> some View {
         VStack(spacing: VSpacing.sm) {
             VIconView(.triangleAlert, size: 32)
-                .foregroundColor(VColor.error)
+                .foregroundColor(VColor.systemNegativeStrong)
             Text(message)
                 .font(VFont.body)
-                .foregroundColor(VColor.error)
+                .foregroundColor(VColor.systemNegativeStrong)
                 .multilineTextAlignment(.center)
         }
         .frame(width: 220, height: 220)

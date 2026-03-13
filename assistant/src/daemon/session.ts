@@ -35,18 +35,23 @@ import {
 } from "../events/tool-profiling-listener.js";
 import { registerToolTraceListener } from "../events/tool-trace-listener.js";
 import { getHookManager } from "../hooks/manager.js";
+import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
+import { patternMatchesCandidate } from "../permissions/trust-store.js";
 import type { UserDecision } from "../permissions/types.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import type { Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import type { AuthContext } from "../runtime/auth/types.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 import * as approvalOverrides from "../runtime/session-approval-overrides.js";
 import { ToolExecutor } from "../tools/executor.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
+import type { CuObservationResult } from "./host-cu-proxy.js";
+import { HostCuProxy } from "./host-cu-proxy.js";
 import { HostFileProxy } from "./host-file-proxy.js";
 import type {
   ServerMessage,
@@ -60,7 +65,6 @@ import type {
   ConfirmationStateChanged,
 } from "./message-types/messages.js";
 import { runAgentLoopImpl } from "./session-agent-loop.js";
-import { ConflictGate } from "./session-conflict-gate.js";
 import type { HistorySessionContext } from "./session-history.js";
 import {
   regenerate as regenerateImpl,
@@ -154,13 +158,13 @@ export class Session {
   /** @internal */ contextCompactedMessageCount = 0;
   /** @internal */ contextCompactedAt: number | null = null;
   /** @internal */ currentRequestId?: string;
-  /** @internal */ conflictGate = new ConflictGate();
   /** @internal */ hasNoClient = false;
   /** @internal */ hasAttachments = false;
   /** @internal */ headlessLock = false;
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
   /** @internal */ hostBashProxy?: HostBashProxy;
+  /** @internal */ hostCuProxy?: HostCuProxy;
   /** @internal */ hostFileProxy?: HostFileProxy;
   /** @internal */ readonly queue = new MessageQueue();
   /** @internal */ currentActiveSurfaceId?: string;
@@ -199,10 +203,6 @@ export class Session {
     actions?: Array<{ id: string; label: string; style?: string }>;
     display?: string;
   }> = [];
-  /** @internal */ onEscalateToComputerUse?: (
-    task: string,
-    sourceSessionId: string,
-  ) => boolean;
   /** @internal */ workspaceTopLevelContext: string | null = null;
   /** @internal */ workspaceTopLevelDirty = true;
   public readonly traceEmitter: TraceEmitter;
@@ -324,7 +324,7 @@ export class Session {
       const resolved = {
         systemPrompt: hasSystemPromptOverride
           ? systemPrompt
-          : buildSystemPrompt(),
+          : buildSystemPrompt({ hasNoClient: this.hasNoClient }),
         maxTokens: configuredMaxTokens,
       };
       return resolved;
@@ -346,7 +346,7 @@ export class Session {
     );
     this.contextWindowManager = new ContextWindowManager({
       provider,
-      systemPrompt,
+      systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
       config: config.contextWindow,
     });
 
@@ -388,6 +388,7 @@ export class Session {
     this.traceEmitter.updateSender(sendToClient);
     if (!opts?.skipProxySenderUpdate) {
       this.hostBashProxy?.updateSender(sendToClient, !hasNoClient);
+      this.hostCuProxy?.updateSender(sendToClient, !hasNoClient);
       this.hostFileProxy?.updateSender(sendToClient, !hasNoClient);
     }
   }
@@ -400,6 +401,7 @@ export class Session {
   /** Mark host proxies as unavailable so tool execution uses local fallback. */
   clearProxyAvailability(): void {
     this.hostBashProxy?.updateSender(this.sendToClient, false);
+    this.hostCuProxy?.updateSender(this.sendToClient, false);
     this.hostFileProxy?.updateSender(this.sendToClient, false);
   }
 
@@ -407,22 +409,13 @@ export class Session {
   restoreProxyAvailability(): void {
     if (!this.hasNoClient) {
       this.hostBashProxy?.updateSender(this.sendToClient, true);
+      this.hostCuProxy?.updateSender(this.sendToClient, true);
       this.hostFileProxy?.updateSender(this.sendToClient, true);
     }
   }
 
   setSandboxOverride(enabled: boolean | undefined): void {
     this.sandboxOverride = enabled;
-  }
-
-  setEscalationHandler(
-    handler: (task: string, sourceSessionId: string) => boolean,
-  ): void {
-    this.onEscalateToComputerUse = handler;
-  }
-
-  hasEscalationHandler(): boolean {
-    return this.onEscalateToComputerUse !== undefined;
   }
 
   isProcessing(): boolean {
@@ -447,6 +440,7 @@ export class Session {
   dispose(): void {
     approvalOverrides.clearMode(this.conversationId);
     this.hostBashProxy?.dispose();
+    this.hostCuProxy?.dispose();
     this.hostFileProxy?.dispose();
     disposeSession(this);
   }
@@ -589,6 +583,122 @@ export class Session {
       undefined,
       "Resuming after approval",
     );
+
+    // Cascade to other pending confirmations that match this decision
+    this.cascadePendingApprovals(requestId, decision, selectedPattern);
+  }
+
+  /**
+   * After resolving one confirmation, auto-resolve other pending
+   * confirmations in the same conversation that match the decision.
+   *
+   * - allow_10m / allow_thread → approve ALL pending in conversation
+   * - always_allow / always_allow_high_risk → approve pattern-matching pending
+   * - always_deny → deny pattern-matching pending
+   * - allow / deny (one-time) → no cascading
+   */
+  private cascadePendingApprovals(
+    primaryRequestId: string,
+    decision: UserDecision,
+    selectedPattern?: string,
+  ): void {
+    // Single-action decisions don't cascade
+    if (decision === "allow" || decision === "deny") return;
+
+    const pendingRequestIds = this.prompter.getPendingRequestIds();
+    if (pendingRequestIds.length === 0) return;
+
+    for (const candidateId of pendingRequestIds) {
+      if (candidateId === primaryRequestId) continue;
+
+      const interaction = pendingInteractions.get(candidateId);
+      if (!interaction) continue;
+      if (interaction.conversationId !== this.conversationId) continue;
+      if (interaction.kind !== "confirmation") continue;
+
+      const cascadeResult = this.shouldCascade(
+        decision,
+        selectedPattern,
+        interaction.confirmationDetails,
+      );
+      if (!cascadeResult) continue;
+
+      // Consume from pending-interactions tracker
+      pendingInteractions.resolve(candidateId);
+
+      // Resolve via handleConfirmationResponse which emits events.
+      // Use simple "allow"/"deny" so the permission-checker won't save
+      // duplicate rules or re-activate temporary modes. Recursion
+      // terminates because allow/deny exit cascadePendingApprovals early.
+      this.handleConfirmationResponse(
+        candidateId,
+        cascadeResult.allow ? "allow" : "deny",
+        undefined,
+        undefined,
+        undefined,
+        {
+          source: "system",
+          causedByRequestId: primaryRequestId,
+        },
+      );
+
+      // Sync the canonical guardian request status for the cascaded request.
+      // Best-effort: canonical request tracking should not break the cascade flow.
+      try {
+        const targetStatus = cascadeResult.allow ? "approved" : "denied";
+        resolveCanonicalGuardianRequest(candidateId, "pending", {
+          status: targetStatus,
+        });
+      } catch {
+        // Ignore — canonical request tracking is best-effort
+      }
+    }
+  }
+
+  /**
+   * Determine whether a pending confirmation should be auto-resolved
+   * based on the cascading decision and pattern.
+   */
+  private shouldCascade(
+    decision: UserDecision,
+    selectedPattern: string | undefined,
+    details?: import("../runtime/pending-interactions.js").ConfirmationDetails,
+  ): { allow: boolean } | null {
+    // Temporary overrides apply to the entire conversation
+    if (decision === "allow_10m" || decision === "allow_thread") {
+      return { allow: true };
+    }
+
+    // Persistent allow: cascade if the pattern matches any allowlist candidate.
+    // "always_allow" must NOT cascade to high-risk pending confirmations —
+    // only "always_allow_high_risk" has consent for those.
+    if (
+      (decision === "always_allow" || decision === "always_allow_high_risk") &&
+      selectedPattern &&
+      details
+    ) {
+      if (decision === "always_allow" && details.riskLevel === "high") {
+        return null;
+      }
+      for (const option of details.allowlistOptions) {
+        if (patternMatchesCandidate(selectedPattern, option.pattern)) {
+          return { allow: true };
+        }
+      }
+      return null;
+    }
+
+    // Persistent deny: cascade denial if the pattern matches
+    if (decision === "always_deny" && selectedPattern && details) {
+      for (const option of details.allowlistOptions) {
+        if (patternMatchesCandidate(selectedPattern, option.pattern)) {
+          return { allow: false };
+        }
+      }
+      return null;
+    }
+
+    return null;
   }
 
   handleSecretResponse(
@@ -630,6 +740,17 @@ export class Session {
       this.hostFileProxy.dispose();
     }
     this.hostFileProxy = proxy;
+  }
+
+  resolveHostCu(requestId: string, observation: CuObservationResult): void {
+    this.hostCuProxy?.resolve(requestId, observation);
+  }
+
+  setHostCuProxy(proxy: HostCuProxy | undefined): void {
+    if (this.hostCuProxy && this.hostCuProxy !== proxy) {
+      this.hostCuProxy.dispose();
+    }
+    this.hostCuProxy = proxy;
   }
 
   // ── Server-authoritative state signals ─────────────────────────────
@@ -697,6 +818,18 @@ export class Session {
 
   setPreactivatedSkillIds(ids: string[] | undefined): void {
     this.preactivatedSkillIds = ids;
+  }
+
+  /**
+   * Add a skill ID to the preactivated set without replacing existing entries.
+   * No-op if the ID is already present.
+   */
+  addPreactivatedSkillId(id: string): void {
+    if (!this.preactivatedSkillIds) {
+      this.preactivatedSkillIds = [id];
+    } else if (!this.preactivatedSkillIds.includes(id)) {
+      this.preactivatedSkillIds.push(id);
+    }
   }
 
   setTurnChannelContext(ctx: TurnChannelContext): void {

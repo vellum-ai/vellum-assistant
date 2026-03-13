@@ -1,7 +1,7 @@
 // swift-tools-version: 5.9
 import PackageDescription
 
-let appVersion = "0.4.45"
+let appVersion = "0.4.49"
 
 let package = Package(
     name: "vellum-assistant",
@@ -25,8 +25,9 @@ let package = Package(
         // iOS executable product removed — use ios/vellum-assistant-ios.xcodeproj instead.
     ],
     dependencies: [
-        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.0.0"),
         .package(url: "https://github.com/getsentry/sentry-cocoa.git", from: "8.0.0"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.0.0"),
+        .package(url: "https://github.com/migueldeicaza/SwiftTerm", from: "1.0.0"),
     ],
     targets: [
         .target(
@@ -56,6 +57,7 @@ let package = Package(
                 "VellumAssistantShared",
                 "Sparkle",
                 .product(name: "Sentry", package: "sentry-cocoa"),
+                .product(name: "SwiftTerm", package: "SwiftTerm"),
             ],
             path: "macos/vellum-assistant",
             exclude: ["Resources/Info.plist", "Resources/bg.png", "Resources/VellumDocument.icns"],
@@ -71,7 +73,8 @@ let package = Package(
                 .process("Resources/vellum-edit-animator.js"),
                 .copy("Resources/editor"),
                 .process("Resources/initial-avatar.png"),
-                .process("Resources/vellum-app-icon.png")
+                .process("Resources/vellum-app-icon.png"),
+                .process("Resources/welcome-characters.png")
             ],
             linkerSettings: [
                 .linkedFramework("ApplicationServices"),

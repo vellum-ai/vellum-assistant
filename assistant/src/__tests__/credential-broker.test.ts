@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { credentialKey } from "../security/credential-key.js";
 import { CredentialBroker } from "../tools/credentials/broker.js";
 import {
   _setMetadataPath,
@@ -125,7 +126,7 @@ describe("CredentialBroker", () => {
 
       const result = broker.consume(auth.token.tokenId);
       expect(result.success).toBe(true);
-      expect(result.storageKey).toBe("credential:github:token");
+      expect(result.storageKey).toBe(credentialKey("github", "token"));
     });
 
     test("rejects double consumption", () => {

@@ -12,24 +12,20 @@ struct VoiceTranscriptionView: View {
         VStack(spacing: 8) {
             ZStack {
                 Circle()
-                    .stroke(VColor.accent, lineWidth: 2.5)
+                    .stroke(VColor.primaryBase, lineWidth: 2.5)
                     .frame(width: circleSize, height: circleSize)
 
-                Image(nsImage: appearance.chatAvatarImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: circleSize - 8, height: circleSize - 8)
-                    .clipShape(Circle())
+                VAvatarImage(image: appearance.chatAvatarImage, size: circleSize - 8, showBorder: false)
             }
 
             Text(voiceModeManager.stateLabel.isEmpty ? "Listening" : voiceModeManager.stateLabel)
                 .font(VFont.bodyMedium)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             if !voiceModeManager.liveTranscription.isEmpty {
                 Text(voiceModeManager.liveTranscription)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .lineLimit(3)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 260)

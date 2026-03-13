@@ -14,7 +14,11 @@ import { desc } from "drizzle-orm";
 import { getDb } from "../../memory/db.js";
 import { toolInvocations } from "../../memory/schema.js";
 import { getLogger } from "../../util/logger.js";
-import { getDataDir, getRootDir } from "../../util/platform.js";
+import {
+  getDataDir,
+  getRootDir,
+  getWorkspaceConfigPath,
+} from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
@@ -31,6 +35,7 @@ interface ExportResponse {
   success: true;
   auditRows: Array<Record<string, unknown>>;
   logFiles: Record<string, string>;
+  configSnapshot?: Record<string, unknown>;
 }
 
 /**
@@ -83,21 +88,134 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
       }
     }
 
+    // --- Sanitized config snapshot ---
+    const configSnapshot = readSanitizedConfig();
+
     log.info(
-      { auditCount: auditRows.length, logFileCount: Object.keys(logFiles).length, totalBytes },
+      {
+        auditCount: auditRows.length,
+        logFileCount: Object.keys(logFiles).length,
+        totalBytes,
+        hasConfig: configSnapshot !== undefined,
+      },
       "Export completed",
     );
 
-    const payload: ExportResponse = { success: true, auditRows, logFiles };
+    const payload: ExportResponse = {
+      success: true,
+      auditRows,
+      logFiles,
+      configSnapshot,
+    };
     return Response.json(payload);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Failed to export");
-    return httpError(
-      "INTERNAL_ERROR",
-      `Failed to export: ${message}`,
-      500,
-    );
+    return httpError("INTERNAL_ERROR", `Failed to export: ${message}`, 500);
+  }
+}
+
+/**
+ * Replaces a string value with a presence flag: "(set)" if truthy, "(empty)" otherwise.
+ */
+function redactStringValue(val: unknown): string {
+  return val ? "(set)" : "(empty)";
+}
+
+/**
+ * Reads the workspace config.json and strips sensitive fields.
+ * Returns undefined if the file is missing or unreadable.
+ */
+function readSanitizedConfig(): Record<string, unknown> | undefined {
+  const configPath = getWorkspaceConfigPath();
+  if (!existsSync(configPath)) return undefined;
+
+  try {
+    const raw = readFileSync(configPath, "utf-8");
+    const config = JSON.parse(raw) as Record<string, unknown>;
+
+    // Strip API key values — preserve which providers have keys configured
+    if (config.apiKeys && typeof config.apiKeys === "object") {
+      const keys = config.apiKeys as Record<string, unknown>;
+      config.apiKeys = Object.fromEntries(
+        Object.keys(keys).map((k) => [k, redactStringValue(keys[k])]),
+      );
+    }
+
+    // Strip ingress webhook secret
+    if (config.ingress && typeof config.ingress === "object") {
+      const ingress = config.ingress as Record<string, unknown>;
+      if (ingress.webhook && typeof ingress.webhook === "object") {
+        const webhook = ingress.webhook as Record<string, unknown>;
+        webhook.secret = redactStringValue(webhook.secret);
+        ingress.webhook = webhook;
+      }
+      config.ingress = ingress;
+    }
+
+    // Strip skill-level API keys and env vars
+    if (config.skills && typeof config.skills === "object") {
+      const skills = config.skills as Record<string, unknown>;
+      if (skills.entries && typeof skills.entries === "object") {
+        const entries = skills.entries as Record<string, unknown>;
+        for (const name of Object.keys(entries)) {
+          const entry = entries[name];
+          if (entry && typeof entry === "object") {
+            const e = entry as Record<string, unknown>;
+            if ("apiKey" in e) e.apiKey = redactStringValue(e.apiKey);
+            if (e.env && typeof e.env === "object") {
+              const env = e.env as Record<string, unknown>;
+              e.env = Object.fromEntries(
+                Object.keys(env).map((k) => [k, redactStringValue(env[k])]),
+              );
+            }
+          }
+        }
+      }
+    }
+
+    // Strip Twilio accountSid
+    if (config.twilio && typeof config.twilio === "object") {
+      const twilio = config.twilio as Record<string, unknown>;
+      twilio.accountSid = redactStringValue(twilio.accountSid);
+      config.twilio = twilio;
+    }
+
+    // Strip MCP transport headers (SSE/streamable-http) and env vars (stdio)
+    if (config.mcp && typeof config.mcp === "object") {
+      const mcp = config.mcp as Record<string, unknown>;
+      if (mcp.servers && typeof mcp.servers === "object") {
+        const servers = mcp.servers as Record<string, unknown>;
+        for (const name of Object.keys(servers)) {
+          const server = servers[name];
+          if (server && typeof server === "object") {
+            const s = server as Record<string, unknown>;
+            if (s.transport && typeof s.transport === "object") {
+              const transport = s.transport as Record<string, unknown>;
+              if (transport.headers && typeof transport.headers === "object") {
+                const headers = transport.headers as Record<string, unknown>;
+                transport.headers = Object.fromEntries(
+                  Object.keys(headers).map((k) => [
+                    k,
+                    redactStringValue(headers[k]),
+                  ]),
+                );
+              }
+              if (transport.env && typeof transport.env === "object") {
+                const env = transport.env as Record<string, unknown>;
+                transport.env = Object.fromEntries(
+                  Object.keys(env).map((k) => [k, redactStringValue(env[k])]),
+                );
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return config;
+  } catch {
+    return undefined;
   }
 }
 

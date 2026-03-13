@@ -17,7 +17,12 @@ import { removeAssistantEntry } from "../lib/assistant-config";
 import { SPECIES_CONFIG, type Species } from "../lib/constants";
 import { callDoctorDaemon, type ChatLogEntry } from "../lib/doctor-client";
 import { checkHealth } from "../lib/health-check";
+import { appendHistory, loadHistory } from "../lib/input-history";
 import { statusEmoji, withStatusEmoji } from "../lib/status-emoji";
+import {
+  getTerminalCapabilities,
+  unicodeOrFallback,
+} from "../lib/terminal-capabilities";
 import TextInput from "./TextInput";
 import { Tooltip } from "./Tooltip";
 
@@ -55,7 +60,9 @@ const DEFAULT_TERMINAL_COLUMNS = 80;
 const DEFAULT_TERMINAL_ROWS = 24;
 const LEFT_PANEL_WIDTH = 36;
 
-const HEADER_PREFIX = "── Vellum ";
+const COMPACT_THRESHOLD = 60;
+const HEADER_PREFIX_UNICODE = "── Vellum ";
+const HEADER_PREFIX_ASCII = "-- Vellum ";
 
 // Left panel structure: HEADER lines + art + FOOTER lines
 const LEFT_HEADER_LINES = 3; // spacer + heading + spacer
@@ -694,6 +701,37 @@ interface StyledLine {
   style: "heading" | "dim" | "normal";
 }
 
+function CompactHeader({
+  species,
+  healthStatus,
+  totalWidth,
+}: {
+  species: Species;
+  healthStatus?: string;
+  totalWidth: number;
+}): ReactElement {
+  const config = SPECIES_CONFIG[species];
+  const accentColor = species === "openclaw" ? "red" : "magenta";
+  const status = healthStatus ?? "checking...";
+  const label = ` ${config.hatchedEmoji} ${species} ${statusEmoji(status)} `;
+  const prefix = "── Vellum";
+  const suffix = "──";
+  const fillLen = Math.max(
+    0,
+    totalWidth - prefix.length - label.length - suffix.length,
+  );
+  return (
+    <Box flexDirection="column" width={totalWidth}>
+      <Text dimColor>
+        {prefix}
+        <Text color={accentColor}>{label}</Text>
+        {"─".repeat(fillLen)}
+        {suffix}
+      </Text>
+    </Box>
+  );
+}
+
 function DefaultMainScreen({
   runtimeUrl,
   assistantId,
@@ -705,10 +743,27 @@ function DefaultMainScreen({
   const config = SPECIES_CONFIG[species];
   const art = config.art;
   const accentColor = species === "openclaw" ? "red" : "magenta";
+  const caps = getTerminalCapabilities();
+  const headerPrefix = caps.unicodeSupported
+    ? HEADER_PREFIX_UNICODE
+    : HEADER_PREFIX_ASCII;
+  const headerSep = caps.unicodeSupported ? "─" : "-";
 
   const { stdout } = useStdout();
   const terminalColumns = stdout.columns || DEFAULT_TERMINAL_COLUMNS;
   const totalWidth = Math.min(MAX_TOTAL_WIDTH, terminalColumns);
+  const isCompact = terminalColumns < COMPACT_THRESHOLD;
+
+  if (isCompact) {
+    return (
+      <CompactHeader
+        species={species}
+        healthStatus={healthStatus}
+        totalWidth={totalWidth}
+      />
+    );
+  }
+
   const rightPanelWidth = Math.max(1, totalWidth - LEFT_PANEL_WIDTH);
 
   const leftLines = [
@@ -729,7 +784,10 @@ function DefaultMainScreen({
     { text: "Assistant", style: "heading" },
     { text: assistantId, style: "dim" },
     { text: "Species", style: "heading" },
-    { text: `${config.hatchedEmoji} ${species}`, style: "dim" },
+    {
+      text: `${unicodeOrFallback(config.hatchedEmoji, `[${species}]`)} ${species}`,
+      style: "dim",
+    },
     { text: "Status", style: "heading" },
     { text: withStatusEmoji(healthStatus ?? "checking..."), style: "dim" },
   ];
@@ -739,8 +797,8 @@ function DefaultMainScreen({
   return (
     <Box flexDirection="column" width={totalWidth}>
       <Text dimColor>
-        {HEADER_PREFIX +
-          "─".repeat(Math.max(0, totalWidth - HEADER_PREFIX.length))}
+        {headerPrefix +
+          headerSep.repeat(Math.max(0, totalWidth - headerPrefix.length))}
       </Text>
       <Box flexDirection="row">
         <Box flexDirection="column" width={LEFT_PANEL_WIDTH}>
@@ -755,7 +813,7 @@ function DefaultMainScreen({
             }
             if (i > 2 && i <= 2 + art.length) {
               return (
-                <Text key={i} color={accentColor}>
+                <Text key={i} color={caps.isDumb ? undefined : accentColor}>
                   {line}
                 </Text>
               );
@@ -792,7 +850,7 @@ function DefaultMainScreen({
           })}
         </Box>
       </Box>
-      <Text dimColor>{"─".repeat(totalWidth)}</Text>
+      <Text dimColor>{headerSep.repeat(totalWidth)}</Text>
       <Text> </Text>
     </Box>
   );
@@ -838,9 +896,18 @@ function isRuntimeMessage(item: FeedItem): item is RuntimeMessage {
 function estimateItemHeight(item: FeedItem, terminalColumns: number): number {
   if (isRuntimeMessage(item)) {
     const cols = Math.max(1, terminalColumns);
+    // Account for "HH:MM AM Label: " prefix on the first line
+    const defaultLabel = item.role === "user" ? "You:" : "Assistant:";
+    const label = item.label ?? defaultLabel;
+    const prefixLen = 10 + label.length + 1; // timestamp + space + label + space
     let lines = 0;
-    for (const line of item.content.split("\n")) {
-      lines += Math.max(1, Math.ceil(line.length / cols));
+    const contentLines = item.content.split("\n");
+    for (let idx = 0; idx < contentLines.length; idx++) {
+      const lineLen =
+        idx === 0
+          ? contentLines[idx].length + prefixLen
+          : contentLines[idx].length;
+      lines += Math.max(1, Math.ceil(lineLen / cols));
     }
     if (item.role === "assistant" && item.toolCalls) {
       for (const tc of item.toolCalls) {
@@ -870,7 +937,15 @@ function estimateItemHeight(item: FeedItem, terminalColumns: number): number {
   return 1;
 }
 
-function calculateHeaderHeight(species: Species): number {
+const COMPACT_HEADER_HEIGHT = 1;
+
+function calculateHeaderHeight(
+  species: Species,
+  terminalColumns?: number,
+): number {
+  if ((terminalColumns ?? DEFAULT_TERMINAL_COLUMNS) < COMPACT_THRESHOLD) {
+    return COMPACT_HEADER_HEIGHT;
+  }
   const config = SPECIES_CONFIG[species];
   const artLength = config.art.length;
   const leftLineCount = LEFT_HEADER_LINES + artLength + LEFT_FOOTER_LINES;
@@ -885,6 +960,9 @@ export function render(
   assistantId: string,
   species: Species,
 ): number {
+  const terminalColumns = process.stdout.columns || DEFAULT_TERMINAL_COLUMNS;
+  const isCompact = terminalColumns < COMPACT_THRESHOLD;
+
   const config = SPECIES_CONFIG[species];
   const art = config.art;
 
@@ -900,6 +978,10 @@ export function render(
     { exitOnCtrlC: false },
   );
   unmount();
+
+  if (isCompact) {
+    return COMPACT_HEADER_HEIGHT;
+  }
 
   const statusCanvasLine = RIGHT_PANEL_LINE_COUNT + HEADER_TOP_BORDER_LINES;
   const statusCol = LEFT_PANEL_WIDTH + 1;
@@ -1128,6 +1210,9 @@ function ChatApp({
   handleRef,
 }: ChatAppProps): ReactElement {
   const [inputValue, setInputValue] = useState("");
+  const historyRef = useRef<string[]>(loadHistory());
+  const historyIndexRef = useRef(-1);
+  const savedInputRef = useRef("");
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [spinnerText, setSpinnerText] = useState<string | null>(null);
   const [selection, setSelection] = useState<SelectionRequest | null>(null);
@@ -1152,15 +1237,20 @@ function ChatApp({
   const { stdout } = useStdout();
   const terminalRows = stdout.rows || DEFAULT_TERMINAL_ROWS;
   const terminalColumns = stdout.columns || DEFAULT_TERMINAL_COLUMNS;
-  const headerHeight = calculateHeaderHeight(species);
+  const headerHeight = calculateHeaderHeight(species, terminalColumns);
 
+  const isCompact = terminalColumns < COMPACT_THRESHOLD;
+  const compactInputAreaHeight = 1; // input row only, no separators
+  const inputAreaHeight = isCompact
+    ? compactInputAreaHeight
+    : INPUT_AREA_HEIGHT;
   const bottomHeight = selection
     ? selection.options.length + SELECTION_CHROME_LINES + TOOLTIP_HEIGHT
     : secretInput
       ? SECRET_INPUT_HEIGHT + TOOLTIP_HEIGHT
       : spinnerText
-        ? SPINNER_HEIGHT + INPUT_AREA_HEIGHT
-        : INPUT_AREA_HEIGHT;
+        ? SPINNER_HEIGHT + inputAreaHeight
+        : inputAreaHeight;
   const availableRows = Math.max(
     MIN_FEED_ROWS,
     terminalRows - headerHeight - bottomHeight,
@@ -1197,11 +1287,14 @@ function ChatApp({
     }
 
     if (scrollIndex === null) {
+      // Reserve 1 line for "N more above" indicator when there are hidden messages
       let totalHeight = 0;
       let start = feed.length;
       for (let i = feed.length - 1; i >= 0; i--) {
         const h = estimateItemHeight(feed[i], terminalColumns);
-        if (totalHeight + h > availableRows) {
+        // Reserve space for the "more above" indicator if we'd hide messages
+        const indicatorLine = i > 0 ? 1 : 0;
+        if (totalHeight + h + indicatorLine > availableRows) {
           break;
         }
         totalHeight += h;
@@ -1220,11 +1313,16 @@ function ChatApp({
     }
 
     const start = Math.max(0, Math.min(scrollIndex, feed.length - 1));
+    // Reserve lines for "more above/below" indicators
+    const aboveIndicator = start > 0 ? 1 : 0;
+    const budget = availableRows - aboveIndicator;
     let totalHeight = 0;
     let end = start;
     for (let i = start; i < feed.length; i++) {
       const h = estimateItemHeight(feed[i], terminalColumns);
-      if (totalHeight + h > availableRows) {
+      // Reserve space for "more below" indicator if we'd hide messages
+      const belowIndicator = i + 1 < feed.length ? 1 : 0;
+      if (totalHeight + h + belowIndicator > budget) {
         break;
       }
       totalHeight += h;
@@ -2005,11 +2103,43 @@ function ChatApp({
 
   const handleSubmit = useCallback(
     (value: string) => {
+      const trimmed = value.trim();
+      if (trimmed) {
+        appendHistory(trimmed);
+        historyRef.current = loadHistory();
+      }
+      historyIndexRef.current = -1;
+      savedInputRef.current = "";
       setInputValue("");
       handleInput(value);
     },
     [handleInput],
   );
+
+  const handleHistoryUp = useCallback(() => {
+    const history = historyRef.current;
+    if (history.length === 0) return;
+    if (historyIndexRef.current === -1) {
+      savedInputRef.current = inputValue;
+    }
+    const nextIndex = Math.min(historyIndexRef.current + 1, history.length - 1);
+    historyIndexRef.current = nextIndex;
+    const entry = history[history.length - 1 - nextIndex];
+    setInputValue(entry);
+  }, [inputValue]);
+
+  const handleHistoryDown = useCallback(() => {
+    if (historyIndexRef.current === -1) return;
+    if (historyIndexRef.current <= 0) {
+      historyIndexRef.current = -1;
+      setInputValue(savedInputRef.current);
+      return;
+    }
+    historyIndexRef.current -= 1;
+    const history = historyRef.current;
+    const entry = history[history.length - 1 - historyIndexRef.current];
+    setInputValue(entry);
+  }, []);
 
   useEffect(() => {
     const handle: ChatAppHandle = {
@@ -2144,8 +2274,9 @@ function ChatApp({
       <Box flexDirection="column" flexGrow={1} overflow="hidden">
         {visibleWindow.hiddenAbove > 0 ? (
           <Text dimColor>
-            {"\u2191"} {visibleWindow.hiddenAbove} more above
-            (Shift+\u2191/Cmd+\u2191)
+            {isCompact
+              ? `\u2191 ${visibleWindow.hiddenAbove} more above`
+              : `\u2191 ${visibleWindow.hiddenAbove} more above (Shift+\u2191/Cmd+\u2191)`}
           </Text>
         ) : null}
 
@@ -2210,22 +2341,35 @@ function ChatApp({
       ) : null}
 
       {!selection && !secretInput ? (
-        <Box flexDirection="column">
-          <Text dimColor>{"\u2500".repeat(terminalColumns)}</Text>
-          <Box paddingLeft={1}>
+        <Box flexDirection="column" flexShrink={0}>
+          {isCompact ? null : (
+            <Text dimColor>
+              {unicodeOrFallback("\u2500", "-").repeat(terminalColumns)}
+            </Text>
+          )}
+          <Box paddingLeft={isCompact ? 0 : 1} height={1} flexShrink={0}>
             <Text color="green" bold>
-              you{">"}
+              {isCompact ? ">" : "you>"}
               {" "}
             </Text>
             <TextInput
               value={inputValue}
               onChange={setInputValue}
               onSubmit={handleSubmit}
+              onHistoryUp={handleHistoryUp}
+              onHistoryDown={handleHistoryDown}
+              completionCommands={SLASH_COMMANDS}
               focus={inputFocused}
             />
           </Box>
-          <Text dimColor>{"\u2500".repeat(terminalColumns)}</Text>
-          <Text dimColor> ? for shortcuts</Text>
+          {terminalColumns >= COMPACT_THRESHOLD ? (
+            <>
+              <Text dimColor>
+                {unicodeOrFallback("\u2500", "-").repeat(terminalColumns)}
+              </Text>
+              <Text dimColor> ? for shortcuts</Text>
+            </>
+          ) : null}
         </Box>
       ) : null}
     </Box>

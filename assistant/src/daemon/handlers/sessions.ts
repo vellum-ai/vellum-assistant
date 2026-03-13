@@ -35,6 +35,7 @@ import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { truncate } from "../../util/truncate.js";
 import { HostBashProxy } from "../host-bash-proxy.js";
+import { HostCuProxy } from "../host-cu-proxy.js";
 import { HostFileProxy } from "../host-file-proxy.js";
 import type {
   CancelRequest,
@@ -60,7 +61,6 @@ import {
   type HandlerContext,
   log,
   pendingStandaloneSecrets,
-  wireEscalationHandler,
 } from "./shared.js";
 
 /**
@@ -165,6 +165,12 @@ export function makeEventSender(params: {
         conversationId,
         kind: "host_file",
       });
+    } else if (event.type === "host_cu_request") {
+      pendingInteractions.register(event.requestId, {
+        session,
+        conversationId,
+        kind: "host_cu",
+      });
     }
 
     ctx.send(event);
@@ -188,21 +194,6 @@ export function handleConfirmationResponse(
         msg.selectedScope,
         undefined,
         { source: "button" },
-      );
-      syncCanonicalStatusFromConfirmationDecision(msg.requestId, msg.decision);
-      pendingInteractions.resolve(msg.requestId);
-      return;
-    }
-  }
-
-  // Also check computer-use sessions — they have their own PermissionPrompter
-  for (const [, cuSession] of ctx.cuSessions) {
-    if (cuSession.hasPendingConfirmation(msg.requestId)) {
-      cuSession.handleConfirmationResponse(
-        msg.requestId,
-        msg.decision,
-        msg.selectedPattern,
-        msg.selectedScope,
       );
       syncCanonicalStatusFromConfirmationDecision(msg.requestId, msg.decision);
       pendingInteractions.resolve(msg.requestId);
@@ -362,7 +353,6 @@ export async function handleSessionCreate(
     maxResponseTokens: msg.maxResponseTokens,
     transport: msg.transport,
   });
-  wireEscalationHandler(session, ctx);
 
   // Pre-activate skills before sending session_info so they're available
   // for the initial message processing.
@@ -431,6 +421,11 @@ export async function handleSessionCreate(
         pendingInteractions.resolve(requestId);
       });
       session.setHostFileProxy(fileProxy);
+      const cuProxy = new HostCuProxy(sendEvent, (requestId) => {
+        pendingInteractions.resolve(requestId);
+      });
+      session.setHostCuProxy(cuProxy);
+      session.addPreactivatedSkillId("computer-use");
     }
     session.updateClient(sendEvent, false);
     session
@@ -492,13 +487,7 @@ export async function switchSession(
     // Load the session without rebinding the client — the session stays headless
     await ctx.getOrCreateSession(sessionId);
   } else {
-    const session = await ctx.getOrCreateSession(sessionId);
-    // Only wire the escalation handler if one isn't already set — handleTaskSubmit
-    // sets a handler with the client's actual screen dimensions, and overwriting it
-    // here would replace those dimensions with the daemon's defaults.
-    if (!session.hasEscalationHandler()) {
-      wireEscalationHandler(session, ctx);
-    }
+    await ctx.getOrCreateSession(sessionId);
   }
 
   return {
@@ -589,23 +578,24 @@ export function handleCancel(msg: CancelRequest, ctx: HandlerContext): void {
 }
 
 /**
- * Undo the last message in a session. Returns the removed count, or null if session not found.
+ * Undo the last message in a session. Returns the removed count, or null if
+ * the conversation does not exist. Restores evicted sessions from the database.
  */
-export function undoLastMessage(
+export async function undoLastMessage(
   sessionId: string,
   ctx: HandlerContext,
-): { removedCount: number } | null {
-  const session = ctx.sessions.get(sessionId);
-  if (!session) {
+): Promise<{ removedCount: number } | null> {
+  if (!getConversation(sessionId)) {
     return null;
   }
+  const session = await ctx.getOrCreateSession(sessionId);
   ctx.touchSession(sessionId);
   const removedCount = session.undo();
   return { removedCount };
 }
 
-export function handleUndo(msg: UndoRequest, ctx: HandlerContext): void {
-  const result = undoLastMessage(msg.sessionId, ctx);
+export async function handleUndo(msg: UndoRequest, ctx: HandlerContext): Promise<void> {
+  const result = await undoLastMessage(msg.sessionId, ctx);
   if (!result) {
     ctx.send({ type: "error", message: "No active session" });
     return;
@@ -620,17 +610,18 @@ export function handleUndo(msg: UndoRequest, ctx: HandlerContext): void {
 /**
  * Regenerate the last assistant response for a session. The caller provides
  * a `sendEvent` callback for delivering streaming events via HTTP/SSE.
- * Returns null if the session is not found. Throws on regeneration errors.
+ * Returns null if the conversation does not exist. Restores evicted sessions
+ * from the database when needed. Throws on regeneration errors.
  */
 export async function regenerateResponse(
   sessionId: string,
   ctx: HandlerContext,
   sendEvent: (event: ServerMessage) => void,
 ): Promise<{ requestId: string } | null> {
-  const session = ctx.sessions.get(sessionId);
-  if (!session) {
+  if (!getConversation(sessionId)) {
     return null;
   }
+  const session = await ctx.getOrCreateSession(sessionId);
   ctx.touchSession(sessionId);
   session.updateClient(sendEvent, false);
   const requestId = uuid();
@@ -661,11 +652,11 @@ export async function handleRegenerate(
   msg: RegenerateRequest,
   ctx: HandlerContext,
 ): Promise<void> {
-  const session = ctx.sessions.get(msg.sessionId);
-  if (!session) {
+  if (!getConversation(msg.sessionId)) {
     ctx.send({ type: "error", message: "No active session" });
     return;
   }
+  const session = await ctx.getOrCreateSession(msg.sessionId);
 
   const regenerateChannel =
     parseChannelId(session.getTurnChannelContext()?.assistantMessageChannel) ??

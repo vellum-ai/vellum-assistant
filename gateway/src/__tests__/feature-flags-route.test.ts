@@ -18,6 +18,9 @@ const testDir = join(
 const vellumRoot = join(testDir, ".vellum");
 const workspaceDir = join(vellumRoot, "workspace");
 const configPath = join(workspaceDir, "config.json");
+
+// Write the test registry to an isolated temp path so we never touch
+// the committed gateway/src/feature-flag-registry.json file.
 const defaultsPath = join(testDir, "feature-flag-registry.json");
 
 const TEST_REGISTRY = {
@@ -59,13 +62,13 @@ const TEST_REGISTRY = {
 };
 
 const savedBaseDataDir = process.env.BASE_DATA_DIR;
-const savedFeatureFlagDefaultsPath = process.env.FEATURE_FLAG_DEFAULTS_PATH;
 
 beforeEach(() => {
   process.env.BASE_DATA_DIR = testDir;
-  process.env.FEATURE_FLAG_DEFAULTS_PATH = defaultsPath;
   mkdirSync(workspaceDir, { recursive: true });
   writeFileSync(defaultsPath, JSON.stringify(TEST_REGISTRY, null, 2));
+  // Point registry resolution at the isolated test file first
+  _setRegistryCandidateOverrides([defaultsPath]);
   resetFeatureFlagDefaultsCache();
 });
 
@@ -75,24 +78,23 @@ afterEach(() => {
   } else {
     process.env.BASE_DATA_DIR = savedBaseDataDir;
   }
-  if (savedFeatureFlagDefaultsPath === undefined) {
-    delete process.env.FEATURE_FLAG_DEFAULTS_PATH;
-  } else {
-    process.env.FEATURE_FLAG_DEFAULTS_PATH = savedFeatureFlagDefaultsPath;
-  }
   try {
     rmSync(testDir, { recursive: true, force: true });
   } catch {
     // best effort cleanup
   }
-  // Reset the defaults cache so tests don't leak state
+  // Clear the test-only candidate override and reset the defaults cache
+  _setRegistryCandidateOverrides(null);
   resetFeatureFlagDefaultsCache();
 });
 
 const { createFeatureFlagsGetHandler, createFeatureFlagsPatchHandler } =
   await import("../http/routes/feature-flags.js");
-const { loadFeatureFlagDefaults, resetFeatureFlagDefaultsCache } =
-  await import("../feature-flag-defaults.js");
+const {
+  loadFeatureFlagDefaults,
+  resetFeatureFlagDefaultsCache,
+  _setRegistryCandidateOverrides,
+} = await import("../feature-flag-defaults.js");
 
 describe("GET /v1/feature-flags handler", () => {
   test("returns all declared assistant-scope flags with defaults when config file does not exist", async () => {

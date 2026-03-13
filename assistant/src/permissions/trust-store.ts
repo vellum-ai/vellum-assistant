@@ -76,6 +76,19 @@ function getCompiledPattern(pattern: string): Minimatch | null {
   return compiled;
 }
 
+/**
+ * Check whether a minimatch pattern matches a candidate string.
+ * Reuses the compiled pattern cache from trust rule evaluation.
+ */
+export function patternMatchesCandidate(
+  pattern: string,
+  candidate: string,
+): boolean {
+  const compiled = getCompiledPattern(pattern);
+  if (!compiled) return false;
+  return compiled.match(candidate);
+}
+
 /** Rebuild the compiled pattern cache from the current rule set. */
 function rebuildPatternCache(rules: TrustRule[]): void {
   compiledPatterns.clear();
@@ -270,12 +283,28 @@ function loadFromDisk(): TrustRule[] {
       // Restore persisted starter bundle flag
       cachedStarterBundleAccepted = data.starterBundleAccepted === true;
 
+      // Defense-in-depth: strip any __internal: prefixed rules that may have
+      // been hand-edited into trust.json.
+      const sanitizedRules = rawRules.filter((r) => {
+        if (typeof r.tool === "string" && r.tool.startsWith("__internal:")) {
+          log.warn(
+            { ruleId: r.id, tool: r.tool },
+            "Stripping __internal: rule from trust file on load",
+          );
+          return false;
+        }
+        return true;
+      });
+
       if (
         data.version === TRUST_FILE_VERSION ||
         data.version === 1 ||
         data.version === 2
       ) {
-        rules = rawRules;
+        rules = sanitizedRules;
+        if (sanitizedRules.length < rawRules.length) {
+          needsSave = true;
+        }
         if (data.version !== TRUST_FILE_VERSION) {
           needsSave = true;
           log.info(
@@ -382,6 +411,8 @@ export function addRule(
     executionTarget?: string;
   },
 ): TrustRule {
+  if (tool.startsWith("__internal:"))
+    throw new Error(`Cannot create internal pseudo-rule via addRule: ${tool}`);
   // Re-read from disk to avoid lost updates if another call modified rules
   // between our last read and now (e.g. two rapid trust rule additions).
   cachedRules = null;
@@ -424,6 +455,10 @@ export function updateRule(
   const defaultIds = new Set(getDefaultRuleTemplates().map((t) => t.id));
   if (defaultIds.has(id))
     throw new Error(`Cannot modify default trust rule: ${id}`);
+  if (updates.tool?.startsWith("__internal:"))
+    throw new Error(
+      `Cannot update tool to internal pseudo-rule: ${updates.tool}`,
+    );
 
   // Re-read from disk to avoid lost updates from concurrent modifications.
   cachedRules = null;

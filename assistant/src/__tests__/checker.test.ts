@@ -135,9 +135,7 @@ registerTool(mockBundledSkillTool);
 // Register CU tools so classifyRisk returns their declared Low risk level
 // instead of falling through to Medium (unknown tool).
 import { registerComputerUseActionTools } from "../tools/computer-use/registry.js";
-import { requestComputerControlTool } from "../tools/computer-use/request-computer-control.js";
 registerComputerUseActionTools();
-registerTool(requestComputerControlTool);
 
 function writeSkill(
   skillId: string,
@@ -673,14 +671,14 @@ describe("Permission Checker", () => {
       expect(result.decision).toBe("allow");
     });
 
-    test("file_write within workspace with no rule → auto-allowed in workspace mode", async () => {
+    test("file_write within workspace with no rule → prompt (medium risk bypasses workspace auto-allow)", async () => {
       const result = await check(
         "file_write",
         { path: "/tmp/file.txt" },
         "/tmp",
       );
-      expect(result.decision).toBe("allow");
-      expect(result.reason).toContain("workspace-scoped");
+      expect(result.decision).toBe("prompt");
+      expect(result.reason).toContain("medium risk");
     });
 
     test("file_write outside workspace with no rule → prompt", async () => {
@@ -897,16 +895,16 @@ describe("Permission Checker", () => {
       );
     });
 
-    test("computer_use_request_control prompts by default via computer-use ask rule", async () => {
+    test("computer_use_observe prompts by default via computer-use ask rule", async () => {
       const result = await check(
-        "computer_use_request_control",
-        { task: "Open system settings" },
+        "computer_use_observe",
+        { reason: "Check current screen state before acting" },
         "/tmp",
       );
       expect(result.decision).toBe("prompt");
       expect(result.reason).toContain("ask rule");
       expect(result.matchedRule?.id).toBe(
-        "default:ask-computer_use_request_control-global",
+        "default:ask-computer_use_observe-global",
       );
     });
 
@@ -4407,11 +4405,6 @@ describe("computer-use tool permission defaults", () => {
       expect(risk).toBe(RiskLevel.Low);
     }
   });
-
-  test("computer_use_request_control classifies as Low risk", async () => {
-    const risk = await classifyRisk("computer_use_request_control", {});
-    expect(risk).toBe(RiskLevel.Low);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -4588,24 +4581,24 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
     expect(result.reason).toContain("Workspace mode");
   });
 
-  test("file_write within workspace → allow (workspace-scoped)", async () => {
+  test("file_write within workspace → prompt (Medium risk bypasses workspace auto-allow)", async () => {
     const result = await check(
       "file_write",
       { file_path: "/home/user/my-project/src/index.ts" },
       workspaceDir,
     );
-    expect(result.decision).toBe("allow");
-    expect(result.reason).toContain("Workspace mode");
+    expect(result.decision).toBe("prompt");
+    expect(result.reason).toContain("medium risk");
   });
 
-  test("file_edit within workspace → allow (workspace-scoped)", async () => {
+  test("file_edit within workspace → prompt (Medium risk bypasses workspace auto-allow)", async () => {
     const result = await check(
       "file_edit",
       { file_path: "/home/user/my-project/src/index.ts" },
       workspaceDir,
     );
-    expect(result.decision).toBe("allow");
-    expect(result.reason).toContain("Workspace mode");
+    expect(result.decision).toBe("prompt");
+    expect(result.reason).toContain("medium risk");
   });
 
   // ── file operations outside workspace follow risk-based fallback ──

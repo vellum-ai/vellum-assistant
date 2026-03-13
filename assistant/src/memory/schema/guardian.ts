@@ -27,7 +27,7 @@ export const guardianActionRequests = sqliteTable(
     followupState: text("followup_state").notNull().default("none"), // none | awaiting_guardian_choice | dispatching | completed | declined | failed
     lateAnswerText: text("late_answer_text"),
     lateAnsweredAt: integer("late_answered_at"),
-    followupAction: text("followup_action"), // call_back | message_back | decline
+    followupAction: text("followup_action"), // call_back | decline
     followupCompletedAt: integer("followup_completed_at"),
     toolName: text("tool_name"), // tool identity for tool-approval requests
     inputDigest: text("input_digest"), // canonical SHA-256 digest of tool input

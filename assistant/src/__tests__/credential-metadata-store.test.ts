@@ -294,6 +294,38 @@ describe("credential metadata store", () => {
     });
   });
 
+  // ── v5 Schema: OAuth fields removed ─────────────────────────────────
+
+  describe("v5 schema — OAuth fields removed from CredentialMetadata", () => {
+    test("CredentialMetadata does not include hasRefreshToken", () => {
+      const record = upsertCredentialMetadata("github", "access_token", {
+        allowedTools: ["api_request"],
+      });
+      // hasRefreshToken was removed in v5 — field should not exist
+      expect("hasRefreshToken" in record).toBe(false);
+    });
+
+    test("CredentialMetadata does not include oauth2TokenUrl", () => {
+      const record = upsertCredentialMetadata("github", "access_token");
+      expect("oauth2TokenUrl" in record).toBe(false);
+    });
+
+    test("CredentialMetadata does not include oauth2ClientId", () => {
+      const record = upsertCredentialMetadata("github", "access_token");
+      expect("oauth2ClientId" in record).toBe(false);
+    });
+
+    test("CredentialMetadata does not include expiresAt", () => {
+      const record = upsertCredentialMetadata("github", "access_token");
+      expect("expiresAt" in record).toBe(false);
+    });
+
+    test("CredentialMetadata does not include grantedScopes", () => {
+      const record = upsertCredentialMetadata("github", "access_token");
+      expect("grantedScopes" in record).toBe(false);
+    });
+  });
+
   // ── Version migration ──────────────────────────────────────────────
 
   describe("version migration", () => {
@@ -371,7 +403,7 @@ describe("credential metadata store", () => {
       expect(record!.credentialId).toBe("cred-stable-id");
     });
 
-    test("v2 file is loaded without migration", () => {
+    test("v2 file is migrated to v5 (strips oauth2ClientSecret and OAuth fields)", () => {
       const v2Data = {
         version: 2,
         credentials: [
@@ -382,6 +414,7 @@ describe("credential metadata store", () => {
             allowedTools: ["api_request"],
             allowedDomains: ["fal.ai"],
             alias: "fal-primary",
+            oauth2ClientSecret: "should-be-stripped",
             injectionTemplates: [
               {
                 hostPattern: "*.fal.ai",
@@ -402,9 +435,191 @@ describe("credential metadata store", () => {
       expect(record!.alias).toBe("fal-primary");
       expect(record!.injectionTemplates).toHaveLength(1);
       expect(record!.injectionTemplates![0].hostPattern).toBe("*.fal.ai");
+      // oauth2ClientSecret must be stripped by migration
+      expect("oauth2ClientSecret" in record!).toBe(false);
+
+      // On-disk file should be upgraded to v5
+      const raw = JSON.parse(readFileSync(META_PATH, "utf-8"));
+      expect(raw.version).toBe(5);
+      expect(raw.credentials[0]).not.toHaveProperty("oauth2ClientSecret");
     });
 
-    test("future version (v3+) returns unknown version and refuses writes", () => {
+    test("v3 file is migrated to v5 (removes ghost refresh_token records)", () => {
+      const v3Data = {
+        version: 3,
+        credentials: [
+          {
+            credentialId: "cred-v3-at",
+            service: "github",
+            field: "access_token",
+            allowedTools: ["api_request"],
+            allowedDomains: ["github.com"],
+            createdAt: 1700000000000,
+            updatedAt: 1700000000000,
+          },
+          {
+            credentialId: "cred-v3-rt",
+            service: "github",
+            field: "refresh_token",
+            allowedTools: [],
+            allowedDomains: [],
+            createdAt: 1700000000000,
+            updatedAt: 1700000000000,
+          },
+        ],
+      };
+      writeFileSync(META_PATH, JSON.stringify(v3Data, null, 2), "utf-8");
+
+      const records = listCredentialMetadata();
+      // Ghost refresh_token record removed
+      expect(records).toHaveLength(1);
+      expect(records[0].field).toBe("access_token");
+      // hasRefreshToken is stripped in v5 migration (OAuth fields moved to SQLite)
+      expect("hasRefreshToken" in records[0]).toBe(false);
+
+      // On-disk file should be upgraded to v5
+      const raw = JSON.parse(readFileSync(META_PATH, "utf-8"));
+      expect(raw.version).toBe(5);
+      expect(raw.credentials).toHaveLength(1);
+      expect(raw.credentials[0].field).toBe("access_token");
+    });
+
+    test("v3 file without refresh_token records migrates cleanly", () => {
+      const v3Data = {
+        version: 3,
+        credentials: [
+          {
+            credentialId: "cred-v3-001",
+            service: "fal-ai",
+            field: "api_key",
+            allowedTools: ["api_request"],
+            allowedDomains: ["fal.ai"],
+            alias: "fal-primary",
+            injectionTemplates: [
+              {
+                hostPattern: "*.fal.ai",
+                injectionType: "header",
+                headerName: "Authorization",
+                valuePrefix: "Key ",
+              },
+            ],
+            createdAt: 1700000000000,
+            updatedAt: 1700000000000,
+          },
+        ],
+      };
+      writeFileSync(META_PATH, JSON.stringify(v3Data, null, 2), "utf-8");
+
+      const record = getCredentialMetadata("fal-ai", "api_key");
+      expect(record).toBeDefined();
+      expect(record!.alias).toBe("fal-primary");
+      expect(record!.injectionTemplates).toHaveLength(1);
+      expect(record!.injectionTemplates![0].hostPattern).toBe("*.fal.ai");
+      // hasRefreshToken is stripped in v5 migration
+      expect("hasRefreshToken" in record!).toBe(false);
+
+      // On-disk file should be upgraded to v5
+      const raw = JSON.parse(readFileSync(META_PATH, "utf-8"));
+      expect(raw.version).toBe(5);
+    });
+
+    test("v3 migration handles multiple services with ghost records", () => {
+      const v3Data = {
+        version: 3,
+        credentials: [
+          {
+            credentialId: "at-github",
+            service: "github",
+            field: "access_token",
+            allowedTools: [],
+            allowedDomains: [],
+            createdAt: 1700000000000,
+            updatedAt: 1700000000000,
+          },
+          {
+            credentialId: "rt-github",
+            service: "github",
+            field: "refresh_token",
+            allowedTools: [],
+            allowedDomains: [],
+            createdAt: 1700000000000,
+            updatedAt: 1700000000000,
+          },
+          {
+            credentialId: "at-slack",
+            service: "slack",
+            field: "access_token",
+            allowedTools: [],
+            allowedDomains: [],
+            createdAt: 1700000000000,
+            updatedAt: 1700000000000,
+          },
+          {
+            credentialId: "at-stripe",
+            service: "stripe",
+            field: "access_token",
+            allowedTools: [],
+            allowedDomains: [],
+            createdAt: 1700000000000,
+            updatedAt: 1700000000000,
+          },
+          {
+            credentialId: "rt-stripe",
+            service: "stripe",
+            field: "refresh_token",
+            allowedTools: [],
+            allowedDomains: [],
+            createdAt: 1700000000000,
+            updatedAt: 1700000000000,
+          },
+        ],
+      };
+      writeFileSync(META_PATH, JSON.stringify(v3Data, null, 2), "utf-8");
+
+      const records = listCredentialMetadata();
+      // refresh_token records removed, only access_token records remain
+      expect(records).toHaveLength(3);
+      expect(records.every((r) => r.field !== "refresh_token")).toBe(true);
+      // hasRefreshToken is stripped in v5 migration — none should have it
+      const github = records.find((r) => r.service === "github");
+      const slack = records.find((r) => r.service === "slack");
+      const stripe = records.find((r) => r.service === "stripe");
+      expect("hasRefreshToken" in github!).toBe(false);
+      expect("hasRefreshToken" in slack!).toBe(false);
+      expect("hasRefreshToken" in stripe!).toBe(false);
+    });
+
+    test("v4 file is migrated to v5 (strips hasRefreshToken and OAuth fields)", () => {
+      const v4Data = {
+        version: 4,
+        credentials: [
+          {
+            credentialId: "cred-v4-001",
+            service: "fal-ai",
+            field: "api_key",
+            allowedTools: ["api_request"],
+            allowedDomains: ["fal.ai"],
+            alias: "fal-primary",
+            hasRefreshToken: true,
+            createdAt: 1700000000000,
+            updatedAt: 1700000000000,
+          },
+        ],
+      };
+      writeFileSync(META_PATH, JSON.stringify(v4Data, null, 2), "utf-8");
+
+      const record = getCredentialMetadata("fal-ai", "api_key");
+      expect(record).toBeDefined();
+      expect(record!.alias).toBe("fal-primary");
+      // hasRefreshToken is stripped in v5 migration
+      expect("hasRefreshToken" in record!).toBe(false);
+
+      // On-disk file should be upgraded to v5
+      const raw = JSON.parse(readFileSync(META_PATH, "utf-8"));
+      expect(raw.version).toBe(5);
+    });
+
+    test("future version (v6+) returns unknown version and refuses writes", () => {
       const futureData = {
         version: 99,
         credentials: [],
@@ -439,7 +654,7 @@ describe("credential metadata store", () => {
       },
     );
 
-    test("upsert on migrated v1 file saves as v2", () => {
+    test("upsert on migrated v1 file saves as v5", () => {
       const v1Data = {
         version: 1,
         credentials: [
@@ -459,13 +674,13 @@ describe("credential metadata store", () => {
       // Upsert triggers load (migration) + save (at current version)
       upsertCredentialMetadata("github", "token", { alias: "gh-main" });
 
-      // Verify on-disk file is now v2
+      // Verify on-disk file is now v5
       const raw = JSON.parse(readFileSync(META_PATH, "utf-8"));
-      expect(raw.version).toBe(2);
+      expect(raw.version).toBe(5);
       expect(raw.credentials[0].alias).toBe("gh-main");
     });
 
-    test("v1 load auto-persists as v2 on disk without requiring a write", () => {
+    test("v1 load auto-persists as v5 on disk without requiring a write", () => {
       const v1Data = {
         version: 1,
         credentials: [
@@ -482,15 +697,15 @@ describe("credential metadata store", () => {
       };
       writeFileSync(META_PATH, JSON.stringify(v1Data, null, 2), "utf-8");
 
-      // A read-only operation should still persist the v2 upgrade
+      // A read-only operation should still persist the v5 upgrade
       listCredentialMetadata();
 
       const raw = JSON.parse(readFileSync(META_PATH, "utf-8"));
-      expect(raw.version).toBe(2);
+      expect(raw.version).toBe(5);
       expect(raw.credentials[0].credentialId).toBe("cred-autopersist");
     });
 
-    test("v1 file with multiple credentials migrates all records", () => {
+    test("v1 file with multiple credentials migrates all records (strips OAuth fields)", () => {
       const v1Data = {
         version: 1,
         credentials: [
@@ -539,13 +754,11 @@ describe("credential metadata store", () => {
         expect(r.injectionTemplates).toBeUndefined();
       }
 
-      // Original v1 fields preserved
-      expect(records[0].grantedScopes).toEqual(["repo", "user"]);
-      expect(records[1].expiresAt).toBe(1800000000000);
-      expect(records[2].oauth2TokenUrl).toBe(
-        "https://connect.stripe.com/oauth/token",
-      );
-      expect(records[2].oauth2ClientId).toBe("ca_test123");
+      // OAuth-specific fields are stripped by v5 migration
+      expect("grantedScopes" in records[0]).toBe(false);
+      expect("expiresAt" in records[1]).toBe(false);
+      expect("oauth2TokenUrl" in records[2]).toBe(false);
+      expect("oauth2ClientId" in records[2]).toBe(false);
     });
   });
 
@@ -586,20 +799,20 @@ describe("credential metadata store", () => {
     test("file with non-array credentials field is treated as empty list", () => {
       writeFileSync(
         META_PATH,
-        JSON.stringify({ version: 2, credentials: "not-an-array" }),
+        JSON.stringify({ version: 5, credentials: "not-an-array" }),
         "utf-8",
       );
       expect(listCredentialMetadata()).toEqual([]);
     });
 
     test("file with missing credentials field is treated as empty list", () => {
-      writeFileSync(META_PATH, JSON.stringify({ version: 2 }), "utf-8");
+      writeFileSync(META_PATH, JSON.stringify({ version: 5 }), "utf-8");
       expect(listCredentialMetadata()).toEqual([]);
     });
 
     test("malformed records within credentials array are filtered out", () => {
       const data = {
-        version: 2,
+        version: 5,
         credentials: [
           // Valid record
           {
@@ -709,7 +922,7 @@ describe("credential metadata store", () => {
 
       const raw = readFileSync(META_PATH, "utf-8");
       const parsed = JSON.parse(raw);
-      expect(parsed.version).toBe(2);
+      expect(parsed.version).toBe(5);
       expect(parsed.credentials).toHaveLength(1);
       expect(parsed.credentials[0].service).toBe("slack");
     });
@@ -717,23 +930,23 @@ describe("credential metadata store", () => {
     test("file written by saveFile has version field", () => {
       upsertCredentialMetadata("test", "key");
       const raw = JSON.parse(readFileSync(META_PATH, "utf-8"));
-      expect(raw.version).toBe(2);
+      expect(raw.version).toBe(5);
     });
   });
 
   // ── Empty credential lists ────────────────────────────────────────
 
   describe("empty credential lists", () => {
-    test("empty v2 file returns empty array", () => {
+    test("empty v5 file returns empty array", () => {
       writeFileSync(
         META_PATH,
-        JSON.stringify({ version: 2, credentials: [] }, null, 2),
+        JSON.stringify({ version: 5, credentials: [] }, null, 2),
         "utf-8",
       );
       expect(listCredentialMetadata()).toEqual([]);
     });
 
-    test("empty v1 file is migrated to v2 with empty credentials", () => {
+    test("empty v1 file is migrated to v5 with empty credentials", () => {
       writeFileSync(
         META_PATH,
         JSON.stringify({ version: 1, credentials: [] }, null, 2),
@@ -741,9 +954,9 @@ describe("credential metadata store", () => {
       );
       expect(listCredentialMetadata()).toEqual([]);
 
-      // Should be persisted as v2
+      // Should be persisted as v5
       const raw = JSON.parse(readFileSync(META_PATH, "utf-8"));
-      expect(raw.version).toBe(2);
+      expect(raw.version).toBe(5);
       expect(raw.credentials).toEqual([]);
     });
 

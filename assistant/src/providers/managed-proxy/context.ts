@@ -10,11 +10,15 @@
  */
 
 import { getPlatformBaseUrl } from "../../config/env.js";
+import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKey } from "../../security/secure-keys.js";
 import { MANAGED_PROVIDER_META } from "./constants.js";
 
 /** Storage key for the assistant API key credential. */
-const ASSISTANT_API_KEY_STORAGE_KEY = "credential:vellum:assistant_api_key";
+const ASSISTANT_API_KEY_STORAGE_KEY = credentialKey(
+  "vellum",
+  "assistant_api_key",
+);
 
 export interface ManagedProxyContext {
   /** Whether managed proxy prerequisites are satisfied. */

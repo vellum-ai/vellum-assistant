@@ -11,7 +11,7 @@ struct SidebarThreadsHeader: View {
         HStack {
             Text("Threads")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
             Spacer()
             if hasUnseenThreads {
                 VIconButton(

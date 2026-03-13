@@ -43,18 +43,18 @@ public struct VDisclosureSection<Content: View>: View {
                 HStack(spacing: VSpacing.sm) {
                     if let icon {
                         VIconView(.resolve(icon), size: 14)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                             .frame(width: 20)
                     }
 
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         Text(title)
                             .font(VFont.bodyBold)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                         if let subtitle {
                             Text(subtitle)
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                         }
@@ -63,7 +63,7 @@ public struct VDisclosureSection<Content: View>: View {
                     Spacer()
 
                     VIconView(.chevronRight, size: 10)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                         .animation(VAnimation.fast, value: isExpanded)
                 }
@@ -84,58 +84,3 @@ public struct VDisclosureSection<Content: View>: View {
     }
 }
 
-#Preview("VDisclosureSection") {
-    struct DisclosurePreview: View {
-        @State private var basicExpanded = true
-        @State private var subtitleExpanded = false
-        @State private var collapsedExpanded = false
-
-        var body: some View {
-            ZStack {
-                VColor.background.ignoresSafeArea()
-                VStack(spacing: VSpacing.lg) {
-                    VDisclosureSection(
-                        title: "Gateway",
-                        icon: VIcon.network.rawValue,
-                        isExpanded: $basicExpanded
-                    ) {
-                        Text("Gateway content goes here")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                    }
-                    .padding(VSpacing.lg)
-                    .vCard(background: VColor.surfaceSubtle)
-
-                    VDisclosureSection(
-                        title: "Advanced",
-                        icon: VIcon.slidersHorizontal.rawValue,
-                        subtitle: "Bearer token, developer options",
-                        isExpanded: $subtitleExpanded
-                    ) {
-                        Text("Advanced content goes here")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                    }
-                    .padding(VSpacing.lg)
-                    .vCard(background: VColor.surfaceSubtle)
-
-                    VDisclosureSection(
-                        title: "Diagnostics",
-                        icon: VIcon.stethoscope.rawValue,
-                        isExpanded: $collapsedExpanded
-                    ) {
-                        Text("Diagnostics content goes here")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                    }
-                    .padding(VSpacing.lg)
-                    .vCard(background: VColor.surfaceSubtle)
-                }
-                .padding()
-            }
-            .frame(width: 400, height: 400)
-        }
-    }
-
-    return DisclosurePreview()
-}

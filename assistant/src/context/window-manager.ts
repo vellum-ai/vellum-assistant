@@ -83,19 +83,42 @@ export interface ContextWindowCompactOptions {
 
 export interface ContextWindowManagerOptions {
   provider: Provider;
-  systemPrompt: string;
+  systemPrompt: string | (() => string);
   config: ContextWindowConfig;
 }
 
 export class ContextWindowManager {
   private readonly provider: Provider;
-  private readonly systemPrompt: string;
+  private readonly _systemPrompt: string | (() => string);
   private readonly config: ContextWindowConfig;
+  /**
+   * Cached resolved system prompt. Lazily populated on first access via the
+   * `systemPrompt` getter and cleared after each compaction pass so the next
+   * pass picks up any prompt changes.
+   */
+  private _resolvedSystemPrompt: string | undefined;
 
   constructor(options: ContextWindowManagerOptions) {
     this.provider = options.provider;
-    this.systemPrompt = options.systemPrompt;
+    this._systemPrompt = options.systemPrompt;
     this.config = options.config;
+  }
+
+  /** Lazily resolve and cache the system prompt for the duration of a compaction pass. */
+  private get systemPrompt(): string {
+    if (this._resolvedSystemPrompt !== undefined) {
+      return this._resolvedSystemPrompt;
+    }
+    const resolved =
+      typeof this._systemPrompt === "function"
+        ? this._systemPrompt()
+        : this._systemPrompt;
+    this._resolvedSystemPrompt = resolved;
+    return resolved;
+  }
+
+  private clearSystemPromptCache(): void {
+    this._resolvedSystemPrompt = undefined;
   }
 
   /**
@@ -106,16 +129,32 @@ export class ContextWindowManager {
    */
   shouldCompact(messages: Message[]): ShouldCompactResult {
     if (!this.config.enabled) return { needed: false, estimatedTokens: 0 };
-    const estimated = estimatePromptTokens(messages, this.systemPrompt, {
-      providerName: this.provider.name,
-    });
-    const threshold = Math.floor(
-      this.config.maxInputTokens * this.config.compactThreshold,
-    );
-    return { needed: estimated >= threshold, estimatedTokens: estimated };
+    try {
+      const estimated = estimatePromptTokens(messages, this.systemPrompt, {
+        providerName: this.provider.name,
+      });
+      const threshold = Math.floor(
+        this.config.maxInputTokens * this.config.compactThreshold,
+      );
+      return { needed: estimated >= threshold, estimatedTokens: estimated };
+    } finally {
+      this.clearSystemPromptCache();
+    }
   }
 
   async maybeCompact(
+    messages: Message[],
+    signal?: AbortSignal,
+    options?: ContextWindowCompactOptions,
+  ): Promise<ContextWindowResult> {
+    try {
+      return await this._maybeCompact(messages, signal, options);
+    } finally {
+      this.clearSystemPromptCache();
+    }
+  }
+
+  private async _maybeCompact(
     messages: Message[],
     signal?: AbortSignal,
     options?: ContextWindowCompactOptions,
@@ -632,7 +671,10 @@ function countPersistedMessages(messages: Message[]): number {
 function isToolResultOnly(message: Message): boolean {
   return (
     message.content.length > 0 &&
-    message.content.every((block) => block.type === "tool_result")
+    message.content.every(
+      (block) =>
+        block.type === "tool_result" || block.type === "web_search_tool_result",
+    )
   );
 }
 

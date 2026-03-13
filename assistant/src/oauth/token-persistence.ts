@@ -2,8 +2,12 @@
  * OAuth2 token persistence helper.
  *
  * Extracted from vault.ts so it can be reused by both the credential
- * vault tool (interactive and deferred paths) and the future OAuth
+ * vault tool (interactive and deferred paths) and the OAuth
  * orchestrator without duplicating storage logic.
+ *
+ * Writes exclusively to the SQLite tables (oauth_app, oauth_connection)
+ * and new-format secure keys (`oauth_app/{id}/...`,
+ * `oauth_connection/{id}/...`).
  */
 
 import type {
@@ -14,12 +18,15 @@ import {
   deleteSecureKeyAsync,
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
-import {
-  deleteCredentialMetadata,
-  upsertCredentialMetadata,
-} from "../tools/credentials/metadata-store.js";
 import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
 import { runPostConnectHook } from "../tools/credentials/post-connect-hooks.js";
+import {
+  createConnection,
+  getApp,
+  getConnectionByProvider,
+  updateConnection,
+  upsertApp,
+} from "./oauth-store.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -39,6 +46,8 @@ export interface StoreOAuth2TokensParams {
   wellKnownInjectionTemplates?: CredentialInjectionTemplate[];
   /** Fallback account info from an identity verifier (e.g. @username, email). */
   identityAccountInfo?: string;
+  /** Pre-resolved oauth_app ID — skips the upsertApp() call if provided. */
+  oauthAppId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -49,9 +58,9 @@ export interface StoreOAuth2TokensParams {
  * Store OAuth2 tokens and associated metadata after a successful flow.
  *
  * Persists the access token, optional refresh token, client credentials,
- * and metadata (scopes, expiry, account info) into the secure key store
- * and credential metadata file. Runs any registered post-connect hook
- * for the service.
+ * and metadata (scopes, expiry, account info) into the SQLite oauth_app /
+ * oauth_connection tables with new-format secure keys. Runs any registered
+ * post-connect hook for the service.
  */
 export async function storeOAuth2Tokens(
   params: StoreOAuth2TokensParams,
@@ -63,20 +72,8 @@ export async function storeOAuth2Tokens(
     rawTokenResponse,
     clientId,
     clientSecret,
-    tokenUrl,
-    tokenEndpointAuthMethod,
     userinfoUrl,
-    allowedTools,
-    wellKnownInjectionTemplates,
   } = params;
-
-  const tokenStored = await setSecureKeyAsync(
-    `credential:${service}:access_token`,
-    tokens.accessToken,
-  );
-  if (!tokenStored) {
-    throw new Error("Failed to store access token in secure storage");
-  }
 
   const expiresAt = tokens.expiresIn
     ? Date.now() + tokens.expiresIn * 1000
@@ -97,82 +94,89 @@ export async function storeOAuth2Tokens(
     }
   }
 
-  // Persist client credentials in keychain for defense in depth
-  const clientIdStored = await setSecureKeyAsync(
-    `credential:${service}:client_id`,
-    clientId,
-  );
-  if (!clientIdStored) {
-    throw new Error("Failed to store client_id in secure storage");
-  }
-  if (clientSecret) {
-    const clientSecretStored = await setSecureKeyAsync(
-      `credential:${service}:client_secret`,
+  const resolvedAccountInfo = accountInfo ?? params.identityAccountInfo;
+
+  // -------------------------------------------------------------------
+  // SQLite oauth_app + oauth_connection + new-format secure keys
+  // -------------------------------------------------------------------
+
+  // 1. Upsert the oauth_app row (or use the pre-resolved ID).
+  const app = params.oauthAppId
+    ? (getApp(params.oauthAppId) ?? {
+        id: params.oauthAppId,
+        clientSecretCredentialPath: `oauth_app/${params.oauthAppId}/client_secret`,
+      })
+    : await upsertApp(
+        service,
+        clientId,
+        clientSecret ? { clientSecretValue: clientSecret } : undefined,
+      );
+
+  // When oauthAppId is pre-resolved, still persist clientSecret if provided.
+  if (params.oauthAppId && clientSecret) {
+    const stored = await setSecureKeyAsync(
+      app.clientSecretCredentialPath,
       clientSecret,
     );
-    if (!clientSecretStored) {
+    if (!stored) {
       throw new Error("Failed to store client_secret in secure storage");
     }
   }
 
-  upsertCredentialMetadata(service, "access_token", {
-    allowedTools: allowedTools ?? [],
-    expiresAt,
-    grantedScopes,
-    oauth2TokenUrl: tokenUrl,
-    oauth2ClientId: clientId,
-    oauth2ClientSecret: clientSecret ?? null,
-    ...(tokenEndpointAuthMethod
-      ? { oauth2TokenEndpointAuthMethod: tokenEndpointAuthMethod }
-      : {}),
-    ...(wellKnownInjectionTemplates
-      ? { injectionTemplates: wellKnownInjectionTemplates }
-      : {}),
-  });
+  // 2. Upsert oauth_connection — reuse existing active connection for this
+  //    provider, or create a new one.
+  const existingConn = getConnectionByProvider(service);
+  let connId: string;
 
-  // Write accountInfo to config using a namespaced key (dynamic import to
-  // avoid circular dependencies — the config loader may transitively depend
-  // on credential modules).
-  const resolvedAccountInfo = accountInfo ?? params.identityAccountInfo;
-  if (resolvedAccountInfo) {
-    try {
-      const {
-        invalidateConfigCache,
-        loadRawConfig,
-        saveRawConfig,
-        setNestedValue,
-      } = await import("../config/loader.js");
-      const raw = loadRawConfig();
-      setNestedValue(
-        raw,
-        `integrations.accountInfo.${service}`,
-        resolvedAccountInfo,
-      );
-      saveRawConfig(raw);
-      invalidateConfigCache();
-    } catch {
-      // Non-fatal — tokens stored even if config write fails
-    }
+  const hasRefreshToken = !!tokens.refreshToken;
+
+  if (existingConn) {
+    connId = existingConn.id;
+    updateConnection(connId, {
+      oauthAppId: app.id,
+      accountInfo: resolvedAccountInfo,
+      grantedScopes,
+      expiresAt,
+      hasRefreshToken,
+      metadata: rawTokenResponse,
+    });
+  } else {
+    const conn = createConnection({
+      oauthAppId: app.id,
+      providerKey: service,
+      accountInfo: resolvedAccountInfo,
+      grantedScopes,
+      expiresAt: expiresAt ?? undefined,
+      hasRefreshToken,
+      metadata: rawTokenResponse,
+    });
+    connId = conn.id;
   }
 
+  // 3. Write access_token: oauth_connection/{conn.id}/access_token
+  const tokenStored = await setSecureKeyAsync(
+    `oauth_connection/${connId}/access_token`,
+    tokens.accessToken,
+  );
+  if (!tokenStored) {
+    throw new Error("Failed to store access token in secure storage");
+  }
+
+  // 4. Write or clear refresh_token: oauth_connection/{conn.id}/refresh_token
   if (tokens.refreshToken) {
-    const refreshStored = await setSecureKeyAsync(
-      `credential:${service}:refresh_token`,
+    await setSecureKeyAsync(
+      `oauth_connection/${connId}/refresh_token`,
       tokens.refreshToken,
     );
-    if (refreshStored) {
-      upsertCredentialMetadata(service, "refresh_token", {});
-    }
   } else {
     // Re-auth grants that omit refresh_token must clear any stale stored
     // token — otherwise withValidToken() will attempt refresh with invalid
     // credentials.
-    await deleteSecureKeyAsync(`credential:${service}:refresh_token`);
-    deleteCredentialMetadata(service, "refresh_token");
+    await deleteSecureKeyAsync(`oauth_connection/${connId}/refresh_token`);
   }
 
   // Run any provider-specific post-connect actions (e.g. Slack welcome DM)
   await runPostConnectHook({ service, rawTokenResponse });
 
-  return { accountInfo: accountInfo ?? params.identityAccountInfo };
+  return { accountInfo: resolvedAccountInfo };
 }

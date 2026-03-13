@@ -7,7 +7,6 @@ enum SidePanelType: Hashable, CaseIterable {
     case apps
     case intelligence
     case usageDashboard
-    case taskQueue
 
     init?(rawValue: String) {
         switch rawValue {
@@ -19,11 +18,12 @@ enum SidePanelType: Hashable, CaseIterable {
         case "apps": self = .apps
         case "intelligence": self = .intelligence
         case "usageDashboard": self = .usageDashboard
-        case "taskQueue": self = .taskQueue
         // Legacy values from older builds — map to the unified Intelligence panel
         case "identity", "agent": self = .intelligence
         // Legacy Home Base panel — map to apps as a reasonable fallback
         case "directory": self = .apps
+        // Legacy Task Queue panel — removed, fall back to intelligence
+        case "taskQueue": self = .intelligence
         default: return nil
         }
     }

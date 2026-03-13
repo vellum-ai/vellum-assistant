@@ -23,7 +23,7 @@ public struct VInfoTooltip: View {
 
     public var body: some View {
         VIconView(.info, size: 12)
-            .foregroundColor(VColor.textMuted)
+            .foregroundColor(VColor.contentTertiary)
             .frame(width: 16, height: 16)
             .contentShape(Rectangle())
             .help(tooltip)
@@ -32,24 +32,3 @@ public struct VInfoTooltip: View {
     }
 }
 
-#Preview("VInfoTooltip") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        VStack(alignment: .leading, spacing: 20) {
-            HStack(spacing: VSpacing.xs) {
-                Text("Some Setting")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-                VInfoTooltip("This is an explanation of the setting.")
-            }
-            HStack(spacing: VSpacing.xs) {
-                Text("Another Setting")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
-                VInfoTooltip("Hover over the icon to see this tooltip.")
-            }
-        }
-        .padding()
-    }
-    .frame(width: 300, height: 120)
-}

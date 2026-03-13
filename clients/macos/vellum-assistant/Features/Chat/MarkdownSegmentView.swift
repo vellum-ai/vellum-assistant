@@ -9,13 +9,13 @@ import VellumAssistantShared
 struct MarkdownSegmentView: View {
     let segments: [MarkdownSegment]
     var maxContentWidth: CGFloat? = VSpacing.chatBubbleMaxWidth
-    var textColor: Color = VColor.textPrimary
-    var secondaryTextColor: Color = VColor.textSecondary
-    var mutedTextColor: Color = VColor.textMuted
-    var tintColor: Color = VColor.accent
-    var codeTextColor: Color = VColor.codeText
-    var codeBackgroundColor: Color = VColor.codeBackground
-    var hrColor: Color = VColor.surfaceBorder
+    var textColor: Color = VColor.contentDefault
+    var secondaryTextColor: Color = VColor.contentSecondary
+    var mutedTextColor: Color = VColor.contentTertiary
+    var tintColor: Color = VColor.primaryBase
+    var codeTextColor: Color = VColor.systemNegativeStrong
+    var codeBackgroundColor: Color = VColor.surfaceActive
+    var hrColor: Color = VColor.borderBase
 
     @Environment(\.conversationZoomScale) private var zoomScale
 
@@ -265,8 +265,8 @@ struct MarkdownSegmentView: View {
     private static func buildAttributedStringUncached(
         from segments: [MarkdownSegment],
         secondaryTextColor: Color,
-        codeTextColor: Color = VColor.codeText,
-        codeBackgroundColor: Color = VColor.codeBackground,
+        codeTextColor: Color = VColor.systemNegativeStrong,
+        codeBackgroundColor: Color = VColor.surfaceActive,
         zoomScale: CGFloat = 1.0
     ) -> AttributedString {
         let mdOptions = AttributedString.MarkdownParsingOptions(

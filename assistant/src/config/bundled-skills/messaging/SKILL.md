@@ -33,9 +33,9 @@ When a platform is connected (auth test succeeds), always use the messaging API 
 
 Before using any messaging tool, verify that the platform is connected by calling `messaging_auth_test` with the appropriate `platform` parameter. If the call fails with a token/authorization error, follow the steps below.
 
-### Public Ingress (required for all platforms)
+### Public Ingress (required for Slack and Telegram)
 
-Gmail, Slack, and Telegram setup all require a publicly reachable URL for OAuth callbacks or webhook delivery. The **public-ingress** skill handles ngrok tunnel setup and persists the URL as `ingress.publicBaseUrl`. Each setup skill below declares `public-ingress` as a dependency and will prompt you to run it if `ingress.publicBaseUrl` is not configured.
+Slack and Telegram setup require a publicly reachable URL for OAuth callbacks or webhook delivery. The **public-ingress** skill handles ngrok tunnel setup and persists the URL as `ingress.publicBaseUrl`. Gmail on the desktop app uses a loopback callback and does not require public ingress; the channel path (Path B in the google-oauth-applescript skill) handles public ingress internally when needed.
 
 ### Email Connection Flow
 
@@ -48,11 +48,11 @@ When the user asks to "connect my email", "set up email", "manage my email", or 
 ### Gmail
 
 1. **Try connecting directly first.** Call `credential_store` with `action: "oauth2_connect"` and `service: "gmail"`. The tool auto-fills Google's OAuth endpoints and looks up any previously stored client credentials — so this single call may be all that's needed.
-2. **If it fails because no client_id is found:** The user needs to create Google Cloud OAuth credentials first. Load the **google-oauth-setup** skill (which depends on **public-ingress** for the redirect URI):
-   - Call `skill_load` with `skill: "google-oauth-setup"` to load the dependency skill.
+2. **If it fails because no client_id is found:** The user needs to create Google Cloud OAuth credentials first. Load the **google-oauth-applescript** skill:
+   - Call `skill_load` with `skill: "google-oauth-applescript"` to load the dependency skill.
    - Tell the user Gmail isn't connected yet and briefly explain what the setup involves, then use `ui_show` with `surface_type: "confirmation"` to ask for permission to start:
      - **message:** "Ready to set up Gmail?"
-     - **detail:** "I'll open a browser where you sign in to Google, then automate everything else — creating a project, enabling APIs, and connecting your account. Takes 2-3 minutes and you can watch in the browser preview panel."
+     - **detail:** "I'll open a few pages in your browser and walk you through setting up Google Cloud credentials — creating a project, enabling APIs, and connecting your account. Takes about 5 minutes."
      - **confirmLabel:** "Get Started"
      - **cancelLabel:** "Not Now"
    - If the user confirms, briefly acknowledge (e.g., "Setting up Gmail now...") and proceed with the setup guide. If they decline, acknowledge and let them know they can set it up later.
@@ -95,7 +95,7 @@ The guardian-verify-setup skill handles the full outbound verification flow for 
 When a messaging tool fails with a token or authorization error:
 
 1. **Try to reconnect silently.** Call `credential_store` with `action: "oauth2_connect"` and the appropriate `service`. This often resolves expired tokens automatically.
-2. **If reconnection fails, go straight to setup.** Don't present options, ask which route the user prefers, or explain what went wrong technically. Just tell the user briefly (e.g., "Gmail needs to be reconnected — let me set that up") and immediately follow the connection setup flow for that platform (e.g., install and load **google-oauth-setup** for Gmail). The user came to you to get something done, not to troubleshoot OAuth — make it seamless.
+2. **If reconnection fails, go straight to setup.** Don't present options, ask which route the user prefers, or explain what went wrong technically. Just tell the user briefly (e.g., "Gmail needs to be reconnected — let me set that up") and immediately follow the connection setup flow for that platform (e.g., install and load **google-oauth-applescript** for Gmail). The user came to you to get something done, not to troubleshoot OAuth — make it seamless.
 3. **Never try alternative approaches.** Don't use bash, curl, browser automation, or any workaround. If the messaging tools can't do it, the reconnection flow is the answer.
 4. **Never expose error details.** The user doesn't need to see error messages about tokens, OAuth, or API failures. Translate errors into plain language.
 

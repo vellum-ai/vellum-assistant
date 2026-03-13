@@ -77,7 +77,7 @@ struct FirstMeetingIntroductionView: View {
                 } label: {
                     Text("Skip for now")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
@@ -123,11 +123,11 @@ struct FirstMeetingIntroductionView: View {
                 }
             }) {
                 VIconView(.arrowUp, size: 12)
-                    .foregroundColor(.white)
+                    .foregroundColor(VColor.auxWhite)
                     .frame(width: 24, height: 24)
                     .background(
                         Circle()
-                            .fill(sendButtonDisabled ? VColor.textMuted : VColor.sendButton)
+                            .fill(sendButtonDisabled ? VColor.contentTertiary : VColor.primaryBase)
                     )
             }
             .buttonStyle(.plain)
@@ -137,10 +137,10 @@ struct FirstMeetingIntroductionView: View {
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.md)
         .background(
-            VColor.surface.opacity(0.5)
+            VColor.surfaceBase.opacity(0.5)
                 .overlay(
                     VStack {
-                        Divider().background(VColor.surfaceBorder.opacity(0.4))
+                        Divider().background(VColor.borderBase.opacity(0.4))
                         Spacer()
                     }
                 )

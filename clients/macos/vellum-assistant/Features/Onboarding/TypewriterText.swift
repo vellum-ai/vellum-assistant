@@ -22,7 +22,7 @@ struct TypewriterText: View {
 
             Text(displayedText)
                 .font(font)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .onAppear {
@@ -51,7 +51,7 @@ struct TypewriterText: View {
 
 #Preview {
     ZStack {
-        VColor.background
+        VColor.surfaceOverlay
         TypewriterText(fullText: "Hello, world.")
     }
     .frame(width: 400, height: 200)

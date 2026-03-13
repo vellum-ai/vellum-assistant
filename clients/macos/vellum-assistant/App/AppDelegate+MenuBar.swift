@@ -5,6 +5,11 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate+MenuBar")
 
+extension Notification.Name {
+    /// Posted when the user triggers Edit > Find (Cmd+F) from the menu bar.
+    static let activateChatSearch = Notification.Name("activateChatSearch")
+}
+
 extension AppDelegate {
 
     // MARK: - Menu Bar
@@ -68,6 +73,27 @@ extension AppDelegate {
         let fileMenuItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
         fileMenuItem.submenu = fileMenu
         mainMenu.insertItem(fileMenuItem, at: 1)
+
+        // Edit menu — provides Cmd+F "Find" so the shortcut works regardless of focus state.
+        if mainMenu.indexOfItem(withTitle: "Edit") < 0 {
+            let editMenu = NSMenu(title: "Edit")
+
+            // Standard edit actions so Cmd+C/V/X/A work in text fields
+            editMenu.addItem(NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
+            editMenu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
+            editMenu.addItem(NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
+            editMenu.addItem(NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
+            editMenu.addItem(NSMenuItem.separator())
+
+            let findItem = NSMenuItem(title: "Find...", action: #selector(activateChatSearch), keyEquivalent: "f")
+            findItem.keyEquivalentModifierMask = .command
+            findItem.target = self
+            editMenu.addItem(findItem)
+
+            let editMenuItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
+            editMenuItem.submenu = editMenu
+            mainMenu.insertItem(editMenuItem, at: 2)
+        }
     }
 
     // MARK: - Menu Item Validation
@@ -121,7 +147,7 @@ extension AppDelegate {
         let dotX = iconSize - dotSize - dotPadding
         let dotY = dotPadding
         let dotRect = NSRect(x: dotX, y: dotY, width: dotSize, height: dotSize)
-        NSColor.black.withAlphaComponent(0.5).setFill()
+        NSColor(VColor.auxBlack).withAlphaComponent(0.5).setFill()
         NSBezierPath(ovalIn: dotRect.insetBy(dx: -0.5, dy: -0.5)).fill()
         dotColor.withAlphaComponent(dotAlpha).setFill()
         NSBezierPath(ovalIn: dotRect).fill()
@@ -276,33 +302,6 @@ extension AppDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
-        // Ride Shotgun submenu
-        let rideShotgunItem = NSMenuItem(title: "Ride Shotgun", action: nil, keyEquivalent: "")
-        rideShotgunItem.image = VIcon.binoculars.nsImage
-        let rideShotgunSubmenu = NSMenu(title: "Ride Shotgun")
-
-        let observeItem = NSMenuItem(title: "Observe (3 min)", action: #selector(startRideShotgunObserve), keyEquivalent: "")
-        observeItem.target = self
-        observeItem.isEnabled = ambientAgent.currentSession == nil
-        rideShotgunSubmenu.addItem(observeItem)
-
-        let learnItem = NSMenuItem(title: "Learn (5 min)", action: #selector(startRideShotgunLearn), keyEquivalent: "")
-        learnItem.target = self
-        learnItem.isEnabled = ambientAgent.currentSession == nil
-        rideShotgunSubmenu.addItem(learnItem)
-
-        if ambientAgent.currentSession != nil {
-            rideShotgunSubmenu.addItem(NSMenuItem.separator())
-            let stopItem = NSMenuItem(title: "Stop & Save", action: #selector(stopRideShotgun), keyEquivalent: "")
-            stopItem.target = self
-            rideShotgunSubmenu.addItem(stopItem)
-        }
-
-        rideShotgunItem.submenu = rideShotgunSubmenu
-        menu.addItem(rideShotgunItem)
-
-        menu.addItem(NSMenuItem.separator())
-
         let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
         updateItem.target = self
         updateItem.isEnabled = updateManager.canCheckForUpdates
@@ -319,11 +318,6 @@ extension AppDelegate {
         galleryItem.target = self
         menu.addItem(galleryItem)
         #endif
-
-        let exportLogsItem = NSMenuItem(title: "Export Logs...", action: #selector(exportAssistantLogs), keyEquivalent: "")
-        exportLogsItem.target = self
-        exportLogsItem.image = VIcon.fileArchive.nsImage
-        menu.addItem(exportLogsItem)
 
         let sendLogsItem = NSMenuItem(title: "Send Logs to Vellum", action: #selector(sendLogsToSentry), keyEquivalent: "")
         sendLogsItem.target = self
@@ -404,6 +398,10 @@ extension AppDelegate {
         UserDefaults.standard.set(false, forKey: "sidebarExpanded")
     }
 
+    @objc func activateChatSearch() {
+        NotificationCenter.default.post(name: .activateChatSearch, object: mainWindow?.threadManager.activeThreadId)
+    }
+
     @objc func openAppCollection() {
         guard !isBootstrapping else { return }
         showMainWindow()
@@ -412,53 +410,6 @@ extension AppDelegate {
 
     @objc func checkForUpdates() {
         updateManager.checkForUpdates()
-    }
-
-    @objc func showRideShotgunInvitation() {
-        Task { @MainActor in
-            await ambientAgent.showInvitation()
-        }
-    }
-
-    @objc func startRideShotgunObserve() {
-        ambientAgent.startRideShotgun(durationSeconds: 180)
-    }
-
-    @objc func startRideShotgunLearn() {
-        let alert = NSAlert()
-        alert.messageText = "Learn Session"
-        alert.informativeText = "Enter the target domain to record:"
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "Start")
-        alert.addButton(withTitle: "Cancel")
-
-        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
-        input.stringValue = "doordash.com"
-        input.placeholderString = "example.com"
-        alert.accessoryView = input
-        alert.window.initialFirstResponder = input
-
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        var domain = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        // Strip URL scheme if user entered a full URL
-        if let url = URL(string: domain), let host = url.host {
-            domain = host
-        } else if domain.hasPrefix("https://") {
-            domain = String(domain.dropFirst("https://".count))
-        } else if domain.hasPrefix("http://") {
-            domain = String(domain.dropFirst("http://".count))
-        }
-        // Strip trailing slash/path
-        if let slashIdx = domain.firstIndex(of: "/") {
-            domain = String(domain[domain.startIndex..<slashIdx])
-        }
-        guard !domain.isEmpty else { return }
-
-        ambientAgent.startLearnSession(targetDomain: domain, durationSeconds: 300)
-    }
-
-    @objc func stopRideShotgun() {
-        ambientAgent.stopRideShotgunEarly()
     }
 
     @objc func openAppById(_ sender: NSMenuItem) {
@@ -521,12 +472,95 @@ extension AppDelegate {
         }
     }
 
-    @objc public func exportAssistantLogs() {
-        LogExporter.exportLogs()
+    @objc public func sendLogsToSentry() {
+        // If the window is already showing, just bring it forward.
+        if let existing = logReportWindow, existing.isVisible {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        // Defer window creation until after the status menu finishes dismissing,
+        // otherwise macOS can swallow the makeKeyAndOrderFront during menu teardown.
+        DispatchQueue.main.async { [weak self] in
+            self?.showLogReportWindow()
+        }
     }
 
-    @objc public func sendLogsToSentry() {
-        LogExporter.sendLogsToSentry()
+    private func showLogReportWindow() {
+        let dismiss: () -> Void = { [weak self] in
+            self?.dismissLogReportWindow()
+        }
+
+        let view = LogReportFormView(
+            onSend: { [weak self] formData in
+                self?.dismissLogReportWindow()
+                LogExporter.sendLogsToSentry(formData: formData)
+            },
+            onCancel: dismiss
+        )
+
+        let hostingController = NSHostingController(rootView: view)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 680),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = hostingController
+        window.title = "Send Logs to Vellum"
+        window.backgroundColor = NSColor(VColor.surfaceOverlay)
+        window.isReleasedWhenClosed = false
+        window.center()
+
+        logReportWindowObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.handleLogReportWindowWillClose()
+            }
+        }
+
+        logReportWindow = window
+
+        // Switch to .regular activation policy first so the app can own key focus,
+        // then order the window front and activate. The second async ensures the
+        // policy change has taken effect before we try to grab focus.
+        NSApp.activateAsDockAppIfNeeded()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        // Belt-and-suspenders: re-activate after a run-loop tick so macOS respects
+        // the policy switch that just happened above. Check logReportWindow to
+        // avoid resurrecting a window that was closed during the async gap.
+        DispatchQueue.main.async { [weak self] in
+            guard let window = self?.logReportWindow, window.isVisible else { return }
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    private func dismissLogReportWindow() {
+        if let observer = logReportWindowObserver {
+            NotificationCenter.default.removeObserver(observer)
+            logReportWindowObserver = nil
+        }
+        let closingWindow = logReportWindow
+        logReportWindow?.close()
+        logReportWindow = nil
+        revertActivationPolicyIfNoWindows(excluding: closingWindow)
+    }
+
+    private func handleLogReportWindowWillClose() {
+        if let observer = logReportWindowObserver {
+            NotificationCenter.default.removeObserver(observer)
+            logReportWindowObserver = nil
+        }
+        let closingWindow = logReportWindow
+        logReportWindow = nil
+        revertActivationPolicyIfNoWindows(excluding: closingWindow)
     }
 
     func refreshSkillsCache() {

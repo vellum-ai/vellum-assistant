@@ -28,6 +28,7 @@ import {
   createMediaAssetsTables,
   createMessagesFts,
   createNotificationTables,
+  createOAuthTables,
   createScopedApprovalGrantsTable,
   createSequenceTables,
   createTasksAndWorkItemsTables,
@@ -36,6 +37,7 @@ import {
   migrateBackfillContactInteractionStats,
   migrateBackfillGuardianPrincipalId,
   migrateBackfillUsageCacheAccounting,
+  migrateCallSessionInviteMetadata,
   migrateCallSessionMode,
   migrateCanonicalGuardianDeliveriesDestinationIndex,
   migrateCanonicalGuardianRequesterChatId,
@@ -48,7 +50,10 @@ import {
   migrateConversationsThreadTypeIndex,
   migrateDropAccountsTable,
   migrateDropAssistantIdColumns,
+  migrateDropConflicts,
+  migrateDropEntityTables,
   migrateDropLegacyMemberGuardianTables,
+  migrateDropMemorySegmentFts,
   migrateDropRemindersTable,
   migrateDropUsageCompositeIndexes,
   migrateFkCascadeRebuilds,
@@ -62,9 +67,12 @@ import {
   migrateGuardianVerificationPurpose,
   migrateGuardianVerificationSessions,
   migrateInviteCodeHashColumn,
+  migrateMemoryItemSupersession,
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
   migrateNotificationDeliveryThreadDecision,
+  migrateOAuthAppsClientSecretPath,
+  migrateOAuthProvidersPingUrl,
   migrateReminderRoutingIntent,
   migrateRemindersToSchedules,
   migrateRenameGuardianVerificationValues,
@@ -339,6 +347,30 @@ export function initializeDb(): void {
 
   // 52. Drop the legacy reminders table after data migration
   migrateDropRemindersTable(database);
+
+  // 53. OAuth provider/app/connection tables
+  createOAuthTables(database);
+
+  // 54. Add explicit client_secret_credential_path to oauth_apps
+  migrateOAuthAppsClientSecretPath(database);
+
+  // 55. Add ping_url column to oauth_providers
+  migrateOAuthProvidersPingUrl(database);
+
+  // 56. Add supersession tracking columns and override confidence to memory_items
+  migrateMemoryItemSupersession(database);
+
+  // 56b. Drop unused entity tables (entity search replaced by hybrid search on item statements)
+  migrateDropEntityTables(database);
+
+  // 57. Drop memory_segment_fts virtual table and triggers (replaced by Qdrant hybrid search)
+  migrateDropMemorySegmentFts(database);
+
+  // 58. Drop memory_item_conflicts table (conflict resolution system removed)
+  migrateDropConflicts(database);
+
+  // 59. Add invite metadata columns to call_sessions for outbound invite call routing
+  migrateCallSessionInviteMetadata(database);
 
   validateMigrationState(database);
 

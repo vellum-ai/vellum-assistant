@@ -135,18 +135,6 @@ mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {},
 }));
 
-mock.module("../memory/admin.js", () => ({
-  getMemoryConflictAndCleanupStats: () => ({
-    conflicts: { pending: 0, resolved: 0, oldestPendingAgeMs: null },
-    cleanup: {
-      resolvedBacklog: 0,
-      supersededBacklog: 0,
-      resolvedCompleted24h: 0,
-      supersededCompleted24h: 0,
-    },
-  }),
-}));
-
 mock.module("../memory/conversation-crud.js", () => ({
   getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
@@ -179,13 +167,12 @@ mock.module("../memory/retriever.js", () => ({
     enabled: false,
     degraded: false,
     injectedText: "",
-    lexicalHits: 0,
+
     semanticHits: 0,
     recencyHits: 0,
     injectedTokens: 0,
     latencyMs: 0,
   }),
-  injectMemoryRecallIntoUserMessage: (msg: Message) => msg,
   stripMemoryRecallMessages: (msgs: Message[]) => msgs,
 }));
 
@@ -494,7 +481,7 @@ describe("provider ordering error retry", () => {
     expect(events.some((e) => e.type === "session_error")).toBe(false);
   });
 
-  test("context-too-large can recover by trimming older media when forced compaction cannot run", async () => {
+  test("context-too-large exhausts reducer tiers without compaction — error surfaces after emergency attempt", async () => {
     firstRunErrorMode = "context_too_large";
     forceCompactionEnabled = false;
 
@@ -508,11 +495,20 @@ describe("provider ordering error retry", () => {
       (msg) => events.push(msg as unknown as Record<string, unknown>),
     );
 
-    expect(agentLoopRunCount).toBe(2);
-    expect(maybeCompactCalls).toEqual([{ force: false }, { force: true }]);
+    // No retry — the mock reducer returns exhausted:true without successful
+    // compaction, so the convergence loop breaks out. Emergency compaction
+    // also fails (forceCompactionEnabled=false), and the overflow policy
+    // is fail_gracefully, so the error surfaces.
+    expect(agentLoopRunCount).toBe(1);
+    // Three maybeCompact calls: initial auto-compact (force:false),
+    // reducer's compactFn (force:true), emergency compaction (force:true).
+    expect(maybeCompactCalls).toEqual([
+      { force: false },
+      { force: true },
+      { force: true },
+    ]);
 
-    expect(events.some((e) => e.type === "message_complete")).toBe(true);
-    expect(events.some((e) => e.type === "session_error")).toBe(false);
+    expect(events.some((e) => e.type === "session_error")).toBe(true);
   });
 
   test("context-too-large still surfaces when no media payloads are available to trim", async () => {
@@ -527,14 +523,15 @@ describe("provider ordering error retry", () => {
       events.push(msg as unknown as Record<string, unknown>),
     );
 
-    // The convergence loop attempts one reducer tier (which calls compactFn
-    // via force:true but compaction returns compacted:false), then retries the
-    // agent loop. The mock agent loop succeeds on the second call, so the
-    // convergence loop recovers. agentLoopRunCount is 2: initial + one retry.
-    expect(agentLoopRunCount).toBe(2);
-    expect(maybeCompactCalls).toEqual([{ force: false }, { force: true }]);
-    // Recovery succeeded — no session_error surfaced
-    expect(events.some((e) => e.type === "message_complete")).toBe(true);
+    // Reducer exhausted without successful compaction, emergency compaction
+    // also fails — error surfaces via overflow policy (fail_gracefully).
+    expect(agentLoopRunCount).toBe(1);
+    expect(maybeCompactCalls).toEqual([
+      { force: false },
+      { force: true },
+      { force: true },
+    ]);
+    expect(events.some((e) => e.type === "session_error")).toBe(true);
   });
 
   test("context-too-large phrase also triggers one forced-compaction retry", async () => {

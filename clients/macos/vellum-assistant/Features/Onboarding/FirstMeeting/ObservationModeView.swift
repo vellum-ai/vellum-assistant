@@ -52,7 +52,7 @@ struct ObservationModeView: View {
                         VStack(alignment: .leading, spacing: VSpacing.sm) {
                             Text("\(selectedMinutes) minutes okay?")
                                 .font(VFont.bodyMedium)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.contentSecondary)
 
                             HStack(spacing: VSpacing.sm) {
                                 ForEach(durationOptions, id: \.self) { minutes in
@@ -103,8 +103,8 @@ struct ObservationModeView: View {
                 .font(VFont.captionMedium)
                 .foregroundColor(
                     minutes == selectedMinutes
-                        ? VColor.textPrimary
-                        : VColor.textSecondary
+                        ? VColor.contentDefault
+                        : VColor.contentSecondary
                 )
                 .padding(.horizontal, VSpacing.md)
                 .padding(.vertical, VSpacing.sm)
@@ -112,16 +112,16 @@ struct ObservationModeView: View {
                     RoundedRectangle(cornerRadius: VRadius.md)
                         .fill(
                             minutes == selectedMinutes
-                                ? VColor.accent.opacity(0.3)
-                                : VColor.surface
+                                ? VColor.primaryBase.opacity(0.3)
+                                : VColor.surfaceBase
                         )
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
                         .stroke(
                             minutes == selectedMinutes
-                                ? VColor.accent.opacity(0.6)
-                                : VColor.surfaceBorder.opacity(0.5),
+                                ? VColor.primaryBase.opacity(0.6)
+                                : VColor.borderBase.opacity(0.5),
                             lineWidth: 1
                         )
                 )

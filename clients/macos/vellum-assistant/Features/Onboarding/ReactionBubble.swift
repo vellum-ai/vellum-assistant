@@ -10,15 +10,15 @@ struct ReactionBubble: View {
     var body: some View {
         Text(text)
             .font(VFont.body)
-            .foregroundColor(VColor.textPrimary.opacity(0.9))
+            .foregroundColor(VColor.contentDefault.opacity(0.9))
             .padding(.horizontal, VSpacing.xl)
             .padding(.vertical, VSpacing.md + VSpacing.xxs)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(VColor.surface.opacity(0.5))
+                    .fill(VColor.surfaceBase.opacity(0.5))
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(VColor.surfaceBorder.opacity(0.4), lineWidth: 1)
+                            .stroke(VColor.borderBase.opacity(0.4), lineWidth: 1)
                     )
             )
             .opacity(visible ? 1 : 0)
@@ -35,7 +35,7 @@ struct ReactionBubble: View {
 
 #Preview {
     ZStack {
-        VColor.background
+        VColor.surfaceOverlay
         ReactionBubble(text: "Nice to meet you!")
     }
     .frame(width: 400, height: 200)

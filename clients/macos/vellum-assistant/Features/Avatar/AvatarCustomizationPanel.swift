@@ -15,7 +15,7 @@ struct AvatarCustomizationPanel: View {
                 HStack(alignment: .center, spacing: VSpacing.sm) {
                     Button(action: onClose) {
                         VIconView(.chevronLeft, size: 14)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                             .frame(width: 28, height: 28)
                             .contentShape(Rectangle())
                     }
@@ -23,13 +23,13 @@ struct AvatarCustomizationPanel: View {
                     .accessibilityLabel("Back to identity")
                     Text("Customize Avatar")
                         .font(VFont.panelTitle)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                     Spacer()
                 }
                 .padding(.top, VSpacing.xxl)
                 .padding(.bottom, VSpacing.xl)
 
-                Divider().background(VColor.surfaceBorder)
+                Divider().background(VColor.borderBase)
                     .padding(.bottom, VSpacing.xl)
 
                 VStack(alignment: .leading, spacing: VSpacing.xl) {
@@ -54,7 +54,7 @@ struct AvatarCustomizationPanel: View {
             .padding(.horizontal, VSpacing.xxl)
             .frame(maxWidth: .infinity)
         }
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
     }
 
     // MARK: - Profile Picture
@@ -64,7 +64,7 @@ struct AvatarCustomizationPanel: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Profile Picture")
                 .font(VFont.headline)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
 
             if let customImage = appearance.customAvatarImage {
                 HStack(spacing: VSpacing.md) {
@@ -78,12 +78,12 @@ struct AvatarCustomizationPanel: View {
                         Button("Change") { pickImage() }
                             .buttonStyle(.plain)
                             .font(VFont.bodyMedium)
-                            .foregroundColor(VColor.accent)
+                            .foregroundColor(VColor.primaryBase)
 
                         Button("Remove") { appearance.clearCustomAvatar() }
                             .buttonStyle(.plain)
                             .font(VFont.bodyMedium)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
                 }
             } else {
@@ -95,12 +95,12 @@ struct AvatarCustomizationPanel: View {
                         Text("Upload Custom Image")
                             .font(VFont.bodyMedium)
                     }
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .padding(.horizontal, VSpacing.lg)
                     .padding(.vertical, VSpacing.sm)
                     .background(
                         RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                            .stroke(VColor.borderBase, lineWidth: 1)
                     )
                 }
                 .buttonStyle(.plain)

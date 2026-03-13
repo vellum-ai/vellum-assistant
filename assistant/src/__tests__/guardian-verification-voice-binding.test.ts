@@ -57,7 +57,6 @@ mock.module("../security/secure-keys.js", () => ({
 
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
-  getTwilioUserPhoneNumber: () => null,
 }));
 
 mock.module("../inbound/public-ingress-urls.js", () => ({

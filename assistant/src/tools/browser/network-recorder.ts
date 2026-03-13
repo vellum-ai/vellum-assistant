@@ -1,5 +1,5 @@
 /**
- * CDP Network recorder for Ride Shotgun "learn" mode.
+ * CDP Network recorder.
  *
  * Connects directly to Chrome's CDP WebSocket endpoint to record
  * Network.* events across all tabs the user browses.

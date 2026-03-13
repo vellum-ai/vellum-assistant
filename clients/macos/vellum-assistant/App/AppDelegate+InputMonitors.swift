@@ -535,10 +535,7 @@ extension AppDelegate {
             if event.keyCode == 53 { // Escape
                 Task { @MainActor in
                     self?.startSessionTask?.cancel()
-                    self?.thinkingWindow?.close()
-                    self?.thinkingWindow = nil
                     self?.currentSession?.cancel()
-                    self?.currentTextSession?.cancel()
                     self?.ambientAgent.resume()
                     self?.surfaceManager.dismissAll()
                     self?.toolConfirmationNotificationService.dismissAll()

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { Command } from "commander";
 
+import { credentialKey } from "../security/credential-key.js";
 import type { CredentialMetadata } from "../tools/credentials/metadata-store.js";
 
 // ---------------------------------------------------------------------------
@@ -164,6 +165,26 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Mock oauth-store
+// ---------------------------------------------------------------------------
+
+let disconnectOAuthProviderCalls: string[] = [];
+let disconnectOAuthProviderResult: "disconnected" | "not-found" | "error" =
+  "not-found";
+
+mock.module("../oauth/oauth-store.js", () => ({
+  disconnectOAuthProvider: async (
+    providerKey: string,
+  ): Promise<"disconnected" | "not-found" | "error"> => {
+    disconnectOAuthProviderCalls.push(providerKey);
+    return disconnectOAuthProviderResult;
+  },
+  getConnectionByProvider: (): undefined => undefined,
+  listConnections: (): never[] => [],
+  deleteConnection: (): boolean => false,
+}));
+
+// ---------------------------------------------------------------------------
 // Import the module under test (after mocks are registered)
 // ---------------------------------------------------------------------------
 
@@ -238,7 +259,7 @@ function seedCredential(
     ...extra,
   };
   metadataStore.push(record);
-  secureKeyStore.set(`credential:${service}:${field}`, secret);
+  secureKeyStore.set(credentialKey(service, field), secret);
   return record;
 }
 
@@ -280,6 +301,8 @@ describe("assistant credentials CLI", () => {
     _listMetadataCalls = 0;
     _getMetadataCalls = 0;
     _getMetadataByIdCalls = 0;
+    disconnectOAuthProviderCalls = [];
+    disconnectOAuthProviderResult = "not-found";
     process.exitCode = 0;
   });
 
@@ -437,7 +460,7 @@ describe("assistant credentials CLI", () => {
       expect(parsed.credentialId).toBeTruthy();
 
       // Verify secret stored in mock map
-      expect(secureKeyStore.get("credential:twilio:account_sid")).toBe(
+      expect(secureKeyStore.get(credentialKey("twilio", "account_sid"))).toBe(
         "AC1234567890",
       );
 
@@ -546,7 +569,7 @@ describe("assistant credentials CLI", () => {
       expect(meta2!.updatedAt).toBeGreaterThan(firstUpdatedAt);
 
       // Verify secret is overwritten
-      expect(secureKeyStore.get("credential:twilio:account_sid")).toBe(
+      expect(secureKeyStore.get(credentialKey("twilio", "account_sid"))).toBe(
         "new_value",
       );
     });
@@ -568,7 +591,9 @@ describe("assistant credentials CLI", () => {
       expect(parsed.field).toBe("auth_token");
 
       // Verify both removed
-      expect(secureKeyStore.has("credential:twilio:auth_token")).toBe(false);
+      expect(secureKeyStore.has(credentialKey("twilio", "auth_token"))).toBe(
+        false,
+      );
       expect(
         metadataStore.find(
           (m) => m.service === "twilio" && m.field === "auth_token",
@@ -607,6 +632,55 @@ describe("assistant credentials CLI", () => {
           (m) => m.service === "twilio" && m.field === "auth_token",
         ),
       ).toBeUndefined();
+    });
+
+    test("calls disconnectOAuthProvider for OAuth cleanup", async () => {
+      seedCredential("gmail", "access_token", "ya29.token_value");
+
+      const result = await runCli(["delete", "gmail:access_token", "--json"]);
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(true);
+
+      // disconnectOAuthProvider should have been called with the service name
+      expect(disconnectOAuthProviderCalls).toEqual(["gmail"]);
+    });
+
+    test("succeeds when only OAuth connection exists (no legacy credential)", async () => {
+      // No legacy credential seeded — only the OAuth disconnect finds something
+      disconnectOAuthProviderResult = "disconnected";
+
+      const result = await runCli(["delete", "gmail:access_token", "--json"]);
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.service).toBe("gmail");
+      expect(parsed.field).toBe("access_token");
+
+      expect(disconnectOAuthProviderCalls).toEqual(["gmail"]);
+    });
+
+    test("demonstrates colon-in-service-name parsing limitation with integration:gmail", async () => {
+      // parseCredentialName("integration:gmail:access_token") splits on the
+      // first colon, yielding service="integration" and field="gmail:access_token".
+      // This is incorrect for the intended service "integration:gmail". The fix
+      // for this limitation is addressed by introducing a dedicated `disconnect`
+      // subcommand (PR 5).
+      const result = await runCli([
+        "delete",
+        "integration:gmail:access_token",
+        "--json",
+      ]);
+      // The command parses as service="integration", field="gmail:access_token"
+      // which finds nothing and reports not-found.
+      expect(result.exitCode).toBe(1);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error).toContain("not found");
+
+      // disconnectOAuthProvider was called with "integration" (wrong) instead
+      // of "integration:gmail" (intended).
+      expect(disconnectOAuthProviderCalls).toEqual(["integration"]);
     });
   });
 
@@ -833,8 +907,10 @@ describe("assistant credentials CLI", () => {
       expect(parsed.value).toBe("instance_secret_abc123");
 
       // Verify the correct key was looked up in the secure store
-      expect(secureKeyStore.has("credential:twilio:auth_token")).toBe(true);
-      expect(secureKeyStore.get("credential:twilio:auth_token")).toBe(
+      expect(secureKeyStore.has(credentialKey("twilio", "auth_token"))).toBe(
+        true,
+      );
+      expect(secureKeyStore.get(credentialKey("twilio", "auth_token"))).toBe(
         "instance_secret_abc123",
       );
     });

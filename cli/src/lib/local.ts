@@ -10,10 +10,7 @@ import { createRequire } from "module";
 import { homedir, hostname, networkInterfaces, platform } from "os";
 import { dirname, join } from "path";
 
-import {
-  loadLatestAssistant,
-  type LocalInstanceResources,
-} from "./assistant-config.js";
+import { type LocalInstanceResources } from "./assistant-config.js";
 import { GATEWAY_PORT } from "./constants.js";
 import { httpHealthCheck, waitForDaemonReady } from "./http-client.js";
 import { stopProcessByPidFile } from "./process.js";
@@ -244,11 +241,6 @@ async function startDaemonFromSource(
     ...process.env,
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
   };
-  // Preserve TCP listener flag when falling back from bundled desktop daemon
-  if (process.env.VELLUM_DESKTOP_APP) {
-    env.VELLUM_DAEMON_TCP_ENABLED =
-      process.env.VELLUM_DAEMON_TCP_ENABLED || "1";
-  }
   if (resources) {
     env.BASE_DATA_DIR = resources.instanceDir;
     env.RUNTIME_HTTP_PORT = String(resources.daemonPort);
@@ -354,16 +346,6 @@ async function startDaemonWatchFromSource(
 }
 
 function resolveGatewayDir(): string {
-  const override = process.env.VELLUM_GATEWAY_DIR?.trim();
-  if (override) {
-    if (!isGatewaySourceDir(override)) {
-      throw new Error(
-        `VELLUM_GATEWAY_DIR is set to "${override}", but it is not a valid gateway source directory.`,
-      );
-    }
-    return override;
-  }
-
   // Source tree: cli/src/lib/ → ../../.. → repo root → gateway/
   const sourceDir = join(import.meta.dir, "..", "..", "..", "gateway");
   if (isGatewaySourceDir(sourceDir)) {
@@ -386,7 +368,7 @@ function resolveGatewayDir(): string {
     return dirname(pkgPath);
   } catch {
     throw new Error(
-      "Gateway not found. Ensure @vellumai/vellum-gateway is installed, run from the source tree, or set VELLUM_GATEWAY_DIR.",
+      "Gateway not found. Ensure @vellumai/vellum-gateway is installed or run from the source tree.",
     );
   }
 }
@@ -395,6 +377,79 @@ function normalizeIngressUrl(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const normalized = value.trim().replace(/\/+$/, "");
   return normalized || undefined;
+}
+
+// ── Workspace config helpers ──
+
+function getWorkspaceConfigPath(instanceDir?: string): string {
+  const baseDataDir =
+    instanceDir ??
+    (process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? homedir()));
+  return join(baseDataDir, ".vellum", "workspace", "config.json");
+}
+
+function loadWorkspaceConfig(instanceDir?: string): Record<string, unknown> {
+  const configPath = getWorkspaceConfigPath(instanceDir);
+  try {
+    if (!existsSync(configPath)) return {};
+    return JSON.parse(readFileSync(configPath, "utf-8")) as Record<
+      string,
+      unknown
+    >;
+  } catch {
+    return {};
+  }
+}
+
+function saveWorkspaceConfig(
+  config: Record<string, unknown>,
+  instanceDir?: string,
+): void {
+  const configPath = getWorkspaceConfigPath(instanceDir);
+  const dir = dirname(configPath);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+}
+
+/**
+ * Write gateway operational settings to the workspace config file so the
+ * gateway reads them at startup via its config.ts readWorkspaceConfig().
+ */
+function writeGatewayConfig(
+  instanceDir?: string,
+  opts?: {
+    runtimeProxyEnabled?: boolean;
+    runtimeProxyRequireAuth?: boolean;
+    unmappedPolicy?: "reject" | "default";
+    defaultAssistantId?: string;
+    routingEntries?: Array<{
+      type: "conversation_id" | "actor_id";
+      key: string;
+      assistantId: string;
+    }>;
+  },
+): void {
+  const config = loadWorkspaceConfig(instanceDir);
+  const gateway = (config.gateway ?? {}) as Record<string, unknown>;
+
+  if (opts?.runtimeProxyEnabled !== undefined) {
+    gateway.runtimeProxyEnabled = opts.runtimeProxyEnabled;
+  }
+  if (opts?.runtimeProxyRequireAuth !== undefined) {
+    gateway.runtimeProxyRequireAuth = opts.runtimeProxyRequireAuth;
+  }
+  if (opts?.unmappedPolicy !== undefined) {
+    gateway.unmappedPolicy = opts.unmappedPolicy;
+  }
+  if (opts?.defaultAssistantId !== undefined) {
+    gateway.defaultAssistantId = opts.defaultAssistantId;
+  }
+  if (opts?.routingEntries !== undefined) {
+    gateway.routingEntries = opts.routingEntries;
+  }
+
+  config.gateway = gateway;
+  saveWorkspaceConfig(config, instanceDir);
 }
 
 function readWorkspaceIngressPublicBaseUrl(
@@ -472,48 +527,29 @@ export async function discoverPublicUrl(
   port?: number,
 ): Promise<string | undefined> {
   const effectivePort = port ?? GATEWAY_PORT;
-  const cloud = process.env.VELLUM_CLOUD;
 
-  let externalIp: string | undefined;
+  // Discover local and cloud addresses in parallel so the cloud metadata
+  // timeout (1s) doesn't block startup when a local address is immediately
+  // available.
+  const cloudIpPromise = discoverCloudExternalIp();
 
-  // Try cloud-specific metadata services for GCP and AWS.
-  if (cloud === "gcp" || cloud === "aws") {
-    try {
-      if (cloud === "gcp") {
-        const resp = await fetch(
-          "http://169.254.169.254/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip",
-          { headers: { "Metadata-Flavor": "Google" } },
-        );
-        if (resp.ok) externalIp = (await resp.text()).trim();
-      } else if (cloud === "aws") {
-        // Use IMDSv2 (token-based) for compatibility with HttpTokens=required
-        const tokenResp = await fetch(
-          "http://169.254.169.254/latest/api/token",
-          {
-            method: "PUT",
-            headers: { "X-aws-ec2-metadata-token-ttl-seconds": "30" },
-          },
-        );
-        if (tokenResp.ok) {
-          const token = await tokenResp.text();
-          const ipResp = await fetch(
-            "http://169.254.169.254/latest/meta-data/public-ipv4",
-            { headers: { "X-aws-ec2-metadata-token": token } },
-          );
-          if (ipResp.ok) externalIp = (await ipResp.text()).trim();
-        }
-      }
-    } catch {
-      // metadata service not reachable
-    }
+  // Resolve local address synchronously (no I/O).
+  const localUrl = discoverLocalUrl(effectivePort);
 
-    if (externalIp) {
-      console.log(`   Discovered external IP: ${externalIp}`);
-      return `http://${externalIp}:${effectivePort}`;
-    }
+  const cloudIp = await cloudIpPromise;
+  if (cloudIp) {
+    console.log(`   Discovered external IP: ${cloudIp}`);
+    return `http://${cloudIp}:${effectivePort}`;
   }
 
-  // For local and custom environments, use the local LAN address.
+  return localUrl;
+}
+
+/**
+ * Resolve a LAN-reachable URL without any async I/O. Returns the best local
+ * address or falls back to localhost.
+ */
+function discoverLocalUrl(effectivePort: number): string {
   // On macOS, prefer the .local hostname (Bonjour/mDNS) so other devices on
   // the same network can reach the gateway by name.
   if (platform() === "darwin") {
@@ -532,6 +568,58 @@ export async function discoverPublicUrl(
 
   // Final fallback to localhost when no LAN address could be discovered.
   return `http://localhost:${effectivePort}`;
+}
+
+/**
+ * Attempt to discover the VM's external/public IP via cloud metadata services.
+ * Tries GCP and AWS IMDSv2 in parallel with a short timeout. Returns undefined
+ * on non-cloud machines (the metadata endpoint is unreachable).
+ */
+async function discoverCloudExternalIp(): Promise<string | undefined> {
+  const timeoutMs = 1000;
+
+  const gcpPromise = (async (): Promise<string | undefined> => {
+    try {
+      const resp = await fetch(
+        "http://169.254.169.254/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip",
+        {
+          headers: { "Metadata-Flavor": "Google" },
+          signal: AbortSignal.timeout(timeoutMs),
+        },
+      );
+      if (resp.ok) return (await resp.text()).trim() || undefined;
+    } catch {
+      // metadata service not reachable
+    }
+    return undefined;
+  })();
+
+  const awsPromise = (async (): Promise<string | undefined> => {
+    try {
+      const tokenResp = await fetch("http://169.254.169.254/latest/api/token", {
+        method: "PUT",
+        headers: { "X-aws-ec2-metadata-token-ttl-seconds": "30" },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (tokenResp.ok) {
+        const token = await tokenResp.text();
+        const ipResp = await fetch(
+          "http://169.254.169.254/latest/meta-data/public-ipv4",
+          {
+            headers: { "X-aws-ec2-metadata-token": token },
+            signal: AbortSignal.timeout(timeoutMs),
+          },
+        );
+        if (ipResp.ok) return (await ipResp.text()).trim() || undefined;
+      }
+    } catch {
+      // metadata service not reachable
+    }
+    return undefined;
+  })();
+
+  const [gcpIp, awsIp] = await Promise.all([gcpPromise, awsPromise]);
+  return gcpIp ?? awsIp;
 }
 
 /**
@@ -680,7 +768,6 @@ export async function startLocalDaemon(
       const daemonEnv: Record<string, string> = {
         HOME: process.env.HOME || homedir(),
         PATH: `${bunBinDir}:${basePath}`,
-        VELLUM_DAEMON_TCP_ENABLED: "1",
       };
       // Forward optional config env vars the daemon may need
       for (const key of [
@@ -689,10 +776,6 @@ export async function startLocalDaemon(
         "QDRANT_HTTP_PORT",
         "QDRANT_URL",
         "RUNTIME_HTTP_PORT",
-        "VELLUM_DAEMON_TCP_PORT",
-        "VELLUM_DAEMON_TCP_HOST",
-        "VELLUM_KEYCHAIN_BROKER_SOCKET",
-        "VELLUM_DEBUG",
         "SENTRY_DSN",
         "TMPDIR",
         "USER",
@@ -804,7 +887,6 @@ export async function startLocalDaemon(
 }
 
 export async function startGateway(
-  assistantId?: string,
   watch: boolean = false,
   resources?: LocalInstanceResources,
 ): Promise<string> {
@@ -827,118 +909,35 @@ export async function startGateway(
 
   console.log("🌐 Starting gateway...");
 
-  // Resolve the default assistant ID for the gateway. Prefer the explicitly
-  // provided assistantId (from hatch), then env override, then lockfile.
-  const resolvedAssistantId =
-    assistantId ||
-    process.env.GATEWAY_DEFAULT_ASSISTANT_ID ||
-    loadLatestAssistant()?.assistantId;
-
-  // Read the bearer token so the gateway can authenticate proxied requests
-  // (e.g. from paired iOS devices). Respect VELLUM_HTTP_TOKEN_PATH and
-  // BASE_DATA_DIR for consistency with gateway/config.ts and the daemon.
-  // When resources are provided, the token lives under the instance directory.
-  const httpTokenPath =
-    process.env.VELLUM_HTTP_TOKEN_PATH ??
-    (resources
-      ? join(resources.instanceDir, ".vellum", "http-token")
-      : join(
-          process.env.BASE_DATA_DIR?.trim() || homedir(),
-          ".vellum",
-          "http-token",
-        ));
-  let runtimeProxyBearerToken: string | undefined;
-  try {
-    const tok = readFileSync(httpTokenPath, "utf-8").trim();
-    if (tok) runtimeProxyBearerToken = tok;
-  } catch {
-    // Token file doesn't exist yet — daemon hasn't written it.
-  }
-
-  // If no token is available (first startup — daemon hasn't written it yet),
-  // poll for the file to appear. On fresh installs the daemon may take 60s+
-  // for Qdrant download, migrations, and first-time init. Starting the
-  // gateway without auth is a security risk since the config is loaded once
-  // at startup and never reloads, so we fail rather than silently disabling auth.
-  if (!runtimeProxyBearerToken) {
-    console.log("   Waiting for bearer token file...");
-    const maxWait = 60000;
-    const pollInterval = 500;
-    const start = Date.now();
-    const pidFile =
-      resources?.pidFile ??
-      join(
-        process.env.BASE_DATA_DIR?.trim() || homedir(),
-        ".vellum",
-        "vellum.pid",
-      );
-    while (Date.now() - start < maxWait) {
-      await new Promise((r) => setTimeout(r, pollInterval));
-      try {
-        const tok = readFileSync(httpTokenPath, "utf-8").trim();
-        if (tok) {
-          runtimeProxyBearerToken = tok;
-          break;
-        }
-      } catch {
-        // File still doesn't exist, keep polling.
-      }
-      // Check if the daemon process is still alive — no point waiting if it crashed
-      try {
-        const pid = parseInt(readFileSync(pidFile, "utf-8").trim(), 10);
-        if (pid) process.kill(pid, 0); // throws if process doesn't exist
-      } catch {
-        break; // daemon process is gone
-      }
-    }
-  }
-
-  if (!runtimeProxyBearerToken) {
-    throw new Error(
-      `Bearer token file not found at ${httpTokenPath} after 60s.\n` +
-        "  The gateway cannot start without authentication — this would leave the proxy permanently unauthenticated.\n" +
-        "  Ensure the daemon is running and has written the token file, or set VELLUM_HTTP_TOKEN_PATH to the correct path.",
-    );
-  }
   const effectiveDaemonPort =
     resources?.daemonPort ?? Number(process.env.RUNTIME_HTTP_PORT || "7821");
 
+  // Write gateway operational settings to workspace config before starting
+  // the gateway process. The gateway reads these at startup from config.json.
+  writeGatewayConfig(resources?.instanceDir, {
+    runtimeProxyEnabled: true,
+    runtimeProxyRequireAuth: true,
+    unmappedPolicy: "default",
+    defaultAssistantId: "self",
+  });
+
   const gatewayEnv: Record<string, string> = {
     ...(process.env as Record<string, string>),
-    GATEWAY_RUNTIME_PROXY_ENABLED: "true",
-    GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "true",
-    RUNTIME_PROXY_BEARER_TOKEN: runtimeProxyBearerToken,
     RUNTIME_HTTP_PORT: String(effectiveDaemonPort),
     GATEWAY_PORT: String(effectiveGatewayPort),
-    // Skip the drain window for locally-launched gateways — there is no load
-    // balancer draining connections, so waiting serves no purpose and causes
-    // `vellum sleep` to SIGKILL the gateway when the CLI timeout is shorter
-    // than the drain window.  Respect an explicit env override.
-    GATEWAY_SHUTDOWN_DRAIN_MS: process.env.GATEWAY_SHUTDOWN_DRAIN_MS || "0",
     ...(watch ? { VELLUM_DEV: "1" } : {}),
     // Set BASE_DATA_DIR so the gateway loads the correct signing key and
     // credentials for this instance (mirrors the daemon env setup).
     ...(resources ? { BASE_DATA_DIR: resources.instanceDir } : {}),
   };
-
-  if (process.env.GATEWAY_UNMAPPED_POLICY) {
-    gatewayEnv.GATEWAY_UNMAPPED_POLICY = process.env.GATEWAY_UNMAPPED_POLICY;
-  } else {
-    gatewayEnv.GATEWAY_UNMAPPED_POLICY = "default";
-  }
-
-  if (resolvedAssistantId) {
-    gatewayEnv.GATEWAY_DEFAULT_ASSISTANT_ID = resolvedAssistantId;
-  }
+  // The gateway reads the ingress URL from the workspace config file via
+  // ConfigFileCache — no env var passthrough needed. Log the resolved value
+  // for diagnostic visibility during startup.
   const workspaceIngressPublicBaseUrl = readWorkspaceIngressPublicBaseUrl(
     resources?.instanceDir,
   );
-  const ingressPublicBaseUrl =
-    workspaceIngressPublicBaseUrl ??
-    normalizeIngressUrl(process.env.INGRESS_PUBLIC_BASE_URL) ??
-    publicUrl;
+  const ingressPublicBaseUrl = workspaceIngressPublicBaseUrl ?? publicUrl;
   if (ingressPublicBaseUrl) {
-    gatewayEnv.INGRESS_PUBLIC_BASE_URL = ingressPublicBaseUrl;
     console.log(`   Ingress URL: ${ingressPublicBaseUrl}`);
   }
 
@@ -1048,8 +1047,8 @@ export async function stopLocalProcesses(
   await stopProcessByPidFile(gatewayPidFile, "gateway", undefined, 7000);
 
   // Kill ngrok directly by PID rather than using stopProcessByPidFile, because
-  // isVellumProcess() checks for /vellum|@vellumai|--vellum-gateway/ which
-  // won't match the ngrok binary — resulting in a no-op that leaves ngrok running.
+  // isVellumProcess() won't match the ngrok binary — resulting in a no-op that
+  // leaves ngrok running.
   const ngrokPidFile = join(vellumDir, "ngrok.pid");
   if (existsSync(ngrokPidFile)) {
     try {

@@ -4,6 +4,24 @@ import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AssistantCli")
 
+/// Thread-safe accumulator for collecting stderr output from a child process.
+private final class StderrAccumulator: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lines: [String] = []
+
+    func append(_ line: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        lines.append(line)
+    }
+
+    var content: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return lines.joined(separator: "\n")
+    }
+}
+
 /// Thread-safe one-shot flag for ensuring a continuation is resumed exactly once.
 private final class OnceFlag: @unchecked Sendable {
     private let lock = NSLock()
@@ -163,7 +181,7 @@ final class AssistantCli {
                 "PATH": fullEnv["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
                 "VELLUM_DESKTOP_APP": "1",
             ]
-            for key in ["ANTHROPIC_API_KEY", "BASE_DATA_DIR", "VELLUM_DEBUG",
+            for key in ["ANTHROPIC_API_KEY", "BASE_DATA_DIR",
                         "SENTRY_DSN", "TMPDIR", "USER", "LANG",
                         "CLOUDSDK_CONFIG", "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE",
                         "GOOGLE_APPLICATION_CREDENTIALS", "GCP_ACCOUNT_EMAIL",
@@ -352,11 +370,11 @@ final class AssistantCli {
         env["HOME"] = FileManager.default.homeDirectoryForCurrentUser.path
         env["VELLUM_DESKTOP_APP"] = "1"
 
-        if env["VELLUM_ASSISTANT_PLATFORM_URL"] == nil {
+        if env["VELLUM_PLATFORM_URL"] == nil {
             #if DEBUG
-            env["VELLUM_ASSISTANT_PLATFORM_URL"] = "https://dev-assistant.vellum.ai"
+            env["VELLUM_PLATFORM_URL"] = "https://dev-assistant.vellum.ai"
             #else
-            env["VELLUM_ASSISTANT_PLATFORM_URL"] = "https://assistant.vellum.ai"
+            env["VELLUM_PLATFORM_URL"] = "https://assistant.vellum.ai"
             #endif
         }
 
@@ -401,6 +419,9 @@ final class AssistantCli {
         let stdoutHandle = stdoutPipe.fileHandleForReading
         let stderrHandle = stderrPipe.fileHandleForReading
 
+        // Accumulate stderr so the error message includes the actual failure reason.
+        let stderrAccumulator = StderrAccumulator()
+
         stdoutHandle.readabilityHandler = { handle in
             let data = handle.availableData
             guard !data.isEmpty, let line = String(data: data, encoding: .utf8) else {
@@ -419,6 +440,7 @@ final class AssistantCli {
             }
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
+                stderrAccumulator.append(trimmed)
                 onOutput(trimmed)
             }
         }
@@ -445,8 +467,12 @@ final class AssistantCli {
         }
 
         if status != 0 {
-            log.error("CLI remote hatch failed with exit code \(status)")
-            throw CLIError.executionFailed("Hatch process exited with code \(status)")
+            let stderr = stderrAccumulator.content
+            let detail = stderr.isEmpty
+                ? "Hatch process exited with code \(status)"
+                : stderr
+            log.error("CLI remote hatch failed with exit code \(status): \(detail, privacy: .private)")
+            throw CLIError.executionFailed(detail)
         }
 
         log.info("CLI remote hatch completed successfully")
@@ -487,6 +513,8 @@ final class AssistantCli {
         let stdoutHandle = stdoutPipe.fileHandleForReading
         let stderrHandle = stderrPipe.fileHandleForReading
 
+        let stderrAccumulator = StderrAccumulator()
+
         stdoutHandle.readabilityHandler = { handle in
             let data = handle.availableData
             guard !data.isEmpty, let line = String(data: data, encoding: .utf8) else { return }
@@ -498,7 +526,10 @@ final class AssistantCli {
             let data = handle.availableData
             guard !data.isEmpty, let line = String(data: data, encoding: .utf8) else { return }
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { onOutput(trimmed) }
+            if !trimmed.isEmpty {
+                stderrAccumulator.append(trimmed)
+                onOutput(trimmed)
+            }
         }
 
         // proc.run() is called INSIDE the continuation to avoid a race
@@ -520,8 +551,12 @@ final class AssistantCli {
         }
 
         if status != 0 {
-            log.error("CLI pair failed with exit code \(status)")
-            throw CLIError.executionFailed("Pair process exited with code \(status)")
+            let stderr = stderrAccumulator.content
+            let detail = stderr.isEmpty
+                ? "Pair process exited with code \(status)"
+                : stderr
+            log.error("CLI pair failed with exit code \(status): \(detail, privacy: .private)")
+            throw CLIError.executionFailed(detail)
         }
 
         log.info("CLI pair completed successfully")
@@ -626,8 +661,8 @@ final class AssistantCli {
                 "VELLUM_DESKTOP_APP": "1",
             ]
             // Forward optional config vars the CLI or daemon may need
-            for key in ["ANTHROPIC_API_KEY", "BASE_DATA_DIR", "VELLUM_DEBUG",
-                        "VELLUM_ASSISTANT_PLATFORM_URL",
+            for key in ["ANTHROPIC_API_KEY", "BASE_DATA_DIR",
+                        "VELLUM_PLATFORM_URL",
                         "SENTRY_DSN", "TMPDIR", "USER", "LANG"] {
                 if let val = fullEnv[key] {
                     env[key] = val
@@ -638,18 +673,6 @@ final class AssistantCli {
             if let port = fullEnv["RUNTIME_HTTP_PORT"] ?? getenv("RUNTIME_HTTP_PORT").flatMap({ String(cString: $0) }) {
                 env["RUNTIME_HTTP_PORT"] = port
             }
-            // Tell the daemon where the keychain broker socket is.
-            // Only set in release builds where the broker is running.
-            #if !DEBUG
-            let brokerBaseDir: String
-            if let baseDir = fullEnv["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines), !baseDir.isEmpty {
-                brokerBaseDir = (baseDir as NSString).appendingPathComponent(".vellum")
-            } else {
-                brokerBaseDir = (NSHomeDirectory() as NSString).appendingPathComponent(".vellum")
-            }
-            env["VELLUM_KEYCHAIN_BROKER_SOCKET"] = (brokerBaseDir as NSString)
-                .appendingPathComponent("keychain-broker.sock")
-            #endif
             // Fall back to UserDefaults for the Anthropic API key when
             // it's not in the process environment (e.g. app launched from
             // Finder, not a terminal with ANTHROPIC_API_KEY set).

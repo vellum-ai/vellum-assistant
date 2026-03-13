@@ -1,9 +1,9 @@
-import { getTwilioPhoneNumberEnv } from "../config/env.js";
 import { loadConfig } from "../config/loader.js";
 import {
   getPublicBaseUrl,
   getTwilioRelayUrl,
 } from "../inbound/public-ingress-urls.js";
+import { credentialKey } from "../security/credential-key.js";
 import { getSecureKey } from "../security/secure-keys.js";
 import { ConfigError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
@@ -24,14 +24,10 @@ export interface TwilioConfig {
  * agree on the same number.
  *
  * Resolution order:
- *   1. TWILIO_PHONE_NUMBER env var
- *   2. config.twilio?.phoneNumber
- *   3. ""
+ *   1. config.twilio?.phoneNumber
+ *   2. ""
  */
 export function resolveTwilioPhoneNumber(): string {
-  const fromEnv = getTwilioPhoneNumberEnv();
-  if (fromEnv) return fromEnv;
-
   try {
     const config = loadConfig();
     if (config.twilio?.phoneNumber) return config.twilio.phoneNumber;
@@ -45,7 +41,7 @@ export function resolveTwilioPhoneNumber(): string {
 export function getTwilioConfig(): TwilioConfig {
   const config = loadConfig();
   const accountSid = config.twilio?.accountSid || "";
-  const authToken = getSecureKey("credential:twilio:auth_token") || "";
+  const authToken = getSecureKey(credentialKey("twilio", "auth_token")) || "";
   const phoneNumber = resolveTwilioPhoneNumber();
   const webhookBaseUrl = getPublicBaseUrl(config);
 

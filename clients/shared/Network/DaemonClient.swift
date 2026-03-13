@@ -248,7 +248,7 @@ extension Notification.Name {
 /// Platform-agnostic client for communicating with the Vellum daemon via HTTP + SSE.
 ///
 /// This is a long-lived singleton. Consumers call `subscribe()` to get an independent message
-/// stream, enabling multiple consumers (ComputerUseSession, AmbientAgent) to each receive all
+/// stream, enabling multiple consumers (HostCuExecutor, AmbientAgent) to each receive all
 /// messages and filter for the ones relevant to them.
 @MainActor
 public final class DaemonClient: ObservableObject, DaemonClientProtocol {
@@ -355,8 +355,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `host_file_request` message for proxy file operations.
     public var onHostFileRequest: ((HostFileRequest) -> Void)?
 
-    /// Called when the daemon sends a `task_routed` message (e.g. escalation from text_qa to CU).
-    public var onTaskRouted: ((TaskRoutedMessage) -> Void)?
+    /// Called when the daemon sends a `host_cu_request` message for proxy CU action execution.
+    public var onHostCuRequest: ((HostCuRequest) -> Void)?
 
     /// Called when the daemon sends a `dictation_response` message.
     public var onDictationResponse: ((DictationResponseMessage) -> Void)?
@@ -589,7 +589,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
-    /// independently, enabling multiple consumers (ComputerUseSession, AmbientAgent) to
+    /// independently, enabling multiple consumers (HostCuExecutor, AmbientAgent) to
     /// filter for messages relevant to them without competing for elements.
     public func subscribe() -> AsyncStream<ServerMessage> {
         let id = UUID()
@@ -613,9 +613,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     var subscribers: [UUID: AsyncStream<ServerMessage>.Continuation] = [:]
 
     var isAuthenticated = false
-
-    /// Monotonic per-session sequence for CU observation sends.
-    var cuObservationSequenceBySession: [String: Int] = [:]
 
     /// HTTP transport for communicating with the assistant.
     public var httpTransport: HTTPTransport?
@@ -648,7 +645,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         keyFingerprint = nil
         latestMemoryStatus = nil
         currentModel = nil
-        cuObservationSequenceBySession.removeAll()
     }
 
     deinit {
@@ -1348,8 +1344,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Subagent Management
 
     /// Abort a running subagent.
-    public func sendSubagentAbort(subagentId: String) throws {
-        try send(SubagentAbortMessage(subagentId: subagentId))
+    public func sendSubagentAbort(subagentId: String, sessionId: String? = nil) throws {
+        try send(SubagentAbortMessage(subagentId: subagentId, sessionId: sessionId))
     }
 
     /// Request subagent detail events (lazy-loaded when the user opens the detail panel).
@@ -2044,10 +2040,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         sourceChannel: String,
         note: String? = nil,
         maxUses: Int? = nil,
-        contactName: String? = nil
-    ) async throws -> (inviteId: String, token: String, shareUrl: String?, inviteCode: String?, guardianInstruction: String?, channelHandle: String?)? {
+        contactName: String? = nil,
+        expectedExternalUserId: String? = nil,
+        friendName: String? = nil,
+        guardianName: String? = nil
+    ) async throws -> (inviteId: String, token: String?, shareUrl: String?, inviteCode: String?, voiceCode: String?, guardianInstruction: String?, channelHandle: String?)? {
         if let httpTransport {
-            return try await httpTransport.createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses, contactName: contactName)
+            return try await httpTransport.createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses, contactName: contactName, expectedExternalUserId: expectedExternalUserId, friendName: friendName, guardianName: guardianName)
         }
 
         #if os(macOS)
@@ -2058,6 +2057,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         if let note { body["note"] = note }
         if let maxUses { body["maxUses"] = maxUses }
         if let contactName { body["contactName"] = contactName }
+        if let expectedExternalUserId { body["expectedExternalUserId"] = expectedExternalUserId }
+        if let friendName { body["friendName"] = friendName }
+        if let guardianName { body["guardianName"] = guardianName }
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
@@ -2073,6 +2075,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                 let token: String?
                 let share: ShareData?
                 let inviteCode: String?
+                let voiceCode: String?
                 let guardianInstruction: String?
                 let channelHandle: String?
             }
@@ -2082,8 +2085,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             }
         }
         let decoded = try JSONDecoder().decode(CreateInviteResponse.self, from: data)
-        guard let invite = decoded.invite, let token = invite.token else { return nil }
-        return (inviteId: invite.id, token: token, shareUrl: invite.share?.url, inviteCode: invite.inviteCode, guardianInstruction: invite.guardianInstruction, channelHandle: invite.channelHandle)
+        guard let invite = decoded.invite else { return nil }
+        return (inviteId: invite.id, token: invite.token, shareUrl: invite.share?.url, inviteCode: invite.inviteCode, voiceCode: invite.voiceCode, guardianInstruction: invite.guardianInstruction, channelHandle: invite.channelHandle)
         #else
         return nil
         #endif
@@ -2099,6 +2102,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Rich channel readiness information returned by `fetchChannelReadiness()`.
     public struct ChannelReadinessInfo {
         public let ready: Bool
+        public let setupStatus: String?
         public let channelHandle: String?
         public let checks: [ReadinessCheck]
 
@@ -2131,6 +2135,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             struct Snapshot: Decodable {
                 let channel: String
                 let ready: Bool
+                let setupStatus: String?
                 let channelHandle: String?
                 let localChecks: [CheckResult]?
                 let remoteChecks: [CheckResult]?
@@ -2148,6 +2153,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                 .map { ReadinessCheck(name: $0.name, passed: $0.passed, message: $0.message) }
             result[snapshot.channel] = ChannelReadinessInfo(
                 ready: snapshot.ready,
+                setupStatus: snapshot.setupStatus,
                 channelHandle: snapshot.channelHandle,
                 checks: checks
             )

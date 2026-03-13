@@ -12,12 +12,12 @@ struct ScreenPermissionStepView: View {
             VStack(spacing: VSpacing.md) {
                 Text("Screen access comes later")
                     .font(VFont.onboardingTitle)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .textSelection(.enabled)
 
                 Text("Skip screen-recording permission during the first conversation. Start it later from Settings when you explicitly choose computer-control setup.")
                     .font(VFont.onboardingSubtitle)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 420)
                     .textSelection(.enabled)
@@ -28,22 +28,22 @@ struct ScreenPermissionStepView: View {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Text("Deferred setup")
                     .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .textSelection(.enabled)
 
                 Text("Screen Recording requests follow an explicit opt-in flow, not proactive onboarding prompts.")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .textSelection(.enabled)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(VSpacing.lg)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(VColor.surface.opacity(0.3))
+                    .fill(VColor.surfaceBase.opacity(0.3))
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder.opacity(0.4), lineWidth: 1)
+                            .stroke(VColor.borderBase.opacity(0.4), lineWidth: 1)
                     )
             )
             .opacity(showContent ? 1 : 0)
@@ -65,7 +65,7 @@ struct ScreenPermissionStepView: View {
 
 #Preview {
     ZStack {
-        VColor.background
+        VColor.surfaceOverlay
         ScreenPermissionStepView(state: {
             let s = OnboardingState()
             s.currentStep = 6

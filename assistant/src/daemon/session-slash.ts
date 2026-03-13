@@ -465,7 +465,7 @@ function resolvePairCommand(content: string): SlashResolution | null {
       kind: "unknown",
       message:
         "Cannot generate pairing info — no gateway URL is configured and no LAN address was detected.\n\n" +
-        "Set a public gateway URL with `config set ingress.publicBaseUrl <url>` or the `INGRESS_PUBLIC_BASE_URL` environment variable.",
+        "Set a public gateway URL with `config set ingress.publicBaseUrl <url>`.",
     };
   }
 

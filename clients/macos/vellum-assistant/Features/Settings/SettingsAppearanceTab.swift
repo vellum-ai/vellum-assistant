@@ -17,7 +17,9 @@ struct SettingsAppearanceTab: View {
     @State private var shortcutConflictWarning: String?
     @State private var selectedTimezone: String = ""
     @State private var timezoneSearchText: String = ""
+    @State private var debouncedTimezoneSearchText: String = ""
     @State private var isTimezoneDropdownOpen: Bool = false
+    @State private var timezoneSearchDebounceTask: Task<Void, Never>?
     @FocusState private var isTimezoneSearchFocused: Bool
 
     var body: some View {
@@ -49,14 +51,14 @@ struct SettingsAppearanceTab: View {
                     HStack {
                         Text("Closest city")
                             .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                         Spacer()
                         HStack(spacing: VSpacing.md) {
                             VIconView(.search, size: 13)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                             TextField(selectedCityPlaceholder, text: $timezoneSearchText)
                                 .font(VFont.body)
-                                .foregroundColor(VColor.textPrimary)
+                                .foregroundColor(VColor.contentDefault)
                                 .textFieldStyle(.plain)
                                 .focused($isTimezoneSearchFocused)
                             if !timezoneSearchText.isEmpty {
@@ -65,7 +67,7 @@ struct SettingsAppearanceTab: View {
                                     isTimezoneDropdownOpen = false
                                 } label: {
                                     VIconView(.x, size: 11)
-                                        .foregroundColor(VColor.textMuted)
+                                        .foregroundColor(VColor.contentTertiary)
                                 }
                                 .buttonStyle(.plain)
                                 .pointerCursor()
@@ -73,15 +75,21 @@ struct SettingsAppearanceTab: View {
                         }
                         .padding(.horizontal, VSpacing.md)
                         .frame(width: 280, height: 28)
-                        .background(VColor.inputBackground)
+                        .background(VColor.surfaceActive)
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                         .overlay(
                             RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                                .stroke(VColor.borderBase.opacity(0.5), lineWidth: 1)
                         )
                     }
                     .onChange(of: timezoneSearchText) { _, newValue in
                         isTimezoneDropdownOpen = !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        timezoneSearchDebounceTask?.cancel()
+                        timezoneSearchDebounceTask = Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 200_000_000)
+                            guard !Task.isCancelled else { return }
+                            debouncedTimezoneSearchText = newValue
+                        }
                     }
                     .onChange(of: isTimezoneSearchFocused) { _, focused in
                         if focused && timezoneSearchText.isEmpty {
@@ -105,17 +113,17 @@ struct SettingsAppearanceTab: View {
                                             HStack {
                                                 Text(entry.displayLabel)
                                                     .font(VFont.body)
-                                                    .foregroundColor(VColor.textPrimary)
+                                                    .foregroundColor(VColor.contentDefault)
                                                 Spacer()
                                                 Text(entry.currentTime)
                                                     .font(VFont.caption)
-                                                    .foregroundColor(VColor.textMuted)
+                                                    .foregroundColor(VColor.contentTertiary)
                                             }
                                             .padding(.horizontal, VSpacing.md)
                                             .padding(.vertical, VSpacing.sm)
                                             .background(
                                                 entry.identifier == selectedTimezone
-                                                    ? VColor.navActive
+                                                    ? VColor.surfaceActive
                                                     : Color.clear
                                             )
                                             .contentShape(Rectangle())
@@ -124,14 +132,15 @@ struct SettingsAppearanceTab: View {
                                         .pointerCursor()
                                     }
                                 }
+                                .background { OverlayScrollerStyle() }
                             }
-                            .scrollIndicators(.hidden)
+                            .scrollContentBackground(.hidden)
                             .frame(maxHeight: 200)
-                            .background(VColor.inputBackground)
+                            .background(VColor.surfaceActive)
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                             .overlay(
                                 RoundedRectangle(cornerRadius: VRadius.lg)
-                                    .strokeBorder(VColor.cardBorder, lineWidth: 2)
+                                    .strokeBorder(VColor.borderBase, lineWidth: 2)
                             )
                             .padding(.top, VSpacing.xs)
                         }
@@ -151,11 +160,11 @@ struct SettingsAppearanceTab: View {
                 HStack {
                     Text("Time zone")
                         .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                     Spacer()
                     Text(timezoneDisplayName)
                         .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                 }
             }
             .onAppear {
@@ -178,25 +187,25 @@ struct SettingsAppearanceTab: View {
                 HStack {
                     Text("Open Vellum")
                         .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                     Spacer()
                     if isRecordingGlobalHotkey, let display = recordingDisplayString, !display.isEmpty {
-                        shortcutKeyPill(display)
+                        VShortcutTag(display)
                     } else {
-                        shortcutKeyPill(ShortcutHelper.displayString(for: store.globalHotkeyShortcut))
+                        VShortcutTag(ShortcutHelper.displayString(for: store.globalHotkeyShortcut))
                     }
 
                     if isRecordingGlobalHotkey {
-                        VButton(label: "Press shortcut...", style: .outlined, size: .medium) {
+                        VButton(label: "Press shortcut...", style: .outlined) {
                             stopRecording()
                         }
                     } else {
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Record", style: .outlined, size: .medium) {
+                            VButton(label: "Record", style: .outlined) {
                                 startRecording()
                             }
                             if !store.globalHotkeyShortcut.isEmpty {
-                                VButton(label: "Unbind", style: .outlined, size: .medium) {
+                                VButton(label: "Unbind", style: .outlined) {
                                     store.globalHotkeyShortcut = ""
                                 }
                             }
@@ -208,7 +217,7 @@ struct SettingsAppearanceTab: View {
                 if let shortcutConflictWarning {
                     Text(shortcutConflictWarning)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.warning)
+                        .foregroundColor(VColor.systemNegativeHover)
                         .padding(.bottom, VSpacing.xs)
                 }
 
@@ -218,25 +227,25 @@ struct SettingsAppearanceTab: View {
                 HStack {
                     Text("Quick Input")
                         .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                     Spacer()
                     if isRecordingQuickInputHotkey, let display = recordingDisplayString, !display.isEmpty {
-                        shortcutKeyPill(display)
+                        VShortcutTag(display)
                     } else {
-                        shortcutKeyPill(ShortcutHelper.displayString(for: store.quickInputHotkeyShortcut))
+                        VShortcutTag(ShortcutHelper.displayString(for: store.quickInputHotkeyShortcut))
                     }
 
                     if isRecordingQuickInputHotkey {
-                        VButton(label: "Press shortcut...", style: .outlined, size: .medium) {
+                        VButton(label: "Press shortcut...", style: .outlined) {
                             stopRecording()
                         }
                     } else {
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Record", style: .outlined, size: .medium) {
+                            VButton(label: "Record", style: .outlined) {
                                 startRecordingQuickInput()
                             }
                             if !store.quickInputHotkeyShortcut.isEmpty {
-                                VButton(label: "Unbind", style: .outlined, size: .medium) {
+                                VButton(label: "Unbind", style: .outlined) {
                                     store.quickInputHotkeyShortcut = ""
                                     store.quickInputHotkeyKeyCode = 0
                                 }
@@ -282,23 +291,23 @@ struct SettingsAppearanceTab: View {
 
                     Text("Video Domain Allowlist")
                         .font(VFont.bodyBold)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
 
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("Add Domain")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
 
                         HStack(spacing: VSpacing.sm) {
                             TextField("Add domain (e.g. example.com)", text: $newAllowlistDomain)
                                 .vInputStyle()
                                 .font(VFont.body)
-                                .foregroundColor(VColor.textPrimary)
+                                .foregroundColor(VColor.contentDefault)
                                 .onSubmit {
                                     addAllowlistDomain()
                                 }
 
-                            VButton(label: "Add", style: .primary, size: .medium, isDisabled: newAllowlistDomain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                            VButton(label: "Add", style: .primary, isDisabled: newAllowlistDomain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                                 addAllowlistDomain()
                             }
                         }
@@ -308,7 +317,7 @@ struct SettingsAppearanceTab: View {
                         HStack {
                             Text(domain)
                                 .font(VFont.body)
-                                .foregroundColor(VColor.textPrimary)
+                                .foregroundColor(VColor.contentDefault)
                                 .textSelection(.enabled)
                             Spacer()
                             VIconButton(label: "Remove domain", icon: VIcon.trash.rawValue, iconOnly: true, variant: .danger) {
@@ -321,7 +330,7 @@ struct SettingsAppearanceTab: View {
                         .padding(.vertical, VSpacing.sm)
                         .overlay(
                             RoundedRectangle(cornerRadius: VRadius.lg)
-                                .strokeBorder(VColor.cardBorder, lineWidth: 1)
+                                .strokeBorder(VColor.borderBase, lineWidth: 1)
                         )
                     }
                 }
@@ -351,9 +360,17 @@ struct SettingsAppearanceTab: View {
         let utcOffset: String
     }
 
+    /// Stable timezone metadata (city, region) — computed once. Time-sensitive fields computed on access.
+    private struct TimezoneMetadata {
+        let identifier: String
+        let city: String
+        let region: String
+        let tz: TimeZone
+    }
+
     private var selectedCityPlaceholder: String {
         guard !selectedTimezone.isEmpty,
-              let tz = TimeZone(identifier: selectedTimezone) else {
+              TimeZone(identifier: selectedTimezone) != nil else {
             return "Search city or country..."
         }
         let parts = selectedTimezone.components(separatedBy: "/")
@@ -367,41 +384,56 @@ struct SettingsAppearanceTab: View {
         return tz.localizedName(for: .standard, locale: .current) ?? selectedTimezone
     }
 
-    private var filteredTimezones: [TimezoneEntry] {
-        let entries = Self.knownTimezones.compactMap { id -> TimezoneEntry? in
+    /// Stable metadata cached once; time-sensitive fields (offset, currentTime) computed on access.
+    private static let timezoneMetadata: [TimezoneMetadata] = {
+        knownTimezones.compactMap { id -> TimezoneMetadata? in
             guard let tz = TimeZone(identifier: id) else { return nil }
             let parts = id.components(separatedBy: "/")
             let city = (parts.last ?? id).replacingOccurrences(of: "_", with: " ")
             let region = parts.count > 1 ? parts[0].replacingOccurrences(of: "_", with: " ") : ""
-
-            let seconds = tz.secondsFromGMT()
-            let hours = seconds / 3600
-            let minutes = abs(seconds % 3600) / 60
-            let offsetStr = minutes > 0
-                ? String(format: "GMT%+d:%02d", hours, minutes)
-                : String(format: "GMT%+d", hours)
-
-            let formatter = DateFormatter()
-            formatter.timeZone = tz
-            formatter.dateFormat = "h:mm a"
-            let timeStr = formatter.string(from: Date())
-
-            let label = "\(offsetStr) — \(city)"
-            return TimezoneEntry(
-                identifier: id, city: city, region: region,
-                displayLabel: label, currentTime: timeStr, utcOffset: offsetStr
-            )
+            return TimezoneMetadata(identifier: id, city: city, region: region, tz: tz)
         }
         .sorted { $0.identifier < $1.identifier }
+    }()
 
-        let query = timezoneSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else { return entries }
+    private static let timeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "h:mm a"
+        return f
+    }()
 
-        return entries.filter {
-            $0.city.lowercased().contains(query)
-            || $0.region.lowercased().contains(query)
-            || $0.utcOffset.lowercased().contains(query)
-            || $0.identifier.lowercased().contains(query)
+    private static func utcOffsetString(for tz: TimeZone) -> String {
+        let seconds = tz.secondsFromGMT()
+        let hours = seconds / 3600
+        let minutes = abs(seconds % 3600) / 60
+        return minutes > 0
+            ? String(format: "GMT%+d:%02d", hours, minutes)
+            : String(format: "GMT%+d", hours)
+    }
+
+    private var filteredTimezones: [TimezoneEntry] {
+        let now = Date()
+        let formatter = Self.timeFormatter
+        let query = debouncedTimezoneSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        return Self.timezoneMetadata.compactMap { meta in
+            let offset = Self.utcOffsetString(for: meta.tz)
+
+            if !query.isEmpty {
+                guard meta.city.lowercased().contains(query)
+                    || meta.region.lowercased().contains(query)
+                    || offset.lowercased().contains(query)
+                    || meta.identifier.lowercased().contains(query)
+                else { return nil }
+            }
+
+            formatter.timeZone = meta.tz
+            return TimezoneEntry(
+                identifier: meta.identifier, city: meta.city, region: meta.region,
+                displayLabel: "\(offset) — \(meta.city)",
+                currentTime: formatter.string(from: now),
+                utcOffset: offset
+            )
         }
     }
 
@@ -475,26 +507,6 @@ struct SettingsAppearanceTab: View {
         }
     }
 
-    // MARK: - Pill helper
-
-    @ViewBuilder
-    private func shortcutKeyPill(_ text: String) -> some View {
-        HStack(spacing: VSpacing.sm) {
-            ForEach(text.components(separatedBy: " "), id: \.self) { token in
-                Text(token)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
-            }
-        }
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.xs)
-        .background(VColor.surfaceSubtle)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.xl)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
-        )
-    }
 }
 
 /// A read-only row displaying a keyboard shortcut and its description.
@@ -506,33 +518,11 @@ private struct ShortcutRow: View {
         HStack {
             Text(label)
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
             Spacer()
-            HStack(spacing: VSpacing.sm) {
-                ForEach(shortcut.components(separatedBy: " "), id: \.self) { token in
-                    Text(token)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                }
-            }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.xs)
-            .background(VColor.surfaceSubtle)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.xl)
-                    .stroke(VColor.surfaceBorder, lineWidth: 1)
-            )
+            VShortcutTag(shortcut)
         }
         .padding(.vertical, VSpacing.md)
     }
 }
 
-#Preview("Appearance Tab") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        SettingsAppearanceTab(store: SettingsStore())
-            .padding()
-    }
-    .frame(width: 500, height: 600)
-}

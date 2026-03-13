@@ -92,6 +92,8 @@ export interface ProcessSessionContext {
   readonly usageStats: UsageStats;
   /** Request-scoped skill IDs preactivated via slash resolution. */
   preactivatedSkillIds?: string[];
+  /** Add a skill ID to the preactivated set without replacing existing entries. */
+  addPreactivatedSkillId(id: string): void;
   /** Assistant identity — used for scoping notification preferences. */
   readonly assistantId?: string;
   trustContext?: TrustContext;
@@ -140,7 +142,8 @@ export interface ProcessSessionContext {
       | "message_complete"
       | "generation_cancelled"
       | "error_terminal"
-      | "preview_start",
+      | "preview_start"
+      | "context_compacting",
     anchor?: "assistant_turn" | "user_turn" | "global",
     requestId?: string,
     statusText?: string,
@@ -224,6 +227,11 @@ export async function drainQueue(
   const next = session.queue.shift();
   if (!next) return;
 
+  // Reset per-turn preactivation so a prior iteration (e.g. an unknown-slash
+  // from a desktop source that skips runAgentLoop) can't leak CU preactivation
+  // into the next queued message.
+  session.preactivatedSkillIds = undefined;
+
   log.info(
     {
       conversationId: session.conversationId,
@@ -283,6 +291,7 @@ export async function drainQueue(
     const sourceInterface = interfaceCtx?.userMessageInterface;
     if (sourceInterface === "macos" || sourceInterface === "ios") {
       session.restoreProxyAvailability();
+      session.addPreactivatedSkillId("computer-use");
     }
   }
 

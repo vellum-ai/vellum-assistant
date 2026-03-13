@@ -58,6 +58,8 @@ extension ChatViewModel {
         }
         if let tcIdx = tcIdx {
             messages[msgIdx].toolCalls[tcIdx].confirmationDecision = decision
+            // Clear live pending confirmation now that a decision has been made
+            messages[msgIdx].toolCalls[tcIdx].pendingConfirmation = nil
             // Use the tool category from the confirmation data as the label
             let label = ToolConfirmationData(requestId: "", toolName: toolName, riskLevel: "").toolCategory
             messages[msgIdx].toolCalls[tcIdx].confirmationLabel = label
@@ -479,6 +481,47 @@ extension ChatViewModel {
         }
     }
 
+    // MARK: - Partial Output Coalescing
+
+    /// Flush buffered partial-output chunks into the `messages` array.
+    /// Called on a timer and eagerly on `messageComplete` / `toolResult`.
+    func flushPartialOutputBuffer() {
+        partialOutputFlushTask?.cancel()
+        partialOutputFlushTask = nil
+        guard !partialOutputBuffer.isEmpty else { return }
+        let buffered = partialOutputBuffer
+        partialOutputBuffer = [:]
+        let maxPartialOutput = 5000
+        for (_, entry) in buffered {
+            let tcIndex = entry.tcIndex
+            guard let msgIndex = messages.firstIndex(where: { $0.id == entry.messageId }),
+                  tcIndex < messages[msgIndex].toolCalls.count else { continue }
+            messages[msgIndex].toolCalls[tcIndex].partialOutput.append(entry.content)
+            if messages[msgIndex].toolCalls[tcIndex].partialOutput.count > maxPartialOutput {
+                let excess = messages[msgIndex].toolCalls[tcIndex].partialOutput.count - maxPartialOutput
+                messages[msgIndex].toolCalls[tcIndex].partialOutput.removeFirst(excess)
+            }
+            messages[msgIndex].toolCalls[tcIndex].partialOutputRevision += 1
+        }
+    }
+
+    /// Discard any buffered partial-output chunks without flushing.
+    func discardPartialOutputBuffer() {
+        partialOutputFlushTask?.cancel()
+        partialOutputFlushTask = nil
+        partialOutputBuffer = [:]
+    }
+
+    /// Schedule a partial-output flush after the throttle interval if one isn't already pending.
+    private func schedulePartialOutputFlush() {
+        guard partialOutputFlushTask == nil else { return }
+        partialOutputFlushTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.streamingFlushInterval * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.flushPartialOutputBuffer()
+        }
+    }
+
     public func handleServerMessage(_ message: ServerMessage) {
         switch message {
         case .sessionInfo(let info):
@@ -591,6 +634,7 @@ extension ChatViewModel {
             guard belongsToSession(complete.sessionId) else { return }
             // Flush any buffered streaming text before finalizing the message.
             flushStreamingBuffer()
+            flushPartialOutputBuffer()
             // Backfill the daemon's persisted message ID so diagnostics exports
             // can anchor to it without requiring a history reload.
             if let messageId = complete.messageId,
@@ -769,6 +813,7 @@ extension ChatViewModel {
             currentAssistantHasText = false
             lastContentWasToolCall = false
             discardStreamingBuffer()
+            discardPartialOutputBuffer()
 
         case .generationCancelled(let cancelled):
             guard belongsToSession(cancelled.sessionId) else { return }
@@ -826,6 +871,7 @@ extension ChatViewModel {
             currentAssistantHasText = false
             lastContentWasToolCall = false
             discardStreamingBuffer()
+            flushPartialOutputBuffer()
             // Reset processing messages to sent
             for i in messages.indices {
                 if messages[i].role == .user && messages[i].status == .processing {
@@ -929,6 +975,7 @@ extension ChatViewModel {
             // stuck in streaming state or cause subsequent deltas to append to it.
             if msg.runStillActive != true {
                 flushStreamingBuffer()
+                flushPartialOutputBuffer()
                 if let existingId = currentAssistantMessageId,
                    let index = messages.firstIndex(where: { $0.id == existingId }) {
                     messages[index].isStreaming = false
@@ -954,6 +1001,7 @@ extension ChatViewModel {
             // Flush buffered text so it lands on the current assistant message
             // before we clear the ID and hand off to the next queued turn.
             flushStreamingBuffer()
+            flushPartialOutputBuffer()
             // Must run before currentAssistantMessageId is cleared so attachments land on the right message
             ingestAssistantAttachments(handoff.attachments)
             // Keep isSending = true — daemon is handing off to next queued message
@@ -1012,6 +1060,7 @@ extension ChatViewModel {
             // Flush any buffered text so already-received tokens are preserved
             // in the assistant message before we clear the turn state.
             flushStreamingBuffer()
+            flushPartialOutputBuffer()
             // Mark current assistant message as no longer streaming
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
@@ -1119,6 +1168,7 @@ extension ChatViewModel {
             guard !isLoadingHistory else { return }
             // Flush buffered text before inserting the confirmation message.
             flushStreamingBuffer()
+            flushPartialOutputBuffer()
             // Route using sessionId when available (daemon >= v1.x includes
             // the conversationId). Fall back to the timestamp-based heuristic
             // via shouldAcceptConfirmation for older daemons that omit sessionId.
@@ -1143,8 +1193,16 @@ extension ChatViewModel {
                 scopeOptions: msg.scopeOptions,
                 executionTarget: msg.executionTarget,
                 persistentDecisionsAllowed: msg.persistentDecisionsAllowed ?? true,
-                temporaryOptionsAvailable: msg.temporaryOptionsAvailable ?? []
+                temporaryOptionsAvailable: msg.temporaryOptionsAvailable ?? [],
+                toolUseId: msg.toolUseId
             )
+            // Attach confirmation to matching tool call if toolUseId is available
+            if let toolUseId = msg.toolUseId,
+               let assistantId = currentAssistantMessageId,
+               let msgIdx = messages.firstIndex(where: { $0.id == assistantId }),
+               let tcIdx = messages[msgIdx].toolCalls.firstIndex(where: { $0.toolUseId == toolUseId }) {
+                messages[msgIdx].toolCalls[tcIdx].pendingConfirmation = confirmation
+            }
             let confirmMsg = ChatMessage(
                 role: .assistant,
                 text: "",
@@ -1171,6 +1229,7 @@ extension ChatViewModel {
             }
             // Flush buffered text so it lands before the tool call in content order.
             flushStreamingBuffer()
+            flushPartialOutputBuffer()
             // If a chip with the same toolUseId already exists (e.g. toolUseStart
             // arrived before this preview), ignore the late preview.
             if let existingId = currentAssistantMessageId,
@@ -1214,6 +1273,7 @@ extension ChatViewModel {
             guard !isWorkspaceRefinementInFlight else { return }
             // Flush buffered text so it lands before the tool call in content order.
             flushStreamingBuffer()
+            flushPartialOutputBuffer()
             lastToolUseReceivedAt = Date()
             // Suppress ToolCallChip for ui_show — the inline surface widget replaces it.
             if msg.toolName == "ui_show" || msg.toolName == "ui_update" || msg.toolName == "ui_dismiss" {
@@ -1318,10 +1378,26 @@ extension ChatViewModel {
             guard belongsToSession(msg.sessionId) else { return }
             guard !isLoadingHistory else { return }
             // Handle structured progress events from claude_code sub-tools
+            // Resolve the target tool call: prefer matching by toolUseId, fall back to positional heuristic.
+            let resolvedStructuredTarget: (msgIndex: Int, tcIndex: Int)? = {
+                if let toolUseId = msg.toolUseId {
+                    for i in stride(from: messages.count - 1, through: 0, by: -1) {
+                        if let tcIdx = messages[i].toolCalls.firstIndex(where: { $0.toolUseId == toolUseId }) {
+                            return (i, tcIdx)
+                        }
+                    }
+                }
+                if let existingId = currentAssistantMessageId,
+                   let mIdx = messages.firstIndex(where: { $0.id == existingId }),
+                   let tcIdx = messages[mIdx].toolCalls.lastIndex(where: { !$0.isComplete && $0.toolName == "claude_code" }) {
+                    return (mIdx, tcIdx)
+                }
+                return nil
+            }()
             if let subType = msg.subType, !subType.isEmpty,
-               let existingId = currentAssistantMessageId,
-               let msgIndex = messages.firstIndex(where: { $0.id == existingId }),
-               let tcIndex = messages[msgIndex].toolCalls.lastIndex(where: { !$0.isComplete && $0.toolName == "claude_code" }) {
+               let target = resolvedStructuredTarget {
+                let msgIndex = target.msgIndex
+                let tcIndex = target.tcIndex
                 switch subType {
                 case "tool_start":
                     if let toolName = msg.subToolName {
@@ -1357,6 +1433,39 @@ extension ChatViewModel {
                 default:
                     break
                 }
+            } else if msg.subType == nil || msg.subType?.isEmpty == true,
+                      !msg.chunk.isEmpty {
+                // Resolve target tool call: prefer toolUseId, fall back to positional heuristic.
+                let resolvedPlainTarget: (msgIndex: Int, tcIndex: Int)? = {
+                    if let toolUseId = msg.toolUseId {
+                        for i in stride(from: messages.count - 1, through: 0, by: -1) {
+                            if let tcIdx = messages[i].toolCalls.firstIndex(where: { $0.toolUseId == toolUseId }) {
+                                return (i, tcIdx)
+                            }
+                        }
+                    }
+                    if let existingId = currentAssistantMessageId,
+                       let mIdx = messages.firstIndex(where: { $0.id == existingId }),
+                       let tcIdx = messages[mIdx].toolCalls.lastIndex(where: { !$0.isComplete }) {
+                        return (mIdx, tcIdx)
+                    }
+                    return nil
+                }()
+                guard let target = resolvedPlainTarget else { return }
+                let msgIndex = target.msgIndex
+                let tcIndex = target.tcIndex
+                // Append plain-text output chunks to the coalescing buffer.
+                // Structured JSON sub-events (with a valid subType) are handled above;
+                // the subType guard prevents them from leaking raw JSON here.
+                let messageId = messages[msgIndex].id
+                let key = "\(messageId):\(tcIndex)"
+                if var entry = partialOutputBuffer[key] {
+                    entry.content += msg.chunk
+                    partialOutputBuffer[key] = entry
+                } else {
+                    partialOutputBuffer[key] = (messageId: messageId, tcIndex: tcIndex, content: msg.chunk)
+                }
+                schedulePartialOutputFlush()
             }
 
         case .toolResult(let msg):
@@ -1364,6 +1473,7 @@ extension ChatViewModel {
             guard !isCancelling else { return }
             guard !isLoadingHistory else { return }
             guard !isWorkspaceRefinementInFlight else { return }
+            flushPartialOutputBuffer()
             // Find the matching tool call.
             // Prefer matching by toolUseId (stable identifier) over positional heuristics.
             var targetMsgIndex: Int?
@@ -1603,6 +1713,30 @@ extension ChatViewModel {
             // Empty sessionId is treated as a broadcast (e.g. transport-level 401)
             guard sessionId != nil, msg.sessionId.isEmpty || belongsToSession(msg.sessionId) else { return }
             log.error("Session error [\(msg.code.rawValue, privacy: .public)]: \(msg.userMessage, privacy: .private)")
+
+            // Per-message send failure: mark the specific user message instead
+            // of showing a session-level error banner.
+            if let failedContent = msg.failedMessageContent {
+                if let idx = messages.lastIndex(where: { $0.role == .user && $0.text == failedContent && $0.status != .sendFailed }) {
+                    messages[idx].status = .sendFailed
+                }
+                // Only reset sending state if no other messages are in-flight.
+                // Check for genuinely in-flight statuses (.processing, .queued)
+                // — NOT .sent, which is the default/terminal status for all
+                // previously delivered messages.
+                let hasActiveSend = isSending && messages.contains(where: { msg in
+                    guard msg.role == .user else { return false }
+                    if msg.status == .processing { return true }
+                    if case .queued = msg.status { return true }
+                    return false
+                })
+                if !hasActiveSend {
+                    isThinking = false
+                    isSending = false
+                }
+                return
+            }
+
             isWorkspaceRefinementInFlight = false
             refinementFlushTask?.cancel()
             refinementFlushTask = nil
@@ -1632,6 +1766,7 @@ extension ChatViewModel {
             currentAssistantHasText = false
             lastContentWasToolCall = false
             discardStreamingBuffer()
+            flushPartialOutputBuffer()
             // When the user intentionally cancelled, suppress the error.
             // Otherwise, insert an inline error message so errors are visually
             // distinct from normal assistant replies (rendered with a red box).
@@ -1729,9 +1864,24 @@ extension ChatViewModel {
             }
             // Stamp confirmation data on the corresponding ToolCallData in the
             // preceding assistant message so it survives thread switches.
+            let decision = mapConfirmationState(msg.state)
             if let toolName = confirmationToolName,
-               let state = mapConfirmationState(msg.state) {
+               let state = decision {
                 stampConfirmationOnToolCall(toolName: toolName, decision: state, toolUseId: msg.toolUseId, targetMessageId: precedingAssistantId)
+            }
+            // Clear pendingConfirmation when the confirmation reaches a terminal state
+            // (approved, denied, timed_out, resolved_stale) — but NOT on "pending" which
+            // is the initial state transition that fires immediately after the request is created.
+            if msg.state != "pending" {
+                for i in messages.indices.reversed() {
+                    guard messages[i].role == .assistant, messages[i].confirmation == nil else { continue }
+                    if let tcIdx = messages[i].toolCalls.firstIndex(where: {
+                        $0.pendingConfirmation?.requestId == msg.requestId
+                    }) {
+                        messages[i].toolCalls[tcIdx].pendingConfirmation = nil
+                        break
+                    }
+                }
             }
 
         case .assistantActivityState(let msg):
@@ -1743,6 +1893,7 @@ extension ChatViewModel {
             assistantActivityAnchor = msg.anchor
             assistantActivityReason = msg.reason
             assistantStatusText = msg.statusText
+            isCompacting = msg.reason == "context_compacting"
             switch msg.phase {
             case "thinking":
                 isThinking = true

@@ -12,10 +12,6 @@ import { callTelegramApi, callTelegramApiMultipart } from "./api.js";
 
 const log = getLogger("telegram-send");
 
-export interface TelegramSendResult {
-  messageId: number;
-}
-
 const TELEGRAM_MAX_MESSAGE_LEN = 4000;
 
 /** Telegram Bot API enforces a 1-64 byte limit on InlineKeyboardButton callback_data. */
@@ -55,10 +51,9 @@ export async function sendTelegramReply(
   text: string,
   approval?: ApprovalPayload,
   opts?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
-): Promise<TelegramSendResult> {
+): Promise<void> {
   const chunks = splitText(text, TELEGRAM_MAX_MESSAGE_LEN);
 
-  let lastResult: { message_id: number } | undefined;
   for (let i = 0; i < chunks.length; i++) {
     const payload: Record<string, unknown> = {
       chat_id: chatId,
@@ -71,55 +66,10 @@ export async function sendTelegramReply(
       payload.reply_markup = buildInlineKeyboard(approval);
     }
 
-    lastResult = await callTelegramApi<{ message_id: number }>(
-      "sendMessage",
-      payload,
-      opts,
-    );
+    await callTelegramApi("sendMessage", payload, opts);
   }
 
   log.debug({ chatId, chunks: chunks.length }, "Telegram reply sent");
-  return { messageId: lastResult!.message_id };
-}
-
-export async function editTelegramMessage(
-  config: GatewayConfig,
-  chatId: string,
-  messageId: number,
-  text: string,
-  approval?: ApprovalPayload,
-  opts?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
-): Promise<void> {
-  if (text.length > TELEGRAM_MAX_MESSAGE_LEN) {
-    throw new Error(
-      `Text length ${text.length} exceeds Telegram's ${TELEGRAM_MAX_MESSAGE_LEN}-character limit for message edits`,
-    );
-  }
-
-  const payload: Record<string, unknown> = {
-    chat_id: chatId,
-    message_id: messageId,
-    text,
-  };
-  if (approval) {
-    payload.reply_markup = buildInlineKeyboard(approval);
-  }
-
-  try {
-    await callTelegramApi("editMessageText", payload, opts);
-  } catch (err) {
-    // Telegram returns "message is not modified" when the new text is identical
-    // to what's already displayed. Treat this as a no-op success rather than
-    // propagating a hard failure.
-    if (
-      err instanceof Error &&
-      err.message.includes("message is not modified")
-    ) {
-      log.debug({ chatId, messageId }, "Edit skipped: message is not modified");
-      return;
-    }
-    throw err;
-  }
 }
 
 export async function sendTelegramAttachments(

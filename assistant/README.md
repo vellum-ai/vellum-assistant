@@ -16,7 +16,7 @@ CLI / macOS app / iOS app
         │       ├── Google Gemini (secondary)
         │       └── Ollama (local models)
         │
-        ├── Memory System (FTS5 + Qdrant + Entity Graph)
+        ├── Memory System (Qdrant Hybrid Search)
         ├── Skill Tool System (bundled + managed + workspace)
         ├── Swarm Orchestration (DAG scheduler + worker pool)
         ├── Script Proxy (credential injection + MITM)
@@ -73,7 +73,6 @@ For low-level development (e.g., working on the assistant runtime itself):
 ```bash
 bun run src/index.ts daemon start   # start daemon only
 bun run src/index.ts                # interactive CLI session
-bun run src/index.ts dev            # dev mode (auto-restart on file changes)
 ```
 
 ### CLI commands
@@ -84,7 +83,6 @@ bun run src/index.ts dev            # dev mode (auto-restart on file changes)
 | `vellum sleep`                                | Stop assistant + gateway processes               |
 | `vellum ps`                                   | List assistants and per-assistant process status |
 | `assistant`                                   | Launch interactive CLI session                   |
-| `assistant dev`                               | Run assistant with auto-restart on file changes  |
 | `assistant sessions list\|new\|export\|clear` | Manage conversation sessions                     |
 | `assistant config set\|get\|list`             | Manage configuration                             |
 | `assistant keys set\|list\|delete`            | Manage API keys in secure storage                |
@@ -101,7 +99,7 @@ assistant/
 │   ├── daemon/               # Daemon server, session management
 │   ├── agent/                # Agent loop and LLM interaction
 │   ├── providers/            # LLM provider integrations (Anthropic, OpenAI, Gemini, Ollama)
-│   ├── memory/               # Conversation store, memory indexer, recall (FTS5 + Qdrant)
+│   ├── memory/               # Conversation store, memory indexer, recall (Qdrant hybrid search)
 │   ├── skills/               # Skill catalog, loading, and tool factory
 │   ├── tools/                # Built-in tool definitions
 │   ├── swarm/                # Swarm orchestration (DAG scheduler, worker pool)
@@ -241,12 +239,9 @@ The per-assistant mapping is propagated to the gateway via the config file watch
 
 ### Phone Number Resolution Order
 
-At runtime, `getTwilioConfig()` resolves the phone number using this priority chain:
+At runtime, `getTwilioConfig()` resolves the phone number from **`twilio.phoneNumber` in config** — the primary source of truth, written by `provision_number` and `assign_number`.
 
-1. **`TWILIO_PHONE_NUMBER` env var** — highest priority, explicit override for dev/CI.
-2. **`twilio.phoneNumber` in config** — the primary source of truth, written by `provision_number` and `assign_number`.
-
-If no number is found after both sources, an error is thrown.
+If no number is found, an error is thrown.
 
 ### Assistant-Scoped Guardian State
 
@@ -451,7 +446,7 @@ If no guardian binding exists, escalation fails closed — the message is denied
 
 ## Database
 
-SQLite via Drizzle ORM, stored at `~/.vellum/workspace/data/db/assistant.db`. Key tables include conversations, messages, tool invocations, attachments, memory segments (with FTS5), memory items, entities, reminders, and recurrence schedules (cron + RRULE).
+SQLite via Drizzle ORM, stored at `~/.vellum/workspace/data/db/assistant.db`. Key tables include conversations, messages, tool invocations, attachments, memory segments, memory items, reminders, and recurrence schedules (cron + RRULE).
 
 > **Note:** The recurrence schedule system supports both cron expressions and iCalendar RRULE syntax. Use the `expression` field with an explicit `syntax` discriminator. See [`docs/architecture/scheduling.md`](docs/architecture/scheduling.md) for details.
 
@@ -475,22 +470,6 @@ docker run --rm -p 3001:3001 \
 ```
 
 The image exposes port `3001` and bundles the `assistant` CLI binary.
-
-## Ride Shotgun
-
-Ride Shotgun is a background screen-watching feature that observes user workflows. It has two modes:
-
-- **Observe mode** — captures periodic screenshots and generates a workflow summary via the LLM.
-- **Learn mode** — records browser network traffic alongside screenshots to capture API patterns. The assistant owns CDP browser lifecycle: `ride-shotgun-handler.ts` calls `ensureChromeWithCdp()` to launch or connect to Chrome with remote debugging, so clients do not need to pre-launch Chrome with `--remote-debugging-port`.
-
-Key modules:
-
-| File                                    | Purpose                                                 |
-| --------------------------------------- | ------------------------------------------------------- |
-| `src/daemon/ride-shotgun-handler.ts`    | Session orchestration, CDP bootstrap, network recording |
-| `src/tools/browser/chrome-cdp.ts`       | Reusable Chrome CDP launcher (`ensureChromeWithCdp`)    |
-| `src/tools/browser/network-recorder.ts` | CDP-based network traffic capture                       |
-| `src/tools/browser/recording-store.ts`  | Session recording persistence                           |
 
 ## Troubleshooting
 

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
+import { credentialKey } from "../../credential-key.js";
 
 const handleInboundMock = mock(() =>
   Promise.resolve({ forwarded: true, rejected: false }),
@@ -99,11 +100,13 @@ const baseConfig: GatewayConfig = {
 function makeCaches() {
   const credentials = {
     get: async (key: string) => {
-      if (key === "credential:whatsapp:app_secret") return "test-app-secret";
-      if (key === "credential:whatsapp:webhook_verify_token")
+      if (key === credentialKey("whatsapp", "app_secret"))
+        return "test-app-secret";
+      if (key === credentialKey("whatsapp", "webhook_verify_token"))
         return "verify-token";
-      if (key === "credential:whatsapp:phone_number_id") return "test-phone-id";
-      if (key === "credential:whatsapp:access_token")
+      if (key === credentialKey("whatsapp", "phone_number_id"))
+        return "test-phone-id";
+      if (key === credentialKey("whatsapp", "access_token"))
         return "test-access-token";
       return undefined;
     },
@@ -189,17 +192,17 @@ describe("whatsapp-webhook", () => {
     const caches = {
       credentials: {
         get: async (key: string, opts?: { force?: boolean }) => {
-          if (key === "credential:whatsapp:app_secret") {
+          if (key === credentialKey("whatsapp", "app_secret")) {
             callCount++;
             // First call (non-forced) returns undefined; second call (forced) returns a valid secret
             if (callCount === 1 && !opts?.force) return undefined;
             return "refreshed-app-secret";
           }
-          if (key === "credential:whatsapp:webhook_verify_token")
+          if (key === credentialKey("whatsapp", "webhook_verify_token"))
             return "verify-token";
-          if (key === "credential:whatsapp:phone_number_id")
+          if (key === credentialKey("whatsapp", "phone_number_id"))
             return "test-phone-id";
-          if (key === "credential:whatsapp:access_token")
+          if (key === credentialKey("whatsapp", "access_token"))
             return "test-access-token";
           return undefined;
         },
@@ -227,12 +230,12 @@ describe("whatsapp-webhook", () => {
       credentials: {
         get: async (key: string) => {
           // Always return undefined for app_secret — both normal and forced reads
-          if (key === "credential:whatsapp:app_secret") return undefined;
-          if (key === "credential:whatsapp:webhook_verify_token")
+          if (key === credentialKey("whatsapp", "app_secret")) return undefined;
+          if (key === credentialKey("whatsapp", "webhook_verify_token"))
             return "verify-token";
-          if (key === "credential:whatsapp:phone_number_id")
+          if (key === credentialKey("whatsapp", "phone_number_id"))
             return "test-phone-id";
-          if (key === "credential:whatsapp:access_token")
+          if (key === credentialKey("whatsapp", "access_token"))
             return "test-access-token";
           return undefined;
         },

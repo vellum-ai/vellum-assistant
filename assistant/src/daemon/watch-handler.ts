@@ -79,8 +79,8 @@ export async function handleWatchObservation(
       "Observation added to session",
     );
 
-    // 4. Every 3 observations: call the LLM for live commentary (chat-initiated watch only)
-    if (!session.isRideShotgun && session.observations.length % 3 === 0) {
+    // 4. Every 3 observations: call the LLM for live commentary
+    if (session.observations.length % 3 === 0) {
       log.debug(
         { watchId: msg.watchId, observationCount: session.observations.length },
         "Triggering commentary generation (every 3rd observation)",

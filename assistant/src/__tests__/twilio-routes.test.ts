@@ -47,12 +47,12 @@ function readMockTwilioAccountSid(): string | undefined {
   const twilio = (mockRawConfigStore.twilio ?? {}) as Record<string, unknown>;
   return (
     (twilio.accountSid as string | undefined) ??
-    mockSecureKeyStore["credential:twilio:account_sid"]
+    mockSecureKeyStore[credentialKey("twilio", "account_sid")]
   );
 }
 
 function readMockTwilioAuthToken(): string | undefined {
-  return mockSecureKeyStore["credential:twilio:auth_token"];
+  return mockSecureKeyStore[credentialKey("twilio", "auth_token")];
 }
 
 function readMockTwilioPhoneNumber(): string | undefined {
@@ -77,7 +77,6 @@ function resolveIngressBaseUrlFromConfig(ingressConfig: unknown): string {
 
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
-  getCallWelcomeGreeting: () => process.env.CALL_WELCOME_GREETING || undefined,
   getGatewayInternalBaseUrl: () => "http://gateway.internal:7830",
   getIngressPublicBaseUrl: () => mockIngressPublicBaseUrl,
   setIngressPublicBaseUrl: (value: string | undefined) => {
@@ -109,13 +108,11 @@ mock.module("../util/logger.js", () => ({
     debug: () => {},
     trace: () => {},
     fatal: () => {},
-    isDebug: () => false,
     child: () => ({
       info: () => {},
       warn: () => {},
       error: () => {},
       debug: () => {},
-      isDebug: () => false,
     }),
   }),
 }));
@@ -333,6 +330,7 @@ import {
   handleProvisionTwilioNumber,
   handleSetTwilioCredentials,
 } from "../runtime/routes/integrations/twilio.js";
+import { credentialKey } from "../security/credential-key.js";
 
 initializeDb();
 
@@ -429,15 +427,14 @@ describe("twilio webhook routes", () => {
       twilio: { accountSid: "AC_existing", phoneNumber: "+15550001111" },
     };
     mockSecureKeyStore = {
-      "credential:twilio:account_sid": "AC_existing",
-      "credential:twilio:auth_token": "test-auth-token",
+      [credentialKey("twilio", "account_sid")]: "AC_existing",
+      [credentialKey("twilio", "auth_token")]: "test-auth-token",
     };
     mockAvailableNumbers = [{ phoneNumber: "+15556667777" }];
     mockProvisionedNumber = { phoneNumber: "+15556667777" };
     updatePhoneNumberWebhookCalls = [];
     mockTwilioApiValidationStatus = 200;
     mockTwilioApiValidationBody = JSON.stringify({ sid: "AC_validated" });
-    delete process.env.CALL_WELCOME_GREETING;
 
     globalThis.fetch = (async (
       url: string | URL | Request,
@@ -817,18 +814,6 @@ describe("twilio webhook routes", () => {
       expect(res.status).toBe(200);
       const twiml = await res.text();
       expect(twiml).not.toContain("welcomeGreeting=");
-    });
-
-    test("TwiML includes explicit welcome greeting override when configured", async () => {
-      process.env.CALL_WELCOME_GREETING = "Custom transport greeting";
-      const session = createTestSession("conv-twiml-4", "CA_twiml_4");
-      const req = makeVoiceRequest(session.id, { CallSid: "CA_twiml_4" });
-
-      const res = await handleVoiceWebhook(req);
-
-      expect(res.status).toBe(200);
-      const twiml = await res.text();
-      expect(twiml).toContain('welcomeGreeting="Custom transport greeting"');
     });
   });
 

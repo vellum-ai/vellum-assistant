@@ -18,16 +18,8 @@ const VOICE_SETTINGS = {
     userDefaultsKey: "pttActivationKey",
     type: "string" as const,
   },
-  wake_word_enabled: {
-    userDefaultsKey: "wakeWordEnabled",
-    type: "boolean" as const,
-  },
-  wake_word_keyword: {
-    userDefaultsKey: "wakeWordKeyword",
-    type: "string" as const,
-  },
-  wake_word_timeout: {
-    userDefaultsKey: "wakeWordTimeoutSeconds",
+  conversation_timeout: {
+    userDefaultsKey: "voiceConversationTimeoutSeconds",
     type: "number" as const,
   },
   tts_voice_id: { userDefaultsKey: "ttsVoiceId", type: "string" as const },
@@ -41,9 +33,7 @@ const VALID_TIMEOUTS = [5, 10, 15, 30, 60];
 
 const FRIENDLY_NAMES: Record<VoiceSettingName, string> = {
   activation_key: "PTT activation key",
-  wake_word_enabled: "Wake word",
-  wake_word_keyword: "Wake word keyword",
-  wake_word_timeout: "Wake word timeout",
+  conversation_timeout: "Conversation timeout",
   tts_voice_id: "ElevenLabs voice",
 };
 
@@ -76,30 +66,12 @@ function validateSetting(
       }
       return { ok: true, coerced: result.value };
     }
-    case "wake_word_enabled": {
-      if (typeof value === "boolean") return { ok: true, coerced: value };
-      if (value === "true") return { ok: true, coerced: true };
-      if (value === "false") return { ok: true, coerced: false };
-      return {
-        ok: false,
-        error: 'wake_word_enabled must be a boolean (or "true"/"false" string)',
-      };
-    }
-    case "wake_word_keyword": {
-      if (typeof value !== "string" || value.trim().length === 0) {
-        return {
-          ok: false,
-          error: "wake_word_keyword must be a non-empty string",
-        };
-      }
-      return { ok: true, coerced: value.trim() };
-    }
-    case "wake_word_timeout": {
+    case "conversation_timeout": {
       const num = typeof value === "number" ? value : Number(value);
       if (Number.isNaN(num) || !VALID_TIMEOUTS.includes(num)) {
         return {
           ok: false,
-          error: `wake_word_timeout must be one of: ${VALID_TIMEOUTS.join(
+          error: `conversation_timeout must be one of: ${VALID_TIMEOUTS.join(
             ", ",
           )}`,
         };

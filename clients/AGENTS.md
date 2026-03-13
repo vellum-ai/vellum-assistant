@@ -63,7 +63,8 @@
 
 ### Platform-Specific
 
-- **Asynchronous loading.** Load data (network responses, file contents, images) asynchronously off the main thread. Show loading states (`VLoadingIndicator`, `VBusyIndicator`) while data is in flight. Never block the main thread waiting for data.
+- **Asynchronous loading.** Load data (network responses, file contents, images) asynchronously off the main thread. Show loading states while data is in flight. Never block the main thread waiting for data.
+- **Skeleton placeholders over spinners for content areas.** When a region will display structured content (chat messages, lists, cards), use a skeleton placeholder that mirrors the real layout — matching alignment, dimensions, spacing, and bubble shapes — instead of a generic spinner (`VLoadingIndicator`). This reduces perceived load time and prevents layout shift when real content appears. Use `VSkeletonBone` with `.vShimmer()` for individual bones. Reserve `VLoadingIndicator` / `VBusyIndicator` for small, inline loading states (buttons, toolbar actions) where the final content shape is unknown. See `ChatLoadingSkeleton` for the reference pattern.
 - **Profile before optimizing, but follow known patterns.** Use Instruments (Time Profiler, Allocations, SwiftUI view body counters) to validate. However, the patterns above are established project standards — follow them proactively rather than waiting for a performance regression.
 - **Background timers: gate on display state and use long polling intervals.** Set background polling intervals to at least 300 s (5 min). Before running expensive evaluation, call `CGDisplayIsAsleep(CGMainDisplayID())` and skip if the display is off. Do **not** use `NSApplication.didBecomeActiveNotification` as an activity gate for LSUIElement / accessory-mode apps — this notification never fires when the app has no dock icon, permanently disabling the feature after first use.
 - **AVAudio teardown order.** Always tear down AVAudio resources in the order `removeTap` → `stop` → `reset`. Calling `stop` before `removeTap` leaves the tap dangling and causes a retain cycle that prevents `AVAudioEngine` from being deallocated.
@@ -247,7 +248,7 @@ All UI icons use **vendored Lucide PDF assets** rendered through the `VIcon` enu
 - If a needed component does not exist, add it to the appropriate `DesignSystem/` subdirectory (`Core/` for primitives, `Components/` for composed elements, `Modifiers/` for view modifiers).
 - Follow existing naming conventions: prefix with `V`, use descriptive names (for example `VProgressBar`, `VAvatar`).
 - New components must be reusable and platform-agnostic; do not embed platform-specific code.
-- Add a `#Preview` block to the component file and a corresponding section in `Gallery/` so it appears in the component catalog.
+- Do not add `#Preview` / `PreviewProvider` blocks. Add or update the corresponding section in `Gallery/` so the component is represented in the catalog.
 - If you create a component inline in a feature and it could be reused elsewhere, extract it into the design system before merging.
 
 ### Avoiding Duplication

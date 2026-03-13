@@ -5,7 +5,6 @@
  * to these functions so business logic lives in one place.
  */
 
-import { getTwilioUserPhoneNumber } from "../config/env.js";
 import { loadConfig } from "../config/loader.js";
 import { VALID_CALLER_IDENTITY_MODES } from "../config/schema.js";
 import type { AssistantConfig } from "../config/types.js";
@@ -21,6 +20,7 @@ import { upsertBinding } from "../memory/external-conversation-store.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { isGuardian } from "../runtime/channel-verification-service.js";
+import { credentialKey } from "../security/credential-key.js";
 import { getSecureKey } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { upsertActiveCallLease } from "./active-call-lease.js";
@@ -110,8 +110,7 @@ export type CallerIdentitySource =
   | "per_call_override"
   | "implicit_default"
   | "user_config"
-  | "secure_key"
-  | "env_var";
+  | "secure_key";
 
 export type CallerIdentityResult =
   | {
@@ -135,7 +134,7 @@ export type CallerIdentityResult =
  * For `assistant_number`: uses the Twilio phone number from
  *   `getTwilioConfig()`. No eligibility check is performed — this is a fast path.
  * For `user_number`: uses `config.calls.callerIdentity.userNumber` or the
- *   secure key `credential:twilio:user_phone_number`, then validates that the
+ *   secure key `credential/twilio/user_phone_number`, then validates that the
  *   number is usable as an outbound caller ID via the Twilio API.
  */
 export async function resolveCallerIdentity(
@@ -193,11 +192,10 @@ export async function resolveCallerIdentity(
   if (identityConfig.userNumber) {
     userNumber = identityConfig.userNumber;
     numberSource = "user_config";
-  } else if (getTwilioUserPhoneNumber()) {
-    userNumber = getTwilioUserPhoneNumber()!;
-    numberSource = "env_var";
   } else {
-    const secureKeyValue = getSecureKey("credential:twilio:user_phone_number");
+    const secureKeyValue = getSecureKey(
+      credentialKey("twilio", "user_phone_number"),
+    );
     if (secureKeyValue) {
       userNumber = secureKeyValue;
       numberSource = "secure_key";
@@ -212,7 +210,7 @@ export async function resolveCallerIdentity(
     return {
       ok: false,
       error:
-        "user_number mode requires a user phone number. Set calls.callerIdentity.userNumber in config or store credential:twilio:user_phone_number via the credential_store tool.",
+        "user_number mode requires a user phone number. Set calls.callerIdentity.userNumber in config or store credential/twilio/user_phone_number via the credential_store tool.",
     };
   }
 
@@ -223,7 +221,7 @@ export async function resolveCallerIdentity(
     );
     return {
       ok: false,
-      error: `User phone number "${userNumber}" is not in E.164 format (must start with + followed by digits, e.g. +14155551234). Check calls.callerIdentity.userNumber in config or credential:twilio:user_phone_number.`,
+      error: `User phone number "${userNumber}" is not in E.164 format (must start with + followed by digits, e.g. +14155551234). Check calls.callerIdentity.userNumber in config or credential/twilio/user_phone_number.`,
     };
   }
 
@@ -1015,6 +1013,138 @@ export async function startVerificationCall(
     return {
       ok: false,
       error: `Error initiating guardian verification call: ${msg}`,
+      status: 500,
+    };
+  }
+}
+
+// ── Invite call ───────────────────────────────────────────────────────
+
+export type StartInviteCallInput = {
+  phoneNumber: string;
+  friendName: string;
+  guardianName: string;
+  assistantId?: string;
+};
+
+export type StartInviteCallResult = { ok: true; callSid: string } | CallError;
+
+/**
+ * Initiate an outbound call to deliver a voice invite to a contact.
+ *
+ * Creates a minimal call session with a voice channel binding and
+ * passes invite-specific custom parameters so the relay server can
+ * detect this is an invite redemption call.
+ */
+export async function startInviteCall(
+  input: StartInviteCallInput,
+): Promise<StartInviteCallResult> {
+  const { phoneNumber, friendName, guardianName } = input;
+
+  if (!phoneNumber || !E164_REGEX.test(phoneNumber)) {
+    return {
+      ok: false,
+      error: "phone_number must be in E.164 format",
+      status: 400,
+    };
+  }
+
+  let sessionId: string | null = null;
+
+  try {
+    const config = loadConfig();
+    const provider = new TwilioConversationRelayProvider();
+
+    // Resolve the assistant's Twilio number as the caller ID
+    const identityResult = await resolveCallerIdentity(config);
+    if (!identityResult.ok) {
+      return { ok: false, error: identityResult.error, status: 400 };
+    }
+
+    const preflightResult = await preflightVoiceIngress();
+    if (!preflightResult.ok) {
+      return preflightResult;
+    }
+    const ingressConfig = preflightResult.ingressConfig;
+
+    // Create a minimal conversation so the call session has a valid FK,
+    // and bind it to the voice channel so it never appears as an unbound
+    // desktop thread.
+    const timestamp = Date.now();
+    const convKey = `invite-call:${phoneNumber}:${timestamp}`;
+    const { conversationId } = getOrCreateConversation(convKey);
+
+    upsertBinding({
+      conversationId,
+      sourceChannel: "phone",
+      externalChatId: `invite-call:${phoneNumber}:${timestamp}`,
+    });
+
+    const session = createCallSession({
+      conversationId,
+      provider: "twilio",
+      fromNumber: identityResult.fromNumber,
+      toNumber: phoneNumber,
+      callMode: "invite",
+      inviteFriendName: friendName,
+      inviteGuardianName: guardianName,
+      initiatedFromConversationId: conversationId,
+    });
+    sessionId = session.id;
+
+    const webhookUrl = await resolveCallbackUrl(
+      () => getTwilioVoiceWebhookUrl(ingressConfig, session.id),
+      "webhooks/twilio/voice",
+      "twilio_voice",
+      { callSessionId: session.id },
+    );
+    const statusCallbackUrl = await resolveCallbackUrl(
+      () => getTwilioStatusCallbackUrl(ingressConfig),
+      "webhooks/twilio/status",
+      "twilio_status",
+    );
+
+    upsertActiveCallLease({ callSessionId: session.id });
+
+    const { callSid } = await provider.initiateCall({
+      from: identityResult.fromNumber,
+      to: phoneNumber,
+      webhookUrl,
+      statusCallbackUrl,
+    });
+
+    updateCallSession(session.id, { providerCallSid: callSid });
+
+    log.info(
+      {
+        callSessionId: session.id,
+        callSid,
+        to: phoneNumber,
+        friendName,
+        guardianName,
+      },
+      "Invite call initiated",
+    );
+
+    return { ok: true, callSid };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error(
+      { err, phoneNumber, friendName, guardianName },
+      "Failed to initiate invite call",
+    );
+
+    if (sessionId) {
+      updateCallSession(sessionId, {
+        status: "failed",
+        endedAt: Date.now(),
+        lastError: msg,
+      });
+    }
+
+    return {
+      ok: false,
+      error: `Error initiating invite call: ${msg}`,
       status: 500,
     };
   }

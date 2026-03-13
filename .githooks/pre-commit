@@ -71,7 +71,7 @@ declare -a SAFE_LINE_PATTERNS=(
     "[A-Za-z0-9_\"']*(sha256|SHA256|checksum|digest|hash|nonceSha256|observedNonceSha256)[A-Za-z0-9_\"']*[[:space:]]*[:=][[:space:]]*['\"][a-fA-F0-9]{32,}['\"]"
     "client[Ss]ecret:[[:space:]]*(String[?]?[[:space:]]*($|[,){;]|=[[:space:]]*nil)|client[Ss]ecret[[:space:]]*[,)])"
     "[Pp]rivate[_-]?[Kk]ey['\"]?:[[:space:]]*(String|string|Data|data)[?]?[[:space:]]*($|[,){;]|=[[:space:]]*nil|=[[:space:]]*['\"]['\"])"
-    "(secret|Secret)['\"]?[[:space:]]*[:=][[:space:]]*['\"]<(optional|required|placeholder|none|empty|unset|redacted|your-[a-z-]+-here|[a-zA-Z][a-zA-Z_/ '-]*[A-Z_/][a-zA-Z_/ '.-]*)>['\"]"
+    "(secret|Secret)['\"]?[[:space:]]*[:=][[:space:]]*['\"]<(optional|required|placeholder|none|empty|unset|redacted|extracted[a-z ]*|your-[a-z-]+-here|[a-zA-Z][a-zA-Z_/ '-]*[A-Z_/][a-zA-Z_/ '.-]*)>['\"]"
     "[a-zA-Z_-]*[[:space:]]*[:=][[:space:]]*\\\$\\{\\{[[:space:]]*secrets\\.[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*\\}\\}([[:space:]]+#.*)?[[:space:]]*$"
     # TS/JS/Swift: secret/key property assigned from a variable or dotted property (no string literal).
     # E.g. `body.client_secret = clientSecret;`, `oauth2ClientSecret: clientSecret ?? undefined`,
@@ -97,17 +97,21 @@ declare -a SAFE_LINE_PATTERNS=(
     "[.?]+[a-zA-Z0-9_]*[Cc]lient[Ss]ecret([^\"'/]*$|[^\"'/]*//.*)$"
     # TS/JS: secret/key variable assigned from a function call.
     # E.g. `const clientSecret = getSecureKey(keyVault)` or
-    # `getSecureKey('credential:integration:twitter:client_secret')`.
-    # Allows either no quoted args, or quoted args containing `:` (key paths).
+    # `getSecureKey('credential:integration:twitter:client_secret')` or
+    # `getSecureKey(credentialKey(service, "client_secret"))`.
+    # Allows: no quoted args, quoted args containing `:` (key paths), or
+    # nested function calls like `credentialKey(...)` whose quoted args are
+    # short identifier-like strings (field names, not real secrets).
     # Raw alphanumeric strings like `"sk_live_..."` are still rejected.
-    "(client[_-]?[Ss]ecret|[Pp]rivate[_-]?[Kk]ey)[[:space:]]*=[[:space:]]*(get[A-Za-z]*|create[A-Za-z]*|load[A-Za-z]*|read[A-Za-z]*|delete[A-Za-z]*|set[A-Za-z]*)\(([^\"']*$|[^\"']*[\"'][^\"']*:[^\"']*[\"'][^\"']*$)"
+    "(client[_-]?[Ss]ecret|[Pp]rivate[_-]?[Kk]ey)[[:space:]]*=[[:space:]]*(get[A-Za-z]*|create[A-Za-z]*|load[A-Za-z]*|read[A-Za-z]*|delete[A-Za-z]*|set[A-Za-z]*)\(([^\"']*$|[^\"']*[\"'][^\"']*:[^\"']*[\"'][^\"']*$|[a-zA-Z_][a-zA-Z0-9_]*\([^)]*[\"'][a-z_]+[\"'][^)]*\)[^\"']*$)"
     # TS/JS: property key followed by type annotation or opening brace.
     # E.g. `requiresClientSecret: boolean;` or `client_secret: {`.
     "[Cc]lient[_-]?[Ss]ecret['\"]?:[[:space:]]*(boolean|number)[[:space:]]*[;,]?"
     "[Cc]lient[_-]?[Ss]ecret['\"]?:[[:space:]]*\{[[:space:]]*$"
     # TS: optional property type annotation (e.g. `clientSecret?: string;`)
     # Must end with type + optional semicolon/comma — no `=` assignment.
-    "[Cc]lient[_-]?[Ss]ecret[?]?:[[:space:]]*(string|String)[?]?[[:space:]]*[;,][[:space:]]*$"
+    # Also covers union types like `clientSecret: string | undefined;`.
+    "[Cc]lient[_-]?[Ss]ecret[?]?:[[:space:]]*(string|String)[?]?([[:space:]]*[|][[:space:]]*(undefined|null))?[[:space:]]*[;,][[:space:]]*$"
     # Swift var/let declarations with type annotation and empty string default
     # (e.g. `@State private var twitterClientSecret: String = ""`)
     "[Cc]lient[Ss]ecret:[[:space:]]*(String|string)[?]?[[:space:]]*=[[:space:]]*['\"]['\"][[:space:]]*$"
@@ -132,6 +136,10 @@ declare -a SAFE_LINE_PATTERNS=(
     # Only match known safe suffixes — NOT apiKey, secretKey, accessKey, tokenKey,
     # authKey, privateKey, encryptionKey, signingKey, or other credential-adjacent names.
     "(let|var|val)[[:space:]]+([a-z][a-zA-Z0-9]*)?(([Ss]torage|[Cc]ache|[Ll]ookup|[Ss]ort|[Pp]rimary|[Ff]oreign|[Ii]ndex|[Pp]artition|[Aa]ttribute|[Pp]reference|[Dd]efaults|[Ss]ettings|[Ll]ocale|[Bb]undle|[Rr]esource|[Nn]otification|[Oo]bserver|[Ss]ubscription|[Rr]egistration|[Cc]onfig|[Tt]heme|[Ff]ont|[Cc]olor|[Ll]ayout|[Cc]onstraint|[Pp]ersistence|[Mm]igration|[Pp]osition|[Ss]ize|[Cc]onversation|[Bb]ootstrap|[Cc]onnected|[Dd]ate|[Cc]ount)s?[Kk]ey)[[:space:]]*=[[:space:]]*['\"][a-zA-Z][a-zA-Z0-9_.]*['\"]"
+    # SQL: column names containing "secret" in DDL/DML where the value is a SQL
+    # expression (concatenation via ||), not a literal secret.
+    # E.g. `SET client_secret_credential_path = 'oauth_app/' || id || '/client_secret'`
+    "[a-z_]*secret[a-z_]*[[:space:]]*=[[:space:]]*'[^']*'[[:space:]]*\|\|"
     # AWS well-known example key used in documentation
     "AKIAIOSFODNN7EXAMPLE"
     # Swift let/var constants used as UserDefaults key names (not secrets).
@@ -225,6 +233,10 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_DESC_PLACEHOLDER_LINE2='  "authToken": "<value from credential_store for twilio/auth_token>"'
     UNSAFE_ANGLEBRACKET_SECRET='clientSecret: "<abcDEF1234567890>"'
     UNSAFE_PASSPHRASE_SECRET='client_secret: "<correct horse battery staple>"'
+    # TS: clientSecret with union type annotation (false positive to whitelist)
+    SAFE_TS_UNION_TYPE_SECRET='  let clientSecret: string | undefined;'
+    # Documentation placeholder with lowercase descriptive text (false positive to whitelist)
+    SAFE_DOC_EXTRACTED_PLACEHOLDER='client_secret: "<extracted client secret>"  (if required)'
     SAFE_GHA_SECRETS_LINE='          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}'
     SAFE_GHA_SECRETS_COMMENT_LINE='          client_secret: ${{ secrets.CLIENT_SECRET }} # rotated monthly'
     UNSAFE_GHA_SECRETS_FALLBACK='          client_secret: ${{ secrets.CLIENT_SECRET || "SuperSecretFallback12345" }}'
@@ -249,6 +261,8 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_CREATE_PRIVATE_KEY='const key = createPrivateKey(keyPem)'
     # Function-call with quoted key path (colon-separated identifier) — must be whitelisted
     SAFE_FUNC_CALL_KEY_PATH="const clientSecret = getSecureKey('credential:integration:twitter:client_secret') || undefined;"
+    # Function-call with nested credentialKey() call — must be whitelisted
+    SAFE_FUNC_CALL_NESTED='const clientSecret = getSecureKey(credentialKey(service, "client_secret"));'
     # Function-call with key path followed by a hardcoded secret fallback — must NOT be whitelisted
     UNSAFE_FUNC_CALL_KEY_PATH_FALLBACK="const clientSecret = getSecureKey('credential:integration:twitter:client_secret') || \"sk_live_12345678901234567890\""
     # Function-call with literal secret in args — must NOT be whitelisted
@@ -434,6 +448,14 @@ if [ "${1:-}" = "--self-test" ]; then
         echo -e "${RED}Self-test failed:${NC} passphrase-style secret in angle brackets was incorrectly whitelisted"
         exit 1
     fi
+    if matches_secret_pattern "$SAFE_TS_UNION_TYPE_SECRET" && ! matches_safe_line_pattern "$SAFE_TS_UNION_TYPE_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} TS clientSecret union type annotation false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_DOC_EXTRACTED_PLACEHOLDER" && ! matches_safe_line_pattern "$SAFE_DOC_EXTRACTED_PLACEHOLDER"; then
+        echo -e "${RED}Self-test failed:${NC} doc placeholder '<extracted client secret>' false positive"
+        exit 1
+    fi
     if matches_secret_pattern "$SAFE_GHA_SECRETS_LINE" && ! matches_safe_line_pattern "$SAFE_GHA_SECRETS_LINE"; then
         echo -e "${RED}Self-test failed:${NC} GitHub Actions \${{ secrets.* }} reference false positive"
         exit 1
@@ -484,6 +506,10 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_secret_pattern "$SAFE_FUNC_CALL_KEY_PATH" && ! matches_safe_line_pattern "$SAFE_FUNC_CALL_KEY_PATH"; then
         echo -e "${RED}Self-test failed:${NC} function-call with quoted key path false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_FUNC_CALL_NESTED" && ! matches_safe_line_pattern "$SAFE_FUNC_CALL_NESTED"; then
+        echo -e "${RED}Self-test failed:${NC} nested credentialKey() function-call false positive"
         exit 1
     fi
     if matches_secret_pattern "$UNSAFE_FUNC_CALL_KEY_PATH_FALLBACK" && matches_safe_line_pattern "$UNSAFE_FUNC_CALL_KEY_PATH_FALLBACK"; then

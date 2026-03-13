@@ -314,21 +314,35 @@ export async function enforceIngressAcl(
               );
             }
 
+            // DM the requester so they have a private channel to reply with
+            // the verification code. Sending to the Slack user ID (not
+            // conversationExternalId) auto-opens a DM conversation.
             if (replyCallbackUrl) {
+              const senderUserId = (canonicalSenderId ?? rawSenderId)!;
+              // Strip threadTs from the callback URL — it belongs to the
+              // originating channel thread and would cause errors in the DM.
+              let dmCallbackUrl = replyCallbackUrl;
+              try {
+                const url = new URL(replyCallbackUrl);
+                url.searchParams.delete("threadTs");
+                dmCallbackUrl = url.toString();
+              } catch {
+                // Malformed URL — use as-is
+              }
               try {
                 await deliverChannelReply(
-                  replyCallbackUrl,
+                  dmCallbackUrl,
                   {
-                    chatId: conversationExternalId,
-                    text: "I've notified the owner. They'll share a verification code with you if they approve access.",
+                    chatId: senderUserId,
+                    text: "I've notified the owner that you'd like to chat with me. If they approve your request, they'll share a 6-digit verification code with you. You can reply with the code here.",
                     assistantId,
                   },
                   mintBearerToken(),
                 );
               } catch (err) {
                 log.error(
-                  { err, conversationExternalId },
-                  "Failed to deliver Slack verification prompt reply",
+                  { err, senderUserId },
+                  "Failed to deliver Slack verification DM to requester",
                 );
               }
             }
@@ -371,14 +385,20 @@ export async function enforceIngressAcl(
           const replyText = guardianNotified
             ? "Hmm looks like you don't have access to talk to me. I'll let them know you tried talking to me and get back to you."
             : "Sorry, you haven't been approved to message this assistant.";
+          const replyPayload: Parameters<typeof deliverChannelReply>[1] = {
+            chatId: conversationExternalId,
+            text: replyText,
+            assistantId,
+          };
+          // On Slack, send as ephemeral so only the requester sees the rejection
+          if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
+            replyPayload.ephemeral = true;
+            replyPayload.user = (canonicalSenderId ?? rawSenderId)!;
+          }
           try {
             await deliverChannelReply(
               replyCallbackUrl,
-              {
-                chatId: conversationExternalId,
-                text: replyText,
-                assistantId,
-              },
+              replyPayload,
               mintBearerToken(),
             );
           } catch (err) {
@@ -403,11 +423,12 @@ export async function enforceIngressAcl(
 
     if (resolvedMember) {
       if (resolvedMember.channel.status !== "active") {
+        const isBlockedMember = resolvedMember.channel.status === "blocked";
         // Same bypass logic as the no-member branch: verification codes and
-        // bootstrap commands must pass through even when the member record is
-        // revoked/blocked — otherwise the user can never re-verify.
+        // bootstrap commands must pass through for re-verifiable states
+        // (pending/revoked), but never for blocked members.
         let denyInactiveMember = true;
-        if (isGuardianVerifyCode) {
+        if (!isBlockedMember && isGuardianVerifyCode) {
           const hasPendingChallenge = !!getPendingSession(sourceChannel);
           const hasActiveOutboundSession = !!findActiveSession(sourceChannel);
           if (hasPendingChallenge || hasActiveOutboundSession) {
@@ -424,7 +445,7 @@ export async function enforceIngressAcl(
             );
           }
         }
-        if (isBootstrapCommand) {
+        if (!isBlockedMember && isBootstrapCommand) {
           const bootstrapPayload = (
             rawCommandIntentForAcl as Record<string, unknown>
           ).payload as string;
@@ -451,9 +472,11 @@ export async function enforceIngressAcl(
         }
 
         // ── Invite token intercept (inactive member) ──
-        // Same as the non-member branch: invite tokens can reactivate
-        // revoked/pending members without requiring guardian approval.
-        if (inviteToken && denyInactiveMember) {
+        // Invite tokens can reactivate revoked/pending members without
+        // requiring guardian approval, but blocked members are excluded so
+        // they are short-circuited at the ACL layer rather than entering the
+        // redemption path.
+        if (!isBlockedMember && inviteToken && denyInactiveMember) {
           const inviteResult = await handleInviteTokenIntercept({
             rawToken: inviteToken,
             sourceChannel,
@@ -476,9 +499,15 @@ export async function enforceIngressAcl(
         }
 
         // ── 6-digit invite code intercept (inactive member) ──
-        // Same as the non-member branch: codes can reactivate revoked/pending
-        // members. Non-matching codes fall through to normal processing.
-        if (denyInactiveMember && /^\d{6}$/.test(trimmedContent)) {
+        // Codes can reactivate revoked/pending members; non-matching codes
+        // fall through. Blocked members are excluded here for consistency —
+        // the redemption service would reject them anyway, but early exit
+        // avoids unnecessary work.
+        if (
+          !isBlockedMember &&
+          denyInactiveMember &&
+          /^\d{6}$/.test(trimmedContent)
+        ) {
           const codeInterceptResult = await handleInviteCodeIntercept({
             code: trimmedContent,
             sourceChannel,
@@ -543,21 +572,31 @@ export async function enforceIngressAcl(
                 );
               }
 
+              // DM the requester (same as non-member path)
               if (replyCallbackUrl) {
+                const senderUserId = (canonicalSenderId ?? rawSenderId)!;
+                let dmCallbackUrl = replyCallbackUrl;
+                try {
+                  const url = new URL(replyCallbackUrl);
+                  url.searchParams.delete("threadTs");
+                  dmCallbackUrl = url.toString();
+                } catch {
+                  // Malformed URL — use as-is
+                }
                 try {
                   await deliverChannelReply(
-                    replyCallbackUrl,
+                    dmCallbackUrl,
                     {
-                      chatId: conversationExternalId,
-                      text: "I've notified the owner. They'll share a verification code with you if they approve access.",
+                      chatId: senderUserId,
+                      text: "I've notified the owner that you'd like to chat with me. If they approve your request, they'll share a 6-digit verification code with you. You can reply with the code here.",
                       assistantId,
                     },
                     mintBearerToken(),
                   );
                 } catch (err) {
                   log.error(
-                    { err, conversationExternalId },
-                    "Failed to deliver Slack verification prompt reply (inactive member)",
+                    { err, senderUserId },
+                    "Failed to deliver Slack verification DM to requester (inactive member)",
                   );
                 }
               }
@@ -605,14 +644,25 @@ export async function enforceIngressAcl(
             const replyText = guardianNotified
               ? "Hmm looks like you don't have access to talk to me. I'll let them know you tried talking to me and get back to you."
               : "Sorry, you haven't been approved to message this assistant.";
+            const inactiveReplyPayload: Parameters<
+              typeof deliverChannelReply
+            >[1] = {
+              chatId: conversationExternalId,
+              text: replyText,
+              assistantId,
+            };
+            // On Slack, send as ephemeral so only the requester sees the rejection
+            if (
+              sourceChannel === "slack" &&
+              (canonicalSenderId ?? rawSenderId)
+            ) {
+              inactiveReplyPayload.ephemeral = true;
+              inactiveReplyPayload.user = (canonicalSenderId ?? rawSenderId)!;
+            }
             try {
               await deliverChannelReply(
                 replyCallbackUrl,
-                {
-                  chatId: conversationExternalId,
-                  text: replyText,
-                  assistantId,
-                },
+                inactiveReplyPayload,
                 mintBearerToken(),
               );
             } catch (err) {
@@ -640,14 +690,19 @@ export async function enforceIngressAcl(
           "Ingress ACL: member policy deny",
         );
         if (replyCallbackUrl) {
+          const denyPayload: Parameters<typeof deliverChannelReply>[1] = {
+            chatId: conversationExternalId,
+            text: "Sorry, you haven't been approved to message this assistant.",
+            assistantId,
+          };
+          if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
+            denyPayload.ephemeral = true;
+            denyPayload.user = (canonicalSenderId ?? rawSenderId)!;
+          }
           try {
             await deliverChannelReply(
               replyCallbackUrl,
-              {
-                chatId: conversationExternalId,
-                text: "Sorry, you haven't been approved to message this assistant.",
-                assistantId,
-              },
+              denyPayload,
               mintBearerToken(),
             );
           } catch (err) {

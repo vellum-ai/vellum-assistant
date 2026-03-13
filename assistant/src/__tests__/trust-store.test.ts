@@ -778,7 +778,6 @@ describe("Trust Store", () => {
         "computer_use_drag",
         "computer_use_key",
         "computer_use_open_app",
-        "computer_use_request_control",
         "computer_use_run_applescript",
         "computer_use_scroll",
         "computer_use_type_text",
@@ -901,19 +900,17 @@ describe("Trust Store", () => {
       );
     });
 
-    test("findHighestPriorityRule matches default ask for computer_use_request_control", () => {
+    test("findHighestPriorityRule matches default ask for computer_use_observe", () => {
       const match = findHighestPriorityRule(
-        "computer_use_request_control",
-        ["computer_use_request_control:"],
+        "computer_use_observe",
+        ["computer_use_observe:"],
         "/tmp",
       );
       expect(match).not.toBeNull();
-      expect(match!.id).toBe("default:ask-computer_use_request_control-global");
+      expect(match!.id).toBe("default:ask-computer_use_observe-global");
       expect(match!.decision).toBe("ask");
       expect(match!.priority).toBe(
-        DEFAULT_PRIORITY_BY_ID.get(
-          "default:ask-computer_use_request_control-global",
-        )!,
+        DEFAULT_PRIORITY_BY_ID.get("default:ask-computer_use_observe-global")!,
       );
     });
 
@@ -1755,11 +1752,7 @@ describe("computer-use tool trust rule matching", () => {
   test("actionable CU tools have default ask trust rules", () => {
     // Actionable CU tools (those that perform screen interactions) should
     // have default "ask" rules so strict mode prompts before use.
-    const actionableCuTools = [
-      "computer_use_click",
-      "computer_use_type_text",
-      "computer_use_request_control",
-    ];
+    const actionableCuTools = ["computer_use_click", "computer_use_type_text"];
 
     for (const name of actionableCuTools) {
       const rule = findHighestPriorityRule(name, [name], "/tmp/test");

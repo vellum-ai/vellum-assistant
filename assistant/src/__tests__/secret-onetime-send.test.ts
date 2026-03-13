@@ -43,6 +43,7 @@ mock.module("../security/secure-keys.js", () => {
   };
   return {
     getSecureKey: (key: string) => storedKeys.get(key) ?? null,
+    getSecureKeyAsync: async (key: string) => storedKeys.get(key) ?? undefined,
     setSecureKey: syncSet,
     setSecureKeyAsync: async (key: string, value: string) =>
       syncSet(key, value),
@@ -68,6 +69,8 @@ mock.module("./policy-validate.js", () => ({
     usageDescription: undefined,
   }),
 }));
+
+import { credentialKey } from "../security/credential-key.js";
 
 const { credentialStoreTool } = await import("../tools/credentials/vault.js");
 
@@ -96,7 +99,7 @@ describe("one-time send override", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain("not enabled");
     // Value must NOT be stored in keychain
-    expect(storedKeys.has("credential:svc:key")).toBe(false);
+    expect(storedKeys.has(credentialKey("svc", "key"))).toBe(false);
   });
 
   test("transient_send succeeds when allowOneTimeSend is enabled", async () => {
@@ -119,7 +122,7 @@ describe("one-time send override", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain("NOT saved");
     // Value must NOT be stored in keychain
-    expect(storedKeys.has("credential:svc:key")).toBe(false);
+    expect(storedKeys.has(credentialKey("svc", "key"))).toBe(false);
   });
 
   test("store delivery always persists to keychain regardless of allowOneTimeSend", async () => {
@@ -138,7 +141,7 @@ describe("one-time send override", () => {
     );
     expect(result.isError).toBe(false);
     expect(result.content).toContain("stored");
-    expect(storedKeys.has("credential:svc:key")).toBe(true);
+    expect(storedKeys.has(credentialKey("svc", "key"))).toBe(true);
   });
 
   test("transient_send response content never contains the secret value", async () => {

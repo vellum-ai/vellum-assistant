@@ -85,7 +85,7 @@ struct ChannelVerificationFlowView: View {
                     } else {
                         Text(primaryIdentity ?? "Verified")
                             .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                             .lineLimit(1)
                     }
                     if let secondaryIdentity {
@@ -97,14 +97,14 @@ struct ChannelVerificationFlowView: View {
                         } else {
                             Text(secondaryIdentity)
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                                 .lineLimit(1)
                         }
                     }
                 }
                 Spacer()
             }
-            VButton(label: "Revoke", style: .secondary) {
+            VButton(label: "Revoke", style: .outlined) {
                 onRevoke()
             }
         }
@@ -121,7 +121,7 @@ struct ChannelVerificationFlowView: View {
                 .controlSize(.small)
             Text("Sending verification...")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
         }
     }
 
@@ -154,16 +154,16 @@ struct ChannelVerificationFlowView: View {
                 if let outboundCode = state.outboundCode {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.circleCheck, size: 12)
-                            .foregroundColor(VColor.success)
+                            .foregroundColor(VColor.systemPositiveStrong)
                         Text("Verification Code Sent")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.success)
+                            .foregroundColor(VColor.systemPositiveStrong)
                     }
 
                     HStack(spacing: VSpacing.sm) {
                         Text(outboundCode)
                             .font(VFont.mono)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                             .textSelection(.enabled)
                             .lineLimit(1)
 
@@ -185,7 +185,7 @@ struct ChannelVerificationFlowView: View {
                                 Text(codeCopied ? "Copied" : "Copy")
                                     .font(VFont.caption)
                             }
-                            .foregroundColor(codeCopied ? VColor.success : VColor.textSecondary)
+                            .foregroundColor(codeCopied ? VColor.systemPositiveStrong : VColor.contentSecondary)
                             .frame(height: 28)
                             .contentShape(Rectangle())
                         }
@@ -195,11 +195,11 @@ struct ChannelVerificationFlowView: View {
                     }
                     .padding(VSpacing.md)
                     .frame(width: 360)
-                    .background(VColor.surface)
+                    .background(VColor.surfaceBase)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                            .stroke(VColor.borderBase.opacity(0.5), lineWidth: 1)
                     )
                 }
 
@@ -208,7 +208,7 @@ struct ChannelVerificationFlowView: View {
                     if state.outboundSendCount > 0 {
                         Text("Sent \(state.outboundSendCount) time\(state.outboundSendCount == 1 ? "" : "s")")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
                     if let expiresAt = state.outboundExpiresAt {
                         let remaining = expiresAt.timeIntervalSince(countdownNow)
@@ -217,11 +217,11 @@ struct ChannelVerificationFlowView: View {
                             let seconds = Int(remaining) % 60
                             Text("Expires in \(minutes):\(String(format: "%02d", seconds))")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                         } else {
                             Text("Verification expired")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.error)
+                                .foregroundColor(VColor.systemNegativeStrong)
                         }
                     }
                 }
@@ -230,13 +230,13 @@ struct ChannelVerificationFlowView: View {
                 // Disable resend during bootstrap: when bootstrapUrl is set the session is
                 // in pending_bootstrap state and the daemon rejects resend attempts.
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: resendCooldownText ?? "Resend", style: .secondary, isFullWidth: true) {
+                    VButton(label: resendCooldownText ?? "Resend", style: .outlined, isFullWidth: true) {
                         onResend()
                     }
                     .disabled(!canResend)
                     .frame(width: 160)
 
-                    VButton(label: "Cancel", style: .tertiary) {
+                    VButton(label: "Cancel", style: .outlined) {
                         onCancelOutbound()
                     }
                 }
@@ -246,7 +246,7 @@ struct ChannelVerificationFlowView: View {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("Ask your guardian to open this link:")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
 
                         Button {
                             NSWorkspace.shared.open(url)
@@ -256,7 +256,7 @@ struct ChannelVerificationFlowView: View {
                                 Text("Open in Telegram")
                                     .font(VFont.caption)
                             }
-                            .foregroundColor(VColor.accent)
+                            .foregroundColor(VColor.primaryBase)
                         }
                         .buttonStyle(.plain)
                         .pointerCursor()
@@ -282,7 +282,7 @@ struct ChannelVerificationFlowView: View {
                 }
                 Text("Verification pending")
                     .font(VFont.body)
-                    .foregroundColor(VColor.warning)
+                    .foregroundColor(VColor.systemNegativeHover)
                 Spacer()
             }
 
@@ -293,13 +293,13 @@ struct ChannelVerificationFlowView: View {
                     phoneNumber: phoneNumber
                 ))
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .padding(.leading, leadingPadding)
 
                 HStack(spacing: VSpacing.sm) {
                     Text(command)
                         .font(VFont.mono)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .textSelection(.enabled)
@@ -322,7 +322,7 @@ struct ChannelVerificationFlowView: View {
                             Text(commandCopied ? "Copied" : "Copy")
                                 .font(VFont.caption)
                         }
-                        .foregroundColor(commandCopied ? VColor.success : VColor.textSecondary)
+                        .foregroundColor(commandCopied ? VColor.systemPositiveStrong : VColor.contentSecondary)
                         .frame(height: 28)
                         .contentShape(Rectangle())
                     }
@@ -331,31 +331,31 @@ struct ChannelVerificationFlowView: View {
                     .help("Copy command")
                 }
                 .padding(VSpacing.md)
-                .background(VColor.surface)
+                .background(VColor.surfaceBase)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                        .stroke(VColor.borderBase.opacity(0.5), lineWidth: 1)
                 )
                 .padding(.leading, leadingPadding)
             } else {
                 // Fallback: show raw instruction if command can't be parsed
                 Text(instruction)
                     .font(VFont.mono)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .padding(VSpacing.md)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(VColor.surface)
+                    .background(VColor.surfaceBase)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                            .stroke(VColor.borderBase.opacity(0.5), lineWidth: 1)
                     )
                     .textSelection(.enabled)
                     .padding(.leading, leadingPadding)
             }
 
-            VButton(label: "Cancel", style: .tertiary) {
+            VButton(label: "Cancel", style: .outlined) {
                 onCancelSession()
             }
         }
@@ -375,14 +375,14 @@ struct ChannelVerificationFlowView: View {
             TextField(placeholder, text: $destinationText)
                 .vInputStyle()
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .frame(maxWidth: 360)
 
             if state.channel == "telegram" {
                 HStack(spacing: 0) {
                     Text("Enter a @username or chat ID. ")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
 
                     Button {
                         if let url = URL(string: "https://web.telegram.org/k/#@userinfobot") {
@@ -391,7 +391,7 @@ struct ChannelVerificationFlowView: View {
                     } label: {
                         Text("Find yours \u{2192}")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.accent)
+                            .foregroundColor(VColor.primaryBase)
                     }
                     .buttonStyle(.plain)
                     .pointerCursor()
@@ -399,10 +399,10 @@ struct ChannelVerificationFlowView: View {
             } else if state.channel == "phone" {
                 Text("This is your personal phone number")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
 
-            VButton(label: "Send", style: .secondary) {
+            VButton(label: "Send", style: .outlined) {
                 onStartOutbound(destination)
             }
             .disabled(destination.isEmpty)
@@ -418,9 +418,9 @@ struct ChannelVerificationFlowView: View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text(error)
                 .font(VFont.caption)
-                .foregroundColor(VColor.error)
+                .foregroundColor(VColor.systemNegativeStrong)
             if state.alreadyBound {
-                VButton(label: "Replace", style: .secondary) {
+                VButton(label: "Replace", style: .outlined) {
                     onStartSession(true)
                 }
             }
@@ -436,7 +436,7 @@ struct ChannelVerificationFlowView: View {
             VInfoTooltip("Guardian verification links your account identity for this channel.")
         }
         .font(VFont.caption)
-        .foregroundColor(VColor.textSecondary)
+        .foregroundColor(VColor.contentSecondary)
         .frame(width: labelColumnWidth, alignment: .leading)
     }
 }
@@ -444,126 +444,4 @@ struct ChannelVerificationFlowView: View {
 // MARK: - Preview
 
 #if DEBUG
-struct ChannelVerificationFlowView_Previews: PreviewProvider {
-    struct PreviewWrapper: View {
-        @State private var countdownNow = Date()
-        @State private var destinationText = ""
-
-        let state: ChannelVerificationState
-        let title: String
-
-        var body: some View {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Text(title)
-                    .font(VFont.captionMedium)
-                    .foregroundColor(VColor.textMuted)
-                ChannelVerificationFlowView(
-                    state: state,
-                    countdownNow: $countdownNow,
-                    destinationText: $destinationText,
-                    onStartOutbound: { _ in },
-                    onResend: {},
-                    onCancelOutbound: {},
-                    onRevoke: {},
-                    onStartSession: { _ in },
-                    onCancelSession: {}
-                )
-            }
-        }
-    }
-
-    static var previews: some View {
-        ZStack {
-            VColor.background.ignoresSafeArea()
-            VStack(alignment: .leading, spacing: VSpacing.xl) {
-                PreviewWrapper(
-                    state: ChannelVerificationState(
-                        channel: "telegram",
-                        identity: "123456789",
-                        username: "guardian_user",
-                        displayName: "Guardian User",
-                        verified: true,
-                        inProgress: false,
-                        instruction: nil,
-                        error: nil,
-                        alreadyBound: false,
-                        outboundSessionId: nil,
-                        outboundExpiresAt: nil,
-                        outboundNextResendAt: nil,
-                        outboundSendCount: 0,
-                        outboundCode: nil,
-                        bootstrapUrl: nil
-                    ),
-                    title: "Verified (Telegram)"
-                )
-
-                PreviewWrapper(
-                    state: ChannelVerificationState(
-                        channel: "telegram",
-                        identity: nil,
-                        username: nil,
-                        displayName: nil,
-                        verified: false,
-                        inProgress: false,
-                        instruction: nil,
-                        error: nil,
-                        alreadyBound: false,
-                        outboundSessionId: "session-1",
-                        outboundExpiresAt: Date().addingTimeInterval(300),
-                        outboundNextResendAt: Date().addingTimeInterval(30),
-                        outboundSendCount: 1,
-                        outboundCode: "ABC123",
-                        bootstrapUrl: nil
-                    ),
-                    title: "Outbound Pending"
-                )
-
-                PreviewWrapper(
-                    state: ChannelVerificationState(
-                        channel: "telegram",
-                        identity: nil,
-                        username: nil,
-                        displayName: nil,
-                        verified: false,
-                        inProgress: false,
-                        instruction: "Please send the 6-digit code: 482910 to @vellum_bot",
-                        error: nil,
-                        alreadyBound: false,
-                        outboundSessionId: nil,
-                        outboundExpiresAt: nil,
-                        outboundNextResendAt: nil,
-                        outboundSendCount: 0,
-                        outboundCode: nil,
-                        bootstrapUrl: nil
-                    ),
-                    title: "Instruction Pending"
-                )
-
-                PreviewWrapper(
-                    state: ChannelVerificationState(
-                        channel: "telegram",
-                        identity: nil,
-                        username: nil,
-                        displayName: nil,
-                        verified: false,
-                        inProgress: false,
-                        instruction: nil,
-                        error: nil,
-                        alreadyBound: false,
-                        outboundSessionId: nil,
-                        outboundExpiresAt: nil,
-                        outboundNextResendAt: nil,
-                        outboundSendCount: 0,
-                        outboundCode: nil,
-                        bootstrapUrl: nil
-                    ),
-                    title: "Destination Input"
-                )
-            }
-            .padding(VSpacing.xl)
-        }
-        .frame(width: 500, height: 800)
-        .previewDisplayName("ChannelVerificationFlowView")
-    }
-}
 #endif

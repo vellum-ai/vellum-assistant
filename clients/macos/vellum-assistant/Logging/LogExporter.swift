@@ -2,7 +2,6 @@ import AppKit
 import Foundation
 import os
 @preconcurrency import Sentry
-import UniformTypeIdentifiers
 import VellumAssistantShared
 
 private let log = Logger(
@@ -15,52 +14,30 @@ private let log = Logger(
 ///
 /// Log sources included:
 /// - `~/Library/Application Support/vellum-assistant/logs/`  — per-session JSON logs
-/// - `~/Library/Application Support/vellum-assistant/debug-state.json` — live debug snapshot
-/// - Daemon logs and audit data via `POST /v1/export` gateway HTTP API
+/// - `~/Library/Application Support/vellum-assistant/debug-state.json` — live debug snapshot (includes session error debug details)
+/// - Daemon logs, audit data, and sanitized config via `POST /v1/export` gateway HTTP API
 /// - `~/.config/vellum/logs/` — CLI XDG logs (hatch.log, retire.log, etc.)
 /// - `~/.vellum.lock.json` — sanitized lockfile with assistant entries and resource ports (credentials stripped)
 /// - `user-defaults.json` — snapshot of app-relevant UserDefaults keys
 /// - `auth-debug.json` — non-sensitive token expiry and refresh state for session debugging
+/// - `port-diagnostics.json` — processes listening on assistant-relevant TCP ports
+/// - `config-snapshot.json` — sanitized workspace config (API key values redacted, structure preserved)
 @MainActor
 enum LogExporter {
 
-    /// Presents an NSSavePanel and writes the tar.gz archive to the chosen location.
-    static func exportLogs() {
-        let panel = NSSavePanel()
-        panel.title = "Export Assistant Logs"
-        panel.nameFieldStringValue = defaultArchiveName()
-        panel.allowedContentTypes = [.gzip]
-        panel.canCreateDirectories = true
-
-        guard panel.runModal() == .OK, let destURL = panel.url else { return }
-
-        Task {
-            do {
-                try await buildArchive(destination: destURL)
-                log.info("Logs exported to \(destURL.path)")
-                NSWorkspace.shared.activateFileViewerSelecting([destURL])
-            } catch {
-                log.error("Log export failed: \(error.localizedDescription)")
-                let alert = NSAlert()
-                alert.messageText = "Export Failed"
-                alert.informativeText = error.localizedDescription
-                alert.alertStyle = .warning
-                alert.runModal()
-            }
-        }
-    }
-
     /// Collects logs, archives them, and sends to Sentry as an attachment for developer debugging.
-    static func sendLogsToSentry() {
+    /// Includes report metadata (reason, message) from the log report form.
+    static func sendLogsToSentry(formData: LogReportFormData) {
         Task {
             let fileManager = FileManager.default
             let archiveURL = fileManager.temporaryDirectory
                 .appendingPathComponent("vellum-assistant-logs-\(UUID().uuidString).tar.gz")
 
             do {
-                try await buildArchive(destination: archiveURL)
+                try await buildArchive(destination: archiveURL, formData: formData)
             } catch {
                 log.error("Failed to build log archive for Sentry: \(error.localizedDescription)")
+                NSApp.activate(ignoringOtherApps: true)
                 let alert = NSAlert()
                 alert.messageText = "Send Failed"
                 alert.informativeText = "Could not collect logs: \(error.localizedDescription)"
@@ -72,19 +49,105 @@ enum LogExporter {
             let archiveName = defaultArchiveName()
             let attachment = Attachment(path: archiveURL.path, filename: archiveName)
             let event = Event(level: .info)
-            event.message = SentryMessage(formatted: "Manual log export")
-            event.tags = ["source": "manual_log_export"]
+            let errorTitle = "\(formData.reason.displayName) log report"
+            event.message = SentryMessage(formatted: errorTitle)
+            // Set error so Sentry displays the error message (not "No error message provided").
+            event.error = NSError(
+                domain: "com.vellum.log-report",
+                code: 0,
+                userInfo: [NSLocalizedDescriptionKey: errorTitle]
+            )
+            var tags: [String: String] = [
+                "source": "log_report",
+                "report_reason": formData.reason.rawValue,
+            ]
+            // When routing to the brain project, tag the event so it's clear
+            // it originated from the macOS client (not the daemon itself).
+            if formData.reason == .assistantBehavior {
+                tags["client"] = "macos"
+            }
+
+            // Surface active session state as tags so the Sentry event itself
+            // is useful for triage without downloading the log archive.
+            var extra: [String: Any] = [:]
+            let threadManager = AppDelegate.shared?.mainWindow?.threadManager
+            if let activeThread = threadManager?.activeThread {
+                extra["thread_title"] = activeThread.title
+                if let sessionId = activeThread.sessionId {
+                    tags["session_id"] = sessionId
+                    // conversation_id mirrors session_id — the daemon tags its
+                    // Sentry events with both names for the same value. Setting
+                    // it here enables cross-project search: find the daemon error
+                    // that corresponds to a macOS log report by querying
+                    // conversation_id in the vellum-assistant-brain Sentry project.
+                    tags["conversation_id"] = sessionId
+                }
+            }
+            var errorCategoryString: String?
+            if let vm = threadManager?.activeViewModel {
+                extra["message_count"] = vm.messages.count
+                if let sessionError = vm.sessionError {
+                    let category = "\(sessionError.category)"
+                    tags["session_error_category"] = category
+                    errorCategoryString = category
+                    if let debugDetails = sessionError.debugDetails {
+                        extra["session_error_debug_details"] = debugDetails
+                    }
+                }
+                if let sessionId = vm.sessionId {
+                    // Prefer the view model's sessionId (most up-to-date)
+                    tags["session_id"] = sessionId
+                    tags["conversation_id"] = sessionId
+                }
+            }
+            if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") {
+                tags["assistant_id"] = assistantId
+            }
+            if !extra.isEmpty {
+                event.extra = extra
+            }
+
+            event.tags = tags
+            // Group reports by reason and error category so different root
+            // causes (e.g. providerApi vs contextTooLarge) create separate
+            // Sentry issues instead of being mixed into one.
+            let categoryComponent = errorCategoryString ?? "none"
+            event.fingerprint = ["log_report", formData.reason.rawValue, categoryComponent]
+
+            // User-provided context (message, email, category) is sent via
+            // Sentry's UserFeedback API, linked to the event. This keeps PII
+            // out of event tags/extras and lets us use Sentry's built-in
+            // feedback UI for triage.
+            let feedback = MetricKitManager.UserFeedbackData(
+                comments: formData.message.isEmpty ? nil : formData.message,
+                email: formData.email,
+                name: formData.name.isEmpty ? nil : formData.name
+            )
+
+            // Route assistant behavior reports to the brain Sentry project
+            // so they appear alongside daemon issues for triage.
+            let dsn: String? = formData.reason == .assistantBehavior
+                ? MetricKitManager.brainDSN
+                : nil
 
             await withCheckedContinuation { continuation in
-                MetricKitManager.sendManualReport(event, attachments: [attachment]) {
+                MetricKitManager.sendManualReport(
+                    event,
+                    attachments: [attachment],
+                    userFeedback: feedback,
+                    dsn: dsn
+                ) {
                     try? FileManager.default.removeItem(at: archiveURL)
                     continuation.resume()
                 }
             }
 
+            // Re-activate before showing the alert in case the app reverted
+            // to .accessory policy after the log report window was dismissed.
+            NSApp.activate(ignoringOtherApps: true)
             let alert = NSAlert()
-            alert.messageText = "Logs Sent"
-            alert.informativeText = "Log archive has been uploaded to Vellum."
+            alert.messageText = "Log Sent"
+            alert.informativeText = "Your log report has been sent to Vellum."
             alert.alertStyle = .informational
             alert.runModal()
         }
@@ -102,7 +165,7 @@ enum LogExporter {
 
     /// Builds a tar.gz archive containing all discoverable log files.
     /// Runs file I/O and the tar process off the main actor to avoid blocking the UI.
-    private nonisolated static func buildArchive(destination: URL) async throws {
+    private nonisolated static func buildArchive(destination: URL, formData: LogReportFormData? = nil) async throws {
         let fileManager = FileManager.default
         let tempDir = fileManager.temporaryDirectory
             .appendingPathComponent("vellum-log-export-\(UUID().uuidString)", isDirectory: true)
@@ -131,9 +194,20 @@ enum LogExporter {
             }
         }
 
-        // 3. Daemon logs and audit data via daemon HTTP APIs
+        // 3. Assistant logs — platform API for managed, local gateway for self-hosted
         let home = NSHomeDirectory()
-        await fetchDaemonExports(into: tempDir)
+        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let isManagedAssistant: Bool = {
+            guard let id = connectedId else { return false }
+            return LockfileAssistant.loadByName(id)?.isManaged == true
+        }()
+
+        if isManagedAssistant, let assistantId = connectedId,
+           let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
+            await fetchPlatformLogs(into: tempDir, assistantId: assistantId, organizationId: orgId)
+        } else {
+            await fetchDaemonExports(into: tempDir)
+        }
 
         // 4. XDG CLI logs — ~/.config/vellum/logs/ (hatch.log, retire.log, etc.)
         let xdgConfigHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]
@@ -160,6 +234,37 @@ enum LogExporter {
         writeAuthDebugInfo(
             to: tempDir.appendingPathComponent("auth-debug.json")
         )
+
+        // 8. Port diagnostics — which processes are listening on assistant ports
+        PortDiagnostics.write(
+            to: tempDir.appendingPathComponent("port-diagnostics.json")
+        )
+
+        // 9. Report metadata — reason and message from the log report form.
+        // Email is excluded from the archive since it's already sent via
+        // Sentry's UserFeedback API (linked to the event).
+        if let formData {
+            var metadata: [String: String] = [
+                "reason": formData.reason.rawValue,
+                "message": formData.message,
+                "device_id": SentryDeviceInfo.deviceId,
+            ]
+            if !formData.name.isEmpty {
+                metadata["name"] = formData.name
+            }
+            if let data = try? JSONSerialization.data(
+                withJSONObject: metadata,
+                options: [.prettyPrinted, .sortedKeys]
+            ) {
+                try? data.write(to: tempDir.appendingPathComponent("report-metadata.json"))
+            }
+        }
+
+        // 10. Sanitized workspace config — client-side fallback if daemon export didn't include it
+        let configSnapshotPath = tempDir.appendingPathComponent("config-snapshot.json")
+        if !fileManager.fileExists(atPath: configSnapshotPath.path) {
+            writeSanitizedWorkspaceConfig(to: configSnapshotPath)
+        }
 
         // Verify we have at least one file to export
         let collected = try fileManager.contentsOfDirectory(
@@ -286,8 +391,102 @@ enum LogExporter {
                     )
                 }
             }
+
+            // Write sanitized config snapshot from the daemon
+            if let configSnapshot = json["configSnapshot"] {
+                if let configData = try? JSONSerialization.data(
+                    withJSONObject: configSnapshot,
+                    options: [.prettyPrinted, .sortedKeys]
+                ) {
+                    try? configData.write(to: directory.appendingPathComponent("config-snapshot.json"))
+                }
+            }
         } catch {
             log.warning("Export API request failed: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Platform Log Helpers
+
+    /// Fetches logs from the platform API for managed assistants, downloads
+    /// the tar.gz response, extracts it into `directory/platform-logs/`.
+    /// Silently skips on any failure (non-fatal, mirrors `fetchDaemonExports`).
+    private nonisolated static func fetchPlatformLogs(
+        into directory: URL,
+        assistantId: String,
+        organizationId: String
+    ) async {
+        guard let token = SessionTokenManager.getToken() else {
+            log.warning("No session token available — skipping platform log export")
+            return
+        }
+
+        let baseURL = await MainActor.run { AuthService.shared.baseURL }
+
+        guard let url = URL(string: "\(baseURL)/v1/assistants/\(assistantId)/logs/export/") else {
+            log.warning("Failed to construct platform log export URL")
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 60
+        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        request.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse,
+                  (200...299).contains(http.statusCode) else {
+                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                log.warning("Platform log export API failed with status \(status)")
+                return
+            }
+
+            let fileManager = FileManager.default
+            let tarPath = fileManager.temporaryDirectory
+                .appendingPathComponent("platform-logs-\(UUID().uuidString).tar.gz")
+            try data.write(to: tarPath)
+
+            defer {
+                try? fileManager.removeItem(at: tarPath)
+            }
+
+            let extractDir = directory.appendingPathComponent("platform-logs", isDirectory: true)
+            try fileManager.createDirectory(at: extractDir, withIntermediateDirectories: true)
+
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+                process.arguments = [
+                    "xzf",
+                    tarPath.path,
+                    "-C", extractDir.path,
+                ]
+
+                let pipe = Pipe()
+                process.standardError = pipe
+
+                process.terminationHandler = { proc in
+                    if proc.terminationStatus == 0 {
+                        continuation.resume()
+                    } else {
+                        let stderr = String(
+                            data: pipe.fileHandleForReading.readDataToEndOfFile(),
+                            encoding: .utf8
+                        ) ?? ""
+                        continuation.resume(throwing: ExportError.tarFailed(stderr))
+                    }
+                }
+
+                do {
+                    try process.run()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        } catch {
+            log.warning("Platform log export request failed: \(error.localizedDescription)")
         }
     }
 
@@ -338,8 +537,6 @@ enum LogExporter {
             "lastActivePanel",
             "gateway_base_url",
             "conversation_key",
-            "wakeWordEnabled",
-            "wakeWordKeyword",
             "sidebarExpanded",
             "windowZoomLevel",
             "conversationTextZoomLevel",
@@ -431,6 +628,93 @@ enum LogExporter {
 
         guard let data = try? JSONSerialization.data(
             withJSONObject: info,
+            options: [.prettyPrinted, .sortedKeys]
+        ) else { return }
+        try? data.write(to: url)
+    }
+
+    /// Replaces a value with a presence flag: "(set)" if non-empty, "(empty)" otherwise.
+    private nonisolated static func redactValue(_ val: Any?) -> String {
+        if let str = val as? String { return str.isEmpty ? "(empty)" : "(set)" }
+        return val == nil ? "(empty)" : "(set)"
+    }
+
+    /// Reads the workspace config.json and writes a sanitized copy with sensitive
+    /// values replaced by presence flags. Falls back silently if unreadable.
+    private nonisolated static func writeSanitizedWorkspaceConfig(to url: URL) {
+        var config = WorkspaceConfigIO.read()
+        guard !config.isEmpty else { return }
+
+        // Strip API key values — preserve which providers have keys configured
+        if var apiKeys = config["apiKeys"] as? [String: Any] {
+            for key in apiKeys.keys {
+                apiKeys[key] = redactValue(apiKeys[key])
+            }
+            config["apiKeys"] = apiKeys
+        }
+
+        // Strip ingress webhook secret
+        if var ingress = config["ingress"] as? [String: Any],
+           var webhook = ingress["webhook"] as? [String: Any] {
+            webhook["secret"] = redactValue(webhook["secret"])
+            ingress["webhook"] = webhook
+            config["ingress"] = ingress
+        }
+
+        // Strip skill-level API keys and env vars
+        if var skills = config["skills"] as? [String: Any],
+           var entries = skills["entries"] as? [String: [String: Any]] {
+            for name in entries.keys {
+                var entry = entries[name]!
+                if entry["apiKey"] != nil {
+                    entry["apiKey"] = redactValue(entry["apiKey"])
+                }
+                if var env = entry["env"] as? [String: Any] {
+                    for envKey in env.keys {
+                        env[envKey] = redactValue(env[envKey])
+                    }
+                    entry["env"] = env
+                }
+                entries[name] = entry
+            }
+            skills["entries"] = entries
+            config["skills"] = skills
+        }
+
+        // Strip Twilio accountSid
+        if var twilio = config["twilio"] as? [String: Any] {
+            twilio["accountSid"] = redactValue(twilio["accountSid"])
+            config["twilio"] = twilio
+        }
+
+        // Strip MCP transport headers (SSE/streamable-http) and env vars (stdio)
+        if var mcp = config["mcp"] as? [String: Any],
+           var servers = mcp["servers"] as? [String: [String: Any]] {
+            for name in servers.keys {
+                var server = servers[name]!
+                if var transport = server["transport"] as? [String: Any] {
+                    if var headers = transport["headers"] as? [String: Any] {
+                        for key in headers.keys {
+                            headers[key] = redactValue(headers[key])
+                        }
+                        transport["headers"] = headers
+                    }
+                    if var env = transport["env"] as? [String: Any] {
+                        for key in env.keys {
+                            env[key] = redactValue(env[key])
+                        }
+                        transport["env"] = env
+                    }
+                    server["transport"] = transport
+                }
+                servers[name] = server
+            }
+            mcp["servers"] = servers
+            config["mcp"] = mcp
+        }
+
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: config,
             options: [.prettyPrinted, .sortedKeys]
         ) else { return }
         try? data.write(to: url)

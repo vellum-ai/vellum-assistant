@@ -179,27 +179,30 @@ configure_shell_profile() {
     done
 }
 
-# Create a symlink so `vellum` is available without ~/.bun/bin in PATH.
+# Create a symlink so a CLI command is available without ~/.bun/bin in PATH.
 # Tries /usr/local/bin first (works on most systems), falls back to
 # ~/.local/bin (user-writable, no sudo needed).
 # This is best-effort — failure must not abort the install script.
-symlink_vellum() {
-    local vellum_bin="$HOME/.bun/bin/vellum"
-    if [ ! -f "$vellum_bin" ]; then
+#
+# Usage: symlink_cli <command_name>
+symlink_cli() {
+    local cmd_name="$1"
+    local cmd_bin="$HOME/.bun/bin/$cmd_name"
+    if [ ! -f "$cmd_bin" ]; then
         return 0
     fi
 
-    # Skip if vellum is already resolvable outside of ~/.bun/bin
+    # Skip if the command is already resolvable outside of ~/.bun/bin
     local resolved
-    resolved=$(command -v vellum 2>/dev/null || true)
-    if [ -n "$resolved" ] && [ "$resolved" != "$vellum_bin" ]; then
+    resolved=$(command -v "$cmd_name" 2>/dev/null || true)
+    if [ -n "$resolved" ] && [ "$resolved" != "$cmd_bin" ]; then
         return 0
     fi
 
     # Try /usr/local/bin (may need sudo on some systems)
     if [ -d "/usr/local/bin" ] && [ -w "/usr/local/bin" ]; then
-        if ln -sf "$vellum_bin" /usr/local/bin/vellum 2>/dev/null; then
-            success "Symlinked /usr/local/bin/vellum → $vellum_bin"
+        if ln -sf "$cmd_bin" "/usr/local/bin/$cmd_name" 2>/dev/null; then
+            success "Symlinked /usr/local/bin/$cmd_name → $cmd_bin"
             return 0
         fi
     fi
@@ -207,8 +210,8 @@ symlink_vellum() {
     # Fallback: ~/.local/bin
     local local_bin="$HOME/.local/bin"
     mkdir -p "$local_bin" 2>/dev/null || true
-    if ln -sf "$vellum_bin" "$local_bin/vellum" 2>/dev/null; then
-        success "Symlinked $local_bin/vellum → $vellum_bin"
+    if ln -sf "$cmd_bin" "$local_bin/$cmd_name" 2>/dev/null; then
+        success "Symlinked $local_bin/$cmd_name → $cmd_bin"
         # Ensure ~/.local/bin is in PATH in shell profile
         for profile in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile"; do
             if [ -f "$profile" ] && ! grep -q "$local_bin" "$profile" 2>/dev/null; then
@@ -221,14 +224,19 @@ symlink_vellum() {
     return 0
 }
 
-# Write a small sourceable env file to ~/.config/vellum/env so callers can
-# pick up PATH changes without restarting their shell:
+symlink_vellum() {
+    symlink_cli "vellum"
+    symlink_cli "assistant"
+}
+
+# Append PATH setup to ~/.config/vellum/env so callers can pick up PATH
+# changes without restarting their shell:
 #   curl -fsSL https://assistant.vellum.ai/install.sh | bash && . ~/.config/vellum/env
 write_env_file() {
     local env_dir="${XDG_CONFIG_HOME:-$HOME/.config}/vellum"
     local env_file="$env_dir/env"
     mkdir -p "$env_dir"
-    cat > "$env_file" <<'ENVEOF'
+    cat >> "$env_file" <<'ENVEOF'
 export BUN_INSTALL="$HOME/.bun"
 case ":$PATH:" in
   *":$BUN_INSTALL/bin:"*) ;;
@@ -265,8 +273,13 @@ main() {
     install_vellum
     symlink_vellum
 
-    # Write a sourceable env file so the quickstart one-liner can pick up
-    # PATH changes in the caller's shell:
+    # Verify the assistant CLI is available
+    if ! command -v assistant >/dev/null 2>&1; then
+        info "Note: 'assistant' command may require opening a new terminal session"
+    fi
+
+    # Append PATH config to the env file so the quickstart one-liner can
+    # pick up PATH changes in the caller's shell:
     #   curl ... | bash && . ~/.config/vellum/env
     write_env_file
 
@@ -279,7 +292,7 @@ main() {
     info "Running vellum hatch..."
     printf "\n"
     if [ -n "${VELLUM_SSH_USER:-}" ] && [ "$(id -u)" = "0" ]; then
-        su - "$VELLUM_SSH_USER" -c "set -a; [ -f \"\$HOME/.vellum/.env\" ] && . \"\$HOME/.vellum/.env\"; set +a; export PATH=\"$HOME/.bun/bin:\$PATH\"; vellum hatch"
+        su - "$VELLUM_SSH_USER" -c "set -a; [ -f \"\$HOME/.config/vellum/env\" ] && . \"\$HOME/.config/vellum/env\"; set +a; export PATH=\"$HOME/.bun/bin:\$PATH\"; vellum hatch"
     else
         vellum hatch
     fi

@@ -2,6 +2,7 @@ import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
 import type { CredentialCache } from "../credential-cache.js";
+import { credentialKey } from "../credential-key.js";
 
 type FetchFn = (
   input: string | URL | Request,
@@ -75,7 +76,7 @@ function makeCaches(...args: [] | [string | undefined]) {
   const botToken = args.length === 0 ? "xoxb-test-bot-token" : args[0];
   const credentials = {
     get: async (key: string) => {
-      if (key === "credential:slack_channel:bot_token") return botToken;
+      if (key === credentialKey("slack_channel", "bot_token")) return botToken;
       return undefined;
     },
     invalidate: () => {},
@@ -329,7 +330,7 @@ describe("slack-deliver endpoint", () => {
     let callCount = 0;
     const credentials = {
       get: async (key: string, opts?: { force?: boolean }) => {
-        if (key === "credential:slack_channel:bot_token") {
+        if (key === credentialKey("slack_channel", "bot_token")) {
           callCount++;
           // First call returns undefined; second call with force returns the token
           if (callCount === 1 && !opts?.force) return undefined;
@@ -668,6 +669,40 @@ describe("slack-deliver endpoint", () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toContain("user is required");
+  });
+
+  test("returns 400 when ephemeral message includes attachments", async () => {
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
+    const req = makeRequest({
+      chatId: "C123",
+      text: "secret info",
+      ephemeral: true,
+      user: "U456",
+      attachments: [
+        {
+          id: "att-img",
+          filename: "photo.png",
+          mimeType: "image/png",
+          sizeBytes: 100,
+        },
+      ],
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(400);
+
+    const body = await res.json();
+    expect(body.error).toBe(
+      "attachments are not supported for ephemeral messages",
+    );
+
+    const uploadCall = fetchCalls.find((c) =>
+      c.url.includes("files.completeUploadExternal"),
+    );
+    expect(uploadCall).toBeUndefined();
   });
 
   test("ephemeral message includes thread_ts when threadTs query param is set", async () => {

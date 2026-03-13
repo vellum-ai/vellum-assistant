@@ -16,6 +16,7 @@ import {
   saveRawConfig,
   setNestedValue,
 } from "../../config/loader.js";
+import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKey } from "../../security/secure-keys.js";
 import { getTelegramBotUsername } from "../../telegram/bot-username.js";
 import { getLogger } from "../../util/logger.js";
@@ -40,7 +41,7 @@ export async function ensureTelegramBotUsernameResolved(): Promise<void> {
     return; // Username already cached in config
   }
 
-  const token = getSecureKey("credential:telegram:bot_token");
+  const token = getSecureKey(credentialKey("telegram", "bot_token"));
   if (!token) return;
 
   try {

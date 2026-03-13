@@ -194,6 +194,7 @@ export interface IntegrationConnectResult {
 export interface OAuthConnectResultResponse {
   type: "oauth_connect_result";
   success: boolean;
+  service?: string;
   grantedScopes?: string[];
   accountInfo?: string;
   error?: string;

@@ -38,6 +38,7 @@ export async function handleGetChannelReadiness(url: URL): Promise<Response> {
       return {
         channel: s.channel,
         ready: s.ready,
+        setupStatus: s.setupStatus,
         checkedAt: s.checkedAt,
         stale: s.stale,
         reasons: s.reasons,
@@ -91,6 +92,7 @@ export async function handleRefreshChannelReadiness(
       return {
         channel: s.channel,
         ready: s.ready,
+        setupStatus: s.setupStatus,
         checkedAt: s.checkedAt,
         stale: s.stale,
         reasons: s.reasons,

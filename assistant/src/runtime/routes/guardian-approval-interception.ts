@@ -10,6 +10,7 @@ import { applyGuardianDecision } from "../../approvals/guardian-decision-primiti
 import type { ChannelId } from "../../channels/types.js";
 import type { TrustContext } from "../../daemon/session-runtime-assembly.js";
 import {
+  getAllPendingApprovalsByGuardianChat,
   getPendingApprovalForRequest,
   getUnresolvedApprovalForRequest,
   updateApprovalDecision,
@@ -123,7 +124,7 @@ export async function handleApprovalInterception(
   // Only guardians can approve via reaction — non-guardian reactions are
   // silently ignored to prevent self-approval.
   if (callbackData?.startsWith("reaction:")) {
-    if (trustCtx.trustClass !== "guardian") {
+    if (trustCtx.trustClass !== "guardian" || !actorExternalId) {
       return { handled: true, type: "stale_ignored" };
     }
     const reactionDecision = parseReactionCallbackData(callbackData);
@@ -131,13 +132,27 @@ export async function handleApprovalInterception(
       // Unknown emoji — ignore silently
       return { handled: true, type: "stale_ignored" };
     }
-    const pending = getApprovalInfoByConversation(conversationId);
-    if (pending.length === 0) {
+
+    const allPending = getAllPendingApprovalsByGuardianChat(
+      sourceChannel,
+      conversationExternalId,
+    );
+    const guardianPending = allPending.filter(
+      (approval) => approval.guardianExternalUserId === actorExternalId,
+    );
+    if (guardianPending.length !== 1) {
       return { handled: true, type: "stale_ignored" };
     }
-    const result = handleChannelDecision(conversationId, reactionDecision);
+
+    const result = applyGuardianDecision({
+      approval: guardianPending[0],
+      decision: reactionDecision,
+      actorPrincipalId: undefined,
+      actorExternalUserId: actorExternalId,
+      actorChannel: sourceChannel,
+    });
     if (result.applied) {
-      return { handled: true, type: "decision_applied" };
+      return { handled: true, type: "guardian_decision_applied" };
     }
     return { handled: true, type: "stale_ignored" };
   }

@@ -1,17 +1,12 @@
-import { execSync } from "node:child_process";
-
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../../config/loader.js";
 import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompter.js";
-import { RateLimitProvider } from "../../providers/ratelimit.js";
-import { getFailoverProvider } from "../../providers/registry.js";
 import type { AuthContext } from "../../runtime/auth/types.js";
 import type { DebouncerMap } from "../../util/debounce.js";
 import { getLogger } from "../../util/logger.js";
 import { estimateBase64Bytes } from "../assistant-attachments.js";
-import { ComputerUseSession } from "../computer-use-session.js";
 import type {
   ServerMessage,
   SessionTransportMetadata,
@@ -27,9 +22,6 @@ export { log };
 export const CONFIG_RELOAD_DEBOUNCE_MS = 300;
 
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
-
-export const FALLBACK_SCREEN = { width: 1920, height: 1080 };
-let cachedScreenDims: { width: number; height: number } | null = null;
 
 // Module-level map for non-session secret prompts (e.g. publish_page)
 export const pendingStandaloneSecrets = new Map<
@@ -150,8 +142,6 @@ export interface SessionCreateOptions {
  */
 export interface HandlerContext {
   sessions: Map<string, Session>;
-  cuSessions: Map<string, ComputerUseSession>;
-  cuObservationParseSequence: Map<string, number>;
   sharedRequestTimestamps: number[];
   debounceTimers: DebouncerMap;
   suppressConfigReload: boolean;
@@ -168,126 +158,6 @@ export interface HandlerContext {
   touchSession(sessionId: string): void;
   /** Optional heartbeat service reference for "Run Now" support. */
   heartbeatService?: HeartbeatService;
-}
-
-/**
- * Query the main display dimensions via CoreGraphics.
- * Cached after the first successful call; falls back to 1920x1080.
- */
-export function getScreenDimensions(): { width: number; height: number } {
-  if (cachedScreenDims) return cachedScreenDims;
-  if (process.platform !== "darwin") return FALLBACK_SCREEN;
-  try {
-    // Use osascript (JXA) instead of `swift` to avoid the
-    // "Install Command Line Developer Tools" popup on fresh macOS installs.
-    const out = execSync(
-      `osascript -l JavaScript -e 'ObjC.import("AppKit"); var f = $.NSScreen.mainScreen.frame; Math.round(f.size.width) + "x" + Math.round(f.size.height)'`,
-      { timeout: 10_000, encoding: "utf-8" },
-    ).trim();
-    const [w, h] = out.split("x").map(Number);
-    if (w > 0 && h > 0) {
-      cachedScreenDims = { width: w, height: h };
-      return cachedScreenDims;
-    }
-  } catch (err) {
-    log.debug({ err }, "Failed to query screen dimensions, using fallback");
-  }
-  return FALLBACK_SCREEN;
-}
-
-/**
- * Wire the escalation handler on a text_qa session so that invoking
- * `computer_use_request_control` creates a CU session and notifies the client.
- *
- * In the HTTP-only world, the escalation handler broadcasts events via
- * `ctx.broadcast` instead of targeting a specific socket.
- */
-export function wireEscalationHandler(
-  session: Session,
-  ctx: HandlerContext,
-  explicitWidth?: number,
-  explicitHeight?: number,
-): void {
-  const dims =
-    explicitWidth && explicitHeight
-      ? { width: explicitWidth, height: explicitHeight }
-      : getScreenDimensions();
-  const screenWidth = dims.width;
-  const screenHeight = dims.height;
-  session.setEscalationHandler(
-    (task: string, sourceSessionId: string): boolean => {
-      const cuSessionId = uuid();
-
-      // Inline CU session creation (previously delegated to deleted handlers/computer-use.ts)
-      const existingSession = ctx.cuSessions.get(cuSessionId);
-      if (existingSession) {
-        existingSession.abort();
-        ctx.cuSessions.delete(cuSessionId);
-        ctx.cuObservationParseSequence.delete(cuSessionId);
-      }
-
-      const config = getConfig();
-      let provider = getFailoverProvider(config.provider, config.providerOrder);
-      const { rateLimit } = config;
-      if (
-        rateLimit.maxRequestsPerMinute > 0 ||
-        rateLimit.maxTokensPerSession > 0
-      ) {
-        provider = new RateLimitProvider(
-          provider,
-          rateLimit,
-          ctx.sharedRequestTimestamps,
-        );
-      }
-
-      const sendToClient = (serverMsg: ServerMessage) => {
-        ctx.send(serverMsg);
-      };
-
-      const sessionRef: { current?: ComputerUseSession } = {};
-      const onTerminal = (sid: string) => {
-        const current = ctx.cuSessions.get(sid);
-        if (sessionRef.current && current && current !== sessionRef.current) {
-          return;
-        }
-        ctx.cuSessions.delete(sid);
-        ctx.cuObservationParseSequence.delete(sid);
-        log.info(
-          { sessionId: sid },
-          "Computer-use session cleaned up after terminal state",
-        );
-      };
-
-      const cuSession = new ComputerUseSession(
-        cuSessionId,
-        task,
-        screenWidth,
-        screenHeight,
-        provider,
-        sendToClient,
-        "computer_use",
-        onTerminal,
-      );
-      sessionRef.current = cuSession;
-
-      ctx.cuSessions.set(cuSessionId, cuSession);
-
-      log.info(
-        { sessionId: cuSessionId, taskLength: task.length },
-        "Computer-use session created via escalation",
-      );
-
-      ctx.broadcast({
-        type: "task_routed",
-        sessionId: cuSessionId,
-        interactionType: "computer_use",
-        task,
-        escalatedFrom: sourceSessionId,
-      });
-
-      return true;
-    },
-  );
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

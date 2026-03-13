@@ -25,12 +25,15 @@ import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { getEffectiveMode } from "../runtime/session-approval-overrides.js";
 import { coreAppProxyTools } from "../tools/apps/definitions.js";
 import { registerSessionSender } from "../tools/browser/browser-screencast.js";
-import { requestComputerControlTool } from "../tools/computer-use/request-computer-control.js";
 import type { ToolExecutor } from "../tools/executor.js";
 import {
   getAllToolDefinitions,
   getMcpToolDefinitions,
 } from "../tools/registry.js";
+import {
+  injectReasonField,
+  REASON_SKIP_SET,
+} from "../tools/schema-transforms.js";
 import type {
   ProxyApprovalCallback,
   ProxyApprovalRequest,
@@ -111,16 +114,13 @@ export interface ToolSetupContext extends SurfaceSessionContext {
 
 /**
  * Collect all tool definitions for the agent loop: built-in tools,
- * UI surface proxy tools, app proxy tools, and the computer-use
- * escalation tool.
+ * UI surface proxy tools, and app proxy tools.
  */
 export function buildToolDefinitions(): ToolDefinition[] {
   return [
     ...getAllToolDefinitions(),
     ...allUiSurfaceTools.map((t) => t.getDefinition()),
     ...coreAppProxyTools.map((t) => t.getDefinition()),
-    // Escalation tool: allows text_qa sessions to hand off to computer use
-    requestComputerControlTool.getDefinition(),
   ];
 }
 
@@ -208,7 +208,13 @@ export function createToolExecutor(
       proxyToolResolver: (
         toolName: string,
         proxyInput: Record<string, unknown>,
-      ) => surfaceProxyResolver(ctx, toolName, proxyInput),
+      ) =>
+        surfaceProxyResolver(
+          ctx,
+          toolName,
+          proxyInput,
+          ctx.abortController?.signal,
+        ),
       proxyApprovalCallback: createProxyApprovalCallback(prompter, ctx),
       requestSecret: async (params) => {
         return secretPrompter.prompt(
@@ -335,10 +341,22 @@ export function createToolExecutor(
     // with the real tool name.
     if (name === "skill_execute") {
       const toolName = typeof input.tool === "string" ? input.tool : "";
-      const toolInput =
+      const rawToolInput =
         input.input != null && typeof input.input === "object"
           ? (input.input as Record<string, unknown>)
           : {};
+
+      // Clone to avoid mutating shared input objects
+      const toolInput = { ...rawToolInput };
+
+      // Propagate outer reason when inner input lacks a valid one
+      if (
+        typeof input.reason === "string" &&
+        input.reason &&
+        (typeof toolInput.reason !== "string" || toolInput.reason.length === 0)
+      ) {
+        toolInput.reason = input.reason;
+      }
 
       if (!toolName) {
         return {
@@ -550,10 +568,7 @@ const HOST_TOOL_NAMES = new Set([
   "host_bash",
 ]);
 const ASSET_TOOL_NAMES = new Set(["asset_search", "asset_materialize"]);
-const CLIENT_CAPABILITY_TOOL_NAMES = new Set([
-  "app_open",
-  "computer_use_request_control",
-]);
+const CLIENT_CAPABILITY_TOOL_NAMES = new Set(["app_open"]);
 const PLATFORM_TOOL_NAMES = new Set(["request_system_permission"]);
 
 /**
@@ -663,6 +678,6 @@ export function createResolveToolsCallback(
       turnAllowed.add(name);
     }
     ctx.allowedToolNames = turnAllowed;
-    return allBaseDefs;
+    return injectReasonField(allBaseDefs, REASON_SKIP_SET);
   };
 }

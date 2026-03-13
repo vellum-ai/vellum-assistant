@@ -14,26 +14,26 @@ struct DrawerMenuItem: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 12)
-                        .foregroundColor(isHovered ? VColor.textPrimary : VColor.textSecondary)
+                        .foregroundColor(isHovered ? VColor.contentDefault : VColor.contentSecondary)
                         .frame(width: 18)
                         .rotationEffect(.degrees(isHovered ? -10 : 0))
                         .scaleEffect(isHovered ? 1.15 : 1.0)
                         .animation(VAnimation.fast, value: isHovered)
                     Text(label)
                         .font(.custom("Inter", size: 13))
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                     Spacer()
                 }
                 if let description {
                     Text(description)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.sm)
-            .background(VColor.navHover.opacity(isHovered ? 1 : 0))
+            .background(VColor.surfaceBase.opacity(isHovered ? 1 : 0))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

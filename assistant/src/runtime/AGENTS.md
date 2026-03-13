@@ -43,6 +43,15 @@ Host file allows the assistant to perform file operations (read, write, edit) on
   - `POST /v1/host-file-result` — `{ requestId, content, isError }`
 - **Tracking**: Uses the same `pending-interactions` tracker as approvals and host bash, with `kind: "host_file"`. The endpoint validates the interaction kind before resolving.
 
+### Host CU (desktop proxy computer-use execution)
+
+Host CU allows the assistant to proxy computer-use actions (screenshots, mouse/keyboard input) to the desktop host via the client, following the same pattern as host bash and host file.
+
+- **Discovery**: Clients discover pending host CU requests via SSE events (`host_cu_request`) which include a `requestId`.
+- **Resolution**: Clients execute the CU action on the host and respond via:
+  - `POST /v1/host-cu-result` — `{ requestId, axTree?, axDiff?, screenshot?, screenshotWidthPx?, screenshotHeightPx?, screenWidthPt?, screenHeightPt?, executionResult?, executionError?, secondaryWindows?, userGuidance? }`
+- **Tracking**: Uses the same `pending-interactions` tracker as the other host proxy types, with `kind: "host_cu"`. Registration happens in `conversation-routes.ts` and the route handler is in `host-cu-routes.ts`.
+
 ### Channel approvals (Telegram, Slack)
 
 Channel approval flows use `requestId` (not `runId`) as the primary identifier:
@@ -50,6 +59,23 @@ Channel approval flows use `requestId` (not `runId`) as the primary identifier:
 - Telegram callback buttons encode `apr:<requestId>:<action>` in `callback_data`.
 - Guardian approval records in `channelGuardianApprovalRequests` link via `requestId`.
 - The conversational approval engine classifies user intent and resolves via `session.handleConfirmationResponse(requestId, decision)`.
+
+## Rate Limiting & Diagnostics
+
+All `/v1/*` endpoints share a per-client-IP sliding-window rate limiter (`middleware/rate-limiter.ts`):
+
+- **Authenticated**: 300 requests/minute
+- **Unauthenticated**: 20 requests/minute
+
+When the limit is exceeded, the limiter returns 429 and logs a structured warning (module: `rate-limiter`) with the denied endpoint and a breakdown of which endpoints consumed the budget in the current window. This makes it easy to identify whether the cause is rapid thread switching, polling, or unexpected request volume.
+
+Logs are written to `~/.vellum/workspace/data/logs/vellum.log` by default. If `logFile.dir` is configured, logs rotate daily as `assistant-YYYY-MM-DD.log` in that directory. To watch rate limit events in real time:
+
+```bash
+tail -f ~/.vellum/workspace/data/logs/vellum.log | grep rate-limit
+```
+
+The provider-level rate limiter (`providers/ratelimit.ts`) also logs warnings (module: `rate-limit`) when request rate or token budget limits are enforced.
 
 ## HTTP-Only Transport
 

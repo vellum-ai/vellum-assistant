@@ -21,7 +21,7 @@ struct DrawerThemeToggle: View {
         HStack(spacing: VSpacing.xs) {
             Text("Theme")
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
             Spacer()
             HStack(spacing: 2) {
                 ForEach(options, id: \.value) { option in
@@ -33,13 +33,13 @@ struct DrawerThemeToggle: View {
                         VIconView(SFSymbolMapping.icon(forSFSymbol: option.icon, fallback: .puzzle), size: 12)
                             .foregroundColor(
                                 isSelected
-                                    ? VColor.buttonSecondaryText
-                                    : VColor.textMuted
+                                    ? VColor.primaryBase
+                                    : VColor.contentTertiary
                             )
                             .frame(width: 30, height: 24)
                             .background(
                                 isSelected
-                                    ? VColor.themeToggleSelected
+                                    ? VColor.surfaceActive
                                     : Color.clear
                             )
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
@@ -53,7 +53,7 @@ struct DrawerThemeToggle: View {
                 }
             }
             .padding(3)
-            .background(VColor.themeToggleBackground)
+            .background(VColor.surfaceBase)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         }
     }

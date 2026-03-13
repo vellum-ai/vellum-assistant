@@ -1,20 +1,18 @@
 import { describe, expect, it } from "bun:test";
 
-import type { OAuthProviderProfile } from "../oauth/connect-types.js";
+import type { ScopeResolverInput } from "../oauth/scope-policy.js";
 import { resolveScopes } from "../oauth/scope-policy.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Build a minimal profile for testing scope resolution. */
+/** Build a minimal scope resolver input for testing scope resolution. */
 function makeProfile(
-  overrides: Partial<OAuthProviderProfile> = {},
-): OAuthProviderProfile {
+  overrides: Partial<ScopeResolverInput> = {},
+): ScopeResolverInput {
   return {
     service: "integration:test-service",
-    authUrl: "https://auth.example.com/authorize",
-    tokenUrl: "https://auth.example.com/token",
     defaultScopes: ["read", "write"],
     scopePolicy: {
       allowAdditionalScopes: false,

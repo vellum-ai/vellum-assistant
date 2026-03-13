@@ -13,23 +13,23 @@ public struct CompletedSurfaceChip: View {
     public var body: some View {
         HStack(spacing: VSpacing.sm) {
             VIconView(.circleCheck, size: 12)
-                .foregroundColor(VColor.success)
+                .foregroundColor(VColor.systemPositiveStrong)
 
             if let title {
                 Text(title)
                     .font(VFont.captionMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
             }
 
             Text(summary)
                 .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
         }
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.sm)
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.backgroundSubtle.opacity(0.5))
+                .fill(VColor.surfaceBase.opacity(0.5))
         )
     }
 }

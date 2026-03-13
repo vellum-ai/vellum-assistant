@@ -1,6 +1,7 @@
 import type { GatewayConfig } from "../../config.js";
 import type { ConfigFileCache } from "../../config-file-cache.js";
 import type { CredentialCache } from "../../credential-cache.js";
+import { credentialKey } from "../../credential-key.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
 import { checkDeliverAuth } from "../middleware/deliver-auth.js";
@@ -328,14 +329,16 @@ export function createSlackDeliverHandler(
 
     // Resolve bot token from cache
     let botToken = caches?.credentials
-      ? await caches.credentials.get("credential:slack_channel:bot_token")
+      ? await caches.credentials.get(
+          credentialKey("slack_channel", "bot_token"),
+        )
       : undefined;
 
     // One-shot force retry: if token is missing and caches are available,
     // force-refresh and retry once.
     if (!botToken && caches?.credentials) {
       botToken = await caches.credentials.get(
-        "credential:slack_channel:bot_token",
+        credentialKey("slack_channel", "bot_token"),
         { force: true },
       );
       if (botToken) {
@@ -454,6 +457,12 @@ export function createSlackDeliverHandler(
     if (isEphemeral && (!body.user || typeof body.user !== "string")) {
       return Response.json(
         { error: "user is required for ephemeral messages" },
+        { status: 400 },
+      );
+    }
+    if (isEphemeral && attachments && attachments.length > 0) {
+      return Response.json(
+        { error: "attachments are not supported for ephemeral messages" },
         { status: 400 },
       );
     }

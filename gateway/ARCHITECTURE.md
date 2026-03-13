@@ -229,17 +229,16 @@ Channel bindings follow a three-phase lifecycle:
 
 The public URL where the gateway is reachable is configured via:
 
-| Source                                     | Priority      | Description                                                                  |
-| ------------------------------------------ | ------------- | ---------------------------------------------------------------------------- |
-| `ingress.publicBaseUrl` (workspace config) | 1 (preferred) | Set via Settings UI > Public Ingress, or directly in workspace `config.json` |
-| `INGRESS_PUBLIC_BASE_URL` (env var)        | 2             | Environment variable fallback for `ingress.publicBaseUrl`                    |
+| Source                                     | Description                                                                  |
+| ------------------------------------------ | ---------------------------------------------------------------------------- |
+| `ingress.publicBaseUrl` (workspace config) | Set via Settings UI > Public Ingress, or directly in workspace `config.json` |
 
 ### Tunnel-Agnostic Setup
 
 To expose the gateway for external callbacks during local development:
 
 1. **Start your tunnel** service (ngrok, Cloudflare Tunnel, or any similar tool), pointing it at the local gateway: `http://127.0.0.1:7830`
-2. **Set the public URL** provided by the tunnel as `ingress.publicBaseUrl` in the Settings UI (Public Ingress section) or as the `INGRESS_PUBLIC_BASE_URL` environment variable
+2. **Set the public URL** provided by the tunnel as `ingress.publicBaseUrl` in the Settings UI (Public Ingress section)
 
 The assistant runtime reads this URL via the centralized `public-ingress-urls.ts` module and uses it to construct all webhook and callback URLs automatically (Twilio voice/status/relay webhooks, Telegram webhooks, OAuth redirect URIs, etc.).
 
@@ -247,15 +246,15 @@ The assistant runtime reads this URL via the centralized `public-ingress-urls.ts
 
 All public-facing URLs are constructed by `assistant/src/inbound/public-ingress-urls.ts`:
 
-| Function                       | URL Pattern                                                                                                                                                                     |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `getPublicBaseUrl()`           | Resolves the canonical base URL from `ingress.publicBaseUrl` in workspace config or `INGRESS_PUBLIC_BASE_URL` env var (assistant-side; the gateway reads via `ConfigFileCache`) |
-| `getTwilioVoiceWebhookUrl()`   | `${base}/webhooks/twilio/voice?callSessionId=...`                                                                                                                               |
-| `getTwilioStatusCallbackUrl()` | `${base}/webhooks/twilio/status`                                                                                                                                                |
-| `getTwilioConnectActionUrl()`  | `${base}/webhooks/twilio/connect-action`                                                                                                                                        |
-| `getTwilioRelayUrl()`          | `ws(s)://.../webhooks/twilio/relay`                                                                                                                                             |
-| `getOAuthCallbackUrl()`        | `${base}/webhooks/oauth/callback`                                                                                                                                               |
-| `getTelegramWebhookUrl()`      | `${base}/webhooks/telegram`                                                                                                                                                     |
+| Function                       | URL Pattern                                                                                                                                                      |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getPublicBaseUrl()`           | Resolves the canonical base URL from `ingress.publicBaseUrl` in workspace config or module-level state (assistant-side; the gateway reads via `ConfigFileCache`) |
+| `getTwilioVoiceWebhookUrl()`   | `${base}/webhooks/twilio/voice?callSessionId=...`                                                                                                                |
+| `getTwilioStatusCallbackUrl()` | `${base}/webhooks/twilio/status`                                                                                                                                 |
+| `getTwilioConnectActionUrl()`  | `${base}/webhooks/twilio/connect-action`                                                                                                                         |
+| `getTwilioRelayUrl()`          | `ws(s)://.../webhooks/twilio/relay`                                                                                                                              |
+| `getOAuthCallbackUrl()`        | `${base}/webhooks/oauth/callback`                                                                                                                                |
+| `getTelegramWebhookUrl()`      | `${base}/webhooks/telegram`                                                                                                                                      |
 
 ### Telegram Messaging Flow
 
@@ -274,7 +273,7 @@ Outbound proactive (assistant → user, initiated by messaging provider):
   Runtime messaging provider → Gateway POST /deliver/telegram (bearer auth) → Telegram sendMessage/sendChatAction
 ```
 
-The `replyCallbackUrl` included in the inbound forward is built from the `gatewayInternalBaseUrl` config field, which defaults to `http://127.0.0.1:${GATEWAY_PORT}` and can be overridden via the `GATEWAY_INTERNAL_BASE_URL` environment variable. This allows distributed deployments where the gateway and runtime are not co-located (e.g., separate containers or hosts).
+The `replyCallbackUrl` included in the inbound forward is built from the `gatewayInternalBaseUrl` config field, which is always derived from `GATEWAY_PORT` as `http://127.0.0.1:${GATEWAY_PORT}` (default port `7830`). Both the hostname (`127.0.0.1`) and port derivation are hardcoded in `gateway/src/config.ts`, so the gateway and runtime must be co-located (same host, `--network host`, or Docker Compose with shared networking) for callbacks to reach the gateway. Separate-host deployments are not currently supported.
 
 The `/deliver/telegram` endpoint requires bearer auth unconditionally (fail-closed). If no bearer token is configured and the dev-only bypass flag (`telegram.deliverAuthBypass` in `workspace/config.json`) is not set, the endpoint returns 503 rather than allowing unauthenticated access. The bypass requires `APP_VERSION=0.0.0-dev`.
 
@@ -584,11 +583,11 @@ Entry points:
 
 Both paths converge at:
   → Daemon handler validates token via Telegram getMe API
-    → setSecureKey("credential:telegram:bot_token", token)
+    → setSecureKey("credential/telegram/bot_token", token)
     → upsertCredentialMetadata("telegram", "bot_token", {})
     → Stores bot username in config at telegram.botUsername
     → Auto-generates webhook secret if missing
-      → setSecureKey("credential:telegram:webhook_secret", secret)
+      → setSecureKey("credential/telegram/webhook_secret", secret)
       → upsertCredentialMetadata("telegram", "webhook_secret", {})
       → On storage failure: rolls back bot_token + metadata, returns error
     → If webhook secret already exists: upserts metadata anyway (self-heal)
@@ -609,7 +608,7 @@ The gateway reads Telegram credentials via its `credential-reader` module (`gate
 
 On startup, the gateway automatically reconciles the Telegram webhook registration:
 
-1. Reads the ingress public base URL via `ConfigFileCache.getString("ingress", "publicBaseUrl")` (falling back to the `INGRESS_PUBLIC_BASE_URL` env var) and Telegram credentials (bot token, webhook secret) from secure storage via the credential reader
+1. Reads the ingress public base URL via `ConfigFileCache.getString("ingress", "publicBaseUrl")` and Telegram credentials (bot token, webhook secret) from secure storage via the credential reader
 2. Calls `getWebhookInfo` to log the current registration state
 3. Unconditionally calls `setWebhook` with the expected URL, secret, and allowed updates (idempotent — Telegram does not expose the current secret via `getWebhookInfo`, so a compare-then-set approach would miss secret rotations)
 
@@ -617,12 +616,12 @@ This also runs when the credential watcher detects changes to Telegram credentia
 
 ### Routing Auto-Configuration
 
-In single-assistant mode (the default local deployment), routing is automatically configured by the CLI:
+In single-assistant mode (the default local deployment), routing is automatically configured by the CLI via workspace config:
 
-- `GATEWAY_UNMAPPED_POLICY=default` is set so all inbound messages are forwarded
-- `GATEWAY_DEFAULT_ASSISTANT_ID` is set to the current assistant's ID
+- The unmapped policy is set to `default` so all inbound messages are forwarded
+- The default assistant ID is set to the current assistant's ID
 
-In multi-assistant mode, the operator must configure `GATEWAY_ASSISTANT_ROUTING_JSON` to map specific chat/user IDs to assistant IDs.
+In multi-assistant mode, the operator must configure the assistant routing map in workspace config to map specific chat/user IDs to assistant IDs.
 
 ### Slack Channel (Socket Mode)
 
@@ -660,7 +659,7 @@ The Slack channel requires two tokens:
 | App token | `xapp-...` | Used for `apps.connections.open` to establish the Socket Mode WebSocket connection   |
 | Bot token | `xoxb-...` | Used for `chat.postMessage` to send outbound messages and for `auth.test` validation |
 
-Both tokens are stored in secure storage (`credential:slack_channel:app_token`, `credential:slack_channel:bot_token`) via the assistant's Slack channel config endpoints (see `assistant/ARCHITECTURE.md`). The gateway reads them via its `credential-reader` module using the same broker-first fallback strategy as Telegram credentials.
+Both tokens are stored in secure storage (`credential/slack_channel/app_token`, `credential/slack_channel/bot_token`) via the assistant's Slack channel config endpoints (see `assistant/ARCHITECTURE.md`). The gateway reads them via its `credential-reader` module using the same broker-first fallback strategy as Telegram credentials.
 
 **Auto-reconnect behavior:**
 
@@ -973,8 +972,8 @@ Signature validation is **fail-closed**: if the Twilio auth token is not configu
 
 **Webhook base URL resolution:** The base URL used when constructing all public ingress URLs (Twilio webhooks, OAuth callbacks, Telegram webhooks, etc.) is resolved by `public-ingress-urls.ts`:
 
-1. `ingress.publicBaseUrl` in workspace config (preferred — set via Settings UI > Public Ingress)
-2. `INGRESS_PUBLIC_BASE_URL` environment variable (fallback)
+1. `ingress.publicBaseUrl` in workspace config (set via Settings UI > Public Ingress)
+2. Module-level state in the assistant (set by config handlers when tunnels start/stop)
 
 All webhook paths (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, `/webhooks/telegram`, `/webhooks/oauth/callback`, etc.) are appended automatically.
 
@@ -1057,7 +1056,7 @@ The resolution is performed by `resolveCallerIdentity()` in `call-domain.ts`:
 
 1. **Per-call override** — If `callerIdentityMode` is provided in the call input and `calls.callerIdentity.allowPerCallOverride` is enabled, the requested mode is used (source: `per_call_override`).
 2. **Implicit default** — Otherwise, `assistant_number` is always used (source: `implicit_default`). There is no configurable default mode — this is a strict policy.
-3. **User number lookup** — For `user_number` mode (explicit only), the number is resolved from (in priority order): `calls.callerIdentity.userNumber` config (source: `user_config`), `TWILIO_USER_PHONE_NUMBER` environment variable (source: `env_var`), or the `credential:twilio:user_phone_number` secure key (source: `secure_key`).
+3. **User number lookup** — For `user_number` mode (explicit only), the number is resolved from (in priority order): `calls.callerIdentity.userNumber` config (source: `user_config`) or the `credential/twilio/user_phone_number` secure key (source: `secure_key`).
 4. **Eligibility check** — User numbers are verified against the Twilio API to confirm they can be used as an outbound caller ID.
 
 Both the resolved mode and source are logged at info level on success, and rejections are logged at warn level.

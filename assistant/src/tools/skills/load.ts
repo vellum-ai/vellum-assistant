@@ -9,6 +9,11 @@ import { loadSkillBySelector, loadSkillCatalog } from "../../config/skills.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import {
+  autoInstallFromCatalog,
+  resolveCatalog,
+} from "../../skills/catalog-install.js";
+import {
+  collectAllMissing,
   indexCatalogById,
   validateIncludes,
 } from "../../skills/include-graph.js";
@@ -119,11 +124,6 @@ export class SkillLoadTool implements Tool {
             type: "string",
             description: "The skill id or skill name to load.",
           },
-          reason: {
-            type: "string",
-            description:
-              "Brief non-technical explanation of what you are loading and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
-          },
         },
         required: ["skill"],
       },
@@ -142,7 +142,32 @@ export class SkillLoadTool implements Tool {
       };
     }
 
-    const loaded = loadSkillBySelector(selector);
+    let loaded = loadSkillBySelector(selector);
+
+    // Auto-install from catalog if the skill isn't found locally
+    if (
+      !loaded.skill &&
+      (loaded.errorCode === "not_found" || loaded.errorCode === "empty_catalog")
+    ) {
+      try {
+        const installed = await autoInstallFromCatalog(selector);
+        if (installed) {
+          log.info({ skillId: selector }, "Auto-installed skill from catalog");
+          loaded = loadSkillBySelector(selector);
+        }
+      } catch (err) {
+        const installError = err instanceof Error ? err.message : String(err);
+        log.warn(
+          { err, skillId: selector },
+          "Auto-install from catalog failed",
+        );
+        return {
+          content: `Error: skill "${selector}" was found in the catalog but installation failed: ${installError}`,
+          isError: true,
+        };
+      }
+    }
+
     if (!loaded.skill) {
       return {
         content: `Error: ${loaded.error ?? "Failed to load skill"}`,
@@ -165,10 +190,62 @@ export class SkillLoadTool implements Tool {
     // Load catalog for include validation and child metadata output
     let catalogIndex: Map<string, SkillSummary> | undefined;
     if (skill.includes && skill.includes.length > 0) {
-      const catalog = loadSkillCatalog();
+      let catalog = loadSkillCatalog();
       catalogIndex = indexCatalogById(catalog);
 
-      // Validate recursive includes (fail-closed)
+      // Auto-install missing includes before validation (max 5 rounds for transitive deps)
+      // Defer catalog resolution until we confirm there are missing includes,
+      // then cache the result to avoid redundant network requests per dependency.
+      let remoteCatalog: Awaited<ReturnType<typeof resolveCatalog>> | undefined;
+
+      const MAX_INSTALL_ROUNDS = 5;
+      for (let round = 0; round < MAX_INSTALL_ROUNDS; round++) {
+        const missing = collectAllMissing(skill.id, catalogIndex);
+        if (missing.size === 0) break;
+
+        // Lazily resolve catalog on first round with missing includes
+        if (!remoteCatalog) {
+          try {
+            remoteCatalog = await resolveCatalog();
+          } catch (err) {
+            log.warn(
+              { err, skillId: skill.id },
+              "Failed to resolve catalog for include auto-install",
+            );
+            break;
+          }
+        }
+
+        let installedAny = false;
+        for (const missingId of missing) {
+          try {
+            const installed = await autoInstallFromCatalog(
+              missingId,
+              remoteCatalog,
+            );
+            if (installed) {
+              log.info(
+                { skillId: missingId, parentSkillId: skill.id },
+                "Auto-installed missing include",
+              );
+              installedAny = true;
+            }
+          } catch (err) {
+            log.warn(
+              { err, skillId: missingId },
+              "Failed to auto-install missing include",
+            );
+          }
+        }
+
+        if (!installedAny) break; // Nothing could be installed, stop trying
+
+        // Reload catalog to pick up newly installed skills
+        catalog = loadSkillCatalog();
+        catalogIndex = indexCatalogById(catalog);
+      }
+
+      // Validate (fail-closed — catches genuinely missing deps + cycles)
       const validation = validateIncludes(skill.id, catalogIndex);
       if (!validation.ok) {
         if (validation.error === "missing") {

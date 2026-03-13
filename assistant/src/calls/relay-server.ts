@@ -744,24 +744,20 @@ export class RelayConnection {
   }
 
   /**
-   * Start normal call flow — fire the controller greeting unless a
-   * static welcome greeting is configured.
+   * Start normal call flow — fire the controller greeting.
    */
   private startNormalCallFlow(
     controller: CallController,
     isInbound: boolean,
   ): void {
-    const hasStaticGreeting = !!process.env.CALL_WELCOME_GREETING?.trim();
-    if (!hasStaticGreeting) {
-      controller
-        .startInitialGreeting()
-        .catch((err) =>
-          log.error(
-            { err, callSessionId: this.callSessionId },
-            `Failed to start initial ${isInbound ? "inbound" : "outbound"} greeting`,
-          ),
-        );
-    }
+    controller
+      .startInitialGreeting()
+      .catch((err) =>
+        log.error(
+          { err, callSessionId: this.callSessionId },
+          `Failed to start initial ${isInbound ? "inbound" : "outbound"} greeting`,
+        ),
+      );
   }
 
   /**

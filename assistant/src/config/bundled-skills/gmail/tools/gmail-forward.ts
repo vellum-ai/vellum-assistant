@@ -5,8 +5,7 @@ import {
 } from "../../../../messaging/providers/gmail/client.js";
 import { buildMultipartMime } from "../../../../messaging/providers/gmail/mime-builder.js";
 import type { GmailMessagePart } from "../../../../messaging/providers/gmail/types.js";
-import { getMessagingProvider } from "../../../../messaging/registry.js";
-import { withValidToken } from "../../../../security/token-manager.js";
+import { resolveOAuthConnection } from "../../../../oauth/connection-resolver.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -76,66 +75,68 @@ export async function run(
   if (!forwardTo) return err("to is required.");
 
   try {
-    const provider = getMessagingProvider("gmail");
-    return await withValidToken(provider.credentialService, async (token) => {
-      const message = await getMessage(token, messageId, "full");
-      const headers = message.payload?.headers ?? [];
-      const originalFrom = extractHeader(headers, "From");
-      const originalDate = extractHeader(headers, "Date");
-      const originalSubject = extractHeader(headers, "Subject");
-      const originalBody = extractPlainTextBody(message.payload);
+    const connection = resolveOAuthConnection("integration:gmail");
+    const message = await getMessage(connection, messageId, "full");
+    const headers = message.payload?.headers ?? [];
+    const originalFrom = extractHeader(headers, "From");
+    const originalDate = extractHeader(headers, "Date");
+    const originalSubject = extractHeader(headers, "Subject");
+    const originalBody = extractPlainTextBody(message.payload);
 
-      const forwardHeader = [
-        additionalText ? `${additionalText}\n\n` : "",
-        "---------- Forwarded message ----------",
-        `From: ${originalFrom}`,
-        `Date: ${originalDate}`,
-        `Subject: ${originalSubject}`,
-        "",
-        originalBody,
-      ].join("\n");
+    const forwardHeader = [
+      additionalText ? `${additionalText}\n\n` : "",
+      "---------- Forwarded message ----------",
+      `From: ${originalFrom}`,
+      `Date: ${originalDate}`,
+      `Subject: ${originalSubject}`,
+      "",
+      originalBody,
+    ].join("\n");
 
-      const subject = originalSubject.startsWith("Fwd:")
-        ? originalSubject
-        : `Fwd: ${originalSubject}`;
+    const subject = originalSubject.startsWith("Fwd:")
+      ? originalSubject
+      : `Fwd: ${originalSubject}`;
 
-      // Collect and download attachments from the original message
-      const attachmentRefs = collectAttachmentRefs(message.payload?.parts);
-      const attachments = await Promise.all(
-        attachmentRefs.map(async (ref) => {
-          const att = await getAttachment(token, messageId, ref.attachmentId);
-          const data = Buffer.from(
-            att.data.replace(/-/g, "+").replace(/_/g, "/"),
-            "base64",
-          );
-          return { filename: ref.filename, mimeType: ref.mimeType, data };
-        }),
-      );
-
-      if (attachments.length > 0) {
-        const raw = buildMultipartMime({
-          to: forwardTo,
-          subject,
-          body: forwardHeader,
-          attachments,
-        });
-        const draft = await createDraftRaw(token, raw);
-        return ok(
-          `Forward draft created to ${forwardTo} with ${attachments.length} attachment(s) (Draft ID: ${draft.id}). Review in Gmail Drafts, then tell me to send it or send it yourself.`,
+    // Collect and download attachments from the original message
+    const attachmentRefs = collectAttachmentRefs(message.payload?.parts);
+    const attachments = await Promise.all(
+      attachmentRefs.map(async (ref) => {
+        const att = await getAttachment(
+          connection,
+          messageId,
+          ref.attachmentId,
         );
-      }
+        const data = Buffer.from(
+          att.data.replace(/-/g, "+").replace(/_/g, "/"),
+          "base64",
+        );
+        return { filename: ref.filename, mimeType: ref.mimeType, data };
+      }),
+    );
 
+    if (attachments.length > 0) {
       const raw = buildMultipartMime({
         to: forwardTo,
         subject,
         body: forwardHeader,
-        attachments: [],
+        attachments,
       });
-      const draft = await createDraftRaw(token, raw);
+      const draft = await createDraftRaw(connection, raw);
       return ok(
-        `Forward draft created to ${forwardTo} (Draft ID: ${draft.id}). Review in Gmail Drafts, then tell me to send it or send it yourself.`,
+        `Forward draft created to ${forwardTo} with ${attachments.length} attachment(s) (Draft ID: ${draft.id}). Review in Gmail Drafts, then tell me to send it or send it yourself.`,
       );
+    }
+
+    const raw = buildMultipartMime({
+      to: forwardTo,
+      subject,
+      body: forwardHeader,
+      attachments: [],
     });
+    const draft = await createDraftRaw(connection, raw);
+    return ok(
+      `Forward draft created to ${forwardTo} (Draft ID: ${draft.id}). Review in Gmail Drafts, then tell me to send it or send it yourself.`,
+    );
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));
   }

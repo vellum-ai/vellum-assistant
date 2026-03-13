@@ -252,13 +252,13 @@ private func makeAttributedString(from segments: [MarkdownSegment]) -> Attribute
         }
     }
     for range in codeRanges.reversed() {
-        result[range].foregroundColor = VColor.codeText
-        result[range].backgroundColor = VColor.codeBackground
+        result[range].foregroundColor = VColor.systemNegativeStrong
+        result[range].backgroundColor = VColor.surfaceActive
         var trailing = AttributedString("\u{2009}")
-        trailing.backgroundColor = VColor.codeBackground
+        trailing.backgroundColor = VColor.surfaceActive
         result.insert(trailing, at: range.upperBound)
         var leading = AttributedString("\u{2009}")
-        leading.backgroundColor = VColor.codeBackground
+        leading.backgroundColor = VColor.surfaceActive
         result.insert(leading, at: range.lowerBound)
     }
 

@@ -4,6 +4,11 @@
  * Persists non-secret metadata about credentials (policy, timestamps, IDs)
  * in a versioned JSON file under protected storage. Secret values remain
  * in the secure key backend only.
+ *
+ * OAuth-specific fields (expiresAt, grantedScopes, oauth2TokenUrl,
+ * oauth2ClientId, oauth2TokenEndpointAuthMethod, hasRefreshToken) are now
+ * exclusively managed by the SQLite oauth-store and have been removed
+ * from this interface as of v5.
  */
 
 import { randomUUID } from "node:crypto";
@@ -21,16 +26,6 @@ export interface CredentialMetadata {
   allowedTools: string[];
   allowedDomains: string[];
   usageDescription?: string;
-  expiresAt?: number;
-  grantedScopes?: string[];
-  /** OAuth2 token endpoint — enables autonomous token refresh without an IntegrationDefinition. */
-  oauth2TokenUrl?: string;
-  /** OAuth2 client ID — paired with oauth2TokenUrl for refresh. */
-  oauth2ClientId?: string;
-  /** OAuth2 client secret — for providers that require it (e.g. Slack). Stored in metadata for autonomous refresh. */
-  oauth2ClientSecret?: string;
-  /** How the client authenticates at the token endpoint (client_secret_basic or client_secret_post). */
-  oauth2TokenEndpointAuthMethod?: string;
   /** Human-friendly name for this credential (e.g. "fal-primary"). */
   alias?: string;
   /** Templates describing how to inject this credential into proxied requests. */
@@ -40,7 +35,7 @@ export interface CredentialMetadata {
 }
 
 /** Current on-disk schema version. */
-const CURRENT_VERSION = 2;
+const CURRENT_VERSION = 5;
 
 interface MetadataFile {
   version: typeof CURRENT_VERSION;
@@ -88,9 +83,10 @@ function isValidCredentialRecord(
 }
 
 /**
- * Migrate a v1 record to v2 by backfilling new optional fields with defaults.
+ * Migrate any record to v5 by stripping OAuth-specific fields that are
+ * now exclusively managed by the SQLite oauth-store.
  */
-function migrateRecordV1toV2(
+function migrateRecordToV5(
   record: Record<string, unknown>,
 ): CredentialMetadata {
   return {
@@ -106,27 +102,6 @@ function migrateRecordV1toV2(
     usageDescription:
       typeof record.usageDescription === "string"
         ? record.usageDescription
-        : undefined,
-    expiresAt:
-      typeof record.expiresAt === "number" ? record.expiresAt : undefined,
-    grantedScopes: Array.isArray(record.grantedScopes)
-      ? (record.grantedScopes as string[])
-      : undefined,
-    oauth2TokenUrl:
-      typeof record.oauth2TokenUrl === "string"
-        ? record.oauth2TokenUrl
-        : undefined,
-    oauth2ClientId:
-      typeof record.oauth2ClientId === "string"
-        ? record.oauth2ClientId
-        : undefined,
-    oauth2ClientSecret:
-      typeof record.oauth2ClientSecret === "string"
-        ? record.oauth2ClientSecret
-        : undefined,
-    oauth2TokenEndpointAuthMethod:
-      typeof record.oauth2TokenEndpointAuthMethod === "string"
-        ? record.oauth2TokenEndpointAuthMethod
         : undefined,
     alias: typeof record.alias === "string" ? record.alias : undefined,
     injectionTemplates: Array.isArray(record.injectionTemplates)
@@ -148,7 +123,13 @@ function loadFile(): LoadResult {
       return { version: CURRENT_VERSION, credentials: [] };
     }
     const fileVersion = typeof data.version === "number" ? data.version : 1;
-    if (fileVersion !== 1 && fileVersion !== 2) {
+    if (
+      fileVersion !== 1 &&
+      fileVersion !== 2 &&
+      fileVersion !== 3 &&
+      fileVersion !== 4 &&
+      fileVersion !== 5
+    ) {
       // Unrecognized version (future, fractional, negative, zero) — refuse to touch it
       return { unknownVersion: true };
     }
@@ -159,8 +140,12 @@ function loadFile(): LoadResult {
     const validRecords = rawCredentials.filter(isValidCredentialRecord);
 
     if (fileVersion < CURRENT_VERSION) {
-      // Migrate from v1 to v2 and persist the upgrade so we don't re-migrate on every read
-      const credentials = validRecords.map(migrateRecordV1toV2);
+      // Migrate all older versions to v5 by stripping OAuth-specific fields
+      // and removing ghost refresh_token records
+      const filtered = validRecords.filter(
+        (r) => (r as Record<string, unknown>).field !== "refresh_token",
+      );
+      const credentials = filtered.map(migrateRecordToV5);
       const migrated: MetadataFile = { version: CURRENT_VERSION, credentials };
       try {
         saveFile(migrated);
@@ -214,14 +199,6 @@ export function upsertCredentialMetadata(
     allowedTools?: string[];
     allowedDomains?: string[];
     usageDescription?: string;
-    /** Pass `null` to explicitly clear a previously-set expiry. */
-    expiresAt?: number | null;
-    grantedScopes?: string[];
-    oauth2TokenUrl?: string;
-    oauth2ClientId?: string;
-    /** Pass `null` to explicitly clear a previously-set client secret. */
-    oauth2ClientSecret?: string | null;
-    oauth2TokenEndpointAuthMethod?: string;
     /** Pass `null` to explicitly clear a previously-set alias. */
     alias?: string | null;
     /** Pass `null` to explicitly clear injection templates. */
@@ -248,29 +225,6 @@ export function upsertCredentialMetadata(
       existing.allowedDomains = policy.allowedDomains;
     if (policy?.usageDescription !== undefined)
       existing.usageDescription = policy.usageDescription;
-    if (policy?.expiresAt !== undefined) {
-      if (policy.expiresAt == null) {
-        delete existing.expiresAt;
-      } else {
-        existing.expiresAt = policy.expiresAt;
-      }
-    }
-    if (policy?.grantedScopes !== undefined)
-      existing.grantedScopes = policy.grantedScopes;
-    if (policy?.oauth2TokenUrl !== undefined)
-      existing.oauth2TokenUrl = policy.oauth2TokenUrl;
-    if (policy?.oauth2ClientId !== undefined)
-      existing.oauth2ClientId = policy.oauth2ClientId;
-    if (policy?.oauth2ClientSecret !== undefined) {
-      if (policy.oauth2ClientSecret == null) {
-        delete existing.oauth2ClientSecret;
-      } else {
-        existing.oauth2ClientSecret = policy.oauth2ClientSecret;
-      }
-    }
-    if (policy?.oauth2TokenEndpointAuthMethod !== undefined)
-      existing.oauth2TokenEndpointAuthMethod =
-        policy.oauth2TokenEndpointAuthMethod;
     if (policy?.alias !== undefined) {
       if (policy.alias == null) {
         delete existing.alias;
@@ -297,12 +251,6 @@ export function upsertCredentialMetadata(
     allowedTools: policy?.allowedTools ?? [],
     allowedDomains: policy?.allowedDomains ?? [],
     usageDescription: policy?.usageDescription,
-    expiresAt: policy?.expiresAt ?? undefined,
-    grantedScopes: policy?.grantedScopes,
-    oauth2TokenUrl: policy?.oauth2TokenUrl,
-    oauth2ClientId: policy?.oauth2ClientId,
-    oauth2ClientSecret: policy?.oauth2ClientSecret ?? undefined,
-    oauth2TokenEndpointAuthMethod: policy?.oauth2TokenEndpointAuthMethod,
     alias: policy?.alias ?? undefined,
     injectionTemplates: policy?.injectionTemplates ?? undefined,
     createdAt: now,

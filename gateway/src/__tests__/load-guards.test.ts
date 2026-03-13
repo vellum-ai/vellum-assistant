@@ -2,11 +2,12 @@ import { describe, test, expect } from "bun:test";
 import { createTelegramWebhookHandler } from "../http/routes/telegram-webhook.js";
 import type { GatewayConfig } from "../config.js";
 import type { CredentialCache } from "../credential-cache.js";
+import { credentialKey } from "../credential-key.js";
 
 function makeCaches() {
   const credentials = {
     get: async (key: string) => {
-      if (key === "credential:telegram:webhook_secret") return "wh-sec";
+      if (key === credentialKey("telegram", "webhook_secret")) return "wh-sec";
       return undefined;
     },
     invalidate: () => {},

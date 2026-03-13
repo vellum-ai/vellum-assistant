@@ -69,17 +69,17 @@ public struct ModelListBubble: View {
                 HStack(spacing: VSpacing.sm) {
                     Text(group.name)
                         .font(VFont.small)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .tracking(0.5)
                     Spacer()
                     if group.hasKey {
                         Text("connected")
                             .font(VFont.small)
-                            .foregroundColor(VColor.success)
+                            .foregroundColor(VColor.systemPositiveStrong)
                     } else {
                         Text("no key")
                             .font(VFont.small)
-                            .foregroundColor(VColor.warning)
+                            .foregroundColor(VColor.systemNegativeHover)
                     }
                 }
                 .padding(.horizontal, VSpacing.lg)
@@ -91,7 +91,7 @@ public struct ModelListBubble: View {
                     HStack(spacing: VSpacing.sm) {
                         if model.isCurrent {
                             VIconView(.circleCheck, size: 11)
-                                .foregroundColor(VColor.accent)
+                                .foregroundColor(VColor.primaryBase)
                                 .frame(width: 16)
                         } else {
                             Color.clear.frame(width: 16, height: 1)
@@ -99,13 +99,13 @@ public struct ModelListBubble: View {
 
                         Text(model.displayName)
                             .font(model.isCurrent ? VFont.bodyBold : VFont.body)
-                            .foregroundColor(group.hasKey ? VColor.textPrimary : VColor.textMuted)
+                            .foregroundColor(group.hasKey ? VColor.contentDefault : VColor.contentTertiary)
 
                         Spacer()
 
                         Text("/\(model.id)")
                             .font(VFont.monoSmall)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
                     .padding(.horizontal, VSpacing.lg)
                     .padding(.vertical, VSpacing.xs + 2)
@@ -115,17 +115,17 @@ public struct ModelListBubble: View {
             // Footer
             Text("Switch with /shortcut or `config set apiKeys.<provider> <key>` to add a provider.")
                 .font(VFont.small)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.top, VSpacing.md)
                 .padding(.bottom, VSpacing.sm)
         }
         .padding(.vertical, VSpacing.xs)
-        .background(VColor.surface)
+        .background(VColor.surfaceBase)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                .stroke(VColor.borderBase, lineWidth: 1)
         )
         .frame(maxWidth: 480)
     }

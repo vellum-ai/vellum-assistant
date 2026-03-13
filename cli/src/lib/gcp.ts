@@ -637,7 +637,7 @@ export async function hatchGcp(
           species === "vellum" &&
           (await checkCurlFailure(instanceName, project, zone, account))
         ) {
-          const installScriptUrl = `${process.env.VELLUM_ASSISTANT_PLATFORM_URL ?? "https://assistant.vellum.ai"}/install.sh`;
+          const installScriptUrl = `${process.env.VELLUM_PLATFORM_URL ?? "https://assistant.vellum.ai"}/install.sh`;
           console.log(
             `\ud83d\udd04 Detected install script curl failure for ${installScriptUrl}, attempting recovery...`,
           );

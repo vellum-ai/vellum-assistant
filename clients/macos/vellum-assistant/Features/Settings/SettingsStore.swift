@@ -192,6 +192,12 @@ public final class SettingsStore: ObservableObject {
 
     @Published var assistantEmail: String?
 
+    // MARK: - Channel Setup Status
+
+    /// Per-channel setup status populated from the readiness API.
+    /// Values: "not_configured", "incomplete", "ready".
+    @Published var channelSetupStatus: [String: String] = [:]
+
     // MARK: - Platform Config State
 
     @Published var platformBaseUrl: String = ""
@@ -517,6 +523,7 @@ public final class SettingsStore: ObservableObject {
                 self.telegramConnected = response.connected
                 self.telegramHasWebhookSecret = response.hasWebhookSecret
                 self.telegramError = nil
+                self.fetchChannelSetupStatus()
             } else {
                 self.telegramError = response.error
             }
@@ -847,10 +854,16 @@ public final class SettingsStore: ObservableObject {
     }
 
     func clearTelegramCredentials() {
+        telegramSaveInProgress = true
+        telegramError = nil
         do {
-            guard let daemonClient else { return }
+            guard let daemonClient else {
+                telegramSaveInProgress = false
+                return
+            }
             try daemonClient.sendTelegramConfig(action: "clear")
         } catch {
+            telegramSaveInProgress = false
             log.error("Failed to send Telegram config clear: \(error)")
         }
     }
@@ -1115,6 +1128,7 @@ public final class SettingsStore: ObservableObject {
                         self.slackChannelHasBotToken = true
                         self.slackChannelHasAppToken = true
                     }
+                    self.fetchChannelSetupStatus()
                 } else {
                     let errorMsg: String
                     if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -1147,6 +1161,7 @@ public final class SettingsStore: ObservableObject {
                     self.slackChannelBotUsername = nil
                     self.slackChannelTeamName = nil
                     self.slackChannelError = nil
+                    self.fetchChannelSetupStatus()
                 }
             } catch {
                 log.error("Failed to clear Slack channel config: \(error)")
@@ -1289,6 +1304,7 @@ public final class SettingsStore: ObservableObject {
                 body: ["accountSid": trimmedSid, "authToken": trimmedToken]
             )
             twilioSaveInProgress = false
+            self.fetchChannelSetupStatus()
         }
     }
 
@@ -1302,6 +1318,7 @@ public final class SettingsStore: ObservableObject {
                 path: "/v1/integrations/twilio/credentials"
             )
             twilioSaveInProgress = false
+            self.fetchChannelSetupStatus()
         }
     }
 
@@ -1943,6 +1960,22 @@ public final class SettingsStore: ObservableObject {
         Task {
             let status = await daemonClient.fetchIntegrationsStatus(gatewayBaseURL: gatewayURL)
             self.assistantEmail = status?.email.address
+        }
+    }
+
+    // MARK: - Channel Setup Status
+
+    func fetchChannelSetupStatus() {
+        Task {
+            do {
+                guard let daemonClient else { return }
+                let readiness = try await daemonClient.fetchChannelReadiness()
+                for (channel, info) in readiness {
+                    self.channelSetupStatus[channel] = info.setupStatus ?? "not_configured"
+                }
+            } catch {
+                log.error("Failed to fetch channel setup status: \(error)")
+            }
         }
     }
 

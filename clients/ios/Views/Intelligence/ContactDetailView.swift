@@ -42,7 +42,7 @@ struct ContactDetailView: View {
                 Section("Notes") {
                     Text(notes)
                         .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
             }
 
@@ -110,7 +110,7 @@ struct ContactDetailView: View {
 
             Text(liveContact.displayName)
                 .font(VFont.title)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             HStack(spacing: VSpacing.sm) {
                 roleBadge(liveContact.role)
@@ -118,7 +118,7 @@ struct ContactDetailView: View {
                 if let contactType = liveContact.contactType, !contactType.isEmpty {
                     Text(contactType.capitalized)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
         }
@@ -136,12 +136,12 @@ struct ContactDetailView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(channel.address)
                         .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
 
                     HStack(spacing: 4) {
                         Text(channel.type.capitalized)
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
 
                         if channel.isPrimary {
                             Text("Primary")
@@ -243,7 +243,7 @@ struct ContactDetailView: View {
         }()
 
         return VIconView(icon, size: 16)
-            .foregroundColor(VColor.accent)
+            .foregroundColor(VColor.primaryBase)
             .frame(width: 28)
     }
 
@@ -258,7 +258,7 @@ struct ContactDetailView: View {
             .font(.system(size: size * 0.35, weight: .semibold))
             .foregroundColor(.white)
             .frame(width: size, height: size)
-            .background(Circle().fill(VColor.accent))
+            .background(Circle().fill(VColor.primaryBase))
             .accessibilityHidden(true)
     }
 
@@ -266,11 +266,11 @@ struct ContactDetailView: View {
         HStack {
             Text(label)
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
             Spacer()
             Text(value)
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(label): \(value)")

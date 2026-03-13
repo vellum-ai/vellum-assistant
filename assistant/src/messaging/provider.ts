@@ -5,6 +5,7 @@
  * implementing one adapter file + an OAuth setup skill.
  */
 
+import type { OAuthConnection } from "../oauth/connection.js";
 import type {
   ArchiveResult,
   ConnectionInfo,
@@ -29,23 +30,25 @@ export interface MessagingProvider {
 
   // ── Universal operations (every platform must implement) ──────────
 
-  testConnection(token: string): Promise<ConnectionInfo>;
+  testConnection(
+    connectionOrToken: OAuthConnection | string,
+  ): Promise<ConnectionInfo>;
   listConversations(
-    token: string,
+    connectionOrToken: OAuthConnection | string,
     options?: ListOptions,
   ): Promise<Conversation[]>;
   getHistory(
-    token: string,
+    connectionOrToken: OAuthConnection | string,
     conversationId: string,
     options?: HistoryOptions,
   ): Promise<Message[]>;
   search(
-    token: string,
+    connectionOrToken: OAuthConnection | string,
     query: string,
     options?: SearchOptions,
   ): Promise<SearchResult>;
   sendMessage(
-    token: string,
+    connectionOrToken: OAuthConnection | string,
     conversationId: string,
     text: string,
     options?: SendOptions,
@@ -54,32 +57,35 @@ export interface MessagingProvider {
   // ── Optional operations (platforms implement what they support) ───
 
   getThreadReplies?(
-    token: string,
+    connectionOrToken: OAuthConnection | string,
     conversationId: string,
     threadId: string,
     options?: HistoryOptions,
   ): Promise<Message[]>;
   markRead?(
-    token: string,
+    connectionOrToken: OAuthConnection | string,
     conversationId: string,
     messageId?: string,
   ): Promise<void>;
 
   /** Scan messages and group by sender for bulk cleanup (e.g. newsletter decluttering). */
   senderDigest?(
-    token: string,
+    connectionOrToken: OAuthConnection | string,
     query: string,
     options?: { maxMessages?: number; maxSenders?: number; pageToken?: string },
   ): Promise<SenderDigestResult>;
   /** Archive messages matching a search query. */
-  archiveByQuery?(token: string, query: string): Promise<ArchiveResult>;
+  archiveByQuery?(
+    connectionOrToken: OAuthConnection | string,
+    query: string,
+  ): Promise<ArchiveResult>;
 
   /**
    * Override the default credential check used by getConnectedProviders().
-   * When present, the registry calls this instead of looking for
-   * credential:${credentialService}:access_token. Useful for providers
-   * that don't use OAuth (e.g. Telegram bot tokens stored under a
-   * non-standard key).
+   * When present, the registry calls this instead of checking for an
+   * active oauth-store connection via isProviderConnected(). Useful
+   * for providers that don't use OAuth (e.g. Telegram bot tokens stored
+   * under a non-standard key).
    */
   isConnected?(): boolean;
 

@@ -31,10 +31,6 @@ final class AttachmentFlowIOSTests: XCTestCase {
 
     // MARK: - Attachment Constants
 
-    func testMaxAttachmentsConstant() {
-        XCTAssertEqual(ChatViewModel.maxAttachments, 5)
-    }
-
     func testMaxFileSizeConstant() {
         XCTAssertEqual(ChatViewModel.maxFileSize, 20 * 1024 * 1024, "Max file size should be 20 MB")
     }
@@ -183,22 +179,6 @@ final class AttachmentFlowIOSTests: XCTestCase {
         }
         XCTAssertEqual(first.filename, "Screenshot.png")
         XCTAssertEqual(first.mimeType, "image/png")
-    }
-
-    func testAddAttachmentFromImageDataRespectsMaxAttachments() {
-        // Fill up to max
-        for i in 0..<ChatViewModel.maxAttachments {
-            let att = makeDummyAttachment(id: "att-\(i)", filename: "file\(i).txt")
-            viewModel.pendingAttachments.append(att)
-        }
-
-        // Try to add one more
-        let pngData = makeMinimalPNGData()
-        viewModel.addAttachment(imageData: pngData, filename: "Overflow.png")
-
-        XCTAssertEqual(viewModel.pendingAttachments.count, ChatViewModel.maxAttachments,
-                       "Should not exceed max attachments")
-        XCTAssertNotNil(viewModel.errorText, "Should set error when exceeding max")
     }
 
     // MARK: - Thumbnail Generation

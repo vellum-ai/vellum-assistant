@@ -1,6 +1,7 @@
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 import type { CredentialCache } from "../credential-cache.js";
+import { credentialKey } from "../credential-key.js";
 import { initSigningKey, mintToken } from "../auth/token-service.js";
 import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
 
@@ -69,7 +70,7 @@ function makeRequest(body: unknown): Request {
 function makeCaches() {
   const credentials = {
     get: async (key: string) => {
-      if (key === "credential:slack_channel:bot_token")
+      if (key === credentialKey("slack_channel", "bot_token"))
         return "xoxb-test-bot-token";
       return undefined;
     },

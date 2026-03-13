@@ -13,18 +13,18 @@ struct SettingsCard<Content: View>: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text(title)
                     .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 if let subtitle {
                     Text(subtitle)
                         .font(VFont.sectionDescription)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
             content()
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceSubtle)
+        .vCard(background: VColor.surfaceOverlay)
     }
 }
 
@@ -32,7 +32,7 @@ struct SettingsCard<Content: View>: View {
 struct SettingsDivider: View {
     var body: some View {
         Rectangle()
-            .fill(VColor.cardBorder)
+            .fill(VColor.borderBase)
             .frame(height: 1)
     }
 }

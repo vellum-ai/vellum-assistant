@@ -13,7 +13,6 @@ The macOS app uses a centralized service container (`AppServices`) created once 
 | Service | Type | Purpose |
 |---------|------|---------|
 | `daemonClient` | `DaemonClient` | HTTP+SSE to daemon (local mode) or HTTP+SSE to platform proxy (managed mode) |
-| `ambientAgent` | `AmbientAgent` | Coordinates Ride Shotgun trigger, session, and floating windows |
 | `surfaceManager` | `SurfaceManager` | Routes `ui_surface_show` messages |
 | `toolConfirmationManager` | `ToolConfirmationManager` | Handles tool permission prompts |
 | `secretPromptManager` | `SecretPromptManager` | Handles secret input prompts |
@@ -52,7 +51,7 @@ Types that use Combine `$`-prefixed publishers (e.g., `VoiceTranscriptionViewMod
 graph LR
     subgraph "macOS Keychain"
         K1["API Key<br/>service: vellum-assistant<br/>account: anthropic<br/>stored via /usr/bin/security CLI"]
-        K2["Credential Secrets<br/>key: credential:{service}:{field}<br/>stored via secure-keys.ts<br/>(encrypted file fallback if Keychain unavailable)"]
+        K2["Credential Secrets<br/>key: credential/{service}/{field}<br/>stored via secure-keys.ts<br/>(encrypted file fallback if Keychain unavailable)"]
     end
 
     subgraph "UserDefaults (plist)"
@@ -75,15 +74,10 @@ graph LR
         MSG["messages<br/>───────────────<br/>id, conversation_id (FK)<br/>role: user | assistant<br/>content: JSON array<br/>created_at"]
         TOOL["tool_invocations<br/>───────────────<br/>tool_name, input, result<br/>decision, risk_level<br/>duration_ms"]
         SEG["memory_segments<br/>───────────────<br/>Text chunks for retrieval<br/>Linked to messages<br/>token_estimate per segment"]
-        FTS["memory_segment_fts<br/>───────────────<br/>FTS5 virtual table<br/>Auto-synced via triggers<br/>Powers lexical search"]
         ITEMS["memory_items<br/>───────────────<br/>Extracted facts/entities<br/>kind, subject, statement<br/>confidence, fingerprint (dedup)<br/>verification_state, scope_id<br/>first/last seen timestamps"]
-        CONFLICTS["memory_item_conflicts<br/>───────────────<br/>Pending/resolved contradiction pairs<br/>existing_item_id + candidate_item_id<br/>clarification question + resolution note<br/>partial unique pending pair index"]
-        ENTITIES["memory_entities<br/>───────────────<br/>Canonical entities + aliases<br/>mention_count, first/last seen<br/>Resolved across messages"]
-        RELS["memory_entity_relations<br/>───────────────<br/>Directional entity edges<br/>Unique by source/target/relation<br/>first/last seen + evidence"]
-        ITEM_ENTS["memory_item_entities<br/>───────────────<br/>Join table linking extracted<br/>memory_items to entities"]
         SUM["memory_summaries<br/>───────────────<br/>scope: conversation | weekly<br/>Compressed history for context<br/>window management"]
         EMB["memory_embeddings<br/>───────────────<br/>target: segment | item | summary<br/>provider + model metadata<br/>vector_json (float array)<br/>Powers semantic search"]
-        JOBS["memory_jobs<br/>───────────────<br/>Async task queue<br/>Types: embed, extract,<br/>summarize, backfill,<br/>conflict resolution, cleanup<br/>Status: pending → running →<br/>completed | failed"]
+        JOBS["memory_jobs<br/>───────────────<br/>Async task queue<br/>Types: embed, extract,<br/>summarize, backfill, cleanup<br/>Status: pending → running →<br/>completed | failed"]
         ATT["attachments<br/>───────────────<br/>base64-encoded file data<br/>mime_type, size_bytes<br/>Linked to messages via<br/>message_attachments join"]
         REM["reminders<br/>───────────────<br/>One-time scheduled reminders<br/>label, message, fireAt<br/>mode: notify | execute<br/>status: pending → fired | cancelled"]
         SCHED_JOBS["cron_jobs (recurrence schedules)<br/>───────────────<br/>Recurring schedule definitions<br/>cron_expression: cron or RRULE string<br/>schedule_syntax: 'cron' | 'rrule'<br/>timezone, message, next_run_at<br/>enabled, retry_count<br/>Legacy alias: scheduleJobs"]
@@ -114,15 +108,16 @@ graph LR
 
 ## Computer Use Session — Detailed Data Flow
 
+Computer use runs through the daemon's main session loop. The daemon decides when to
+invoke CU tools, sends `host_cu_request` messages to the client, which executes them
+locally via `HostCuExecutor` and posts `host_cu_result` back.
+
 ```mermaid
 sequenceDiagram
     participant User
-    participant UI as TaskInputView
+    participant Chat as ChatView
     participant AD as AppDelegate
-    participant CLS as Classifier (Haiku)
-    participant TextSess as Session (text_qa)
-    participant TW as TextResponseWindow
-    participant Session as ComputerUseSession
+    participant HCE as HostCuExecutor
     participant AX as AccessibilityTree
     participant SC as ScreenCapture
     participant DC as DaemonClient
@@ -132,87 +127,66 @@ sequenceDiagram
     participant AE as ActionExecutor
     participant macOS as macOS (CGEvents)
 
-    User->>UI: Type task / Voice / Paste
-    UI->>AD: submit(TaskSubmission)
-    Note over AD: TaskSubmission carries<br/>source: 'voice' | 'text' | nil
-    AD->>CLS: classifyInteraction(task, source)
+    User->>Chat: Type task / Voice / Paste
+    Chat->>DC: POST /v1/messages
+    DC->>Daemon: HTTP POST
+    Note over Daemon: Creates conversation in SQLite<br/>Starts agent loop
 
-    alt source === 'voice' → text_qa path
-        Note over CLS: Bypass Haiku API call<br/>Route directly to text_qa
-        CLS-->>AD: InteractionType.textQA
-        AD->>DC: send(SessionCreate + UserMessage)
-        Note over DC: HTTP POST
-        DC->>Daemon: HTTP
-        Note over Daemon: Creates conversation in SQLite<br/>Wires escalation handler
-        Daemon-->>DC: task_routed(text_qa)
-        DC-->>AD: route to text_qa UI
-        Note over Daemon: Starts streaming immediately
-        Daemon->>Claude: API call with text prompt
-        Claude-->>Daemon: streaming text response
-        Daemon-->>DC: assistant_text_delta (stream)
-        DC-->>TextSess: text deltas
-        TextSess-->>TW: display streaming response
-        Daemon-->>DC: message_complete
+    Daemon->>Claude: API call with user message
+    Claude-->>Daemon: tool_use (computer use tool)
+    Note over Daemon: Model decides CU is needed
 
-    else source === 'text' or nil → computer_use path
-        Note over CLS: Haiku-4.5 direct call<br/>5s timeout, heuristic fallback
-        CLS-->>AD: InteractionType.computerUse
+    loop host_cu_request / host_cu_result
+        Daemon-->>DC: host_cu_request (SSE)
+        Note over DC: Contains: tool name, parameters,<br/>step number, reasoning
 
-        AD->>Session: init(task, daemonClient, ...)
-        Session->>DC: send(CuSessionCreateMessage)
-        Note over DC: HTTP POST
+        DC-->>AD: getOrCreateHostCuOverlay()
+        Note over AD: Creates HostCuSessionProxy<br/>Shows SessionOverlayWindow<br/>Pauses ambient agent
 
-        loop PERCEIVE → INFER → VERIFY → EXECUTE → WAIT
-            par Parallel Capture
-                Session->>AX: enumerate()
-                Note over AX: AXUIElement tree walk<br/>Sets AXEnhancedUserInterface<br/>Chrome: force-renderer-accessibility<br/>Filters to interactive elements<br/>Format: [ID] role "title" at (x,y)
-                AX-->>Session: axTree + axDiff
-            and
-                Session->>SC: capture()
-                Note over SC: ScreenCaptureKit<br/>Exclude own windows<br/>Downscale to 1280x720<br/>JPEG @ 0.6 quality
-                SC-->>Session: base64 screenshot
-            end
+        AD->>HCE: execute(request)
 
-            Session->>DC: send(CuObservationMessage)
-            Note over DC: Contains: axTree, axDiff,<br/>screenshot, secondaryWindows,<br/>executionResult/error
+        HCE->>AV: verify(action, history)
+        Note over AV: Step limit (max 50)<br/>Loop detection (3x same)<br/>Sensitive data check<br/>Destructive key check<br/>System menu bar block<br/>AppleScript sandboxing
 
-            DC->>Daemon: HTTP POST
-            Daemon->>Claude: API call with observation
-            Note over Daemon: Loads conversation from SQLite<br/>Appends observation as user msg<br/>Stores in messages table
-            Claude-->>Daemon: tool_use response
-            Note over Daemon: Stores assistant msg in SQLite<br/>Logs tool_invocation<br/>Enqueues memory jobs
-            Daemon-->>DC: CuActionMessage
-
-            DC-->>Session: action (tool + input)
-
-            Session->>AV: verify(action, history)
-            Note over AV: Step limit (max 50)<br/>Loop detection (3x same)<br/>Sensitive data check<br/>Destructive key check<br/>System menu bar block<br/>AppleScript sandboxing
-
-            alt allowed
-                AV-->>Session: .allowed
-            else needsConfirmation
-                AV-->>Session: .needsConfirmation(reason)
-                Session->>User: confirmation dialog
-                User-->>Session: approve/block
-            else blocked
-                AV-->>Session: .blocked(reason)
-                Note over Session: 3 consecutive blocks<br/>= session terminated
-            end
-
-            Session->>AE: execute(action)
-            Note over AE: click: CGEvent mouse down/up<br/>type: clipboard paste + Cmd+V<br/>key: CGEvent key events<br/>scroll: scroll wheel events<br/>openApp: NSWorkspace launch<br/>appleScript: osascript subprocess
-
-            AE->>macOS: CGEvent injection
-            macOS-->>AE: result
-
-            Session->>Session: waitForUISettle()
-            Note over Session: Min 100ms for CGEvents<br/>Poll AX tree 5x @ 100ms<br/>Return early on tree change<br/>Max 1200ms timeout
+        alt allowed
+            AV-->>HCE: .allowed
+        else needsConfirmation
+            AV-->>HCE: .needsConfirmation(reason)
+            HCE->>User: confirmation dialog
+            User-->>HCE: approve/block
+        else blocked
+            AV-->>HCE: .blocked(reason)
         end
 
-        Daemon-->>DC: CuCompleteMessage
-        DC-->>Session: session complete
-        Session-->>AD: .completed(summary)
+        HCE->>AE: execute(action)
+        Note over AE: click: CGEvent mouse down/up<br/>type: clipboard paste + Cmd+V<br/>key: CGEvent key events<br/>scroll: scroll wheel events<br/>openApp: NSWorkspace launch<br/>appleScript: osascript subprocess
+
+        AE->>macOS: CGEvent injection
+        macOS-->>AE: result
+
+        par Parallel Capture
+            HCE->>AX: enumerate()
+            Note over AX: AXUIElement tree walk<br/>Sets AXEnhancedUserInterface<br/>Chrome: force-renderer-accessibility<br/>Filters to interactive elements<br/>Format: [ID] role "title" at (x,y)
+            AX-->>HCE: axTree + axDiff
+        and
+            HCE->>SC: capture()
+            Note over SC: ScreenCaptureKit<br/>Exclude own windows<br/>Downscale to 1280x720<br/>JPEG @ 0.6 quality
+            SC-->>HCE: base64 screenshot
+        end
+
+        HCE->>DC: POST host_cu_result
+        Note over DC: Contains: axTree, axDiff,<br/>screenshot, secondaryWindows,<br/>executionResult/error
+
+        DC->>Daemon: HTTP POST
+        Daemon->>Claude: API call with observation
+        Note over Daemon: Appends tool result<br/>Stores in messages table
+        Claude-->>Daemon: next tool_use or end_turn
     end
+
+    Note over Daemon: Agent loop ends (end_turn)
+    Daemon-->>DC: message_complete (SSE)
+    DC-->>AD: dismissHostCuOverlay()
+end
 ```
 
 ---
@@ -282,75 +256,6 @@ sequenceDiagram
     Note over Daemon: uploadFileBackedAttachment<br/>linkAttachmentToMessage
     Daemon->>Client: assistant_text_delta + message_complete { attachments }
 ```
-
----
-
-## Ride Shotgun — Detailed Data Flow
-
-The Ride Shotgun system replaces the legacy ambient suggestion pipeline. Instead of continuously observing and generating suggestions, it uses a timer-based invitation model: after eligibility checks pass, the user is invited to a time-boxed observation session. Captures are sent to the daemon for analysis, and a summary is presented at the end.
-
-```mermaid
-sequenceDiagram
-    participant Trigger as RideShotgunTrigger<br/>(1-min timer)
-    participant Agent as AmbientAgent
-    participant InviteWin as RideShotgunInvitationWindow
-    participant Session as RideShotgunSession
-    participant WS as WatchSession
-    participant AXC as AmbientAXCapture
-    participant OCR as ScreenOCR
-    participant DC as DaemonClient
-    participant Daemon as Daemon
-    participant ProgressWin as RideShotgunProgressWindow
-    participant SummaryWin as RideShotgunSummaryWindow
-
-    Trigger->>Trigger: evaluate() every 60s
-    Note over Trigger: Eligibility checks:<br/>≥15 min since launch<br/><3 auto-offer sessions<br/>24h cooldown after decline/complete
-
-    Trigger->>Agent: shouldShowInvitation = true
-    Agent->>InviteWin: show invitation
-
-    alt User accepts
-        InviteWin->>Agent: accepted
-        Agent->>Session: start(daemonClient)
-        Agent->>ProgressWin: show progress
-
-        Session->>WS: start (timed capture loop)
-
-        loop Until duration expires
-            alt AX Capture (preferred)
-                WS->>AXC: capture()
-                Note over AXC: Shallow tree (depth 4, max 50)<br/>Filter decoration roles<br/>Capture focused element
-                AXC-->>WS: screen content text
-            else Screenshot + OCR (fallback)
-                WS->>OCR: recognizeText(screenshot)
-                Note over OCR: Vision VNRecognizeTextRequest<br/>accurate + language correction
-                OCR-->>WS: recognized text
-            end
-
-            WS-->>Session: observation data
-            Session->>DC: send observation via HTTP
-            DC->>Daemon: process observation
-            Daemon-->>DC: result
-            DC-->>Session: observation processed
-            Session-->>ProgressWin: update (elapsed, captures, app)
-        end
-
-        Session->>Session: summarizing
-        Session->>DC: request summary via HTTP
-        Daemon-->>DC: summary text
-        DC-->>Session: summary
-        Session-->>Agent: state = .complete
-        Agent->>SummaryWin: show summary
-        Agent->>ProgressWin: close
-    else User declines
-        InviteWin->>Agent: declined
-        Agent->>Trigger: recordDecline()
-        Note over Trigger: 24h cooldown starts
-    end
-```
-
----
-
 
 ---
 
@@ -816,28 +721,6 @@ New settings sections brought to iOS for feature parity with macOS:
 | `ModelsServicesSection` | `ios/Views/Settings/ModelsServicesSection.swift` | Active model display/set, API key management via Keychain |
 | `PrivacySection` | `ios/Views/Settings/PrivacySection.swift` | System permission status display with deep-link to iOS Settings |
 | `ChannelsGuardianSection` | `ios/Views/Settings/ChannelsGuardianSection.swift` | Guardian status, guardian channel management, approved contacts overview |
-
----
-
-## macOS Task Queue (M10)
-
-The Task Queue panel is a macOS side panel for managing one-shot work items.
-
-| Component | File | Purpose |
-|-----------|------|---------|
-| `TaskQueuePanel` | `macos/.../Panels/TaskQueuePanel.swift` | Side panel with filter strip, task list, output/preflight sheet presentation |
-| `TaskQueueRow` | (private in TaskQueuePanel.swift) | Individual task row with status badge, priority menu, run/stop/result actions |
-| `TaskQueueViewModel` | `macos/.../Panels/TaskQueueViewModel.swift` | Centralized state: items, filters, run/cancel/timeout tracking, daemon callbacks |
-| `TaskPreflightView` | `macos/.../Panels/TaskPreflightView.swift` | Permission approval sheet with toggleable tool permissions and risk badges |
-| `TaskOutputView` | `macos/.../Panels/TaskOutputView.swift` | Output detail sheet with status, summary, highlights, and copy-to-clipboard |
-
-### Task Queue Data Flow
-
-1. `TaskQueueViewModel` sets up daemon callbacks in `init` and fetches the initial item list
-2. Filter strip controls which status subset is displayed (`All`, `Active`, `Completed`, `Failed`)
-3. Running a task triggers a preflight check; if permissions are needed, `TaskPreflightView` is presented
-4. Run requests include a timeout (10s); if the daemon doesn't respond, the task shows a "No response" warning
-5. Status changes from the daemon trigger debounced list refreshes (300ms)
 
 ---
 

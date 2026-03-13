@@ -106,12 +106,12 @@ extension AppDelegate {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
-        window.backgroundColor = NSColor(VColor.background)
+        window.backgroundColor = NSColor(VColor.surfaceOverlay)
         window.isReleasedWhenClosed = false
         window.setContentSize(NSSize(width: 380, height: 300))
         window.center()
 
-        NSApp.setActivationPolicy(.regular)
+        NSApp.activateAsDockAppIfNeeded()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
@@ -352,7 +352,6 @@ extension AppDelegate {
             self.transitionBootstrap(to: .pendingFirstReply)
             self.wireBootstrapFirstReplyCallback()
         }
-        setupWakeWordCoordinator()
         debugStateWriter.start(appDelegate: self)
     }
 

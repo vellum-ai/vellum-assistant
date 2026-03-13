@@ -2,19 +2,8 @@
  * Messaging provider registry — register/lookup providers by platform ID.
  */
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import { getConfig } from "../config/loader.js";
-import { getSecureKey } from "../security/secure-keys.js";
+import { isProviderConnected } from "../oauth/oauth-store.js";
 import type { MessagingProvider } from "./provider.js";
-
-/**
- * Per-platform feature flag keys. Platforms not listed here are allowed
- * by default (undeclared keys resolve to `true`).
- */
-const PLATFORM_FLAG_KEYS: Record<string, string> = {
-  gmail: "feature_flags.messaging.gmail.enabled",
-  telegram: "feature_flags.messaging.telegram.enabled",
-};
 
 const providers = new Map<string, MessagingProvider>();
 
@@ -30,32 +19,14 @@ export function getMessagingProvider(id: string): MessagingProvider {
       `Messaging provider "${id}" not found. Available: ${available}`,
     );
   }
-  assertPlatformEnabled(id);
   return provider;
-}
-
-export function isPlatformEnabled(platformId: string): boolean {
-  const flagKey = PLATFORM_FLAG_KEYS[platformId];
-  if (!flagKey) return true;
-  return isAssistantFeatureFlagEnabled(flagKey, getConfig());
-}
-
-function assertPlatformEnabled(platformId: string): void {
-  if (!isPlatformEnabled(platformId)) {
-    throw new Error(
-      `The ${platformId} platform is not enabled. Enable it in Settings > Features.`,
-    );
-  }
 }
 
 /** Return all registered providers that have stored credentials. */
 export function getConnectedProviders(): MessagingProvider[] {
   return Array.from(providers.values()).filter((p) => {
     if (p.isConnected) return p.isConnected();
-    const token = getSecureKey(
-      `credential:${p.credentialService}:access_token`,
-    );
-    return token !== undefined;
+    return isProviderConnected(p.credentialService);
   });
 }
 

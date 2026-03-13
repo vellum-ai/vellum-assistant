@@ -1,6 +1,7 @@
 import type { CredentialCache } from "../credential-cache.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
 import type { GatewayConfig } from "../config.js";
+import { credentialKey } from "../credential-key.js";
 import { getLogger } from "../logger.js";
 import { verifyTwilioSignature } from "./verify.js";
 
@@ -202,7 +203,7 @@ export async function validateTwilioWebhookRequest(
 
   // Resolve the auth token from cache
   let authToken = caches?.credentials
-    ? await caches.credentials.get("credential:twilio:auth_token")
+    ? await caches.credentials.get(credentialKey("twilio", "auth_token"))
     : undefined;
 
   // Resolve ingress URL from cache
@@ -220,7 +221,7 @@ export async function validateTwilioWebhookRequest(
   // One-shot force retry: if missing and caches available, try force refresh
   if (!authToken && caches?.credentials) {
     const freshAuthToken = await caches.credentials.get(
-      "credential:twilio:auth_token",
+      credentialKey("twilio", "auth_token"),
       { force: true },
     );
     if (freshAuthToken) {
@@ -293,7 +294,7 @@ export async function validateTwilioWebhookRequest(
   // force-refresh the auth token and ingress URL then retry once.
   if (validatingIndex === -1 && caches?.credentials) {
     const freshAuthToken = await caches.credentials.get(
-      "credential:twilio:auth_token",
+      credentialKey("twilio", "auth_token"),
       { force: true },
     );
     let freshIngressUrl: string | undefined;
@@ -365,7 +366,7 @@ export async function validateTwilioWebhookRequest(
         ingressPublicBaseUrl: ingressUrl,
       },
       "Twilio signature validated against raw request URL fallback — " +
-        "INGRESS_PUBLIC_BASE_URL may be stale or mismatched with the actual webhook registration",
+        "ingress.publicBaseUrl may be stale or mismatched with the actual webhook registration",
     );
   } else {
     log.info(successLogContext, "Twilio webhook signature validated");

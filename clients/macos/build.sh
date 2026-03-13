@@ -22,7 +22,7 @@ set -euo pipefail
 #   DISPLAY_VERSION   Override CFBundleShortVersionString (default: 0.1.0)
 #   BUILD_VERSION     Override CFBundleVersion (default: 1)
 #   SIGN_IDENTITY     Override code signing identity
-#   VELLUM_ASSISTANT_PLATFORM_URL  Override managed sign-in platform URL for app launches
+#   VELLUM_PLATFORM_URL  Override managed sign-in platform URL for app launches
 
 # ---------------------------------------------------------------------------
 # swift_with_retry — run a swift command with retries for transient SPM
@@ -187,6 +187,9 @@ build_binaries() {
     local daemon_flags=("${DAEMON_EXTERNAL_FLAGS[@]}")
     if [ -n "${DISPLAY_VERSION:-}" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
         daemon_flags+=(--define "process.env.APP_VERSION='$DISPLAY_VERSION'")
+    fi
+    if [ -n "${COMMIT_SHA:-}" ]; then
+        daemon_flags+=(--define "process.env.COMMIT_SHA='$COMMIT_SHA'")
     fi
     build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/daemon/main.ts" \
         "$SCRIPT_DIR/daemon-bin" "vellum-daemon" "${daemon_flags[@]}"
@@ -356,6 +359,9 @@ if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
     local_daemon_flags=("${DAEMON_EXTERNAL_FLAGS[@]}")
     if [ -n "${DISPLAY_VERSION:-}" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
         local_daemon_flags+=(--define "process.env.APP_VERSION='$DISPLAY_VERSION'")
+    fi
+    if [ -n "${COMMIT_SHA:-}" ]; then
+        local_daemon_flags+=(--define "process.env.COMMIT_SHA='$COMMIT_SHA'")
     fi
     build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/daemon/main.ts" \
         "$SCRIPT_DIR/daemon-bin" "vellum-daemon" "${local_daemon_flags[@]}"
@@ -535,7 +541,7 @@ if [ -d "$SCRIPT_DIR/daemon-bin/brain-graph" ]; then
 fi
 # Always refresh feature flag registry for the bundled gateway.
 # The compiled gateway resolves this from Contents/Resources in app layouts.
-FEATURE_FLAG_REGISTRY="$GATEWAY_SRC_DIR/src/feature-flag-registry.json"
+FEATURE_FLAG_REGISTRY="$SCRIPT_DIR/../../meta/feature-flags/feature-flag-registry.json"
 if [ -f "$FEATURE_FLAG_REGISTRY" ]; then
     cp "$FEATURE_FLAG_REGISTRY" "$RESOURCES_DIR/feature-flag-registry.json"
 fi
@@ -556,15 +562,20 @@ for SPM_BUNDLE in "$BIN_PATH"/*.bundle; do
     fi
 done
 
+# Default VELLUM_PLATFORM_URL for `run` builds (local dev against dev platform)
+if [ "$CMD" = "run" ] && [ -z "${VELLUM_PLATFORM_URL:-}" ]; then
+    export VELLUM_PLATFORM_URL="https://dev-assistant.vellum.ai"
+fi
+
 # Always regenerate Info.plist (fast, depends on env vars like DISPLAY_VERSION)
 LSE_ENVIRONMENT_PLIST=""
-if [ -n "${VELLUM_ASSISTANT_PLATFORM_URL:-}" ]; then
-    PLATFORM_URL_OVERRIDE="${VELLUM_ASSISTANT_PLATFORM_URL%/}"
+if [ -n "${VELLUM_PLATFORM_URL:-}" ]; then
+    PLATFORM_URL_OVERRIDE="${VELLUM_PLATFORM_URL%/}"
     echo "Embedding app platform URL override: $PLATFORM_URL_OVERRIDE"
     LSE_ENVIRONMENT_PLIST=$(cat <<EOF
     <key>LSEnvironment</key>
     <dict>
-        <key>VELLUM_ASSISTANT_PLATFORM_URL</key>
+        <key>VELLUM_PLATFORM_URL</key>
         <string>$PLATFORM_URL_OVERRIDE</string>
     </dict>
 EOF
@@ -947,12 +958,22 @@ if [ "$CMD" = "run" ]; then
     # bundle ID and show it in System Settings > Privacy & Security.
     open "$APP_DIR"
 
+    # Stream unified logs from the app in the background so errors are
+    # visible in the same terminal. Only start once (skip nested rebuilds).
+    if [ -z "${VELLUM_NO_WATCH:-}" ]; then
+        LOG_STREAM_PID=""
+        echo ""
+        echo "Streaming app logs (subsystem: $BUNDLE_ID)..."
+        log stream --predicate "subsystem == \"$BUNDLE_ID\"" --level debug &
+        LOG_STREAM_PID=$!
+    fi
+
     # Watch for file changes and auto-rebuild+relaunch (skip in nested invocations)
     if [ -z "${VELLUM_NO_WATCH:-}" ]; then
         WATCH_MARKER=$(mktemp)
         WATCH_MANIFEST=$(mktemp)
         touch "$WATCH_MARKER"
-        trap 'rm -f "$WATCH_MARKER" "$WATCH_MANIFEST"' EXIT
+        trap 'rm -f "$WATCH_MARKER" "$WATCH_MANIFEST"; [ -n "${LOG_STREAM_PID:-}" ] && kill "$LOG_STREAM_PID" 2>/dev/null || true' EXIT
 
         WATCH_DIRS=("$SCRIPT_DIR/vellum-assistant" "$SCRIPT_DIR/vellum-assistant-app")
         WATCH_FILES=("$SCRIPT_DIR/../Package.swift")

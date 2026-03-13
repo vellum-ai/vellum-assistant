@@ -424,11 +424,17 @@ const accessRequestResolver: GuardianRequestResolver = {
           dedupeKey: `trusted-contact:denied:${request.id}`,
         });
       } else if (desktopDeliverUrl && requesterChatId) {
+        // For Slack, route to DM via requesterExternalUserId (user ID) instead
+        // of requesterChatId (channel ID) to avoid posting in public channels.
+        const targetChatId =
+          channel === "slack" && requesterExternalUserId
+            ? requesterExternalUserId
+            : requesterChatId;
         try {
           await deliverChannelReply(
             desktopDeliverUrl,
             {
-              chatId: requesterChatId,
+              chatId: targetChatId,
               text: "Your access request has been denied by the guardian.",
               assistantId,
             },
@@ -601,11 +607,17 @@ const accessRequestResolver: GuardianRequestResolver = {
         });
       }
     } else if (desktopDeliverUrl && requesterChatId) {
+      // For Slack, route to DM via requesterExternalUserId (user ID) instead
+      // of requesterChatId (channel ID) to avoid posting in public channels.
+      const targetChatId =
+        channel === "slack" && requesterExternalUserId
+          ? requesterExternalUserId
+          : requesterChatId;
       try {
         await deliverChannelReply(
           desktopDeliverUrl,
           {
-            chatId: requesterChatId,
+            chatId: targetChatId,
             text:
               "Your access request has been approved! " +
               "Please enter the 6-digit verification code you receive from the guardian.",

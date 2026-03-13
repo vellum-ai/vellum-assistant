@@ -3,22 +3,23 @@ import VellumAssistantShared
 
 enum SettingsTab: String {
     case general = "General"
-    case channels = "Channels"
     case modelsAndServices = "Models & Services"
     case voice = "Voice"
     case permissionsAndPrivacy = "Permissions & Privacy"
     case contacts = "Contacts"
+    case archivedThreads = "Archived Threads"
     case developer = "Developer"
 
     /// Primary tabs shown in the main nav list (excludes feature-flagged bottom tabs).
     static func primaryTabs(contactsEnabled: Bool = false) -> [SettingsTab] {
-        var tabs: [SettingsTab] = [
-            .general, .channels, .modelsAndServices, .voice,
-            .permissionsAndPrivacy
-        ]
+        var tabs: [SettingsTab] = [.general]
         if contactsEnabled {
             tabs.append(.contacts)
         }
+        tabs.append(contentsOf: [
+            .voice, .modelsAndServices,
+            .permissionsAndPrivacy, .archivedThreads
+        ])
         return tabs
     }
 
@@ -45,11 +46,6 @@ struct SettingsPanel: View {
     @State private var perplexityKeyText: String = ""
     @State private var imageGenKeyText: String = ""
 
-    // Setup expanded state for Models & Services credential cards
-    @State private var anthropicSetupExpanded = false
-    @State private var perplexitySetupExpanded = false
-    @State private var braveSetupExpanded = false
-    @State private var imageGenSetupExpanded = false
     @State private var showingTrustRules = false
     @State private var accessibilityGranted: Bool = false
     @State private var screenRecordingGranted: Bool = false
@@ -61,8 +57,13 @@ struct SettingsPanel: View {
     @State private var selectedTab: SettingsTab = .general
     @State private var isContactsEnabled: Bool = false
     @State private var isDeveloperEnabled: Bool = false
+    @State private var isEmailEnabled: Bool = false
+    @State private var showingDevUnlock: Bool = false
+    @State private var devUnlockText: String = ""
+    @State private var devUnlockMonitor: Any?
     private static let contactsFeatureFlagKey = "feature_flags.contacts.enabled"
     private static let developerFeatureFlagKey = "feature_flags.settings-developer-nav.enabled"
+    private static let emailFeatureFlagKey = "feature_flags.email-channel.enabled"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -74,20 +75,20 @@ struct SettingsPanel: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(VColor.textSecondary)
+                .foregroundStyle(VColor.contentSecondary)
                 .pointerCursor()
                 .accessibilityLabel("Back")
 
                 Text("Settings")
                     .font(VFont.panelTitle)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 Spacer()
             }
             .padding(.trailing, VSpacing.xl)
             .padding(.bottom, VSpacing.md)
 
-            VColor.surfaceBorder.frame(height: 1)
+            VColor.borderBase.frame(height: 1)
                 .padding(.trailing, VSpacing.xl)
 
             // Body: nav pinned left + centered content with max width
@@ -117,7 +118,7 @@ struct SettingsPanel: View {
         }
         .padding(.top, VSpacing.xl)
         .padding(.leading, VSpacing.xl)
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .task {
             // Refresh permission status and feature flags when the view appears
@@ -166,6 +167,8 @@ struct SettingsPanel: View {
                     if !enabled && selectedTab == .developer {
                         selectedTab = .general
                     }
+                } else if key == Self.emailFeatureFlagKey {
+                    isEmailEnabled = enabled
                 }
             }
         }
@@ -184,6 +187,56 @@ struct SettingsPanel: View {
                 TrustRulesView(daemonClient: daemonClient)
             }
         }
+        .onAppear {
+            devUnlockMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                if event.modifierFlags.contains(.command),
+                   event.charactersIgnoringModifiers == "d" {
+                    showingDevUnlock = true
+                    devUnlockText = ""
+                    return nil
+                }
+                return event
+            }
+        }
+        .onDisappear {
+            if let monitor = devUnlockMonitor {
+                NSEvent.removeMonitor(monitor)
+                devUnlockMonitor = nil
+            }
+        }
+        .popover(isPresented: $showingDevUnlock) {
+            VStack(spacing: VSpacing.md) {
+                Text("Enter passcode")
+                    .font(VFont.inputLabel)
+                    .foregroundColor(VColor.contentSecondary)
+                SecureField("", text: $devUnlockText)
+                    .vInputStyle()
+                    .font(VFont.mono)
+                    .frame(width: 160)
+                    .onSubmit {
+                        if devUnlockText.lowercased() == "dev" {
+                            isDeveloperEnabled = true
+                            showingDevUnlock = false
+                            // Persist the flag so it survives relaunch
+                            Task {
+                                do {
+                                    if let daemonClient {
+                                        try await daemonClient.setFeatureFlag(key: Self.developerFeatureFlagKey, enabled: true)
+                                    } else {
+                                        try WorkspaceConfigIO.merge([
+                                            "assistantFeatureFlagValues": [Self.developerFeatureFlagKey: true]
+                                        ])
+                                    }
+                                } catch {
+                                    // Flag is already set in memory; persistence failure is non-fatal
+                                }
+                            }
+                        }
+                        devUnlockText = ""
+                    }
+            }
+            .padding(VSpacing.lg)
+        }
     }
 
     // MARK: - Nav Sidebar
@@ -194,6 +247,7 @@ struct SettingsPanel: View {
         if isDeveloperEnabled {
             tabs.append(.developer)
         }
+        // .archivedThreads is already included via primaryTabs()
         return tabs
     }
 
@@ -225,8 +279,6 @@ struct SettingsPanel: View {
         switch selectedTab {
         case .general:
             SettingsGeneralTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
-        case .channels:
-            SettingsChannelsTab(store: store, daemonClient: daemonClient)
         case .modelsAndServices:
             integrationsContent
         case .voice:
@@ -234,7 +286,9 @@ struct SettingsPanel: View {
         case .permissionsAndPrivacy:
             permissionsAndPrivacyContent
         case .contacts:
-            ContactsContainerView(daemonClient: daemonClient, store: store)
+            ContactsContainerView(daemonClient: daemonClient, store: store, isEmailEnabled: isEmailEnabled)
+        case .archivedThreads:
+            SettingsArchivedThreadsTab(threadManager: threadManager)
         case .developer:
             SettingsDeveloperTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
         }
@@ -244,303 +298,108 @@ struct SettingsPanel: View {
 
     private var integrationsContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            // ANTHROPIC section
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    Text("Anthropic")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-                    Text("Required for AI responses")
-                        .font(VFont.sectionDescription)
-                        .foregroundColor(VColor.textMuted)
+            // ANTHROPIC
+            ServiceCredentialCard(
+                title: "Anthropic",
+                subtitle: "Required for AI responses",
+                isConnected: store.hasKey,
+                keyPlaceholder: "Enter your API key",
+                keyText: $apiKeyText,
+                onSave: {
+                    store.saveAPIKey(apiKeyText)
+                    apiKeyText = ""
+                },
+                onReset: {
+                    store.clearAPIKey()
+                    apiKeyText = ""
                 }
-
-                if store.hasKey {
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        Text("Active Model")
-                            .font(VFont.inputLabel)
-                            .foregroundColor(VColor.textSecondary)
-                        VDropdown(
-                            placeholder: "Select a model…",
-                            selection: Binding(
-                                get: { store.selectedModel },
-                                set: { model in
-                                    store.selectedModel = model
-                                    store.setModel(model)
-                                }
-                            ),
-                            options: SettingsStore.availableModels.map { model in
-                                (label: SettingsStore.modelDisplayNames[model] ?? model, value: model)
+            ) {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    Text("Active Model")
+                        .font(VFont.inputLabel)
+                        .foregroundColor(VColor.contentSecondary)
+                    VDropdown(
+                        placeholder: "Select a model…",
+                        selection: Binding(
+                            get: { store.selectedModel },
+                            set: { model in
+                                store.selectedModel = model
+                                store.setModel(model)
                             }
-                        )
-                        .frame(width: 360)
-                    }
-
-                    HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
-                        VButton(label: "Clear", style: .danger) {
-                            store.clearAPIKey()
-                            apiKeyText = ""
-                            anthropicSetupExpanded = false
+                        ),
+                        options: SettingsStore.availableModels.map { model in
+                            (label: SettingsStore.modelDisplayNames[model] ?? model, value: model)
                         }
-                    }
-                } else if anthropicSetupExpanded {
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        Text("API Key")
-                            .font(VFont.inputLabel)
-                            .foregroundColor(VColor.textSecondary)
-
-                        SecureField("This is your private generated key", text: $apiKeyText)
-                            .vInputStyle()
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-
-                        HStack(spacing: 0) {
-                            Text("Get your API key at ")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                            Link("console.anthropic.com", destination: URL(string: "https://console.anthropic.com")!)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.accent)
-                                .pointerCursor()
-                        }
-
-                        HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary) {
-                                store.saveAPIKey(apiKeyText)
-                                apiKeyText = ""
-                                anthropicSetupExpanded = false
-                            }
-                            .disabled(apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary) {
-                                apiKeyText = ""
-                                anthropicSetupExpanded = false
-                            }
-                        }
-                    }
-                } else {
-                    VButton(label: "Set Up", style: .secondary) {
-                        anthropicSetupExpanded = true
-                    }
+                    )
                 }
             }
-            .padding(VSpacing.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .vCard(background: VColor.surfaceSubtle)
 
-            // PERPLEXITY SEARCH section
-            VStack(alignment: .leading, spacing: VSpacing.md) {
+            // PERPLEXITY SEARCH
+            ServiceCredentialCard(
+                title: "Perplexity Search",
+                subtitle: "Enables real-time web search in responses",
+                isConnected: store.hasPerplexityKey,
+                keyPlaceholder: "Enter your Perplexity API key",
+                keyText: $perplexityKeyText,
+                onSave: {
+                    store.savePerplexityKey(perplexityKeyText)
+                    perplexityKeyText = ""
+                },
+                onReset: {
+                    store.clearPerplexityKey()
+                    perplexityKeyText = ""
+                }
+            )
+
+            // BRAVE SEARCH
+            ServiceCredentialCard(
+                title: "Brave Search",
+                subtitle: "Enables private web search in responses",
+                isConnected: store.hasBraveKey,
+                keyPlaceholder: "Enter your Brave Search API key",
+                keyText: $braveKeyText,
+                onSave: {
+                    store.saveBraveKey(braveKeyText)
+                    braveKeyText = ""
+                },
+                onReset: {
+                    store.clearBraveKey()
+                    braveKeyText = ""
+                }
+            )
+
+            // IMAGE GENERATION
+            ServiceCredentialCard(
+                title: "Image Generation",
+                subtitle: "Enables AI image generation via Gemini",
+                isConnected: store.hasImageGenKey,
+                keyPlaceholder: "Enter your Gemini API key",
+                keyText: $imageGenKeyText,
+                onSave: {
+                    store.saveImageGenKey(imageGenKeyText)
+                    imageGenKeyText = ""
+                },
+                onReset: {
+                    store.clearImageGenKey()
+                    imageGenKeyText = ""
+                }
+            ) {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    Text("Perplexity Search")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-                    Text("Enables real-time web search in responses")
-                        .font(VFont.sectionDescription)
-                        .foregroundColor(VColor.textMuted)
-                }
-
-                if store.hasPerplexityKey {
-                    HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
-                        VButton(label: "Clear", style: .danger) {
-                            store.clearPerplexityKey()
-                            perplexityKeyText = ""
-                            perplexitySetupExpanded = false
-                        }
-                    }
-                } else if perplexitySetupExpanded {
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        Text("API Key")
-                            .font(VFont.inputLabel)
-                            .foregroundColor(VColor.textSecondary)
-
-                        SecureField("Your Perplexity API key", text: $perplexityKeyText)
-                            .vInputStyle()
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-
-                        HStack(spacing: 0) {
-                            Text("Get your API key at ")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                            Link("perplexity.ai/settings/api", destination: URL(string: "https://perplexity.ai/settings/api")!)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.accent)
-                                .pointerCursor()
-                        }
-
-                        HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary) {
-                                store.savePerplexityKey(perplexityKeyText)
-                                perplexityKeyText = ""
-                                perplexitySetupExpanded = false
-                            }
-                            .disabled(perplexityKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary) {
-                                perplexityKeyText = ""
-                                perplexitySetupExpanded = false
-                            }
-                        }
-                    }
-                } else {
-                    VButton(label: "Set Up", style: .secondary) {
-                        perplexitySetupExpanded = true
-                    }
-                }
-            }
-            .padding(VSpacing.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .vCard(background: VColor.surfaceSubtle)
-
-            // BRAVE SEARCH section
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    Text("Brave Search")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-                    Text("Enables private web search in responses")
-                        .font(VFont.sectionDescription)
-                        .foregroundColor(VColor.textMuted)
-                }
-
-                if store.hasBraveKey {
-                    HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
-                        VButton(label: "Clear", style: .danger) {
-                            store.clearBraveKey()
-                            braveKeyText = ""
-                            braveSetupExpanded = false
-                        }
-                    }
-                } else if braveSetupExpanded {
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        Text("API Key")
-                            .font(VFont.inputLabel)
-                            .foregroundColor(VColor.textSecondary)
-
-                        SecureField("Your Brave Search API key", text: $braveKeyText)
-                            .vInputStyle()
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-
-                        HStack(spacing: 0) {
-                            Text("Get your API key at ")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                            Link("brave.com/search/api", destination: URL(string: "https://brave.com/search/api")!)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.accent)
-                                .pointerCursor()
-                        }
-
-                        HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary) {
-                                store.saveBraveKey(braveKeyText)
-                                braveKeyText = ""
-                                braveSetupExpanded = false
-                            }
-                            .disabled(braveKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary) {
-                                braveKeyText = ""
-                                braveSetupExpanded = false
-                            }
-                        }
-                    }
-                } else {
-                    VButton(label: "Set Up", style: .secondary) {
-                        braveSetupExpanded = true
-                    }
-                }
-            }
-            .padding(VSpacing.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .vCard(background: VColor.surfaceSubtle)
-
-            // IMAGE GENERATION section
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    Text("Image Generation")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-                    Text("Enables AI image generation via Gemini")
-                        .font(VFont.sectionDescription)
-                        .foregroundColor(VColor.textMuted)
-                }
-
-                if store.hasImageGenKey {
-                    HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
-                        VButton(label: "Clear", style: .danger) {
-                            store.clearImageGenKey()
-                            imageGenKeyText = ""
-                            imageGenSetupExpanded = false
-                        }
-                    }
-
-                    Divider()
-                        .background(VColor.surfaceBorder)
-
-                    HStack {
-                        Text("Model")
-                            .font(VFont.inputLabel)
-                            .foregroundColor(VColor.textSecondary)
-                        Spacer()
-                        Picker("", selection: Binding(
+                    Text("Model")
+                        .font(VFont.inputLabel)
+                        .foregroundColor(VColor.contentSecondary)
+                    VDropdown(
+                        placeholder: "Select a model…",
+                        selection: Binding(
                             get: { store.selectedImageGenModel },
                             set: { store.setImageGenModel($0) }
-                        )) {
-                            ForEach(SettingsStore.availableImageGenModels, id: \.self) { model in
-                                Text(SettingsStore.imageGenModelDisplayNames[model] ?? model)
-                                    .tag(model)
-                            }
+                        ),
+                        options: SettingsStore.availableImageGenModels.map { model in
+                            (label: SettingsStore.imageGenModelDisplayNames[model] ?? model, value: model)
                         }
-                        .labelsHidden()
-                        .fixedSize()
-                    }
-                } else if imageGenSetupExpanded {
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        Text("API Key")
-                            .font(VFont.inputLabel)
-                            .foregroundColor(VColor.textSecondary)
-
-                        SecureField("Your Gemini API key", text: $imageGenKeyText)
-                            .vInputStyle()
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-
-                        HStack(spacing: 0) {
-                            Text("Get your API key at ")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                            Link("aistudio.google.com/apikey", destination: URL(string: "https://aistudio.google.com/apikey")!)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.accent)
-                                .pointerCursor()
-                        }
-
-                        HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary) {
-                                store.saveImageGenKey(imageGenKeyText)
-                                imageGenKeyText = ""
-                                imageGenSetupExpanded = false
-                            }
-                            .disabled(imageGenKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary) {
-                                imageGenKeyText = ""
-                                imageGenSetupExpanded = false
-                            }
-                        }
-                    }
-                } else {
-                    VButton(label: "Set Up", style: .secondary) {
-                        imageGenSetupExpanded = true
-                    }
+                    )
                 }
             }
-            .padding(VSpacing.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .vCard(background: VColor.surfaceSubtle)
-
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -551,9 +410,9 @@ struct SettingsPanel: View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             // PERMISSIONS section (OS permissions)
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("macOS System Permissions")
+                Text("System Permissions")
                     .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 permissionRow(
                     label: "Accessibility",
@@ -611,34 +470,28 @@ struct SettingsPanel: View {
             }
             .padding(VSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .vCard(background: VColor.surfaceSubtle)
+            .vCard(background: VColor.surfaceOverlay)
 
             // TRUST RULES section
             if daemonClient != nil {
                 VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("Trust Rules")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-
-                    VStack(alignment: .leading, spacing: VSpacing.md) {
-                        VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text("Manage Trust Rules")
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textSecondary)
-                            Text("Control which tool actions are automatically allowed or denied")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                        }
-                        VButton(label: "Manage", style: .secondary) {
-                            daemonClient?.isTrustRulesSheetOpen = true
-                            showingTrustRules = true
-                        }
-                        .disabled(store.isAnyTrustRulesSheetOpen)
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        Text("Trust Rules")
+                            .font(VFont.sectionTitle)
+                            .foregroundColor(VColor.contentDefault)
+                        Text("Control which tool actions are automatically allowed or denied")
+                            .font(VFont.sectionDescription)
+                            .foregroundColor(VColor.contentTertiary)
                     }
+                    VButton(label: "Manage", style: .outlined) {
+                        daemonClient?.isTrustRulesSheetOpen = true
+                        showingTrustRules = true
+                    }
+                    .disabled(store.isAnyTrustRulesSheetOpen)
                 }
                 .padding(VSpacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .vCard(background: VColor.surfaceSubtle)
+                .vCard(background: VColor.surfaceOverlay)
             }
 
             // PRIVACY section (merged from SettingsPrivacyTab)
@@ -652,23 +505,8 @@ struct SettingsPanel: View {
 
     private func permissionRow(label: String, subtitle: String, granted: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text(label)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                    Text(subtitle)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer()
-
-                VToggle(isOn: .constant(granted)).allowsHitTesting(false)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
+            VToggle(isOn: .constant(granted), label: label, helperText: subtitle)
+                .allowsHitTesting(false)
         }
         .buttonStyle(.plain)
     }
@@ -696,6 +534,9 @@ struct SettingsPanel: View {
                 if let developerFlag = flags.first(where: { $0.key == Self.developerFeatureFlagKey }) {
                     isDeveloperEnabled = developerFlag.enabled
                 }
+                if let emailFlag = flags.first(where: { $0.key == Self.emailFeatureFlagKey }) {
+                    isEmailEnabled = emailFlag.enabled
+                }
                 return
             } catch {
                 // Fall through to local config fallback.
@@ -715,6 +556,9 @@ struct SettingsPanel: View {
         }
         if let developerEnabled = resolved[Self.developerFeatureFlagKey] {
             isDeveloperEnabled = developerEnabled
+        }
+        if let emailEnabled = resolved[Self.emailFeatureFlagKey] {
+            isEmailEnabled = emailEnabled
         }
     }
 
@@ -756,7 +600,7 @@ private struct SettingsNavRow: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 Spacer()
             }
             .padding(.leading, VSpacing.sm)
@@ -765,7 +609,7 @@ private struct SettingsNavRow: View {
             .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                (isSelected ? VColor.navActive : VColor.navHover.opacity(isHovered ? 1 : 0))
+                (isSelected ? VColor.surfaceActive : VColor.surfaceBase.opacity(isHovered ? 1 : 0))
                     .animation(VAnimation.fast, value: isHovered)
             )
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
@@ -792,13 +636,13 @@ struct SettingsPanelEnvVarsSheet: View {
             HStack {
                 Text("Environment Variables")
                     .font(VFont.headline)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 Spacer()
-                VButton(label: "Done", style: .tertiary) { dismiss() }
+                VButton(label: "Done", style: .outlined) { dismiss() }
             }
             .padding(VSpacing.lg)
 
-            Divider().background(VColor.surfaceBorder)
+            Divider().background(VColor.borderBase)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: VSpacing.xl) {
@@ -809,28 +653,28 @@ struct SettingsPanelEnvVarsSheet: View {
             }
         }
         .frame(width: 600, height: 500)
-        .background(VColor.background)
+        .background(VColor.surfaceOverlay)
     }
 
     private func envVarsSection(title: String, vars: [(String, String)]) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text(title)
                 .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
             if vars.isEmpty {
                 Text("Loading...")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             } else {
                 ForEach(vars, id: \.0) { key, value in
                     HStack(alignment: .top, spacing: VSpacing.sm) {
                         Text(key)
                             .font(VFont.monoSmall)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                             .frame(width: 200, alignment: .trailing)
                         Text(value)
                             .font(VFont.monoSmall)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                             .textSelection(.enabled)
                         Spacer()
                     }
@@ -841,13 +685,13 @@ struct SettingsPanelEnvVarsSheet: View {
 }
 
 /// Sets the enclosing NSScrollView to overlay style — thin scroller, no track background.
-private struct OverlayScrollerStyle: NSViewRepresentable {
+struct OverlayScrollerStyle: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
         DispatchQueue.main.async {
             guard let scrollView = view.enclosingScrollView else { return }
             scrollView.scrollerStyle = .overlay
-            scrollView.scrollerKnobStyle = .dark
+            scrollView.scrollerKnobStyle = .default
             scrollView.hasHorizontalScroller = false
         }
         return view
@@ -855,13 +699,3 @@ private struct OverlayScrollerStyle: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
-struct SettingsPanel_Previews: PreviewProvider {
-    static var previews: some View {
-        let dc = DaemonClient()
-        ZStack {
-            VColor.background.ignoresSafeArea()
-            SettingsPanel(onClose: {}, store: SettingsStore(daemonClient: dc), threadManager: ThreadManager(daemonClient: dc), authManager: AuthManager())
-        }
-        .frame(width: 600, height: 700)
-    }
-}

@@ -14,13 +14,13 @@ struct ThreadSwitcherDrawer: View {
         VStack(spacing: 0) {
             Text("\(regularThreads.count) threads")
                 .font(VFont.caption)
-                .foregroundColor(VColor.tagText)
+                .foregroundColor(VColor.contentSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.top, VSpacing.sm)
                 .padding(.bottom, VSpacing.xs)
 
-            VColor.surfaceBorder.frame(height: 1)
+            VColor.borderBase.frame(height: 1)
                 .padding(.horizontal, VSpacing.xs)
                 .padding(.bottom, VSpacing.xs)
 
@@ -38,13 +38,13 @@ struct ThreadSwitcherDrawer: View {
         }
         .padding(.vertical, VSpacing.sm)
         .fixedSize(horizontal: false, vertical: true)
-        .background(VColor.surfaceSubtle)
+        .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                .stroke(VColor.borderBase, lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+        .shadow(color: VColor.auxBlack.opacity(0.15), radius: 6, y: 2)
         .onDisappear {
             if sidebar.isHoveredThread != nil {
                 sidebar.isHoveredThread = nil

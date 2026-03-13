@@ -52,7 +52,7 @@ struct CommunitySkillsView: View {
         HStack(spacing: VSpacing.sm) {
             // Community skills don't have an emoji field, use a default icon
             VIconView(.puzzle, size: 20)
-                .foregroundColor(VColor.accent)
+                .foregroundColor(VColor.primaryBase)
                 .frame(width: 32)
                 .accessibilityHidden(true)
 
@@ -60,7 +60,7 @@ struct CommunitySkillsView: View {
                 HStack(spacing: 4) {
                     Text(item.name)
                         .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
 
                     if item.isVellum {
                         Text("Vellum")
@@ -75,13 +75,13 @@ struct CommunitySkillsView: View {
                 if !item.author.isEmpty {
                     Text("by \(item.author)")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
 
                 if !item.description.isEmpty {
                     Text(item.description)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .lineLimit(2)
                 }
             }
@@ -94,7 +94,7 @@ struct CommunitySkillsView: View {
                         .foregroundColor(.yellow)
                     Text("\(item.stars)")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
         }
@@ -111,7 +111,7 @@ struct CommunitySkillsView: View {
             ProgressView()
             Text("Searching skills...")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -119,16 +119,16 @@ struct CommunitySkillsView: View {
     private var noResultsState: some View {
         VStack(spacing: VSpacing.lg) {
             VIconView(.search, size: 48)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .accessibilityHidden(true)
 
             Text("No Results")
                 .font(VFont.title)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             Text("No skills found matching \"\(searchQuery)\". Try a different search term.")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
         }
@@ -140,16 +140,16 @@ struct CommunitySkillsView: View {
     private var browsePromptState: some View {
         VStack(spacing: VSpacing.lg) {
             VIconView(.globe, size: 48)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .accessibilityHidden(true)
 
             Text("Community Skills")
                 .font(VFont.title)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             Text("Search for skills to enhance your assistant's capabilities.")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
         }
@@ -177,23 +177,23 @@ struct CommunitySkillDetailView: View {
             Section {
                 VStack(spacing: VSpacing.sm) {
                     VIconView(.puzzle, size: 48)
-                        .foregroundColor(VColor.accent)
+                        .foregroundColor(VColor.primaryBase)
                         .accessibilityHidden(true)
 
                     Text(item.name)
                         .font(VFont.title)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
 
                     if !item.author.isEmpty {
                         Text("by \(item.author)")
                             .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
 
                     if !item.description.isEmpty {
                         Text(item.description)
                             .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                             .multilineTextAlignment(.center)
                     }
                 }
@@ -219,7 +219,7 @@ struct CommunitySkillDetailView: View {
                     if !inspected.skill.summary.isEmpty {
                         Text(inspected.skill.summary)
                             .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
 
                     if let owner = inspected.owner {
@@ -242,7 +242,7 @@ struct CommunitySkillDetailView: View {
                 if isInstalled {
                     Text("Already installed")
                         .font(VFont.body)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 } else {
                     Button {
                         skillsStore.installSkill(slug: item.slug)
@@ -281,11 +281,11 @@ struct CommunitySkillDetailView: View {
         HStack {
             Text(label)
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
             Spacer()
             Text(value)
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(label): \(value)")

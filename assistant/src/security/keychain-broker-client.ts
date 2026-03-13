@@ -6,7 +6,7 @@
  * provides a graceful-fallback interface: every public method returns a
  * safe default on failure and never throws.
  *
- * Socket path: read from VELLUM_KEYCHAIN_BROKER_SOCKET env var.
+ * Socket path: derived from getRootDir() as `~/.vellum/keychain-broker.sock`.
  * Auth token: read from ~/.vellum/protected/keychain-broker.token on first
  * connection, cached for process lifetime.
  */
@@ -33,11 +33,18 @@ const REQUEST_TIMEOUT_MS = 5_000;
  *  back); `{ found: false }` means the key doesn't exist in the keychain. */
 export type BrokerGetResult = { found: boolean; value?: string } | null;
 
+/** Result of a `set()` call — distinguishes broker-unreachable from an active
+ *  rejection so callers can log meaningful diagnostics. */
+export type BrokerSetResult =
+  | { status: "ok" }
+  | { status: "unreachable" }
+  | { status: "rejected"; code: string; message: string };
+
 export interface KeychainBrokerClient {
   isAvailable(): boolean;
   ping(): Promise<{ pong: boolean } | null>;
   get(account: string): Promise<BrokerGetResult>;
-  set(account: string, value: string): Promise<boolean>;
+  set(account: string, value: string): Promise<BrokerSetResult>;
   del(account: string): Promise<boolean>;
   list(): Promise<string[]>;
 }
@@ -70,8 +77,8 @@ function getTokenPath(): string {
   return join(getRootDir(), "protected", "keychain-broker.token");
 }
 
-function getSocketPath(): string | undefined {
-  return process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
+function getSocketPath(): string {
+  return join(getRootDir(), "keychain-broker.sock");
 }
 
 // ---------------------------------------------------------------------------
@@ -172,7 +179,7 @@ export function createBrokerClient(): KeychainBrokerClient {
   function connect(): Promise<Socket> {
     return new Promise((resolve, reject) => {
       const socketPath = getSocketPath();
-      if (!socketPath) {
+      if (!pathExists(socketPath)) {
         reject(new Error("No socket path"));
         return;
       }
@@ -328,8 +335,7 @@ export function createBrokerClient(): KeychainBrokerClient {
   return {
     isAvailable(): boolean {
       if (permanentlyUnavailable) return false;
-      const socketPath = getSocketPath();
-      if (!socketPath) return false;
+      if (!pathExists(getSocketPath())) return false;
       return pathExists(getTokenPath());
     },
 
@@ -361,12 +367,18 @@ export function createBrokerClient(): KeychainBrokerClient {
       }
     },
 
-    async set(account: string, value: string): Promise<boolean> {
+    async set(account: string, value: string): Promise<BrokerSetResult> {
       try {
         const response = await doRequest("key.set", { account, value });
-        return response?.ok === true;
+        if (!response) return { status: "unreachable" };
+        if (response.ok) return { status: "ok" };
+        return {
+          status: "rejected",
+          code: response.error?.code ?? "UNKNOWN",
+          message: response.error?.message ?? "unknown error",
+        };
       } catch {
-        return false;
+        return { status: "unreachable" };
       }
     },
 

@@ -149,6 +149,10 @@ public final class ChatViewModel: ObservableObject {
         get { messageManager.assistantStatusText }
         set { messageManager.assistantStatusText = newValue }
     }
+    public var isCompacting: Bool {
+        get { messageManager.isCompacting }
+        set { messageManager.isCompacting = newValue }
+    }
     public var hasPendingConfirmation: Bool {
         messages.contains(where: { $0.confirmation?.state == .pending })
     }
@@ -287,8 +291,6 @@ public final class ChatViewModel: ObservableObject {
     /// Maximum image size before compression (4 MB - leaves headroom for base64 encoding).
     /// Anthropic has a 5MB limit per image; base64 encoding adds ~33% overhead.
     static let maxImageSize = ChatAttachmentManager.maxImageSize
-    /// Maximum number of attachments per message.
-    public static let maxAttachments = ChatAttachmentManager.maxAttachments
 
     public let subagentDetailStore = SubagentDetailStore()
     let daemonClient: any DaemonClientProtocol
@@ -357,17 +359,23 @@ public final class ChatViewModel: ObservableObject {
     public var isVoiceModeActive: Bool = false
     var pendingUserAttachments: [UserMessageAttachment]?
     /// Stores the last user message that failed to send, enabling retry.
-    private(set) var lastFailedMessageText: String?
+    private(set) var lastFailedMessageText: String? {
+        didSet { syncRetryStateToErrorManager() }
+    }
     private(set) var lastFailedMessageDisplayText: String?
     private(set) var lastFailedMessageAttachments: [UserMessageAttachment]?
     /// Set only when a send operation (bootstrapSession or sendUserMessage) fails.
     /// Used by `isRetryableError` to ensure the retry button only appears for
     /// actual send failures, not for unrelated errors (attachment validation,
     /// confirmation response failures, regenerate errors, etc.).
-    private(set) var lastFailedSendError: String?
+    private(set) var lastFailedSendError: String? {
+        didSet { syncRetryStateToErrorManager() }
+    }
     /// Stores the text of a message that was blocked by the secret-ingress check.
     /// Set when an error with category "secret_blocked" arrives.
-    var secretBlockedMessageText: String?
+    var secretBlockedMessageText: String? {
+        didSet { syncRetryStateToErrorManager() }
+    }
     /// Stashed context from the blocked send, so sendAnyway() can reconstruct
     /// the original UserMessageMessage with attachments and surface metadata.
     var secretBlockedAttachments: [UserMessageAttachment]?
@@ -431,6 +439,16 @@ public final class ChatViewModel: ObservableObject {
     var streamingDeltaBuffer: String = ""
     /// Scheduled flush work item; cancelled and re-created on each delta.
     var streamingFlushTask: Task<Void, Never>?
+
+    // MARK: - Partial Output Coalescing
+
+    /// Buffered partial-output chunks keyed by "messageUUID:tcIndex".
+    /// Uses stable message UUID instead of positional index so the buffer
+    /// survives message-list mutations (pagination prepend, memory trim).
+    var partialOutputBuffer: [String: (messageId: UUID, tcIndex: Int, content: String)] = [:]
+    /// Scheduled flush task for coalescing partial-output writes.
+    var partialOutputFlushTask: Task<Void, Never>?
+
     /// Safety timer that force-resets the UI if the daemon never acknowledges
     /// a cancel request (e.g. a stuck tool blocks the generation_cancelled event).
     var cancelTimeoutTask: Task<Void, Never>?
@@ -870,6 +888,7 @@ public final class ChatViewModel: ObservableObject {
                     self?.isSending = false
                     self?.currentAssistantMessageId = nil
                     self?.discardStreamingBuffer()
+                    self?.discardPartialOutputBuffer()
                     self?.reconnectDebounceTask?.cancel()
                     self?.reconnectDebounceTask = Task { @MainActor [weak self] in
                         defer { if !Task.isCancelled { self?.reconnectDebounceTask = nil } }
@@ -1404,6 +1423,7 @@ public final class ChatViewModel: ObservableObject {
                 }
                 self?.currentAssistantMessageId = nil
                 self?.discardStreamingBuffer()
+                self?.discardPartialOutputBuffer()
                 // If a send-direct was pending when the stream dropped,
                 // dispatch it now so the message isn't silently lost.
                 self?.dispatchPendingSendDirect()
@@ -1601,6 +1621,7 @@ public final class ChatViewModel: ObservableObject {
             currentAssistantHasText = false
             lastContentWasToolCall = false
             discardStreamingBuffer()
+            discardPartialOutputBuffer()
             pendingQueuedCount = 0
             pendingMessageIds = []
             requestIdToMessageId = [:]
@@ -1647,6 +1668,7 @@ public final class ChatViewModel: ObservableObject {
             currentAssistantHasText = false
             lastContentWasToolCall = false
             discardStreamingBuffer()
+            discardPartialOutputBuffer()
             pendingQueuedCount = 0
             pendingMessageIds = []
             requestIdToMessageId = [:]
@@ -1710,6 +1732,7 @@ public final class ChatViewModel: ObservableObject {
             self.currentAssistantHasText = false
             self.lastContentWasToolCall = false
             self.discardStreamingBuffer()
+            self.discardPartialOutputBuffer()
             self.pendingQueuedCount = 0
             self.pendingMessageIds = []
             self.requestIdToMessageId = [:]
@@ -1929,7 +1952,34 @@ public final class ChatViewModel: ObservableObject {
             }
         }
         dismissSessionError()
-        regenerateLastMessage()
+
+        // When the last message is from the user (i.e. the assistant never
+        // responded — e.g. because the send was rate-limited with 429), resend
+        // the original message instead of regenerating. A /regenerate request
+        // would fail with 404 because the daemon never received the message.
+        if let lastMsg = messages.last, lastMsg.role == .user {
+            lastFailedMessageText = lastMsg.text
+            lastFailedMessageDisplayText = nil
+            // Preserve attachments so they are resent with the retry.
+            // ChatAttachment.data may already be cleared for older messages,
+            // but for a just-sent 429'd message it is still populated.
+            lastFailedMessageAttachments = lastMsg.attachments.compactMap { att in
+                guard !att.data.isEmpty else { return nil }
+                return UserMessageAttachment(
+                    id: att.id,
+                    filename: att.filename,
+                    mimeType: att.mimeType,
+                    data: att.data,
+                    extractedText: nil,
+                    sizeBytes: nil,
+                    thumbnailData: nil,
+                    filePath: att.filePath
+                )
+            }
+            retryLastMessage()
+        } else {
+            regenerateLastMessage()
+        }
     }
 
     /// Whether the current error has a failed user message that can be retried.
@@ -1951,6 +2001,17 @@ public final class ChatViewModel: ObservableObject {
     /// Whether the current error is a secret-ingress block that can be bypassed.
     public var isSecretBlockError: Bool {
         secretBlockedMessageText != nil
+    }
+
+    /// Forward retry-related state to `errorManager` so `@ObservedObject` views
+    /// (e.g. `ErrorToastOverlay`) receive reactive updates. Called automatically
+    /// via `didSet` on `lastFailedMessageText`, `lastFailedSendError`, and
+    /// `secretBlockedMessageText`.
+    private func syncRetryStateToErrorManager() {
+        errorManager.isConnectionError = isConnectionError
+        errorManager.isSecretBlockError = isSecretBlockError
+        errorManager.isRetryableError = isRetryableError
+        errorManager.hasRetryPayload = hasRetryPayload
     }
 
     /// Resend the secret-blocked message with the bypass flag so the backend skips the check.
@@ -2039,6 +2100,50 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
+    /// Retry sending a specific failed message. Moves it to the end of the
+    /// conversation and resends it so it appears as the most recent message.
+    public func retryFailedMessage(id: UUID) {
+        guard let idx = messages.firstIndex(where: { $0.id == id }) else { return }
+        let message = messages[idx]
+        guard message.role == .user, message.status == .sendFailed else { return }
+
+        // Remove the failed message from its current position
+        messages.remove(at: idx)
+
+        // Re-append it at the end with .sent status
+        var retryMessage = ChatMessage(
+            role: .user,
+            text: message.text,
+            status: .sent,
+            skillInvocation: message.skillInvocation,
+            attachments: message.attachments
+        )
+        retryMessage.isHidden = message.isHidden
+        messages.append(retryMessage)
+
+        // Convert ChatAttachments back to UserMessageAttachments for the send call
+        let userAttachments: [UserMessageAttachment]? = message.attachments.isEmpty ? nil : message.attachments.compactMap { att in
+            guard !att.data.isEmpty else { return nil }
+            return UserMessageAttachment(
+                id: att.id,
+                filename: att.filename,
+                mimeType: att.mimeType,
+                data: att.data,
+                extractedText: nil,
+                sizeBytes: nil,
+                thumbnailData: nil,
+                filePath: att.filePath
+            )
+        }
+
+        // Resend — bootstrap a new session if needed (mirrors retryLastMessage)
+        if sessionId == nil {
+            bootstrapSession(userMessage: message.text, attachments: userAttachments)
+        } else {
+            sendUserMessage(message.text, attachments: userAttachments)
+        }
+    }
+
     /// Respond to a tool confirmation request displayed inline in the chat.
     public func respondToConfirmation(requestId: String, decision: String) {
         // DaemonClient.send silently returns when connection is nil (it does
@@ -2067,6 +2172,7 @@ public final class ChatViewModel: ObservableObject {
                 messages[index].confirmation?.approvedDecision = decision
             }
         }
+        clearPendingConfirmation(requestId: requestId)
         // Dismiss the corresponding floating panel / native notification if one exists
         onInlineConfirmationResponse?(requestId, decision)
     }
@@ -2100,6 +2206,7 @@ public final class ChatViewModel: ObservableObject {
             messages[index].confirmation?.state = .approved
             messages[index].confirmation?.approvedDecision = decision
         }
+        clearPendingConfirmation(requestId: requestId)
         // Dismiss the corresponding floating panel / native notification if one exists
         onInlineConfirmationResponse?(requestId, "allow")
     }
@@ -2115,6 +2222,22 @@ public final class ChatViewModel: ObservableObject {
             case "deny":
                 messages[index].confirmation?.state = .denied
             default:
+                break
+            }
+        }
+        clearPendingConfirmation(requestId: requestId)
+    }
+
+    /// Clear `pendingConfirmation` on the matching tool call so the inline bubble
+    /// reflects the submitted decision without waiting for the daemon's
+    /// `confirmation_state_changed` echo.
+    private func clearPendingConfirmation(requestId: String) {
+        for i in messages.indices.reversed() {
+            guard messages[i].role == .assistant, messages[i].confirmation == nil else { continue }
+            if let tcIdx = messages[i].toolCalls.firstIndex(where: {
+                $0.pendingConfirmation?.requestId == requestId
+            }) {
+                messages[i].toolCalls[tcIdx].pendingConfirmation = nil
                 break
             }
         }
@@ -2446,6 +2569,9 @@ public final class ChatViewModel: ObservableObject {
             // Older page fetched on demand — prepend before existing messages
             // and expand the display window so the newly loaded messages are
             // visible. The loading indicator is cleared here.
+            // Flush any buffered partial output before prepending — the prepend
+            // shifts positional indices so stale buffer entries would corrupt.
+            flushPartialOutputBuffer()
             self.messages = chatMessages + self.messages
             // Expand the display window by the number of messages prepended so
             // the user sees them immediately. Use Int.max if no more pages exist.
@@ -2470,6 +2596,7 @@ public final class ChatViewModel: ObservableObject {
         // after the messages array is replaced, creating an orphan assistant message
         // or appending text to a stale currentAssistantMessageId.
         discardStreamingBuffer()
+        discardPartialOutputBuffer()
         cancelRefetchTasks()
         currentAssistantMessageId = nil
         currentAssistantHasText = false
@@ -2543,6 +2670,7 @@ public final class ChatViewModel: ObservableObject {
         subManagerPublishTask?.cancel()
         messageLoopTask?.cancel()
         streamingFlushTask?.cancel()
+        partialOutputFlushTask?.cancel()
         cancelTimeoutTask?.cancel()
         loadMoreTimeoutTask?.cancel()
         for task in refetchTasks.values { task.cancel() }

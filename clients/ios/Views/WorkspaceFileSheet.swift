@@ -29,17 +29,17 @@ struct WorkspaceFileSheet: View {
                         ProgressView()
                         Text("Loading file...")
                             .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let error {
                     VStack(spacing: VSpacing.md) {
                         VIconView(.triangleAlert, size: 36)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                             .accessibilityHidden(true)
                         Text(error)
                             .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                             .multilineTextAlignment(.center)
                     }
                     .padding(VSpacing.xl)
@@ -95,7 +95,7 @@ struct WorkspaceFileSheet: View {
         } else {
             Text("No content")
                 .font(VFont.body)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -103,7 +103,7 @@ struct WorkspaceFileSheet: View {
     private func metadataView(_ response: WorkspaceFileResponse) -> some View {
         VStack(spacing: VSpacing.lg) {
             VIconView(.file, size: 48)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .accessibilityHidden(true)
 
             VStack(spacing: VSpacing.sm) {
@@ -113,11 +113,11 @@ struct WorkspaceFileSheet: View {
                 metadataRow(label: "Modified", value: formatDate(response.modifiedAt))
             }
             .padding(VSpacing.lg)
-            .background(VColor.surface)
+            .background(VColor.surfaceBase)
             .cornerRadius(VRadius.lg)
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    .stroke(VColor.borderBase, lineWidth: 1)
             )
         }
         .padding(VSpacing.xl)
@@ -128,11 +128,11 @@ struct WorkspaceFileSheet: View {
         HStack {
             Text(label)
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .frame(width: 80, alignment: .leading)
             Text(value)
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .lineLimit(2)
             Spacer()
         }
@@ -222,11 +222,11 @@ private struct AuthenticatedImageView: View {
             } else if failed {
                 VStack(spacing: VSpacing.md) {
                     VIconView(.image, size: 36)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .accessibilityHidden(true)
                     Text("Unable to load image")
                         .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -307,11 +307,11 @@ private struct WorkspaceVideoPlayer: View {
             } else if failed {
                 VStack(spacing: VSpacing.md) {
                     VIconView(.triangleAlert, size: 36)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .accessibilityHidden(true)
                     Text("Unable to load video")
                         .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {

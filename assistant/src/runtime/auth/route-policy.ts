@@ -358,9 +358,6 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "computer-use/sessions/abort", scopes: ["chat.write"] },
   { endpoint: "computer-use/observations", scopes: ["chat.write"] },
   { endpoint: "computer-use/tasks", scopes: ["chat.write"] },
-  { endpoint: "computer-use/ride-shotgun/start", scopes: ["chat.write"] },
-  { endpoint: "computer-use/ride-shotgun/stop", scopes: ["chat.write"] },
-  { endpoint: "computer-use/ride-shotgun/status", scopes: ["chat.write"] },
   { endpoint: "computer-use/watch", scopes: ["chat.write"] },
 
   // Recordings
@@ -381,9 +378,6 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Delivery ack
   { endpoint: "channels/delivery-ack", scopes: ["internal.write"] },
 
-  // MCP
-  { endpoint: "mcp/reload", scopes: ["settings.write"] },
-
   // Migrations
   { endpoint: "migrations/validate", scopes: ["settings.write"] },
   { endpoint: "migrations/export", scopes: ["settings.write"] },
@@ -403,6 +397,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "schedules/cancel", scopes: ["settings.write"] },
 
   // Diagnostics
+  { endpoint: "export", scopes: ["settings.read"] },
   { endpoint: "diagnostics/export", scopes: ["settings.read"] },
   { endpoint: "diagnostics/env-vars", scopes: ["settings.read"] },
 

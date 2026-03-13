@@ -61,7 +61,7 @@ struct ComposerView: View {
     var onDictateToggle: (() -> Void)? = nil
     var onVoiceModeToggle: (() -> Void)? = nil
     var placeholderText: String = "What would you like to do?"
-    var composerCompactHeight: CGFloat = 34
+    var composerCompactHeight: CGFloat = 38
     var threadId: UUID?
 
     @Environment(\.conversationZoomScale) private var zoomScale
@@ -149,6 +149,7 @@ struct ComposerView: View {
         // visible text coloring.
         if hasSlashHighlight {
             Text(slashHighlightedText(font: font))
+                .lineSpacing(4)
                 .lineLimit(1...)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
@@ -161,7 +162,8 @@ struct ComposerView: View {
                 .foregroundColor(.clear)
             + Text(ghostSuffix)
                 .font(font)
-                .foregroundColor(VColor.textSecondary.opacity(0.55)))
+                .foregroundColor(VColor.contentSecondary.opacity(0.55)))
+                .lineSpacing(4)
                 .lineLimit(1...)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
@@ -180,8 +182,9 @@ struct ComposerView: View {
         .lineLimit(1...)
         .textFieldStyle(.plain)
         .font(font)
-        .foregroundColor(hasSlashHighlight ? .clear : VColor.textPrimary)
-        .tint(VColor.accent)
+        .lineSpacing(4)
+        .foregroundColor(hasSlashHighlight ? .clear : VColor.contentDefault)
+        .tint(VColor.primaryBase)
         .focused($composerFocus)
         .disabled(!hasAPIKey)
         .onSubmit { handleComposerSubmit() }
@@ -232,6 +235,7 @@ struct ComposerView: View {
             .padding(.trailing, 70)
         }
         .scrollBounceBehavior(.basedOnSize)
+        .defaultScrollAnchor(.bottom)
         .frame(minHeight: composerCompactHeight, maxHeight: inputText.isEmpty ? composerCompactHeight : composerMaxHeight)
         .accessibilityLabel("Message")
         .frame(maxWidth: .infinity)
@@ -387,25 +391,25 @@ struct ComposerView: View {
             }
             content()
         }
-        .padding(.top, VSpacing.sm)
-        .padding(.bottom, VSpacing.sm)
+        .padding(.top, VSpacing.md)
+        .padding(.bottom, VSpacing.md)
         .padding(.leading, VSpacing.lg)
         .padding(.trailing, VSpacing.lg)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.composerBackground)
+                .fill(VColor.surfaceActive)
         )
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .stroke(
-                    isComposerFocused ? VColor.surfaceBorder : VColor.surfaceBorder.opacity(0.95),
+                    isComposerFocused ? VColor.borderBase : VColor.borderBase.opacity(0.95),
                     lineWidth: isComposerFocused ? 1.5 : 1
                 )
         )
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder.opacity(isComposerFocused ? 0.12 : 0), lineWidth: 3)
+                .stroke(VColor.borderBase.opacity(isComposerFocused ? 0.12 : 0), lineWidth: 3)
         )
         .shadow(color: .clear, radius: 0)
     }
@@ -504,7 +508,7 @@ VStreamingWaveform(
                         amplitude: liveAmplitude,
                         isActive: true,
                         style: .scrolling,
-                        foregroundColor: VColor.textMuted,
+                        foregroundColor: VColor.contentTertiary,
                         lineWidth: 2
                     )
                     .padding(.trailing, VSpacing.lg)
@@ -561,7 +565,7 @@ VStreamingWaveform(
                     amplitude: voiceConversationAmplitude(manager),
                     isActive: manager.state == .listening || manager.state == .speaking,
                     style: .scrolling,
-                    foregroundColor: VColor.voiceComposerTextPrimary,
+                    foregroundColor: VColor.contentInset,
                     lineWidth: 2
                 )
                 .padding(.trailing, VSpacing.lg)
@@ -595,7 +599,7 @@ VStreamingWaveform(
             }
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(VColor.voiceComposerBackground)
+                    .fill(VColor.contentEmphasized)
             )
             .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         }
@@ -614,10 +618,10 @@ VStreamingWaveform(
 
     private func voiceConversationWaveformColor(_ manager: VoiceModeManager) -> Color {
         switch manager.state {
-        case .listening: return VColor.accent
-        case .speaking: return VColor.success
-        case .processing: return VColor.textSecondary
-        default: return VColor.accent
+        case .listening: return VColor.primaryBase
+        case .speaking: return VColor.systemPositiveStrong
+        case .processing: return VColor.contentSecondary
+        default: return VColor.primaryBase
         }
     }
 
@@ -642,13 +646,13 @@ private struct VoiceModeButton: View {
         Button(action: action) {
             VIconView(.audioWaveform, size: 13)
                 .frame(width: 20, height: 20)
-                .foregroundColor(VColor.voiceComposerTextPrimary)
+                .foregroundColor(VColor.contentInset)
         }
         .buttonStyle(.plain)
         .frame(width: size, height: size)
         .background(
             Circle()
-                .fill(VColor.voiceComposerBackground)
+                .fill(VColor.contentEmphasized)
                 .frame(width: 28, height: 28)
         )
         .contentShape(Circle().size(width: size, height: size))

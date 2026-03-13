@@ -15,18 +15,18 @@ struct ListSurfaceView: View {
                         HStack(spacing: VSpacing.md) {
                             if let icon = item.icon {
                                 VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 14)
-                                    .foregroundColor(VColor.textMuted)
+                                    .foregroundColor(VColor.contentTertiary)
                             }
 
                             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                                 Text(item.title)
                                     .font(VFont.bodyMedium)
-                                    .foregroundColor(VColor.textPrimary)
+                                    .foregroundColor(VColor.contentDefault)
 
                                 if let subtitle = item.subtitle {
                                     Text(subtitle)
                                         .font(VFont.caption)
-                                        .foregroundColor(VColor.textSecondary)
+                                        .foregroundColor(VColor.contentSecondary)
                                 }
                             }
 
@@ -34,7 +34,7 @@ struct ListSurfaceView: View {
 
                             if data.selectionMode != .none && selectedIds.contains(item.id) {
                                 VIconView(.check, size: 14)
-                                    .foregroundColor(VColor.accent)
+                                    .foregroundColor(VColor.primaryBase)
                             }
                         }
                     }

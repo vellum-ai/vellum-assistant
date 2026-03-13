@@ -7,7 +7,6 @@ import { saveAssistantEntry, setActiveAssistant } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
 import { DEFAULT_GATEWAY_PORT } from "./constants";
 import type { Species } from "./constants";
-import { discoverPublicUrl } from "./local";
 import { generateRandomSuffix } from "./random-name";
 import { exec, execOutput } from "./step-runner";
 import {
@@ -18,6 +17,57 @@ import {
 } from "./xdg-log";
 
 const _require = createRequire(import.meta.url);
+
+/**
+ * Checks whether the `docker` CLI and daemon are available on the system.
+ * Installs Colima and Docker via Homebrew if the CLI is missing, and starts
+ * Colima if the Docker daemon is not reachable.
+ */
+async function ensureDockerInstalled(): Promise<void> {
+  let installed = false;
+  try {
+    await execOutput("docker", ["--version"]);
+    installed = true;
+  } catch {
+    // docker CLI not found — install it
+  }
+
+  if (!installed) {
+    console.log("🐳 Docker not found. Installing via Homebrew...");
+    try {
+      await exec("brew", ["install", "colima", "docker"]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Failed to install Docker via Homebrew. Please install Docker manually.\n${message}`,
+      );
+    }
+
+    try {
+      await execOutput("docker", ["--version"]);
+    } catch {
+      throw new Error(
+        "Docker was installed but is still not available on PATH. " +
+          "You may need to restart your terminal.",
+      );
+    }
+  }
+
+  // Verify the Docker daemon is reachable; start Colima if it isn't
+  try {
+    await exec("docker", ["info"]);
+  } catch {
+    console.log("🚀 Docker daemon not running. Starting Colima...");
+    try {
+      await exec("colima", ["start"]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Failed to start Colima. Please run 'colima start' manually.\n${message}`,
+      );
+    }
+  }
+}
 
 interface DockerRoot {
   /** Directory to use as the Docker build context */
@@ -31,7 +81,7 @@ interface DockerRoot {
  * Dockerfiles live under `meta/`, but when installed as an npm package they
  * are at the package root.
  */
-function findDockerRoot(): DockerRoot {
+function findDockerRoot(developmentMode: boolean = false): DockerRoot {
   // Source tree: cli/src/lib/ -> repo root (Dockerfiles in meta/)
   const sourceTreeRoot = join(import.meta.dir, "..", "..", "..");
   if (existsSync(join(sourceTreeRoot, "meta", "Dockerfile"))) {
@@ -53,6 +103,21 @@ function findDockerRoot(): DockerRoot {
     const parent = dirname(dir);
     if (parent === dir) break;
     dir = parent;
+  }
+
+  // In development mode, walk up from the executable path to find the repo
+  // root. This handles the macOS app bundle case where the binary lives inside
+  // the repo at e.g. clients/macos/dist/Vellum.app/Contents/MacOS/.
+  if (developmentMode) {
+    let execDir = dirname(process.execPath);
+    while (true) {
+      if (existsSync(join(execDir, "meta", "Dockerfile.development"))) {
+        return { root: execDir, dockerfileDir: "meta" };
+      }
+      const parent = dirname(execDir);
+      if (parent === execDir) break;
+      execDir = parent;
+    }
   }
 
   // macOS app bundle: Contents/MacOS/vellum-cli -> Contents/Resources/Dockerfile
@@ -165,10 +230,12 @@ export async function hatchDocker(
 ): Promise<void> {
   resetLogFile("hatch.log");
 
+  await ensureDockerInstalled();
+
   let repoRoot: string;
   let dockerfileDir: string;
   try {
-    ({ root: repoRoot, dockerfileDir } = findDockerRoot());
+    ({ root: repoRoot, dockerfileDir } = findDockerRoot(watch));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const logFd = openLogFile("hatch.log");
@@ -236,12 +303,7 @@ export async function hatchDocker(
   ];
 
   // Pass through environment variables the assistant needs
-  for (const envVar of [
-    "ANTHROPIC_API_KEY",
-    "GATEWAY_RUNTIME_PROXY_ENABLED",
-    "RUNTIME_PROXY_BEARER_TOKEN",
-    "VELLUM_ASSISTANT_PLATFORM_URL",
-  ]) {
+  for (const envVar of ["ANTHROPIC_API_KEY", "VELLUM_PLATFORM_URL"]) {
     if (process.env[envVar]) {
       runArgs.push("-e", `${envVar}=${process.env[envVar]}`);
     }
@@ -263,8 +325,10 @@ export async function hatchDocker(
     );
   }
 
-  const publicUrl = await discoverPublicUrl(gatewayPort);
-  const runtimeUrl = publicUrl || `http://localhost:${gatewayPort}`;
+  // Docker containers bind to 0.0.0.0 so localhost always works. Skip
+  // mDNS/LAN discovery — the .local hostname often fails to resolve on the
+  // host machine itself (mDNS is designed for cross-device discovery).
+  const runtimeUrl = `http://localhost:${gatewayPort}`;
   const dockerEntry: AssistantEntry = {
     assistantId: instanceName,
     runtimeUrl,

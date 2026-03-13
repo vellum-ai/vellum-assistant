@@ -191,7 +191,12 @@ extension ChatBubble {
                 streamingCodePreview: isLatestGroup ? message.streamingCodePreview : nil,
                 streamingCodeToolName: isLatestGroup ? message.streamingCodeToolName : nil,
                 decidedConfirmations: groupConfirmations,
-                onRehydrate: onRehydrate
+                onRehydrate: onRehydrate,
+                onConfirmationAllow: onConfirmationAllow,
+                onConfirmationDeny: onConfirmationDeny,
+                onAlwaysAllow: onAlwaysAllow,
+                onTemporaryAllow: onTemporaryAllow,
+                activeConfirmationRequestId: activeConfirmationRequestId
             )
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
 

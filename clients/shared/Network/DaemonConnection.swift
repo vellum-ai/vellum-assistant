@@ -112,7 +112,6 @@ extension DaemonClient {
         httpTransport?.disconnect()
         httpTransport = nil
 
-        cuObservationSequenceBySession.removeAll()
         isConnected = false
         isConnecting = false
         httpPort = nil

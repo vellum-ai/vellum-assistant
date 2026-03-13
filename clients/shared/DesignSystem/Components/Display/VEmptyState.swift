@@ -15,15 +15,15 @@ public struct VEmptyState: View {
         VStack(spacing: VSpacing.lg) {
             if let icon = icon {
                 VIconView(.resolve(icon), size: 48)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
             Text(title)
                 .font(VFont.mono)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
             if let subtitle = subtitle {
                 Text(subtitle)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -32,19 +32,3 @@ public struct VEmptyState: View {
     }
 }
 
-#Preview("VEmptyState") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        VStack(spacing: 24) {
-            VEmptyState(
-                title: "No items yet",
-                subtitle: "Create your first item to get started",
-                icon: VIcon.inbox.rawValue
-            )
-            Divider()
-            VEmptyState(title: "No results")
-        }
-        .padding()
-    }
-    .frame(width: 350, height: 400)
-}

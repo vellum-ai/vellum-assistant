@@ -1,6 +1,5 @@
 import { createDraft } from "../../../../messaging/providers/gmail/client.js";
-import { getMessagingProvider } from "../../../../messaging/registry.js";
-import { withValidToken } from "../../../../security/token-manager.js";
+import { resolveOAuthConnection } from "../../../../oauth/connection-resolver.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -23,21 +22,19 @@ export async function run(
   if (!body) return err("body is required.");
 
   try {
-    const provider = getMessagingProvider("gmail");
-    return await withValidToken(provider.credentialService, async (token) => {
-      const draft = await createDraft(
-        token,
-        to,
-        subject,
-        body,
-        inReplyTo,
-        cc,
-        bcc,
-      );
-      return ok(
-        `Draft created (ID: ${draft.id}). It will appear in your Gmail Drafts.`,
-      );
-    });
+    const connection = resolveOAuthConnection("integration:gmail");
+    const draft = await createDraft(
+      connection,
+      to,
+      subject,
+      body,
+      inReplyTo,
+      cc,
+      bcc,
+    );
+    return ok(
+      `Draft created (ID: ${draft.id}). It will appear in your Gmail Drafts.`,
+    );
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));
   }

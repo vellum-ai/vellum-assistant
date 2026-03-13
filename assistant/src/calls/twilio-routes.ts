@@ -6,7 +6,6 @@
  * - handleConnectAction: called when the ConversationRelay connection ends
  */
 
-import { getCallWelcomeGreeting } from "../config/env.js";
 import { loadConfig } from "../config/loader.js";
 import { getTwilioRelayUrl } from "../inbound/public-ingress-urls.js";
 import { mintEdgeRelayToken } from "../runtime/auth/token-service.js";
@@ -236,7 +235,7 @@ function buildVoiceWebhookTwiml(
   );
 
   const relayUrl = getTwilioRelayUrl(loadConfig());
-  const welcomeGreeting = buildWelcomeGreeting(task, getCallWelcomeGreeting());
+  const welcomeGreeting = buildWelcomeGreeting(task);
 
   const relayToken = mintEdgeRelayToken();
 

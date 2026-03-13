@@ -17,6 +17,7 @@ import {
 import { getConfig } from "../../config/loader.js";
 import { renderHistoryContent } from "../../daemon/handlers/shared.js";
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
+import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import {
@@ -449,6 +450,12 @@ function makeHubPublisher(
         conversationId,
         kind: "host_file",
       });
+    } else if (msg.type === "host_cu_request") {
+      pendingInteractions.register(msg.requestId, {
+        session,
+        conversationId,
+        kind: "host_cu",
+      });
     }
 
     // ServerMessage is a large union; sessionId exists on most but not all variants.
@@ -640,9 +647,22 @@ export async function handleSendMessage(
       });
       session.setHostFileProxy(fileProxy);
     }
+    if (!session.isProcessing() || !session.hostCuProxy) {
+      const cuProxy = new HostCuProxy(onEvent, (requestId) => {
+        pendingInteractions.resolve(requestId);
+      });
+      session.setHostCuProxy(cuProxy);
+    }
+    // Only preactivate CU when the session is idle — if the session is
+    // processing, this message will be queued and preactivation is deferred
+    // to dequeue time in drainQueueImpl to avoid mutating in-flight turn state.
+    if (!session.isProcessing()) {
+      session.addPreactivatedSkillId("computer-use");
+    }
   } else if (!session.isProcessing()) {
     session.setHostBashProxy(undefined);
     session.setHostFileProxy(undefined);
+    session.setHostCuProxy(undefined);
   }
   // Wire sendToClient to the SSE hub so all subsystems can reach the HTTP client.
   // Called after setHostBashProxy so updateSender targets the current proxy.
@@ -679,7 +699,13 @@ export async function handleSendMessage(
       attachments,
       session,
       onEvent,
-      approvalConversationGenerator: deps.approvalConversationGenerator,
+      // Desktop path: disable NL classification to avoid consuming non-decision
+      // messages while a tool confirmation is pending. Deterministic code-prefix
+      // and callback parsing remain active. Mirrors session-process.ts behavior.
+      approvalConversationGenerator:
+        sourceChannel === "vellum"
+          ? undefined
+          : deps.approvalConversationGenerator,
       verifiedActorExternalUserId,
       verifiedActorPrincipalId,
     });
@@ -687,6 +713,7 @@ export async function handleSendMessage(
       return Response.json(
         {
           accepted: true,
+          conversationId: mapping.conversationId,
           ...(inlineReplyResult.messageId
             ? { messageId: inlineReplyResult.messageId }
             : {}),
@@ -751,7 +778,10 @@ export async function handleSendMessage(
       pendingInteractions.removeBySession(session);
     }
 
-    return Response.json({ accepted: true, queued: true }, { status: 202 });
+    return Response.json(
+      { accepted: true, queued: true, conversationId: mapping.conversationId },
+      { status: 202 },
+    );
   }
 
   // Session is idle — persist and fire agent loop immediately
@@ -782,6 +812,7 @@ export async function handleSendMessage(
 
   if (slashResult.kind === "unknown") {
     session.processing = true;
+    let cleanupDeferred = false;
     try {
       const provenance = provenanceFromTrustContext(session.trustContext);
       const channelMeta = {
@@ -818,26 +849,54 @@ export async function handleSendMessage(
         sourceInterface,
       );
 
-      // Emit fresh model info before the text delta so the client has
-      // up-to-date configuredProviders when rendering /model, /models,
-      // and provider shortcut commands (/gpt4, /opus, etc.).
-      if (isModelSlashCommand(rawContent) || isProviderShortcut(rawContent)) {
-        onEvent(buildModelInfoEvent());
-      }
+      // Snapshot model info now so the deferred callback cannot observe
+      // a config change from a concurrent request.
+      const modelInfoEvent =
+        isModelSlashCommand(rawContent) || isProviderShortcut(rawContent)
+          ? buildModelInfoEvent()
+          : null;
 
-      onEvent({ type: "assistant_text_delta", text: slashResult.message });
-      onEvent({
-        type: "message_complete",
-        sessionId: mapping.conversationId,
-      });
-
-      return Response.json(
-        { accepted: true, messageId: persisted.id },
+      const response = Response.json(
+        {
+          accepted: true,
+          messageId: persisted.id,
+          conversationId: mapping.conversationId,
+        },
         { status: 202 },
       );
+
+      // Defer event publishing to next tick so the HTTP response reaches the
+      // client first. This ensures the client's serverToLocalSessionMap is
+      // populated before SSE events arrive, preventing dropped events in new
+      // desktop threads.
+      //
+      // session.processing and drainQueue are also deferred so the current
+      // slash command's events are emitted before the next queued message
+      // starts processing.
+      const conversationId = mapping.conversationId;
+      const message = slashResult.message;
+      setTimeout(() => {
+        if (modelInfoEvent) {
+          onEvent(modelInfoEvent);
+        }
+        onEvent({ type: "assistant_text_delta", text: message });
+        onEvent({
+          type: "message_complete",
+          sessionId: conversationId,
+        });
+        session.processing = false;
+        session.drainQueue().catch(() => {});
+      }, 0);
+
+      cleanupDeferred = true;
+      return response;
     } finally {
-      session.processing = false;
-      session.drainQueue().catch(() => {});
+      // No-op for the slash-command early-return path (handled inside
+      // setTimeout above), but still needed for error paths.
+      if (!cleanupDeferred && session.processing) {
+        session.processing = false;
+        session.drainQueue().catch(() => {});
+      }
     }
   }
 
@@ -874,7 +933,10 @@ export async function handleSendMessage(
       );
     });
 
-  return Response.json({ accepted: true, messageId }, { status: 202 });
+  return Response.json(
+    { accepted: true, messageId, conversationId: mapping.conversationId },
+    { status: 202 },
+  );
 }
 
 async function generateLlmSuggestion(

@@ -84,7 +84,10 @@ export class PermissionPrompter {
           "Permission prompt timed out, defaulting to deny",
         );
         this.onStateChanged?.(requestId, "timed_out", "timeout", toolUseId);
-        resolve({ decision: "deny" });
+        resolve({
+          decision: "deny",
+          decisionContext: `The permission prompt for the "${toolName}" tool timed out. The user did not explicitly deny this request — they may have been away or busy. You may retry this tool call if it is still needed for the current task.`,
+        });
       }, timeoutMs);
 
       this.pending.set(requestId, { resolve, reject, timer, toolUseId });
@@ -121,6 +124,7 @@ export class PermissionPrompter {
         executionTarget,
         persistentDecisionsAllowed: persistentDecisionsAllowed ?? true,
         temporaryOptionsAvailable,
+        toolUseId,
       });
 
       this.onStateChanged?.(requestId, "pending", "system", toolUseId);
@@ -129,6 +133,11 @@ export class PermissionPrompter {
 
   hasPendingRequest(requestId: string): boolean {
     return this.pending.has(requestId);
+  }
+
+  /** Returns all currently pending request IDs. */
+  getPendingRequestIds(): string[] {
+    return [...this.pending.keys()];
   }
 
   /** Returns the toolUseId associated with a pending request, if any. */

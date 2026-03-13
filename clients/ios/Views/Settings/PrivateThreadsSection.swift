@@ -109,7 +109,7 @@ struct PrivateThreadsSection: View {
     private func privateThreadRow(_ thread: IOSThread) -> some View {
         HStack {
             VIconView(.shield, size: 12)
-                .foregroundStyle(VColor.accent)
+                .foregroundStyle(VColor.primaryBase)
             VStack(alignment: .leading, spacing: 2) {
                 Text(thread.title)
                     .lineLimit(1)

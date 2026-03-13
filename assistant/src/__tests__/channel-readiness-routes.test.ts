@@ -11,7 +11,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Mocks — must be set up before importing the service
 // ---------------------------------------------------------------------------
 
-let mockTwilioPhoneNumberEnv: string | undefined;
 let mockRawConfig: Record<string, unknown> | undefined;
 let mockSecureKeys: Record<string, string>;
 let mockHasTwilioCredentials: boolean;
@@ -23,16 +22,27 @@ mock.module("../calls/twilio-rest.js", () => ({
   getTollFreeVerificationStatus: async () => null,
 }));
 
-mock.module("../config/env.js", () => ({
-  getTwilioPhoneNumberEnv: () => mockTwilioPhoneNumberEnv,
-}));
+mock.module("../config/env.js", () => ({}));
 
 mock.module("../config/loader.js", () => ({
   loadRawConfig: () => mockRawConfig,
+  loadConfig: () => {
+    const raw = mockRawConfig ?? {};
+    const wa = (raw.whatsapp ?? {}) as Record<string, unknown>;
+    const tw = (raw.twilio ?? {}) as Record<string, unknown>;
+    return {
+      twilio: { phoneNumber: (tw.phoneNumber as string) ?? "" },
+      whatsapp: { phoneNumber: (wa.phoneNumber as string) ?? "" },
+    };
+  },
   getConfig: () => {
     const raw = mockRawConfig ?? {};
     const wa = (raw.whatsapp ?? {}) as Record<string, unknown>;
-    return { whatsapp: { phoneNumber: (wa.phoneNumber as string) ?? "" } };
+    const tw = (raw.twilio ?? {}) as Record<string, unknown>;
+    return {
+      twilio: { phoneNumber: (tw.phoneNumber as string) ?? "" },
+      whatsapp: { phoneNumber: (wa.phoneNumber as string) ?? "" },
+    };
   },
   invalidateConfigCache: () => {},
 }));
@@ -52,6 +62,7 @@ mock.module("../email/service.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { createReadinessService } from "../runtime/channel-readiness-service.js";
+import { credentialKey } from "../security/credential-key.js";
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -59,7 +70,6 @@ import { createReadinessService } from "../runtime/channel-readiness-service.js"
 
 describe("channel readiness routes — email and WhatsApp probes", () => {
   beforeEach(() => {
-    mockTwilioPhoneNumberEnv = undefined;
     mockRawConfig = undefined;
     mockSecureKeys = {};
     mockHasTwilioCredentials = false;
@@ -197,10 +207,10 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
 
     test("reports ready when all Meta credentials and display number are configured", async () => {
       mockSecureKeys = {
-        "credential:whatsapp:phone_number_id": "123456789",
-        "credential:whatsapp:access_token": "EAAxxxxxx",
-        "credential:whatsapp:app_secret": "abc123",
-        "credential:whatsapp:webhook_verify_token": "my-verify-token",
+        [credentialKey("whatsapp", "phone_number_id")]: "123456789",
+        [credentialKey("whatsapp", "access_token")]: "EAAxxxxxx",
+        [credentialKey("whatsapp", "app_secret")]: "abc123",
+        [credentialKey("whatsapp", "webhook_verify_token")]: "my-verify-token",
       };
       mockRawConfig = {
         whatsapp: { phoneNumber: "+15551234567" },
@@ -215,10 +225,10 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
 
     test("reports not ready when display phone number is missing", async () => {
       mockSecureKeys = {
-        "credential:whatsapp:phone_number_id": "123456789",
-        "credential:whatsapp:access_token": "EAAxxxxxx",
-        "credential:whatsapp:app_secret": "abc123",
-        "credential:whatsapp:webhook_verify_token": "my-verify-token",
+        [credentialKey("whatsapp", "phone_number_id")]: "123456789",
+        [credentialKey("whatsapp", "access_token")]: "EAAxxxxxx",
+        [credentialKey("whatsapp", "app_secret")]: "abc123",
+        [credentialKey("whatsapp", "webhook_verify_token")]: "my-verify-token",
       };
       mockRawConfig = {
         ingress: { publicBaseUrl: "https://example.com", enabled: true },
@@ -236,10 +246,10 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
 
     test("checks each Meta credential individually", async () => {
       mockSecureKeys = {
-        "credential:whatsapp:phone_number_id": "123456789",
+        [credentialKey("whatsapp", "phone_number_id")]: "123456789",
         // access_token missing
-        "credential:whatsapp:app_secret": "abc123",
-        "credential:whatsapp:webhook_verify_token": "my-verify-token",
+        [credentialKey("whatsapp", "app_secret")]: "abc123",
+        [credentialKey("whatsapp", "webhook_verify_token")]: "my-verify-token",
       };
       mockRawConfig = {
         ingress: { publicBaseUrl: "https://example.com", enabled: true },
@@ -272,10 +282,10 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
 
     test("checks invite policy", async () => {
       mockSecureKeys = {
-        "credential:whatsapp:phone_number_id": "123456789",
-        "credential:whatsapp:access_token": "EAAxxxxxx",
-        "credential:whatsapp:app_secret": "abc123",
-        "credential:whatsapp:webhook_verify_token": "my-verify-token",
+        [credentialKey("whatsapp", "phone_number_id")]: "123456789",
+        [credentialKey("whatsapp", "access_token")]: "EAAxxxxxx",
+        [credentialKey("whatsapp", "app_secret")]: "abc123",
+        [credentialKey("whatsapp", "webhook_verify_token")]: "my-verify-token",
       };
       mockRawConfig = {
         whatsapp: { phoneNumber: "+15551234567" },
@@ -293,10 +303,10 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
 
     test("checks ingress configuration", async () => {
       mockSecureKeys = {
-        "credential:whatsapp:phone_number_id": "123456789",
-        "credential:whatsapp:access_token": "EAAxxxxxx",
-        "credential:whatsapp:app_secret": "abc123",
-        "credential:whatsapp:webhook_verify_token": "my-verify-token",
+        [credentialKey("whatsapp", "phone_number_id")]: "123456789",
+        [credentialKey("whatsapp", "access_token")]: "EAAxxxxxx",
+        [credentialKey("whatsapp", "app_secret")]: "abc123",
+        [credentialKey("whatsapp", "webhook_verify_token")]: "my-verify-token",
       };
       mockRawConfig = {
         whatsapp: { phoneNumber: "+15551234567" },

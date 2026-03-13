@@ -131,7 +131,7 @@ class ThumbnailProvider: QLThumbnailProvider {
         let font = NSFont.systemFont(ofSize: fontSize, weight: .bold)
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: NSColor.white,
+            .foregroundColor: NSColor.white, // color-literal-ok
         ]
 
         let attrString = NSAttributedString(string: displayText, attributes: attributes)

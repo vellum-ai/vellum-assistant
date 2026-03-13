@@ -18,6 +18,7 @@ struct SettingsGeneralTab: View {
         }
         .onAppear {
             Task { await authManager.checkSession() }
+            store.refreshApprovedDevices()
         }
         .sheet(isPresented: $showingPairingQR) {
             PairingQRCodeSheet(
@@ -35,15 +36,15 @@ struct SettingsGeneralTab: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Devices")
                         .font(VFont.inputLabel)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
 
                     ForEach(store.approvedDevices, id: \.hashedDeviceId) { device in
                         HStack(spacing: VSpacing.sm) {
                             VIconView(.smartphone, size: 12)
-                                .foregroundColor(VColor.success)
+                                .foregroundColor(VColor.systemPositiveStrong)
                             Text(device.deviceName)
                                 .font(VFont.body)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.contentSecondary)
                             VIconButton(label: "Remove \(device.deviceName)", icon: VIcon.trash.rawValue, iconOnly: true, variant: .danger) {
                                 store.removeApprovedDevice(hashedDeviceId: device.hashedDeviceId)
                             }
@@ -56,13 +57,13 @@ struct SettingsGeneralTab: View {
             if !hasGateway {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(.triangleAlert, size: 12)
-                        .foregroundColor(VColor.warning)
+                        .foregroundColor(VColor.systemNegativeHover)
                     Text("Configure a gateway URL to enable pairing")
                         .font(VFont.body)
-                        .foregroundColor(VColor.warning)
+                        .foregroundColor(VColor.systemNegativeHover)
                 }
             } else {
-                VButton(label: "Pair Device", leftIcon: VIcon.qrCode.rawValue, style: .primary, size: .medium) {
+                VButton(label: "Pair Device", leftIcon: VIcon.qrCode.rawValue, style: .primary) {
                     showingPairingQR = true
                 }
             }
@@ -79,17 +80,16 @@ struct SettingsGeneralTab: View {
                         .controlSize(.small)
                     Text("Checking...")
                         .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
             } else if authManager.currentUser != nil {
-                VButton(label: "Log Out", style: .danger, size: .medium) {
+                VButton(label: "Log Out", style: .danger) {
                     Task { await authManager.logout() }
                 }
             } else {
                 VButton(
                     label: authManager.isSubmitting ? "Signing in..." : "Sign In",
                     style: .primary,
-                    size: .medium,
                     isDisabled: authManager.isSubmitting
                 ) {
                     Task { await authManager.startWorkOSLogin() }
@@ -99,7 +99,7 @@ struct SettingsGeneralTab: View {
             if let error = authManager.errorMessage {
                 Text(error)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.error)
+                    .foregroundColor(VColor.systemNegativeStrong)
             }
         }
     }

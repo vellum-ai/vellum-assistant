@@ -117,7 +117,8 @@
         "emoji": "📧",
         "vellum": {
           "display-name": "Email Setup",
-          "user-invocable": "true"
+          "user-invocable": "true",
+          "feature-flag": "email-channel"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -134,30 +135,12 @@
     {
       "id": "google-oauth-applescript",
       "name": "google-oauth-applescript",
-      "description": "Set up Google Cloud OAuth credentials for Gmail and Calendar using collaborative AppleScript navigation",
+      "description": "Set up Google Cloud OAuth credentials for Gmail and Calendar using a collaborative guided flow",
       "metadata": {
         "emoji": "🔑",
         "vellum": {
           "display-name": "Google OAuth Setup",
           "user-invocable": "true",
-          "credential-setup-for": "gmail"
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
-      "id": "google-oauth-setup",
-      "name": "google-oauth-setup",
-      "description": "Set up Google Cloud OAuth credentials for Gmail and Calendar using browser automation",
-      "metadata": {
-        "emoji": "🔑",
-        "vellum": {
-          "display-name": "Google OAuth Setup",
-          "user-invocable": "true",
-          "includes": [
-            "browser",
-            "public-ingress"
-          ],
           "credential-setup-for": "gmail"
         }
       },
@@ -473,7 +456,7 @@
     {
       "id": "voice-setup",
       "name": "voice-setup",
-      "description": "Complete voice configuration in chat — PTT key, wake word, microphone permissions, ElevenLabs TTS, and troubleshooting",
+      "description": "Complete voice configuration in chat — PTT key, microphone permissions, ElevenLabs TTS, and troubleshooting",
       "metadata": {
         "emoji": "🎙️",
         "vellum": {

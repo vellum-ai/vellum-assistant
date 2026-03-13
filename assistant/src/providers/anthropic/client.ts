@@ -84,8 +84,12 @@ function summarizeMessages(messages: Anthropic.MessageParam[]): string[] {
     const blockDescs = content.map((b) => {
       const bt = (b as { type: string }).type;
       if (bt === "tool_use") return `tool_use(${(b as { id: string }).id})`;
+      if (bt === "server_tool_use")
+        return `server_tool_use(${(b as { id: string }).id})`;
       if (bt === "tool_result")
         return `tool_result(${(b as { tool_use_id: string }).tool_use_id})`;
+      if (bt === "web_search_tool_result")
+        return `web_search_tool_result(${(b as { tool_use_id: string }).tool_use_id})`;
       return bt;
     });
     return `[${idx}] ${m.role}: ${blockDescs.join(", ") || "(empty)"}`;
@@ -103,16 +107,24 @@ function buildSyntheticToolResult(
   };
 }
 
+
+/**
+ * Collect ordered IDs of client-side tool_use blocks only.
+ * Server-side tools (server_tool_use / web_search_tool_result) are self-paired
+ * within the assistant message and do not need cross-message pairing.
+ */
 function getOrderedToolUseIds(
   content: Anthropic.ContentBlockParam[],
 ): string[] {
   const ids: string[] = [];
   const seen = new Set<string>();
   for (const block of content) {
-    if (!isToolUseBlock(block)) continue;
-    if (seen.has(block.id)) continue;
-    seen.add(block.id);
-    ids.push(block.id);
+    if (isToolUseBlock(block)) {
+      if (!seen.has(block.id)) {
+        seen.add(block.id);
+        ids.push(block.id);
+      }
+    }
   }
   return ids;
 }
@@ -124,19 +136,29 @@ function hasOrderedToolResultPrefix(
   if (content.length < orderedToolUseIds.length) return false;
   for (let idx = 0; idx < orderedToolUseIds.length; idx++) {
     const block = content[idx];
+    const expectedId = orderedToolUseIds[idx];
     if (!isToolResultBlock(block)) return false;
-    if (block.tool_use_id !== orderedToolUseIds[idx]) return false;
+    if (block.tool_use_id !== expectedId) return false;
   }
   return true;
 }
 
+/**
+ * Split an assistant message into:
+ * - pairedContent: everything up to and including client-side tool_use blocks
+ * - carryoverContent: trailing non-tool blocks after the last tool_use
+ *
+ * Server-side tools (server_tool_use / web_search_tool_result) are treated as
+ * regular content — they are self-paired within the assistant message and must
+ * not be separated by the cross-message pairing logic.
+ */
 function splitAssistantForToolPairing(content: Anthropic.ContentBlockParam[]): {
   pairedContent: Anthropic.ContentBlockParam[];
   carryoverContent: Anthropic.ContentBlockParam[];
   toolUseIds: string[];
 } {
   const leading: Anthropic.ContentBlockParam[] = [];
-  const toolUseBlocks: Anthropic.ToolUseBlockParam[] = [];
+  const toolUseBlocks: Anthropic.ContentBlockParam[] = [];
   const carryover: Anthropic.ContentBlockParam[] = [];
   let seenToolUse = false;
 
@@ -182,7 +204,7 @@ function normalizeFollowingUserContent(
   hadOrderedPrefix: boolean;
 } {
   const pendingIds = new Set(orderedToolUseIds);
-  const matchedById = new Map<string, Anthropic.ToolResultBlockParam>();
+  const matchedById = new Map<string, Anthropic.ContentBlockParam>();
   const remaining: Anthropic.ContentBlockParam[] = [];
 
   for (const block of nextContent) {
@@ -206,10 +228,7 @@ function normalizeFollowingUserContent(
     toolResultPrefix: orderedResults,
     remainingContent: remaining,
     missingIds,
-    hadOrderedPrefix: hasOrderedToolResultPrefix(
-      nextContent,
-      orderedToolUseIds,
-    ),
+    hadOrderedPrefix: hasOrderedToolResultPrefix(nextContent, orderedToolUseIds),
   };
 }
 
@@ -348,21 +367,23 @@ function ensureToolPairing(
     }
   }
 
-  // Self-validation: verify no tool_use/tool_result mismatches remain
+  // Self-validation: verify no client-side tool_use/tool_result mismatches remain.
+  // Server-side tools (server_tool_use / web_search_tool_result) are self-paired
+  // within assistant messages and are not validated here.
   for (let j = 0; j < result.length; j++) {
     const m = result[j];
     if (m.role !== "assistant") continue;
     const c = Array.isArray(m.content) ? m.content : [];
-    const ids = getOrderedToolUseIds(c);
-    if (ids.length === 0) continue;
+    const validationIds = getOrderedToolUseIds(c);
+    if (validationIds.length === 0) continue;
 
     const nxt = result[j + 1];
     const nxtContent =
       nxt && nxt.role === "user" && Array.isArray(nxt.content)
         ? nxt.content
         : [];
-    if (!hasOrderedToolResultPrefix(nxtContent, ids)) {
-      const unmatchedIds = ids.filter((id, idx) => {
+    if (!hasOrderedToolResultPrefix(nxtContent, validationIds)) {
+      const unmatchedIds = validationIds.filter((id, idx) => {
         const block = nxtContent[idx];
         return !(isToolResultBlock(block) && block.tool_use_id === id);
       });
@@ -659,10 +680,14 @@ export class AnthropicProvider implements Provider {
               onEvent?.({ type: "text_delta", text: " " });
             }
             hasSeenTextBlock = true;
-          } else if (event.type === "content_block_start") {
-            // Reset on non-text blocks so that text separated by tool_use
-            // (text -> tool_use -> text) doesn't get a spurious leading space
-            // in the second text segment.
+          } else if (
+            event.type === "content_block_start" &&
+            event.content_block.type === "tool_use"
+          ) {
+            // Reset only for client-side tool_use blocks, which create visual
+            // separators in the UI. Server-side tool blocks (server_tool_use,
+            // web_search_tool_result) are transparent in the text stream and
+            // need the space preserved between surrounding text blocks.
             hasSeenTextBlock = false;
           }
           if (
@@ -687,6 +712,20 @@ export class AnthropicProvider implements Provider {
               type: "server_tool_start",
               name: event.content_block.name,
               toolUseId: event.content_block.id,
+              input: (
+                event.content_block as { input?: Record<string, unknown> }
+              ).input ?? {},
+            });
+          }
+          if (
+            event.type === "content_block_start" &&
+            event.content_block.type === "web_search_tool_result"
+          ) {
+            onEvent?.({
+              type: "server_tool_complete",
+              toolUseId: (
+                event.content_block as { tool_use_id: string }
+              ).tool_use_id,
             });
           }
           if (event.type === "content_block_stop") {

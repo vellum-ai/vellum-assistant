@@ -1,5 +1,7 @@
 import type { Command } from "commander";
 
+import type { ExtensionCommand } from "../../browser-extension-relay/protocol.js";
+import { extensionRelayServer } from "../../browser-extension-relay/server.js";
 import {
   initAuthSigningKey,
   isSigningKeyInitialized,
@@ -16,22 +18,38 @@ import {
 } from "../../tools/browser/chrome-cdp.js";
 
 // ---------------------------------------------------------------------------
-// Shared relay helper
+// Shared relay helper — in-process when connected, gateway HTTP otherwise
 // ---------------------------------------------------------------------------
 
 async function relayCommand(command: Record<string, unknown>): Promise<void> {
   try {
-    if (!isSigningKeyInitialized()) {
-      initAuthSigningKey(loadOrCreateSigningKey());
-    }
-
-    const { data } = await gatewayPost<{
-      id: string;
+    // Dual-path: use in-process relay when connected (daemon context),
+    // otherwise fall back to gateway HTTP (out-of-process CLI context).
+    // We check connection status upfront rather than try/catch to avoid
+    // double-execution of side-effectful commands (navigate, new_tab, etc.)
+    // when sendCommand fails after the command was already dispatched.
+    let data: {
+      id?: string;
       success: boolean;
       result?: unknown;
       error?: string;
       tabId?: number;
-    }>("/v1/browser-relay/command", command);
+    };
+
+    if (extensionRelayServer.getStatus().connected) {
+      data = await extensionRelayServer.sendCommand(
+        command as Omit<ExtensionCommand, "id">,
+      );
+    } else {
+      // In-process relay not connected — fall back to gateway HTTP
+      if (!isSigningKeyInitialized()) {
+        initAuthSigningKey(loadOrCreateSigningKey());
+      }
+      ({ data } = await gatewayPost<typeof data>(
+        "/v1/browser-relay/command",
+        command,
+      ));
+    }
 
     if (data.success) {
       process.stdout.write(
@@ -367,15 +385,28 @@ Examples:
     )
     .action(async () => {
       try {
-        if (!isSigningKeyInitialized()) {
-          initAuthSigningKey(loadOrCreateSigningKey());
-        }
-        const data = await gatewayGet<{
+        // Dual-path: use in-process status when connected (daemon context),
+        // otherwise query gateway HTTP (out-of-process CLI context).
+        // getStatus() is a synchronous getter that never throws — we check
+        // .connected to decide whether the local status is meaningful.
+        let data: {
           connected: boolean;
-          connectionId?: string;
-          lastHeartbeatAt?: number;
+          connectionId?: string | null;
+          lastHeartbeatAt?: number | null;
           pendingCommandCount: number;
-        }>("/v1/browser-relay/status");
+        };
+
+        const localStatus = extensionRelayServer.getStatus();
+        if (localStatus.connected) {
+          data = localStatus;
+        } else {
+          // In-process relay not connected — fall back to gateway HTTP
+          if (!isSigningKeyInitialized()) {
+            initAuthSigningKey(loadOrCreateSigningKey());
+          }
+          data = await gatewayGet<typeof data>("/v1/browser-relay/status");
+        }
+
         process.stdout.write(
           JSON.stringify({
             ok: true,

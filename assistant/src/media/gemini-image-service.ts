@@ -13,6 +13,21 @@ export interface ImageGenerationRequest {
   variants?: number;
 }
 
+/** Credentials for direct Gemini API access. */
+export interface DirectCredentials {
+  type: "direct";
+  apiKey: string;
+}
+
+/** Credentials for managed proxy access via Vertex AI. */
+export interface ManagedProxyCredentials {
+  type: "managed-proxy";
+  assistantApiKey: string;
+  baseUrl: string;
+}
+
+export type ImageGenCredentials = DirectCredentials | ManagedProxyCredentials;
+
 export interface GeneratedImage {
   mimeType: string;
   dataBase64: string;
@@ -64,7 +79,7 @@ export function mapGeminiError(error: unknown): string {
 // --- Core function ---
 
 export async function generateImage(
-  apiKey: string,
+  credentials: ImageGenCredentials,
   request: ImageGenerationRequest,
 ): Promise<ImageGenerationResult> {
   const model =
@@ -74,7 +89,18 @@ export async function generateImage(
 
   const variants = Math.max(1, Math.min(request.variants ?? 1, MAX_VARIANTS));
 
-  const client = new GoogleGenAI({ apiKey });
+  const client =
+    credentials.type === "managed-proxy"
+      ? new GoogleGenAI({
+          vertexai: true,
+          project: "proxy",
+          location: "us-central1",
+          httpOptions: {
+            baseUrl: credentials.baseUrl,
+            headers: { Authorization: `Bearer ${credentials.assistantApiKey}` },
+          },
+        })
+      : new GoogleGenAI({ apiKey: credentials.apiKey });
 
   // Build contents array — append a title request so the model's text
   // response contains a short filename-safe title for the generated image.

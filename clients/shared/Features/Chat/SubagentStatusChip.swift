@@ -7,9 +7,9 @@ public struct SubagentStatusChip: View {
 
     private var statusColor: Color {
         switch subagent.status {
-        case .completed: return VColor.success
-        case .failed, .aborted: return VColor.error
-        default: return VColor.statusRunning
+        case .completed: return VColor.systemPositiveStrong
+        case .failed, .aborted: return VColor.systemNegativeStrong
+        default: return VColor.systemPositiveStrong
         }
     }
 
@@ -48,14 +48,14 @@ public struct SubagentStatusChip: View {
                 HStack(spacing: VSpacing.xs) {
                     Text(subagent.label)
                         .font(VFont.captionMedium)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
 
                     if !subagent.isTerminal {
                         // Animated dots
                         HStack(spacing: 2) {
                             ForEach(0..<3, id: \.self) { index in
                                 Circle()
-                                    .fill(VColor.textSecondary)
+                                    .fill(VColor.contentSecondary)
                                     .frame(width: 4, height: 4)
                                     .opacity(phase % 3 == index ? 1.0 : 0.3)
                             }
@@ -66,7 +66,7 @@ public struct SubagentStatusChip: View {
                 if let error = subagent.error, !error.isEmpty {
                     Text(error)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.error)
+                        .foregroundColor(VColor.systemNegativeStrong)
                         .lineLimit(2)
                 }
             }
@@ -75,7 +75,7 @@ public struct SubagentStatusChip: View {
 
             if !subagent.isTerminal, let onAbort {
                 VIconView(.x, size: 9)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .padding(VSpacing.xs)
                     .contentShape(Rectangle())
                     .highPriorityGesture(TapGesture().onEnded { onAbort() })
@@ -87,7 +87,7 @@ public struct SubagentStatusChip: View {
         .padding(.vertical, VSpacing.xs)
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.backgroundSubtle.opacity(0.3))
+                .fill(VColor.surfaceBase.opacity(0.3))
         )
         .contentShape(Rectangle())
         .onTapGesture { onTap?() }

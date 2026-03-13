@@ -10,7 +10,7 @@
  * and use it as the root so `doordash status` works directly.
  */
 
-import { Command } from "commander";
+import { Command } from "commander@13.1.0";
 
 import { registerDoordashCommand } from "./doordash-cli.js";
 

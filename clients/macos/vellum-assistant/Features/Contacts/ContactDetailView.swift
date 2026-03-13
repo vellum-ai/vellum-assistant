@@ -6,18 +6,18 @@ import VellumAssistantShared
 /// channels with verification status, and action buttons.
 @MainActor
 struct ContactDetailView: View {
-    private static let allChannelTypes = ["telegram", "email", "whatsapp", "phone", "slack"]
+    private static let allChannelTypes = ["telegram", "phone", "slack"]
 
     private static let verificationSupportedChannels: Set<String> = ["telegram", "phone", "slack"]
 
-    /// Channels that support 6-digit code invites from this view. Voice invites
-    /// require additional fields not available here, so they are excluded.
-    private static let codeInviteChannels: Set<String> = ["telegram", "email", "whatsapp", "slack"]
+    /// Channels that support 6-digit code invites from this view.
+    private static let codeInviteChannels: Set<String> = ["telegram", "slack", "phone"]
 
     let contact: ContactPayload
     var daemonClient: DaemonClient?
     var store: SettingsStore?
     var onDelete: (() -> Void)?
+    var guardianName: String?
 
     @State var currentContact: ContactPayload?
     @State private var showDeleteConfirmation = false
@@ -33,12 +33,14 @@ struct ContactDetailView: View {
     @State private var verificationSuccessChannelId: String?
     @State private var telegramBootstrapUrl: String?
     @State private var telegramBootstrapChannelId: String?
+    @State private var invitePhoneNumber = ""
     @State private var inviteInProgress: String?
     @State private var inviteResult: (
         type: String,
-        token: String,
+        token: String?,
         shareUrl: String?,
         inviteCode: String?,
+        voiceCode: String?,
         guardianInstruction: String?,
         channelHandle: String?
     )?
@@ -75,12 +77,14 @@ struct ContactDetailView: View {
 
         ScrollView {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
-                headerSection
+                if displayContact.role != "guardian" {
+                    headerSection
+                }
                 channelsSection
             }
             .padding(VSpacing.xl)
         }
-        .background(VColor.background)
+        .background(VColor.surfaceOverlay)
         .confirmationDialog(
             "Delete \(displayContact.displayName)?",
             isPresented: $showDeleteConfirmation,
@@ -132,20 +136,20 @@ struct ContactDetailView: View {
                 if isEditing && displayContact.role != "guardian" {
                     TextField("Display name", text: $editedName)
                         .font(VFont.largeTitle)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                         .textFieldStyle(.plain)
                         .onSubmit { Task { await saveCardEdits() } }
                 } else {
                     Text(displayContact.displayName)
                         .font(VFont.largeTitle)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                 }
 
                 Spacer()
 
                 if isEditing {
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Save", style: .primary, size: .medium, isDisabled: isSaving) {
+                        VButton(label: "Save", style: .primary, isDisabled: isSaving) {
                             Task { await saveCardEdits() }
                         }
                         Button {
@@ -153,7 +157,7 @@ struct ContactDetailView: View {
                         } label: {
                             Text("Cancel")
                                 .font(VFont.captionMedium)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                         }
                         .buttonStyle(.plain)
                         .keyboardShortcut(.escape, modifiers: [])
@@ -165,7 +169,7 @@ struct ContactDetailView: View {
                         isEditing = true
                     } label: {
                         VIconView(.pencil, size: 12)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
                     .buttonStyle(.plain)
                     .opacity(isHoveringHeader ? 1 : 0)
@@ -179,7 +183,7 @@ struct ContactDetailView: View {
                                     .controlSize(.small)
                             } else {
                                 VIconView(.trash, size: 14)
-                                    .foregroundColor(VColor.error)
+                                    .foregroundColor(VColor.systemNegativeStrong)
                             }
                         }
                         .buttonStyle(.plain)
@@ -200,42 +204,42 @@ struct ContactDetailView: View {
             HStack(spacing: VSpacing.sm) {
                 Text("\(displayContact.interactionCount) interaction\(displayContact.interactionCount == 1 ? "" : "s")")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                 if let lastInteraction = displayContact.lastInteraction {
                     Text("\u{00B7}")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     Text("Last \(relativeTime(epochMs: Int(lastInteraction)))")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
 
-            Divider().background(VColor.divider)
+            Divider().background(VColor.borderBase)
 
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Notes")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
 
                 if isEditing {
                     TextEditor(text: $editedNotes)
                         .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                         .scrollContentBackground(.hidden)
                         .frame(minHeight: 60, maxHeight: 160)
                         .padding(VSpacing.xs)
-                        .background(VColor.inputBackground)
+                        .background(VColor.surfaceActive)
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 } else if let notes = displayContact.notes, !notes.isEmpty {
                     Text(notes)
                         .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     Text("No notes")
                         .font(VFont.body)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -243,7 +247,7 @@ struct ContactDetailView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
+        .vCard(background: VColor.surfaceOverlay)
         .onHover { hovering in
             isHoveringHeader = hovering
         }
@@ -254,18 +258,18 @@ struct ContactDetailView: View {
             if displayContact.role == "guardian" {
                 Text("Guardian")
                     .font(VFont.captionMedium)
-                    .foregroundColor(VColor.accent)
+                    .foregroundColor(VColor.primaryBase)
                     .padding(.horizontal, VSpacing.sm)
                     .padding(.vertical, VSpacing.xxs)
-                    .background(VColor.accentSubtle)
+                    .background(VColor.systemPositiveWeak)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
             } else {
                 Text("Contact")
                     .font(VFont.captionMedium)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .padding(.horizontal, VSpacing.sm)
                     .padding(.vertical, VSpacing.xxs)
-                    .background(VColor.surfaceSubtle)
+                    .background(VColor.surfaceOverlay)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
             }
         }
@@ -275,8 +279,8 @@ struct ContactDetailView: View {
         VBadge(
             style: .label(formatContactType(displayContact.contactType)),
             color: displayContact.contactType == "assistant"
-                ? VColor.accent
-                : VColor.textSecondary
+                ? VColor.primaryBase
+                : VColor.contentSecondary
         )
     }
 
@@ -286,22 +290,20 @@ struct ContactDetailView: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             Text("Channels")
                 .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             let channelsByType = Dictionary(
                 grouping: displayContact.channels,
                 by: { $0.type }
             )
-            let extraChannels = displayContact.channels.filter { !Self.allChannelTypes.contains($0.type) }
 
-            // Compute which standard types are visible (have channels, readiness info,
-            // or should appear as unavailable after a readiness fetch failure)
             let visibleTypes = Self.allChannelTypes.filter { type in
-                channelsByType[type] != nil || channelReadiness[type] != nil
-                    || (readinessFetchFailed && Self.codeInviteChannels.contains(type))
+                // Always show channels the contact already has configured
+                channelsByType[type] != nil
+                    // Otherwise only show channels the assistant has successfully set up
+                    || channelReadiness[type]?.ready == true
             }
             let lastVisibleType = visibleTypes.last
-            let hasExtraChannels = !extraChannels.isEmpty
 
             ForEach(Array(Self.allChannelTypes.enumerated()), id: \.element) { _, type in
                 if let channels = channelsByType[type] {
@@ -310,59 +312,38 @@ struct ContactDetailView: View {
                         channelRow(channel)
 
                         if channelIndex < channels.count - 1 {
-                            Divider().background(VColor.divider)
+                            Divider().background(VColor.borderBase)
                         }
                     }
 
-                    if type != lastVisibleType || hasExtraChannels {
-                        Divider().background(VColor.divider)
+                    if type != lastVisibleType {
+                        Divider().background(VColor.borderBase)
                     }
-                } else if let readiness = channelReadiness[type] {
-                    if readiness.ready {
-                        // Unconfigured but assistant has this channel set up — show
-                        unconfiguredChannelRow(type: type)
-                    } else {
-                        // Channel exists but is not ready — show with reason
-                        unavailableChannelRow(type: type, reason: readiness.reasonSummary)
+                } else if channelReadiness[type]?.ready == true {
+                    // Unconfigured but assistant has this channel set up — show
+                    unconfiguredChannelRow(type: type)
+
+                    if type != lastVisibleType {
+                        Divider().background(VColor.borderBase)
                     }
-
-                    if type != lastVisibleType || hasExtraChannels {
-                        Divider().background(VColor.divider)
-                    }
-                } else if readinessFetchFailed && Self.codeInviteChannels.contains(type) {
-                    // Readiness fetch failed — show as unavailable so channels
-                    // aren't silently hidden by a transient error.
-                    unavailableChannelRow(type: type, reason: "Unable to check readiness")
-
-                    if type != lastVisibleType || hasExtraChannels {
-                        Divider().background(VColor.divider)
-                    }
-                }
-            }
-
-            ForEach(Array(extraChannels.enumerated()), id: \.element.id) { index, channel in
-                channelRow(channel)
-
-                if index < extraChannels.count - 1 {
-                    Divider().background(VColor.divider)
                 }
             }
 
             if let errorMessage {
                 Text(errorMessage)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.error)
+                    .foregroundColor(VColor.systemNegativeStrong)
             }
 
             if let inviteError {
                 Text(inviteError)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.error)
+                    .foregroundColor(VColor.systemNegativeStrong)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
+        .vCard(background: VColor.surfaceOverlay)
         .task {
             do {
                 channelReadiness = try await daemonClient?.fetchChannelReadiness() ?? [:]
@@ -378,14 +359,14 @@ struct ContactDetailView: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
                 VIconView(channelIcon(for: channel.type), size: 14)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .frame(width: 20, alignment: .center)
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: VSpacing.sm) {
                         Text(channel.address)
                             .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                             .lineLimit(1)
 
                         statusBadge(for: channel)
@@ -396,13 +377,13 @@ struct ContactDetailView: View {
                         let via = channel.verifiedVia ?? "unknown"
                         Text("Verified via \(via) on \(dateStr)")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
 
                     if let lastSeenAt = channel.lastSeenAt, lastSeenAt > 0 {
                         Text("Last seen \(relativeTime(epochMs: lastSeenAt))")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
 
                     if channel.policy != "allow" {
@@ -411,7 +392,7 @@ struct ContactDetailView: View {
                             Text("Policy: \(channel.policy)")
                                 .font(VFont.caption)
                         }
-                        .foregroundColor(VColor.warning)
+                        .foregroundColor(VColor.systemNegativeHover)
                     }
                 }
 
@@ -432,17 +413,17 @@ struct ContactDetailView: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
                 VIconView(channelIcon(for: type), size: 14)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .frame(width: 20, alignment: .center)
 
                 Text(channelLabel(for: type))
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 if let handle = channelReadiness[type]?.channelHandle {
                     Text(handle)
                         .font(VFont.monoSmall)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .lineLimit(1)
                 }
 
@@ -450,7 +431,7 @@ struct ContactDetailView: View {
 
                 Text("Not set up")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
 
             // Guardian contacts get the full channel verification flow; others get invite button
@@ -477,22 +458,26 @@ struct ContactDetailView: View {
                     )
                 }
             } else if Self.codeInviteChannels.contains(type) {
-                // Channels that support 6-digit code invites can be invited directly
-                // from this view. Voice invites require additional fields (phone number,
-                // friend/guardian names) that aren't available in this context.
-                // Row visibility is already gated on channelReadiness[type]?.ready == true,
-                // so no additional readiness check is needed here.
                 if inviteInProgress == type {
                     ProgressView()
                         .controlSize(.small)
                 } else {
-                    VButton(
-                        label: "Invite",
-                        style: .secondary,
-                        size: .medium,
-                        isDisabled: inviteInProgress != nil
-                    ) {
-                        createInviteForChannel(type: type)
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        if type == "phone" {
+                            TextField("+1234567890", text: $invitePhoneNumber)
+                                .font(VFont.mono)
+                                .textFieldStyle(.plain)
+                                .padding(VSpacing.sm)
+                                .background(VColor.surfaceActive)
+                                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                        }
+                        VButton(
+                            label: "Invite",
+                            style: .outlined,
+                            isDisabled: inviteInProgress != nil || (type == "phone" && invitePhoneNumber.trimmingCharacters(in: .whitespaces).isEmpty)
+                        ) {
+                            createInviteForChannel(type: type)
+                        }
                     }
                 }
             }
@@ -503,46 +488,16 @@ struct ContactDetailView: View {
         }
     }
 
-    /// Row for a channel that the assistant knows about but is not ready.
-    /// Shows the channel name with an explanation of why it is unavailable.
-    @ViewBuilder
-    private func unavailableChannelRow(type: String, reason: String?) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.sm) {
-                VIconView(channelIcon(for: type), size: 14)
-                    .foregroundColor(VColor.textMuted)
-                    .frame(width: 20, alignment: .center)
-
-                Text(channelLabel(for: type))
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textMuted)
-
-                Spacer()
-
-                Text("Unavailable")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-            }
-
-            if let reason {
-                Text(reason)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
     @ViewBuilder
     private func inviteResultDisplay(for type: String) -> some View {
         let result = inviteResult!
 
-        if let inviteCode = result.inviteCode {
+        if let inviteCode = result.inviteCode ?? result.voiceCode {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 if let instruction = result.guardianInstruction {
                     Text(instruction)
                         .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
@@ -554,13 +509,12 @@ struct ContactDetailView: View {
                             : shareUrl
                         Text(truncated)
                             .font(VFont.monoSmall)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
 
                         VButton(
                             label: inviteCopiedType == "\(type)-link" ? "Copied!" : "Copy Link",
                             icon: VIcon.copy.rawValue,
-                            style: .secondary,
-                            size: .medium
+                            style: .outlined
                         ) {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(shareUrl, forType: .string)
@@ -575,18 +529,17 @@ struct ContactDetailView: View {
                         }
                     }
                 } else if let channelHandle = result.channelHandle {
-                    // For channels without a share URL (email, WhatsApp),
+                    // For channels without a share URL,
                     // show the assistant's channel handle so it can be copied.
                     HStack(spacing: VSpacing.sm) {
                         Text(channelHandle)
                             .font(VFont.monoSmall)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
 
                         VButton(
                             label: inviteCopiedType == "\(type)-handle" ? "Copied!" : "Copy Address",
                             icon: VIcon.copy.rawValue,
-                            style: .secondary,
-                            size: .medium
+                            style: .outlined
                         ) {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(channelHandle, forType: .string)
@@ -605,15 +558,14 @@ struct ContactDetailView: View {
                 // Large monospaced invite code for readability
                 Text(inviteCode)
                     .font(VFont.inviteCode)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .tracking(4)
                     .padding(.vertical, VSpacing.xs)
 
                 VButton(
                     label: inviteCopiedType == type ? "Copied!" : "Copy Code",
                     icon: VIcon.copy.rawValue,
-                    style: (result.shareUrl != nil || result.channelHandle != nil) ? .tertiary : .secondary,
-                    size: .medium
+                    style: .outlined
                 ) {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(inviteCode, forType: .string)
@@ -627,22 +579,20 @@ struct ContactDetailView: View {
                     }
                 }
             }
-        } else {
+        } else if let shareableText = result.shareUrl ?? result.token {
             // Fallback: no invite code available, show raw token
             HStack(spacing: VSpacing.sm) {
-                let shareableText = result.shareUrl ?? result.token
                 let truncated = shareableText.count > 20
                     ? String(shareableText.prefix(20)) + "..."
                     : shareableText
                 Text(truncated)
                     .font(VFont.monoSmall)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
 
                 VButton(
                     label: inviteCopiedType == type ? "Copied!" : "Copy",
                     icon: VIcon.copy.rawValue,
-                    style: .tertiary,
-                    size: .medium
+                    style: .outlined
                 ) {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(shareableText, forType: .string)
@@ -672,8 +622,7 @@ struct ContactDetailView: View {
                 case "revoked":
                     VButton(
                         label: "Restore Access",
-                        style: .secondary,
-                        size: .medium,
+                        style: .outlined,
                         isDisabled: anyActionInFlight
                     ) {
                         updateChannelStatus(channelId: channel.id, status: "active")
@@ -681,8 +630,7 @@ struct ContactDetailView: View {
                 case "blocked":
                     VButton(
                         label: "Restore Access",
-                        style: .secondary,
-                        size: .medium,
+                        style: .outlined,
                         isDisabled: anyActionInFlight
                     ) {
                         updateChannelStatus(channelId: channel.id, status: "active")
@@ -691,7 +639,6 @@ struct ContactDetailView: View {
                     VButton(
                         label: "Send Verification",
                         style: .primary,
-                        size: .medium,
                         isDisabled: anyActionInFlight
                     ) {
                         initiateVerification(for: channel)
@@ -699,7 +646,6 @@ struct ContactDetailView: View {
                     VButton(
                         label: "Revoke Access",
                         style: .danger,
-                        size: .medium,
                         isDisabled: anyActionInFlight
                     ) {
                         updateChannelStatus(channelId: channel.id, status: "revoked")
@@ -708,7 +654,6 @@ struct ContactDetailView: View {
                     VButton(
                         label: "Revoke Access",
                         style: .danger,
-                        size: .medium,
                         isDisabled: anyActionInFlight
                     ) {
                         updateChannelStatus(channelId: channel.id, status: "revoked")
@@ -716,7 +661,6 @@ struct ContactDetailView: View {
                     VButton(
                         label: "Block",
                         style: .danger,
-                        size: .medium,
                         isDisabled: anyActionInFlight
                     ) {
                         updateChannelStatus(channelId: channel.id, status: "blocked")
@@ -736,17 +680,17 @@ struct ContactDetailView: View {
                         .controlSize(.small)
                     Text("Sending verification code...")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
             }
 
             if verificationSuccessChannelId == channel.id {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.circleCheck, size: 12)
-                        .foregroundColor(VColor.success)
+                        .foregroundColor(VColor.systemPositiveStrong)
                     Text("Verification code sent")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.success)
+                        .foregroundColor(VColor.systemPositiveStrong)
                 }
             }
 
@@ -756,7 +700,7 @@ struct ContactDetailView: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Ask your contact to open this link to start the Telegram chat:")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
 
                     Button {
                         NSWorkspace.shared.open(url)
@@ -766,7 +710,7 @@ struct ContactDetailView: View {
                             Text("Open Telegram")
                                 .font(VFont.caption)
                         }
-                        .foregroundColor(VColor.accent)
+                        .foregroundColor(VColor.primaryBase)
                     }
                     .buttonStyle(.plain)
                     .pointerCursor()
@@ -838,19 +782,19 @@ struct ContactDetailView: View {
 
     private func statusBadgeStyle(for channel: ContactChannelPayload) -> (String, Color, Color) {
         if channel.status == "active" && channel.verifiedAt != nil {
-            return ("Verified", VColor.accentSubtle, VColor.success)
+            return ("Verified", VColor.systemPositiveWeak, VColor.systemPositiveStrong)
         }
         switch channel.status {
         case "active":
-            return ("Active", Color.blue.opacity(0.15), Color.blue)
+            return ("Active", VColor.systemPositiveWeak, VColor.systemPositiveStrong)
         case "pending":
-            return ("Pending", Color.yellow.opacity(0.15), VColor.warning)
+            return ("Pending", VColor.systemMidWeak, VColor.systemNegativeHover)
         case "revoked":
-            return ("Revoked", Color.red.opacity(0.15), VColor.error)
+            return ("Revoked", VColor.systemNegativeWeak, VColor.systemNegativeStrong)
         case "blocked":
-            return ("Blocked", Color.red.opacity(0.15), VColor.error)
+            return ("Blocked", VColor.systemNegativeWeak, VColor.systemNegativeStrong)
         default:
-            return ("Unverified", VColor.surfaceSubtle, VColor.textMuted)
+            return ("Unverified", VColor.surfaceOverlay, VColor.contentTertiary)
         }
     }
 
@@ -887,7 +831,7 @@ struct ContactDetailView: View {
         case "telegram": return "Telegram"
         case "email": return "Email"
         case "whatsapp": return "WhatsApp"
-        case "phone": return "Voice"
+        case "phone": return "Phone"
         case "slack": return "Slack"
         default: return type.capitalized
         }
@@ -1034,16 +978,27 @@ struct ContactDetailView: View {
         inviteResult = nil
         Task {
             do {
+                var phoneNumber: String? = nil
+                if type == "phone" {
+                    let trimmed = invitePhoneNumber.trimmingCharacters(in: .whitespaces)
+                    phoneNumber = trimmed.hasPrefix("+") ? trimmed : "+1\(trimmed)"
+                }
+                let resolvedGuardianName = type == "phone" ? (guardianName ?? "your guardian") : nil
+
                 if let result = try await daemonClient.createInvite(
                     sourceChannel: type,
                     note: "Invite for \(displayContact.displayName)",
-                    contactName: displayContact.displayName
+                    contactName: displayContact.displayName,
+                    expectedExternalUserId: phoneNumber,
+                    friendName: type == "phone" ? displayContact.displayName : nil,
+                    guardianName: resolvedGuardianName
                 ) {
                     inviteResult = (
                         type: type,
                         token: result.token,
                         shareUrl: result.shareUrl,
                         inviteCode: result.inviteCode,
+                        voiceCode: result.voiceCode,
                         guardianInstruction: result.guardianInstruction,
                         channelHandle: result.channelHandle
                     )
@@ -1142,7 +1097,7 @@ struct ContactDetailView: View {
 
 #Preview {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         ContactDetailView(
             contact: ContactPayload(
                 id: "contact-1",
@@ -1196,49 +1151,3 @@ struct ContactDetailView: View {
     .preferredColorScheme(.dark)
 }
 
-#Preview("Guardian Contact") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        ContactDetailView(
-            contact: ContactPayload(
-                id: "contact-guardian",
-                displayName: "Guardian",
-                role: "guardian",
-                notes: "Primary guardian contact for verification flows.",
-                contactType: "human",
-                lastInteraction: Date().timeIntervalSince1970 * 1000 - 1_800_000,
-                interactionCount: 8,
-                channels: [
-                    ContactChannelPayload(
-                        id: "ch-g1",
-                        type: "telegram",
-                        address: "@guardian_bot",
-                        isPrimary: true,
-                        status: "active",
-                        policy: "allow",
-                        verifiedAt: Int(Date().timeIntervalSince1970 * 1000) - 86_400_000,
-                        verifiedVia: "telegram"
-                    ),
-                    ContactChannelPayload(
-                        id: "ch-g3",
-                        type: "phone",
-                        address: "+15551234567",
-                        isPrimary: false,
-                        status: "pending",
-                        policy: "allow"
-                    ),
-                    ContactChannelPayload(
-                        id: "ch-g4",
-                        type: "slack",
-                        address: "#guardian-alerts",
-                        isPrimary: false,
-                        status: "unverified",
-                        policy: "restrict"
-                    ),
-                ]
-            )
-        )
-        .frame(width: 500, height: 700)
-    }
-    .preferredColorScheme(.dark)
-}

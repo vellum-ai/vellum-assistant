@@ -28,7 +28,7 @@ A task progress card is shown automatically when you run your first `doordash` c
 
 When the user asks you to order food (e.g. "Order pizza from Andiamo's"):
 
-1. **Check session** — run `doordash status --json`. If `loggedIn` is false or the session is expired, tell the user: "A Chrome window will open to the DoorDash login page. Please sign in there — I'll detect your login automatically and minimize the window." Then run `doordash refresh --json`. This starts a Ride Shotgun learn session that records your login and auto-stops once it detects you've signed in. The session is imported automatically. **This command blocks until login is complete — just wait for it.**
+1. **Check session** — run `doordash status --json`. If `loggedIn` is false or the session is expired, tell the user: "A Chrome window will open to the DoorDash login page. Please sign in there — I'll detect your login automatically and minimize the window." Then run `doordash refresh --json`. This captures your session automatically and auto-stops once it detects you've signed in. The session is imported automatically. **This command blocks until login is complete — just wait for it.**
 
    Keep the DoorDash Chrome window open in the background — it's needed for API requests.
 
@@ -100,7 +100,7 @@ Use `--special-instructions` on `cart add` for free-text requests like "extra ho
 
 **Warning:** Some merchants disable special instructions entirely. If `specialInstructionsConfig.isEnabled` is false, or if the add-to-cart call returns an error about special requests, drop the instructions and retry without them. Always prefer `--options` for customizations — special instructions are a last resort for requests not covered by the item's option groups.
 
-### Learning Customizations via Ride Shotgun
+### Learning Customizations via Browser Recording
 
 For complex items where constructing the JSON manually is difficult, use `cart learn`:
 
@@ -131,7 +131,7 @@ doordash cart add --store-id <id> --menu-id <id> --item-id <id> --item-name "Lat
 
 ```
 doordash status --json              # Check if logged in
-doordash refresh --json             # Capture fresh session via Ride Shotgun (auto-stops after login)
+doordash refresh --json             # Capture fresh session (auto-stops after login)
 doordash logout --json              # Clear session
 doordash search "<query>" --json    # Search restaurants
 doordash menu <storeId> --json      # Get store menu (auto-detects retail stores)

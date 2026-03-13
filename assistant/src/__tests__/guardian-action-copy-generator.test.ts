@@ -33,8 +33,6 @@ const ALL_SCENARIOS: GuardianActionMessageScenario[] = [
   "guardian_superseded_remap",
   "guardian_unknown_code",
   "guardian_auto_matched",
-  "outbound_message_copy",
-  "followup_message_sent",
   "followup_call_started",
   "followup_action_failed",
   "guardian_answer_delivery_failed",
@@ -109,24 +107,6 @@ describe("guardian-action-copy-generator", () => {
         requestCodes: ["QFOO12"],
       });
       expect(msg).toContain("QFOO12");
-    });
-
-    test("outbound_message_copy includes lateAnswerText and questionText", () => {
-      const msg = getGuardianActionFallbackMessage({
-        scenario: "outbound_message_copy",
-        questionText: "When is the appointment?",
-        lateAnswerText: "It is at 3pm tomorrow.",
-      });
-      expect(msg).toContain("When is the appointment?");
-      expect(msg).toContain("It is at 3pm tomorrow.");
-    });
-
-    test("outbound_message_copy without lateAnswerText still includes questionText", () => {
-      const msg = getGuardianActionFallbackMessage({
-        scenario: "outbound_message_copy",
-        questionText: "Is the office open?",
-      });
-      expect(msg).toContain("Is the office open?");
     });
   });
 

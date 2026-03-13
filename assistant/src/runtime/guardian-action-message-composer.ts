@@ -36,8 +36,6 @@ export type GuardianActionMessageScenario =
   | "guardian_superseded_remap"
   | "guardian_unknown_code"
   | "guardian_auto_matched"
-  | "outbound_message_copy"
-  | "followup_message_sent"
   | "followup_call_started"
   | "followup_action_failed"
   | "guardian_answer_delivery_failed";
@@ -183,8 +181,8 @@ export function getGuardianActionFallbackMessage(
 
     case "guardian_late_answer_followup":
       return context.callerIdentifier
-        ? `${context.callerIdentifier} called earlier with a question, but I wasn't able to connect them. Would you like to call them back or send them a message?`
-        : "Someone called earlier with a question, but I wasn't able to connect them. Would you like to call them back or send them a message?";
+        ? `${context.callerIdentifier} called earlier with a question, but I wasn't able to connect them. Would you like to call them back?`
+        : "Someone called earlier with a question, but I wasn't able to connect them. Would you like to call them back?";
 
     case "guardian_followup_dispatching":
       return context.followupAction
@@ -205,7 +203,7 @@ export function getGuardianActionFallbackMessage(
       return "No problem. Let me know if you change your mind or need anything else.";
 
     case "guardian_followup_clarification":
-      return "Sorry, I didn't quite catch that. Would you like to call them back, send them a message, or skip it for now?";
+      return "Sorry, I didn't quite catch that. Would you like to call them back or skip it for now?";
 
     case "guardian_pending_disambiguation":
       return listedCodes
@@ -246,24 +244,6 @@ export function getGuardianActionFallbackMessage(
       return context.questionText
         ? `Got it! Your answer has been applied to the current active request: "${context.questionText}"`
         : "Got it! Your answer has been applied to the current active request on the call.";
-
-    case "outbound_message_copy":
-      // This message is sent TO the original caller relaying the guardian's answer.
-      // When lateAnswerText is available, include it — that's the whole point of message_back.
-      if (context.lateAnswerText && context.questionText) {
-        return `Hi! You asked "${context.questionText}" earlier. Here's the answer: ${context.lateAnswerText}`;
-      }
-      if (context.lateAnswerText) {
-        return `Hi! Regarding your earlier question — here's the answer: ${context.lateAnswerText}`;
-      }
-      return context.questionText
-        ? `Hi! You asked "${context.questionText}" earlier. We'll get back to you with an answer soon.`
-        : "Hi! Thanks for calling earlier. We'll get back to you soon.";
-
-    case "followup_message_sent":
-      return context.counterpartyPhone
-        ? `Done! I've sent a text message to ${context.counterpartyPhone} with your answer.`
-        : "Done! I've sent them a text message with your answer.";
 
     case "followup_call_started":
       return context.counterpartyPhone

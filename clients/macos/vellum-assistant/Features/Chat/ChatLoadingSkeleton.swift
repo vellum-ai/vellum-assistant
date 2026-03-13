@@ -5,8 +5,6 @@ import VellumAssistantShared
 /// Mimics the real `ChatBubble` layout — a short user message followed by a
 /// multi-line assistant response — so the transition to real content feels seamless.
 struct ChatLoadingSkeleton: View {
-    @State private var appearance = AvatarAppearanceManager.shared
-
     /// Line widths for the multi-line assistant text block.
     /// Varying lengths look more natural than uniform bones.
     private let assistantLineWidths: [CGFloat] = [0.92, 0.85, 0.78, 0.95, 0.70, 0.45]
@@ -14,9 +12,9 @@ struct ChatLoadingSkeleton: View {
     /// Darker bone that uses a subtler shimmer to avoid the bright white sweep.
     private func chatBone(width: CGFloat? = nil, height: CGFloat = 14) -> some View {
         RoundedRectangle(cornerRadius: VRadius.sm)
-            .fill(VColor.textMuted.opacity(0.15))
+            .fill(VColor.contentTertiary.opacity(0.15))
             .frame(width: width, height: height)
-            .vShimmer(highlightColor: VColor.textMuted.opacity(0.1))
+            .vShimmer(highlightColor: VColor.contentTertiary.opacity(0.1))
     }
 
     var body: some View {
@@ -42,7 +40,7 @@ struct ChatLoadingSkeleton: View {
         .padding(.vertical, VSpacing.md)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.userBubble)
+                .fill(VColor.surfaceActive)
         )
         .frame(maxWidth: VSpacing.chatBubbleMaxWidth * 0.65)
         .frame(maxWidth: .infinity, alignment: .trailing)
@@ -50,8 +48,8 @@ struct ChatLoadingSkeleton: View {
 
     // MARK: - Assistant Message
 
-    /// Left-aligned assistant block with real avatar and six text lines inside
-    /// a subtle bubble, matching real ChatBubble assistant layout.
+    /// Left-aligned assistant block with text lines,
+    /// matching real ChatBubble assistant layout.
     private var assistantMessage: some View {
         HStack(alignment: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -64,19 +62,6 @@ struct ChatLoadingSkeleton: View {
                 }
             }
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
-            .overlay(alignment: .topLeading) {
-                Image(nsImage: appearance.chatAvatarImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 28, height: 28)
-                    .clipShape(Circle())
-                    .overlay(
-                        Circle()
-                            .strokeBorder(VColor.textMuted.opacity(0.2), lineWidth: 1)
-                    )
-                    .offset(x: -(28 + VSpacing.sm), y: 0)
-            }
-            .padding(.leading, 28 + VSpacing.sm)
 
             Spacer(minLength: 0)
         }
@@ -84,12 +69,4 @@ struct ChatLoadingSkeleton: View {
 }
 
 #if DEBUG
-#Preview("ChatLoadingSkeleton") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        ChatLoadingSkeleton()
-            .padding(VSpacing.lg)
-    }
-    .frame(width: 700, height: 400)
-}
 #endif

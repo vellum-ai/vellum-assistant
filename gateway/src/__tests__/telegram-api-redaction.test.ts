@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import type { ConfigFileCache } from "../config-file-cache.js";
 import type { CredentialCache } from "../credential-cache.js";
+import { credentialKey } from "../credential-key.js";
 
 type FetchFn = (
   input: string | URL | Request,
@@ -35,7 +36,7 @@ function makeConfigFile(): ConfigFileCache {
 function makeCredentials(botToken: string): CredentialCache {
   return {
     get: async (key: string) => {
-      if (key === "credential:telegram:bot_token") return botToken;
+      if (key === credentialKey("telegram", "bot_token")) return botToken;
       return undefined;
     },
     invalidate: () => {},

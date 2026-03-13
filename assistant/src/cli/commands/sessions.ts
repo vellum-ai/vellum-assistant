@@ -12,7 +12,10 @@ import {
   getMessages,
 } from "../../memory/conversation-crud.js";
 import { listConversations } from "../../memory/conversation-queries.js";
-import { selectEmbeddingBackend } from "../../memory/embedding-backend.js";
+import {
+  selectEmbeddingBackend,
+  SPARSE_EMBEDDING_VERSION,
+} from "../../memory/embedding-backend.js";
 import { initQdrantClient } from "../../memory/qdrant-client.js";
 import { timeAgo } from "../../util/time.js";
 import { initializeDb } from "../db.js";
@@ -226,7 +229,7 @@ Examples:
       const qdrantUrl = getQdrantUrlEnv() || config.memory.qdrant.url;
       const embeddingSelection = selectEmbeddingBackend(config);
       const embeddingModel = embeddingSelection.backend
-        ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}`
+        ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}:sparse-v${SPARSE_EMBEDDING_VERSION}`
         : undefined;
       const qdrant = initQdrantClient({
         url: qdrantUrl,

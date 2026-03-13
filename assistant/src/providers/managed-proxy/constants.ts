@@ -29,12 +29,12 @@ export const MANAGED_PROVIDER_META: Record<string, ManagedProviderMeta> = {
   anthropic: {
     name: "anthropic",
     managed: true,
-    proxyPath: "/v1/runtime-proxy/anthropic",
+    proxyPath: "/v1/runtime-proxy/vertex",
   },
   gemini: {
     name: "gemini",
     managed: true,
-    proxyPath: "/v1/runtime-proxy/gemini",
+    proxyPath: "/v1/runtime-proxy/vertex",
   },
   fireworks: {
     name: "fireworks",

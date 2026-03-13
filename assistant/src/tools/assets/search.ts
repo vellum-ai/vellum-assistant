@@ -22,8 +22,12 @@ import {
   messageAttachments,
   messages,
 } from "../../memory/schema.js";
-import { escapeLikeWildcards } from "../../memory/search/lexical.js";
 import { RiskLevel } from "../../permissions/types.js";
+
+/** Escape SQL LIKE wildcard characters so a literal substring match is used. */
+function escapeLikeWildcards(s: string): string {
+  return s.replace(/%/g, "").replace(/_/g, "");
+}
 import type { ToolDefinition } from "../../providers/types.js";
 import { registerTool } from "../registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
@@ -297,11 +301,6 @@ const definition: ToolDefinition = {
       limit: {
         type: "number",
         description: `Maximum results to return (default ${DEFAULT_LIMIT}, max ${MAX_RESULTS}).`,
-      },
-      reason: {
-        type: "string",
-        description:
-          "Brief non-technical explanation of what you are searching for and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
       },
     },
     required: [],

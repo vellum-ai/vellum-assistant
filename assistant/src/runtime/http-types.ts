@@ -83,7 +83,6 @@ export type GuardianActionCopyGenerator = (
 /** The disposition returned by the guardian follow-up conversation engine. */
 export type GuardianFollowUpDisposition =
   | "call_back"
-  | "message_back"
   | "decline"
   | "keep_pending";
 
@@ -220,8 +219,8 @@ export interface RuntimeHttpServerOptions {
   sessionManagementDeps?: SessionManagementDeps;
   /** Lazy factory for model config set context (session eviction, config reload suppression). */
   getModelSetContext?: () => import("../daemon/handlers/config-model.js").ModelSetContext;
-  /** Provider for computer-use session dependencies (CU routes). */
-  getComputerUseDeps?: () => import("./routes/computer-use-routes.js").ComputerUseDeps;
+  /** Provider for watch observation dependencies (watch routes). */
+  getWatchDeps?: () => import("./routes/watch-routes.js").WatchDeps;
   /** Provider for recording dependencies (recording routes). */
   getRecordingDeps?: () => import("./routes/recording-routes.js").RecordingDeps;
 }

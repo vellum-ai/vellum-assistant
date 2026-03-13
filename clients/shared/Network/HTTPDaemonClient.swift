@@ -96,7 +96,7 @@ public struct WorkspaceFileResponse: Codable, Sendable {
 ///
 /// Responsibilities:
 /// - Periodic health check via `GET /healthz` to drive connection status
-/// - SSE stream connection to `GET /v1/events?conversationKey=...` (on demand)
+/// - SSE stream connection to `GET /v1/events` (unfiltered, on demand)
 /// - Translating message types to HTTP API calls
 /// - Auto-reconnect with exponential backoff
 @MainActor
@@ -104,7 +104,6 @@ public final class HTTPTransport {
 
     public let baseURL: String
     public private(set) var bearerToken: String?
-    private let conversationKey: String
     private let sourceChannel: String
     let transportMetadata: TransportMetadata
 
@@ -172,14 +171,16 @@ public final class HTTPTransport {
     /// Clients should persist the new token (e.g. to Keychain).
     var onTokenRefreshed: ((String) -> Void)?
 
-    /// The local session ID used by the client (set from the synthetic session_info).
-    /// Used to remap the daemon's internal conversation ID to the client's session ID
-    /// so that ChatViewModel's belongsToSession() filter passes.
-    var activeLocalSessionId: String?
+    /// Maps the daemon's server-side conversationId → client-local sessionId.
+    /// Used to remap sessionId in incoming SSE events so ChatViewModel's
+    /// belongsToSession() filter passes. Supports multiple concurrent threads.
+    /// Capped at `serverToLocalSessionMapCap` entries to prevent unbounded growth.
+    var serverToLocalSessionMap: [String: String] = [:]
+    private let serverToLocalSessionMapCap = 500
 
-    /// The daemon's internal conversation ID, learned from the first SSE event.
-    /// All occurrences are remapped to `activeLocalSessionId` in incoming events.
-    var remoteSessionId: String?
+    /// Session IDs that originated from this client instance.
+    /// Host tool requests are only executed for these session IDs.
+    private var locallyOwnedSessionIds: Set<String> = []
 
     let decoder = JSONDecoder()
     let encoder = JSONEncoder()
@@ -203,7 +204,9 @@ public final class HTTPTransport {
         // Strip trailing slash for clean URL construction
         self.baseURL = baseURL.hasSuffix("/") ? String(baseURL.dropLast()) : baseURL
         self.bearerToken = bearerToken
-        self.conversationKey = conversationKey
+        if !conversationKey.isEmpty {
+            locallyOwnedSessionIds.insert(conversationKey)
+        }
         self.sourceChannel = Self.defaultSourceChannel
         self.transportMetadata = transportMetadata
 
@@ -246,7 +249,7 @@ public final class HTTPTransport {
     /// identity are modelled as associated values.
     enum Endpoint {
         case healthz
-        case events(conversationKey: String)
+        case eventsAll  // SSE subscription for all events
         case sendMessage
         case getMessages(conversationId: String?)
         case conversations(limit: Int, offset: Int)
@@ -346,12 +349,6 @@ public final class HTTPTransport {
         case skillsCreate
 
         // Computer Use
-        case cuSessionCreate
-        case cuSessionAbort(sessionId: String)
-        case cuObservation
-        case cuTaskSubmit
-        case rideShotgunStart
-        case rideShotgunStop
         case cuWatch
 
         // Recordings
@@ -420,11 +417,17 @@ public final class HTTPTransport {
         // Host File Proxy
         case hostFileResult
 
+        // Host CU Proxy
+        case hostCuResult
+
         // BTW side-chain
         case btw
 
         // Misc
         case channelVerificationSessions
+        case channelVerificationSessionsStatus
+        case channelVerificationSessionsResend
+        case channelVerificationSessionsRevoke
         case registerDeviceToken
     }
 
@@ -457,9 +460,8 @@ public final class HTTPTransport {
         switch endpoint {
         case .healthz:
             return ("/healthz", nil)
-        case .events(let conversationKey):
-            let encoded = conversationKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationKey
-            return ("/v1/events", "conversationKey=\(encoded)")
+        case .eventsAll:
+            return ("/v1/events", nil)
         case .sendMessage:
             return ("/v1/messages", nil)
         case .getMessages(let conversationId):
@@ -719,19 +721,6 @@ public final class HTTPTransport {
         case .skillsCreate:
             return ("/v1/skills", nil)
         // Computer Use
-        case .cuSessionCreate:
-            return ("/v1/computer-use/sessions", nil)
-        case .cuSessionAbort(let sessionId):
-            let encoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sessionId
-            return ("/v1/computer-use/sessions/\(encoded)/abort", nil)
-        case .cuObservation:
-            return ("/v1/computer-use/observations", nil)
-        case .cuTaskSubmit:
-            return ("/v1/computer-use/tasks", nil)
-        case .rideShotgunStart:
-            return ("/v1/computer-use/ride-shotgun/start", nil)
-        case .rideShotgunStop:
-            return ("/v1/computer-use/ride-shotgun/stop", nil)
         case .cuWatch:
             return ("/v1/computer-use/watch", nil)
         // Recordings
@@ -823,12 +812,21 @@ public final class HTTPTransport {
         // Host File Proxy
         case .hostFileResult:
             return ("/v1/host-file-result", nil)
+        // Host CU Proxy
+        case .hostCuResult:
+            return ("/v1/host-cu-result", nil)
         // BTW side-chain
         case .btw:
             return ("/v1/btw", nil)
         // Misc
         case .channelVerificationSessions:
             return ("/v1/channel-verification-sessions", nil)
+        case .channelVerificationSessionsStatus:
+            return ("/v1/channel-verification-sessions/status", nil)
+        case .channelVerificationSessionsResend:
+            return ("/v1/channel-verification-sessions/resend", nil)
+        case .channelVerificationSessionsRevoke:
+            return ("/v1/channel-verification-sessions/revoke", nil)
         case .registerDeviceToken:
             return ("/v1/device-token", nil)
         }
@@ -843,9 +841,8 @@ public final class HTTPTransport {
         switch endpoint {
         case .healthz:
             return ("\(prefix)/healthz/", nil)
-        case .events(let conversationKey):
-            let encoded = conversationKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationKey
-            return ("\(prefix)/events/", "conversationKey=\(encoded)")
+        case .eventsAll:
+            return ("\(prefix)/events/", nil)
         case .sendMessage:
             return ("\(prefix)/messages/", nil)
         case .getMessages(let conversationId):
@@ -1105,19 +1102,6 @@ public final class HTTPTransport {
         case .skillsCreate:
             return ("\(prefix)/skills/", nil)
         // Computer Use
-        case .cuSessionCreate:
-            return ("\(prefix)/computer-use/sessions/", nil)
-        case .cuSessionAbort(let sessionId):
-            let encoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sessionId
-            return ("\(prefix)/computer-use/sessions/\(encoded)/abort/", nil)
-        case .cuObservation:
-            return ("\(prefix)/computer-use/observations/", nil)
-        case .cuTaskSubmit:
-            return ("\(prefix)/computer-use/tasks/", nil)
-        case .rideShotgunStart:
-            return ("\(prefix)/computer-use/ride-shotgun/start/", nil)
-        case .rideShotgunStop:
-            return ("\(prefix)/computer-use/ride-shotgun/stop/", nil)
         case .cuWatch:
             return ("\(prefix)/computer-use/watch/", nil)
         // Recordings
@@ -1209,12 +1193,21 @@ public final class HTTPTransport {
         // Host File Proxy
         case .hostFileResult:
             return ("\(prefix)/host-file-result/", nil)
+        // Host CU Proxy
+        case .hostCuResult:
+            return ("\(prefix)/host-cu-result/", nil)
         // BTW side-chain
         case .btw:
             return ("\(prefix)/btw/", nil)
         // Misc
         case .channelVerificationSessions:
             return ("\(prefix)/channel-verification-sessions/", nil)
+        case .channelVerificationSessionsStatus:
+            return ("\(prefix)/channel-verification-sessions/status/", nil)
+        case .channelVerificationSessionsResend:
+            return ("\(prefix)/channel-verification-sessions/resend/", nil)
+        case .channelVerificationSessionsRevoke:
+            return ("\(prefix)/channel-verification-sessions/revoke/", nil)
         case .registerDeviceToken:
             return ("\(prefix)/device-token/", nil)
         }
@@ -1346,8 +1339,8 @@ public final class HTTPTransport {
     private func startSSEStream() {
         sseTask?.cancel()
 
-        guard let url = buildURL(for: .events(conversationKey: self.conversationKey)) else {
-            log.error("Invalid SSE URL for conversationKey: \(self.conversationKey)")
+        guard let url = buildURL(for: .eventsAll) else {
+            log.error("Invalid SSE URL for unfiltered events")
             return
         }
 
@@ -1421,60 +1414,83 @@ public final class HTTPTransport {
         }
     }
 
-    private func parseSSEData(_ data: String) {
-        // Remap the daemon's internal session/conversation ID to the client's
-        // local session ID so that ChatViewModel.belongsToSession() passes.
-        // The daemon assigns its own UUID via getOrCreateConversation(), which
-        // differs from the correlationId the client uses as sessionId.
-        var jsonString = data
-        if let localId = activeLocalSessionId {
-            if remoteSessionId == nil {
-                // Learn the daemon's session ID from the first event envelope.
-                if let eventData = data.data(using: .utf8),
-                   let envelope = try? decoder.decode(AssistantEvent.self, from: eventData),
-                   let eventSessionId = envelope.sessionId,
-                   eventSessionId != localId {
-                    remoteSessionId = eventSessionId
-                    log.info("Learned remote sessionId \(eventSessionId, privacy: .public) → local \(localId, privacy: .public)")
+    /// Extract the value of a JSON string field using lightweight string search.
+    /// Handles both `"key":"value"` and `"key": "value"` (with optional space after colon).
+    private func extractJsonStringValue(from jsonString: String, key: String) -> String? {
+        for pattern in ["\"\(key)\":\"", "\"\(key)\": \""] {
+            if let range = jsonString.range(of: pattern) {
+                let valueStart = range.upperBound
+                if let valueEnd = jsonString[valueStart...].firstIndex(of: "\"") {
+                    return String(jsonString[valueStart..<valueEnd])
                 }
             }
-            if let remoteId = remoteSessionId {
-                // Replace only the sessionId JSON value — not arbitrary occurrences
-                // of the UUID elsewhere in the payload. Handle both compact
-                // ("sessionId":"…") and pretty-printed ("sessionId": "…") JSON.
-                jsonString = jsonString.replacingOccurrences(
-                    of: "\"sessionId\":\"\(remoteId)\"",
-                    with: "\"sessionId\":\"\(localId)\""
-                )
-                jsonString = jsonString.replacingOccurrences(
-                    of: "\"sessionId\": \"\(remoteId)\"",
-                    with: "\"sessionId\": \"\(localId)\""
-                )
-                jsonString = jsonString.replacingOccurrences(
-                    of: "\"parentSessionId\":\"\(remoteId)\"",
-                    with: "\"parentSessionId\":\"\(localId)\""
-                )
-                jsonString = jsonString.replacingOccurrences(
-                    of: "\"parentSessionId\": \"\(remoteId)\"",
-                    with: "\"parentSessionId\": \"\(localId)\""
-                )
-            }
+        }
+        return nil
+    }
+
+    private func parseSSEData(_ data: String) {
+        var jsonString = data
+        // Remap server conversation IDs to client-local session IDs via O(1) dictionary lookup
+        if let sessionId = extractJsonStringValue(from: jsonString, key: "sessionId"),
+           let localId = serverToLocalSessionMap[sessionId] {
+            jsonString = jsonString.replacingOccurrences(
+                of: "\"sessionId\":\"\(sessionId)\"",
+                with: "\"sessionId\":\"\(localId)\""
+            )
+            jsonString = jsonString.replacingOccurrences(
+                of: "\"sessionId\": \"\(sessionId)\"",
+                with: "\"sessionId\": \"\(localId)\""
+            )
+        }
+        if let parentSessionId = extractJsonStringValue(from: jsonString, key: "parentSessionId"),
+           let localId = serverToLocalSessionMap[parentSessionId] {
+            jsonString = jsonString.replacingOccurrences(
+                of: "\"parentSessionId\":\"\(parentSessionId)\"",
+                with: "\"parentSessionId\":\"\(localId)\""
+            )
+            jsonString = jsonString.replacingOccurrences(
+                of: "\"parentSessionId\": \"\(parentSessionId)\"",
+                with: "\"parentSessionId\": \"\(localId)\""
+            )
         }
 
         guard let jsonData = jsonString.data(using: .utf8) else { return }
 
         do {
             let event = try decoder.decode(AssistantEvent.self, from: jsonData)
+            if shouldIgnoreHostToolRequest(event.message) { return }
             handleServerMessage(event.message)
         } catch {
             // Try decoding as a bare ServerMessage (some endpoints may send unwrapped)
             do {
                 let message = try decoder.decode(ServerMessage.self, from: jsonData)
+                if shouldIgnoreHostToolRequest(message) { return }
                 handleServerMessage(message)
             } catch {
                 let byteCount = jsonData.count
                 log.error("Failed to decode SSE event: \(error.localizedDescription), bytes: \(byteCount)")
             }
+        }
+    }
+
+    /// Returns `true` if the message is a host tool request whose sessionId
+    /// does not belong to this client, meaning it should be silently dropped.
+    private func shouldIgnoreHostToolRequest(_ message: ServerMessage) -> Bool {
+        switch message {
+        case .hostBashRequest(let msg):
+            if locallyOwnedSessionIds.contains(msg.sessionId) { return false }
+            log.warning("Ignoring host_bash_request for non-local session \(msg.sessionId, privacy: .public)")
+            return true
+        case .hostFileRequest(let msg):
+            if locallyOwnedSessionIds.contains(msg.sessionId) { return false }
+            log.warning("Ignoring host_file_request for non-local session \(msg.sessionId, privacy: .public)")
+            return true
+        case .hostCuRequest(let msg):
+            if locallyOwnedSessionIds.contains(msg.sessionId) { return false }
+            log.warning("Ignoring host_cu_request for non-local session \(msg.sessionId, privacy: .public)")
+            return true
+        default:
+            return false
         }
     }
 
@@ -1563,6 +1579,8 @@ public final class HTTPTransport {
     }
 
     func sendMessage(content: String?, sessionId: String, attachments: [UserMessageAttachment]? = nil, uploadedAttachmentIds: [String]? = nil, isRetry: Bool = false) async {
+        locallyOwnedSessionIds.insert(sessionId)
+
         // On retry, reuse already-uploaded attachment IDs to avoid duplicates
         var attachmentIds: [String] = uploadedAttachmentIds ?? []
 
@@ -1581,7 +1599,8 @@ public final class HTTPTransport {
                         sessionId: sessionId,
                         code: .providerApi,
                         userMessage: "Failed to upload \(failedCount) attachment\(failedCount == 1 ? "" : "s"). Please try again.",
-                        retryable: true
+                        retryable: true,
+                        failedMessageContent: content
                     )))
                     return
                 }
@@ -1596,7 +1615,7 @@ public final class HTTPTransport {
         applyAuth(&request)
 
         var body: [String: Any] = [
-            "conversationKey": conversationKey,
+            "conversationKey": sessionId,
             "sourceChannel": sourceChannel,
             "interface": Self.defaultInterface
         ]
@@ -1615,6 +1634,23 @@ public final class HTTPTransport {
 
             if http.statusCode == 202 || http.statusCode == 200 {
                 log.info("Message sent successfully")
+                // Learn the server's conversationId for this thread's conversationKey.
+                // For new threads, the sessionId (used as conversationKey) differs from
+                // the server's internal conversationId. Store the mapping so parseSSEData
+                // can remap incoming events to the client's local session ID.
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let serverConvId = json["conversationId"] as? String,
+                   serverConvId != sessionId {
+                    self.serverToLocalSessionMap[serverConvId] = sessionId
+                    // Evict arbitrary entries when over cap to prevent unbounded growth.
+                    // Lost mappings are benign — unmapped events are filtered by belongsToSession.
+                    while self.serverToLocalSessionMap.count > self.serverToLocalSessionMapCap {
+                        if let key = self.serverToLocalSessionMap.keys.first {
+                            self.serverToLocalSessionMap.removeValue(forKey: key)
+                        }
+                    }
+                    log.info("Mapped server conversation \(serverConvId, privacy: .public) → local session \(sessionId, privacy: .public)")
+                }
             } else if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                 switch refreshResult {
@@ -1629,7 +1665,8 @@ public final class HTTPTransport {
                         sessionId: sessionId,
                         code: .providerApi,
                         userMessage: "Failed to send message — authentication error. Please try again.",
-                        retryable: true
+                        retryable: true,
+                        failedMessageContent: content
                     )))
                 }
             } else {
@@ -1639,7 +1676,8 @@ public final class HTTPTransport {
                     sessionId: sessionId,
                     code: .providerApi,
                     userMessage: "Failed to send message (HTTP \(http.statusCode))",
-                    retryable: true
+                    retryable: true,
+                    failedMessageContent: content
                 )))
             }
         } catch {
@@ -1648,7 +1686,8 @@ public final class HTTPTransport {
                 sessionId: sessionId,
                 code: .providerApi,
                 userMessage: error.localizedDescription,
-                retryable: true
+                retryable: true,
+                failedMessageContent: content
             )))
         }
     }
@@ -2311,6 +2350,7 @@ public final class HTTPTransport {
             let share: SharePayload?
             let status: String
             let inviteCode: String?
+            let voiceCode: String?
             let guardianInstruction: String?
             let channelHandle: String?
         }
@@ -2328,6 +2368,7 @@ public final class HTTPTransport {
         struct ChannelReadinessSnapshot: Decodable {
             let channel: String
             let ready: Bool
+            let setupStatus: String?
             let channelHandle: String?
             let localChecks: [CheckResult]?
             let remoteChecks: [CheckResult]?
@@ -2429,8 +2470,11 @@ public final class HTTPTransport {
         note: String? = nil,
         maxUses: Int? = nil,
         contactName: String? = nil,
+        expectedExternalUserId: String? = nil,
+        friendName: String? = nil,
+        guardianName: String? = nil,
         isRetry: Bool = false
-    ) async throws -> (inviteId: String, token: String, shareUrl: String?, inviteCode: String?, guardianInstruction: String?, channelHandle: String?)? {
+    ) async throws -> (inviteId: String, token: String?, shareUrl: String?, inviteCode: String?, voiceCode: String?, guardianInstruction: String?, channelHandle: String?)? {
         guard let url = buildURL(for: .contactsInvitesCreate) else { return nil }
 
         var request = URLRequest(url: url)
@@ -2442,6 +2486,9 @@ public final class HTTPTransport {
         if let note { body["note"] = note }
         if let maxUses { body["maxUses"] = maxUses }
         if let contactName { body["contactName"] = contactName }
+        if let expectedExternalUserId { body["expectedExternalUserId"] = expectedExternalUserId }
+        if let friendName { body["friendName"] = friendName }
+        if let guardianName { body["guardianName"] = guardianName }
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -2450,7 +2497,7 @@ public final class HTTPTransport {
             if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                 if case .success = refreshResult {
-                    return try await createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses, contactName: contactName, isRetry: true)
+                    return try await createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses, contactName: contactName, expectedExternalUserId: expectedExternalUserId, friendName: friendName, guardianName: guardianName, isRetry: true)
                 }
                 return nil
             }
@@ -2458,8 +2505,8 @@ public final class HTTPTransport {
         }
 
         let decoded = try decoder.decode(HTTPCreateInviteResponse.self, from: data)
-        guard let invite = decoded.invite, let token = invite.token else { return nil }
-        return (inviteId: invite.id, token: token, shareUrl: invite.share?.url, inviteCode: invite.inviteCode, guardianInstruction: invite.guardianInstruction, channelHandle: invite.channelHandle)
+        guard let invite = decoded.invite else { return nil }
+        return (inviteId: invite.id, token: invite.token, shareUrl: invite.share?.url, inviteCode: invite.inviteCode, voiceCode: invite.voiceCode, guardianInstruction: invite.guardianInstruction, channelHandle: invite.channelHandle)
     }
 
     // MARK: - Channel Readiness
@@ -2491,6 +2538,7 @@ public final class HTTPTransport {
                 .map { DaemonClient.ReadinessCheck(name: $0.name, passed: $0.passed, message: $0.message) }
             result[snapshot.channel] = DaemonClient.ChannelReadinessInfo(
                 ready: snapshot.ready,
+                setupStatus: snapshot.setupStatus,
                 channelHandle: snapshot.channelHandle,
                 checks: checks
             )
@@ -2798,30 +2846,51 @@ public final class HTTPTransport {
             // (string) and `timestamp` (ISO 8601 string), but HistoryResponseMessage
             // expects `text` and `timestamp` as a Double (ms since epoch). Transform
             // the response to match the expected message format.
+            //
+            // The HTTP API also omits the `data` field from attachments when content
+            // was not requested (returning only metadata like `sizeBytes`), but
+            // UserMessageAttachment.data is non-optional. We backfill missing fields
+            // to avoid decode failures.
             do {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                    let messages = json["messages"] as? [[String: Any]] {
 
                     let isoFormatter = ISO8601DateFormatter()
                     isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                    let fallbackFormatter = ISO8601DateFormatter()
 
-                    let transformed: [[String: Any]] = messages.map { msg in
+                    let transformed: [[String: Any]] = messages.compactMap { msg in
                         var m = msg
-                        // Rename `content` → `text`
-                        if let content = m.removeValue(forKey: "content") {
+                        // Rename `content` → `text`, defaulting to empty string if absent/null.
+                        let content = m.removeValue(forKey: "content")
+                        if let content, !(content is NSNull) {
                             m["text"] = content
+                        } else {
+                            m["text"] = ""
                         }
                         // Convert ISO 8601 timestamp string → Double (ms since epoch)
                         if let tsString = m["timestamp"] as? String {
                             if let date = isoFormatter.date(from: tsString) {
                                 m["timestamp"] = date.timeIntervalSince1970 * 1000.0
+                            } else if let date = fallbackFormatter.date(from: tsString) {
+                                m["timestamp"] = date.timeIntervalSince1970 * 1000.0
                             } else {
-                                // Fallback: try without fractional seconds
-                                let fallback = ISO8601DateFormatter()
-                                if let date = fallback.date(from: tsString) {
-                                    m["timestamp"] = date.timeIntervalSince1970 * 1000.0
+                                log.warning("Unparseable timestamp in history message, using epoch: \(tsString, privacy: .public)")
+                                m["timestamp"] = 0.0
+                            }
+                        } else if m["timestamp"] == nil || m["timestamp"] is NSNull {
+                            m["timestamp"] = 0.0
+                        }
+                        // Normalize attachments: the HTTP API omits `data` for large
+                        // attachments (returns sizeBytes instead), but
+                        // UserMessageAttachment.data is non-optional String.
+                        if var attachments = m["attachments"] as? [[String: Any]] {
+                            for i in attachments.indices {
+                                if attachments[i]["data"] == nil || attachments[i]["data"] is NSNull {
+                                    attachments[i]["data"] = ""
                                 }
                             }
+                            m["attachments"] = attachments
                         }
                         return m
                     }
@@ -2838,7 +2907,7 @@ public final class HTTPTransport {
                     onMessage?(historyResponse)
                 }
             } catch {
-                log.error("Failed to deserialize history response: \(error)")
+                log.error("Failed to deserialize history response for session \(sessionId, privacy: .public): \(String(describing: error), privacy: .public)")
             }
         } catch {
             log.error("Fetch history error: \(error.localizedDescription)")
@@ -3439,9 +3508,24 @@ public final class HTTPTransport {
                 }
             } else {
                 log.error("Regenerate failed (HTTP \(http.statusCode))")
+                let body = String(data: data, encoding: .utf8) ?? "(non-UTF8 body)"
+                onMessage?(.sessionError(SessionErrorMessage(
+                    sessionId: sessionId,
+                    code: .regenerateFailed,
+                    userMessage: "Unable to regenerate response. Try sending your message again.",
+                    retryable: true,
+                    debugDetails: "HTTP \(http.statusCode): \(body)"
+                )))
             }
         } catch {
             log.error("Regenerate error: \(error.localizedDescription)")
+            onMessage?(.sessionError(SessionErrorMessage(
+                sessionId: sessionId,
+                code: .regenerateFailed,
+                userMessage: "Unable to regenerate response. Try sending your message again.",
+                retryable: true,
+                debugDetails: error.localizedDescription
+            )))
         }
     }
 

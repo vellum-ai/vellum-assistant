@@ -1,7 +1,7 @@
 /**
  * Compile all active playbook memory items into a triage context block
  * that can be injected into the system prompt alongside the contact
- * graph and dynamic profile.
+ * graph.
  */
 
 import { and, desc, eq, isNull } from "drizzle-orm";

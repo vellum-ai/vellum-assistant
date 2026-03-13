@@ -44,7 +44,12 @@ extension ChatBubble {
                 streamingCodePreview: message.streamingCodePreview,
                 streamingCodeToolName: message.streamingCodeToolName,
                 decidedConfirmations: effectiveConfirmations,
-                onRehydrate: onRehydrate
+                onRehydrate: onRehydrate,
+                onConfirmationAllow: onConfirmationAllow,
+                onConfirmationDeny: onConfirmationDeny,
+                onAlwaysAllow: onAlwaysAllow,
+                onTemporaryAllow: onTemporaryAllow,
+                activeConfirmationRequestId: activeConfirmationRequestId
             )
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
 
@@ -66,7 +71,7 @@ extension ChatBubble {
 
     /// Maps raw daemon status text to a friendlier label for the inline indicator.
     static func friendlyProcessingLabel(_ statusText: String?) -> String {
-        guard let text = statusText else { return "Thinking" }
+        guard let text = statusText else { return "Wrapping up" }
         let lower = text.lowercased()
         if lower.contains("skill") { return "Applying capabilities" }
         if lower.contains("processing") { return "Processing results" }
@@ -76,7 +81,7 @@ extension ChatBubble {
     func compactPermissionChip(_ confirmation: ToolConfirmationData) -> some View {
         let isApproved = confirmation.state == .approved
         let isDenied = confirmation.state == .denied
-        let chipColor: Color = isApproved ? VColor.iconAccent : isDenied ? VColor.error : VColor.textMuted
+        let chipColor: Color = isApproved ? VColor.primaryBase : isDenied ? VColor.systemNegativeStrong : VColor.contentTertiary
 
         return HStack(spacing: VSpacing.xs) {
             Group {

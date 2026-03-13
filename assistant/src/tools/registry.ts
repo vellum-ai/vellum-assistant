@@ -4,7 +4,6 @@ import { getLogger } from "../util/logger.js";
 import { coreAppProxyTools } from "./apps/definitions.js";
 import { registerAppTools } from "./apps/registry.js";
 import { allComputerUseTools } from "./computer-use/definitions.js";
-import { requestComputerControlTool } from "./computer-use/request-computer-control.js";
 import { hostFileEditTool } from "./host-filesystem/edit.js";
 import { hostFileReadTool } from "./host-filesystem/read.js";
 import { hostFileWriteTool } from "./host-filesystem/write.js";
@@ -300,8 +299,8 @@ export function getSkillRefCount(skillId: string): number {
 }
 
 export function getAllToolDefinitions(): ToolDefinition[] {
-  // Exclude proxy tools (e.g. computer_use_* tools) — they are only used
-  // by ComputerUseSession which builds its own tool definitions list.
+  // Exclude proxy tools (e.g. computer_use_* tools) — they are projected
+  // into sessions by the skill system, not via the global tool list.
   // Exclude skill-origin tools — they are managed by the session-level
   // skill projection system (projectSkillTools) and must not leak into
   // the base tool list, which is shared across sessions via the global
@@ -341,9 +340,6 @@ export async function initializeTools(): Promise<void> {
     registerTool(tool);
   }
 
-  // The escalation tool is registered in core so text_qa sessions can execute it.
-  // The 12 action tools are provided by the bundled computer-use skill.
-  registerTool(requestComputerControlTool);
   registerUiSurfaceTools();
   registerAppTools();
 
@@ -367,7 +363,6 @@ export async function initializeTools(): Promise<void> {
       ...lazyTools.map((t: LazyToolDescriptor) => t.name),
       ...hostTools.map((t: Tool) => t.name),
       ...allComputerUseTools.map((t: Tool) => t.name),
-      requestComputerControlTool.name,
       ...allUiSurfaceTools.map((t: Tool) => t.name),
       ...coreAppProxyTools.map((t: Tool) => t.name),
     ]);

@@ -15,18 +15,7 @@ struct ChatBubbleToggle: View {
             tooltip: tooltip,
             action: onToggle
         )
-        .foregroundColor(isActive ? VColor.accent : nil)
+        .foregroundColor(isActive ? VColor.primaryBase : nil)
     }
 }
 
-#Preview("ChatBubbleToggle") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        HStack(spacing: 16) {
-            ChatBubbleToggle(isActive: false, onToggle: {})
-            ChatBubbleToggle(isActive: true, onToggle: {})
-        }
-        .padding()
-    }
-    .frame(width: 200, height: 80)
-}

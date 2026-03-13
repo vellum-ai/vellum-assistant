@@ -4,6 +4,7 @@ import {
   invalidateConfigCache,
 } from "../../config/loader.js";
 import { initializeProviders } from "../../providers/registry.js";
+import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
   getSecureKeyAsync,
@@ -78,7 +79,7 @@ export async function handleAddSecret(req: Request): Promise<Response> {
       assertMetadataWritable();
       const service = name.slice(0, colonIdx);
       const field = name.slice(colonIdx + 1);
-      const key = `credential:${service}:${field}`;
+      const key = credentialKey(service, field);
       const stored = await setSecureKeyAsync(key, value);
       if (!stored) {
         return httpError(
@@ -164,7 +165,7 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
       const service = name.slice(0, colonIdx);
       const field = name.slice(colonIdx + 1);
       assertMetadataWritable();
-      const key = `credential:${service}:${field}`;
+      const key = credentialKey(service, field);
       // Check existence first — the broker always returns "deleted" even
       // for keys that don't exist, so we need a pre-check for 404 semantics.
       const existing = await getSecureKeyAsync(key);

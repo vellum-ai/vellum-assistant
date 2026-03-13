@@ -6,7 +6,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 @MainActor
 public final class AuthService {
     public static let shared = AuthService()
-    private static let platformURLOverrideEnvironmentKey = "VELLUM_ASSISTANT_PLATFORM_URL"
+    private static let platformURLOverrideEnvironmentKey = "VELLUM_PLATFORM_URL"
     private static let authServiceBaseURLDefaultsName = "authServiceBaseURL"
 
     private static let defaultBaseURL: String = {
@@ -514,13 +514,14 @@ public final class AuthService {
         do {
             (data, response) = try await URLSession.shared.data(for: urlRequest)
         } catch {
+            log.error("Auth request \(method, privacy: .public) \(urlString, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
             throw AuthServiceError.networkError(error)
         }
 
         let httpResponse = response as? HTTPURLResponse
         let statusCode = httpResponse?.statusCode ?? 0
 
-        log.debug("Auth request \(method) \(path) -> \(statusCode)")
+        log.debug("Auth request \(method, privacy: .public) \(urlString, privacy: .public) -> \(statusCode, privacy: .public)")
 
         let decoded: AllauthResponse<T>
         do {

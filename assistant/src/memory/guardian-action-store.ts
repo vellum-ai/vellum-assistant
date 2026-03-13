@@ -44,7 +44,7 @@ export type FollowupState =
   | "completed"
   | "declined"
   | "failed";
-export type FollowupAction = "call_back" | "message_back" | "decline";
+export type FollowupAction = "call_back" | "decline";
 
 export interface GuardianActionRequest {
   id: string;

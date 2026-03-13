@@ -180,7 +180,7 @@ struct MicrophoneButton: View {
             ZStack {
                 if isRecording {
                     Circle()
-                        .fill(VColor.error.opacity(0.2))
+                        .fill(VColor.systemNegativeStrong.opacity(0.2))
                         .frame(width: 30, height: 30)
                         .scaleEffect(isPulsing ? 1.3 : 1.0)
                         .opacity(isPulsing ? 0.0 : 1.0)
@@ -189,7 +189,7 @@ struct MicrophoneButton: View {
 
                 VIconView(.mic, size: 16)
                     .frame(width: 18, height: 18)
-                    .foregroundColor(isRecording ? VColor.error : VColor.micIcon)
+                    .foregroundColor(isRecording ? VColor.systemNegativeStrong : VColor.primaryBase)
             }
         }
         .buttonStyle(VIconButtonStyle(isHovered: isHovered, isFocused: isFocused, size: size))
