@@ -380,7 +380,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                     // timeout screen so the user can retry manually.
                     log.warning("Daemon not ready after timeout — showing timeout screen")
                     transitionBootstrap(to: .timedOut)
-                    showMainWindow()
+                    showMainWindow(isFirstLaunch: true)
                     debugStateWriter.start(appDelegate: self)
                 }
             }
