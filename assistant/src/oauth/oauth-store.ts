@@ -38,11 +38,8 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
 
 /**
  * Seed well-known provider profiles into the database. Uses INSERT … ON
- * CONFLICT DO UPDATE so that corrections to Vellum implementation fields
- * (authUrl, tokenUrl, tokenEndpointAuthMethod, extraParams, callbackTransport,
- * loopbackPort, pingUrl) propagate to existing installations on the next
- * startup. User-customizable fields (defaultScopes, scopePolicy, userinfoUrl,
- * baseUrl) are only written on initial insert and preserved across restarts.
+ * CONFLICT DO UPDATE so that all seed fields propagate to existing
+ * installations on the next startup.
  */
 export function seedProviders(
   profiles: Array<{
@@ -98,6 +95,10 @@ export function seedProviders(
           authUrl,
           tokenUrl,
           tokenEndpointAuthMethod,
+          userinfoUrl,
+          baseUrl,
+          defaultScopes,
+          scopePolicy,
           extraParams,
           callbackTransport,
           loopbackPort,
