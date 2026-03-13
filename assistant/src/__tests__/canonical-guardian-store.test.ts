@@ -761,7 +761,7 @@ describe("canonical-guardian-store", () => {
 
   // ── expireAllPendingCanonicalRequests ───────────────────────────────
 
-  test("expireAllPendingCanonicalRequests transitions all pending to expired", () => {
+  test("expireAllPendingCanonicalRequests transitions interaction-bound pending to expired", () => {
     const req1 = createCanonicalGuardianRequest({
       kind: "tool_approval",
       sourceType: "desktop",
@@ -770,7 +770,7 @@ describe("canonical-guardian-store", () => {
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
     const req2 = createCanonicalGuardianRequest({
-      kind: "tool_approval",
+      kind: "pending_question",
       sourceType: "channel",
       conversationId: "conv-bulk-2",
       guardianPrincipalId: TEST_PRINCIPAL,
@@ -782,6 +782,37 @@ describe("canonical-guardian-store", () => {
 
     expect(getCanonicalGuardianRequest(req1.id)!.status).toBe("expired");
     expect(getCanonicalGuardianRequest(req2.id)!.status).toBe("expired");
+  });
+
+  test("expireAllPendingCanonicalRequests does not expire persistent kinds (access_request, tool_grant_request)", () => {
+    const accessReq = createCanonicalGuardianRequest({
+      kind: "access_request",
+      sourceType: "channel",
+      conversationId: "conv-bulk-persist-1",
+      guardianPrincipalId: TEST_PRINCIPAL,
+    });
+    const grantReq = createCanonicalGuardianRequest({
+      kind: "tool_grant_request",
+      sourceType: "channel",
+      conversationId: "conv-bulk-persist-2",
+      guardianPrincipalId: TEST_PRINCIPAL,
+    });
+    // Also create an interaction-bound request to verify selective expiry
+    const toolApproval = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "desktop",
+      conversationId: "conv-bulk-persist-3",
+      guardianPrincipalId: TEST_PRINCIPAL,
+    });
+
+    const count = expireAllPendingCanonicalRequests();
+    expect(count).toBe(1); // Only tool_approval expired
+
+    expect(getCanonicalGuardianRequest(accessReq.id)!.status).toBe("pending");
+    expect(getCanonicalGuardianRequest(grantReq.id)!.status).toBe("pending");
+    expect(getCanonicalGuardianRequest(toolApproval.id)!.status).toBe(
+      "expired",
+    );
   });
 
   test("expireAllPendingCanonicalRequests does not affect already-resolved requests", () => {
