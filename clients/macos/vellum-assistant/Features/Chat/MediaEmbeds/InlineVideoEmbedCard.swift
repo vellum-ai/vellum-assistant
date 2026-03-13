@@ -89,7 +89,7 @@ struct InlineVideoEmbedCard: View {
                         fallbackPlaceholder
                     case .empty:
                         // Loading state — show dark background
-                        Color.black
+                        VColor.auxBlack
                     @unknown default:
                         fallbackPlaceholder
                     }
@@ -100,11 +100,11 @@ struct InlineVideoEmbedCard: View {
 
             // Play button overlay
             Circle()
-                .fill(Color.black.opacity(0.7))
+                .fill(VColor.auxBlack.opacity(0.7))
                 .frame(width: 56, height: 56)
                 .overlay(
                     VIconView(.play, size: 22)
-                        .foregroundColor(.white)
+                        .foregroundColor(VColor.auxWhite)
                         .offset(x: 2)
                 )
         }
@@ -115,7 +115,7 @@ struct InlineVideoEmbedCard: View {
     }
 
     private var fallbackPlaceholder: some View {
-        Color.black.opacity(0.8)
+        VColor.auxBlack.opacity(0.8)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
