@@ -86,6 +86,7 @@ export function handleBashSignal(): void {
   const stdoutChunks: Buffer[] = [];
   const stderrChunks: Buffer[] = [];
   let timedOut = false;
+  let resultWritten = false;
 
   const child = spawn("bash", ["-c", command], {
     cwd: getWorkspaceDir(),
@@ -107,6 +108,9 @@ export function handleBashSignal(): void {
 
   child.on("close", (code) => {
     clearTimeout(timer);
+    if (resultWritten) return;
+    resultWritten = true;
+
     const stdout = Buffer.concat(stdoutChunks).toString();
     const stderr = Buffer.concat(stderrChunks).toString();
 
@@ -120,6 +124,9 @@ export function handleBashSignal(): void {
 
   child.on("error", (err) => {
     clearTimeout(timer);
+    if (resultWritten) return;
+    resultWritten = true;
+
     log.error({ err, requestId }, "Failed to spawn bash signal command");
     writeResult({
       requestId,

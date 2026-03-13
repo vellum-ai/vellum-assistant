@@ -23,7 +23,7 @@ export function registerBashCommand(program: Command): void {
   program
     .command("bash <command>")
     .description(
-      "Execute a shell command through the daemon process for debugging",
+      "Execute a shell command through the assistant process for debugging",
     )
     .option(
       "-t, --timeout <ms>",
@@ -33,16 +33,20 @@ export function registerBashCommand(program: Command): void {
     .addHelpText(
       "after",
       `
-Sends a shell command to the running assistant daemon for execution via the
-signals directory. The daemon spawns the command in its own process environment
+Sends a shell command to the running assistant for execution via the
+signals directory. The assistant spawns the command in its own process environment
 and returns stdout, stderr, and the exit code.
 
-This is a developer debugging tool for inspecting how the daemon invokes and
-observes shell commands. The command runs with the daemon's environment, working
+This is a developer debugging tool for inspecting how the assistant invokes and
+observes shell commands. The command runs with the assistant's environment, working
 directory, and process context — not the caller's shell.
 
 The CLI writes the command to signals/bash and polls signals/bash-result for
-the output. The assistant daemon must be running for this to work.
+the output. The assistant must be running for this to work.
+
+Arguments:
+  command   The shell command string to execute (e.g. "echo hello", "ls -la").
+            Runs in bash via \`bash -c\` in the assistant's process environment.
 
 Examples:
   $ assistant bash "echo hello"
