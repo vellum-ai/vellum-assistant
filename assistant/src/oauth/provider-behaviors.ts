@@ -47,6 +47,28 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
       appType: "Desktop app",
       requiresClientSecret: true,
     },
+    identityVerifier: async (
+      accessToken: string,
+    ): Promise<string | undefined> => {
+      try {
+        const resp = await fetch(
+          "https://www.googleapis.com/oauth2/v2/userinfo",
+          {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          },
+        );
+        if (resp.ok) {
+          const body = (await resp.json()) as {
+            email?: string;
+            name?: string;
+          };
+          return body.email;
+        }
+      } catch {
+        // Non-fatal — identity verification is best-effort
+      }
+      return undefined;
+    },
   },
 
   "integration:slack": {
@@ -65,6 +87,27 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
       dashboardUrl: "https://api.slack.com/apps",
       appType: "Slack App",
       requiresClientSecret: true,
+    },
+    identityVerifier: async (
+      accessToken: string,
+    ): Promise<string | undefined> => {
+      try {
+        const resp = await fetch("https://slack.com/api/auth.test", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (resp.ok) {
+          const body = (await resp.json()) as {
+            ok: boolean;
+            user?: string;
+            team?: string;
+          };
+          if (body.user && body.team) return `@${body.user} (${body.team})`;
+          if (body.user) return `@${body.user}`;
+        }
+      } catch {
+        // Non-fatal — identity verification is best-effort
+      }
+      return undefined;
     },
   },
 
@@ -85,10 +128,34 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
       appType: "Public integration",
       requiresClientSecret: true,
     },
+    identityVerifier: async (
+      accessToken: string,
+    ): Promise<string | undefined> => {
+      try {
+        const resp = await fetch("https://api.notion.com/v1/users/me", {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Notion-Version": "2022-06-28",
+          },
+        });
+        if (resp.ok) {
+          const body = (await resp.json()) as {
+            name?: string;
+            type?: string;
+            person?: { email?: string };
+          };
+          return body.name ?? body.person?.email;
+        }
+      } catch {
+        // Non-fatal — identity verification is best-effort
+      }
+      return undefined;
+    },
   },
 
   "integration:twitter": {
     service: "integration:twitter",
+    setupSkillId: "twitter-oauth-setup",
     setup: {
       displayName: "Twitter / X",
       dashboardUrl: "https://developer.x.com/en/portal/dashboard",
