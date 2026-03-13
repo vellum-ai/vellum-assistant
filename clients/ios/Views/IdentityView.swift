@@ -9,6 +9,8 @@ import VellumAssistantShared
 final class IdentityViewModel {
     var identity: RemoteIdentityInfo?
     var isLoading = false
+    var introText: String? = nil
+    private var introTask: Task<Void, Never>?
 
     var skillsStore: SkillsStore?
     var contactsStore: ContactsStore?
@@ -69,6 +71,35 @@ final class IdentityViewModel {
         isLoading = true
         identity = await daemonClient.fetchRemoteIdentity()
         isLoading = false
+        generateIntro(client: client)
+    }
+
+    func generateIntro(client: any DaemonClientProtocol) {
+        introTask?.cancel()
+        introText = nil
+        introTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let key = "identity-intro-\(UUID().uuidString)"
+            var result = ""
+            do {
+                let stream = client.sendBtwMessage(
+                    content: "Generate a very short intro for yourself (2-5 words, like \"I'm [name]!\" or \"It's [name]\" or \"Yo I'm [name]\"). Output ONLY the intro text, nothing else.",
+                    conversationKey: key
+                )
+                for try await delta in stream {
+                    guard !Task.isCancelled else { return }
+                    result += delta
+                }
+                self.introText = result.isEmpty ? nil : result
+            } catch is CancellationError {
+                return
+            } catch {
+                // Fallback to formatted name
+                if let name = self.identity?.name, !name.isEmpty {
+                    self.introText = "I'm \(name)!"
+                }
+            }
+        }
     }
 }
 
@@ -108,6 +139,18 @@ struct IdentityView: View {
 
     private var intelligenceContent: some View {
         List {
+            // Intro text section
+            if let introText = viewModel.introText {
+                Section {
+                    Text(introText)
+                        .font(.system(size: 22, weight: .regular, design: .rounded))
+                        .foregroundColor(VColor.contentDefault)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                }
+            }
+
             // Identity card section
             if let identity = viewModel.identity {
                 Section {
