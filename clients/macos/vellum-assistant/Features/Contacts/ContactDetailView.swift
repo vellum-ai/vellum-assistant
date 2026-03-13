@@ -47,6 +47,7 @@ struct ContactDetailView: View {
     @State private var inviteHandleInput = ""
     @State private var inviteCodeRevealed = false
     @State private var channelReadiness: [String: DaemonClient.ChannelReadinessInfo] = [:]
+    @State private var channelReadinessLoaded = false
     /// Monotonically increasing counter that correlates a verification attempt
     /// with its one-shot response / timeout so stale callbacks are ignored.
     @State private var verificationAttempt: UInt64 = 0
@@ -252,7 +253,20 @@ struct ContactDetailView: View {
         }
 
         return VStack(alignment: .leading, spacing: VSpacing.md) {
-            if visibleTypes.isEmpty {
+            if !channelReadinessLoaded && visibleTypes.isEmpty {
+                // Still loading channel readiness — show a spinner instead of a
+                // false "No channels available" message.
+                HStack(spacing: VSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Loading channels...")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentTertiary)
+                }
+                .padding(VSpacing.lg)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .vCard(background: VColor.surfaceOverlay)
+            } else if visibleTypes.isEmpty {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("No channels available")
                         .font(VFont.sectionTitle)
@@ -305,6 +319,7 @@ struct ContactDetailView: View {
                 // channels the contact already has configured (channelReadiness
                 // stays empty so no unconfigured channel cards appear).
             }
+            channelReadinessLoaded = true
         }
     }
 
