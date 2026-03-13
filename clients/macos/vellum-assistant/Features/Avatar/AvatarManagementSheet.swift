@@ -202,6 +202,7 @@ struct AvatarManagementSheet: View {
         VStack(spacing: VSpacing.sm) {
             cycleRow(
                 label: "Body",
+                value: draftBody?.rawValue.capitalized ?? "None",
                 onLeft: {
                     draftBody = cycleBackward(draftBody)
                     if draftEyes == nil { draftEyes = AvatarEyeStyle.allCases.first }
@@ -224,6 +225,7 @@ struct AvatarManagementSheet: View {
             }
             cycleRow(
                 label: "Eyes",
+                value: draftEyes?.rawValue.capitalized ?? "None",
                 onLeft: {
                     draftEyes = cycleBackward(draftEyes)
                     if draftBody == nil { draftBody = AvatarBodyShape.allCases.first }
@@ -246,6 +248,7 @@ struct AvatarManagementSheet: View {
             }
             cycleRow(
                 label: "Color",
+                value: draftColor?.rawValue.capitalized ?? "None",
                 onLeft: {
                     draftColor = cycleBackward(draftColor)
                     if draftBody == nil { draftBody = AvatarBodyShape.allCases.first }
@@ -269,6 +272,7 @@ struct AvatarManagementSheet: View {
     @ViewBuilder
     private func cycleRow<Content: View>(
         label: String,
+        value: String,
         onLeft: @escaping () -> Void,
         onRight: @escaping () -> Void,
         @ViewBuilder content: () -> Content
@@ -287,6 +291,7 @@ struct AvatarManagementSheet: View {
             Spacer()
 
             content()
+                .accessibilityHidden(true)
 
             Spacer()
 
@@ -311,6 +316,9 @@ struct AvatarManagementSheet: View {
             RoundedRectangle(cornerRadius: VRadius.xl)
                 .stroke(VColor.borderBase, lineWidth: 1)
         )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(label)
+        .accessibilityValue(value)
     }
 
     // MARK: - Draft Rendering
