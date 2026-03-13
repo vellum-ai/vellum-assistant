@@ -166,7 +166,7 @@ export async function createIngressInvite(params: {
   }
 
   if (!params.contactId) {
-    return { ok: false, error: "contactId is required" };
+    return { ok: false, error: "contactId is required for create" };
   }
 
   // For voice invites: generate a one-time numeric code, hash it, and pass
