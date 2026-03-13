@@ -44,7 +44,6 @@ assistant config set telegram.botUsername "$BOT_USERNAME"
 
 If the `curl` call fails, the token is invalid — ask the user to re-enter (repeat Step 1).
 
-
 ## Step 3: Set Up Public Ingress and Webhooks
 
 ### Verify Public Ingress is Set Up
@@ -54,6 +53,7 @@ Telegram needs a publicly reachable URL to send webhook events to. Load the `pub
 ### Generate Webhook Secret
 
 Check to see if one already exists:
+
 ```bash
 assistant credentials inspect --service telegram --field webhook_secret
 ```
