@@ -81,8 +81,8 @@ The helper detects the default browser and navigates in the existing tab. Falls 
 Every step follows this pattern:
 
 1. **Open the URL** using the navigation helper
-2. **On the first step**, screenshot to see the actual page layout and calibrate your instructions
-3. **Give a specific instruction** — on the first step, reference what you actually see; on later steps, use landmark-based guidance
+2. **On the first step**, wait a few seconds for the page to load, then screenshot to see the actual page layout and calibrate your instructions
+3. **Give a specific instruction** — on the first step, reference what you actually see; on later steps, use landmark-based guidance. If screenshotting is unavailable (e.g. permissions denied), fall back to landmark-based instructions and ask the user to describe what they see.
 4. **User acts** and confirms
 5. **If the user reports a mismatch or seems stuck** — screenshot to see what they're seeing, then adapt
 6. **Move on** once confirmed
@@ -199,7 +199,7 @@ For non-interactive channels, provide all URLs and instructions as text messages
 
 | Situation                              | Response                                                       |
 | -------------------------------------- | -------------------------------------------------------------- |
-| User lands on unexpected page          | Offer to screenshot, identify where they are, navigate back    |
+| User lands on unexpected page          | Screenshot to see where they are, then navigate back           |
 | User not signed in                     | Tell them to sign in, wait, continue                           |
 | Feature already configured             | "Looks like this is already set up — great, let's skip ahead." |
 | Quota / billing issue                  | Explain clearly, help resolve or use a different project       |

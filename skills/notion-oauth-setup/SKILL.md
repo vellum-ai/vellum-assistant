@@ -45,7 +45,7 @@ If no Notion account, guide them to create one at `https://www.notion.so/signup`
 
 Open: `https://www.notion.so/profile/integrations`
 
-> I've opened the Notion integrations page. If it's asking you to sign in, go ahead and do that first. Once you're in, you should see your list of integrations (it might be empty).
+This is the first navigation — wait a few seconds for the page to load, then take a screenshot to see the actual layout. Use what you see to give the user specific guidance. If the page is asking them to sign in, tell them to do that first.
 
 ---
 
