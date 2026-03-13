@@ -171,7 +171,7 @@ struct HatchingStepView: View {
         if !isCustomHardware,
            AvatarAppearanceManager.shared.customAvatarImage == nil,
            let image = hatchAvatarImage {
-            AvatarAppearanceManager.shared.setCustomAvatar(image)
+            AvatarAppearanceManager.shared.saveAvatar(image, bodyShape: hatchBody, eyeStyle: hatchEyes, color: hatchColor)
         }
 
         // Brief delay so the user sees the waking animation before transition.

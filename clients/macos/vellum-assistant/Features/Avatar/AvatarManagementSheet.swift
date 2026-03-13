@@ -84,9 +84,17 @@ struct AvatarManagementSheet: View {
                     subtitle: "Build your own character"
                 ) {
                     withAnimation(VAnimation.fast) {
-                        draftBody = AvatarBodyShape.allCases.randomElement()!
-                        draftEyes = AvatarEyeStyle.allCases.randomElement()!
-                        draftColor = AvatarColor.allCases.randomElement()! // color-literal-ok
+                        if let body = appearance.characterBodyShape,
+                           let eyes = appearance.characterEyeStyle,
+                           let color = appearance.characterColor {
+                            draftBody = body
+                            draftEyes = eyes
+                            draftColor = color
+                        } else {
+                            draftBody = AvatarBodyShape.allCases.randomElement()!
+                            draftEyes = AvatarEyeStyle.allCases.randomElement()!
+                            draftColor = AvatarColor.allCases.randomElement()! // color-literal-ok
+                        }
                         renderDraft()
                         showingCharacterBuilder = true
                     }
@@ -151,7 +159,7 @@ struct AvatarManagementSheet: View {
                 }
                 VButton(label: "Confirm", style: .primary, isDisabled: draftImage == nil) {
                     if let draftImage {
-                        appearance.setCustomAvatar(draftImage)
+                        appearance.saveAvatar(draftImage, bodyShape: draftBody, eyeStyle: draftEyes, color: draftColor)
                     }
                     onClose()
                 }
@@ -350,7 +358,7 @@ struct AvatarManagementSheet: View {
 
         guard panel.runModal() == .OK, let url = panel.url,
               let image = NSImage(contentsOf: url) else { return }
-        appearance.setCustomAvatar(image)
+        appearance.saveAvatar(image)
         onClose()
     }
 }
