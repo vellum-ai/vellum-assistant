@@ -67,11 +67,7 @@ struct AvatarManagementSheet: View {
     private var actionList: some View {
         Group {
             // Avatar preview
-            Image(nsImage: appearance.fullAvatarImage)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: 120, height: 120)
-                .clipShape(Circle())
+            VAvatarImage(image: appearance.fullAvatarImage, size: 120, showBorder: false)
                 .padding(.bottom, VSpacing.xl)
 
             Divider().background(VColor.borderBase)
@@ -125,11 +121,7 @@ struct AvatarManagementSheet: View {
     private var characterBuilder: some View {
         VStack(spacing: 0) {
             // Draft avatar preview
-            Image(nsImage: draftImage ?? appearance.fullAvatarImage)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: 120, height: 120)
-                .clipShape(Circle())
+            VAvatarImage(image: draftImage ?? appearance.fullAvatarImage, size: 120, showBorder: false)
                 .padding(.bottom, VSpacing.lg)
 
             // Generate Random button
