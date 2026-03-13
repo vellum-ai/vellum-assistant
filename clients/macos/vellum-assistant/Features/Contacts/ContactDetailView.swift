@@ -173,11 +173,7 @@ struct ContactDetailView: View {
             }
 
             HStack(spacing: VSpacing.sm) {
-                roleBadge
                 contactTypeBadge
-            }
-
-            HStack(spacing: VSpacing.sm) {
                 Text("\(displayContact.interactionCount) interaction\(displayContact.interactionCount == 1 ? "" : "s")")
                     .font(VFont.caption)
                     .foregroundColor(VColor.contentTertiary)
@@ -227,18 +223,6 @@ struct ContactDetailView: View {
         .onHover { hovering in
             isHoveringHeader = hovering
         }
-    }
-
-    private var roleBadge: some View {
-        // Guardians route to GuardianChannelsDetailView, so this view only
-        // renders non-guardian contacts.
-        Text("Contact")
-            .font(VFont.captionMedium)
-            .foregroundColor(VColor.contentSecondary)
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xxs)
-            .background(VColor.surfaceOverlay)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
     }
 
     private var contactTypeBadge: some View {
