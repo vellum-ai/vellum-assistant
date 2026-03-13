@@ -435,6 +435,10 @@ struct ChatView: View {
                                 DispatchQueue.main.async {
                                     if let data {
                                         onDropImageData(data, suggestedName)
+                                    } else if let url, url.isFileURL {
+                                        // Image data load failed — fall back to
+                                        // the file URL (may be a file promise).
+                                        urls.append(url)
                                     }
                                     group.leave()
                                 }
