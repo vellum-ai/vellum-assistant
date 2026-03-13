@@ -190,6 +190,12 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Drop the legacy reminders table and its index after data migration to cron_jobs",
   },
+  {
+    key: "migration_oauth_apps_client_secret_path_v1",
+    version: 28,
+    description:
+      "Add client_secret_credential_path column to oauth_apps and backfill existing rows with convention-based paths",
+  },
 ];
 
 export interface MigrationValidationResult {
