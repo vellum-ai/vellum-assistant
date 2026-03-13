@@ -52,6 +52,7 @@ mock.module("../calls/call-domain.js", () => ({
   startInviteCall: async () => mockStartInviteCallResult,
 }));
 
+import { upsertContact } from "../contacts/contact-store.js";
 import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
 import {
   handleCreateInvite,
@@ -62,6 +63,11 @@ import {
 } from "../runtime/routes/invite-routes.js";
 
 initializeDb();
+
+/** Create a throwaway contact and return its ID, for use as the invite's contactId. */
+function createTargetContact(displayName = "Test Contact"): string {
+  return upsertContact({ displayName, role: "contact" }).id;
+}
 
 afterAll(() => {
   resetDb();
@@ -91,6 +97,7 @@ describe("ingress invite HTTP routes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sourceChannel: "telegram",
+        contactId: createTargetContact(),
         note: "Test invite",
         maxUses: 5,
       }),
@@ -120,6 +127,7 @@ describe("ingress invite HTTP routes", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sourceChannel: "telegram",
+          contactId: createTargetContact(),
           note: "Share link test",
         }),
       });
@@ -163,14 +171,20 @@ describe("ingress invite HTTP routes", () => {
       new Request("http://localhost/v1/contacts/invites", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sourceChannel: "telegram" }),
+        body: JSON.stringify({
+          sourceChannel: "telegram",
+          contactId: createTargetContact(),
+        }),
       }),
     );
     await handleCreateInvite(
       new Request("http://localhost/v1/contacts/invites", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sourceChannel: "telegram" }),
+        body: JSON.stringify({
+          sourceChannel: "telegram",
+          contactId: createTargetContact(),
+        }),
       }),
     );
 
@@ -189,7 +203,10 @@ describe("ingress invite HTTP routes", () => {
       new Request("http://localhost/v1/contacts/invites", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sourceChannel: "telegram" }),
+        body: JSON.stringify({
+          sourceChannel: "telegram",
+          contactId: createTargetContact(),
+        }),
       }),
     );
     const created = (await createRes.json()) as { invite: { id: string } };
@@ -214,7 +231,11 @@ describe("ingress invite HTTP routes", () => {
       new Request("http://localhost/v1/contacts/invites", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sourceChannel: "telegram", maxUses: 1 }),
+        body: JSON.stringify({
+          sourceChannel: "telegram",
+          contactId: createTargetContact(),
+          maxUses: 1,
+        }),
       }),
     );
     const created = (await createRes.json()) as { invite: { token: string } };
@@ -282,7 +303,10 @@ describe("ingress service shared logic", () => {
       new Request("http://localhost/v1/contacts/invites", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sourceChannel: "telegram" }),
+        body: JSON.stringify({
+          sourceChannel: "telegram",
+          contactId: createTargetContact(),
+        }),
       }),
     );
     const created = (await createRes.json()) as {
@@ -312,6 +336,7 @@ describe("voice invite HTTP routes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sourceChannel: "phone",
+        contactId: createTargetContact(),
         expectedExternalUserId: "+15551234567",
         friendName: "Alice",
         guardianName: "Bob",
@@ -348,6 +373,7 @@ describe("voice invite HTTP routes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sourceChannel: "phone",
+        contactId: createTargetContact(),
         friendName: "Alice",
         guardianName: "Bob",
       }),
@@ -367,6 +393,7 @@ describe("voice invite HTTP routes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sourceChannel: "phone",
+        contactId: createTargetContact(),
         expectedExternalUserId: "not-a-phone-number",
         friendName: "Alice",
         guardianName: "Bob",
@@ -387,6 +414,7 @@ describe("voice invite HTTP routes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sourceChannel: "phone",
+        contactId: createTargetContact(),
         expectedExternalUserId: "+15551234567",
         guardianName: "Bob",
       }),
@@ -406,6 +434,7 @@ describe("voice invite HTTP routes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sourceChannel: "phone",
+        contactId: createTargetContact(),
         expectedExternalUserId: "+15551234567",
         friendName: "Alice",
       }),
@@ -425,6 +454,7 @@ describe("voice invite HTTP routes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sourceChannel: "phone",
+        contactId: createTargetContact(),
         expectedExternalUserId: "+15551234567",
         friendName: "Alice",
         guardianName: "Bob",
@@ -448,6 +478,7 @@ describe("voice invite HTTP routes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sourceChannel: "phone",
+        contactId: createTargetContact(),
         expectedExternalUserId: "+15551234567",
         friendName: "Alice",
         guardianName: "Bob",
@@ -472,6 +503,7 @@ describe("voice invite HTTP routes", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sourceChannel: "phone",
+          contactId: createTargetContact(),
           expectedExternalUserId: "+15551234567",
           friendName: "Alice",
           guardianName: "Bob",
@@ -529,6 +561,7 @@ describe("voice invite HTTP routes", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sourceChannel: "phone",
+          contactId: createTargetContact(),
           expectedExternalUserId: "+15551234567",
           friendName: "Alice",
           guardianName: "Bob",
@@ -559,6 +592,7 @@ describe("voice invite HTTP routes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sourceChannel: "phone",
+        contactId: createTargetContact(),
         expectedExternalUserId: "+15551234567",
         friendName: "Alice",
         guardianName: "Bob",
@@ -594,6 +628,7 @@ describe("POST /v1/contacts/invites/:id/call", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sourceChannel: "phone",
+          contactId: createTargetContact(),
           expectedExternalUserId: "+15551234567",
           friendName: "Alice",
           guardianName: "Bob",
@@ -626,6 +661,7 @@ describe("POST /v1/contacts/invites/:id/call", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sourceChannel: "phone",
+          contactId: createTargetContact(),
           expectedExternalUserId: "+15551234567",
           friendName: "Alice",
           guardianName: "Bob",
@@ -652,6 +688,7 @@ describe("POST /v1/contacts/invites/:id/call", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sourceChannel: "telegram",
+          contactId: createTargetContact(),
         }),
       }),
     );

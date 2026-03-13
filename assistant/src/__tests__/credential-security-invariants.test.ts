@@ -236,6 +236,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "oauth/oauth-store.ts", // OAuth provider disconnect (delete stored tokens)
       "cli/commands/oauth/connections.ts", // CLI OAuth connection delete (legacy credential cleanup)
       "oauth/manual-token-connection.ts", // manual-token provider backfill (keychain credential existence check)
+      "cli/commands/doctor.ts", // CLI diagnostic API key verification via secure storage
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
