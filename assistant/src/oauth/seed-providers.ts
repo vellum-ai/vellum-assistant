@@ -111,7 +111,7 @@ const PROVIDER_SEED_DATA: Record<
     },
     extraParams: { owner: "user" },
     tokenEndpointAuthMethod: "client_secret_basic",
-    callbackTransport: "gateway",
+    callbackTransport: "loopback",
   },
 
   "integration:twitter": {
