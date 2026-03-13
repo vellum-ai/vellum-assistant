@@ -895,6 +895,19 @@ describe("Permission Checker", () => {
       );
     });
 
+    test("computer_use_observe prompts by default via computer-use ask rule", async () => {
+      const result = await check(
+        "computer_use_observe",
+        { reason: "Check current screen state before acting" },
+        "/tmp",
+      );
+      expect(result.decision).toBe("prompt");
+      expect(result.reason).toContain("ask rule");
+      expect(result.matchedRule?.id).toBe(
+        "default:ask-computer_use_observe-global",
+      );
+    });
+
     test("higher-priority allow rule can override default computer-use ask rule", async () => {
       addRule(
         "computer_use_click",

@@ -900,6 +900,20 @@ describe("Trust Store", () => {
       );
     });
 
+    test("findHighestPriorityRule matches default ask for computer_use_observe", () => {
+      const match = findHighestPriorityRule(
+        "computer_use_observe",
+        ["computer_use_observe:"],
+        "/tmp",
+      );
+      expect(match).not.toBeNull();
+      expect(match!.id).toBe("default:ask-computer_use_observe-global");
+      expect(match!.decision).toBe("ask");
+      expect(match!.priority).toBe(
+        DEFAULT_PRIORITY_BY_ID.get("default:ask-computer_use_observe-global")!,
+      );
+    });
+
     test("bootstrap delete rule matches only when workingDir is the workspace dir", () => {
       const workspaceDir = join(testDir, "workspace");
       // Should match when workingDir is the workspace directory — the bootstrap

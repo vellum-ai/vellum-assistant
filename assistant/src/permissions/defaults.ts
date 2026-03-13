@@ -20,6 +20,7 @@ const HOST_FILE_TOOLS = [
   "host_file_edit",
 ] as const;
 const COMPUTER_USE_TOOLS = [
+  "computer_use_observe",
   "computer_use_click",
   "computer_use_type_text",
   "computer_use_key",
