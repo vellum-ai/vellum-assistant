@@ -12,6 +12,7 @@ import {
   injectChannelTurnContext,
   injectInboundActorContext,
   injectTemporalContext,
+  isGroupChatType,
   resolveChannelCapabilities,
   sanitizePttActivationKey,
   stripChannelCapabilityContext,
@@ -132,6 +133,16 @@ describe("resolveChannelCapabilities", () => {
     expect(caps.supportsDynamicUi).toBe(false);
     expect(caps.supportsVoiceInput).toBe(false);
   });
+
+  test("propagates chatType when provided", () => {
+    const caps = resolveChannelCapabilities("telegram", null, null, "group");
+    expect(caps.chatType).toBe("group");
+  });
+
+  test("chatType is undefined when not provided", () => {
+    const caps = resolveChannelCapabilities("telegram");
+    expect(caps.chatType).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -208,6 +219,102 @@ describe("injectChannelCapabilityContext", () => {
     // Original content should be at the end
     const lastBlock = result.content[result.content.length - 1];
     expect((lastBlock as { type: "text"; text: string }).text).toBe("Hello");
+  });
+
+  test("injects group chat etiquette when chatType is group", () => {
+    const caps: ChannelCapabilities = {
+      channel: "telegram",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "group",
+    };
+
+    const result = injectChannelCapabilityContext(baseUserMessage, caps);
+    const text = (result.content[0] as { type: "text"; text: string }).text;
+    expect(text).toContain("GROUP CHAT ETIQUETTE");
+    expect(text).toContain("chat_type: group");
+    expect(text).toContain("Stay silent when");
+  });
+
+  test("injects group chat etiquette when chatType is supergroup", () => {
+    const caps: ChannelCapabilities = {
+      channel: "telegram",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "supergroup",
+    };
+
+    const result = injectChannelCapabilityContext(baseUserMessage, caps);
+    const text = (result.content[0] as { type: "text"; text: string }).text;
+    expect(text).toContain("GROUP CHAT ETIQUETTE");
+  });
+
+  test("does NOT inject group chat etiquette for private/DM chats", () => {
+    const caps: ChannelCapabilities = {
+      channel: "telegram",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "private",
+    };
+
+    const result = injectChannelCapabilityContext(baseUserMessage, caps);
+    const text = (result.content[0] as { type: "text"; text: string }).text;
+    expect(text).not.toContain("GROUP CHAT ETIQUETTE");
+    expect(text).not.toContain("Stay silent when");
+  });
+
+  test("does NOT inject group chat etiquette when chatType is absent", () => {
+    const caps: ChannelCapabilities = {
+      channel: "telegram",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+    };
+
+    const result = injectChannelCapabilityContext(baseUserMessage, caps);
+    const text = (result.content[0] as { type: "text"; text: string }).text;
+    expect(text).not.toContain("GROUP CHAT ETIQUETTE");
+  });
+
+  test("includes emoji reaction hint for Slack group chats", () => {
+    const caps: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "channel",
+    };
+
+    const result = injectChannelCapabilityContext(baseUserMessage, caps);
+    const text = (result.content[0] as { type: "text"; text: string }).text;
+    expect(text).toContain("GROUP CHAT ETIQUETTE");
+    expect(text).toContain("emoji reactions");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isGroupChatType
+// ---------------------------------------------------------------------------
+
+describe("isGroupChatType", () => {
+  test("returns true for group chat types", () => {
+    expect(isGroupChatType("group")).toBe(true);
+    expect(isGroupChatType("supergroup")).toBe(true);
+    expect(isGroupChatType("channel")).toBe(true);
+    expect(isGroupChatType("mpim")).toBe(true);
+  });
+
+  test("returns false for private/DM chat types", () => {
+    expect(isGroupChatType("private")).toBe(false);
+    expect(isGroupChatType("im")).toBe(false);
+  });
+
+  test("returns false for undefined/empty", () => {
+    expect(isGroupChatType(undefined)).toBe(false);
+    expect(isGroupChatType("")).toBe(false);
   });
 });
 
@@ -376,6 +483,17 @@ describe("buildChannelAwarenessSection", () => {
   test("gates computer-control on dashboard channel", () => {
     const section = buildChannelAwarenessSection();
     expect(section).toContain("computer-control permissions on non-dashboard");
+  });
+
+  test("does NOT include group chat etiquette (gated per-turn instead)", () => {
+    const section = buildChannelAwarenessSection();
+    expect(section).not.toContain("Group chat etiquette");
+    expect(section).not.toContain("Stay silent when");
+  });
+
+  test("does NOT include Discord references (not a supported channel)", () => {
+    const section = buildChannelAwarenessSection();
+    expect(section).not.toContain("Discord");
   });
 });
 

@@ -24,6 +24,8 @@ export interface SessionTransportMetadata {
   hints?: string[];
   /** Optional concise UX brief for this channel. */
   uxBrief?: string;
+  /** Chat type from the gateway (e.g. "private", "group", "supergroup", "channel"). */
+  chatType?: string;
 }
 
 export interface SessionCreateRequest {
