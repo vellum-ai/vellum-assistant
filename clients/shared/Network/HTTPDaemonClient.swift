@@ -429,6 +429,13 @@ public final class HTTPTransport {
         case channelVerificationSessionsResend
         case channelVerificationSessionsRevoke
         case registerDeviceToken
+
+        // Memory Items
+        case memoryItemsList(kind: String?, status: String?, search: String?, sort: String?, order: String?, limit: Int, offset: Int)
+        case memoryItemGet(id: String)
+        case memoryItemCreate
+        case memoryItemUpdate(id: String)
+        case memoryItemDelete(id: String)
     }
 
     /// Build a URL for the given endpoint using the current route mode.
@@ -829,6 +836,26 @@ public final class HTTPTransport {
             return ("/v1/channel-verification-sessions/revoke", nil)
         case .registerDeviceToken:
             return ("/v1/device-token", nil)
+        // Memory Items
+        case .memoryItemsList(let kind, let status, let search, let sort, let order, let limit, let offset):
+            var queryParts = ["limit=\(limit)", "offset=\(offset)"]
+            if let kind { queryParts.append("kind=\(kind.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? kind)") }
+            if let status { queryParts.append("status=\(status)") }
+            if let search, !search.isEmpty { queryParts.append("search=\(search.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? search)") }
+            if let sort { queryParts.append("sort=\(sort)") }
+            if let order { queryParts.append("order=\(order)") }
+            return ("/v1/memory-items", queryParts.joined(separator: "&"))
+        case .memoryItemGet(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/memory-items/\(encoded)", nil)
+        case .memoryItemCreate:
+            return ("/v1/memory-items", nil)
+        case .memoryItemUpdate(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/memory-items/\(encoded)", nil)
+        case .memoryItemDelete(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/memory-items/\(encoded)", nil)
         }
     }
 
@@ -1210,6 +1237,26 @@ public final class HTTPTransport {
             return ("\(prefix)/channel-verification-sessions/revoke/", nil)
         case .registerDeviceToken:
             return ("\(prefix)/device-token/", nil)
+        // Memory Items
+        case .memoryItemsList(let kind, let status, let search, let sort, let order, let limit, let offset):
+            var queryParts = ["limit=\(limit)", "offset=\(offset)"]
+            if let kind { queryParts.append("kind=\(kind.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? kind)") }
+            if let status { queryParts.append("status=\(status)") }
+            if let search, !search.isEmpty { queryParts.append("search=\(search.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? search)") }
+            if let sort { queryParts.append("sort=\(sort)") }
+            if let order { queryParts.append("order=\(order)") }
+            return ("\(prefix)/memory-items/", queryParts.joined(separator: "&"))
+        case .memoryItemGet(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/memory-items/\(encoded)/", nil)
+        case .memoryItemCreate:
+            return ("\(prefix)/memory-items/", nil)
+        case .memoryItemUpdate(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/memory-items/\(encoded)/", nil)
+        case .memoryItemDelete(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/memory-items/\(encoded)/", nil)
         }
     }
 
@@ -4490,6 +4537,190 @@ public final class HTTPTransport {
             if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
                 request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
             }
+        }
+    }
+
+    // MARK: - Memory Items
+
+    /// Fetch a paginated list of memory items with optional filters.
+    func fetchMemoryItems(
+        kind: String? = nil,
+        status: String? = "active",
+        search: String? = nil,
+        sort: String? = "lastSeenAt",
+        order: String? = "desc",
+        limit: Int = 100,
+        offset: Int = 0,
+        isRetry: Bool = false
+    ) async -> MemoryItemsListResponse? {
+        guard let url = buildURL(for: .memoryItemsList(
+            kind: kind, status: status, search: search,
+            sort: sort, order: order, limit: limit, offset: offset
+        )) else { return nil }
+
+        var request = URLRequest(url: url)
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await fetchMemoryItems(kind: kind, status: status, search: search, sort: sort, order: order, limit: limit, offset: offset, isRetry: true)
+                    }
+                    return nil
+                }
+                guard (200...299).contains(http.statusCode) else { return nil }
+            }
+            return try decoder.decode(MemoryItemsListResponse.self, from: data)
+        } catch {
+            log.error("fetchMemoryItems failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Fetch a single memory item by ID.
+    func fetchMemoryItem(id: String, isRetry: Bool = false) async -> MemoryItemPayload? {
+        guard let url = buildURL(for: .memoryItemGet(id: id)) else { return nil }
+
+        var request = URLRequest(url: url)
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await fetchMemoryItem(id: id, isRetry: true)
+                    }
+                    return nil
+                }
+                guard (200...299).contains(http.statusCode) else { return nil }
+            }
+            struct Wrapper: Decodable { let item: MemoryItemPayload }
+            return try decoder.decode(Wrapper.self, from: data).item
+        } catch {
+            log.error("fetchMemoryItem failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Create a new memory item.
+    func createMemoryItem(
+        kind: String,
+        subject: String,
+        statement: String,
+        importance: Double? = nil,
+        isRetry: Bool = false
+    ) async -> MemoryItemPayload? {
+        guard let url = buildURL(for: .memoryItemCreate) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        var body: [String: Any] = [
+            "kind": kind,
+            "subject": subject,
+            "statement": statement
+        ]
+        if let importance { body["importance"] = importance }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await createMemoryItem(kind: kind, subject: subject, statement: statement, importance: importance, isRetry: true)
+                    }
+                    return nil
+                }
+                guard (200...201).contains(http.statusCode) else { return nil }
+            }
+            struct Wrapper: Decodable { let item: MemoryItemPayload }
+            return try decoder.decode(Wrapper.self, from: data).item
+        } catch {
+            log.error("createMemoryItem failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Update an existing memory item.
+    func updateMemoryItem(
+        id: String,
+        subject: String? = nil,
+        statement: String? = nil,
+        kind: String? = nil,
+        status: String? = nil,
+        importance: Double? = nil,
+        verificationState: String? = nil,
+        isRetry: Bool = false
+    ) async -> MemoryItemPayload? {
+        guard let url = buildURL(for: .memoryItemUpdate(id: id)) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        var body: [String: Any] = [:]
+        if let subject { body["subject"] = subject }
+        if let statement { body["statement"] = statement }
+        if let kind { body["kind"] = kind }
+        if let status { body["status"] = status }
+        if let importance { body["importance"] = importance }
+        if let verificationState { body["verificationState"] = verificationState }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await updateMemoryItem(id: id, subject: subject, statement: statement, kind: kind, status: status, importance: importance, verificationState: verificationState, isRetry: true)
+                    }
+                    return nil
+                }
+                guard (200...299).contains(http.statusCode) else { return nil }
+            }
+            struct Wrapper: Decodable { let item: MemoryItemPayload }
+            return try decoder.decode(Wrapper.self, from: data).item
+        } catch {
+            log.error("updateMemoryItem failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Delete a memory item by ID.
+    func deleteMemoryItem(id: String, isRetry: Bool = false) async -> Bool {
+        guard let url = buildURL(for: .memoryItemDelete(id: id)) else { return false }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await deleteMemoryItem(id: id, isRetry: true)
+                    }
+                    return false
+                }
+                return http.statusCode == 204
+            }
+            return false
+        } catch {
+            log.error("deleteMemoryItem failed: \(error.localizedDescription)")
+            return false
         }
     }
 
