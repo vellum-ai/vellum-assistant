@@ -9,7 +9,7 @@ import {
 import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
-  getSecureKey,
+  getSecureKeyAsync,
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
 import {
@@ -213,7 +213,7 @@ Examples:
   $ assistant credentials list --search bot_token
   $ assistant credentials list --json`,
     )
-    .action((opts: { search?: string }, cmd: Command) => {
+    .action(async (opts: { search?: string }, cmd: Command) => {
       try {
         let allMetadata = listCredentialMetadata();
 
@@ -247,11 +247,15 @@ Examples:
           }
         }
 
-        const credentials = allMetadata.map((m) => {
-          const secret = getSecureKey(credentialKey(m.service, m.field));
-          const connection = connectionsByProvider.get(m.service);
-          return buildCredentialOutput(m, secret, connection);
-        });
+        const credentials = await Promise.all(
+          allMetadata.map(async (m) => {
+            const secret = await getSecureKeyAsync(
+              credentialKey(m.service, m.field),
+            );
+            const connection = connectionsByProvider.get(m.service);
+            return buildCredentialOutput(m, secret, connection);
+          }),
+        );
 
         writeOutput(cmd, { ok: true, credentials });
 
@@ -471,7 +475,7 @@ Examples:
   $ assistant credentials inspect --json --service slack_channel --field bot_token`,
     )
     .action(
-      (
+      async (
         id: string | undefined,
         opts: { service?: string; field?: string },
         cmd: Command,
@@ -509,7 +513,7 @@ Examples:
             return;
           }
 
-          const secret = getSecureKey(storageKey);
+          const secret = await getSecureKeyAsync(storageKey);
 
           if (!metadata && (secret == null || secret.length === 0)) {
             writeOutput(cmd, { ok: false, error: "Credential not found" });
@@ -590,7 +594,7 @@ Examples:
   $ export TWILIO_TOKEN=$(assistant credentials reveal --service twilio --field auth_token)`,
     )
     .action(
-      (
+      async (
         id: string | undefined,
         opts: { service?: string; field?: string },
         cmd: Command,
@@ -619,7 +623,7 @@ Examples:
             return;
           }
 
-          const secret = getSecureKey(storageKey);
+          const secret = await getSecureKeyAsync(storageKey);
 
           if (secret == null || secret.length === 0) {
             writeOutput(cmd, { ok: false, error: "Credential not found" });
