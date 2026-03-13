@@ -66,6 +66,26 @@ function printHelp(): void {
   console.log("  use      Set the active assistant for commands");
   console.log("  wake     Start the assistant and gateway");
   console.log("  whoami   Show current logged-in user");
+  console.log("");
+  console.log("Options:");
+  console.log(
+    "  --no-color, --plain   Disable colored output (honors NO_COLOR env)",
+  );
+  console.log("  --version, -v         Show version");
+  console.log("  --help, -h            Show this help");
+}
+
+/**
+ * Check for --no-color / --plain flags and set NO_COLOR env var
+ * before any terminal capability detection runs.
+ *
+ * Per https://no-color.org/, setting NO_COLOR to any non-empty value
+ * signals that color output should be suppressed.
+ */
+function applyNoColorFlags(argv: string[]): void {
+  if (argv.includes("--no-color") || argv.includes("--plain")) {
+    process.env.NO_COLOR = "1";
+  }
 }
 
 /**
@@ -96,7 +116,18 @@ async function tryLaunchClient(): Promise<boolean> {
 
 async function main() {
   const args = process.argv.slice(2);
-  const commandName = args[0];
+
+  // Must run before any command or terminal-capabilities usage
+  applyNoColorFlags(args);
+
+  // Global flags that are not command names
+  const GLOBAL_FLAGS = new Set(["--no-color", "--plain"]);
+  const commandName = args.find((a) => !GLOBAL_FLAGS.has(a));
+
+  // Strip global flags from process.argv so subcommands that parse
+  // process.argv.slice(3) don't see them as positional arguments.
+  const filteredArgs = args.filter((a) => !GLOBAL_FLAGS.has(a));
+  process.argv = [...process.argv.slice(0, 2), ...filteredArgs];
 
   if (commandName === "--version" || commandName === "-v") {
     console.log(`@vellumai/cli v${cliPkg.version}`);

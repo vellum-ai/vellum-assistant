@@ -107,6 +107,15 @@ export function getTerminalCapabilities(): TerminalCapabilities {
   return _cached;
 }
 
+/**
+ * Clear the cached capabilities so the next `getTerminalCapabilities()`
+ * call re-detects from the current environment. Useful after modifying
+ * `process.env.NO_COLOR` at startup or in tests.
+ */
+export function resetCapabilitiesCache(): void {
+  _cached = undefined;
+}
+
 // ── Convenience helpers ──────────────────────────────────────
 
 /** True when colors should be used (any level above "none"). */
