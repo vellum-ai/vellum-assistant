@@ -274,6 +274,20 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     }),
   );
 
+  // The `assistant` CLI is first-party trusted code.  Auto-allow all
+  // `assistant` subcommands on the host shell so the LLM can run
+  // `assistant skills search`, `assistant skills add`, etc. without
+  // triggering permission prompts.  Priority 60 beats the host_bash
+  // global ask rule (priority 50).
+  const assistantCliRule: DefaultRuleTemplate = {
+    id: "default:allow-host_bash-assistant-cli",
+    tool: "host_bash",
+    pattern: "action:assistant",
+    scope: "everywhere",
+    decision: "allow",
+    priority: 60,
+  };
+
   // memory_recall is a read-only tool — always allow without prompting.
   const memoryRecallRule: DefaultRuleTemplate = {
     id: "default:allow-memory_recall-global",
@@ -300,5 +314,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     ...browserToolRules,
     ...uiSurfaceRules,
     memoryRecallRule,
+    assistantCliRule,
   ];
 }

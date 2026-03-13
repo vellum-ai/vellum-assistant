@@ -1097,6 +1097,39 @@ describe("Trust Store", () => {
       expect(match!.decision).toBe("allow");
     });
 
+    // ── default allow: assistant CLI on host_bash ──────────────
+
+    test("assistant CLI default allow rule exists in templates", () => {
+      const templates = getDefaultRuleTemplates();
+      const rule = templates.find(
+        (t) => t.id === "default:allow-host_bash-assistant-cli",
+      );
+      expect(rule).toBeDefined();
+      expect(rule!.tool).toBe("host_bash");
+      expect(rule!.pattern).toBe("action:assistant");
+      expect(rule!.decision).toBe("allow");
+      expect(rule!.scope).toBe("everywhere");
+      expect(rule!.priority).toBe(60);
+    });
+
+    test("assistant CLI allow rule beats host_bash global ask rule", () => {
+      // The action key "action:assistant" should match the allow rule (priority 60)
+      // instead of the host_bash global ask rule (priority 50).
+      const match = findHighestPriorityRule(
+        "host_bash",
+        [
+          "assistant skills search react",
+          "action:assistant skills search",
+          "action:assistant skills",
+          "action:assistant",
+        ],
+        "/tmp",
+      );
+      expect(match).not.toBeNull();
+      expect(match!.id).toBe("default:allow-host_bash-assistant-cli");
+      expect(match!.decision).toBe("allow");
+    });
+
     // ── default allow: browser tools ────────────────────────────
 
     test("all 10 browser tools have default allow rules", () => {
