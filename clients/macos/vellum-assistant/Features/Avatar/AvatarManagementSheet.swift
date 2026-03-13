@@ -140,6 +140,11 @@ struct AvatarManagementSheet: View {
             }
             .padding(.bottom, VSpacing.lg)
 
+            // Cycle controls for body, eyes, and color
+            cycleControls
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.bottom, VSpacing.lg)
+
             // Preset grid
             LazyVGrid(
                 columns: Array(repeating: GridItem(.flexible(), spacing: VSpacing.sm), count: 5),
@@ -195,6 +200,119 @@ struct AvatarManagementSheet: View {
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.lg)
+        }
+    }
+
+    // MARK: - Cycle Helpers
+
+    private func cycleForward<T: CaseIterable & Equatable>(_ current: T?) -> T where T.AllCases.Index == Int {
+        let all = Array(T.allCases)
+        guard let current, let idx = all.firstIndex(of: current) else { return all[0] }
+        return all[(idx + 1) % all.count]
+    }
+
+    private func cycleBackward<T: CaseIterable & Equatable>(_ current: T?) -> T where T.AllCases.Index == Int {
+        let all = Array(T.allCases)
+        guard let current, let idx = all.firstIndex(of: current) else { return all[0] }
+        return all[(idx - 1 + all.count) % all.count]
+    }
+
+    private func ensureDraftsInitialized() {
+        if draftBody == nil && draftEyes == nil && draftColor == nil {
+            draftBody = AvatarBodyShape.allCases.first
+            draftEyes = AvatarEyeStyle.allCases.first
+            draftColor = AvatarColor.allCases.first
+        }
+    }
+
+    // MARK: - Cycle Controls
+
+    @ViewBuilder
+    private var cycleControls: some View {
+        VStack(spacing: VSpacing.sm) {
+            cycleRow(
+                label: "Body",
+                value: draftBody?.rawValue.capitalized ?? "\u{2014}",
+                onLeft: {
+                    ensureDraftsInitialized()
+                    draftBody = cycleBackward(draftBody)
+                    selectedPresetID = nil
+                    renderDraft()
+                },
+                onRight: {
+                    ensureDraftsInitialized()
+                    draftBody = cycleForward(draftBody)
+                    selectedPresetID = nil
+                    renderDraft()
+                }
+            )
+            cycleRow(
+                label: "Eyes",
+                value: draftEyes?.rawValue.capitalized ?? "\u{2014}",
+                onLeft: {
+                    ensureDraftsInitialized()
+                    draftEyes = cycleBackward(draftEyes)
+                    selectedPresetID = nil
+                    renderDraft()
+                },
+                onRight: {
+                    ensureDraftsInitialized()
+                    draftEyes = cycleForward(draftEyes)
+                    selectedPresetID = nil
+                    renderDraft()
+                }
+            )
+            cycleRow(
+                label: "Color",
+                value: draftColor?.rawValue.capitalized ?? "\u{2014}",
+                onLeft: {
+                    ensureDraftsInitialized()
+                    draftColor = cycleBackward(draftColor)
+                    selectedPresetID = nil
+                    renderDraft()
+                },
+                onRight: {
+                    ensureDraftsInitialized()
+                    draftColor = cycleForward(draftColor)
+                    selectedPresetID = nil
+                    renderDraft()
+                }
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func cycleRow(
+        label: String,
+        value: String,
+        onLeft: @escaping () -> Void,
+        onRight: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: 0) {
+            Button(action: onLeft) {
+                VIconView(.chevronLeft, size: 10)
+                    .foregroundColor(VColor.contentTertiary)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .accessibilityLabel("Previous \(label.lowercased())")
+
+            Text("\(label): \(value)")
+                .font(VFont.captionMedium)
+                .foregroundColor(VColor.contentSecondary)
+                .frame(width: 120)
+
+            Button(action: onRight) {
+                VIconView(.chevronRight, size: 10)
+                    .foregroundColor(VColor.contentTertiary)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .accessibilityLabel("Next \(label.lowercased())")
         }
     }
 
