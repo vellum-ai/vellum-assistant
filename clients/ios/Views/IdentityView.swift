@@ -12,10 +12,12 @@ final class IdentityViewModel {
 
     var skillsStore: SkillsStore?
     var contactsStore: ContactsStore?
+    var memoriesStore: MemoryItemsStore?
 
     // Cached counts — updated via Combine when the stores' @Published properties change.
     var installedSkillsCount: Int = 0
     var contactsCount: Int = 0
+    var memoriesCount: Int = 0
 
     private var cancellables: Set<AnyCancellable> = []
 
@@ -39,16 +41,27 @@ final class IdentityViewModel {
             .sink { [weak self] count in self?.contactsCount = count }
             .store(in: &cancellables)
 
+        let memories = MemoryItemsStore(daemonClient: daemonClient)
+        memoriesStore = memories
+        memories.$items
+            .map(\.count)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] count in self?.memoriesCount = count }
+            .store(in: &cancellables)
+
         skills.fetchSkills(force: true)
         contacts.loadContacts()
+        Task { await memories.loadItems() }
     }
 
     func tearDown() {
         cancellables.removeAll()
         skillsStore = nil
         contactsStore = nil
+        memoriesStore = nil
         installedSkillsCount = 0
         contactsCount = 0
+        memoriesCount = 0
     }
 
     func fetchIdentity(client: any DaemonClientProtocol) async {
@@ -178,6 +191,35 @@ struct IdentityView: View {
                     }
                 }
                 .disabled(viewModel.contactsStore == nil)
+
+                // Memories
+                NavigationLink {
+                    if let store = viewModel.memoriesStore {
+                        MemoriesListView(store: store)
+                    }
+                } label: {
+                    HStack(spacing: VSpacing.sm) {
+                        VIconView(.bookOpen, size: 16)
+                            .foregroundColor(VColor.primaryBase)
+                            .frame(width: 24)
+                        Text("Memories")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentDefault)
+                        Spacer()
+                        if viewModel.memoriesCount > 0 {
+                            Text("\(viewModel.memoriesCount)")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.contentTertiary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 2)
+                                .background(
+                                    Capsule()
+                                        .fill(VColor.borderBase)
+                                )
+                        }
+                    }
+                }
+                .disabled(viewModel.memoriesStore == nil)
             }
 
             // Workspace section
@@ -199,6 +241,9 @@ struct IdentityView: View {
         .refreshable {
             viewModel.skillsStore?.fetchSkills(force: true)
             viewModel.contactsStore?.loadContacts()
+            if let memoriesStore = viewModel.memoriesStore {
+                await memoriesStore.loadItems()
+            }
             await viewModel.fetchIdentity(client: clientProvider.client)
         }
     }
