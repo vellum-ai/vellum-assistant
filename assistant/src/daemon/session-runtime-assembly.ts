@@ -740,8 +740,10 @@ export function buildInboundActorContextBlock(
       return "unknown";
     }
     const singleLine = value
-      .replace(/[\r\n]+/g, " ")
-      .replace(/[\x00-\x1F\x7F]/g, " ")
+      // Replace ASCII and Unicode line/paragraph separators.
+      .replace(/[\r\n\u0085\u2028\u2029]+/g, " ")
+      // Replace remaining ASCII C0/C1 control characters and DEL.
+      .replace(/[\x00-\x1F\x7F-\x9F]/g, " ")
       .trim();
     return singleLine.length > 0 ? singleLine : "unknown";
   };
