@@ -109,6 +109,6 @@ struct AvatarCustomizationPanel: View {
 
         guard panel.runModal() == .OK, let url = panel.url,
               let image = NSImage(contentsOf: url) else { return }
-        appearance.setCustomAvatar(image)
+        appearance.saveAvatar(image)
     }
 }
