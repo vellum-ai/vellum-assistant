@@ -33,12 +33,14 @@ let mockBrokerStore: Map<string, string> = new Map();
 let mockBrokerGetError = false;
 let mockBrokerSetError = false;
 let mockBrokerDelError = false;
+let mockBrokerGetCalled = false;
 
 mock.module("../security/keychain-broker-client.js", () => ({
   createBrokerClient: () => ({
     isAvailable: () => mockBrokerAvailable,
     ping: async () => (mockBrokerAvailable ? { pong: true } : null),
     get: async (account: string) => {
+      mockBrokerGetCalled = true;
       // null = broker error (fall back to encrypted store)
       if (mockBrokerGetError) return null;
       const value = mockBrokerStore.get(account);
@@ -100,6 +102,7 @@ describe("secure-keys", () => {
     mockBrokerGetError = false;
     mockBrokerSetError = false;
     mockBrokerDelError = false;
+    mockBrokerGetCalled = false;
 
     if (existsSync(TEST_DIR)) {
       rmSync(TEST_DIR, { recursive: true });
@@ -207,20 +210,22 @@ describe("secure-keys", () => {
   // Async variants — broker available path
   // -----------------------------------------------------------------------
   describe("async variants with broker available", () => {
-    test("getSecureKeyAsync returns broker value when available", async () => {
+    test("getSecureKeyAsync returns encrypted store value when both stores have key", async () => {
       mockBrokerAvailable = true;
       mockBrokerStore.set("api-key", "broker-value");
       setSecureKey("api-key", "encrypted-value");
-      expect(await getSecureKeyAsync("api-key")).toBe("broker-value");
+      // Encrypted store is checked first — broker is never called
+      expect(await getSecureKeyAsync("api-key")).toBe("encrypted-value");
+      expect(mockBrokerGetCalled).toBe(false);
     });
 
-    test("getSecureKeyAsync falls back to encrypted store when broker reports not-found", async () => {
+    test("getSecureKeyAsync returns encrypted store value without calling broker", async () => {
       mockBrokerAvailable = true;
-      // Broker has nothing for this key — returns { found: false }.
-      // Keys may exist only in the encrypted store (written while broker
-      // was unavailable or via sync setSecureKey), so we must fall back.
+      // Only encrypted store has the key — broker has nothing.
+      // Encrypted store is checked first, so broker.get() is never called.
       setSecureKey("api-key", "encrypted-value");
       expect(await getSecureKeyAsync("api-key")).toBe("encrypted-value");
+      expect(mockBrokerGetCalled).toBe(false);
     });
 
     test("getSecureKeyAsync returns undefined when neither broker nor encrypted store has key", async () => {
@@ -229,11 +234,14 @@ describe("secure-keys", () => {
       expect(await getSecureKeyAsync("missing-key")).toBeUndefined();
     });
 
-    test("getSecureKeyAsync falls back to encrypted store on broker error", async () => {
+    test("getSecureKeyAsync returns encrypted store value even when broker would error", async () => {
       mockBrokerAvailable = true;
       mockBrokerGetError = true;
+      // Encrypted store hit short-circuits — broker is never called, so
+      // the broker error flag is irrelevant.
       setSecureKey("api-key", "encrypted-value");
       expect(await getSecureKeyAsync("api-key")).toBe("encrypted-value");
+      expect(mockBrokerGetCalled).toBe(false);
     });
 
     test("setSecureKeyAsync writes to broker and encrypted store", async () => {
@@ -308,10 +316,56 @@ describe("secure-keys", () => {
   });
 
   // -----------------------------------------------------------------------
-  // Stale-value prevention — broker-first reads after credential updates
+  // Encrypted-store-first read order
+  // -----------------------------------------------------------------------
+  describe("encrypted-store-first read order", () => {
+    test("returns value from encrypted store without calling broker", async () => {
+      mockBrokerAvailable = true;
+      setSecureKey("test-account", "test-secret");
+      mockBrokerStore.set("test-account", "broker-secret");
+
+      const result = await getSecureKeyAsync("test-account");
+      expect(result).toBe("test-secret");
+      // Broker should never have been called — encrypted store hit
+      // short-circuits the lookup.
+      expect(mockBrokerGetCalled).toBe(false);
+    });
+
+    test("falls back to broker when encrypted store returns undefined", async () => {
+      mockBrokerAvailable = true;
+      // Encrypted store has nothing for this key
+      mockBrokerStore.set("test-account", "broker-secret");
+
+      const result = await getSecureKeyAsync("test-account");
+      expect(result).toBe("broker-secret");
+      // Broker should have been called as fallback
+      expect(mockBrokerGetCalled).toBe(true);
+    });
+
+    test("returns undefined when neither store has the key", async () => {
+      mockBrokerAvailable = true;
+      // Neither encrypted store nor broker has the key
+
+      const result = await getSecureKeyAsync("test-account");
+      expect(result).toBeUndefined();
+    });
+
+    test("returns undefined without broker call when broker unavailable and encrypted store empty", async () => {
+      // Broker is unavailable (default state), encrypted store is empty
+      mockBrokerAvailable = false;
+
+      const result = await getSecureKeyAsync("test-account");
+      expect(result).toBeUndefined();
+      // Broker.get() should not have been called since broker is unavailable
+      expect(mockBrokerGetCalled).toBe(false);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Stale-value prevention — encrypted-store-first reads avoid stale broker data
   // -----------------------------------------------------------------------
   describe("stale-value prevention", () => {
-    test("setSecureKeyAsync updates broker so broker-first read returns new value", async () => {
+    test("setSecureKeyAsync updates both stores so encrypted-store-first read returns new value", async () => {
       mockBrokerAvailable = true;
       // Simulate broker holding an old value
       mockBrokerStore.set("api-key", "old-broker-value");
@@ -321,7 +375,7 @@ describe("secure-keys", () => {
       const ok = await setSecureKeyAsync("api-key", "new-value");
       expect(ok).toBe(true);
 
-      // Broker-first read should return the new value, not stale old value
+      // Encrypted-store-first read returns the new value
       const value = await getSecureKeyAsync("api-key");
       expect(value).toBe("new-value");
       // Both stores should agree
@@ -329,7 +383,7 @@ describe("secure-keys", () => {
       expect(getSecureKey("api-key")).toBe("new-value");
     });
 
-    test("deleteSecureKeyAsync removes from broker so broker-first read falls through", async () => {
+    test("deleteSecureKeyAsync removes from both stores so read returns undefined", async () => {
       mockBrokerAvailable = true;
       mockBrokerStore.set("api-key", "old-broker-value");
       setSecureKey("api-key", "old-encrypted-value");
@@ -338,22 +392,23 @@ describe("secure-keys", () => {
       const result = await deleteSecureKeyAsync("api-key");
       expect(result).toBe("deleted");
 
-      // Broker-first read should not find the key in either store
+      // Neither store has the key — returns undefined
       const value = await getSecureKeyAsync("api-key");
       expect(value).toBeUndefined();
     });
 
-    test("sync setSecureKey does NOT update broker — stale read demonstrates the problem", async () => {
+    test("sync setSecureKey updates encrypted store — encrypted-store-first read returns fresh value", async () => {
       mockBrokerAvailable = true;
       mockBrokerStore.set("api-key", "old-broker-value");
 
       // Sync write only updates encrypted store, NOT broker
       setSecureKey("api-key", "new-encrypted-value");
 
-      // Broker-first read still returns the stale broker value
+      // Encrypted-store-first read returns the fresh encrypted value,
+      // bypassing the stale broker entirely.
       const value = await getSecureKeyAsync("api-key");
-      expect(value).toBe("old-broker-value");
-      // This is the exact bug that async migration fixes
+      expect(value).toBe("new-encrypted-value");
+      expect(mockBrokerGetCalled).toBe(false);
     });
 
     test("setSecureKeyAsync failure leaves both stores unchanged", async () => {
