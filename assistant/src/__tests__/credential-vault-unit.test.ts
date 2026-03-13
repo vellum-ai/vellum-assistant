@@ -624,9 +624,10 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     expect(result.content).toContain("client_id is required");
   });
 
-  test("requires interactive context", async () => {
-    // Register custom-svc as a provider so the orchestrator finds it
-    // and reaches the non-interactive check (gateway transport).
+  test("non-interactive loopback oauth2_connect returns deferred auth URL", async () => {
+    // After the blanket non-interactive guard was removed (#16337),
+    // loopback-transport flows succeed with a deferred auth URL so the
+    // agent can present it to the user.
     mockGetProvider.mockImplementation((key: string) => {
       if (key === "custom-svc") {
         return {
@@ -651,8 +652,8 @@ describe("credential_store tool — oauth2_connect error paths", () => {
       },
       { ..._ctx, isInteractive: false },
     );
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("non-interactive session");
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("mock-auth-url.example.com");
   });
 
   test("resolves gmail alias to integration:google", async () => {

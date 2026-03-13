@@ -607,13 +607,13 @@ describe("assistant oauth providers list", () => {
       "providers",
       "list",
       "--provider-key",
-      "gmail",
+      "slack",
       "--json",
     ]);
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
     expect(parsed).toHaveLength(1);
-    expect(parsed[0].providerKey).toBe("integration:google");
+    expect(parsed[0].providerKey).toBe("integration:slack");
   });
 
   test("filters by comma-separated OR values", async () => {
@@ -621,15 +621,16 @@ describe("assistant oauth providers list", () => {
       "providers",
       "list",
       "--provider-key",
-      "gmail,google",
+      "slack,google",
       "--json",
     ]);
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
-    expect(parsed).toHaveLength(2);
+    expect(parsed).toHaveLength(3);
     const keys = parsed.map((p: { providerKey: string }) => p.providerKey);
     expect(keys).toContain("integration:google");
     expect(keys).toContain("integration:google-calendar");
+    expect(keys).toContain("integration:slack");
   });
 
   test("returns empty array when comma-separated filter has no matches", async () => {
@@ -650,15 +651,16 @@ describe("assistant oauth providers list", () => {
       "providers",
       "list",
       "--provider-key",
-      "gmail, google",
+      "slack, google",
       "--json",
     ]);
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
-    expect(parsed).toHaveLength(2);
+    expect(parsed).toHaveLength(3);
     const keys = parsed.map((p: { providerKey: string }) => p.providerKey);
     expect(keys).toContain("integration:google");
     expect(keys).toContain("integration:google-calendar");
+    expect(keys).toContain("integration:slack");
   });
 
   test("ignores empty segments from extra commas in --provider-key", async () => {
@@ -666,15 +668,16 @@ describe("assistant oauth providers list", () => {
       "providers",
       "list",
       "--provider-key",
-      "gmail,,google",
+      "slack,,google",
       "--json",
     ]);
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
-    expect(parsed).toHaveLength(2);
+    expect(parsed).toHaveLength(3);
     const keys = parsed.map((p: { providerKey: string }) => p.providerKey);
     expect(keys).toContain("integration:google");
     expect(keys).toContain("integration:google-calendar");
+    expect(keys).toContain("integration:slack");
   });
 });
 
