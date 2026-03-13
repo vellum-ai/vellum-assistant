@@ -13,7 +13,6 @@ struct IntelligencePanel: View {
     private enum IntelligenceTab: String, CaseIterable {
         case identity = "Identity"
         case installedSkills = "Installed Skills"
-        case communitySkills = "Community Skills"
         case workspace = "Workspace"
         case memories = "Memories"
     }
@@ -94,14 +93,6 @@ struct IntelligencePanel: View {
                 onInvokeSkill: onInvokeSkill,
                 daemonClient: daemonClient,
                 visibleTab: .installed
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-
-        case .communitySkills:
-            AgentPanelContent(
-                onInvokeSkill: onInvokeSkill,
-                daemonClient: daemonClient,
-                visibleTab: .available
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
