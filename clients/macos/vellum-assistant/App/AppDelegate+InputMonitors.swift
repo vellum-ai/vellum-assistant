@@ -68,6 +68,7 @@ extension AppDelegate {
         registerQuickInputMonitor()
         registerFnVMonitor()
         registerCmdKMonitor()
+        registerCmdNMonitor()
 
         globalHotkeyObserver = Publishers.Merge3(
             UserDefaults.standard.publisher(for: \.globalHotkeyShortcut).map { _ in () },
@@ -159,6 +160,10 @@ extension AppDelegate {
             NSEvent.removeMonitor(monitor)
             cmdKLocalMonitor = nil
         }
+        if let monitor = cmdNLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            cmdNLocalMonitor = nil
+        }
         if let monitor = navLocalMonitor {
             NSEvent.removeMonitor(monitor)
             navLocalMonitor = nil
@@ -190,6 +195,23 @@ extension AppDelegate {
             _ = handler(event)
         }
         fnVLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+    }
+
+    /// Registers Cmd+N as a local shortcut to create a new thread.
+    func registerCmdNMonitor() {
+        let handler: (NSEvent) -> NSEvent? = { [weak self] event in
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard event.keyCode == 45, // kVK_ANSI_N
+                  mods == [.command] else {
+                return event
+            }
+            Task { @MainActor in
+                guard self?.isBootstrapping != true else { return }
+                self?.createNewThread()
+            }
+            return nil
+        }
+        cmdNLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
     }
 
     /// Registers Cmd+K as a local shortcut to open the command palette.
