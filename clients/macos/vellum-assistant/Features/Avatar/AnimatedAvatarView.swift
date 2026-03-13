@@ -13,11 +13,24 @@ struct AnimatedAvatarView: View {
     var blinkEnabled: Bool = true
     var pokeEnabled: Bool = true
 
+    @State private var isHovered = false
+
     var body: some View {
         AvatarLayerRepresentable(bodyShape: bodyShape, eyeStyle: eyeStyle, color: color, size: size,
-                                 breathingEnabled: breathingEnabled, blinkEnabled: blinkEnabled, pokeEnabled: pokeEnabled)
+                                 breathingEnabled: breathingEnabled, blinkEnabled: blinkEnabled, pokeEnabled: pokeEnabled,
+                                 isHovered: isHovered)
             .frame(width: size, height: size)
             .accessibilityHidden(true)
+            .onHover { hovering in
+                isHovered = hovering
+                if pokeEnabled {
+                    if hovering {
+                        NSCursor.pointingHand.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+            }
     }
 }
 
@@ -29,17 +42,20 @@ private struct AvatarLayerRepresentable: NSViewRepresentable {
     var breathingEnabled: Bool = true
     var blinkEnabled: Bool = true
     var pokeEnabled: Bool = true
+    var isHovered: Bool = false
 
     func makeNSView(context: Context) -> AvatarLayerView {
         let view = AvatarLayerView(frame: NSRect(x: 0, y: 0, width: size, height: size))
         view.configure(bodyShape: bodyShape, eyeStyle: eyeStyle, color: color, size: size,
                        breathingEnabled: breathingEnabled, blinkEnabled: blinkEnabled, pokeEnabled: pokeEnabled)
+        view.updateHoverState(isHovered)
         return view
     }
 
     func updateNSView(_ nsView: AvatarLayerView, context: Context) {
         nsView.configure(bodyShape: bodyShape, eyeStyle: eyeStyle, color: color, size: size,
                          breathingEnabled: breathingEnabled, blinkEnabled: blinkEnabled, pokeEnabled: pokeEnabled)
+        nsView.updateHoverState(isHovered)
     }
 }
 
@@ -54,7 +70,6 @@ class AvatarLayerView: NSView {
     private var openEyePaths: [CGPath] = []
     private var closedEyePaths: [CGPath] = []
     private var widenedEyePaths: [CGPath] = []
-    private var trackingArea: NSTrackingArea?
     private var isHovered = false
 
     /// Timer that fires random blinks.
@@ -82,57 +97,39 @@ class AvatarLayerView: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    override func resetCursorRects() {
-        if configPokeEnabled {
-            addCursorRect(bounds, cursor: .pointingHand)
-        }
-    }
+    /// Called from SwiftUI's `.onHover` via the representable bridge.
+    /// Animates eye paths between widened (hovered) and normal (not hovered).
+    func updateHoverState(_ hovered: Bool) {
+        guard hovered != isHovered else { return }
+        isHovered = hovered
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let existing = trackingArea {
-            removeTrackingArea(existing)
-        }
-        let area = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeInKeyWindow],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(area)
-        trackingArea = area
-    }
+        if hovered {
+            guard animationsActive else { return }
+            guard !eyeLayers.isEmpty,
+                  eyeLayers.count == widenedEyePaths.count else { return }
 
-    override func mouseEntered(with event: NSEvent) {
-        guard animationsActive else { return }
-        isHovered = true
-        guard !eyeLayers.isEmpty,
-              eyeLayers.count == widenedEyePaths.count else { return }
+            for (i, eyeLayer) in eyeLayers.enumerated() {
+                let animation = CABasicAnimation(keyPath: "path")
+                animation.fromValue = eyeLayer.path
+                animation.toValue = widenedEyePaths[i]
+                animation.duration = 0.12
+                animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                eyeLayer.path = widenedEyePaths[i]
+                eyeLayer.add(animation, forKey: "eyeWiden")
+            }
+        } else {
+            guard !eyeLayers.isEmpty,
+                  eyeLayers.count == openEyePaths.count else { return }
 
-        for (i, eyeLayer) in eyeLayers.enumerated() {
-            let animation = CABasicAnimation(keyPath: "path")
-            animation.fromValue = eyeLayer.path
-            animation.toValue = widenedEyePaths[i]
-            animation.duration = 0.12
-            animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            eyeLayer.path = widenedEyePaths[i]
-            eyeLayer.add(animation, forKey: "eyeWiden")
-        }
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        isHovered = false
-        guard !eyeLayers.isEmpty,
-              eyeLayers.count == openEyePaths.count else { return }
-
-        for (i, eyeLayer) in eyeLayers.enumerated() {
-            let animation = CABasicAnimation(keyPath: "path")
-            animation.fromValue = eyeLayer.path
-            animation.toValue = openEyePaths[i]
-            animation.duration = 0.2
-            animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            eyeLayer.path = openEyePaths[i]
-            eyeLayer.add(animation, forKey: "eyeWiden")
+            for (i, eyeLayer) in eyeLayers.enumerated() {
+                let animation = CABasicAnimation(keyPath: "path")
+                animation.fromValue = eyeLayer.path
+                animation.toValue = openEyePaths[i]
+                animation.duration = 0.2
+                animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                eyeLayer.path = openEyePaths[i]
+                eyeLayer.add(animation, forKey: "eyeWiden")
+            }
         }
     }
 
@@ -225,6 +222,13 @@ class AvatarLayerView: NSView {
             let widenedCGPath = widenedEditable.toCGPath()
             var widenedTransform = eyeXform
             widenedEyePaths.append(widenedCGPath.copy(using: &widenedTransform)!)
+        }
+
+        // If hovered during reconfiguration, apply widened paths immediately (no animation)
+        if isHovered {
+            for (i, eyeLayer) in eyeLayers.enumerated() where i < widenedEyePaths.count {
+                eyeLayer.path = widenedEyePaths[i]
+            }
         }
 
         CATransaction.commit()
