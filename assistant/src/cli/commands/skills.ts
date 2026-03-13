@@ -92,6 +92,23 @@ Examples:
     .description("Search the skills.sh community registry")
     .option("--limit <n>", "Maximum number of results", "10")
     .option("--json", "Machine-readable JSON output")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  query    Free-text search term matched against skill names, descriptions,
+           and tags in the skills.sh registry.
+
+Searches the skills.sh community registry and displays matching skills
+with install counts and security audit badges (ATH, Socket, Snyk).
+Audit fetch failures are non-fatal — results are still shown without
+security data.
+
+Examples:
+  $ assistant skills search react
+  $ assistant skills search "file management" --limit 3
+  $ assistant skills search deploy --json`,
+    )
     .action(
       async (query: string, opts: { limit: string; json?: boolean }) => {
         const json = opts.json ?? false;
@@ -119,12 +136,15 @@ Examples:
             sourceToSlugs.set(r.source, slugs);
           }
 
-          // Fetch audits for each unique source
+          // Fetch audits for each unique source, keyed by source/skillId
+          // to avoid collisions when different sources share the same slug.
           const allAudits: AuditResponse = {};
           for (const [source, slugs] of sourceToSlugs) {
             try {
               const audits = await fetchSkillAudits(source, slugs);
-              Object.assign(allAudits, audits);
+              for (const [skillId, auditData] of Object.entries(audits)) {
+                allAudits[`${source}/${skillId}`] = auditData;
+              }
             } catch {
               // Audit fetch failures are non-fatal; display results without audits
             }
@@ -147,7 +167,7 @@ Examples:
             log.info(`    ID: ${r.skillId}`);
             log.info(`    Source: ${r.source}`);
             log.info(`    Installs: ${r.installs}`);
-            const auditData = allAudits[r.skillId];
+            const auditData = allAudits[`${r.source}/${r.skillId}`];
             if (auditData) {
               log.info(`    ${formatAuditBadges(auditData)}`);
             } else {
