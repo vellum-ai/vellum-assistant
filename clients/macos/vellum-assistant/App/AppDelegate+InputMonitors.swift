@@ -54,6 +54,54 @@ extension UserDefaults {
     @objc dynamic var quickInputHotkeyKeyCode: Int {
         return integer(forKey: "quickInputHotkeyKeyCode")
     }
+    @objc dynamic var quickInputAboveDockShortcut: String {
+        if UserDefaults.standard.object(forKey: "quickInputAboveDockShortcut") == nil {
+            return "cmd+shift+v"
+        }
+        return string(forKey: "quickInputAboveDockShortcut") ?? ""
+    }
+    @objc dynamic var newThreadShortcut: String {
+        if UserDefaults.standard.object(forKey: "newThreadShortcut") == nil {
+            return "cmd+n"
+        }
+        return string(forKey: "newThreadShortcut") ?? ""
+    }
+    @objc dynamic var commandPaletteShortcut: String {
+        if UserDefaults.standard.object(forKey: "commandPaletteShortcut") == nil {
+            return "cmd+k"
+        }
+        return string(forKey: "commandPaletteShortcut") ?? ""
+    }
+    @objc dynamic var navigateBackShortcut: String {
+        if UserDefaults.standard.object(forKey: "navigateBackShortcut") == nil {
+            return "cmd+["
+        }
+        return string(forKey: "navigateBackShortcut") ?? ""
+    }
+    @objc dynamic var navigateForwardShortcut: String {
+        if UserDefaults.standard.object(forKey: "navigateForwardShortcut") == nil {
+            return "cmd+]"
+        }
+        return string(forKey: "navigateForwardShortcut") ?? ""
+    }
+    @objc dynamic var zoomInShortcut: String {
+        if UserDefaults.standard.object(forKey: "zoomInShortcut") == nil {
+            return "cmd+="
+        }
+        return string(forKey: "zoomInShortcut") ?? ""
+    }
+    @objc dynamic var zoomOutShortcut: String {
+        if UserDefaults.standard.object(forKey: "zoomOutShortcut") == nil {
+            return "cmd+-"
+        }
+        return string(forKey: "zoomOutShortcut") ?? ""
+    }
+    @objc dynamic var zoomResetShortcut: String {
+        if UserDefaults.standard.object(forKey: "zoomResetShortcut") == nil {
+            return "cmd+0"
+        }
+        return string(forKey: "zoomResetShortcut") ?? ""
+    }
 }
 
 // MARK: - Input Monitors
@@ -69,16 +117,31 @@ extension AppDelegate {
         registerFnVMonitor()
         registerCmdKMonitor()
         registerCmdNMonitor()
+        registerNavigationMonitor()
+        registerZoomMonitor()
 
-        globalHotkeyObserver = Publishers.Merge3(
-            UserDefaults.standard.publisher(for: \.globalHotkeyShortcut).map { _ in () },
-            UserDefaults.standard.publisher(for: \.quickInputHotkeyShortcut).map { _ in () },
-            UserDefaults.standard.publisher(for: \.quickInputHotkeyKeyCode).map { _ in () }
-        )
+        globalHotkeyObserver = Publishers.MergeMany([
+            UserDefaults.standard.publisher(for: \.globalHotkeyShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.quickInputHotkeyShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.quickInputHotkeyKeyCode).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.quickInputAboveDockShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.newThreadShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.commandPaletteShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.navigateBackShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.navigateForwardShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.zoomInShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.zoomOutShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.zoomResetShortcut).map { _ in () }.eraseToAnyPublisher(),
+        ])
         .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
         .sink { [weak self] _ in
             self?.registerGlobalHotkeyMonitor()
             self?.registerQuickInputMonitor()
+            self?.registerFnVMonitor()
+            self?.registerCmdKMonitor()
+            self?.registerCmdNMonitor()
+            self?.registerNavigationMonitor()
+            self?.registerZoomMonitor()
         }
     }
 
