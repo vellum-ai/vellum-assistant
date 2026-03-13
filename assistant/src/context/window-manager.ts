@@ -136,6 +136,7 @@ export class ContextWindowManager {
     try {
       const estimated = estimatePromptTokens(messages, this.systemPrompt, {
         providerName: this.provider.name,
+        toolTokenBudget: this.toolTokenBudget,
       });
       const threshold = Math.floor(
         this.config.maxInputTokens * this.config.compactThreshold,
@@ -167,6 +168,7 @@ export class ContextWindowManager {
       options?.precomputedEstimate ??
       estimatePromptTokens(messages, this.systemPrompt, {
         providerName: this.provider.name,
+        toolTokenBudget: this.toolTokenBudget,
       });
     const thresholdTokens = Math.floor(
       this.config.maxInputTokens * this.config.compactThreshold,
@@ -249,6 +251,7 @@ export class ContextWindowManager {
       const estimatedAfterTruncation = didTruncate
         ? estimatePromptTokens(truncatedMessages, this.systemPrompt, {
             providerName: this.provider.name,
+            toolTokenBudget: this.toolTokenBudget,
           })
         : previousEstimatedInputTokens;
       return {
@@ -512,6 +515,7 @@ export class ContextWindowManager {
       );
       return estimatePromptTokens(projectedMessages, this.systemPrompt, {
         providerName: this.provider.name,
+        toolTokenBudget: this.toolTokenBudget,
       });
     };
 
