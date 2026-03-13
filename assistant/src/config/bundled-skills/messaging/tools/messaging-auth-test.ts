@@ -11,8 +11,8 @@ export async function run(
   const platform = input.platform as string | undefined;
 
   try {
-    const provider = resolveProvider(platform);
-    const conn = getProviderConnection(provider);
+    const provider = await resolveProvider(platform);
+    const conn = await getProviderConnection(provider);
     const info = await provider.testConnection(conn);
     return ok(JSON.stringify(info, null, 2));
   } catch (e) {

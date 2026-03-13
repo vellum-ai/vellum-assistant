@@ -864,7 +864,7 @@ describe("connection operations", () => {
 
       secureKeyValues.set(`oauth_connection/${conn.id}/access_token`, "tok");
 
-      expect(isProviderConnected("github")).toBe(true);
+      expect(await isProviderConnected("github")).toBe(true);
     });
 
     test("returns false when active connection exists but access token is missing", async () => {
@@ -877,11 +877,11 @@ describe("connection operations", () => {
       });
 
       // No secure key set — simulates failed token write
-      expect(isProviderConnected("github")).toBe(false);
+      expect(await isProviderConnected("github")).toBe(false);
     });
 
-    test("returns false when no connection exists", () => {
-      expect(isProviderConnected("github")).toBe(false);
+    test("returns false when no connection exists", async () => {
+      expect(await isProviderConnected("github")).toBe(false);
     });
 
     test("returns false when connection is revoked even with token in store", async () => {
@@ -896,7 +896,7 @@ describe("connection operations", () => {
       updateConnection(conn.id, { status: "revoked" });
       secureKeyValues.set(`oauth_connection/${conn.id}/access_token`, "tok");
 
-      expect(isProviderConnected("github")).toBe(false);
+      expect(await isProviderConnected("github")).toBe(false);
     });
   });
 
