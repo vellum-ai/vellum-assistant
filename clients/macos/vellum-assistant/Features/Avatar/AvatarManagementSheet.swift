@@ -9,7 +9,6 @@ struct AvatarManagementSheet: View {
     @State private var appearance = AvatarAppearanceManager.shared
     @State private var showingCharacterBuilder = false
     @State private var draftImage: NSImage?
-    @State private var selectedPresetID: String?
     @State private var draftBody: AvatarBodyShape?
     @State private var draftEyes: AvatarEyeStyle?
     @State private var draftColor: AvatarColor?
@@ -22,7 +21,6 @@ struct AvatarManagementSheet: View {
                     Button {
                         withAnimation(VAnimation.fast) {
                             draftImage = nil
-                            selectedPresetID = nil
                             draftBody = nil
                             draftEyes = nil
                             draftColor = nil
@@ -83,11 +81,10 @@ struct AvatarManagementSheet: View {
                 actionRow(
                     icon: "paintbrush",
                     label: "Build a Character",
-                    subtitle: "Choose or randomize a preset character"
+                    subtitle: "Build your own character"
                 ) {
                     withAnimation(VAnimation.fast) {
                         draftImage = nil
-                        selectedPresetID = nil
                         showingCharacterBuilder = true
                     }
                 }
@@ -136,7 +133,6 @@ struct AvatarManagementSheet: View {
                 draftEyes = AvatarEyeStyle.allCases.randomElement()!
                 draftColor = AvatarColor.allCases.randomElement()! // color-literal-ok
                 renderDraft()
-                selectedPresetID = nil
             }
             .padding(.bottom, VSpacing.lg)
 
@@ -144,47 +140,6 @@ struct AvatarManagementSheet: View {
             cycleControls
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.bottom, VSpacing.lg)
-
-            // Preset grid
-            LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), spacing: VSpacing.sm), count: 5),
-                spacing: VSpacing.sm
-            ) {
-                ForEach(PresetAvatar.all) { preset in
-                    if let image = preset.image {
-                        Button {
-                            draftBody = preset.bodyShape
-                            draftEyes = preset.eyeStyle
-                            draftColor = preset.color
-                            draftImage = image
-                            selectedPresetID = preset.id
-                        } label: {
-                            Image(nsImage: image)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(maxWidth: .infinity)
-                                .padding(VSpacing.md)
-                                .background(
-                                    RoundedRectangle(cornerRadius: VRadius.lg)
-                                        .fill(VColor.surfaceBase)
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: VRadius.lg)
-                                        .stroke(
-                                            selectedPresetID == preset.id ? VColor.primaryBase : VColor.borderBase,
-                                            lineWidth: selectedPresetID == preset.id ? 2 : 1
-                                        )
-                                )
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .pointerCursor()
-                        .accessibilityLabel(preset.name)
-                    }
-                }
-            }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.bottom, VSpacing.lg)
 
             // Confirm and Discard buttons
             HStack(spacing: VSpacing.md) {
@@ -218,10 +173,10 @@ struct AvatarManagementSheet: View {
     }
 
     private func ensureDraftsInitialized() {
-        if draftBody == nil && draftEyes == nil && draftColor == nil {
-            draftBody = AvatarBodyShape.allCases.first
-            draftEyes = AvatarEyeStyle.allCases.first
-            draftColor = AvatarColor.allCases.first
+        if draftBody == nil || draftEyes == nil || draftColor == nil {
+            if draftBody == nil { draftBody = AvatarBodyShape.allCases.first }
+            if draftEyes == nil { draftEyes = AvatarEyeStyle.allCases.first }
+            if draftColor == nil { draftColor = AvatarColor.allCases.first }
         }
     }
 
@@ -232,88 +187,109 @@ struct AvatarManagementSheet: View {
         VStack(spacing: VSpacing.sm) {
             cycleRow(
                 label: "Body",
-                value: draftBody?.rawValue.capitalized ?? "\u{2014}",
                 onLeft: {
                     ensureDraftsInitialized()
                     draftBody = cycleBackward(draftBody)
-                    selectedPresetID = nil
                     renderDraft()
                 },
                 onRight: {
                     ensureDraftsInitialized()
                     draftBody = cycleForward(draftBody)
-                    selectedPresetID = nil
                     renderDraft()
                 }
-            )
+            ) {
+                if let body = draftBody, let color = draftColor {
+                    Image(nsImage: AvatarCompositor.renderBodyOnly(bodyShape: body, color: color, size: 32))
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 32, height: 32)
+                }
+            }
             cycleRow(
                 label: "Eyes",
-                value: draftEyes?.rawValue.capitalized ?? "\u{2014}",
                 onLeft: {
                     ensureDraftsInitialized()
                     draftEyes = cycleBackward(draftEyes)
-                    selectedPresetID = nil
                     renderDraft()
                 },
                 onRight: {
                     ensureDraftsInitialized()
                     draftEyes = cycleForward(draftEyes)
-                    selectedPresetID = nil
                     renderDraft()
                 }
-            )
+            ) {
+                if let eyes = draftEyes {
+                    Image(nsImage: AvatarCompositor.renderEyesOnly(eyeStyle: eyes, size: 32))
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 32, height: 32)
+                }
+            }
             cycleRow(
                 label: "Color",
-                value: draftColor?.rawValue.capitalized ?? "\u{2014}",
                 onLeft: {
                     ensureDraftsInitialized()
                     draftColor = cycleBackward(draftColor)
-                    selectedPresetID = nil
                     renderDraft()
                 },
                 onRight: {
                     ensureDraftsInitialized()
                     draftColor = cycleForward(draftColor)
-                    selectedPresetID = nil
                     renderDraft()
                 }
-            )
+            ) {
+                Circle()
+                    .fill(draftColor.map { Color(nsColor: $0.nsColor) } ?? VColor.contentTertiary)
+                    .frame(width: 20, height: 20)
+            }
         }
     }
 
     @ViewBuilder
-    private func cycleRow(
+    private func cycleRow<Content: View>(
         label: String,
-        value: String,
         onLeft: @escaping () -> Void,
-        onRight: @escaping () -> Void
+        onRight: @escaping () -> Void,
+        @ViewBuilder content: () -> Content
     ) -> some View {
         HStack(spacing: 0) {
             Button(action: onLeft) {
                 VIconView(.chevronLeft, size: 10)
                     .foregroundColor(VColor.contentTertiary)
-                    .frame(width: 28, height: 28)
+                    .frame(width: 36, height: 36)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .pointerCursor()
             .accessibilityLabel("Previous \(label.lowercased())")
 
-            Text("\(label): \(value)")
-                .font(VFont.captionMedium)
-                .foregroundColor(VColor.contentSecondary)
-                .frame(width: 120)
+            Spacer()
+
+            content()
+
+            Spacer()
 
             Button(action: onRight) {
                 VIconView(.chevronRight, size: 10)
                     .foregroundColor(VColor.contentTertiary)
-                    .frame(width: 28, height: 28)
+                    .frame(width: 36, height: 36)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .pointerCursor()
             .accessibilityLabel("Next \(label.lowercased())")
         }
+        .padding(.horizontal, VSpacing.sm)
+        .padding(.vertical, VSpacing.md)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.xl)
+                .fill(VColor.surfaceBase)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.xl)
+                .stroke(VColor.borderBase, lineWidth: 1)
+        )
     }
 
     // MARK: - Draft Rendering

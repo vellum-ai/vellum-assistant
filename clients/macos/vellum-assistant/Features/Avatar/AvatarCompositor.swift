@@ -71,6 +71,88 @@ enum AvatarCompositor {
         return image
     }
 
+    /// Renders only the body shape silhouette (no eyes) into an NSImage.
+    static func renderBodyOnly(
+        bodyShape: AvatarBodyShape,
+        color: AvatarColor,
+        size: CGFloat = 64
+    ) -> NSImage {
+        let cacheKey = "body-only-\(bodyShape.rawValue)-\(color.rawValue)-\(Int(size))"
+        if let cached = cache[cacheKey] {
+            return cached
+        }
+
+        let viewBox = bodyShape.viewBox
+        let scale = min(size / viewBox.width, size / viewBox.height)
+        let tx = (size - viewBox.width * scale) / 2
+        let ty = (size - viewBox.height * scale) / 2
+
+        var transform = CGAffineTransform(translationX: 0, y: size)
+            .scaledBy(x: 1, y: -1)
+            .translatedBy(x: tx, y: ty)
+            .scaledBy(x: scale, y: scale)
+
+        let image = NSImage(size: NSSize(width: size, height: size))
+        image.lockFocus()
+        guard let context = NSGraphicsContext.current?.cgContext else {
+            image.unlockFocus()
+            return image
+        }
+
+        let bodyPath = parseSVGPath(bodyShape.svgPath)
+        let transformedBody = bodyPath.copy(using: &transform)!
+        context.addPath(transformedBody)
+        context.setFillColor(color.nsColor.cgColor)
+        context.fillPath()
+
+        image.unlockFocus()
+
+        cache[cacheKey] = image
+        return image
+    }
+
+    /// Renders only the eye paths (pupils + sclera) centered in an NSImage, no body shape.
+    static func renderEyesOnly(
+        eyeStyle: AvatarEyeStyle,
+        size: CGFloat = 64
+    ) -> NSImage {
+        let cacheKey = "eyes-only-\(eyeStyle.rawValue)-\(Int(size))"
+        if let cached = cache[cacheKey] {
+            return cached
+        }
+
+        let srcVB = eyeStyle.sourceViewBox
+        let scale = min(size / srcVB.width, size / srcVB.height)
+        let tx = (size - srcVB.width * scale) / 2
+        let ty = (size - srcVB.height * scale) / 2
+
+        let baseTransform = CGAffineTransform(translationX: 0, y: size)
+            .scaledBy(x: 1, y: -1)
+            .translatedBy(x: tx, y: ty)
+            .scaledBy(x: scale, y: scale)
+
+        let image = NSImage(size: NSSize(width: size, height: size))
+        image.lockFocus()
+        guard let context = NSGraphicsContext.current?.cgContext else {
+            image.unlockFocus()
+            return image
+        }
+
+        for eyePath in eyeStyle.paths {
+            let parsed = parseSVGPath(eyePath.svgPath)
+            var mutableTransform = baseTransform
+            let transformed = parsed.copy(using: &mutableTransform)!
+            context.addPath(transformed)
+            context.setFillColor(eyePath.color.cgColor)
+            context.fillPath()
+        }
+
+        image.unlockFocus()
+
+        cache[cacheKey] = image
+        return image
+    }
+
     /// Per-combo face-center overrides for when the default body faceCenter doesn't produce
     /// the best result for a specific eye style.  Key format: "bodyRawValue-eyeRawValue".
     ///

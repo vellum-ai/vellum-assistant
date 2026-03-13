@@ -26,5 +26,4 @@ struct PresetAvatar: Identifiable, Equatable {
     ]
 
     static let all: [PresetAvatar] = presets
-    static func random() -> PresetAvatar { all.randomElement()! }
 }
