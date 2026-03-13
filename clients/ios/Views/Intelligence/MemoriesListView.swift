@@ -35,6 +35,11 @@ struct MemoriesListView: View {
         }
         .refreshable { await store.loadItems() }
         .task { await store.loadItems() }
+        .sheet(isPresented: $showCreateSheet) {
+            NavigationStack {
+                MemoryItemCreateView(store: store)
+            }
+        }
     }
 
     // MARK: - Memories List
@@ -56,7 +61,11 @@ struct MemoriesListView: View {
             // Memory items
             Section {
                 ForEach(store.items) { item in
-                    memoryRow(item)
+                    NavigationLink {
+                        MemoryItemDetailView(item: item, store: store)
+                    } label: {
+                        memoryRow(item)
+                    }
                 }
             }
         }
