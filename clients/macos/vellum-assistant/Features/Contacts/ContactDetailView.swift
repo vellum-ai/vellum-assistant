@@ -619,14 +619,6 @@ struct ContactDetailView: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
                 switch channel.status {
-                case "revoked":
-                    VButton(
-                        label: "Restore Access",
-                        style: .outlined,
-                        isDisabled: anyActionInFlight
-                    ) {
-                        updateChannelStatus(channelId: channel.id, status: "active")
-                    }
                 case "blocked":
                     VButton(
                         label: "Restore Access",
