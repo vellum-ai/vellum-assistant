@@ -160,7 +160,7 @@ export async function orchestrateOAuthConnect(
     | undefined;
   const callbackTransport =
     (providerRow.callbackTransport as "loopback" | "gateway" | null) ??
-    "gateway";
+    "loopback";
   const loopbackPort = providerRow.loopbackPort;
 
   // Resolve scopes via the scope policy engine

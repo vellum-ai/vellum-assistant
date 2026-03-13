@@ -420,18 +420,17 @@ export interface OAuth2PreparedFlow {
  * URL directly in chat and the callback arrives asynchronously via the gateway.
  *
  * Supports two transports:
- * - **gateway** (default): routes callbacks through the public ingress URL.
- *   Requires `ingress.publicBaseUrl` to be configured.
- * - **loopback**: starts a temporary localhost server to receive the callback.
- *   Used for services like Slack that require pre-registered localhost redirect
- *   URIs. The daemon is always local, so this works even in non-interactive
- *   (channel) sessions.
+ * - **loopback** (default): starts a temporary localhost server to receive the
+ *   callback. Works without any public URL or tunnel.
+ * - **gateway**: routes callbacks through the public ingress URL.
+ *   Requires `ingress.publicBaseUrl` to be configured. Used for providers that
+ *   don't support localhost redirects (e.g. Twitter, Notion).
  */
 export async function prepareOAuth2Flow(
   config: OAuth2Config,
   options?: OAuth2FlowOptions,
 ): Promise<OAuth2PreparedFlow> {
-  const transport = options?.callbackTransport ?? "gateway";
+  const transport = options?.callbackTransport ?? "loopback";
 
   if (transport === "loopback") {
     return prepareLoopbackFlow(config, options?.loopbackPort);
