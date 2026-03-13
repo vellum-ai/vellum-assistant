@@ -529,6 +529,11 @@ public struct ToolConfirmationData: Equatable {
         )
     }
 
+    /// Reason text prefixed with "Reason:" when available.
+    public var humanReason: String? {
+        confirmationReasonDescription(input: input)
+    }
+
     public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, diff: ConfirmationRequestDiff? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption] = [], scopeOptions: [ConfirmationRequestScopeOption] = [], executionTarget: String? = nil, persistentDecisionsAllowed: Bool = true, temporaryOptionsAvailable: [String] = [], toolUseId: String? = nil, state: ToolConfirmationState = .pending) {
         self.requestId = requestId
         self.toolName = toolName
@@ -587,16 +592,6 @@ public func confirmationHumanDescription(
     toolCategory: String? = nil,
     permissionFriendlyName: String? = nil
 ) -> String {
-    // Use reason, falling back to description/message for tools that provide
-    // context via other fields (e.g. context_overflow_compression uses description)
-    let rawReason = (input["reason"]?.value as? String) ?? ""
-    let reason: String = rawReason.isEmpty
-        ? (input["description"]?.value as? String)
-            ?? (input["message"]?.value as? String)
-            ?? ""
-        : rawReason
-    let r = reason.isEmpty ? "" : reason.prefix(1).lowercased() + reason.dropFirst()
-
     // Derive permissionFriendlyName from input when not provided
     let perm: String = permissionFriendlyName ?? {
         guard let type = input["permission_type"]?.value as? String else { return "Permission" }
@@ -642,78 +637,83 @@ public func confirmationHumanDescription(
 
     switch toolName {
     case "request_system_permission":
-        if reason.isEmpty {
-            return "I need \(perm) access to continue."
-        }
-        return reason
+        return "Permission Required: \(perm)"
     case "bash", "host_bash":
-        if !r.isEmpty { return "Allow running a command on your computer \(r)?" }
-        return "Allow running a command on your computer?"
+        return "Permission Required: Run Command"
     case "file_write", "host_file_write":
-        if !r.isEmpty { return "Allow writing a file \(r)?" }
         let path = (input["path"]?.value as? String) ?? ""
-        if path.isEmpty { return "Allow writing a file?" }
-        return "Allow writing to \(URL(fileURLWithPath: path).lastPathComponent)?"
+        if path.isEmpty { return "Permission Required: Write File" }
+        return "Permission Required: Write \(URL(fileURLWithPath: path).lastPathComponent)"
     case "file_edit", "host_file_edit":
-        if !r.isEmpty { return "Allow editing a file \(r)?" }
         let path = (input["path"]?.value as? String) ?? ""
-        if path.isEmpty { return "Allow editing a file?" }
-        return "Allow editing \(URL(fileURLWithPath: path).lastPathComponent)?"
+        if path.isEmpty { return "Permission Required: Edit File" }
+        return "Permission Required: Edit \(URL(fileURLWithPath: path).lastPathComponent)"
     case "file_read", "host_file_read":
-        if !r.isEmpty { return "Allow reading a file \(r)?" }
         let path = (input["path"]?.value as? String) ?? ""
-        if path.isEmpty { return "Allow reading a file?" }
-        return "Allow reading \(URL(fileURLWithPath: path).lastPathComponent)?"
+        if path.isEmpty { return "Permission Required: Read File" }
+        return "Permission Required: Read \(URL(fileURLWithPath: path).lastPathComponent)"
     case "web_fetch":
-        if !r.isEmpty { return "Allow fetching a URL \(r)?" }
         let url = (input["url"]?.value as? String) ?? ""
         if let host = URL(string: url)?.host {
-            return "Allow fetching data from \(host)?"
+            return "Permission Required: Fetch from \(host)"
         }
-        return "Allow fetching a URL?"
+        return "Permission Required: Fetch URL"
     case "browser_navigate":
-        if !r.isEmpty { return "Allow opening a page \(r)?" }
         let url = (input["url"]?.value as? String) ?? ""
         if let host = URL(string: url)?.host {
-            return "Allow opening \(host)?"
+            return "Permission Required: Open \(host)"
         }
-        return "Allow opening a page?"
+        return "Permission Required: Open Page"
     case "credential_store":
         let action = (input["action"]?.value as? String) ?? ""
         let service = (input["service"]?.value as? String) ?? ""
         switch action {
         case "oauth2_connect":
             return service.isEmpty
-                ? "Allow connecting an account?"
-                : "Allow connecting your \(service.capitalized) account?"
+                ? "Permission Required: Connect Account"
+                : "Permission Required: Connect \(service.capitalized) Account"
         case "store":
             return service.isEmpty
-                ? "Allow saving a credential securely?"
-                : "Allow saving a \(service) credential securely?"
+                ? "Permission Required: Save Credential"
+                : "Permission Required: Save \(service) Credential"
         case "delete":
             return service.isEmpty
-                ? "Allow removing a stored credential?"
-                : "Allow removing a \(service) credential?"
+                ? "Permission Required: Remove Credential"
+                : "Permission Required: Remove \(service) Credential"
         case "prompt":
             return service.isEmpty
-                ? "Allow asking for a credential?"
-                : "Allow asking for a \(service) credential?"
+                ? "Permission Required: Request Credential"
+                : "Permission Required: Request \(service) Credential"
         default:
-            return "Allow accessing secure storage?"
+            return "Permission Required: Secure Storage"
         }
     case "schedule_create":
         let name = (input["name"]?.value as? String) ?? ""
         return name.isEmpty
-            ? "Allow creating a schedule?"
-            : "Allow creating schedule \"\(name)\"?"
+            ? "Permission Required: Create Schedule"
+            : "Permission Required: Create Schedule \"\(name)\""
     case "schedule_update":
-        return "Allow updating a schedule?"
+        return "Permission Required: Update Schedule"
     case "schedule_delete":
-        return "Allow deleting a schedule?"
+        return "Permission Required: Delete Schedule"
     default:
-        if !r.isEmpty { return "Allow using \(tc.lowercased()) \(r)?" }
-        return "Allow using \(tc.lowercased())?"
+        return "Permission Required: \(tc)"
     }
+}
+
+/// Extracts and formats the reason/description from tool input, prefixed with "Reason:".
+/// Returns `nil` when no reason text is available.
+public func confirmationReasonDescription(
+    input: [String: AnyCodable]
+) -> String? {
+    let rawReason = (input["reason"]?.value as? String) ?? ""
+    let reason: String = rawReason.isEmpty
+        ? (input["description"]?.value as? String)
+            ?? (input["message"]?.value as? String)
+            ?? ""
+        : rawReason
+    guard !reason.isEmpty else { return nil }
+    return "Reason: \(reason)"
 }
 
 /// A single sub-tool invocation within a claude_code tool call.
