@@ -1,5 +1,8 @@
 /**
  * Route handlers for workspace file browsing and content serving.
+ *
+ * WARNING: Workspace contents are included in diagnostic log exports.
+ * Do not store secrets here — use the credential store or protected/ directory.
  */
 import {
   existsSync,
