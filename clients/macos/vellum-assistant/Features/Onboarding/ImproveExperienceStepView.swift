@@ -246,6 +246,7 @@ struct ImproveExperienceStepView: View {
                 if state.tosAccepted {
                     UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "tos.acceptedAt")
                 }
+                SentryDeviceInfo.configureUserIdentity()
                 state.isHatching = true
             }
 
