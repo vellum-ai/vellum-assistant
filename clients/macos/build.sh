@@ -211,6 +211,10 @@ build_binaries() {
     rm -rf "$SCRIPT_DIR/daemon-bin/brain-graph"
     mkdir -p "$SCRIPT_DIR/daemon-bin/brain-graph"
     cp "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" "$SCRIPT_DIR/daemon-bin/brain-graph/"
+    # Assistant CLI
+    build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/index.ts" \
+        "$SCRIPT_DIR/assistant-bin" "vellum-assistant"
+
     # CLI
     build_bun_binary "$CLI_SRC_DIR" "$CLI_SRC_DIR/src/index.ts" \
         "$SCRIPT_DIR/cli-bin" "vellum-cli"
@@ -402,6 +406,32 @@ if [ -f "$SCRIPT_DIR/daemon-bin/vellum-daemon" ]; then
     fi
 fi
 
+# Auto-build assistant CLI binary if missing or stale (source changed) and bun is available
+ASSISTANT_CLI_BIN_NEEDS_BUILD=false
+if [ -d "$ASSISTANT_SRC_DIR/src" ] && command -v bun &>/dev/null; then
+    if [ ! -f "$SCRIPT_DIR/assistant-bin/vellum-assistant" ]; then
+        ASSISTANT_CLI_BIN_NEEDS_BUILD=true
+    elif [ -n "$(find "$ASSISTANT_SRC_DIR/src" \( -name '*.ts' -o -name '*.json' \) -newer "$SCRIPT_DIR/assistant-bin/vellum-assistant" -print -quit 2>/dev/null)" ]; then
+        ASSISTANT_CLI_BIN_NEEDS_BUILD=true
+    elif [ "$ASSISTANT_SRC_DIR/package.json" -nt "$SCRIPT_DIR/assistant-bin/vellum-assistant" ] || \
+         [ "$ASSISTANT_SRC_DIR/bun.lock" -nt "$SCRIPT_DIR/assistant-bin/vellum-assistant" ]; then
+        ASSISTANT_CLI_BIN_NEEDS_BUILD=true
+    elif [ "$SCRIPT_DIR/build.sh" -nt "$SCRIPT_DIR/assistant-bin/vellum-assistant" ]; then
+        ASSISTANT_CLI_BIN_NEEDS_BUILD=true
+    fi
+fi
+if [ "$ASSISTANT_CLI_BIN_NEEDS_BUILD" = true ]; then
+    build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/index.ts" \
+        "$SCRIPT_DIR/assistant-bin" "vellum-assistant"
+fi
+
+# Also rebuild if assistant CLI binary changed or newly added
+if [ -f "$SCRIPT_DIR/assistant-bin/vellum-assistant" ]; then
+    if [ ! -f "$MACOS_DIR/vellum-assistant" ] || [ "$SCRIPT_DIR/assistant-bin/vellum-assistant" -nt "$MACOS_DIR/vellum-assistant" ]; then
+        NEEDS_REBUILD=true
+    fi
+fi
+
 # Auto-build CLI binary if missing or stale (source changed) and bun is available
 CLI_BIN_NEEDS_BUILD=false
 if [ -d "$CLI_SRC_DIR/src" ] && command -v bun &>/dev/null; then
@@ -474,6 +504,16 @@ if [ "$NEEDS_REBUILD" = true ]; then
         rm -rf "$MACOS_DIR/node_modules"
     else
         echo "No daemon binary at $DAEMON_BIN — skipping (dev mode)"
+    fi
+
+    # Copy bundled assistant CLI binary (if available — built by CI or locally)
+    ASSISTANT_CLI_BIN="$SCRIPT_DIR/assistant-bin/vellum-assistant"
+    if [ -f "$ASSISTANT_CLI_BIN" ]; then
+        echo "Bundling assistant CLI binary..."
+        cp "$ASSISTANT_CLI_BIN" "$MACOS_DIR/vellum-assistant"
+        chmod +x "$MACOS_DIR/vellum-assistant"
+    else
+        echo "No assistant CLI binary at $ASSISTANT_CLI_BIN — skipping (dev mode)"
     fi
 
     # Copy bundled CLI binary (if available — built by CI or locally)

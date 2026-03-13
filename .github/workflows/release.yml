@@ -735,7 +735,7 @@ jobs:
 
       - name: Free disk space
         run: |
-          rm -rf .build daemon-bin cli-bin gateway-bin
+          rm -rf .build daemon-bin assistant-bin cli-bin gateway-bin
           rm -rf ../../assistant/node_modules ../../cli/node_modules ../../gateway/node_modules
           rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
           rm -rf ~/Library/Caches/org.swift.swiftpm 2>/dev/null || true
@@ -1037,6 +1037,12 @@ jobs:
           mkdir -p daemon-bin/brain-graph
           cp "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" daemon-bin/brain-graph/
 
+          # Assistant CLI
+          mkdir -p assistant-bin
+          bun build --compile --target=bun-darwin-x64 \
+            "$ASSISTANT_SRC_DIR/src/index.ts" --outfile assistant-bin/vellum-assistant
+          chmod +x assistant-bin/vellum-assistant
+
           # CLI
           (cd "$CLI_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
           mkdir -p cli-bin
@@ -1078,7 +1084,7 @@ jobs:
 
       - name: Free disk space
         run: |
-          rm -rf .build daemon-bin cli-bin gateway-bin
+          rm -rf .build daemon-bin assistant-bin cli-bin gateway-bin
           rm -rf ../../assistant/node_modules ../../cli/node_modules ../../gateway/node_modules
           rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
           df -h .
