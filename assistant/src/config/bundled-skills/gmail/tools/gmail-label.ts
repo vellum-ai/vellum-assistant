@@ -21,7 +21,10 @@ export async function run(
 
   if (messageIds && messageIds.length > 0) {
     try {
-      const connection = resolveOAuthConnection("integration:google", account);
+      const connection = await resolveOAuthConnection(
+        "integration:google",
+        account,
+      );
       await batchModifyMessages(connection, messageIds, {
         addLabelIds,
         removeLabelIds,
@@ -34,7 +37,10 @@ export async function run(
 
   if (messageId) {
     try {
-      const connection = resolveOAuthConnection("integration:google", account);
+      const connection = await resolveOAuthConnection(
+        "integration:google",
+        account,
+      );
       await modifyMessage(connection, messageId, {
         addLabelIds,
         removeLabelIds,

@@ -512,7 +512,7 @@ export const linearProvider: WatcherProvider = {
     _config: Record<string, unknown>,
     watcherKey: string,
   ): Promise<FetchResult> {
-    const connection = resolveOAuthConnection(credentialService);
+    const connection = await resolveOAuthConnection(credentialService);
     const since = watermark ?? new Date().toISOString();
 
     // Resolve the authenticated viewer's ID once per poll for the assigned-issues query

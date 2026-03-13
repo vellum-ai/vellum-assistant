@@ -125,7 +125,7 @@ export const googleCalendarProvider: WatcherProvider = {
   requiredCredentialService: CREDENTIAL_SERVICE,
 
   async getInitialWatermark(credentialService: string): Promise<string> {
-    const connection = resolveOAuthConnection(credentialService);
+    const connection = await resolveOAuthConnection(credentialService);
 
     // Do a full sync with a narrow window to get the initial syncToken.
     // The API may paginate even for small result sets, so follow nextPageToken
@@ -157,7 +157,7 @@ export const googleCalendarProvider: WatcherProvider = {
     _config: Record<string, unknown>,
     _watcherKey: string,
   ): Promise<FetchResult> {
-    const connection = resolveOAuthConnection(credentialService);
+    const connection = await resolveOAuthConnection(credentialService);
 
     if (!watermark) {
       // No watermark — paginate through to get the initial syncToken, return no items

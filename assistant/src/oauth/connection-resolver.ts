@@ -1,4 +1,4 @@
-import { getSecureKey } from "../security/secure-keys.js";
+import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { BYOOAuthConnection } from "./byo-connection.js";
 import type { OAuthConnection } from "./connection.js";
 import {
@@ -18,10 +18,10 @@ import {
  * Reads exclusively from the SQLite oauth-store. Throws if no connection
  * exists (authorization required).
  */
-export function resolveOAuthConnection(
+export async function resolveOAuthConnection(
   credentialService: string,
   accountInfo?: string,
-): OAuthConnection {
+): Promise<OAuthConnection> {
   const conn = accountInfo
     ? getConnectionByProviderAndAccount(credentialService, accountInfo)
     : getConnectionByProvider(credentialService);
@@ -31,7 +31,9 @@ export function resolveOAuthConnection(
     );
   }
 
-  const accessToken = getSecureKey(`oauth_connection/${conn.id}/access_token`);
+  const accessToken = await getSecureKeyAsync(
+    `oauth_connection/${conn.id}/access_token`,
+  );
 
   if (!accessToken) {
     throw new Error(

@@ -16,7 +16,7 @@ export async function run(
   }
 
   try {
-    const connection = getSlackConnection();
+    const connection = await getSlackConnection();
     await leaveConversation(connection, channel);
     return ok("Left channel.");
   } catch (e) {
