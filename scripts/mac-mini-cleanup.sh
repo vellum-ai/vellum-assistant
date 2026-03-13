@@ -15,7 +15,7 @@ echo "⚠️  WARNING: This script performs destructive operations."
 echo "   Only run on environments you are comfortable completely resetting."
 echo ""
 
-TOTAL_STEPS=15
+TOTAL_STEPS=17
 
 # 1. Remove the SSH public key that was added via ssh-copy-id
 echo "1/$TOTAL_STEPS — Removing authorized SSH keys..."
@@ -181,8 +181,28 @@ if [ "$PW_FOUND" = false ]; then
     echo "       ⏭️  No ms-playwright installations found, skipping"
 fi
 
-# 15. Remove Vellum from the Dock
-echo "15/$TOTAL_STEPS — Removing Vellum from the Dock..."
+# 15. Clear Vellum desktop app UserDefaults
+echo "15/$TOTAL_STEPS — Clearing Vellum desktop app UserDefaults..."
+VELLUM_DEFAULTS_DOMAIN="com.vellum.vellum-assistant"
+if defaults read "$VELLUM_DEFAULTS_DOMAIN" &>/dev/null; then
+    defaults delete "$VELLUM_DEFAULTS_DOMAIN"
+    echo "       ✅ Cleared UserDefaults for $VELLUM_DEFAULTS_DOMAIN"
+else
+    echo "       ⏭️  No UserDefaults found for $VELLUM_DEFAULTS_DOMAIN, skipping"
+fi
+
+# 16. Clear Vellum Sparkle auto-updater defaults
+echo "16/$TOTAL_STEPS — Clearing Vellum Sparkle updater defaults..."
+SPARKLE_DEFAULTS_DOMAIN="com.vellum.vellum-assistant.Sparkle"
+if defaults read "$SPARKLE_DEFAULTS_DOMAIN" &>/dev/null; then
+    defaults delete "$SPARKLE_DEFAULTS_DOMAIN"
+    echo "       ✅ Cleared UserDefaults for $SPARKLE_DEFAULTS_DOMAIN"
+else
+    echo "       ⏭️  No UserDefaults found for $SPARKLE_DEFAULTS_DOMAIN, skipping"
+fi
+
+# 17. Remove Vellum from the Dock
+echo "17/$TOTAL_STEPS — Removing Vellum from the Dock..."
 DOCK_PLIST="$HOME/Library/Preferences/com.apple.dock.plist"
 if [ -f "$DOCK_PLIST" ]; then
     # Find and remove any Vellum entry from persistent-apps in the Dock plist
