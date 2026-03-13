@@ -218,7 +218,7 @@ function classifyCore(
         return {
           code: "PROVIDER_WEB_SEARCH",
           userMessage:
-            "An internal error occurred with web search. Retrying...",
+            "An internal error occurred with web search. Please try again.",
           retryable: true,
           errorCategory: "web_search_ordering",
         };
@@ -226,7 +226,7 @@ function classifyCore(
       if (isOrderingError(message)) {
         return {
           code: "PROVIDER_ORDERING",
-          userMessage: "An internal error occurred. Retrying...",
+          userMessage: "An internal error occurred. Please try again.",
           retryable: true,
           errorCategory: "tool_ordering",
         };
@@ -308,7 +308,8 @@ function classifyByMessage(
   if (isWebSearchOrderingError(message)) {
     return {
       code: "PROVIDER_WEB_SEARCH",
-      userMessage: "An internal error occurred with web search. Retrying...",
+      userMessage:
+        "An internal error occurred with web search. Please try again.",
       retryable: true,
       errorCategory: "web_search_ordering",
     };
@@ -318,7 +319,7 @@ function classifyByMessage(
   if (isOrderingError(message)) {
     return {
       code: "PROVIDER_ORDERING",
-      userMessage: "An internal error occurred. Retrying...",
+      userMessage: "An internal error occurred. Please try again.",
       retryable: true,
       errorCategory: "tool_ordering",
     };
