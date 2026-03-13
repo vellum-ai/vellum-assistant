@@ -52,6 +52,8 @@
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 
+import { type AmazonSession, loadSession, saveSession } from "./session.js";
+
 const execFileAsync = promisify(execFile);
 
 export interface ExtractedCredential {
@@ -70,8 +72,6 @@ interface RelayResponse {
   result?: unknown;
   error?: string;
 }
-
-import { type AmazonSession, loadSession, saveSession } from "./session.js";
 
 export const AMAZON_BASE = "https://www.amazon.com";
 

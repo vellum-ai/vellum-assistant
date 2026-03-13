@@ -137,9 +137,10 @@ export async function extractSessionFromChromeCookies(): Promise<AmazonSession> 
       path: path || "/",
       httpOnly: httpOnly === "1",
       secure: secure === "1",
-      expires: expiresUtc
-        ? Math.floor(parseInt(expiresUtc, 10) / 1000000 - 11644473600)
-        : undefined,
+      expires:
+        expiresUtc && expiresUtc !== "0"
+          ? Math.floor(parseInt(expiresUtc, 10) / 1000000 - 11644473600)
+          : undefined,
     });
   }
 
