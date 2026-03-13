@@ -33,6 +33,7 @@ interface TreeEntry {
 
 function handleWorkspaceTree(ctx: RouteContext): Response {
   const requestedPath = ctx.url.searchParams.get("path") ?? "";
+  const showHidden = ctx.url.searchParams.get("showHidden") === "true";
   const resolved = resolveWorkspacePath(requestedPath);
   if (resolved === undefined) {
     return httpError("BAD_REQUEST", "Invalid path", 400);
@@ -45,7 +46,7 @@ function handleWorkspaceTree(ctx: RouteContext): Response {
     const entries: TreeEntry[] = [];
     for (const entry of dirents) {
       // Filter out dotfiles/directories (.env, .git, .private, etc.)
-      if (entry.name.startsWith(".")) continue;
+      if (!showHidden && entry.name.startsWith(".")) continue;
 
       const fullPath = join(resolved, entry.name);
 
