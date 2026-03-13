@@ -1,7 +1,8 @@
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 
-import { getWorkspaceDir, resolveRuntimeUrl } from "../util/platform.js";
+import { getGatewayInternalBaseUrl } from "../config/env.js";
+import { getWorkspaceDir } from "../util/platform.js";
 
 const LEFT_PANEL_WIDTH = 36;
 const RIGHT_LINE_COUNT = 11;
@@ -13,7 +14,7 @@ export interface MainScreenLayout {
 }
 
 export function renderMainScreen(): MainScreenLayout {
-  const httpUrl = resolveRuntimeUrl() ?? "http://127.0.0.1:7830";
+  const httpUrl = getGatewayInternalBaseUrl();
   const workspace = getWorkspaceDir();
   const assistantId = workspace.split("/").pop() ?? "vellum";
 

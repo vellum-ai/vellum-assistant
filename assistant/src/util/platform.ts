@@ -145,58 +145,6 @@ export function resolveInstanceDataDir(): string | undefined {
 }
 
 /**
- * Resolve the runtime URL for the active local assistant from the lockfile.
- *
- * Uses readLockfile() (which respects BASE_DATA_DIR), so this must only be
- * called after bootstrap has set BASE_DATA_DIR.
- *
- * Resolution:
- *   - If activeAssistant matches a local assistant, returns its runtimeUrl.
- *   - If there is exactly one local assistant and no activeAssistant, returns
- *     its runtimeUrl (auto-select).
- *   - Returns undefined in all other cases.
- */
-export function resolveRuntimeUrl(): string | undefined {
-  try {
-    const lockData = readLockfile();
-    if (!lockData) return undefined;
-
-    const assistants = lockData.assistants as
-      | Array<Record<string, unknown>>
-      | undefined;
-    if (!Array.isArray(assistants)) return undefined;
-
-    const localAssistants = assistants.filter(
-      (a) => a.cloud === "local" || a.cloud === undefined,
-    );
-    if (localAssistants.length === 0) return undefined;
-
-    const activeAssistant = lockData.activeAssistant as string | undefined;
-
-    if (activeAssistant) {
-      const match = localAssistants.find(
-        (a) => a.assistantId === activeAssistant,
-      );
-      if (match && typeof match.runtimeUrl === "string") {
-        return match.runtimeUrl;
-      }
-      return undefined;
-    }
-
-    if (localAssistants.length === 1) {
-      const entry = localAssistants[0];
-      return typeof entry.runtimeUrl === "string"
-        ? entry.runtimeUrl
-        : undefined;
-    }
-
-    return undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
  * Normalize an assistant ID to its canonical form for DB operations.
  *
  * The system uses "self" as the canonical single-tenant identifier
