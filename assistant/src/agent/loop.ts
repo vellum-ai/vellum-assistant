@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/node";
 
+import { estimateToolsTokens } from "../context/token-estimator.js";
 import { truncateOversizedToolResults } from "../context/tool-result-truncation.js";
 import { getHookManager } from "../hooks/manager.js";
 import type {
@@ -173,6 +174,11 @@ export class AgentLoop {
     this.resolveTools = resolveTools ?? null;
     this.resolveSystemPrompt = resolveSystemPrompt ?? null;
     this.toolExecutor = toolExecutor ?? null;
+  }
+
+  /** Estimate token cost of the tool definitions passed to the provider. */
+  getToolTokenBudget(): number {
+    return estimateToolsTokens(this.tools);
   }
 
   async run(

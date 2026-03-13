@@ -348,6 +348,7 @@ export class Session {
       provider,
       systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
       config: config.contextWindow,
+      toolTokenBudget: this.agentLoop.getToolTokenBudget(),
     });
 
     void getHookManager().trigger("session-start", {

@@ -710,10 +710,11 @@ export async function runAgentLoopImpl(
     const preflightBudget = Math.floor(providerMaxTokens * (1 - safetyMargin));
     let reducerState: ReducerState | undefined;
 
+    const toolTokenBudget = ctx.agentLoop.getToolTokenBudget();
     const preflightTokens = estimatePromptTokens(
       runMessages,
       ctx.systemPrompt,
-      { providerName: ctx.provider.name },
+      { providerName: ctx.provider.name, toolTokenBudget },
     );
 
     if (overflowRecovery.enabled && preflightTokens > preflightBudget) {
@@ -747,6 +748,7 @@ export async function runAgentLoopImpl(
             systemPrompt: ctx.systemPrompt,
             contextWindow: config.contextWindow,
             targetTokens: preflightBudget,
+            toolTokenBudget,
           },
           reducerState,
           (msgs, signal, opts) =>
@@ -863,7 +865,7 @@ export async function runAgentLoopImpl(
         const estimated = estimatePromptTokens(
           checkpoint.history,
           ctx.systemPrompt,
-          { providerName: ctx.provider.name },
+          { providerName: ctx.provider.name, toolTokenBudget },
         );
         if (estimated > midLoopThreshold) {
           rlog.warn(
@@ -1061,7 +1063,7 @@ export async function runAgentLoopImpl(
       const estimatedTokensAtOverflow = estimatePromptTokens(
         ctx.messages,
         ctx.systemPrompt,
-        { providerName: ctx.provider.name },
+        { providerName: ctx.provider.name, toolTokenBudget },
       );
       let correctedTarget = preflightBudget;
       if (actualTokens && estimatedTokensAtOverflow > 0) {
@@ -1113,6 +1115,7 @@ export async function runAgentLoopImpl(
             systemPrompt: ctx.systemPrompt,
             contextWindow: config.contextWindow,
             targetTokens: correctedTarget,
+            toolTokenBudget,
           },
           reducerState,
           (msgs, signal, opts) =>

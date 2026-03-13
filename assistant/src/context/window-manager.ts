@@ -85,12 +85,15 @@ export interface ContextWindowManagerOptions {
   provider: Provider;
   systemPrompt: string | (() => string);
   config: ContextWindowConfig;
+  /** Pre-computed tool token budget to include in all estimations. */
+  toolTokenBudget?: number;
 }
 
 export class ContextWindowManager {
   private readonly provider: Provider;
   private readonly _systemPrompt: string | (() => string);
   private readonly config: ContextWindowConfig;
+  private readonly toolTokenBudget: number;
   /**
    * Cached resolved system prompt. Lazily populated on first access via the
    * `systemPrompt` getter and cleared after each compaction pass so the next
@@ -102,6 +105,7 @@ export class ContextWindowManager {
     this.provider = options.provider;
     this._systemPrompt = options.systemPrompt;
     this.config = options.config;
+    this.toolTokenBudget = options.toolTokenBudget ?? 0;
   }
 
   /** Lazily resolve and cache the system prompt for the duration of a compaction pass. */
@@ -303,7 +307,10 @@ export class ContextWindowManager {
     const projectedInputTokens = estimatePromptTokens(
       projectedMessages,
       this.systemPrompt,
-      { providerName: this.provider.name },
+      {
+        providerName: this.provider.name,
+        toolTokenBudget: this.toolTokenBudget,
+      },
     );
     const projectedGainTokens = Math.max(
       0,
@@ -428,7 +435,10 @@ export class ContextWindowManager {
     const estimatedInputTokens = estimatePromptTokens(
       compactedMessages,
       this.systemPrompt,
-      { providerName: this.provider.name },
+      {
+        providerName: this.provider.name,
+        toolTokenBudget: this.toolTokenBudget,
+      },
     );
     log.info(
       {
