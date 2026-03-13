@@ -133,6 +133,18 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "collaborative-oauth-flow",
+      "name": "collaborative-oauth-flow",
+      "description": "Reusable pattern for walking users through OAuth app setup via AppleScript browser navigation",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "Collaborative OAuth Flow"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "google-oauth-applescript",
       "name": "google-oauth-applescript",
       "description": "Set up Google Cloud OAuth credentials for Gmail and Calendar using a collaborative guided flow",
@@ -141,7 +153,10 @@
         "vellum": {
           "display-name": "Google OAuth Setup",
           "user-invocable": "true",
-          "credential-setup-for": "gmail"
+          "credential-setup-for": "gmail",
+          "includes": [
+            "collaborative-oauth-flow"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
