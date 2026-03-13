@@ -1046,14 +1046,14 @@ describe("assistant oauth apps upsert --client-secret-credential-path", () => {
   });
 
   test("upsert resolves non-prefixed credential path via metadata store", async () => {
-    // The resolution logic splits on the FIRST colon, so
-    // "integration:google:client_secret" → service="integration", field="google:client_secret"
+    // The resolution logic splits on the LAST colon, so
+    // "integration:google:client_secret" → service="integration:google", field="client_secret"
     mockGetCredentialMetadata = (service, field) =>
-      service === "integration" && field === "google:client_secret"
+      service === "integration:google" && field === "client_secret"
         ? {
             credentialId: "cred-1",
-            service: "integration",
-            field: "google:client_secret",
+            service: "integration:google",
+            field: "client_secret",
             allowedTools: [],
             allowedDomains: [],
             createdAt: Date.now(),
@@ -1080,7 +1080,7 @@ describe("assistant oauth apps upsert --client-secret-credential-path", () => {
       clientId: "abc",
       clientSecretOpts: {
         clientSecretCredentialPath:
-          "credential/integration/google:client_secret",
+          "credential/integration:google/client_secret",
       },
     });
     const parsed = JSON.parse(stdout);

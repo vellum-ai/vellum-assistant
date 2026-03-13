@@ -188,7 +188,7 @@ options are mutually exclusive — providing both is an error.
 The --client-secret-credential-path accepts two formats:
   1. Full credential path: "credential/integration:google/client_secret"
   2. Short name (service:field): "integration:google:client_secret"
-     Resolved via the metadata store by splitting on the first colon.
+     Resolved via the metadata store by splitting on the last colon.
 
 Examples:
   $ assistant oauth apps upsert --provider integration:gmail --client-id abc123
@@ -223,11 +223,11 @@ Examples:
             resolvedCredentialPath &&
             !resolvedCredentialPath.startsWith("credential/")
           ) {
-            // Attempt to interpret as a credential key — replace first colon with / to get service/field
-            const firstColon = resolvedCredentialPath.indexOf(":");
-            if (firstColon > 0) {
-              const asService = resolvedCredentialPath.slice(0, firstColon);
-              const asField = resolvedCredentialPath.slice(firstColon + 1);
+            // Attempt to interpret as a credential key — split on the LAST colon to get service/field
+            const lastColon = resolvedCredentialPath.lastIndexOf(":");
+            if (lastColon > 0) {
+              const asService = resolvedCredentialPath.slice(0, lastColon);
+              const asField = resolvedCredentialPath.slice(lastColon + 1);
               // If a credential exists in metadata with these coordinates, resolve it
               const meta = getCredentialMetadata(asService, asField);
               if (meta) {
