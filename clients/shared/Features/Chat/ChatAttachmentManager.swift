@@ -160,7 +160,7 @@ public final class ChatAttachmentManager: ObservableObject {
         // Hop off the main actor for all blocking I/O and CPU work.
         let result = await Task.detached(priority: .userInitiated) {
             // Pre-read size check to avoid loading huge files into memory.
-            let memorySafetyLimit = 500 * 1024 * 1024
+            let memorySafetyLimit = 100 * 1024 * 1024
             if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
                let fileSize = attrs[.size] as? Int,
                fileSize > memorySafetyLimit {
@@ -287,7 +287,7 @@ public final class ChatAttachmentManager: ObservableObject {
             #endif
 
             // Memory safety guard for pasted/dropped images
-            let memorySafetyLimit = 500 * 1024 * 1024
+            let memorySafetyLimit = 100 * 1024 * 1024
             if pngData.count > memorySafetyLimit {
                 let sizeMB = pngData.count / (1024 * 1024)
                 return .failure(.message("This image is \(sizeMB) MB which is too large to process safely. Please choose a smaller image."))

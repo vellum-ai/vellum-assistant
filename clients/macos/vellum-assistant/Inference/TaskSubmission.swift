@@ -52,7 +52,7 @@ struct TaskAttachment: Identifiable {
         let kind: TaskAttachmentKind = extensionMimeType.hasPrefix("image/") ? .image : .document
 
         // Pre-read size check to avoid loading huge files into memory.
-        let memorySafetyLimit = 500 * 1024 * 1024
+        let memorySafetyLimit = 100 * 1024 * 1024
         let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
         if let fileSize = attrs[.size] as? Int, fileSize > memorySafetyLimit {
             let sizeMB = fileSize / (1024 * 1024)
