@@ -136,8 +136,10 @@ ASSISTANT_SRC_DIR="$SCRIPT_DIR/../../assistant"
 CLI_SRC_DIR="$SCRIPT_DIR/../../cli"
 GATEWAY_SRC_DIR="$SCRIPT_DIR/../../gateway"
 
-# Packages that must stay external in the compiled daemon binary.
-DAEMON_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*")
+# Packages that must stay external in compiled Bun binaries.
+# playwright-core has optional requires (electron, chromium-bidi) that cannot
+# be resolved at bundle time.  Mark them external so bun --compile skips them.
+BUN_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*")
 
 # ---------------------------------------------------------------------------
 # build_bun_binary — compile a TypeScript project to a native binary via Bun.
@@ -184,7 +186,7 @@ build_binaries() {
     command -v bun &>/dev/null || { echo "ERROR: bun is required but not found"; exit 1; }
 
     # Daemon
-    local daemon_flags=("${DAEMON_EXTERNAL_FLAGS[@]}")
+    local daemon_flags=("${BUN_EXTERNAL_FLAGS[@]}")
     if [ -n "${DISPLAY_VERSION:-}" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
         daemon_flags+=(--define "process.env.APP_VERSION='$DISPLAY_VERSION'")
     fi
@@ -213,7 +215,7 @@ build_binaries() {
     cp "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" "$SCRIPT_DIR/daemon-bin/brain-graph/"
     # Assistant CLI
     build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/assistant-bin" "vellum-assistant"
+        "$SCRIPT_DIR/assistant-bin" "vellum-assistant" "${BUN_EXTERNAL_FLAGS[@]}"
 
     # CLI
     build_bun_binary "$CLI_SRC_DIR" "$CLI_SRC_DIR/src/index.ts" \
@@ -360,7 +362,7 @@ if [ -d "$ASSISTANT_SRC_DIR/src" ] && command -v bun &>/dev/null; then
     fi
 fi
 if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
-    local_daemon_flags=("${DAEMON_EXTERNAL_FLAGS[@]}")
+    local_daemon_flags=("${BUN_EXTERNAL_FLAGS[@]}")
     if [ -n "${DISPLAY_VERSION:-}" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
         local_daemon_flags+=(--define "process.env.APP_VERSION='$DISPLAY_VERSION'")
     fi
@@ -422,7 +424,7 @@ if [ -d "$ASSISTANT_SRC_DIR/src" ] && command -v bun &>/dev/null; then
 fi
 if [ "$ASSISTANT_CLI_BIN_NEEDS_BUILD" = true ]; then
     build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/assistant-bin" "vellum-assistant"
+        "$SCRIPT_DIR/assistant-bin" "vellum-assistant" "${BUN_EXTERNAL_FLAGS[@]}"
 fi
 
 # Also rebuild if assistant CLI binary changed or newly added
