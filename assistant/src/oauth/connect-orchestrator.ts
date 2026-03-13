@@ -241,7 +241,9 @@ export async function orchestrateOAuthConnect(
         oauthConfig,
         callbackTransport === "loopback"
           ? { callbackTransport, loopbackPort: loopbackPort ?? undefined }
-          : undefined,
+          : callbackTransport === "gateway"
+            ? { callbackTransport }
+            : undefined,
       );
 
       // Fire-and-forget: store tokens when the callback arrives
