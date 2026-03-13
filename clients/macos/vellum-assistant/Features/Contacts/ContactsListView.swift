@@ -20,7 +20,6 @@ struct ContactsListView: View {
             } else if viewModel.contacts.isEmpty {
                 emptyState
             } else {
-                searchBar
                 contactsList
             }
         }
@@ -136,7 +135,7 @@ struct ContactsListView: View {
         var channels: [String] = []
         if store?.telegramHasBotToken == true { channels.append("Telegram") }
         if store?.slackChannelHasBotToken == true && store?.slackChannelHasAppToken == true { channels.append("Slack") }
-        if store?.twilioHasCredentials == true { channels.append("Voice") }
+        if store?.twilioHasCredentials == true { channels.append("Phone") }
         if store?.assistantEmail != nil { channels.append("Email") }
         return channels.isEmpty ? "No channels configured" : channels.joined(separator: ", ")
     }
@@ -209,6 +208,10 @@ struct ContactsListView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Add contact")
+            }
+
+            if viewModel.hasNonGuardianContacts {
+                searchBar
             }
 
             if !viewModel.hasNonGuardianContacts {
@@ -354,7 +357,7 @@ struct ContactsListView: View {
     private func channelLabel(for type: String) -> String {
         switch type {
         case "telegram": return "Telegram"
-        case "phone": return "Voice"
+        case "phone": return "Phone"
         case "email": return "Email"
         case "slack": return "Slack"
         default: return type.capitalized
