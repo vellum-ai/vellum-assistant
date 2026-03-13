@@ -423,6 +423,7 @@ export async function runDaemon(): Promise<void> {
             scheduleId: schedule.id,
             name: schedule.name,
           },
+          dedupeKey: `schedule:complete:${schedule.id}:${Date.now()}`,
         });
       },
       (notification) => {
