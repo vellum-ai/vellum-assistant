@@ -3,6 +3,7 @@ import Carbon.HIToolbox
 import Combine
 import Foundation
 import os
+import SwiftUI
 import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "SettingsStore")
