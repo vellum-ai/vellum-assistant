@@ -74,9 +74,16 @@ function validateImportPath(filePath: string, workspaceRoot?: string): string {
   const normalizedPath = normalizeForPathCheck(realPath);
   const normalizedWorkspace = normalizeForPathCheck(realWorkspace);
 
+  // Build the prefix used for the startsWith check. When the workspace root is
+  // the filesystem root (e.g. "/" on Unix or "C:\" on Windows) it already ends
+  // with a separator, so avoid producing a double-separator like "//".
+  const workspacePrefix = normalizedWorkspace.endsWith(sep)
+    ? normalizedWorkspace
+    : `${normalizedWorkspace}${sep}`;
+
   if (
     normalizedPath !== normalizedWorkspace &&
-    !normalizedPath.startsWith(`${normalizedWorkspace}${sep}`)
+    !normalizedPath.startsWith(workspacePrefix)
   ) {
     throw new Error("file_path must be inside the current workspace.");
   }
