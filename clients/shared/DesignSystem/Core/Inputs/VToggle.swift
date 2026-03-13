@@ -8,8 +8,8 @@ public struct VToggle: View {
 
     private let trackWidth: CGFloat = 36
     private let trackHeight: CGFloat = 24
-    private let knobSize: CGFloat = 18
-    private let knobPadding: CGFloat = 3
+    private let knobSize: CGFloat = 20
+    private let knobPadding: CGFloat = 2
 
     public init(isOn: Binding<Bool>, label: String? = nil, helperText: String? = nil) {
         self._isOn = isOn
@@ -27,7 +27,7 @@ public struct VToggle: View {
                     if let label {
                         Text(label)
                             .font(VFont.bodyMedium)
-                            .foregroundColor(isEnabled ? VColor.contentDefault : VColor.contentTertiary)
+                            .foregroundColor(isEnabled ? VColor.contentDefault : VColor.contentDisabled)
                     }
                     if let helperText {
                         Text(helperText)
@@ -71,16 +71,16 @@ public struct VToggle: View {
 
     private var trackColor: Color {
         if !isEnabled {
-            return isOn ? VColor.primaryDisabled : VColor.surfaceBase
+            return VColor.surfaceBase
         }
-        return isOn ? VColor.primaryBase : VColor.surfaceBase
+        return isOn ? VColor.primaryActive : VColor.surfaceBase
     }
 
     private var knobColor: Color {
         if !isEnabled {
-            return VColor.contentDisabled
+            return VColor.surfaceOverlay
         }
-        return VColor.contentInset
+        return VColor.auxWhite
     }
 }
 
