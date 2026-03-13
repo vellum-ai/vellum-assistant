@@ -804,14 +804,6 @@ class CredentialStoreTool implements Tool {
           };
         }
 
-        if (!context.isInteractive) {
-          return {
-            content:
-              "Error: oauth2_connect requires an interactive session (non-interactive session).",
-            isError: true,
-          };
-        }
-
         // Delegate to the shared orchestrator — it resolves authUrl, tokenUrl,
         // extraParams, userinfoUrl, and tokenEndpointAuthMethod from the DB.
         const result = await orchestrateOAuthConnect({
