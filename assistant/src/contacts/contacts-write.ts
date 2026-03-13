@@ -24,6 +24,7 @@ import {
 import type {
   ChannelPolicy,
   ChannelStatus,
+  ContactRole,
   ContactWriteResult,
 } from "./types.js";
 
@@ -146,6 +147,7 @@ export function upsertContactChannel(params: {
   createdBySessionId?: string;
   verifiedAt?: number;
   verifiedVia?: string;
+  role?: ContactRole;
 }): ContactWriteResult | null {
   let address: string;
 
@@ -174,6 +176,7 @@ export function upsertContactChannel(params: {
 
   upsertContact({
     displayName,
+    role: params.role,
     channels: [
       {
         type: params.sourceChannel,

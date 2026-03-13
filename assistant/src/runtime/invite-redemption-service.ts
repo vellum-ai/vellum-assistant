@@ -146,11 +146,9 @@ export function redeemInvite(params: {
     return { ok: false, reason: "invalid_token" };
   }
 
-  // Guardian channels must not be reactivated via regular invite redemption —
-  // their lifecycle is managed exclusively through the guardian binding flow.
-  if (existingContact && existingContact.role === "guardian") {
-    return { ok: false, reason: "invalid_token" };
-  }
+  // When a guardian redeems a regular invite, downgrade them to a normal
+  // contact — they are opting into the regular contact flow.
+  const isGuardianDowngrade = existingContact?.role === "guardian";
 
   // Inactive member reactivation: when the user already has a member record
   // in a non-active state (revoked/pending), reactivate it via upsertContactChannel
@@ -195,6 +193,7 @@ export function redeemInvite(params: {
             inviteId: invite.id,
             verifiedAt: Date.now(),
             verifiedVia: "invite",
+            ...(isGuardianDowngrade ? { role: "contact" as const } : {}),
           });
 
           const recorded = recordInviteUse({
@@ -359,11 +358,9 @@ export function redeemVoiceInviteCode(params: {
     return { ok: false, reason: "invalid_or_expired" };
   }
 
-  // Guardian channels must not be reactivated via regular invite redemption —
-  // their lifecycle is managed exclusively through the guardian binding flow.
-  if (voiceContact && voiceContact.role === "guardian") {
-    return { ok: false, reason: "invalid_or_expired" };
-  }
+  // When a guardian redeems a regular invite, downgrade them to a normal
+  // contact — they are opting into the regular contact flow.
+  const isVoiceGuardianDowngrade = voiceContact?.role === "guardian";
 
   // Atomic redemption: upsert member + consume invite use in a transaction
   const STALE_INVITE = Symbol("stale_invite");
@@ -388,6 +385,7 @@ export function redeemVoiceInviteCode(params: {
           inviteId: invite.id,
           verifiedAt: Date.now(),
           verifiedVia: "invite",
+          ...(isVoiceGuardianDowngrade ? { role: "contact" as const } : {}),
         });
         memberId = writeResult!.channel.id;
 
@@ -499,11 +497,9 @@ export function redeemInviteByCode(params: {
     return { ok: false, reason: "invalid_token" };
   }
 
-  // Guardian channels must not be reactivated via regular invite redemption —
-  // their lifecycle is managed exclusively through the guardian binding flow.
-  if (existingContact && existingContact.role === "guardian") {
-    return { ok: false, reason: "invalid_token" };
-  }
+  // When a guardian redeems a regular invite, downgrade them to a normal
+  // contact — they are opting into the regular contact flow.
+  const isCodeGuardianDowngrade = existingContact?.role === "guardian";
 
   // Inactive member reactivation: reactivate via upsertContactChannel and consume
   // an invite use atomically.
@@ -543,6 +539,7 @@ export function redeemInviteByCode(params: {
             inviteId: invite.id,
             verifiedAt: Date.now(),
             verifiedVia: "invite",
+            ...(isCodeGuardianDowngrade ? { role: "contact" as const } : {}),
           });
 
           const recorded = recordInviteUse({

@@ -281,7 +281,7 @@ describe("invite-redemption-service", () => {
     expect(outcome).toEqual({ ok: false, reason: "invalid_token" });
   });
 
-  test("returns invalid_token for a revoked guardian to prevent invite-based reactivation", () => {
+  test("downgrades a revoked guardian to contact when they redeem an invite", () => {
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
       maxUses: 5,
@@ -307,11 +307,20 @@ describe("invite-redemption-service", () => {
       externalUserId: "guardian-tg-id",
     });
 
-    // Must reject — guardian channels are managed via the binding flow, not invites
-    expect(outcome).toEqual({ ok: false, reason: "invalid_token" });
+    // Should succeed — guardian is downgraded to a regular contact
+    expect(outcome.ok).toBe(true);
+    expect((outcome as { type: string }).type).toBe("redeemed");
+
+    // Verify the contact was downgraded from guardian to contact
+    const result = findContactChannel({
+      channelType: "telegram",
+      externalUserId: "guardian-tg-id",
+    });
+    expect(result?.contact.role).toBe("contact");
+    expect(result?.channel.status).toBe("active");
   });
 
-  test("returns invalid_token for a revoked guardian via 6-digit invite code", () => {
+  test("downgrades a revoked guardian to contact via 6-digit invite code", () => {
     const code = "123456";
     const inviteCodeHash = hashVoiceCode(code);
     createInvite({
@@ -339,7 +348,17 @@ describe("invite-redemption-service", () => {
       externalUserId: "guardian-code-id",
     });
 
-    expect(outcome).toEqual({ ok: false, reason: "invalid_token" });
+    // Should succeed — guardian is downgraded to a regular contact
+    expect(outcome.ok).toBe(true);
+    expect((outcome as { type: string }).type).toBe("redeemed");
+
+    // Verify the contact was downgraded from guardian to contact
+    const result = findContactChannel({
+      channelType: "telegram",
+      externalUserId: "guardian-code-id",
+    });
+    expect(result?.contact.role).toBe("contact");
+    expect(result?.channel.status).toBe("active");
   });
 
   test("does not return already_member for a revoked member", () => {
