@@ -427,6 +427,27 @@ describe("fetchSkillFromGitHub", () => {
     expect(files["scripts/filter.sh"]).toBe("#!/bin/bash\necho filter");
   });
 
+  test("surfaces non-404 errors from tree lookup instead of misleading 'not found'", async () => {
+    mockFetchImpl = (url: string | URL | Request) => {
+      const urlStr = url.toString();
+      // Probe for conventional path returns 404
+      if (urlStr.includes("/contents/skills/my-skill")) {
+        return Promise.resolve(new Response("Not Found", { status: 404 }));
+      }
+      // Tree API returns a rate-limit error
+      if (urlStr.includes("/git/trees/")) {
+        return Promise.resolve(
+          new Response("rate limit exceeded", { status: 403 }),
+        );
+      }
+      return Promise.resolve(new Response("not found", { status: 404 }));
+    };
+
+    await expect(
+      fetchSkillFromGitHub("owner", "repo", "my-skill"),
+    ).rejects.toThrow("GitHub API error while searching repo tree: HTTP 403");
+  });
+
   test("throws when skill not found in tree either", async () => {
     mockFetchImpl = (url: string | URL | Request) => {
       const urlStr = url.toString();

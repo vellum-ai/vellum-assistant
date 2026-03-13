@@ -228,7 +228,12 @@ async function findSkillDirInTree(
     headers,
     signal: AbortSignal.timeout(15_000),
   });
-  if (!response.ok) return null;
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(
+      `GitHub API error while searching repo tree: HTTP ${response.status} ${response.statusText}`,
+    );
+  }
 
   const data = (await response.json()) as { tree: GitHubTreeEntry[] };
   const suffix = `${skillSlug}/SKILL.md`;
