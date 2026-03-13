@@ -51,7 +51,6 @@ struct MemoriesPanel: View {
     @State private var statusFilter: MemoryStatusFilter = .active
     @State private var sortOption: MemorySortOption = .newest
     @State private var searchDebounceTask: Task<Void, Never>?
-    @State private var showFilters = false
 
     init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
@@ -86,15 +85,10 @@ struct MemoriesPanel: View {
 
     // MARK: - Filter Bar
 
-    /// Whether any filter is set to a non-default value.
-    private var hasActiveFilters: Bool {
-        selectedKind != nil || statusFilter != .active
-    }
-
     @ViewBuilder
     private var filterBar: some View {
-        VStack(spacing: 0) {
-            // Primary row: Search, Filters toggle, Sort, New
+        VStack(spacing: VSpacing.lg) {
+            // Row 1: Search, Status, Sort, New
             HStack(spacing: VSpacing.sm) {
                 VSearchBar(placeholder: "Search memories...", text: $store.searchText)
                     .onChange(of: store.searchText) {
@@ -106,15 +100,16 @@ struct MemoriesPanel: View {
                         }
                     }
 
-                VButton(
-                    label: "Filters",
-                    icon: VIcon.slidersHorizontal.rawValue,
-                    style: .ghost,
-                    isActive: showFilters || hasActiveFilters
-                ) {
-                    showFilters.toggle()
+                VDropdown(
+                    placeholder: "Status",
+                    selection: $statusFilter,
+                    options: MemoryStatusFilter.allCases.map { ($0.rawValue, $0) }
+                )
+                .frame(width: 110)
+                .onChange(of: statusFilter) {
+                    store.statusFilter = statusFilter.apiValue
+                    Task { await store.loadItems() }
                 }
-                .accessibilityLabel("Toggle filters")
 
                 VDropdown(
                     placeholder: "Sort",
@@ -133,72 +128,45 @@ struct MemoriesPanel: View {
                 }
                 .accessibilityLabel("Create new memory")
             }
-            .padding(VSpacing.md)
 
-            // Secondary row: Kind chips + Status (collapsible)
-            if showFilters {
-                Divider().background(VColor.borderDisabled)
+            // Row 2: Topic chips
+            HStack(spacing: VSpacing.sm) {
+                Text("Topic:")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentTertiary)
 
-                HStack(spacing: VSpacing.sm) {
-                    Text("Topic:")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: VSpacing.xs) {
+                        TopicChip(
+                            label: "All",
+                            isSelected: selectedKind == nil
+                        ) {
+                            selectedKind = nil
+                            store.kindFilter = nil
+                            Task { await store.loadItems() }
+                        }
+                        .accessibilityLabel("All filter")
+                        .accessibilityAddTraits(selectedKind == nil ? .isSelected : [])
 
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: VSpacing.xs) {
-                            // "All" chip — uses .primary when selected
-                            VButton(
-                                label: "All",
-                                style: selectedKind == nil ? .primary : .ghost,
-                                size: .pill,
-                                isActive: selectedKind == nil
+                        ForEach(MemoryKind.allCases) { kind in
+                            TopicChip(
+                                label: kind.label,
+                                isSelected: selectedKind == kind
                             ) {
-                                selectedKind = nil
-                                store.kindFilter = nil
+                                selectedKind = kind
+                                store.kindFilter = kind.rawValue
                                 Task { await store.loadItems() }
                             }
-                            .accessibilityLabel("All filter")
-                            .accessibilityAddTraits(selectedKind == nil ? .isSelected : [])
-
-                            ForEach(MemoryKind.allCases) { kind in
-                                VButton(
-                                    label: kind.label,
-                                    style: .ghost,
-                                    size: .pill,
-                                    isActive: selectedKind == kind
-                                ) {
-                                    selectedKind = kind
-                                    store.kindFilter = kind.rawValue
-                                    Task { await store.loadItems() }
-                                }
-                                .accessibilityLabel("\(kind.label) filter")
-                                .accessibilityAddTraits(selectedKind == kind ? .isSelected : [])
-                            }
+                            .accessibilityLabel("\(kind.label) filter")
+                            .accessibilityAddTraits(selectedKind == kind ? .isSelected : [])
                         }
                     }
-
-                    Divider()
-                        .frame(height: VSpacing.xl)
-
-                    Text("Status:")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-
-                    VDropdown(
-                        placeholder: "Status",
-                        selection: $statusFilter,
-                        options: MemoryStatusFilter.allCases.map { ($0.rawValue, $0) }
-                    )
-                    .frame(width: 100)
-                    .onChange(of: statusFilter) {
-                        store.statusFilter = statusFilter.apiValue
-                        Task { await store.loadItems() }
-                    }
                 }
-                .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.sm)
             }
         }
+        .padding(.horizontal, VSpacing.md)
+        .padding(.top, VSpacing.sm)
+        .padding(.bottom, VSpacing.md)
     }
 
     // MARK: - Content View
@@ -233,6 +201,40 @@ struct MemoriesPanel: View {
                 }
                 .padding(VSpacing.md)
             }
+        }
+    }
+}
+
+// MARK: - Topic Chip
+
+private struct TopicChip: View {
+    let label: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(VFont.captionMedium)
+                .foregroundColor(isSelected ? VColor.auxWhite : VColor.contentDefault)
+                .padding(.horizontal, VSpacing.md)
+                .frame(height: 24)
+                .background(backgroundColor)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+    }
+
+    private var backgroundColor: Color {
+        if isSelected {
+            return VColor.primaryBase
+        } else if isHovered {
+            return VColor.surfaceActive
+        } else {
+            return .clear
         }
     }
 }
