@@ -137,9 +137,10 @@ struct MemoriesPanel: View {
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: VSpacing.xs) {
-                        TopicChip(
+                        VButton(
                             label: "All",
-                            isSelected: selectedKind == nil
+                            style: selectedKind == nil ? .primary : .outlined,
+                            size: .pill
                         ) {
                             selectedKind = nil
                             store.kindFilter = nil
@@ -149,9 +150,10 @@ struct MemoriesPanel: View {
                         .accessibilityAddTraits(selectedKind == nil ? .isSelected : [])
 
                         ForEach(MemoryKind.allCases) { kind in
-                            TopicChip(
+                            VButton(
                                 label: kind.label,
-                                isSelected: selectedKind == kind
+                                style: selectedKind == kind ? .primary : .outlined,
+                                size: .pill
                             ) {
                                 selectedKind = kind
                                 store.kindFilter = kind.rawValue
@@ -207,36 +209,3 @@ struct MemoriesPanel: View {
     }
 }
 
-// MARK: - Topic Chip
-
-private struct TopicChip: View {
-    let label: String
-    let isSelected: Bool
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            Text(label)
-                .font(VFont.captionMedium)
-                .foregroundColor(isSelected ? VColor.auxWhite : VColor.contentDefault)
-                .padding(.horizontal, VSpacing.md)
-                .frame(height: 24)
-                .background(backgroundColor)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-    }
-
-    private var backgroundColor: Color {
-        if isSelected {
-            return VColor.primaryBase
-        } else if isHovered {
-            return VColor.surfaceActive
-        } else {
-            return .clear
-        }
-    }
-}
