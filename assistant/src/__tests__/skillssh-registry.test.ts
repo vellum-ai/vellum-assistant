@@ -9,6 +9,7 @@ import {
   fetchSkillAudits,
   formatAuditBadges,
   providerDisplayName,
+  resolveSkillSource,
   riskToDisplay,
   searchSkillsRegistry,
 } from "../skills/skillssh-registry.js";
@@ -196,5 +197,82 @@ describe("formatAuditBadges", () => {
       ath: { risk: "critical", analyzedAt: "2025-01-15T00:00:00Z" },
     };
     expect(formatAuditBadges(auditData)).toBe("Security: [ATH:FAIL]");
+  });
+});
+
+// ─── resolveSkillSource ─────────────────────────────────────────────────────
+
+describe("resolveSkillSource", () => {
+  test("parses owner/repo@skill-name format", () => {
+    const result = resolveSkillSource("vercel-labs/skills@find-skills");
+    expect(result).toEqual({
+      owner: "vercel-labs",
+      repo: "skills",
+      skillSlug: "find-skills",
+    });
+  });
+
+  test("parses owner/repo/skill-name format", () => {
+    const result = resolveSkillSource("vercel-labs/skills/find-skills");
+    expect(result).toEqual({
+      owner: "vercel-labs",
+      repo: "skills",
+      skillSlug: "find-skills",
+    });
+  });
+
+  test("parses full GitHub URL with main branch", () => {
+    const result = resolveSkillSource(
+      "https://github.com/vercel-labs/skills/tree/main/skills/find-skills",
+    );
+    expect(result).toEqual({
+      owner: "vercel-labs",
+      repo: "skills",
+      skillSlug: "find-skills",
+    });
+  });
+
+  test("parses full GitHub URL with non-main branch", () => {
+    const result = resolveSkillSource(
+      "https://github.com/some-org/repo/tree/develop/skills/my-skill",
+    );
+    expect(result).toEqual({
+      owner: "some-org",
+      repo: "repo",
+      skillSlug: "my-skill",
+    });
+  });
+
+  test("parses GitHub URL with trailing slash", () => {
+    const result = resolveSkillSource(
+      "https://github.com/owner/repo/tree/main/skills/skill-name/",
+    );
+    expect(result).toEqual({
+      owner: "owner",
+      repo: "repo",
+      skillSlug: "skill-name",
+    });
+  });
+
+  test("throws on bare skill name (no owner/repo)", () => {
+    expect(() => resolveSkillSource("find-skills")).toThrow(
+      'Invalid skill source "find-skills"',
+    );
+  });
+
+  test("throws on empty string", () => {
+    expect(() => resolveSkillSource("")).toThrow('Invalid skill source ""');
+  });
+
+  test("throws on owner-only format", () => {
+    expect(() => resolveSkillSource("vercel-labs")).toThrow(
+      'Invalid skill source "vercel-labs"',
+    );
+  });
+
+  test("throws on owner/repo without skill", () => {
+    expect(() => resolveSkillSource("vercel-labs/skills")).toThrow(
+      'Invalid skill source "vercel-labs/skills"',
+    );
   });
 });
