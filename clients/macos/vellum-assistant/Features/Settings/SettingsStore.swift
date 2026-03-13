@@ -20,6 +20,11 @@ public final class SettingsStore: ObservableObject {
     /// SettingsPanel observes this and clears it after applying.
     @Published var pendingSettingsTab: SettingsTab?
 
+    // MARK: - User Identity
+
+    @AppStorage("user.displayName") var userDisplayName: String = ""
+    @AppStorage("user.email") var userEmail: String = ""
+
     // MARK: - API Key State
 
     @Published var hasKey: Bool
