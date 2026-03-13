@@ -158,7 +158,15 @@ extension HTTPTransport {
                 return true
             }
             if let msg = message as? TelegramConfigRequestMessage {
-                Task { await self.sendEncodablePostAndDispatch(.integrationsTelegramConfig, body: msg, messageType: "telegram_config_response", label: "telegram_config") }
+                switch msg.action {
+                case "get":
+                    Task { await self.sendEncodablePostAndDispatch(.integrationsTelegramConfig, body: msg, method: "GET", messageType: "telegram_config_response", label: "telegram_config_get") }
+                case "clear":
+                    Task { await self.sendEncodablePostAndDispatch(.integrationsTelegramConfig, body: msg, method: "DELETE", messageType: "telegram_config_response", label: "telegram_config_clear") }
+                default:
+                    // "set" and any future actions use POST
+                    Task { await self.sendEncodablePostAndDispatch(.integrationsTelegramConfig, body: msg, messageType: "telegram_config_response", label: "telegram_config_set") }
+                }
                 return true
             }
             if let msg = message as? ChannelVerificationSessionRequestMessage {
@@ -373,6 +381,36 @@ extension HTTPTransport {
 
             if !(200...299).contains(http.statusCode) {
                 log.error("\(label) failed: \(http.statusCode)")
+                // Try to extract an error message from the response body,
+                // then dispatch a synthetic error so UI callbacks fire and
+                // loading states are cleared (avoids infinite spinner).
+                var errorMessage = "HTTP \(http.statusCode)"
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let error = json["error"] as? [String: Any],
+                   let message = error["message"] as? String {
+                    errorMessage = message
+                } else if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          let message = json["error"] as? String {
+                    errorMessage = message
+                }
+                // Build a minimal synthetic JSON that satisfies the required
+                // fields of whichever response type `messageType` maps to.
+                var syntheticJSON: [String: Any] = [
+                    "type": messageType,
+                    "success": false,
+                    "error": errorMessage,
+                ]
+                // TelegramConfigResponse requires these non-optional Bools.
+                if messageType == "telegram_config_response" {
+                    syntheticJSON["hasBotToken"] = false
+                    syntheticJSON["connected"] = false
+                    syntheticJSON["hasWebhookSecret"] = false
+                }
+                if let syntheticData = try? JSONSerialization.data(withJSONObject: syntheticJSON),
+                   let serverMessage = try? decoder.decode(ServerMessage.self, from: syntheticData) {
+                    onMessage?(serverMessage)
+                }
+                return
             }
 
             // Inject the `type` discriminant so ServerMessage can decode it.
@@ -417,6 +455,25 @@ extension HTTPTransport {
 
             if !(200...299).contains(http.statusCode) {
                 log.error("channel_verification_status failed: \(http.statusCode)")
+                var errorMessage = "HTTP \(http.statusCode)"
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let error = json["error"] as? [String: Any],
+                   let message = error["message"] as? String {
+                    errorMessage = message
+                } else if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          let message = json["error"] as? String {
+                    errorMessage = message
+                }
+                let syntheticJSON: [String: Any] = [
+                    "type": "channel_verification_session_response",
+                    "success": false,
+                    "error": errorMessage,
+                ]
+                if let syntheticData = try? JSONSerialization.data(withJSONObject: syntheticJSON),
+                   let serverMessage = try? decoder.decode(ServerMessage.self, from: syntheticData) {
+                    onMessage?(serverMessage)
+                }
+                return
             }
 
             guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
