@@ -6,6 +6,7 @@ WORKDIR /app
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
     curl \
+    wget \
     unzip \
     python3 \
     make \
@@ -35,8 +36,12 @@ WORKDIR /app/assistant
 # Install runtime dependencies for Playwright and tree-sitter
 RUN apt-get update && apt-get install -y \
     curl \
+    wget \
     unzip \
     ca-certificates \
+    debconf \
+    debootstrap \
+    debian-archive-keyring \
     python3 \
     libnss3 \
     libfreetype6 \
@@ -57,6 +62,52 @@ RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
 RUN printf '#!/usr/bin/env sh\nexec bun run /app/cli/src/index.ts "$@"\n' > /usr/local/bin/vellum && \
     chmod +x /usr/local/bin/vellum
 
+# Route apt/dpkg commands into the persistent /data rootfs when available.
+RUN printf '%s\n' \
+    '#!/usr/bin/env sh' \
+    'export DEBIAN_FRONTEND=noninteractive' \
+    'if [ -x /data/bin/sh ] && [ -x /data/usr/bin/apt-get ] && [ -f /data/.rootfs-initialized ] && ! grep -qs " /data .*noexec" /proc/mounts; then' \
+    '  if [ $# -eq 0 ]; then' \
+    '    exec chroot /data /usr/bin/apt-get' \
+    '  fi' \
+    '  exec chroot /data /usr/bin/apt-get "$@"' \
+    'fi' \
+    'if [ $# -eq 0 ]; then' \
+    '  exec /usr/bin/apt-get' \
+    'fi' \
+    'exec /usr/bin/apt-get "$@"' \
+    > /usr/local/bin/apt-get && \
+    chmod +x /usr/local/bin/apt-get && \
+    printf '%s\n' \
+    '#!/usr/bin/env sh' \
+    'export DEBIAN_FRONTEND=noninteractive' \
+    'if [ -x /data/bin/sh ] && [ -x /data/usr/bin/apt ] && [ -f /data/.rootfs-initialized ] && ! grep -qs " /data .*noexec" /proc/mounts; then' \
+    '  if [ $# -eq 0 ]; then' \
+    '    exec chroot /data /usr/bin/apt' \
+    '  fi' \
+    '  exec chroot /data /usr/bin/apt "$@"' \
+    'fi' \
+    'if [ $# -eq 0 ]; then' \
+    '  exec /usr/bin/apt' \
+    'fi' \
+    'exec /usr/bin/apt "$@"' \
+    > /usr/local/bin/apt && \
+    chmod +x /usr/local/bin/apt && \
+    printf '%s\n' \
+    '#!/usr/bin/env sh' \
+    'if [ -x /data/bin/sh ] && [ -x /data/usr/bin/dpkg ] && [ -f /data/.rootfs-initialized ] && ! grep -qs " /data .*noexec" /proc/mounts; then' \
+    '  if [ $# -eq 0 ]; then' \
+    '    exec chroot /data /usr/bin/dpkg' \
+    '  fi' \
+    '  exec chroot /data /usr/bin/dpkg "$@"' \
+    'fi' \
+    'if [ $# -eq 0 ]; then' \
+    '  exec /usr/bin/dpkg' \
+    'fi' \
+    'exec /usr/bin/dpkg "$@"' \
+    > /usr/local/bin/dpkg && \
+    chmod +x /usr/local/bin/dpkg
+
 # Create non-root user that also has sudo access so it can like install stuff
 RUN groupadd --system --gid 1001 assistant && \
     useradd --system --uid 1001 --gid assistant --create-home --shell /bin/bash assistant && \
@@ -67,27 +118,15 @@ RUN mkdir -p /home/assistant/.vellum /data && \
     chown -R assistant:assistant /home/assistant/.vellum /data && \
     chmod a+rwx /data
 
-# Update PATH for assistant user
-ENV PATH="/home/assistant/.bun/bin:/data/bin:${PATH}"
-
 # Configure package managers to use /data
 ENV BUN_INSTALL="/data/.bun"
-ENV PATH="${BUN_INSTALL}/bin:${PATH}"
 ENV PYTHONUSERBASE="/data/.python"
-ENV PATH="${PYTHONUSERBASE}/bin:${PATH}"
-
-# Configure apt/dpkg to install future packages to /data.
-# The actual /data directories are created at container startup by entrypoint.sh
-# because /data is typically a mounted volume that hides build-time contents.
-RUN echo 'Dir::State "/data/dpkg";' > /etc/apt/apt.conf.d/99data-dir && \
-    echo 'Dir::State::status "/data/dpkg/status";' >> /etc/apt/apt.conf.d/99data-dir && \
-    echo 'Dir::Cache "/data/apt/cache";' >> /etc/apt/apt.conf.d/99data-dir && \
-    echo 'DPkg::Options {"--instdir=/data";"--admindir=/data/dpkg";"--force-not-root";"--force-bad-path";};' >> /etc/apt/apt.conf.d/99data-dir
+# Update PATH with host tools first, then user/package managers, then /data.
+ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/assistant/.bun/bin:${BUN_INSTALL}/bin:${PYTHONUSERBASE}/bin:/data/bin:/data/usr/local/sbin:/data/usr/local/bin:/data/usr/sbin:/data/usr/bin:/data/sbin"
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-ENV PATH="/data/usr/bin:/data/usr/sbin:${PATH}"
-ENV LD_LIBRARY_PATH="/data/usr/lib:/data/usr/lib/x86_64-linux-gnu:/data/usr/lib/aarch64-linux-gnu"
+ENV LD_LIBRARY_PATH="/data/usr/local/lib:/data/usr/lib:/data/usr/lib/x86_64-linux-gnu:/data/usr/lib/aarch64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 USER root
 
@@ -104,6 +143,5 @@ COPY --from=builder /app /app
 COPY assistant/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Run the daemon + http server
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["bun", "run", "src/daemon/main.ts"]
