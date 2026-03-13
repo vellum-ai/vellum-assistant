@@ -32,6 +32,15 @@ struct AssistantChannelsDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Assistant Channels")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.contentDefault)
+                    Text("Once set up, you and others you trust can talk to your assistant in these channels.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                }
+
                 telegramCard
                 slackChannelCard
                 voiceCard
