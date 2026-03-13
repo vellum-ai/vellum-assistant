@@ -2,11 +2,29 @@
 import SwiftUI
 import VellumAssistantShared
 
+private enum MemoryStatusFilter: String, CaseIterable {
+    case active = "Active"
+    case inactive = "Inactive"
+    case all = "All"
+
+    /// API value sent as the `status` query parameter.
+    /// "all" is a sentinel that tells the server to skip status filtering.
+    var apiValue: String {
+        switch self {
+        case .active: return "active"
+        case .inactive: return "inactive"
+        case .all: return "all"
+        }
+    }
+}
+
 struct MemoriesListView: View {
     @ObservedObject var store: MemoryItemsStore
     @State private var searchText = ""
     @State private var selectedKind: String? = nil
+    @State private var statusFilter: MemoryStatusFilter = .active
     @State private var showCreateSheet = false
+    @State private var searchDebounceTask: Task<Void, Never>?
 
     var body: some View {
         Group {
@@ -21,8 +39,14 @@ struct MemoriesListView: View {
         .searchable(text: $searchText, prompt: "Search memories...")
         .onChange(of: searchText) { _, newValue in
             store.searchText = newValue
-            Task { await store.loadItems() }
+            searchDebounceTask?.cancel()
+            searchDebounceTask = Task {
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                guard !Task.isCancelled else { return }
+                await store.loadItems()
+            }
         }
+        .onDisappear { searchDebounceTask?.cancel() }
         .navigationTitle("Memories")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -46,6 +70,20 @@ struct MemoriesListView: View {
 
     private var memoriesList: some View {
         List {
+            // Status filter
+            Section {
+                Picker("Status", selection: $statusFilter) {
+                    ForEach(MemoryStatusFilter.allCases, id: \.self) { filter in
+                        Text(filter.rawValue).tag(filter)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: statusFilter) { _, newValue in
+                    store.statusFilter = newValue.apiValue
+                    Task { await store.loadItems() }
+                }
+            }
+
             // Kind filter chips
             Section {
                 ScrollView(.horizontal, showsIndicators: false) {
