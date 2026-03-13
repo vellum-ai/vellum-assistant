@@ -51,6 +51,21 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
 
   "integration:slack": {
     service: "integration:slack",
+    injectionTemplates: [
+      {
+        hostPattern: "slack.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    setupSkillId: "slack-oauth-setup",
+    setup: {
+      displayName: "Slack",
+      dashboardUrl: "https://api.slack.com/apps",
+      appType: "Slack App",
+      requiresClientSecret: true,
+    },
   },
 
   "integration:notion": {
@@ -63,6 +78,13 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
         valuePrefix: "Bearer ",
       },
     ],
+    setupSkillId: "notion-oauth-setup",
+    setup: {
+      displayName: "Notion",
+      dashboardUrl: "https://www.notion.so/my-integrations",
+      appType: "Public integration",
+      requiresClientSecret: true,
+    },
   },
 
   "integration:twitter": {
