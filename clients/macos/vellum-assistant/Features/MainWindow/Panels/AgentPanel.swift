@@ -3,94 +3,40 @@ import VellumAssistantShared
 
 // MARK: - Agent Panel Content (embeddable)
 
-/// Which skills tab to display.
-enum SkillsTab {
-    case installed, available
-}
-
-/// The skills management content, usable standalone (e.g. inside IdentityPanel)
-/// or wrapped in a VSidePanel via AgentPanel.
-///
-/// When `visibleTab` is set, the internal tab bar is hidden and only
-/// the specified tab's content is shown. When nil (default), the full
-/// tab bar is displayed — preserving backward compatibility.
+/// The installed skills management content, usable standalone
+/// (e.g. inside IntelligencePanel).
 struct AgentPanelContent: View {
     var onInvokeSkill: ((SkillInfo) -> Void)?
     var onSkillsChanged: (() -> Void)?
     let daemonClient: DaemonClient
 
-    /// When non-nil, locks the view to a single tab and hides the tab bar.
-    var visibleTab: SkillsTab?
-
     @StateObject private var skillsManager: SkillsManager
-    @State private var selectedTab: SkillsTab = .installed
     @State private var expandedSkillId: String?
-    @State private var selectedSkillSlug: String?
     @State private var selectedInstalledSkillId: String?
     @State private var skillToDelete: SkillInfo?
-    @State private var showNewSkillSheet = false
     @State private var selectedCategory: SkillCategory?
     @State private var expandedDetailSkillId: String?
+    @State private var globalSkillSearchQuery = ""
 
-    init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, daemonClient: DaemonClient, visibleTab: SkillsTab? = nil) {
+    init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, daemonClient: DaemonClient) {
         self.onInvokeSkill = onInvokeSkill
         self.onSkillsChanged = onSkillsChanged
         self.daemonClient = daemonClient
-        self.visibleTab = visibleTab
         _skillsManager = StateObject(wrappedValue: SkillsManager(daemonClient: daemonClient))
-        if let visibleTab {
-            _selectedTab = State(initialValue: visibleTab)
-        }
     }
+
+    private var normalizedSkillQuery: String {
+        globalSkillSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private var hasActiveSearch: Bool { !normalizedSkillQuery.isEmpty }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Search bar for available skills tab (installed tab has its own in the right panel)
-            if (visibleTab ?? selectedTab) == .available {
-                VSearchBar(placeholder: "Search skills...", text: $globalSkillSearchQuery)
-                    .padding(.bottom, VSpacing.lg)
-            }
-
-            // Tab bar — hidden when locked to a single tab via visibleTab
-            if visibleTab == nil {
-                VStack(spacing: 0) {
-                    HStack(spacing: VSpacing.xl) {
-                        tabButton(installedTabTitle, tab: .installed)
-                        tabButton(availableTabTitle, tab: .available)
-                        Spacer()
-                        Button {
-                            showNewSkillSheet = true
-                        } label: {
-                            HStack(spacing: VSpacing.xs) {
-                                VIconView(.plus, size: 14)
-                                Text("New Skill")
-                            }
-                            .font(VFont.body)
-                            .foregroundColor(VColor.primaryBase)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("New Skill")
-                    }
-
-                    Divider().background(VColor.borderBase)
-                }
-                .padding(.bottom, VSpacing.lg)
-            }
-
-            // Tab content — use visibleTab when locked, otherwise selectedTab
-            switch visibleTab ?? selectedTab {
-            case .installed:
-                skillsContent
-            case .available:
-                availableSkillsContent
-            }
+            skillsContent
         }
         .onAppear {
             skillsManager.fetchSkills()
-            skillsManager.searchSkills()
-        }
-        .onDisappear {
-            installTimeoutTask?.cancel()
         }
         .onChange(of: skillsManager.skills.map(\.id)) {
             onSkillsChanged?()
@@ -105,11 +51,6 @@ struct AgentPanelContent: View {
                !filteredUserSkills.contains(where: { $0.id == selectedId }) {
                 selectedInstalledSkillId = nil
             }
-            if let slug = selectedSkillSlug,
-               !availableClawhubSkills.contains(where: { $0.slug == slug }) {
-                selectedSkillSlug = nil
-                skillsManager.clearInspection()
-            }
         }
         .sheet(item: $skillToDelete) { skill in
             SkillDeleteConfirmView(
@@ -122,558 +63,6 @@ struct AgentPanelContent: View {
                     skillToDelete = nil
                 }
             )
-        }
-        .sheet(isPresented: $showNewSkillSheet) {
-            NewSkillSheet(skillsManager: skillsManager)
-        }
-    }
-
-    @ViewBuilder
-    private func tabButton(_ label: String, tab: SkillsTab) -> some View {
-        let isActive = selectedTab == tab
-        Button {
-            withAnimation(VAnimation.fast) { selectedTab = tab }
-        } label: {
-            VStack(spacing: VSpacing.sm) {
-                Text(label)
-                    .font(VFont.body)
-                    .foregroundColor(isActive ? VColor.contentDefault : VColor.contentTertiary)
-                    .padding(.bottom, VSpacing.xs)
-
-                Rectangle()
-                    .fill(isActive ? VColor.contentDefault : Color.clear)
-                    .frame(height: 2)
-            }
-            .fixedSize()
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-
-    // MARK: - Available Skills Tab
-
-    /// Available skills filtered to exclude already-installed ones.
-    private var availableClawhubSkills: [ClawhubSkillItem] {
-        let installedNames = Set(skillsManager.skills.map(\.name))
-
-        var filtered = skillsManager.searchResults
-            .filter { !installedNames.contains($0.name) }
-
-        // Local fuzzy filter by name/description
-        if hasActiveSearch {
-            let query = normalizedSkillQuery
-            filtered = filtered.filter {
-                $0.name.lowercased().contains(query) ||
-                $0.description.lowercased().contains(query) ||
-                $0.slug.lowercased().contains(query)
-            }
-        }
-
-        return filtered.sorted { $0.installs > $1.installs }
-    }
-
-    @ViewBuilder
-    private var availableSkillsContent: some View {
-        Group {
-            if let slug = selectedSkillSlug,
-               let searchItem = skillsManager.searchResults.first(where: { $0.slug == slug }) {
-                skillDetailView(slug: slug, searchItem: searchItem)
-            } else {
-                availableSkillsList
-            }
-        }
-        .onChange(of: skillsManager.installResult?.slug) {
-            if let result = skillsManager.installResult {
-                if result.slug == installingSlug {
-                    installingSlug = nil
-                    installAttemptId = nil
-                }
-            }
-        }
-        .onChange(of: skillsManager.searchResults) {
-            if let slug = selectedSkillSlug,
-               !skillsManager.searchResults.contains(where: { $0.slug == slug }) {
-                selectedSkillSlug = nil
-                skillsManager.clearInspection()
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var availableSkillsList: some View {
-        ScrollView {
-            VStack(spacing: VSpacing.lg) {
-                if skillsManager.isSearching {
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                            .controlSize(.small)
-                        Spacer()
-                    }
-                    .frame(height: 60)
-                } else if !availableClawhubSkills.isEmpty {
-                    ForEach(availableClawhubSkills) { skill in
-                        clawhubSkillCard(skill)
-                    }
-                } else if hasActiveSearch {
-                    VStack(spacing: VSpacing.md) {
-                        VEmptyState(
-                            title: "No matches in Available",
-                            subtitle: "No available skills matched \"\(globalSkillSearchQuery)\"",
-                            icon: VIcon.search.rawValue
-                        )
-
-                        if visibleTab == nil, !filteredUserSkills.isEmpty {
-                            Button {
-                                withAnimation(VAnimation.fast) { selectedTab = .installed }
-                            } label: {
-                                Text("Show \(filteredUserSkills.count) match\(filteredUserSkills.count == 1 ? "" : "es") in Installed")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.primaryBase)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .frame(minHeight: 100)
-                }
-
-            }
-        }
-        .onAppear {
-            skillsManager.searchSkills()
-        }
-    }
-
-    @State private var installingSlug: String?
-    @State private var installAttemptId: UUID?
-    @State private var installTimeoutTask: Task<Void, Never>?
-    @State private var globalSkillSearchQuery = ""
-
-    private var normalizedSkillQuery: String {
-        globalSkillSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    }
-
-    private var hasActiveSearch: Bool { !normalizedSkillQuery.isEmpty }
-
-    /// How long ago a skill was published, as a human-readable string.
-    private func skillAge(_ createdAt: Int) -> String {
-        guard createdAt > 0 else { return "" }
-        let date = Date(timeIntervalSince1970: Double(createdAt) / 1000)
-        let days = Int(Date().timeIntervalSince(date) / 86400)
-        if days < 1 { return "today" }
-        if days == 1 { return "1 day ago" }
-        if days < 30 { return "\(days) days ago" }
-        let months = days / 30
-        if months == 1 { return "1 month ago" }
-        return "\(months) months ago"
-    }
-
-    private func clawhubSkillCard(_ skill: ClawhubSkillItem) -> some View {
-        let installedNames = Set(skillsManager.skills.map(\.name))
-        let isAlreadyInstalled = installedNames.contains(skill.name)
-        let isInstalling = installingSlug == skill.slug
-        let isNew = !skill.isVellum && skill.createdAt > 0 && Date().timeIntervalSince(
-            Date(timeIntervalSince1970: Double(skill.createdAt) / 1000)
-        ) < 7 * 86400
-
-        return VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack(alignment: .top, spacing: VSpacing.md) {
-                VIconView(skill.isVellum ? .package : .package, size: 16)
-                    .foregroundColor(skill.isVellum ? VColor.primaryBase : VColor.contentTertiary)
-                    .frame(width: 24)
-
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text(skill.name)
-                        .font(VFont.bodyBold)
-                        .foregroundColor(VColor.contentDefault)
-
-                    Text(skill.description)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                        .lineLimit(2)
-
-                    // Pill badges row
-                    HStack(spacing: VSpacing.xs) {
-                        if skill.isVellum {
-                            VSkillTypePill(type: .core)
-                        } else if isAlreadyInstalled {
-                            VSkillTypePill(type: .installed)
-                        }
-
-                        if isNew {
-                            VSkillTypePill(type: .custom(
-                                label: "New",
-                                icon: "sparkles",
-                                foreground: VColor.systemNegativeHover,
-                                background: VColor.systemNegativeHover.opacity(0.15)
-                            ))
-                        }
-                    }
-                    .padding(.top, VSpacing.xxs)
-                }
-
-                Spacer(minLength: VSpacing.lg)
-
-                if isAlreadyInstalled {
-                    Text("Installed")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.systemPositiveStrong)
-                } else {
-                    VButton(
-                        label: isInstalling ? "Installing..." : "Install",
-                        icon: isInstalling ? nil : "arrow.down.circle.fill",
-                        style: .primary,
-                        isDisabled: installingSlug != nil
-                    ) {
-                        guard installingSlug == nil else { return }
-                        let attemptId = UUID()
-                        installingSlug = skill.slug
-                        installAttemptId = attemptId
-                        skillsManager.installSkill(slug: skill.slug)
-                        installTimeoutTask?.cancel()
-                        installTimeoutTask = Task {
-                            try? await Task.sleep(nanoseconds: 10_000_000_000)
-                            guard !Task.isCancelled else { return }
-                            if installingSlug == skill.slug && installAttemptId == attemptId {
-                                installingSlug = nil
-                                installAttemptId = nil
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Trust signals row
-            HStack(spacing: VSpacing.lg) {
-                if skill.isVellum {
-                    HStack(spacing: VSpacing.xs) {
-                        VIconView(.badgeCheck, size: 9)
-                        Text("First-party")
-                    }
-                } else {
-                    if !skill.author.isEmpty {
-                        HStack(spacing: VSpacing.xs) {
-                            VIconView(.user, size: 9)
-                            Text(skill.author)
-                        }
-                    }
-
-                    HStack(spacing: VSpacing.xs) {
-                        VIconView(.star, size: 9)
-                        Text("\(skill.stars)")
-                    }
-
-                    HStack(spacing: VSpacing.xs) {
-                        VIconView(.circleArrowDown, size: 9)
-                        Text("\(skill.installs)")
-                    }
-
-                    if !skillAge(skill.createdAt).isEmpty {
-                        HStack(spacing: VSpacing.xs) {
-                            VIconView(.clock, size: 9)
-                            Text(skillAge(skill.createdAt))
-                        }
-                    }
-                }
-            }
-            .font(VFont.small)
-            .foregroundColor(VColor.contentTertiary)
-            .padding(.leading, 24 + VSpacing.md)
-        }
-        .padding(VSpacing.lg)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            withAnimation(VAnimation.standard) {
-                selectedSkillSlug = skill.slug
-                if !skill.isVellum {
-                    skillsManager.inspectSkill(slug: skill.slug)
-                }
-            }
-        }
-        .vCard(background: VColor.surfaceOverlay)
-    }
-
-    // MARK: - Skill Detail View
-
-    @ViewBuilder
-    private func skillDetailView(slug: String, searchItem: ClawhubSkillItem) -> some View {
-        let isNew = !searchItem.isVellum && searchItem.createdAt > 0 && Date().timeIntervalSince(
-            Date(timeIntervalSince1970: Double(searchItem.createdAt) / 1000)
-        ) < 7 * 86400
-
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
-            // Back button
-            Button(action: {
-                withAnimation(VAnimation.standard) {
-                    selectedSkillSlug = nil
-                    skillsManager.clearInspection()
-                }
-            }) {
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(.chevronLeft, size: 11)
-                    Text("Available Skills")
-                        .font(VFont.caption)
-                }
-                .foregroundColor(VColor.contentTertiary)
-            }
-            .buttonStyle(.plain)
-
-            // Title row — always visible from search data
-            HStack(spacing: VSpacing.sm) {
-                Text(skillsManager.inspectedSkill?.skill.displayName ?? searchItem.name)
-                    .font(VFont.cardTitle)
-                    .foregroundColor(VColor.contentDefault)
-
-                if searchItem.isVellum {
-                    Text("VELLUM")
-                        .font(VFont.small)
-                        .foregroundColor(VColor.primaryBase)
-                } else if isNew {
-                    Text("NEW")
-                        .font(VFont.small)
-                        .foregroundColor(VColor.systemNegativeHover)
-                }
-
-                Spacer()
-
-                detailInstallButton(slug: slug)
-            }
-
-            // Author/source row
-            if searchItem.isVellum {
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(.badgeCheck, size: 12)
-                        .foregroundColor(VColor.primaryBase)
-                    Text("First-party skill by Vellum")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentSecondary)
-                }
-            } else if let owner = skillsManager.inspectedSkill?.owner {
-                HStack(spacing: VSpacing.sm) {
-                    if let imageURL = owner.image, let url = URL(string: imageURL) {
-                        AsyncImage(url: url) { image in
-                            image.resizable().aspectRatio(contentMode: .fill)
-                        } placeholder: {
-                            VIconView(.circleUser, size: 20)
-                                .foregroundColor(VColor.contentTertiary)
-                        }
-                        .frame(width: 20, height: 20)
-                        .clipShape(Circle())
-                    } else {
-                        VIconView(.circleUser, size: 16)
-                            .foregroundColor(VColor.contentTertiary)
-                    }
-                    Text(owner.displayName.isEmpty ? owner.handle : owner.displayName)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentSecondary)
-                }
-            } else if !searchItem.author.isEmpty {
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(.user, size: 12)
-                        .foregroundColor(VColor.contentTertiary)
-                    Text(searchItem.author)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentSecondary)
-                }
-            }
-
-            // Summary — use inspect summary if available, fall back to search description
-            let summary = skillsManager.inspectedSkill?.skill.summary ?? ""
-            let description = summary.isEmpty ? searchItem.description : summary
-            if !description.isEmpty {
-                Text(description)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.contentDefault)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            // Stats row — vellum skills show first-party badge; community shows stats
-            if searchItem.isVellum {
-                HStack(spacing: VSpacing.lg) {
-                    statItem(icon: .badgeCheck, value: "First-party")
-                }
-            } else if let stats = skillsManager.inspectedSkill?.stats {
-                HStack(spacing: VSpacing.lg) {
-                    statItem(icon: .star, value: "\(stats.stars)")
-                    statItem(icon: .circleArrowDown, value: "\(stats.installs)")
-                    statItem(icon: .arrowDownToLine, value: "\(stats.downloads)")
-                    if stats.versions > 0 {
-                        statItem(icon: .tag, value: "\(stats.versions) versions")
-                    }
-                    if !skillAge(searchItem.createdAt).isEmpty {
-                        statItem(icon: .clock, value: skillAge(searchItem.createdAt))
-                    }
-                }
-            } else {
-                // Baseline stats from search results
-                HStack(spacing: VSpacing.lg) {
-                    statItem(icon: .star, value: "\(searchItem.stars)")
-                    statItem(icon: .circleArrowDown, value: "\(searchItem.installs)")
-                    if !skillAge(searchItem.createdAt).isEmpty {
-                        statItem(icon: .clock, value: skillAge(searchItem.createdAt))
-                    }
-                }
-            }
-
-            // Inspect-only content (loading, error, or enriched details)
-            if !searchItem.isVellum {
-                if skillsManager.isInspecting {
-                    HStack {
-                        Spacer()
-                        VStack(spacing: VSpacing.md) {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text("Loading more details...")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.contentTertiary)
-                        }
-                        Spacer()
-                    }
-                    .frame(height: 80)
-                } else if let error = skillsManager.inspectError {
-                    HStack(spacing: VSpacing.sm) {
-                        VIconView(.triangleAlert, size: 11)
-                            .foregroundColor(VColor.systemNegativeHover)
-                        Text(error)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
-                    }
-                } else if let data = skillsManager.inspectedSkill {
-                    // Enriched content from inspect (version, README, files)
-                    skillDetailEnrichedContent(data)
-                }
-            }
-
-        }
-    }
-
-    /// Enriched content from inspect API — version, README, files.
-    /// Title, author, summary, and stats are handled by the parent `skillDetailView`.
-    @ViewBuilder
-    private func skillDetailEnrichedContent(_ data: ClawhubInspectData) -> some View {
-        // Latest version
-        if let version = data.latestVersion {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("v\(version.version)")
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.systemPositiveStrong)
-                if let changelog = version.changelog, !changelog.isEmpty {
-                    Text(changelog)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .padding(VSpacing.md)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(VColor.surfaceOverlay)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        }
-
-        // SKILL.md content
-        if let md = data.skillMdContentString, !md.isEmpty {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Text("README")
-                    .font(VFont.captionMedium)
-                    .foregroundColor(VColor.contentTertiary)
-
-                ScrollView {
-                    Text(md)
-                        .font(VFont.monoSmall)
-                        .foregroundColor(VColor.contentSecondary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(VSpacing.md)
-                }
-                .frame(maxHeight: 250)
-                .background(VColor.surfaceOverlay)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.borderBase, lineWidth: 1)
-                )
-            }
-        }
-
-        // Files list
-        if let files = data.files, !files.isEmpty {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Text("Files")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-
-                ForEach(files, id: \.path) { file in
-                    HStack {
-                        VIconView(.fileText, size: 10)
-                            .foregroundColor(VColor.contentTertiary)
-                        Text(file.path)
-                            .font(VFont.monoSmall)
-                            .foregroundColor(VColor.contentSecondary)
-                        Spacer()
-                        Text(formatFileSize(file.size))
-                            .font(VFont.small)
-                            .foregroundColor(VColor.contentTertiary)
-                    }
-                }
-            }
-        }
-    }
-
-    private func statItem(icon: VIcon, value: String) -> some View {
-        HStack(spacing: VSpacing.xs) {
-            VIconView(icon, size: 9)
-            Text(value)
-        }
-        .font(VFont.small)
-        .foregroundColor(VColor.contentTertiary)
-    }
-
-    private func formatFileSize(_ bytes: Int) -> String {
-        if bytes < 1024 { return "\(bytes) B" }
-        let kb = Double(bytes) / 1024
-        if kb < 1024 { return String(format: "%.1f KB", kb) }
-        return String(format: "%.1f MB", kb / 1024)
-    }
-
-    @ViewBuilder
-    private func detailInstallButton(slug: String) -> some View {
-        let isInstalling = installingSlug == slug
-        let result = skillsManager.installResult
-        let isSuccess = result?.slug == slug && result?.success == true
-        let isError = result?.slug == slug && result?.success == false
-        let errorMessage = result?.error
-
-        VStack(alignment: .trailing, spacing: VSpacing.xs) {
-            VButton(
-                label: isSuccess ? "Installed!" : (isInstalling ? "Installing..." : "Install"),
-                icon: isSuccess ? "checkmark.circle.fill" : (isInstalling ? nil : "arrow.down.circle.fill"),
-                style: .primary,
-                isFullWidth: false,
-                isDisabled: isInstalling || isSuccess
-            ) {
-                guard installingSlug == nil, !isSuccess else { return }
-                let attemptId = UUID()
-                installingSlug = slug
-                installAttemptId = attemptId
-                skillsManager.installSkill(slug: slug)
-                installTimeoutTask?.cancel()
-                installTimeoutTask = Task {
-                    try? await Task.sleep(nanoseconds: 10_000_000_000)
-                    guard !Task.isCancelled else { return }
-                    if installingSlug == slug && installAttemptId == attemptId {
-                        installingSlug = nil
-                        installAttemptId = nil
-                    }
-                }
-            }
-
-            // Error message
-            if isError, let msg = errorMessage {
-                Text(msg)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.systemNegativeStrong)
-            }
         }
     }
 
@@ -705,14 +94,6 @@ struct AgentPanelContent: View {
     /// Count of installed skills per category (based on search-filtered list).
     private func skillCount(for category: SkillCategory) -> Int {
         filteredUserSkills.filter { inferCategory($0) == category }.count
-    }
-
-    private var installedTabTitle: String {
-        hasActiveSearch ? "Installed (\(filteredUserSkills.count))" : "Installed"
-    }
-
-    private var availableTabTitle: String {
-        hasActiveSearch ? "Available (\(availableClawhubSkills.count))" : "Available"
     }
 
     // MARK: - Category Sidebar
@@ -762,21 +143,10 @@ struct AgentPanelContent: View {
             if hasActiveSearch {
                 VStack(spacing: VSpacing.md) {
                     VEmptyState(
-                        title: "No matches in Installed",
+                        title: "No matches",
                         subtitle: "No installed skills matched \"\(globalSkillSearchQuery)\"",
                         icon: VIcon.search.rawValue
                     )
-
-                    if visibleTab == nil, !availableClawhubSkills.isEmpty {
-                        Button {
-                            withAnimation(VAnimation.fast) { selectedTab = .available }
-                        } label: {
-                            Text("Show \(availableClawhubSkills.count) match\(availableClawhubSkills.count == 1 ? "" : "es") in Available")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.primaryBase)
-                        }
-                        .buttonStyle(.plain)
-                    }
                 }
                 .frame(minHeight: 100)
             } else {
@@ -1116,44 +486,4 @@ struct AgentPanelContent: View {
                 .frame(width: 24, height: 24)
         }
     }
-}
-
-// MARK: - Agent Panel (standalone, wrapped in VSidePanel)
-
-struct AgentPanel: View {
-    var onClose: () -> Void
-    var onInvokeSkill: ((SkillInfo) -> Void)?
-    let daemonClient: DaemonClient
-
-    /// Maximum width of the centered content area.
-    private let maxContentWidth: CGFloat = 1100
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                // Header
-                HStack(alignment: .center) {
-                    Text("Skills")
-                        .font(VFont.panelTitle)
-                        .foregroundColor(VColor.contentDefault)
-                    Spacer()
-                }
-                .padding(.top, VSpacing.xxl)
-                .padding(.bottom, VSpacing.xl)
-
-                Divider().background(VColor.borderBase)
-                    .padding(.bottom, VSpacing.xl)
-
-                AgentPanelContent(onInvokeSkill: onInvokeSkill, daemonClient: daemonClient)
-            }
-            .frame(maxWidth: maxContentWidth)
-            .padding(.horizontal, VSpacing.xxl)
-            .padding(.bottom, VSpacing.xxl)
-            .frame(maxWidth: .infinity)
-        }
-    }
-}
-
-#Preview {
-    AgentPanel(onClose: {}, daemonClient: DaemonClient())
 }
