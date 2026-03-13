@@ -148,6 +148,7 @@ export function upsertContactChannel(params: {
   verifiedAt?: number;
   verifiedVia?: string;
   role?: ContactRole;
+  contactId?: string;
 }): ContactWriteResult | null {
   let address: string;
 
@@ -175,6 +176,7 @@ export function upsertContactChannel(params: {
     : null;
 
   upsertContact({
+    id: params.contactId,
     displayName,
     role: params.role,
     channels: [

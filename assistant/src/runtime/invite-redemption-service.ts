@@ -135,26 +135,36 @@ export function redeemInvite(params: {
   const existingChannel = contactResult?.channel ?? null;
   const existingContact = contactResult?.contact ?? null;
 
-  if (existingChannel && existingChannel.status === "active") {
+  // If the invite targets a specific contact and the sender's existing channel
+  // belongs to a different contact, ignore the existing match — the invite
+  // should bind the sender's identity to the target contact, not the existing one.
+  const targetMismatch =
+    existingContact && existingContact.id !== invite.contactId;
+
+  if (
+    existingChannel &&
+    existingChannel.status === "active" &&
+    !targetMismatch
+  ) {
     return { ok: true, type: "already_member", memberId: existingChannel.id };
   }
 
   // Blocked members cannot bypass the guardian's explicit block via invite
   // links. Return the same generic failure as an invalid token to avoid
   // leaking membership status to the caller.
-  if (existingChannel && existingChannel.status === "blocked") {
+  if (
+    existingChannel &&
+    existingChannel.status === "blocked" &&
+    !targetMismatch
+  ) {
     return { ok: false, reason: "invalid_token" };
   }
-
-  // When a guardian redeems a regular invite, downgrade them to a normal
-  // contact — they are opting into the regular contact flow.
-  const isGuardianDowngrade = existingContact?.role === "guardian";
 
   // Inactive member reactivation: when the user already has a member record
   // in a non-active state (revoked/pending), reactivate it via upsertContactChannel
   // and consume an invite use atomically. The fresh-member path below also
   // uses upsertContactChannel to keep contacts in sync.
-  if (existingChannel) {
+  if (existingChannel && !targetMismatch) {
     // Sentinel error used to trigger a transaction rollback when the invite
     // was concurrently revoked/expired between pre-validation and write time.
     const STALE_INVITE = Symbol("stale_invite");
@@ -193,7 +203,7 @@ export function redeemInvite(params: {
             inviteId: invite.id,
             verifiedAt: Date.now(),
             verifiedVia: "invite",
-            ...(isGuardianDowngrade ? { role: "contact" as const } : {}),
+            contactId: invite.contactId,
           });
 
           const recorded = recordInviteUse({
@@ -241,6 +251,7 @@ export function redeemInvite(params: {
           inviteId: invite.id,
           verifiedAt: Date.now(),
           verifiedVia: "invite",
+          contactId: invite.contactId,
         });
 
         const recorded = recordInviteUse({
@@ -345,7 +356,16 @@ export function redeemVoiceInviteCode(params: {
   const existingVoiceChannel = voiceContactResult?.channel ?? null;
   const voiceContact = voiceContactResult?.contact ?? null;
 
-  if (existingVoiceChannel && existingVoiceChannel.status === "active") {
+  // If the invite targets a specific contact and the sender's existing channel
+  // belongs to a different contact, ignore the existing match — the invite
+  // should bind the sender's identity to the target contact, not the existing one.
+  const targetMismatch = voiceContact && voiceContact.id !== invite.contactId;
+
+  if (
+    existingVoiceChannel &&
+    existingVoiceChannel.status === "active" &&
+    !targetMismatch
+  ) {
     return {
       ok: true,
       type: "already_member",
@@ -354,20 +374,18 @@ export function redeemVoiceInviteCode(params: {
   }
 
   // Blocked members cannot bypass the guardian's explicit block
-  if (existingVoiceChannel && existingVoiceChannel.status === "blocked") {
+  if (
+    existingVoiceChannel &&
+    existingVoiceChannel.status === "blocked" &&
+    !targetMismatch
+  ) {
     return { ok: false, reason: "invalid_or_expired" };
   }
-
-  // When a guardian redeems a regular invite, downgrade them to a normal
-  // contact — they are opting into the regular contact flow.
-  const isVoiceGuardianDowngrade = voiceContact?.role === "guardian";
 
   // Atomic redemption: upsert member + consume invite use in a transaction
   const STALE_INVITE = Symbol("stale_invite");
   let memberId: string | undefined;
 
-  // Reactivation should not overwrite a guardian-managed nickname (same
-  // protection as the token-based redemption path above).
   const preservedDisplayName = voiceContact?.displayName?.trim().length
     ? voiceContact.displayName
     : (invite.friendName ?? undefined);
@@ -385,7 +403,7 @@ export function redeemVoiceInviteCode(params: {
           inviteId: invite.id,
           verifiedAt: Date.now(),
           verifiedVia: "invite",
-          ...(isVoiceGuardianDowngrade ? { role: "contact" as const } : {}),
+          contactId: invite.contactId,
         });
         memberId = writeResult!.channel.id;
 
@@ -486,24 +504,34 @@ export function redeemInviteByCode(params: {
   const existingChannel = contactResult?.channel ?? null;
   const existingContact = contactResult?.contact ?? null;
 
-  if (existingChannel && existingChannel.status === "active") {
+  // If the invite targets a specific contact and the sender's existing channel
+  // belongs to a different contact, ignore the existing match — the invite
+  // should bind the sender's identity to the target contact, not the existing one.
+  const targetMismatch =
+    existingContact && existingContact.id !== invite.contactId;
+
+  if (
+    existingChannel &&
+    existingChannel.status === "active" &&
+    !targetMismatch
+  ) {
     return { ok: true, type: "already_member", memberId: existingChannel.id };
   }
 
   // Blocked members cannot bypass the guardian's explicit block via invite
   // codes. Return the same generic failure as an invalid token to avoid
   // leaking membership status to the caller.
-  if (existingChannel && existingChannel.status === "blocked") {
+  if (
+    existingChannel &&
+    existingChannel.status === "blocked" &&
+    !targetMismatch
+  ) {
     return { ok: false, reason: "invalid_token" };
   }
 
-  // When a guardian redeems a regular invite, downgrade them to a normal
-  // contact — they are opting into the regular contact flow.
-  const isCodeGuardianDowngrade = existingContact?.role === "guardian";
-
   // Inactive member reactivation: reactivate via upsertContactChannel and consume
   // an invite use atomically.
-  if (existingChannel) {
+  if (existingChannel && !targetMismatch) {
     const STALE_INVITE_REACTIVATE = Symbol("stale_invite_reactivate");
     const canonicalMemberId = existingChannel.externalUserId
       ? canonicalizeInboundIdentity(
@@ -539,7 +567,7 @@ export function redeemInviteByCode(params: {
             inviteId: invite.id,
             verifiedAt: Date.now(),
             verifiedVia: "invite",
-            ...(isCodeGuardianDowngrade ? { role: "contact" as const } : {}),
+            contactId: invite.contactId,
           });
 
           const recorded = recordInviteUse({
@@ -584,6 +612,7 @@ export function redeemInviteByCode(params: {
           inviteId: invite.id,
           verifiedAt: Date.now(),
           verifiedVia: "invite",
+          contactId: invite.contactId,
         });
 
         const recorded = recordInviteUse({
