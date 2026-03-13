@@ -1440,7 +1440,6 @@ function ChatApp({
     if (!busy) {
       setSpinnerText(null);
       setInputFocused(true);
-      process.stdout.write("\x07");
     }
   }, []);
 
@@ -2066,6 +2065,7 @@ function ChatApp({
                     role: "assistant",
                     content: msg.content,
                   });
+                  process.stdout.write("\x07");
                   h.setBusy(false);
                   h.hideSpinner();
                   return;
