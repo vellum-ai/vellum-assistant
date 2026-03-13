@@ -11,6 +11,7 @@ import {
   mkdtempSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -130,6 +131,21 @@ writeFileSync(
   Buffer.from([0x48, 0x65, 0x6c, 0x00, 0x6f]), // contains null byte
 );
 
+// config.json at workspace root — should be skipped (secrets, already in configSnapshot)
+writeFileSync(
+  join(testWorkspaceDir, "config.json"),
+  JSON.stringify({ apiKeys: { anthropic: "sk-secret-key" } }),
+);
+
+// Symlink pointing outside workspace — should be skipped
+const outsideFile = join(testDir, "outside-secret.txt");
+writeFileSync(outsideFile, "sensitive data outside workspace");
+try {
+  symlinkSync(outsideFile, join(testWorkspaceDir, "sneaky-link.txt"));
+} catch {
+  // Symlink creation may fail on some platforms; tests will still pass
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -186,6 +202,22 @@ describe("POST /v1/export — workspace files", () => {
       workspaceFiles: Record<string, string>;
     };
     expect(body.workspaceFiles["binary-file.dat"]).toBeUndefined();
+  });
+
+  test("excludes config.json at workspace root", async () => {
+    const res = await callExport();
+    const body = (await res.json()) as {
+      workspaceFiles: Record<string, string>;
+    };
+    expect(body.workspaceFiles["config.json"]).toBeUndefined();
+  });
+
+  test("skips symlinks", async () => {
+    const res = await callExport();
+    const body = (await res.json()) as {
+      workspaceFiles: Record<string, string>;
+    };
+    expect(body.workspaceFiles["sneaky-link.txt"]).toBeUndefined();
   });
 
   test("response includes workspaceFiles field", async () => {
