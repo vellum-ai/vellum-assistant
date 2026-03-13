@@ -7,7 +7,6 @@ import VellumAssistantShared
 struct ContactsListView: View {
     @ObservedObject var viewModel: ContactsViewModel
     @Binding var selection: ContactSelection?
-    var store: SettingsStore?
 
     @State private var hoveredContactId: String?
     @State private var isAssistantHovered = false

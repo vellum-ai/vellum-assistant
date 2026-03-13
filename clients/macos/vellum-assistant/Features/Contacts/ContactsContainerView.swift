@@ -33,8 +33,7 @@ struct ContactsContainerView: View {
             ScrollView {
                 ContactsListView(
                     viewModel: viewModel,
-                    selection: $selection,
-                    store: store
+                    selection: $selection
                 )
                 .padding(VSpacing.lg)
             }
