@@ -62,7 +62,7 @@ struct ContactsListView: View {
                 guardianSection(guardian)
             }
 
-            // Other contacts section (always show header + "+" button)
+            // Other contacts section
             otherContactsSection
 
             // Filtered-empty state (contacts exist but search yields nothing)
@@ -220,6 +220,7 @@ struct ContactsListView: View {
                 VStack(spacing: VSpacing.md) {
                     VIconView(.users, size: 24)
                         .foregroundColor(VColor.contentTertiary)
+                        .accessibilityHidden(true)
                     Text("No contacts yet")
                         .font(VFont.body)
                         .foregroundColor(VColor.contentSecondary)
