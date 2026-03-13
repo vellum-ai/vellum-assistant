@@ -15,6 +15,12 @@ import { ssh } from "./commands/ssh";
 import { tunnel } from "./commands/tunnel";
 import { use } from "./commands/use";
 import { wake } from "./commands/wake";
+import {
+  getActiveAssistant,
+  findAssistantByName,
+  loadLatestAssistant,
+} from "./lib/assistant-config";
+import { checkHealth } from "./lib/health-check";
 
 const commands = {
   clean,
@@ -37,6 +43,52 @@ const commands = {
 
 type CommandName = keyof typeof commands;
 
+function printHelp(): void {
+  console.log("Usage: vellum <command> [options]");
+  console.log("");
+  console.log("Commands:");
+  console.log("  clean    Kill orphaned vellum processes");
+  console.log("  client   Connect to a hatched assistant");
+  console.log("  hatch    Create a new assistant instance");
+  console.log("  login    Log in to the Vellum platform");
+  console.log("  logout   Log out of the Vellum platform");
+  console.log("  pair     Pair with a remote assistant via QR code");
+  console.log(
+    "  ps       List assistants (or processes for a specific assistant)",
+  );
+  console.log("  recover  Restore a previously retired local assistant");
+  console.log("  retire   Delete an assistant instance");
+  console.log("  setup    Configure API keys interactively");
+  console.log("  sleep    Stop the assistant process");
+  console.log("  ssh      SSH into a remote assistant instance");
+  console.log("  tunnel   Create a tunnel for a locally hosted assistant");
+  console.log("  use      Set the active assistant for commands");
+  console.log("  wake     Start the assistant and gateway");
+  console.log("  whoami   Show current logged-in user");
+}
+
+/**
+ * If a running assistant is detected, launch the TUI client and return true.
+ * Otherwise return false so the caller can fall back to help text.
+ */
+async function tryLaunchClient(): Promise<boolean> {
+  const activeName = getActiveAssistant();
+  const entry = activeName
+    ? findAssistantByName(activeName)
+    : loadLatestAssistant();
+
+  if (!entry) return false;
+
+  const url = entry.localUrl || entry.runtimeUrl;
+  if (!url) return false;
+
+  const result = await checkHealth(url, entry.bearerToken);
+  if (result.status !== "healthy") return false;
+
+  await client();
+  return true;
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const commandName = args[0];
@@ -46,28 +98,16 @@ async function main() {
     process.exit(0);
   }
 
-  if (!commandName || commandName === "--help" || commandName === "-h") {
-    console.log("Usage: vellum <command> [options]");
-    console.log("");
-    console.log("Commands:");
-    console.log("  clean    Kill orphaned vellum processes");
-    console.log("  client   Connect to a hatched assistant");
-    console.log("  hatch    Create a new assistant instance");
-    console.log("  login    Log in to the Vellum platform");
-    console.log("  logout   Log out of the Vellum platform");
-    console.log("  pair     Pair with a remote assistant via QR code");
-    console.log(
-      "  ps       List assistants (or processes for a specific assistant)",
-    );
-    console.log("  recover  Restore a previously retired local assistant");
-    console.log("  retire   Delete an assistant instance");
-    console.log("  setup    Configure API keys interactively");
-    console.log("  sleep    Stop the assistant process");
-    console.log("  ssh      SSH into a remote assistant instance");
-    console.log("  tunnel   Create a tunnel for a locally hosted assistant");
-    console.log("  use      Set the active assistant for commands");
-    console.log("  wake     Start the assistant and gateway");
-    console.log("  whoami   Show current logged-in user");
+  if (commandName === "--help" || commandName === "-h") {
+    printHelp();
+    process.exit(0);
+  }
+
+  if (!commandName) {
+    const launched = await tryLaunchClient();
+    if (!launched) {
+      printHelp();
+    }
     process.exit(0);
   }
 
