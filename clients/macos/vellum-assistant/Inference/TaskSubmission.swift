@@ -53,6 +53,15 @@ struct TaskAttachment: Identifiable {
 
         let data = try Data(contentsOf: url)
 
+        // Memory safety guard — prevent OOM from processing very large files.
+        let memorySafetyLimit = 500 * 1024 * 1024
+        if data.count > memorySafetyLimit {
+            let sizeMB = data.count / (1024 * 1024)
+            throw NSError(domain: "TaskAttachment", code: 6, userInfo: [
+                NSLocalizedDescriptionKey: "\(fileName) is \(sizeMB) MB which is too large to process safely."
+            ])
+        }
+
         if data.count > 20 * 1024 * 1024 {
             log.warning("Large attachment (\(data.count / (1024 * 1024)) MB): \(fileName). Server may reject files over 20 MB.")
         }
