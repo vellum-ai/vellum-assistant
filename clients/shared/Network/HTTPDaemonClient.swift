@@ -277,7 +277,7 @@ public final class HTTPTransport {
         case usageTotals(from: Int, to: Int)
         case usageDaily(from: Int, to: Int)
         case usageBreakdown(from: Int, to: Int, groupBy: String)
-        case workspaceTree(path: String)
+        case workspaceTree(path: String, showHidden: Bool)
         case workspaceFile(path: String)
         case workspaceFileContent(path: String)
         case workspaceWrite
@@ -545,9 +545,12 @@ public final class HTTPTransport {
         case .usageBreakdown(let from, let to, let groupBy):
             let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? groupBy
             return ("/v1/usage/breakdown", "from=\(from)&to=\(to)&groupBy=\(encoded)")
-        case .workspaceTree(let path):
+        case .workspaceTree(let path, let showHidden):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-            return ("/v1/workspace/tree", path.isEmpty ? nil : "path=\(encoded)")
+            var params: [String] = []
+            if !path.isEmpty { params.append("path=\(encoded)") }
+            if showHidden { params.append("showHidden=true") }
+            return ("/v1/workspace/tree", params.isEmpty ? nil : params.joined(separator: "&"))
         case .workspaceFile(let path):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
             return ("/v1/workspace/file", "path=\(encoded)")
@@ -946,9 +949,12 @@ public final class HTTPTransport {
         case .usageBreakdown(let from, let to, let groupBy):
             let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? groupBy
             return ("\(prefix)/usage/breakdown/", "from=\(from)&to=\(to)&groupBy=\(encoded)")
-        case .workspaceTree(let path):
+        case .workspaceTree(let path, let showHidden):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-            return ("\(prefix)/workspace/tree/", path.isEmpty ? nil : "path=\(encoded)")
+            var params: [String] = []
+            if !path.isEmpty { params.append("path=\(encoded)") }
+            if showHidden { params.append("showHidden=true") }
+            return ("\(prefix)/workspace/tree/", params.isEmpty ? nil : params.joined(separator: "&"))
         case .workspaceFile(let path):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
             return ("\(prefix)/workspace/file/", "path=\(encoded)")
@@ -3180,8 +3186,8 @@ public final class HTTPTransport {
     // MARK: - Workspace API
 
     /// Fetch the workspace directory tree from `GET /v1/workspace/tree`.
-    func fetchWorkspaceTree(path: String, isRetry: Bool = false) async -> WorkspaceTreeResponse? {
-        guard let url = buildURL(for: .workspaceTree(path: path)) else { return nil }
+    func fetchWorkspaceTree(path: String, showHidden: Bool = false, isRetry: Bool = false) async -> WorkspaceTreeResponse? {
+        guard let url = buildURL(for: .workspaceTree(path: path, showHidden: showHidden)) else { return nil }
 
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
@@ -3193,7 +3199,7 @@ public final class HTTPTransport {
                 if http.statusCode == 401 && !isRetry {
                     let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                     if case .success = refreshResult {
-                        return await fetchWorkspaceTree(path: path, isRetry: true)
+                        return await fetchWorkspaceTree(path: path, showHidden: showHidden, isRetry: true)
                     }
                     return nil
                 }

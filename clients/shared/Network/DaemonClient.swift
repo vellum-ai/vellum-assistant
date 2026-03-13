@@ -957,13 +957,16 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Fetch the workspace directory tree.
     /// Delegates to HTTPTransport for remote connections, or calls the local daemon HTTP server.
-    public func fetchWorkspaceTree(path: String = "") async -> WorkspaceTreeResponse? {
+    public func fetchWorkspaceTree(path: String = "", showHidden: Bool = false) async -> WorkspaceTreeResponse? {
         if let httpTransport {
-            return await httpTransport.fetchWorkspaceTree(path: path)
+            return await httpTransport.fetchWorkspaceTree(path: path, showHidden: showHidden)
         }
 
         let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-        let queryPath = path.isEmpty ? "v1/workspace/tree" : "v1/workspace/tree?path=\(encoded)"
+        var params: [String] = []
+        if !path.isEmpty { params.append("path=\(encoded)") }
+        if showHidden { params.append("showHidden=true") }
+        let queryPath = params.isEmpty ? "v1/workspace/tree" : "v1/workspace/tree?\(params.joined(separator: "&"))"
         return await executeLocalRequest(path: queryPath, timeout: 10)
     }
 
