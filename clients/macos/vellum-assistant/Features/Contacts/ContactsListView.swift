@@ -202,12 +202,14 @@ struct ContactsListView: View {
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.contentDefault)
                 Spacer()
-                Button { viewModel.isCreatingContact = true } label: {
-                    VIconView(.plus, size: 14)
-                        .foregroundColor(VColor.primaryBase)
+                if viewModel.hasNonGuardianContacts {
+                    Button { viewModel.isCreatingContact = true } label: {
+                        VIconView(.plus, size: 14)
+                            .foregroundColor(VColor.primaryBase)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Add contact")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Add contact")
             }
 
             if viewModel.hasNonGuardianContacts {
@@ -215,12 +217,19 @@ struct ContactsListView: View {
             }
 
             if !viewModel.hasNonGuardianContacts {
-                Text("No contacts yet. Tap + to add one.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-                    .padding(VSpacing.lg)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .vCard(background: VColor.surfaceOverlay)
+                VStack(spacing: VSpacing.md) {
+                    VIconView(.users, size: 24)
+                        .foregroundColor(VColor.contentTertiary)
+                    Text("No contacts yet")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentSecondary)
+                    VButton(label: "Add Contact", leftIcon: VIcon.plus.rawValue, style: .primary) {
+                        viewModel.isCreatingContact = true
+                    }
+                }
+                .padding(.vertical, VSpacing.lg)
+                .frame(maxWidth: .infinity)
+                .vCard(background: VColor.surfaceOverlay)
             } else if !viewModel.otherContacts.isEmpty {
                 VStack(spacing: 0) {
                     ForEach(Array(viewModel.otherContacts.enumerated()), id: \.element.id) { index, contact in
