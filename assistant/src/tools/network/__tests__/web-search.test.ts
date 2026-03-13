@@ -24,7 +24,7 @@ mock.module("../../../config/loader.js", () => ({
 }));
 
 mock.module("../../../security/secure-keys.js", () => ({
-  getSecureKey: (provider: string) => {
+  getSecureKeyAsync: async (provider: string) => {
     if (provider === "brave") return mockBraveSecureKey;
     if (provider === "perplexity") return mockPerplexitySecureKey;
     return undefined;
