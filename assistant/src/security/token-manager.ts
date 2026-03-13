@@ -16,7 +16,11 @@ import {
 } from "../oauth/oauth-store.js";
 import { getLogger } from "../util/logger.js";
 import { refreshOAuth2Token, type TokenEndpointAuthMethod } from "./oauth2.js";
-import { getSecureKey, setSecureKeyAsync } from "./secure-keys.js";
+import {
+  getSecureKey,
+  getSecureKeyAsync,
+  setSecureKeyAsync,
+} from "./secure-keys.js";
 
 const log = getLogger("token-manager");
 
@@ -185,7 +189,10 @@ interface RefreshConfig {
  * authMethod. Throws `TokenExpiredError` if the connection is not found
  * or incomplete.
  */
-function resolveRefreshConfig(service: string, connId: string): RefreshConfig {
+async function resolveRefreshConfig(
+  service: string,
+  connId: string,
+): Promise<RefreshConfig> {
   const conn = getConnection(connId);
   if (!conn) {
     throw new TokenExpiredError(
@@ -219,9 +226,9 @@ function resolveRefreshConfig(service: string, connId: string): RefreshConfig {
     );
   }
 
-  const secret = getSecureKey(app.clientSecretCredentialPath);
+  const secret = await getSecureKeyAsync(app.clientSecretCredentialPath);
 
-  const refreshToken = getSecureKey(
+  const refreshToken = await getSecureKeyAsync(
     `oauth_connection/${conn.id}/refresh_token`,
   );
 
@@ -249,7 +256,7 @@ function resolveRefreshConfig(service: string, connId: string): RefreshConfig {
  * Throws `TokenExpiredError` if refresh is not possible.
  */
 async function doRefresh(service: string, connId: string): Promise<string> {
-  const refreshConfig = resolveRefreshConfig(service, connId);
+  const refreshConfig = await resolveRefreshConfig(service, connId);
   const {
     tokenUrl,
     clientId: resolvedClientId,
