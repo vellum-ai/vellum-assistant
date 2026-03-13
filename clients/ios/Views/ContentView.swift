@@ -31,8 +31,12 @@ struct ContentView: View {
     }
 
     /// Whether the user has previously saved daemon connection settings.
-    /// iOS uses HTTP+SSE only — checks for gateway URL or runtime URL.
+    /// iOS uses HTTP+SSE only — checks for managed assistant, gateway URL, or runtime URL.
     private var hasSavedSettings: Bool {
+        if let id = UserDefaults.standard.string(forKey: UserDefaultsKeys.managedAssistantId), !id.isEmpty,
+           let url = UserDefaults.standard.string(forKey: UserDefaultsKeys.managedPlatformBaseURL), !url.isEmpty {
+            return true
+        }
         if let url = UserDefaults.standard.string(forKey: UserDefaultsKeys.gatewayBaseURL), !url.isEmpty {
             return true
         }
