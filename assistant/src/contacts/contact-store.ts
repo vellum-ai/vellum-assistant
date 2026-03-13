@@ -140,6 +140,10 @@ export function upsertContact(params: {
   contactType?: ContactType;
   principalId?: string | null;
   channels?: SyncChannelData[];
+  /** When true, conflicting channels on other contacts are reassigned to this
+   *  contact instead of being skipped. Used by invite redemption to bind a
+   *  redeemer's existing channel identity to the invite's target contact. */
+  reassignConflictingChannels?: boolean;
 }): ContactWithChannels & { created: boolean } {
   const db = getDb();
   const now = Date.now();
@@ -171,7 +175,12 @@ export function upsertContact(params: {
         .run();
 
       if (params.channels) {
-        syncChannels(contactId, params.channels, now);
+        syncChannels(
+          contactId,
+          params.channels,
+          now,
+          params.reassignConflictingChannels,
+        );
       }
 
       emitContactChange();
@@ -253,6 +262,7 @@ function syncChannels(
   contactId: string,
   channels: SyncChannelData[],
   now: number,
+  reassignConflicting?: boolean,
 ): void {
   const db = getDb();
 
@@ -312,7 +322,34 @@ function syncChannels(
       .get();
 
     if (conflicting) {
-      // Channel belongs to another contact -- skip to avoid unique constraint violation.
+      if (reassignConflicting) {
+        // Reassign the channel to the target contact. Used by invite redemption
+        // to bind a redeemer's existing channel identity to the invite's target.
+        const reassignSet: Record<string, unknown> = {
+          contactId,
+          updatedAt: now,
+        };
+        if (ch.externalUserId !== undefined)
+          reassignSet.externalUserId = ch.externalUserId;
+        if (ch.externalChatId !== undefined)
+          reassignSet.externalChatId = ch.externalChatId;
+        if (ch.status !== undefined) reassignSet.status = ch.status;
+        if (ch.policy !== undefined) reassignSet.policy = ch.policy;
+        if (ch.verifiedAt !== undefined) reassignSet.verifiedAt = ch.verifiedAt;
+        if (ch.verifiedVia !== undefined)
+          reassignSet.verifiedVia = ch.verifiedVia;
+        if (ch.inviteId !== undefined) reassignSet.inviteId = ch.inviteId;
+        if (ch.revokedReason !== undefined)
+          reassignSet.revokedReason = ch.revokedReason;
+        if (ch.blockedReason !== undefined)
+          reassignSet.blockedReason = ch.blockedReason;
+
+        db.update(contactChannels)
+          .set(reassignSet)
+          .where(eq(contactChannels.id, conflicting.id))
+          .run();
+      }
+      // When not reassigning, skip to avoid unique constraint violation.
       // The caller should use contact_merge to combine the two contacts.
       continue;
     }
