@@ -6,6 +6,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import { extname, resolve, sep } from "node:path";
 
 import { getLogger } from "../util/logger.js";
 import {
@@ -35,6 +36,35 @@ export interface EnrollResult {
   enrolled: string[];
   skipped: Array<{ email: string; reason: string }>;
   failed: Array<{ email: string; reason: string }>;
+}
+
+// ── Path validation ─────────────────────────────────────────────────
+
+const ALLOWED_IMPORT_EXTENSIONS = new Set([".csv", ".tsv"]);
+
+function normalizeForPathCheck(path: string): string {
+  return process.platform === "win32" ? path.toLowerCase() : path;
+}
+
+function validateImportPath(filePath: string): string {
+  const resolvedPath = resolve(filePath);
+  const workspaceRoot = resolve(process.cwd());
+  const normalizedPath = normalizeForPathCheck(resolvedPath);
+  const normalizedWorkspace = normalizeForPathCheck(workspaceRoot);
+
+  if (
+    normalizedPath !== normalizedWorkspace &&
+    !normalizedPath.startsWith(`${normalizedWorkspace}${sep}`)
+  ) {
+    throw new Error("file_path must be inside the current workspace.");
+  }
+
+  const extension = extname(resolvedPath).toLowerCase();
+  if (!ALLOWED_IMPORT_EXTENSIONS.has(extension)) {
+    throw new Error("file_path must be a .csv or .tsv file.");
+  }
+
+  return resolvedPath;
 }
 
 // ── Email validation ────────────────────────────────────────────────
@@ -190,7 +220,8 @@ function splitCSVRows(content: string): string[] {
  * Parse a CSV/TSV file into structured contacts.
  */
 export function parseContactFile(filePath: string): ParseResult {
-  const content = readFileSync(filePath, "utf-8");
+  const validatedPath = validateImportPath(filePath);
+  const content = readFileSync(validatedPath, "utf-8");
   const lines = splitCSVRows(content);
 
   if (lines.length === 0) {
@@ -245,7 +276,7 @@ export function parseContactFile(filePath: string): ParseResult {
 
     const email = rawEmail.toLowerCase();
     if (!isValidEmail(email)) {
-      errors.push({ row: rowNum, reason: `Invalid email: ${rawEmail}` });
+      errors.push({ row: rowNum, reason: "Invalid email format" });
       continue;
     }
 
