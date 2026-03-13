@@ -40,7 +40,7 @@ final class WorkspaceBrowserState {
         }
     }
 
-    func loadFile(path targetPath: String, using daemonClient: DaemonClient) async {
+    func loadFile(path targetPath: String, using daemonClient: DaemonClient, showHidden: Bool = false) async {
         selectedFilePath = targetPath
         isLoadingFile = true
         selectedFileDetail = nil
@@ -48,7 +48,7 @@ final class WorkspaceBrowserState {
         editableContent = ""
         fileLoadTask?.cancel()
         let task = Task {
-            let detail = await daemonClient.fetchWorkspaceFile(path: targetPath)
+            let detail = await daemonClient.fetchWorkspaceFile(path: targetPath, showHidden: showHidden)
             guard !Task.isCancelled, selectedFilePath == targetPath else { return }
             selectedFileDetail = detail
             editableContent = detail?.content ?? ""
@@ -87,7 +87,7 @@ struct WorkspacePanel: View {
             Button("Discard", role: .destructive) {
                 guard let targetPath = state.pendingSwitchPath else { return }
                 state.pendingSwitchPath = nil
-                Task { await state.loadFile(path: targetPath, using: daemonClient) }
+                Task { await state.loadFile(path: targetPath, using: daemonClient, showHidden: state.showHiddenFiles) }
             }
             Button("Cancel", role: .cancel) {
                 state.pendingSwitchPath = nil
@@ -543,7 +543,7 @@ private struct WorkspaceTreeRow: View {
                 state.pendingSwitchPath = targetPath
                 state.showingDirtyAlert = true
             } else {
-                await state.loadFile(path: targetPath, using: daemonClient)
+                await state.loadFile(path: targetPath, using: daemonClient, showHidden: state.showHiddenFiles)
             }
         }
     }
@@ -686,7 +686,7 @@ private struct WorkspaceFileViewer: View {
 
     private func imageViewer(_ detail: WorkspaceFileResponse) -> some View {
         Group {
-            if let url = daemonClient.workspaceFileContentURL(path: detail.path) {
+            if let url = daemonClient.workspaceFileContentURL(path: detail.path, showHidden: state.showHiddenFiles) {
                 AuthenticatedImageView(url: url, daemonClient: daemonClient)
             } else {
                 Text("Unable to load image URL")
@@ -699,7 +699,7 @@ private struct WorkspaceFileViewer: View {
 
     private func videoViewer(_ detail: WorkspaceFileResponse) -> some View {
         Group {
-            if let url = daemonClient.workspaceFileContentURL(path: detail.path) {
+            if let url = daemonClient.workspaceFileContentURL(path: detail.path, showHidden: state.showHiddenFiles) {
                 WorkspaceVideoPlayer(url: url, daemonClient: daemonClient)
             } else {
                 Text("Unable to load video URL")

@@ -278,8 +278,8 @@ public final class HTTPTransport {
         case usageDaily(from: Int, to: Int)
         case usageBreakdown(from: Int, to: Int, groupBy: String)
         case workspaceTree(path: String, showHidden: Bool)
-        case workspaceFile(path: String)
-        case workspaceFileContent(path: String)
+        case workspaceFile(path: String, showHidden: Bool)
+        case workspaceFileContent(path: String, showHidden: Bool)
         case workspaceWrite
         case workspaceMkdir
         case workspaceRename
@@ -551,12 +551,16 @@ public final class HTTPTransport {
             if !path.isEmpty { params.append("path=\(encoded)") }
             if showHidden { params.append("showHidden=true") }
             return ("/v1/workspace/tree", params.isEmpty ? nil : params.joined(separator: "&"))
-        case .workspaceFile(let path):
+        case .workspaceFile(let path, let showHidden):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-            return ("/v1/workspace/file", "path=\(encoded)")
-        case .workspaceFileContent(let path):
+            var query = "path=\(encoded)"
+            if showHidden { query += "&showHidden=true" }
+            return ("/v1/workspace/file", query)
+        case .workspaceFileContent(let path, let showHidden):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-            return ("/v1/workspace/file/content", "path=\(encoded)")
+            var query = "path=\(encoded)"
+            if showHidden { query += "&showHidden=true" }
+            return ("/v1/workspace/file/content", query)
         case .workspaceWrite:
             return ("/v1/workspace/write", nil)
         case .workspaceMkdir:
@@ -955,12 +959,16 @@ public final class HTTPTransport {
             if !path.isEmpty { params.append("path=\(encoded)") }
             if showHidden { params.append("showHidden=true") }
             return ("\(prefix)/workspace/tree/", params.isEmpty ? nil : params.joined(separator: "&"))
-        case .workspaceFile(let path):
+        case .workspaceFile(let path, let showHidden):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-            return ("\(prefix)/workspace/file/", "path=\(encoded)")
-        case .workspaceFileContent(let path):
+            var query = "path=\(encoded)"
+            if showHidden { query += "&showHidden=true" }
+            return ("\(prefix)/workspace/file/", query)
+        case .workspaceFileContent(let path, let showHidden):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-            return ("\(prefix)/workspace/file/content/", "path=\(encoded)")
+            var query = "path=\(encoded)"
+            if showHidden { query += "&showHidden=true" }
+            return ("\(prefix)/workspace/file/content/", query)
         case .workspaceWrite:
             return ("\(prefix)/workspace/write/", nil)
         case .workspaceMkdir:
@@ -3213,8 +3221,8 @@ public final class HTTPTransport {
     }
 
     /// Fetch a single workspace file's metadata from `GET /v1/workspace/file`.
-    func fetchWorkspaceFile(path: String, isRetry: Bool = false) async -> WorkspaceFileResponse? {
-        guard let url = buildURL(for: .workspaceFile(path: path)) else { return nil }
+    func fetchWorkspaceFile(path: String, showHidden: Bool = false, isRetry: Bool = false) async -> WorkspaceFileResponse? {
+        guard let url = buildURL(for: .workspaceFile(path: path, showHidden: showHidden)) else { return nil }
 
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
@@ -3226,7 +3234,7 @@ public final class HTTPTransport {
                 if http.statusCode == 401 && !isRetry {
                     let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                     if case .success = refreshResult {
-                        return await fetchWorkspaceFile(path: path, isRetry: true)
+                        return await fetchWorkspaceFile(path: path, showHidden: showHidden, isRetry: true)
                     }
                     return nil
                 }
@@ -3240,8 +3248,8 @@ public final class HTTPTransport {
     }
 
     /// Build a URL for streaming/downloading workspace file content.
-    func workspaceFileContentURL(path: String) -> URL? {
-        return buildURL(for: .workspaceFileContent(path: path))
+    func workspaceFileContentURL(path: String, showHidden: Bool = false) -> URL? {
+        return buildURL(for: .workspaceFileContent(path: path, showHidden: showHidden))
     }
 
     /// Write (create or overwrite) a file in the workspace via `POST /v1/workspace/write`.

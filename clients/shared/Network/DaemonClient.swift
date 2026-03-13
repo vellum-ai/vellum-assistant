@@ -972,25 +972,29 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Fetch a single workspace file's metadata and optional content.
     /// Delegates to HTTPTransport for remote connections, or calls the local daemon HTTP server.
-    public func fetchWorkspaceFile(path: String) async -> WorkspaceFileResponse? {
+    public func fetchWorkspaceFile(path: String, showHidden: Bool = false) async -> WorkspaceFileResponse? {
         if let httpTransport {
-            return await httpTransport.fetchWorkspaceFile(path: path)
+            return await httpTransport.fetchWorkspaceFile(path: path, showHidden: showHidden)
         }
 
         let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-        return await executeLocalRequest(path: "v1/workspace/file?path=\(encoded)", timeout: 10)
+        var query = "path=\(encoded)"
+        if showHidden { query += "&showHidden=true" }
+        return await executeLocalRequest(path: "v1/workspace/file?\(query)", timeout: 10)
     }
 
     /// Build a URL for streaming/downloading workspace file content.
     /// For remote connections, delegates to HTTPTransport. For local, builds against daemon HTTP port.
-    public func workspaceFileContentURL(path: String) -> URL? {
+    public func workspaceFileContentURL(path: String, showHidden: Bool = false) -> URL? {
         if let httpTransport {
-            return httpTransport.workspaceFileContentURL(path: path)
+            return httpTransport.workspaceFileContentURL(path: path, showHidden: showHidden)
         }
 
         let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
+        var query = "path=\(encoded)"
+        if showHidden { query += "&showHidden=true" }
         guard let port = httpPort else { return nil }
-        return URL(string: "http://localhost:\(port)/v1/workspace/file/content?path=\(encoded)")
+        return URL(string: "http://localhost:\(port)/v1/workspace/file/content?\(query)")
     }
 
     // MARK: - Workspace Write Operations
