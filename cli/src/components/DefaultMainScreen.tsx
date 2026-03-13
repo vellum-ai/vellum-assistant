@@ -2257,8 +2257,9 @@ function ChatApp({
   ]);
 
   const retryConnection = useCallback(() => {
+    if (connectingRef.current) return; // already retrying
     connectedRef.current = false;
-    connectingRef.current = false;
+    setConnectionState("connecting");
     ensureConnected();
   }, [ensureConnected]);
 
