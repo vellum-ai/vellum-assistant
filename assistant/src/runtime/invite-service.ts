@@ -18,6 +18,7 @@ import {
   type IngressInvite,
   type InviteStatus,
   listInvites,
+  markInviteExpired,
   revokeInvite,
 } from "../memory/invite-store.js";
 import {
@@ -305,6 +306,10 @@ export async function triggerInviteCall(
   if (!invite) return { ok: false, error: "Invite not found" };
   if (invite.status !== "active")
     return { ok: false, error: "Invite is not active" };
+  if (invite.expiresAt && invite.expiresAt <= Date.now()) {
+    markInviteExpired(invite.id);
+    return { ok: false, error: "Invite has expired" };
+  }
   if (invite.sourceChannel !== "phone")
     return { ok: false, error: "Only phone invites support call triggering" };
   if (
