@@ -315,8 +315,7 @@ struct MessageListView: View {
                let eyes = appearance.characterEyeStyle,
                let color = appearance.characterColor {
                 AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color,
-                                   size: ConversationAvatarFollower.avatarSize,
-                                   breathingEnabled: false)
+                                   size: ConversationAvatarFollower.avatarSize)
                     .frame(width: ConversationAvatarFollower.avatarSize,
                            height: ConversationAvatarFollower.avatarSize)
                     .padding(.horizontal, VSpacing.xl)
