@@ -1020,7 +1020,6 @@ jobs:
           fi
           DAEMON_FLAGS+=(--define "process.env.COMMIT_SHA='${{ github.sha }}'")
 
-
           # Daemon
           (cd "$ASSISTANT_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
           mkdir -p daemon-bin
