@@ -45,6 +45,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var quickInputEventHandlerRef: EventHandlerRef?
     var commandPaletteWindow: CommandPaletteWindow?
     var cmdKLocalMonitor: Any?
+    var cmdNLocalMonitor: Any?
     var navLocalMonitor: Any?
     var zoomLocalMonitor: Any?
     public let services = AppServices()
@@ -428,5 +429,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     public func performZoomIn() { zoomManager.zoomIn() }
     public func performZoomOut() { zoomManager.zoomOut() }
     public func performZoomReset() { zoomManager.resetZoom() }
+
+    public func createNewThread() {
+        showMainWindow()
+        mainWindow?.threadManager.createThread()
+    }
 
 }
