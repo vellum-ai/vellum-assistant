@@ -51,6 +51,7 @@ struct MemoriesPanel: View {
     @State private var statusFilter: MemoryStatusFilter = .active
     @State private var sortOption: MemorySortOption = .newest
     @State private var searchDebounceTask: Task<Void, Never>?
+    @State private var showFilters = false
 
     init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
@@ -85,25 +86,16 @@ struct MemoriesPanel: View {
 
     // MARK: - Filter Bar
 
+    /// Whether any filter is set to a non-default value.
+    private var hasActiveFilters: Bool {
+        selectedKind != nil || statusFilter != .active
+    }
+
     @ViewBuilder
     private var filterBar: some View {
-        VStack(spacing: VSpacing.sm) {
-            // Row 1: Kind filter chips
-            kindChips
-
-            // Row 2: Status, Search, Sort, New button
+        VStack(spacing: 0) {
+            // Primary row: Search, Filters toggle, Sort, New
             HStack(spacing: VSpacing.sm) {
-                VDropdown(
-                    placeholder: "Status",
-                    selection: $statusFilter,
-                    options: MemoryStatusFilter.allCases.map { ($0.rawValue, $0) }
-                )
-                .frame(width: 100)
-                .onChange(of: statusFilter) {
-                    store.statusFilter = statusFilter.apiValue
-                    Task { await store.loadItems() }
-                }
-
                 VSearchBar(placeholder: "Search memories...", text: $store.searchText)
                     .onChange(of: store.searchText) {
                         searchDebounceTask?.cancel()
@@ -113,6 +105,16 @@ struct MemoriesPanel: View {
                             await store.loadItems()
                         }
                     }
+
+                VButton(
+                    label: "Filters",
+                    icon: VIcon.slidersHorizontal.rawValue,
+                    style: .ghost,
+                    isActive: showFilters || hasActiveFilters
+                ) {
+                    showFilters.toggle()
+                }
+                .accessibilityLabel("Toggle filters")
 
                 VDropdown(
                     placeholder: "Sort",
@@ -126,46 +128,77 @@ struct MemoriesPanel: View {
                     Task { await store.loadItems() }
                 }
 
-                VButton(label: "New", icon: VIcon.plus.rawValue, style: .outlined) {
+                VButton(label: "New", icon: VIcon.plus.rawValue, style: .primary) {
                     showCreateSheet = true
                 }
                 .accessibilityLabel("Create new memory")
             }
-        }
-        .padding(VSpacing.md)
-    }
+            .padding(VSpacing.md)
 
-    @ViewBuilder
-    private var kindChips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: VSpacing.xs) {
-                kindChip(label: "All", kind: nil)
-                ForEach(MemoryKind.allCases) { kind in
-                    kindChip(label: kind.label, kind: kind)
+            // Secondary row: Kind chips + Status (collapsible)
+            if showFilters {
+                Divider().background(VColor.borderDisabled)
+
+                HStack(spacing: VSpacing.sm) {
+                    Text("Topic:")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: VSpacing.xs) {
+                            // "All" chip — uses .primary when selected
+                            VButton(
+                                label: "All",
+                                style: selectedKind == nil ? .primary : .ghost,
+                                size: .pill,
+                                isActive: selectedKind == nil
+                            ) {
+                                selectedKind = nil
+                                store.kindFilter = nil
+                                Task { await store.loadItems() }
+                            }
+                            .accessibilityLabel("All filter")
+                            .accessibilityAddTraits(selectedKind == nil ? .isSelected : [])
+
+                            ForEach(MemoryKind.allCases) { kind in
+                                VButton(
+                                    label: kind.label,
+                                    style: .ghost,
+                                    size: .pill,
+                                    isActive: selectedKind == kind
+                                ) {
+                                    selectedKind = kind
+                                    store.kindFilter = kind.rawValue
+                                    Task { await store.loadItems() }
+                                }
+                                .accessibilityLabel("\(kind.label) filter")
+                                .accessibilityAddTraits(selectedKind == kind ? .isSelected : [])
+                            }
+                        }
+                    }
+
+                    Divider()
+                        .frame(height: VSpacing.xl)
+
+                    Text("Status:")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+
+                    VDropdown(
+                        placeholder: "Status",
+                        selection: $statusFilter,
+                        options: MemoryStatusFilter.allCases.map { ($0.rawValue, $0) }
+                    )
+                    .frame(width: 100)
+                    .onChange(of: statusFilter) {
+                        store.statusFilter = statusFilter.apiValue
+                        Task { await store.loadItems() }
+                    }
                 }
+                .padding(.horizontal, VSpacing.md)
+                .padding(.vertical, VSpacing.sm)
             }
         }
-    }
-
-    @ViewBuilder
-    private func kindChip(label: String, kind: MemoryKind?) -> some View {
-        let isSelected = selectedKind == kind
-        Button {
-            selectedKind = kind
-            store.kindFilter = kind?.rawValue
-            Task { await store.loadItems() }
-        } label: {
-            Text(label)
-                .font(VFont.caption)
-                .foregroundColor(isSelected ? VColor.auxWhite : VColor.contentDefault)
-                .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.xxs)
-                .background(isSelected ? VColor.primaryBase : VColor.surfaceActive)
-                .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(label) filter")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     // MARK: - Content View
