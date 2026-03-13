@@ -25,6 +25,7 @@ export interface ToolDomainEvents {
       | "allow_10m"
       | "allow_thread"
       | "always_allow"
+      | "always_allow_high_risk"
       | "deny"
       | "always_deny"
       | "temporary_override";
