@@ -17,6 +17,7 @@ struct WakeUpStepView: View {
     // Callbacks
     var onStartWithAPIKey: () -> Void = {}
     var onContinueWithVellum: () -> Void = {}
+    var onGetStarted: () -> Void = {}
 
     // MARK: - Private State
 
@@ -29,6 +30,10 @@ struct WakeUpStepView: View {
         guard let url = ResourceBundle.bundle.url(forResource: "welcome-characters", withExtension: "png") else { return nil }
         return NSImage(contentsOf: url)
     }()
+
+    private var platformLoginEnabled: Bool {
+        MacOSClientFeatureFlagManager.shared.isEnabled("platform_login_enabled")
+    }
 
     private var primaryButtonTitle: String {
         onboardingPrimaryButtonTitle(isAuthenticated: authManager?.isAuthenticated == true)
@@ -56,44 +61,51 @@ struct WakeUpStepView: View {
 
         // Buttons
         VStack(spacing: VSpacing.sm) {
-            if authManager?.isLoading == true {
-                HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                        .progressViewStyle(.circular)
-                    Text("Checking...")
-                        .font(VFont.monoMedium)
-                        .foregroundColor(VColor.contentSecondary)
+            if platformLoginEnabled {
+                if authManager?.isLoading == true {
+                    HStack(spacing: VSpacing.sm) {
+                        ProgressView()
+                            .controlSize(.small)
+                            .progressViewStyle(.circular)
+                        Text("Checking...")
+                            .font(VFont.monoMedium)
+                            .foregroundColor(VColor.contentSecondary)
+                    }
+                    .frame(height: 36)
+                } else if authManager?.isSubmitting == true {
+                    HStack(spacing: VSpacing.sm) {
+                        ProgressView()
+                            .controlSize(.small)
+                            .progressViewStyle(.circular)
+                        Text("Signing in...")
+                            .font(VFont.monoMedium)
+                            .foregroundColor(VColor.contentSecondary)
+                    }
+                    .frame(height: 36)
+                } else {
+                    OnboardingButton(title: primaryButtonTitle, style: .primary) {
+                        onContinueWithVellum()
+                    }
+                    .accessibilityLabel("Sign in")
                 }
-                .frame(height: 36)
-            } else if authManager?.isSubmitting == true {
-                HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                        .progressViewStyle(.circular)
-                    Text("Signing in...")
-                        .font(VFont.monoMedium)
-                        .foregroundColor(VColor.contentSecondary)
+
+                OnboardingButton(title: "Self-host", style: .tertiary) {
+                    onStartWithAPIKey()
                 }
-                .frame(height: 36)
+                .accessibilityLabel("Self-host")
+
+                // Auth error message
+                if let error = authManager?.errorMessage {
+                    Text(error)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.systemNegativeStrong)
+                        .multilineTextAlignment(.center)
+                }
             } else {
-                OnboardingButton(title: primaryButtonTitle, style: .primary) {
-                    onContinueWithVellum()
+                OnboardingButton(title: "Get Started!", style: .primary) {
+                    onGetStarted()
                 }
-                .accessibilityLabel("Sign in")
-            }
-
-            OnboardingButton(title: "Self-host", style: .tertiary) {
-                onStartWithAPIKey()
-            }
-            .accessibilityLabel("Self-host")
-
-            // Auth error message
-            if let error = authManager?.errorMessage {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.systemNegativeStrong)
-                    .multilineTextAlignment(.center)
+                .accessibilityLabel("Get Started")
             }
         }
         .frame(maxWidth: 280)

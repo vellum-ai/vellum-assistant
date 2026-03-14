@@ -86,6 +86,14 @@ struct OnboardingFlowView: View {
                                         Task {
                                             await continueWithManagedAssistant()
                                         }
+                                    },
+                                    onGetStarted: {
+                                        guard !isAdvancingFromWakeUp else { return }
+                                        isAdvancingFromWakeUp = true
+                                        state.hasHatched = true
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                            state.advance()
+                                        }
                                     }
                                 )
                             case 1:

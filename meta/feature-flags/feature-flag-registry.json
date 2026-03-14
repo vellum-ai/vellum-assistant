@@ -136,6 +136,14 @@
       "label": "Logfire LLM Observability",
       "description": "Enable Logfire tracing for LLM request/response telemetry when LOGFIRE_TOKEN is set",
       "defaultEnabled": false
+    },
+    {
+      "id": "platform-login",
+      "scope": "macos",
+      "key": "platform_login_enabled",
+      "label": "Platform Login",
+      "description": "Show the full platform login screen during onboarding. When disabled, a simple 'Get Started!' button is shown instead.",
+      "defaultEnabled": true
     }
   ]
 }
