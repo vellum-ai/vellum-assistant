@@ -295,34 +295,35 @@ extension AppDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
-        let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettingsWindow(_:)), keyEquivalent: ",")
-        settingsItem.target = self
-        settingsItem.image = VIcon.settings.nsImage
-        menu.addItem(settingsItem)
-
-        menu.addItem(NSMenuItem.separator())
-
         let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
         updateItem.target = self
         updateItem.isEnabled = updateManager.canCheckForUpdates
         updateItem.image = VIcon.circleArrowDown.nsImage
         menu.addItem(updateItem)
 
+        let sendLogsItem = NSMenuItem(title: "Send Logs to Vellum", action: #selector(sendLogsToSentry), keyEquivalent: "")
+        sendLogsItem.target = self
+        sendLogsItem.image = VIcon.upload.nsImage
+        menu.addItem(sendLogsItem)
+
+        menu.addItem(NSMenuItem.separator())
+
         let onboardingItem = NSMenuItem(title: "Replay Onboarding", action: #selector(replayOnboarding), keyEquivalent: "")
         onboardingItem.target = self
         menu.addItem(onboardingItem)
 
         #if DEBUG
-        menu.addItem(NSMenuItem.separator())
         let galleryItem = NSMenuItem(title: "Component Gallery", action: #selector(showComponentGallery), keyEquivalent: "")
         galleryItem.target = self
         menu.addItem(galleryItem)
         #endif
 
-        let sendLogsItem = NSMenuItem(title: "Send Logs to Vellum", action: #selector(sendLogsToSentry), keyEquivalent: "")
-        sendLogsItem.target = self
-        sendLogsItem.image = VIcon.upload.nsImage
-        menu.addItem(sendLogsItem)
+        menu.addItem(NSMenuItem.separator())
+
+        let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettingsWindow(_:)), keyEquivalent: ",")
+        settingsItem.target = self
+        settingsItem.image = VIcon.settings.nsImage
+        menu.addItem(settingsItem)
 
         let restartItem = NSMenuItem(title: "Restart", action: #selector(performRestart), keyEquivalent: "")
         restartItem.target = self
