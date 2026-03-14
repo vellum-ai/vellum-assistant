@@ -43,7 +43,7 @@ describe("Hooks Integration", () => {
   let hooksDir: string;
 
   beforeEach(() => {
-    hooksDir = join(testDir, ".vellum", "workspace", "hooks");
+    hooksDir = join(testDir, ".vellum", "hooks");
     mkdirSync(hooksDir, { recursive: true });
     resetHookManager();
   });
