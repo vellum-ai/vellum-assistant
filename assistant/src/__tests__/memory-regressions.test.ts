@@ -2242,14 +2242,14 @@ describe("Memory regressions", () => {
   });
 
   // PR-18: extract_items jobs carry scopeId through the async pipeline
-  test("extract_items job payload includes scopeId from private conversation", () => {
+  test("extract_items job payload includes scopeId from private conversation", async () => {
     const conv = createConversation({
       title: "Private scope job test",
       threadType: "private",
     });
     expect(conv.memoryScopeId).toMatch(/^private:/);
 
-    addMessage(
+    await addMessage(
       conv.id,
       "user",
       "Important data that should trigger extraction in private scope.",
@@ -2268,14 +2268,14 @@ describe("Memory regressions", () => {
     expect(payload.scopeId).toBe(conv.memoryScopeId);
   });
 
-  test("extract_items job payload defaults scopeId to default for standard conversations", () => {
+  test("extract_items job payload defaults scopeId to default for standard conversations", async () => {
     const conv = createConversation({
       title: "Standard scope job test",
       threadType: "standard",
     });
     expect(conv.memoryScopeId).toBe("default");
 
-    addMessage(
+    await addMessage(
       conv.id,
       "user",
       "Regular content for extraction in default scope.",
