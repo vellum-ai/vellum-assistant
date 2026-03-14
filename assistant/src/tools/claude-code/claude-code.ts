@@ -208,7 +208,7 @@ export const claudeCodeTool: Tool = {
     if (!apiKey) {
       return {
         content:
-          "Error: No Anthropic API key configured. Set it via config or ANTHROPIC_API_KEY environment variable.",
+          "Error: No Anthropic API key configured. Set it via `keys set anthropic <key>` or configure it from the Settings page under API Keys.",
         isError: true,
       };
     }
