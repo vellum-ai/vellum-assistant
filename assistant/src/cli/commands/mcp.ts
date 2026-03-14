@@ -14,7 +14,7 @@ import {
   deleteMcpOAuthCredentials,
   McpOAuthProvider,
 } from "../../mcp/mcp-oauth-provider.js";
-import { getWorkspaceDir } from "../../util/platform.js";
+import { getSignalsDir } from "../../util/platform.js";
 import { log } from "../logger.js";
 
 export const HEALTH_CHECK_TIMEOUT_MS = 10_000;
@@ -61,7 +61,7 @@ export async function checkServerHealth(
  */
 function signalMcpReload(): void {
   try {
-    const signalsDir = join(getWorkspaceDir(), "signals");
+    const signalsDir = getSignalsDir();
     mkdirSync(signalsDir, { recursive: true });
     writeFileSync(join(signalsDir, "mcp-reload"), "");
   } catch {

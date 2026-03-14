@@ -16,7 +16,7 @@ import { addRule } from "../permissions/trust-store.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getTool } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
+import { getSignalsDir } from "../util/platform.js";
 
 const log = getLogger("signal:trust-rule");
 
@@ -27,7 +27,7 @@ const VALID_TRUST_DECISIONS: ReadonlySet<string> = new Set(["allow", "deny"]);
  * Called by ConfigWatcher when the signal file is written or modified.
  */
 export function handleTrustRuleSignal(): void {
-  const resultPath = join(getWorkspaceDir(), "signals", "trust-rule.result");
+  const resultPath = join(getSignalsDir(), "trust-rule.result");
 
   const writeError = (requestId: string | undefined, error: string): void => {
     writeFileSync(
@@ -39,10 +39,7 @@ export function handleTrustRuleSignal(): void {
   let parsedRequestId: string | undefined;
 
   try {
-    const content = readFileSync(
-      join(getWorkspaceDir(), "signals", "trust-rule"),
-      "utf-8",
-    );
+    const content = readFileSync(join(getSignalsDir(), "trust-rule"), "utf-8");
     const parsed = JSON.parse(content) as {
       requestId?: string;
       pattern?: string;

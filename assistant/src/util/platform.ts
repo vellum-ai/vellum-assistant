@@ -341,6 +341,17 @@ export function getHooksDir(): string {
   return join(getRootDir(), "hooks");
 }
 
+/**
+ * Returns ~/.vellum/signals — the directory for IPC signal files.
+ *
+ * Placed under getRootDir() (not getWorkspaceDir()) so that sandboxed tools
+ * — whose write access is limited to the workspace directory — cannot write
+ * signal files to bypass guardian authorization.
+ */
+export function getSignalsDir(): string {
+  return join(getRootDir(), "signals");
+}
+
 // --- Workspace path primitives ---
 // These will become the canonical paths after workspace migration.
 // Currently not used by call-sites; wired in later PRs.

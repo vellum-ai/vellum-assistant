@@ -13,7 +13,7 @@ import { join } from "node:path";
 import type { UserDecision } from "../permissions/types.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
+import { getSignalsDir } from "../util/platform.js";
 
 const log = getLogger("signal:confirm");
 
@@ -38,10 +38,7 @@ function isUserDecision(value: string): value is UserDecision {
  */
 export function handleConfirmationSignal(): void {
   try {
-    const content = readFileSync(
-      join(getWorkspaceDir(), "signals", "confirm"),
-      "utf-8",
-    );
+    const content = readFileSync(join(getSignalsDir(), "confirm"), "utf-8");
     const parsed = JSON.parse(content) as {
       requestId?: string;
       decision?: string;

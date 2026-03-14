@@ -14,7 +14,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
+import { getSignalsDir } from "../util/platform.js";
 
 const log = getLogger("signal:cancel");
 
@@ -40,10 +40,7 @@ export function registerCancelCallback(cb: CancelCallback): void {
  */
 export function handleCancelSignal(): void {
   try {
-    const content = readFileSync(
-      join(getWorkspaceDir(), "signals", "cancel"),
-      "utf-8",
-    );
+    const content = readFileSync(join(getSignalsDir(), "cancel"), "utf-8");
     const parsed = JSON.parse(content) as { sessionId?: string };
     const { sessionId } = parsed;
 
