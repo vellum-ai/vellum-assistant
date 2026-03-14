@@ -404,6 +404,7 @@ export async function setupTelegram(
 
   return {
     ...commandsResult,
+    botId: setResult.botId,
     botUsername: setResult.botUsername,
   };
 }
