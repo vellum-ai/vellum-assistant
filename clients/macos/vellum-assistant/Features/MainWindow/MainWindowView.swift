@@ -317,6 +317,11 @@ struct MainWindowView: View {
                     let shouldCollapse: Bool = {
                         switch newSelection {
                         case .app, .appEditing: return true
+                        case .panel(let p):
+                            switch p {
+                            case .settings: return false
+                            default: return true
+                            }
                         default: return false
                         }
                     }()

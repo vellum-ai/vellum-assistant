@@ -22,7 +22,7 @@ public struct VSplitView<Main: View, Panel: View>: View {
             HStack(spacing: 0) {
                 // Main content - styled as panel
                 main
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
                     .background(mainBackground ?? VColor.surfaceBase)
                     .clipShape(RoundedRectangle(cornerRadius: mainCornerRadius ?? VRadius.lg))
                     .padding([.bottom, .leading], VSpacing.xs)
