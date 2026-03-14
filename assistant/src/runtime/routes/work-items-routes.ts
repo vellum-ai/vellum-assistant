@@ -19,12 +19,12 @@ import {
 } from "../../tasks/tool-sanitizer.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
+import { resolveRequiredTools } from "../../work-items/resolve-required-tools.js";
 import {
   deleteWorkItem,
   getWorkItem,
   listWorkItems,
   updateWorkItem,
-  type WorkItem,
   type WorkItemStatus,
 } from "../../work-items/work-item-store.js";
 import { buildAssistantEvent } from "../assistant-event.js";
@@ -62,22 +62,6 @@ function broadcastWorkItemStatus(id: string): void {
       },
     });
   }
-}
-
-function resolveRequiredTools(
-  workItem: WorkItem,
-  taskRequiredTools: string[],
-): string[] {
-  if (workItem.requiredTools == null) {
-    return taskRequiredTools;
-  }
-
-  const snapshotTools = sanitizeToolList(JSON.parse(workItem.requiredTools));
-  if (snapshotTools.length > 0) {
-    return snapshotTools;
-  }
-
-  return taskRequiredTools;
 }
 
 // ---------------------------------------------------------------------------
@@ -348,7 +332,10 @@ export async function preflightWorkItem(
   const taskRequiredTools = task.requiredTools
     ? sanitizeToolList(JSON.parse(task.requiredTools))
     : getRegisteredToolNames();
-  let requiredTools = resolveRequiredTools(workItem, taskRequiredTools);
+  let requiredTools = resolveRequiredTools(
+    workItem.requiredTools,
+    taskRequiredTools,
+  );
 
   if (requiredTools.length === 0) {
     return { success: true, permissions: [] };
@@ -664,7 +651,10 @@ export function workItemRouteDefinitions(
         const taskRequiredTools = task.requiredTools
           ? sanitizeToolList(JSON.parse(task.requiredTools))
           : getRegisteredToolNames();
-        const requiredTools = resolveRequiredTools(workItem, taskRequiredTools);
+        const requiredTools = resolveRequiredTools(
+          workItem.requiredTools,
+          taskRequiredTools,
+        );
 
         // Permission checkpoint
         let approvedTools: string[] | undefined;
