@@ -862,6 +862,7 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
         try {
           const result = await packageApp(params.id);
           return Response.json({
+            type: "bundle_app_response",
             bundlePath: result.bundlePath,
             iconImageBase64: result.iconImageBase64,
             manifest: result.manifest,
