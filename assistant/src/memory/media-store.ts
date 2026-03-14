@@ -13,8 +13,6 @@ import {
   mediaAssets,
   mediaEvents,
   mediaKeyframes,
-  mediaTimelines,
-  mediaTrackingProfiles,
   mediaVisionOutputs,
   processingStages,
 } from "./schema.js";
@@ -62,19 +60,8 @@ export interface ProcessingStage {
 // ---------------------------------------------------------------------------
 
 /**
- * Compute a content hash for deduplication. Uses SHA-256 hex encoding for
- * consistency with the streaming variant.
- */
-export function computeFileHash(data: Buffer | Uint8Array): string {
-  const hasher = new Bun.CryptoHasher("sha256");
-  hasher.update(data);
-  return hasher.digest("hex");
-}
-
-/**
- * Streaming variant of content hashing that avoids loading the entire file
- * into memory. Uses SHA-256 via Bun.CryptoHasher so multi-GB files won't OOM.
- * Produces the same hash format as `computeFileHash`.
+ * Streaming content hashing that avoids loading the entire file into memory.
+ * Uses SHA-256 via Bun.CryptoHasher so multi-GB files won't OOM.
  */
 export async function computeFileHashStreaming(
   filePath: string,
@@ -353,16 +340,6 @@ export function deleteKeyframesForAsset(assetId: string): void {
   db.delete(mediaKeyframes).where(eq(mediaKeyframes.assetId, assetId)).run();
 }
 
-export function getKeyframeById(id: string): MediaKeyframe | null {
-  const db = getDb();
-  const row = db
-    .select()
-    .from(mediaKeyframes)
-    .where(eq(mediaKeyframes.id, id))
-    .get();
-  return row ? parseKeyframeRow(row) : null;
-}
-
 function parseKeyframeRow(
   row: typeof mediaKeyframes.$inferSelect,
 ): MediaKeyframe {
@@ -396,28 +373,6 @@ export interface MediaVisionOutput {
   output: Record<string, unknown>;
   confidence: number | null;
   createdAt: number;
-}
-
-export function insertVisionOutput(params: {
-  assetId: string;
-  keyframeId: string;
-  analysisType: string;
-  output: Record<string, unknown>;
-  confidence?: number;
-}): MediaVisionOutput {
-  const db = getDb();
-  const now = Date.now();
-  const record = {
-    id: uuid(),
-    assetId: params.assetId,
-    keyframeId: params.keyframeId,
-    analysisType: params.analysisType,
-    output: JSON.stringify(params.output),
-    confidence: params.confidence ?? null,
-    createdAt: now,
-  };
-  db.insert(mediaVisionOutputs).values(record).run();
-  return { ...record, output: params.output };
 }
 
 export function insertVisionOutputsBatch(
@@ -500,114 +455,6 @@ function parseVisionOutputRow(
 }
 
 // ---------------------------------------------------------------------------
-// Timeline types & CRUD
-// ---------------------------------------------------------------------------
-
-export interface MediaTimeline {
-  id: string;
-  assetId: string;
-  startTime: number;
-  endTime: number;
-  segmentType: string;
-  attributes: Record<string, unknown> | null;
-  confidence: number | null;
-  createdAt: number;
-}
-
-export function insertTimelineSegment(params: {
-  assetId: string;
-  startTime: number;
-  endTime: number;
-  segmentType: string;
-  attributes?: Record<string, unknown>;
-  confidence?: number;
-}): MediaTimeline {
-  const db = getDb();
-  const now = Date.now();
-  const record = {
-    id: uuid(),
-    assetId: params.assetId,
-    startTime: params.startTime,
-    endTime: params.endTime,
-    segmentType: params.segmentType,
-    attributes: params.attributes ? JSON.stringify(params.attributes) : null,
-    confidence: params.confidence ?? null,
-    createdAt: now,
-  };
-  db.insert(mediaTimelines).values(record).run();
-  return { ...record, attributes: params.attributes ?? null };
-}
-
-export function insertTimelineSegmentsBatch(
-  rows: Array<{
-    assetId: string;
-    startTime: number;
-    endTime: number;
-    segmentType: string;
-    attributes?: Record<string, unknown>;
-    confidence?: number;
-  }>,
-): MediaTimeline[] {
-  const db = getDb();
-  const now = Date.now();
-  const records = rows.map((r) => ({
-    id: uuid(),
-    assetId: r.assetId,
-    startTime: r.startTime,
-    endTime: r.endTime,
-    segmentType: r.segmentType,
-    attributes: r.attributes ? JSON.stringify(r.attributes) : null,
-    confidence: r.confidence ?? null,
-    createdAt: now,
-  }));
-  if (records.length > 0) {
-    db.insert(mediaTimelines).values(records).run();
-  }
-  return records.map((rec, i) => ({
-    ...rec,
-    attributes: rows[i].attributes ?? null,
-  }));
-}
-
-export function getTimelineForAsset(assetId: string): MediaTimeline[] {
-  const db = getDb();
-  const rows = db
-    .select()
-    .from(mediaTimelines)
-    .where(eq(mediaTimelines.assetId, assetId))
-    .all();
-  return rows.map(parseTimelineRow);
-}
-
-export function deleteTimelineForAsset(assetId: string): void {
-  const db = getDb();
-  db.delete(mediaTimelines).where(eq(mediaTimelines.assetId, assetId)).run();
-}
-
-function parseTimelineRow(
-  row: typeof mediaTimelines.$inferSelect,
-): MediaTimeline {
-  let attributes: Record<string, unknown> | null = null;
-  if (row.attributes) {
-    try {
-      attributes = JSON.parse(row.attributes) as Record<string, unknown>;
-    } catch {
-      attributes = null;
-    }
-  }
-  return {
-    id: row.id,
-    assetId: row.assetId,
-    startTime: row.startTime,
-    endTime: row.endTime,
-    segmentType: row.segmentType,
-    attributes,
-    confidence: row.confidence,
-    createdAt: row.createdAt,
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Media event types & CRUD
 // ---------------------------------------------------------------------------
 
@@ -621,70 +468,6 @@ export interface MediaEvent {
   reasons: string[];
   metadata: Record<string, unknown> | null;
   createdAt: number;
-}
-
-export function insertEvent(params: {
-  assetId: string;
-  eventType: string;
-  startTime: number;
-  endTime: number;
-  confidence: number;
-  reasons: string[];
-  metadata?: Record<string, unknown>;
-}): MediaEvent {
-  const db = getDb();
-  const now = Date.now();
-  const record = {
-    id: uuid(),
-    assetId: params.assetId,
-    eventType: params.eventType,
-    startTime: params.startTime,
-    endTime: params.endTime,
-    confidence: params.confidence,
-    reasons: JSON.stringify(params.reasons),
-    metadata: params.metadata ? JSON.stringify(params.metadata) : null,
-    createdAt: now,
-  };
-  db.insert(mediaEvents).values(record).run();
-  return {
-    ...record,
-    reasons: params.reasons,
-    metadata: params.metadata ?? null,
-  };
-}
-
-export function insertEventsBatch(
-  rows: Array<{
-    assetId: string;
-    eventType: string;
-    startTime: number;
-    endTime: number;
-    confidence: number;
-    reasons: string[];
-    metadata?: Record<string, unknown>;
-  }>,
-): MediaEvent[] {
-  const db = getDb();
-  const now = Date.now();
-  const records = rows.map((r) => ({
-    id: uuid(),
-    assetId: r.assetId,
-    eventType: r.eventType,
-    startTime: r.startTime,
-    endTime: r.endTime,
-    confidence: r.confidence,
-    reasons: JSON.stringify(r.reasons),
-    metadata: r.metadata ? JSON.stringify(r.metadata) : null,
-    createdAt: now,
-  }));
-  if (records.length > 0) {
-    db.insert(mediaEvents).values(records).run();
-  }
-  return records.map((rec, i) => ({
-    ...rec,
-    reasons: rows[i].reasons,
-    metadata: rows[i].metadata ?? null,
-  }));
 }
 
 export function getEventsForAsset(
@@ -725,32 +508,6 @@ export function getEventsForAsset(
   return rows.map(parseEventRow);
 }
 
-export function getEventById(id: string): MediaEvent | null {
-  const db = getDb();
-  const row = db.select().from(mediaEvents).where(eq(mediaEvents.id, id)).get();
-  return row ? parseEventRow(row) : null;
-}
-
-export function deleteEventsForAsset(assetId: string): void {
-  const db = getDb();
-  db.delete(mediaEvents).where(eq(mediaEvents.assetId, assetId)).run();
-}
-
-export function deleteEventsForAssetByType(
-  assetId: string,
-  eventType: string,
-): void {
-  const db = getDb();
-  db.delete(mediaEvents)
-    .where(
-      and(
-        eq(mediaEvents.assetId, assetId),
-        eq(mediaEvents.eventType, eventType),
-      ),
-    )
-    .run();
-}
-
 function parseEventRow(row: typeof mediaEvents.$inferSelect): MediaEvent {
   let reasons: string[] = [];
   try {
@@ -775,93 +532,6 @@ function parseEventRow(row: typeof mediaEvents.$inferSelect): MediaEvent {
     confidence: row.confidence,
     reasons,
     metadata,
-    createdAt: row.createdAt,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Tracking profile types & CRUD
-// ---------------------------------------------------------------------------
-
-export type CapabilityTier = "ready" | "beta" | "experimental";
-
-export interface CapabilityProfileEntry {
-  enabled: boolean;
-  tier: CapabilityTier;
-}
-
-export type CapabilityProfile = Record<string, CapabilityProfileEntry>;
-
-export interface TrackingProfile {
-  id: string;
-  assetId: string;
-  capabilities: CapabilityProfile;
-  createdAt: number;
-}
-
-/**
- * Upsert a tracking profile for a media asset. If a profile already exists
- * for the given assetId, it is replaced.
- */
-export function setTrackingProfile(
-  assetId: string,
-  capabilities: CapabilityProfile,
-): TrackingProfile {
-  const db = getDb();
-  const now = Date.now();
-
-  // Check for existing profile by assetId
-  const existing = db
-    .select()
-    .from(mediaTrackingProfiles)
-    .where(eq(mediaTrackingProfiles.assetId, assetId))
-    .get();
-
-  if (existing) {
-    db.update(mediaTrackingProfiles)
-      .set({ capabilities: JSON.stringify(capabilities), createdAt: now })
-      .where(eq(mediaTrackingProfiles.id, existing.id))
-      .run();
-    return { id: existing.id, assetId, capabilities, createdAt: now };
-  }
-
-  const id = uuid();
-  db.insert(mediaTrackingProfiles)
-    .values({
-      id,
-      assetId,
-      capabilities: JSON.stringify(capabilities),
-      createdAt: now,
-    })
-    .run();
-
-  return { id, assetId, capabilities, createdAt: now };
-}
-
-/**
- * Get the current tracking profile for a media asset, if one exists.
- */
-export function getTrackingProfile(assetId: string): TrackingProfile | null {
-  const db = getDb();
-  const row = db
-    .select()
-    .from(mediaTrackingProfiles)
-    .where(eq(mediaTrackingProfiles.assetId, assetId))
-    .get();
-
-  if (!row) return null;
-
-  let capabilities: CapabilityProfile = {};
-  try {
-    capabilities = JSON.parse(row.capabilities) as CapabilityProfile;
-  } catch {
-    capabilities = {};
-  }
-
-  return {
-    id: row.id,
-    assetId: row.assetId,
-    capabilities,
     createdAt: row.createdAt,
   };
 }
