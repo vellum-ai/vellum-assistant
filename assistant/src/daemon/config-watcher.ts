@@ -20,7 +20,7 @@ import {
   resetAllowlist,
   validateAllowlistFile,
 } from "../security/secret-allowlist.js";
-import { handleBashSignal } from "../signals/bash.js";
+import { handleBashSignal, isDebugMode } from "../signals/bash.js";
 import { handleCancelSignal } from "../signals/cancel.js";
 import { handleConfirmationSignal } from "../signals/confirm.js";
 import { handleConversationUndoSignal } from "../signals/conversation-undo.js";
@@ -237,7 +237,7 @@ export class ConfigWatcher {
     };
 
     const prefixSignalHandlers: Record<string, (filename: string) => void> = {
-      "bash.": handleBashSignal,
+      ...(isDebugMode() ? { "bash.": handleBashSignal } : {}),
     };
 
     try {

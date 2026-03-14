@@ -8,6 +8,12 @@
  *
  * Per-request filenames avoid dropped commands when overlapping invocations
  * race on the same signal file.
+ *
+ * **Security**: This handler is gated behind the `VELLUM_DEBUG` environment
+ * variable. When debug mode is off (the default), the daemon ignores bash
+ * signal files entirely. This prevents untrusted file-write operations
+ * (e.g. from prompt injection or a compromised skill) from bypassing the
+ * normal tool-approval flow for shell execution.
  */
 
 import { spawn } from "node:child_process";
@@ -18,6 +24,12 @@ import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 
 const log = getLogger("signal:bash");
+
+export function isDebugMode(): boolean {
+  return (
+    process.env.VELLUM_DEBUG === "1" || process.env.VELLUM_DEBUG === "true"
+  );
+}
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -53,6 +65,27 @@ function writeResult(requestId: string, result: BashSignalResult): void {
  * when a matching signal file is created or modified.
  */
 export function handleBashSignal(filename: string): void {
+  if (!isDebugMode()) {
+    log.warn(
+      { filename },
+      "Bash signal ignored — debug mode is not enabled (set VELLUM_DEBUG=1)",
+    );
+    // Write an error result so the CLI gets a clear rejection instead of timing out.
+    const match = filename.match(/^bash\.(.+)$/);
+    if (match) {
+      writeResult(match[1], {
+        requestId: match[1],
+        stdout: "",
+        stderr: "",
+        exitCode: null,
+        timedOut: false,
+        error:
+          "Bash signals are disabled. Start the assistant with VELLUM_DEBUG=1 to enable.",
+      });
+    }
+    return;
+  }
+
   const signalPath = join(getWorkspaceDir(), "signals", filename);
   let raw: string;
   try {
