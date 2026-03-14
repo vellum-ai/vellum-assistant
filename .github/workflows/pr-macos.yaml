@@ -28,8 +28,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
 
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
@@ -48,17 +46,6 @@ jobs:
 
       - name: Lint unused code
         run: bash scripts/periphery-scan.sh
-
-      - name: Commit seeded baseline
-        if: env.BASELINE_SEEDED == 'true'
-        env:
-          HEAD_REF: ${{ github.head_ref }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .periphery_baseline.json
-          git commit -m "chore: seed Periphery baseline with existing violations"
-          git push origin "HEAD:$HEAD_REF"
 
   build-check:
     if: contains(github.event.pull_request.labels.*.name, 'preview')

@@ -49,21 +49,6 @@ if [ ! -f "$BASELINE_FILE" ]; then
   exit 1
 fi
 
-# Detect empty baseline and auto-seed if needed
-BASELINE_USRS=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(len(d.get('v1',{}).get('usrs',[])))" "$BASELINE_FILE" 2>/dev/null || echo "0")
-
-if [ "$BASELINE_USRS" = "0" ]; then
-  echo "Baseline is empty — seeding with current violations..."
-  periphery scan \
-    --config "$CONFIG_FILE" \
-    --write-baseline "$BASELINE_FILE" \
-    --quiet
-  NEW_USRS=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(len(d.get('v1',{}).get('usrs',[])))" "$BASELINE_FILE" 2>/dev/null || echo "0")
-  echo "Baseline seeded with $NEW_USRS existing violations"
-  echo "BASELINE_SEEDED=true" >> "${GITHUB_ENV:-/dev/null}"
-  exit 0
-fi
-
 echo "Scanning for unused code (against baseline)..."
 periphery scan \
   --config "$CONFIG_FILE" \
