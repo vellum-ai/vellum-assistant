@@ -40,6 +40,7 @@ import {
 } from "../lib/constants";
 import type { RemoteHost, Species } from "../lib/constants";
 import { hatchDocker } from "../lib/docker";
+import { mintLocalBearerToken } from "../lib/jwt";
 import { hatchGcp } from "../lib/gcp";
 import type { PollResult, WatchHatchingResult } from "../lib/gcp";
 import {
@@ -794,17 +795,9 @@ async function hatchLocal(
     delete process.env.BASE_DATA_DIR;
   }
 
-  // Read the bearer token (JWT) written by the daemon so the CLI can
-  // with the gateway (which requires auth by default). The daemon writes under
-  // getRootDir() which resolves to <instanceDir>/.vellum/.
-  let bearerToken: string | undefined;
-  try {
-    const tokenPath = join(resources.instanceDir, ".vellum", "http-token");
-    const token = readFileSync(tokenPath, "utf-8").trim();
-    if (token) bearerToken = token;
-  } catch {
-    // Token file may not exist if daemon started without HTTP server
-  }
+  // Mint a JWT from the signing key so the CLI can authenticate with the
+  // daemon/gateway (which requires auth by default).
+  const bearerToken = mintLocalBearerToken(resources.instanceDir);
 
   const localEntry: AssistantEntry = {
     assistantId: instanceName,

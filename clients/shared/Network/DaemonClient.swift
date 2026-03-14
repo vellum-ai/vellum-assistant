@@ -45,13 +45,6 @@ private func resolveInstanceDirFromLockfile() -> String? {
     return instanceDir
 }
 
-/// Resolve the runtime HTTP bearer token path.
-/// Uses BASE_DATA_DIR when set to match daemon root resolution.
-/// Available on all platforms since HTTP transport is used on both macOS and iOS.
-public func resolveHttpTokenPath(environment: [String: String]? = nil) -> String {
-    return resolveVellumDir(environment: environment) + "/http-token"
-}
-
 /// Resolve the feature-flag bearer token path.
 /// Uses BASE_DATA_DIR when set to match daemon root resolution.
 public func resolveFeatureFlagTokenPath(environment: [String: String]? = nil) -> String {
