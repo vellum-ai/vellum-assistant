@@ -158,6 +158,12 @@ public final class UsageDashboardStore {
         self.fetcher = fetcher
     }
 
+    /// Replace the underlying fetcher and reset all loaded data.
+    public func updateFetcher(_ newFetcher: any UsageFetching) {
+        fetcher = newFetcher
+        reset()
+    }
+
     /// Reset all loaded data so the next `refresh()` re-fetches.
     public func reset() {
         refreshGeneration &+= 1

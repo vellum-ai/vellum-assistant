@@ -830,6 +830,36 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         return response?.session
     }
 
+    // MARK: - Usage (UsageFetching conformance)
+
+    public func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? {
+        if let httpTransport {
+            return await httpTransport.fetchUsageBreakdown(from: from, to: to, groupBy: groupBy)
+        }
+        let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? groupBy
+        return await executeLocalRequest(
+            target: .gateway, path: "v1/usage/breakdown?from=\(from)&to=\(to)&groupBy=\(encoded)", timeout: 10
+        )
+    }
+
+    public func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse? {
+        if let httpTransport {
+            return await httpTransport.fetchUsageDaily(from: from, to: to)
+        }
+        return await executeLocalRequest(
+            target: .gateway, path: "v1/usage/daily?from=\(from)&to=\(to)", timeout: 10
+        )
+    }
+
+    public func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? {
+        if let httpTransport {
+            return await httpTransport.fetchUsageTotals(from: from, to: to)
+        }
+        return await executeLocalRequest(
+            target: .gateway, path: "v1/usage/totals?from=\(from)&to=\(to)", timeout: 10
+        )
+    }
+
     // MARK: - BTW Side-Chain
 
     /// Send a /btw side-chain question and stream the response text.
@@ -2676,3 +2706,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
 }
+
+// MARK: - UsageFetching Conformance
+
+extension DaemonClient: UsageFetching {}

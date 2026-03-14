@@ -37,7 +37,7 @@ private struct DeveloperSettingsSectionContent: View {
     init(clientProvider: ClientProvider, traceStore: TraceStore) {
         self.clientProvider = clientProvider
         self.traceStore = traceStore
-        _usageDashboardStore = State(initialValue: UsageDashboardStore())
+        _usageDashboardStore = State(initialValue: UsageDashboardStore(fetcher: clientProvider.client as! DaemonClient))
     }
 
     private var sessionCount: Int {
@@ -96,7 +96,7 @@ private struct DeveloperSettingsSectionContent: View {
             UsageDashboardView(store: usageDashboardStore)
         }
         .onChange(of: clientProvider.clientGeneration) {
-            usageDashboardStore.reset()
+            usageDashboardStore.updateFetcher(clientProvider.client as! DaemonClient)
         }
     }
 }
