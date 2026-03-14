@@ -1,4 +1,4 @@
-import { asc, desc, gte } from "drizzle-orm";
+import { asc, desc, gt } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import type {
@@ -106,7 +106,7 @@ export function queryUnreportedUsageEvents(
   const rows = db
     .select()
     .from(llmUsageEvents)
-    .where(gte(llmUsageEvents.createdAt, afterCreatedAt))
+    .where(gt(llmUsageEvents.createdAt, afterCreatedAt))
     .orderBy(asc(llmUsageEvents.createdAt))
     .limit(limit)
     .all();
