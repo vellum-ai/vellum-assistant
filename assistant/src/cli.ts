@@ -265,6 +265,8 @@ export async function startCli(): Promise<void> {
         }),
       );
 
+      let settled = false;
+
       const onResult = (): void => {
         try {
           const raw = readFileSync(resultPath, "utf-8");
@@ -274,6 +276,9 @@ export async function startCli(): Promise<void> {
             error?: string;
           };
           if (result.requestId !== requestId) return;
+          settled = true;
+          watcher.close();
+          clearTimeout(timeoutId);
           if (result.ok) {
             sendConfirmation(requestId, confirmDecision);
           } else {
@@ -288,14 +293,15 @@ export async function startCli(): Promise<void> {
 
       const watcher = watch(signalsDir, (_event, filename) => {
         if (filename === "trust-rule.result") {
-          watcher.close();
           onResult();
         }
       });
 
-      setTimeout(() => {
-        watcher.close();
-        process.stdout.write("[Trust rule timed out]\n");
+      const timeoutId = setTimeout(() => {
+        if (!settled) {
+          watcher.close();
+          process.stdout.write("[Trust rule timed out]\n");
+        }
       }, 5_000);
 
       if (existsSync(resultPath)) {
