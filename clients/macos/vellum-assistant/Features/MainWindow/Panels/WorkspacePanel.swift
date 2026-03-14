@@ -67,14 +67,42 @@ final class WorkspaceBrowserState {
 struct WorkspacePanel: View {
     let daemonClient: DaemonClient
     @State private var state = WorkspaceBrowserState()
+    @State private var sidebarWidth: CGFloat = 300
+    @State private var dragStartWidth: CGFloat?
+
+    private let minSidebarWidth: CGFloat = 140
+    private let maxSidebarWidth: CGFloat = 500
 
     var body: some View {
-        HSplitView {
+        HStack(spacing: 0) {
             WorkspaceTreeSidebar(state: state, daemonClient: daemonClient, onToggleHiddenFiles: applyHiddenFilesToggle)
-                .frame(minWidth: 140, idealWidth: 300)
+                .frame(width: sidebarWidth)
+
+            // Invisible resize handle
+            Color.clear
+                .frame(width: 6)
+                .contentShape(Rectangle())
+                .onHover { hovering in
+                    if hovering {
+                        NSCursor.resizeLeftRight.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+                .gesture(
+                    DragGesture(minimumDistance: 1)
+                        .onChanged { value in
+                            let start = dragStartWidth ?? sidebarWidth
+                            if dragStartWidth == nil { dragStartWidth = sidebarWidth }
+                            sidebarWidth = min(max(start + value.translation.width, minSidebarWidth), maxSidebarWidth)
+                        }
+                        .onEnded { _ in
+                            dragStartWidth = nil
+                        }
+                )
+
             WorkspaceFileViewer(state: state, daemonClient: daemonClient)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .layoutPriority(1)
         }
         .task { await loadRoot() }
         .onDisappear {
