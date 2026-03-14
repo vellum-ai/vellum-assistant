@@ -211,7 +211,7 @@ export class CallController {
   }
 
   /**
-   * Kick off the first utterance after the guardian has completed outbound
+   * Kick off the first utterance after the caller has completed outbound
    * phone verification. Sends a verification-aware marker so the LLM can
    * greet naturally with context that verification just happened.
    */
