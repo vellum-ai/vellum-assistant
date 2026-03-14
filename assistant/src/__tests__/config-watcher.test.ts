@@ -128,8 +128,8 @@ mock.module("../signals/confirm.js", () => ({
   handleConfirmationSignal: () => {},
 }));
 
-mock.module("../signals/trust-rule-confirm.js", () => ({
-  handleTrustRuleConfirmSignal: () => {},
+mock.module("../signals/trust-rule.js", () => ({
+  handleTrustRuleSignal: () => {},
 }));
 
 let resetAllowlistCallCount = 0;

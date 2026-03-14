@@ -1,41 +1,36 @@
 /**
- * Handle combined trust-rule + confirmation signals from the CLI.
+ * Handle trust-rule signals from the CLI.
  *
  * When the user chooses to allowlist/denylist a tool pattern from a
- * confirmation prompt, the CLI writes JSON to `signals/trust-rule-confirm`.
+ * confirmation prompt, the CLI writes JSON to `signals/trust-rule`.
  * The daemon's ConfigWatcher detects the file change and invokes
- * {@link handleTrustRuleConfirmSignal}, which adds the trust rule and
- * resolves the pending confirmation in one step.
+ * {@link handleTrustRuleSignal}, which adds the trust rule.
+ *
+ * The CLI writes a separate `signals/confirm` file (after a short delay)
+ * to resolve the pending confirmation via the existing confirm handler.
  */
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { addRule } from "../permissions/trust-store.js";
-import type { UserDecision } from "../permissions/types.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getTool } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 
-const log = getLogger("signal:trust-rule-confirm");
+const log = getLogger("signal:trust-rule");
 
 const VALID_TRUST_DECISIONS: ReadonlySet<string> = new Set(["allow", "deny"]);
 
-const VALID_CONFIRM_DECISIONS: ReadonlySet<string> = new Set(["allow", "deny"]);
-
-function isUserDecision(value: string): value is UserDecision {
-  return VALID_CONFIRM_DECISIONS.has(value);
-}
-
 /**
- * Read the `signals/trust-rule-confirm` file, add the trust rule, and
- * resolve the pending confirmation.
+ * Read the `signals/trust-rule` file and add the trust rule.
+ * Called by ConfigWatcher when the signal file is written or modified.
  */
-export function handleTrustRuleConfirmSignal(): void {
+export function handleTrustRuleSignal(): void {
   try {
     const content = readFileSync(
-      join(getWorkspaceDir(), "signals", "trust-rule-confirm"),
+      join(getWorkspaceDir(), "signals", "trust-rule"),
       "utf-8",
     );
     const parsed = JSON.parse(content) as {
@@ -43,59 +38,41 @@ export function handleTrustRuleConfirmSignal(): void {
       pattern?: string;
       scope?: string;
       decision?: string;
-      confirmDecision?: string;
       allowHighRisk?: boolean;
     };
-    const {
-      requestId,
-      pattern,
-      scope,
-      decision,
-      confirmDecision,
-      allowHighRisk,
-    } = parsed;
+    const { requestId, pattern, scope, decision, allowHighRisk } = parsed;
 
     if (!requestId || typeof requestId !== "string") {
-      log.warn("Trust-rule-confirm signal missing requestId");
+      log.warn("Trust-rule signal missing requestId");
       return;
     }
     if (!pattern || typeof pattern !== "string") {
-      log.warn({ requestId }, "Trust-rule-confirm signal missing pattern");
+      log.warn({ requestId }, "Trust-rule signal missing pattern");
       return;
     }
     if (!scope || typeof scope !== "string") {
-      log.warn({ requestId }, "Trust-rule-confirm signal missing scope");
+      log.warn({ requestId }, "Trust-rule signal missing scope");
       return;
     }
     if (!decision || !VALID_TRUST_DECISIONS.has(decision)) {
       log.warn(
         { requestId, decision },
-        "Trust-rule-confirm signal has invalid trust decision",
-      );
-      return;
-    }
-    if (!confirmDecision || !isUserDecision(confirmDecision)) {
-      log.warn(
-        { requestId, confirmDecision },
-        "Trust-rule-confirm signal has invalid confirm decision",
+        "Trust-rule signal has invalid decision",
       );
       return;
     }
 
-    // Look up the pending interaction (non-destructive) for trust rule validation.
+    // Look up the pending interaction (non-destructive) for validation.
     const interaction = pendingInteractions.get(requestId);
     if (!interaction) {
-      log.warn(
-        { requestId },
-        "No pending interaction for trust-rule-confirm signal",
-      );
+      log.warn({ requestId }, "No pending interaction for trust-rule signal");
       return;
     }
 
     if (!interaction.confirmationDetails) {
       log.warn(
         { requestId },
-        "No confirmation details for trust-rule-confirm signal",
+        "No confirmation details for trust-rule signal",
       );
       return;
     }
@@ -159,30 +136,7 @@ export function handleTrustRuleConfirmSignal(): void {
       { tool: confirmation.toolName, pattern, scope, decision, requestId },
       "Trust rule added via signal file",
     );
-
-    // Resolve the confirmation.
-    const resolved = pendingInteractions.resolve(requestId);
-    if (!resolved) {
-      log.warn(
-        { requestId },
-        "Pending interaction disappeared before confirmation could be resolved",
-      );
-      return;
-    }
-
-    resolved.session.handleConfirmationResponse(
-      requestId,
-      confirmDecision,
-      undefined,
-      undefined,
-      undefined,
-      { source: "button" },
-    );
-    log.info(
-      { requestId, confirmDecision },
-      "Confirmation resolved via trust-rule-confirm signal",
-    );
   } catch (err) {
-    log.error({ err }, "Failed to handle trust-rule-confirm signal");
+    log.error({ err }, "Failed to handle trust-rule signal");
   }
 }

@@ -239,7 +239,7 @@ export async function startCli(): Promise<void> {
     }
   }
 
-  /** Add a trust rule and confirm via signal file (read by the daemon). */
+  /** Add a trust rule via signal file, then confirm after a short delay. */
   function sendTrustRuleAndConfirm(
     requestId: string,
     pattern: string,
@@ -252,16 +252,18 @@ export async function startCli(): Promise<void> {
       const signalsDir = join(getWorkspaceDir(), "signals");
       mkdirSync(signalsDir, { recursive: true });
       writeFileSync(
-        join(signalsDir, "trust-rule-confirm"),
+        join(signalsDir, "trust-rule"),
         JSON.stringify({
           requestId,
           pattern,
           scope,
           decision,
-          confirmDecision,
           ...(options?.allowHighRisk ? { allowHighRisk: true } : {}),
         }),
       );
+      setTimeout(() => {
+        sendConfirmation(requestId, confirmDecision);
+      }, 300);
     } catch {
       process.stdout.write("[Failed to send trust rule]\n");
     }

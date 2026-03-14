@@ -22,7 +22,7 @@ import {
 } from "../security/secret-allowlist.js";
 import { handleConfirmationSignal } from "../signals/confirm.js";
 import { handleMcpReloadSignal } from "../signals/mcp-reload.js";
-import { handleTrustRuleConfirmSignal } from "../signals/trust-rule-confirm.js";
+import { handleTrustRuleSignal } from "../signals/trust-rule.js";
 import { DebouncerMap } from "../util/debounce.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -228,7 +228,7 @@ export class ConfigWatcher {
     const signalHandlers: Record<string, () => void> = {
       "mcp-reload": handleMcpReloadSignal,
       confirm: handleConfirmationSignal,
-      "trust-rule-confirm": handleTrustRuleConfirmSignal,
+      "trust-rule": handleTrustRuleSignal,
     };
 
     try {
