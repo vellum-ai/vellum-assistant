@@ -73,6 +73,8 @@ struct WorkspacePanel: View {
     private let minSidebarWidth: CGFloat = 140
     private let maxSidebarWidth: CGFloat = 500
 
+    private let dragCoordinateSpace = "WorkspacePanelDrag"
+
     var body: some View {
         HStack(spacing: 0) {
             WorkspaceTreeSidebar(state: state, daemonClient: daemonClient, onToggleHiddenFiles: applyHiddenFilesToggle)
@@ -90,11 +92,16 @@ struct WorkspacePanel: View {
                     }
                 }
                 .gesture(
-                    DragGesture(minimumDistance: 1)
+                    DragGesture(minimumDistance: 1, coordinateSpace: .named(dragCoordinateSpace))
                         .onChanged { value in
-                            let start = dragStartWidth ?? sidebarWidth
                             if dragStartWidth == nil { dragStartWidth = sidebarWidth }
-                            sidebarWidth = min(max(start + value.translation.width, minSidebarWidth), maxSidebarWidth)
+                            guard let start = dragStartWidth else { return }
+                            let delta = value.location.x - value.startLocation.x
+                            var transaction = Transaction()
+                            transaction.disablesAnimations = true
+                            withTransaction(transaction) {
+                                sidebarWidth = min(max(start + delta, minSidebarWidth), maxSidebarWidth)
+                            }
                         }
                         .onEnded { _ in
                             dragStartWidth = nil
@@ -104,6 +111,7 @@ struct WorkspacePanel: View {
             WorkspaceFileViewer(state: state, daemonClient: daemonClient)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .coordinateSpace(name: dragCoordinateSpace)
         .task { await loadRoot() }
         .onDisappear {
             state.fileLoadTask?.cancel()
