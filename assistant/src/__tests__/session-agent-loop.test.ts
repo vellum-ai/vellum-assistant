@@ -352,6 +352,7 @@ function makeCtx(
 
     agentLoop: {
       run: agentLoopRun,
+      getToolTokenBudget: () => 0,
     } as unknown as AgentLoopSessionContext["agentLoop"],
     provider: {
       name: "mock-provider",

@@ -292,7 +292,15 @@ mock.module("../agent/loop.js", () => ({
         return history; // Progress was made — history grew
       }
 
-      if (agentLoopRunCount === 1 && firstRunErrorMode !== "none") {
+      // Context-too-large modes: keep failing when compaction can't help
+      const isContextTooLargeMode =
+        firstRunErrorMode !== "none" && firstRunErrorMode !== "ordering";
+      const shouldError =
+        firstRunErrorMode !== "none" &&
+        (agentLoopRunCount === 1 ||
+          (isContextTooLargeMode && !forceCompactionEnabled));
+
+      if (shouldError) {
         onEvent({
           type: "usage",
           inputTokens: 0,
@@ -498,18 +506,15 @@ describe("provider ordering error retry", () => {
       (msg) => events.push(msg as unknown as Record<string, unknown>),
     );
 
-    // No retry — the mock reducer returns exhausted:true without successful
-    // compaction, so the convergence loop breaks out. Emergency compaction
-    // also fails (forceCompactionEnabled=false), and the overflow policy
-    // is fail_gracefully, so the error surfaces.
-    expect(agentLoopRunCount).toBe(1);
-    // Three maybeCompact calls: initial auto-compact (force:false),
-    // reducer's compactFn (force:true), emergency compaction (force:true).
-    expect(maybeCompactCalls).toEqual([
-      { force: false },
-      { force: true },
-      { force: true },
-    ]);
+    // The convergence loop enters and applies the reducer (which returns
+    // exhausted:true). With the early-break removed, the loop still re-runs
+    // the agent loop once after the reducer. Since compaction didn't help
+    // (forceCompactionEnabled=false), the second run also fails with
+    // context_too_large. The overflow policy (fail_gracefully) surfaces error.
+    expect(agentLoopRunCount).toBe(2);
+    // Two maybeCompact calls: initial auto-compact (force:false),
+    // reducer's compactFn (force:true).
+    expect(maybeCompactCalls).toEqual([{ force: false }, { force: true }]);
 
     expect(events.some((e) => e.type === "session_error")).toBe(true);
   });
@@ -526,14 +531,9 @@ describe("provider ordering error retry", () => {
       events.push(msg as unknown as Record<string, unknown>),
     );
 
-    // Reducer exhausted without successful compaction, emergency compaction
-    // also fails — error surfaces via overflow policy (fail_gracefully).
-    expect(agentLoopRunCount).toBe(1);
-    expect(maybeCompactCalls).toEqual([
-      { force: false },
-      { force: true },
-      { force: true },
-    ]);
+    // Same as above — convergence loop re-runs agent loop, which also fails.
+    expect(agentLoopRunCount).toBe(2);
+    expect(maybeCompactCalls).toEqual([{ force: false }, { force: true }]);
     expect(events.some((e) => e.type === "session_error")).toBe(true);
   });
 
@@ -594,8 +594,10 @@ describe("provider ordering error retry", () => {
       (msg) => events.push(msg as unknown as Record<string, unknown>),
     );
 
-    // Only one agent loop run — the retry path is skipped because progress was made.
-    expect(agentLoopRunCount).toBe(1);
+    // Two agent loop runs — first makes progress then 413, convergence loop
+    // re-runs after reducer (which returns exhausted). Second run also fails
+    // since compaction didn't help (forceCompactionEnabled=false).
+    expect(agentLoopRunCount).toBe(2);
 
     // The error must be surfaced to clients via session_error, not silently swallowed.
     const sessionError = events.find((e) => e.type === "session_error") as

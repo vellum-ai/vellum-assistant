@@ -1744,11 +1744,11 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
 
     await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-    // Mid-loop compaction should have been called maxAttempts (3) times
-    expect(compactionCallCount).toBe(3);
+    // 1 initial auto-compact + 3 mid-loop compaction attempts = 4 total
+    expect(compactionCallCount).toBe(4);
 
-    // Agent loop: 1 initial + 3 mid-loop re-entries = 4 calls
-    expect(agentLoopCallCount).toBe(4);
+    // Agent loop: 1 initial + 3 mid-loop re-entries + 1 convergence re-run = 5 calls
+    expect(agentLoopCallCount).toBe(5);
 
     // After exhausting mid-loop attempts, the convergence loop should
     // have been triggered (contextTooLargeDetected set to true)

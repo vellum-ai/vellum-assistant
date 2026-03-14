@@ -237,6 +237,20 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "cli/commands/oauth/connections.ts", // CLI OAuth connection delete (legacy credential cleanup)
       "oauth/manual-token-connection.ts", // manual-token provider backfill (keychain credential existence check)
       "cli/commands/doctor.ts", // CLI diagnostic API key verification via secure storage
+      "swarm/backend-claude-code.ts", // Claude Code swarm backend API key lookup
+      "workspace/provider-commit-message-generator.ts", // commit message generation provider key lookup
+      "config/bundled-skills/transcribe/tools/transcribe-media.ts", // transcription tool API key lookup
+      "config/bundled-skills/image-studio/tools/media-generate-image.ts", // image generation tool API key lookup
+      "config/bundled-skills/media-processing/tools/analyze-keyframes.ts", // keyframe analysis tool API key lookup
+      "config/bundled-skills/media-processing/tools/extract-keyframes.ts", // keyframe extraction tool API key lookup
+      "providers/registry.ts", // provider registry API key lookup for initialization
+      "media/app-icon-generator.ts", // app icon generation API key lookup
+      "media/avatar-router.ts", // avatar generation API key lookup
+      "memory/embedding-backend.ts", // embedding backend API key lookup
+      "daemon/handlers/config-model.ts", // model config handler API key lookup
+      "daemon/session-slash.ts", // session slash command API key lookup
+      "daemon/session-process.ts", // session process API key lookup
+      "tools/claude-code/claude-code.ts", // Claude Code tool API key lookup
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
