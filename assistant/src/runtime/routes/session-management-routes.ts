@@ -11,13 +11,13 @@
  * POST   /v1/sessions/reorder             — reorder / pin sessions
  */
 
-import { cleanupQdrantVectors } from "../../daemon/session-history.js";
 import {
   batchSetDisplayOrders,
   deleteConversation,
   getConversation,
 } from "../../memory/conversation-crud.js";
 import { setConversationKeyIfAbsent } from "../../memory/conversation-key-store.js";
+import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
@@ -132,20 +132,19 @@ export function sessionManagementRouteDefinitions(
         // conversation row, tripping FK constraints.
         deps.destroySession(params.id);
         const deleted = deleteConversation(params.id);
-        // Clean up Qdrant vectors for orphaned memory data (fire-and-forget).
-        if (
-          deleted.segmentIds.length > 0 ||
-          deleted.orphanedItemIds.length > 0
-        ) {
-          cleanupQdrantVectors(
-            params.id,
-            deleted.segmentIds,
-            deleted.orphanedItemIds,
-          ).catch((err) => {
-            log.warn(
-              { err, conversationId: params.id },
-              "Qdrant cleanup after conversation delete failed (non-fatal)",
-            );
+        // Enqueue Qdrant vector cleanup jobs rather than calling directly.
+        // Qdrant may not be initialized yet when the HTTP server starts
+        // accepting requests, so enqueueing ensures cleanup is retried.
+        for (const segId of deleted.segmentIds) {
+          enqueueMemoryJob("delete_qdrant_vectors", {
+            targetType: "segment",
+            targetId: segId,
+          });
+        }
+        for (const itemId of deleted.orphanedItemIds) {
+          enqueueMemoryJob("delete_qdrant_vectors", {
+            targetType: "item",
+            targetId: itemId,
           });
         }
         log.info({ conversationId: params.id }, "Deleted conversation");
