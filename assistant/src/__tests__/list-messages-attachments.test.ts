@@ -4,7 +4,7 @@
  * Verifies that:
  * - User message image attachments include base64 data for client thumbnail generation
  * - User message non-image attachments stay metadata-only (no base64 blob)
- * - Assistant message attachments remain metadata-only
+ * - Assistant message image attachments include base64 data (same as user messages)
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -140,7 +140,7 @@ describe("handleListMessages attachments", () => {
     expect(attachments![0].data).toBeUndefined();
   });
 
-  test("assistant message attachments remain metadata-only", async () => {
+  test("assistant message image attachments include base64 data", async () => {
     const conv = createConversation();
     const msg = await addMessage(
       conv.id,
@@ -158,8 +158,8 @@ describe("handleListMessages attachments", () => {
     expect(attachments).toBeDefined();
     expect(attachments).toHaveLength(1);
     expect(attachments![0].mimeType).toBe("image/png");
-    // Assistant attachments should NOT include base64 data (metadata-only)
-    expect(attachments![0].data).toBeUndefined();
+    // Assistant image attachments include base64 data for inline rendering
+    expect(attachments![0].data).toBe(IMAGE_BASE64);
   });
 
   test("user message with mixed attachments only inlines images", async () => {
