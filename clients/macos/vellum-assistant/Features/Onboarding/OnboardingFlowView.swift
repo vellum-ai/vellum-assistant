@@ -16,7 +16,6 @@ struct OnboardingFlowView: View {
     @State private var isAdvancingFromWakeUp = false
     @State private var isBootstrappingManaged = false
     @State private var managedBootstrapError: String?
-    @State private var didInitiateLogin = false
 
     private static let appIcon: NSImage? = {
         guard let path = ResourceBundle.bundle.path(forResource: "vellum-app-icon", ofType: "png") else { return nil }
@@ -191,8 +190,8 @@ struct OnboardingFlowView: View {
                         log.info("Auth completed for remote assistant \(assistant.assistantId, privacy: .public) — proceeding to app")
                         onComplete()
                     }
-                } else if managedBootstrapEnabled && managedSignInEnabled {
-                    if state.currentStep == 0 {
+                } else if managedBootstrapEnabled {
+                    if managedSignInEnabled && state.currentStep == 0 {
                         log.info("Authenticated with no lockfile assistant; advancing to hosting selector")
                         state.advance()
                     } else {
@@ -216,7 +215,6 @@ struct OnboardingFlowView: View {
     private func continueWithManagedAssistant() async {
         switch onboardingManagedContinuationAction(isAuthenticated: authManager.isAuthenticated) {
         case .startLogin:
-            didInitiateLogin = true
             await authManager.startWorkOSLogin()
         case .bootstrap:
             state.advance()
