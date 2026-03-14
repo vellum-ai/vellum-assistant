@@ -111,7 +111,7 @@ extension AppDelegate {
         }
     }
 
-    @objc func performLogout() {
+    @objc public func performLogout() {
         Task {
             await authManager.logout()
 
