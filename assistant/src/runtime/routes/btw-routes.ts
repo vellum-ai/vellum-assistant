@@ -2,10 +2,12 @@
  * HTTP route handler for the POST /v1/btw SSE-streaming side-chain endpoint.
  *
  * Runs an ephemeral LLM call that reuses the session's provider, tool
- * definitions, and message history for prompt-cache efficiency. Builds its own
- * system prompt (excluding BOOTSTRAP.md) so first-run onboarding instructions
- * don't leak into cosmetic UI calls like identity intro generation. The response
- * is streamed as SSE events (`btw_text_delta`, `btw_complete`, `btw_error`).
+ * definitions, and message history for prompt-cache efficiency. Uses the
+ * session's system prompt when a conversation-specific override is active;
+ * otherwise builds a fresh prompt excluding BOOTSTRAP.md so first-run
+ * onboarding instructions don't leak into cosmetic UI calls like identity
+ * intro generation. The response is streamed as SSE events (`btw_text_delta`,
+ * `btw_complete`, `btw_error`).
  *
  * No messages are persisted. `session.processing` is never set or checked.
  */
@@ -105,10 +107,14 @@ async function handleBtw(
     start(controller) {
       (async () => {
         try {
-          // Build a system prompt without BOOTSTRAP.md so ephemeral BTW
-          // calls (e.g. identity intro generation) aren't contaminated by
-          // first-run onboarding instructions.
-          const systemPrompt = buildSystemPrompt({ excludeBootstrap: true });
+          // Preserve any conversation-specific systemPromptOverride so
+          // side-chain responses match the active session contract.  Only
+          // fall back to a fresh prompt (excluding BOOTSTRAP.md) for
+          // default sessions where no override was provided.
+          const hasOverride = session.systemPrompt !== buildSystemPrompt();
+          const systemPrompt = hasOverride
+            ? session.systemPrompt
+            : buildSystemPrompt({ excludeBootstrap: true });
 
           await session.provider.sendMessage(messages, tools, systemPrompt, {
             config: {
