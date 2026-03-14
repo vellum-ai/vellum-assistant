@@ -9,6 +9,7 @@ import { DynamicEditor } from "@/components/DynamicEditor";
 import { Layout } from "@/components/Layout";
 import { useAuth } from "@/lib/auth";
 import { Assistant } from "@/lib/db";
+import { isPlatformLoginEnabled } from "@/lib/feature-flags";
 
 export default function AssistantPage() {
   const router = useRouter();
@@ -18,12 +19,14 @@ export default function AssistantPage() {
   const [error, setError] = useState<string | null>(null);
   const [isHatching, setIsHatching] = useState(false);
 
+  const platformLoginEnabled = isPlatformLoginEnabled();
+
   const fetchAssistants = useCallback(async () => {
-    if (isAuthLoading) {
+    if (isAuthLoading && platformLoginEnabled) {
       return;
     }
     
-    if (!isLoggedIn) {
+    if (!isLoggedIn && platformLoginEnabled) {
       router.push("/login");
       return;
     }
@@ -40,7 +43,7 @@ export default function AssistantPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [isAuthLoading, isLoggedIn, router]);
+  }, [isAuthLoading, isLoggedIn, platformLoginEnabled, router]);
 
   useEffect(() => {
     fetchAssistants();
