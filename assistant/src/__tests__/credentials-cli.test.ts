@@ -59,7 +59,6 @@ mock.module("../security/secure-keys.js", () => ({
     _getSecureKeyCalls += 1;
     return secureKeyStore.get(account);
   },
-  getBackendType: (): "broker" | "encrypted" => "encrypted",
   _resetBackend: (): void => {},
 }));
 

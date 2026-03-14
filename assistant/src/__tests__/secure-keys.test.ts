@@ -74,7 +74,6 @@ import { _setStorePath } from "../security/encrypted-store.js";
 import {
   _resetBackend,
   deleteSecureKeyAsync,
-  getBackendType,
   getSecureKeyAsync,
   listSecureKeys,
   listSecureKeysAsync,
@@ -124,34 +123,6 @@ describe("secure-keys", () => {
     if (existsSync(TEST_DIR)) {
       rmSync(TEST_DIR, { recursive: true });
     }
-  });
-
-  // -----------------------------------------------------------------------
-  // Backend selection
-  // -----------------------------------------------------------------------
-  describe("backend selection", () => {
-    test("returns encrypted when broker is unavailable", () => {
-      expect(getBackendType()).toBe("encrypted");
-    });
-
-    test("returns broker when broker is available and VELLUM_DEV is not set", () => {
-      mockBrokerAvailable = true;
-      expect(getBackendType()).toBe("broker");
-    });
-
-    test("returns encrypted when VELLUM_DEV=1 even if broker is available", () => {
-      process.env.VELLUM_DEV = "1";
-      mockBrokerAvailable = true;
-      _resetBackend();
-      expect(getBackendType()).toBe("encrypted");
-    });
-
-    test("returns broker when VELLUM_DEV=0 and broker is available", () => {
-      process.env.VELLUM_DEV = "0";
-      mockBrokerAvailable = true;
-      _resetBackend();
-      expect(getBackendType()).toBe("broker");
-    });
   });
 
   // -----------------------------------------------------------------------

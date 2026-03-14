@@ -91,20 +91,6 @@ export async function listSecureKeysAsync(): Promise<string[]> {
 }
 
 // ---------------------------------------------------------------------------
-// Backend introspection
-// ---------------------------------------------------------------------------
-
-/**
- * Return the currently resolved backend type.
- * Returns `"broker"` when VELLUM_DEV !== "1" and keychain backend is available,
- * `"encrypted"` otherwise.
- */
-export function getBackendType(): "broker" | "encrypted" {
-  const backend = resolveBackend();
-  return backend.name === "keychain" ? "broker" : "encrypted";
-}
-
-// ---------------------------------------------------------------------------
 // Async CRUD — single-writer routing
 // ---------------------------------------------------------------------------
 
