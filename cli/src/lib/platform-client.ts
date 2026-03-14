@@ -19,11 +19,6 @@ function getPlatformTokenPath(): string {
   return join(getXdgConfigHome(), "vellum", "platform-token");
 }
 
-function getLegacyPlatformTokenPath(): string {
-  const base = process.env.BASE_DATA_DIR || homedir();
-  return join(base, ".vellum", "platform-token");
-}
-
 export function getPlatformUrl(): string {
   return process.env.VELLUM_PLATFORM_URL ?? DEFAULT_PLATFORM_URL;
 }
@@ -31,11 +26,6 @@ export function getPlatformUrl(): string {
 export function readPlatformToken(): string | null {
   try {
     return readFileSync(getPlatformTokenPath(), "utf-8").trim();
-  } catch {
-    // Fall back to the legacy ~/.vellum/platform-token path
-  }
-  try {
-    return readFileSync(getLegacyPlatformTokenPath(), "utf-8").trim();
   } catch {
     return null;
   }
@@ -52,12 +42,10 @@ export function savePlatformToken(token: string): void {
 }
 
 export function clearPlatformToken(): void {
-  for (const path of [getPlatformTokenPath(), getLegacyPlatformTokenPath()]) {
-    try {
-      unlinkSync(path);
-    } catch {
-      // already doesn't exist
-    }
+  try {
+    unlinkSync(getPlatformTokenPath());
+  } catch {
+    // already doesn't exist
   }
 }
 
