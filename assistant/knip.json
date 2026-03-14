@@ -11,9 +11,6 @@
     "src/followups/index.ts",
     "src/playbooks/index.ts",
     "src/runtime/auth/index.ts",
-    "src/tasks/candidate-store.ts",
-    "src/tools/browser/api-map.ts",
-    "src/tools/browser/auto-navigate.ts",
     "src/tools/browser/headless-browser.ts",
     "src/tools/browser/recording-store.ts",
     "src/tools/tasks/index.ts"
