@@ -83,6 +83,7 @@ public final class SettingsStore: ObservableObject {
     // MARK: - Telegram Integration State
 
     @Published var telegramHasBotToken: Bool = false
+    @Published var telegramBotId: String?
     @Published var telegramBotUsername: String?
     @Published var telegramConnected: Bool = false
     @Published var telegramHasWebhookSecret: Bool = false
@@ -500,6 +501,7 @@ public final class SettingsStore: ObservableObject {
             self.telegramSaveInProgress = false
             if response.success {
                 self.telegramHasBotToken = response.hasBotToken
+                self.telegramBotId = response.botId
                 self.telegramBotUsername = response.botUsername
                 self.telegramConnected = response.connected
                 self.telegramHasWebhookSecret = response.hasWebhookSecret

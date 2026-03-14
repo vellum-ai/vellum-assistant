@@ -4249,6 +4249,7 @@ public struct TelegramConfigResponse: Codable, Sendable {
     public let type: String
     public let success: Bool
     public let hasBotToken: Bool
+    public let botId: String?
     public let botUsername: String?
     public let connected: Bool
     public let hasWebhookSecret: Bool
@@ -4259,10 +4260,11 @@ public struct TelegramConfigResponse: Codable, Sendable {
     /// Non-fatal warning (e.g. commands registration failed during setup but token was configured).
     public let warning: String?
 
-    public init(type: String, success: Bool, hasBotToken: Bool, botUsername: String? = nil, connected: Bool, hasWebhookSecret: Bool, lastError: String? = nil, error: String? = nil, commandsRegistered: [String]? = nil, warning: String? = nil) {
+    public init(type: String, success: Bool, hasBotToken: Bool, botId: String? = nil, botUsername: String? = nil, connected: Bool, hasWebhookSecret: Bool, lastError: String? = nil, error: String? = nil, commandsRegistered: [String]? = nil, warning: String? = nil) {
         self.type = type
         self.success = success
         self.hasBotToken = hasBotToken
+        self.botId = botId
         self.botUsername = botUsername
         self.connected = connected
         self.hasWebhookSecret = hasWebhookSecret
