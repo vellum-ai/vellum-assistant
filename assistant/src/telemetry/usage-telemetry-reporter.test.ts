@@ -120,7 +120,7 @@ beforeEach(() => {
     assistantApiKey: "",
   });
   mockGetTelemetryPlatformUrl.mockReturnValue("https://platform.vellum.ai");
-  mockGetTelemetryAppToken.mockReturnValue("");
+  mockGetTelemetryAppToken.mockReturnValue("default-test-token");
 
   mockFetch = mock(() =>
     Promise.resolve(new Response('{"accepted":0}', { status: 200 })),
