@@ -421,7 +421,6 @@ ComputerUse/          Core perception + action pipeline
   AXTreeDiff          Diff between AX tree snapshots across steps
   ActionExecutor      CGEvent mouse/keyboard injection
   ActionVerifier      Safety checks (sensitive data, loops, limits)
-  ChromeAccessibilityHelper  Auto-restart Chrome with --force-renderer-accessibility
   RecipeExecutor      Recipe-based onboarding (computer-use driven setup)
   ScreenCapture       ScreenCaptureKit screenshot capture
   Session             Main orchestration loop
