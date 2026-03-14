@@ -18,7 +18,7 @@ describe("withErrorHandling – friendly error messages", () => {
     expect(body.error.message).toContain("keys set anthropic");
   });
 
-  test("ProviderNotConfiguredError tailors env var to requested provider", async () => {
+  test("ProviderNotConfiguredError tailors keys set command to requested provider", async () => {
     const response = await withErrorHandling("test", async () => {
       throw new ProviderNotConfiguredError("openai", []);
     });
