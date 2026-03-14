@@ -46,7 +46,7 @@ enum GatewayHTTPClient {
 
     // MARK: - High-Level API
 
-    /// Performs an authenticated GET request against the platform assistant proxy.
+    /// Performs an authenticated GET request against the gateway.
     ///
     /// - Parameters:
     ///   - path: Path segment after `/v1/assistants/` (e.g. `"{id}/healthz"` or `"releases"`).
@@ -58,7 +58,7 @@ enum GatewayHTTPClient {
         return try await execute(request)
     }
 
-    /// Performs an authenticated POST request against the platform assistant proxy.
+    /// Performs an authenticated POST request against the gateway.
     ///
     /// - Parameters:
     ///   - path: Path segment after `/v1/assistants/` (e.g. `"upgrade"` or `"backups"`).
@@ -72,7 +72,7 @@ enum GatewayHTTPClient {
         return try await execute(request)
     }
 
-    /// Performs an authenticated DELETE request against the platform assistant proxy.
+    /// Performs an authenticated DELETE request against the gateway.
     ///
     /// - Parameters:
     ///   - path: Path segment after `/v1/assistants/` (e.g. `"{id}/secrets"`).
@@ -84,6 +84,20 @@ enum GatewayHTTPClient {
         var request = try buildRequest(path: path, method: "DELETE", timeout: timeout)
         request.httpBody = body
         return try await execute(request)
+    }
+
+    /// Builds an authenticated `URLRequest` without executing it.
+    /// Useful for streaming transports like SSE that need
+    /// `URLSession.bytes(for:)` instead of `URLSession.data(for:)`.
+    ///
+    /// - Parameters:
+    ///   - path: Path segment after `/v1/assistants/`.
+    ///   - method: HTTP method. Defaults to `"GET"`.
+    ///   - timeout: Request timeout in seconds. Defaults to 30.
+    /// - Returns: A fully authenticated `URLRequest`.
+    /// - Throws: `ClientError` if the request cannot be constructed.
+    static func urlRequest(path: String, method: String = "GET", timeout: TimeInterval = 30) throws -> URLRequest {
+        try buildRequest(path: path, method: method, timeout: timeout)
     }
 
     /// Resolves the current connection details (assistant, base URL, token, org ID)
@@ -116,8 +130,12 @@ enum GatewayHTTPClient {
         return LockfileAssistant.loadByName(id)
     }
 
-    /// Builds an authenticated `URLRequest` for the platform assistant proxy,
-    /// automatically resolving the connected assistant and auth credentials.
+    /// Builds an authenticated `URLRequest`, automatically resolving the
+    /// connected assistant, gateway base URL, and auth credentials.
+    ///
+    /// - Managed (`cloud == "vellum"`): platform proxy URL with `X-Session-Token`
+    /// - Remote non-managed (GCP/AWS): `runtimeUrl` with `Authorization: Bearer`
+    /// - Local: `http://127.0.0.1:{gatewayPort}` with `Authorization: Bearer`
     private static func buildRequest(
         path: String,
         method: String,
@@ -126,11 +144,32 @@ enum GatewayHTTPClient {
         guard let assistant = resolveConnectedAssistant() else {
             throw ClientError.noConnectedAssistant
         }
-        guard let token = SessionTokenManager.getToken(), !token.isEmpty else {
-            throw ClientError.notAuthenticated
+
+        let baseURL: String
+        let authHeader: (field: String, value: String)
+
+        if assistant.isManaged {
+            guard let token = SessionTokenManager.getToken(), !token.isEmpty else {
+                throw ClientError.notAuthenticated
+            }
+            baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
+            authHeader = ("X-Session-Token", token)
+        } else {
+            guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
+                throw ClientError.notAuthenticated
+            }
+            if assistant.isRemote {
+                guard let runtimeUrl = assistant.runtimeUrl else {
+                    throw ClientError.invalidURL
+                }
+                baseURL = runtimeUrl
+            } else {
+                let port = assistant.gatewayPort ?? LockfilePaths.resolveGatewayPort()
+                baseURL = "http://127.0.0.1:\(port)"
+            }
+            authHeader = ("Authorization", "Bearer \(token)")
         }
 
-        let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
         let trailingSlash = path.hasSuffix("/") ? "" : "/"
         guard let url = URL(string: "\(baseURL)/v1/assistants/\(path)\(trailingSlash)") else {
             throw ClientError.invalidURL
@@ -140,7 +179,7 @@ enum GatewayHTTPClient {
         request.httpMethod = method
         request.timeoutInterval = timeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        request.setValue(authHeader.value, forHTTPHeaderField: authHeader.field)
 
         if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
             request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
