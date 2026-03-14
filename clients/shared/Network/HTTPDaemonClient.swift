@@ -474,7 +474,7 @@ public final class HTTPTransport {
             return ("/v1/messages", nil)
         case .getMessages(let conversationId):
             if let id = conversationId {
-                let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? id
+                let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? id
                 return ("/v1/messages", "conversationId=\(encoded)")
             }
             return ("/v1/messages", nil)
@@ -485,7 +485,7 @@ public final class HTTPTransport {
         case .secret:
             return ("/v1/secret", nil)
         case .guardianActionsPending(let conversationId):
-            let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationId
+            let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
             return ("/v1/guardian-actions/pending", "conversationId=\(encoded)")
         case .guardianActionsDecision:
             return ("/v1/guardian-actions/decision", nil)
@@ -509,14 +509,14 @@ public final class HTTPTransport {
             return ("/v1/trust-rules/manage/\(encoded)", nil)
         case .pendingInteractions(let conversationKey):
             if let key = conversationKey {
-                let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? key
+                let encoded = key.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? key
                 return ("/v1/pending-interactions", "conversationKey=\(encoded)")
             }
             return ("/v1/pending-interactions", nil)
         case .contactsList(let limit, let role):
             var q = "limit=\(limit)"
             if let role {
-                let encoded = role.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? role
+                let encoded = role.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? role
                 q += "&role=\(encoded)"
             }
             return ("/v1/contacts", q)
@@ -540,14 +540,14 @@ public final class HTTPTransport {
             return ("/v1/channels/readiness", nil)
         case .surfaceContent(let surfaceId, let sessionId):
             let sEncoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
-            let qEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
+            let qEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? sessionId
             return ("/v1/surfaces/\(sEncoded)", "sessionId=\(qEncoded)")
         case .usageTotals(let from, let to):
             return ("/v1/usage/totals", "from=\(from)&to=\(to)")
         case .usageDaily(let from, let to):
             return ("/v1/usage/daily", "from=\(from)&to=\(to)")
         case .usageBreakdown(let from, let to, let groupBy):
-            let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? groupBy
+            let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? groupBy
             return ("/v1/usage/breakdown", "from=\(from)&to=\(to)&groupBy=\(encoded)")
         case .workspaceTree(let path, let showHidden):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
@@ -698,13 +698,13 @@ public final class HTTPTransport {
         case .messageContent(let id, let sessionId):
             let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             if let sessionId {
-                let sEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
+                let sEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? sessionId
                 return ("/v1/messages/\(idEncoded)/content", "sessionId=\(sEncoded)")
             }
             return ("/v1/messages/\(idEncoded)/content", nil)
         case .deleteQueuedMessage(let id, let sessionId):
             let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            let sEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
+            let sEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? sessionId
             return ("/v1/messages/queued/\(idEncoded)", "sessionId=\(sEncoded)")
         // Skill management
         case .skillsList:
@@ -885,7 +885,7 @@ public final class HTTPTransport {
             return ("\(prefix)/messages/", nil)
         case .getMessages(let conversationId):
             if let id = conversationId {
-                let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? id
+                let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? id
                 return ("\(prefix)/messages/", "conversationId=\(encoded)")
             }
             return ("\(prefix)/messages/", nil)
@@ -896,7 +896,7 @@ public final class HTTPTransport {
         case .secret:
             return ("\(prefix)/secret/", nil)
         case .guardianActionsPending(let conversationId):
-            let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationId
+            let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
             return ("\(prefix)/guardian-actions/pending/", "conversationId=\(encoded)")
         case .guardianActionsDecision:
             return ("\(prefix)/guardian-actions/decision/", nil)
@@ -920,14 +920,14 @@ public final class HTTPTransport {
             return ("\(prefix)/trust-rules/manage/\(encoded)/", nil)
         case .pendingInteractions(let conversationKey):
             if let key = conversationKey {
-                let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? key
+                let encoded = key.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? key
                 return ("\(prefix)/pending-interactions/", "conversationKey=\(encoded)")
             }
             return ("\(prefix)/pending-interactions/", nil)
         case .contactsList(let limit, let role):
             var q = "limit=\(limit)"
             if let role {
-                let encoded = role.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? role
+                let encoded = role.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? role
                 q += "&role=\(encoded)"
             }
             return ("\(prefix)/contacts/", q)
@@ -951,14 +951,14 @@ public final class HTTPTransport {
             return ("\(prefix)/channels/readiness/", nil)
         case .surfaceContent(let surfaceId, let sessionId):
             let sEncoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
-            let qEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
+            let qEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? sessionId
             return ("\(prefix)/surfaces/\(sEncoded)/", "sessionId=\(qEncoded)")
         case .usageTotals(let from, let to):
             return ("\(prefix)/usage/totals/", "from=\(from)&to=\(to)")
         case .usageDaily(let from, let to):
             return ("\(prefix)/usage/daily/", "from=\(from)&to=\(to)")
         case .usageBreakdown(let from, let to, let groupBy):
-            let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? groupBy
+            let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? groupBy
             return ("\(prefix)/usage/breakdown/", "from=\(from)&to=\(to)&groupBy=\(encoded)")
         case .workspaceTree(let path, let showHidden):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
@@ -1109,13 +1109,13 @@ public final class HTTPTransport {
         case .messageContent(let id, let sessionId):
             let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             if let sessionId {
-                let sEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
+                let sEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? sessionId
                 return ("\(prefix)/messages/\(idEncoded)/content/", "sessionId=\(sEncoded)")
             }
             return ("\(prefix)/messages/\(idEncoded)/content/", nil)
         case .deleteQueuedMessage(let id, let sessionId):
             let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            let sEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
+            let sEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? sessionId
             return ("\(prefix)/messages/queued/\(idEncoded)/", "sessionId=\(sEncoded)")
         // Skill management
         case .skillsList:
