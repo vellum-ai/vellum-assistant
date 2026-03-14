@@ -10,7 +10,10 @@ import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Session } from "../daemon/session.js";
 import { runTask } from "../tasks/task-runner.js";
 import { getTask } from "../tasks/task-store.js";
-import { getRegisteredToolNames } from "../tasks/tool-sanitizer.js";
+import {
+  getRegisteredToolNames,
+  sanitizeToolList,
+} from "../tasks/tool-sanitizer.js";
 import { getLogger } from "../util/logger.js";
 import { resolveRequiredTools } from "./resolve-required-tools.js";
 import {
@@ -118,7 +121,7 @@ export function runWorkItemInBackground(workItemId: string): RunWorkItemResult {
   // Resolve required tools — falls back to task-level tools when the
   // snapshot is empty, preventing an empty-snapshot permission bypass.
   const taskRequiredTools = task.requiredTools
-    ? JSON.parse(task.requiredTools)
+    ? sanitizeToolList(JSON.parse(task.requiredTools))
     : getRegisteredToolNames();
   const requiredTools = resolveRequiredTools(
     workItem.requiredTools,
