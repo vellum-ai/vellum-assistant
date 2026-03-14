@@ -6,5 +6,5 @@
     "src/daemon/main.ts"
   ],
   "project": ["src/**/*.ts", "src/**/*.tsx", "scripts/**/*.ts"],
-  "ignoreDependencies": ["@vellumai/cli"]
+  "ignoreDependencies": []
 }

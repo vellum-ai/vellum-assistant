@@ -1,11 +1,5 @@
-import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
-
-import { getGatewayInternalBaseUrl } from "../config/env.js";
-import { getWorkspaceDir } from "../util/platform.js";
-
 const LEFT_PANEL_WIDTH = 36;
-const RIGHT_LINE_COUNT = 11;
+const DEFAULT_HEIGHT = 12;
 
 export interface MainScreenLayout {
   height: number;
@@ -14,28 +8,8 @@ export interface MainScreenLayout {
 }
 
 export function renderMainScreen(): MainScreenLayout {
-  const httpUrl = getGatewayInternalBaseUrl();
-  const workspace = getWorkspaceDir();
-  const assistantId = workspace.split("/").pop() ?? "vellum";
-
-  const require = createRequire(import.meta.url);
-  const cliPkgPath = require.resolve("@vellumai/cli/package.json");
-  const cliRoot = dirname(cliPkgPath);
-  // Dynamic require to bypass NodeNext strict module resolution for the
-  // CLI package which ships raw TypeScript with bundler-style imports.
-  const { render } = require(
-    join(cliRoot, "src", "components", "DefaultMainScreen.tsx"),
-  ) as {
-    render: (
-      runtimeUrl: string,
-      assistantId: string,
-      species: string,
-    ) => number;
-  };
-
-  const height = render(httpUrl, assistantId, "vellum");
-
-  const statusCanvasLine = RIGHT_LINE_COUNT + 1;
+  const height = DEFAULT_HEIGHT;
+  const statusCanvasLine = height + 1;
   const statusCol = LEFT_PANEL_WIDTH + 1;
 
   return { height, statusLine: statusCanvasLine, statusCol };
