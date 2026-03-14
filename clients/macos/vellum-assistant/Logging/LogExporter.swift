@@ -493,11 +493,26 @@ enum LogExporter {
                 return
             }
 
-            // Read pipe data eagerly BEFORE waiting for process exit.
-            // If reads happen inside terminationHandler, tar blocks on a full
-            // pipe buffer (~64 KB) and never exits — deadlocking the export.
-            let stdoutData = pipe.fileHandleForReading.readDataToEndOfFile()
-            let stderrData = errPipe.fileHandleForReading.readDataToEndOfFile()
+            // Drain both pipes concurrently to prevent deadlock.
+            // Sequential reads can block if tar fills one pipe buffer (~64 KB)
+            // while we're waiting on the other.
+            var stdoutData = Data()
+            var stderrData = Data()
+            let group = DispatchGroup()
+
+            group.enter()
+            DispatchQueue.global(qos: .utility).async {
+                stdoutData = pipe.fileHandleForReading.readDataToEndOfFile()
+                group.leave()
+            }
+
+            group.enter()
+            DispatchQueue.global(qos: .utility).async {
+                stderrData = errPipe.fileHandleForReading.readDataToEndOfFile()
+                group.leave()
+            }
+
+            group.wait()
 
             process.waitUntilExit()
 
