@@ -85,10 +85,17 @@ final class TerminalAPIClient {
     func subscribeEvents(
         sessionId: String
     ) -> (stream: AsyncThrowingStream<TerminalOutputEvent, Error>, cancel: () -> Void) {
-        let sseRequest = Self.buildSSERequest(
-            assistantId: assistantId,
-            sessionId: sessionId
-        )
+        let sseRequest: URLRequest?
+        do {
+            var req = try GatewayHTTPClient.urlRequest(
+                path: "\(assistantId)/terminal/sessions/\(sessionId)/events",
+                timeout: .infinity
+            )
+            req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+            sseRequest = req
+        } catch {
+            sseRequest = nil
+        }
 
         let task = UncheckedSendableBox<Task<Void, Never>?>(nil)
 
@@ -169,28 +176,6 @@ final class TerminalAPIClient {
         return (stream, cancel)
     }
 
-    // MARK: - Helpers
-
-    /// Builds an authenticated SSE request using the current connection info.
-    /// Returns nil if auth is unavailable.
-    private static func buildSSERequest(
-        assistantId: String,
-        sessionId: String
-    ) -> URLRequest? {
-        guard let info = try? GatewayHTTPClient.resolveConnectionInfo() else { return nil }
-        let baseURL = info.baseURL
-        let path = "/v1/assistants/\(assistantId)/terminal/sessions/\(sessionId)/events/"
-        guard let url = URL(string: "\(baseURL)\(path)") else { return nil }
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        request.timeoutInterval = .infinity
-        request.setValue(info.token, forHTTPHeaderField: "X-Session-Token")
-        if let orgId = info.organizationId, !orgId.isEmpty {
-            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
-        }
-        return request
-    }
 }
 
 // MARK: - Types

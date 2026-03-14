@@ -1,18 +1,15 @@
 import Foundation
 import VellumAssistantShared
 
-/// Authenticated HTTP client for platform assistant proxy requests and
-/// dual-mode daemon requests (managed via platform proxy, local via localhost).
+/// Authenticated HTTP client for platform assistant proxy requests.
 ///
-/// **Managed-only** (platform proxy) operations:
+/// All managed/remote assistant operations route through the platform at
+/// `{baseURL}/v1/assistants/...` with session-token authentication.
+/// This client consolidates URL construction, auth headers, org-id
+/// injection, and request execution so callers can simply write:
 ///
 ///     let response = try await GatewayHTTPClient.get(path: "\(id)/healthz")
 ///     let response = try await GatewayHTTPClient.post(path: "upgrade")
-///
-/// **Daemon** (managed + local) operations:
-///
-///     let response = try await GatewayHTTPClient.daemonGet(path: "v1/secrets")
-///     let response = try await GatewayHTTPClient.daemonPost(path: "v1/secrets", body: data)
 @MainActor
 enum GatewayHTTPClient {
 
@@ -47,9 +44,9 @@ enum GatewayHTTPClient {
         let organizationId: String?
     }
 
-    // MARK: - Managed-Only API
+    // MARK: - High-Level API
 
-    /// Performs an authenticated GET request against the platform assistant proxy.
+    /// Performs an authenticated GET request against the gateway.
     ///
     /// - Parameters:
     ///   - path: Path segment after `/v1/assistants/` (e.g. `"{id}/healthz"` or `"releases"`).
@@ -61,7 +58,7 @@ enum GatewayHTTPClient {
         return try await execute(request)
     }
 
-    /// Performs an authenticated POST request against the platform assistant proxy.
+    /// Performs an authenticated POST request against the gateway.
     ///
     /// - Parameters:
     ///   - path: Path segment after `/v1/assistants/` (e.g. `"upgrade"` or `"backups"`).
@@ -75,7 +72,7 @@ enum GatewayHTTPClient {
         return try await execute(request)
     }
 
-    /// Performs an authenticated DELETE request against the platform assistant proxy.
+    /// Performs an authenticated DELETE request against the gateway.
     ///
     /// - Parameters:
     ///   - path: Path segment after `/v1/assistants/` (e.g. `"{id}/secrets"`).
@@ -89,9 +86,23 @@ enum GatewayHTTPClient {
         return try await execute(request)
     }
 
+    /// Builds an authenticated `URLRequest` without executing it.
+    /// Useful for streaming transports like SSE that need
+    /// `URLSession.bytes(for:)` instead of `URLSession.data(for:)`.
+    ///
+    /// - Parameters:
+    ///   - path: Path segment after `/v1/assistants/`.
+    ///   - method: HTTP method. Defaults to `"GET"`.
+    ///   - timeout: Request timeout in seconds. Defaults to 30.
+    /// - Returns: A fully authenticated `URLRequest`.
+    /// - Throws: `ClientError` if the request cannot be constructed.
+    static func urlRequest(path: String, method: String = "GET", timeout: TimeInterval = 30) throws -> URLRequest {
+        try buildRequest(path: path, method: method, timeout: timeout)
+    }
+
     /// Resolves the current connection details (assistant, base URL, token, org ID)
     /// without performing a request. Useful for callers that need auth values for
-    /// their own connection setup (e.g. SSE streams).
+    /// their own connection setup (e.g. terminal sessions).
     ///
     /// - Throws: `ClientError` if no assistant is connected or not authenticated.
     static func resolveConnectionInfo() throws -> ConnectionInfo {
@@ -111,60 +122,6 @@ enum GatewayHTTPClient {
         )
     }
 
-    // MARK: - Daemon API (Managed + Local)
-
-    /// Performs a GET against the daemon's runtime HTTP server, routing through
-    /// the platform proxy for managed assistants or directly to localhost for
-    /// local ones.
-    ///
-    /// - Parameters:
-    ///   - path: Daemon endpoint path (e.g. `"v1/secrets"`, `"v1/integrations/slack/channel/config"`).
-    ///   - timeout: Request timeout in seconds. Defaults to 5.
-    /// - Returns: A `Response` with the raw data and HTTP status code.
-    /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
-    static func daemonGet(path: String, timeout: TimeInterval = 5) async throws -> Response {
-        let request = try buildDaemonRequest(path: path, method: "GET", timeout: timeout)
-        return try await execute(request)
-    }
-
-    /// Performs a POST against the daemon's runtime HTTP server, routing through
-    /// the platform proxy for managed assistants or directly to localhost for
-    /// local ones.
-    ///
-    /// - Parameters:
-    ///   - path: Daemon endpoint path (e.g. `"v1/secrets"`).
-    ///   - body: Optional HTTP body data.
-    ///   - timeout: Request timeout in seconds. Defaults to 5.
-    /// - Returns: A `Response` with the raw data and HTTP status code.
-    /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
-    static func daemonPost(path: String, body: Data? = nil, timeout: TimeInterval = 5) async throws -> Response {
-        var request = try buildDaemonRequest(path: path, method: "POST", timeout: timeout)
-        request.httpBody = body
-        return try await execute(request)
-    }
-
-    /// Performs a DELETE against the daemon's runtime HTTP server, routing through
-    /// the platform proxy for managed assistants or directly to localhost for
-    /// local ones.
-    ///
-    /// - Parameters:
-    ///   - path: Daemon endpoint path (e.g. `"v1/secrets"`).
-    ///   - body: Optional HTTP body data.
-    ///   - timeout: Request timeout in seconds. Defaults to 5.
-    /// - Returns: A `Response` with the raw data and HTTP status code.
-    /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
-    static func daemonDelete(path: String, body: Data? = nil, timeout: TimeInterval = 5) async throws -> Response {
-        var request = try buildDaemonRequest(path: path, method: "DELETE", timeout: timeout)
-        request.httpBody = body
-        return try await execute(request)
-    }
-
-    /// Whether the daemon HTTP endpoint is currently reachable (auth is available).
-    /// Useful for pre-flight checks before dispatching fire-and-forget requests.
-    static func isDaemonReachable() -> Bool {
-        return (try? buildDaemonRequest(path: "v1/secrets", method: "GET")) != nil
-    }
-
     // MARK: - Internals
 
     /// Resolves the currently connected assistant from the lockfile.
@@ -173,8 +130,12 @@ enum GatewayHTTPClient {
         return LockfileAssistant.loadByName(id)
     }
 
-    /// Builds an authenticated `URLRequest` for the platform assistant proxy,
-    /// automatically resolving the connected assistant and auth credentials.
+    /// Builds an authenticated `URLRequest`, automatically resolving the
+    /// connected assistant, gateway base URL, and auth credentials.
+    ///
+    /// For managed/remote assistants, routes through the platform proxy with
+    /// session-token auth. For local assistants, routes through the local
+    /// gateway with bearer-token auth.
     private static func buildRequest(
         path: String,
         method: String,
@@ -183,11 +144,25 @@ enum GatewayHTTPClient {
         guard let assistant = resolveConnectedAssistant() else {
             throw ClientError.noConnectedAssistant
         }
-        guard let token = SessionTokenManager.getToken(), !token.isEmpty else {
-            throw ClientError.notAuthenticated
+
+        let baseURL: String
+        let authHeader: (field: String, value: String)
+
+        if assistant.isRemote {
+            guard let token = SessionTokenManager.getToken(), !token.isEmpty else {
+                throw ClientError.notAuthenticated
+            }
+            baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
+            authHeader = ("X-Session-Token", token)
+        } else {
+            guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
+                throw ClientError.notAuthenticated
+            }
+            let port = assistant.gatewayPort ?? LockfilePaths.resolveGatewayPort()
+            baseURL = "http://127.0.0.1:\(port)"
+            authHeader = ("Authorization", "Bearer \(token)")
         }
 
-        let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
         let trailingSlash = path.hasSuffix("/") ? "" : "/"
         guard let url = URL(string: "\(baseURL)/v1/assistants/\(path)\(trailingSlash)") else {
             throw ClientError.invalidURL
@@ -197,65 +172,12 @@ enum GatewayHTTPClient {
         request.httpMethod = method
         request.timeoutInterval = timeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        request.setValue(authHeader.value, forHTTPHeaderField: authHeader.field)
 
         if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
             request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
         }
 
-        return request
-    }
-
-    /// Builds an authenticated `URLRequest` targeting the daemon, routing through
-    /// the platform proxy for managed assistants or directly to localhost for
-    /// local ones.
-    ///
-    /// - Managed: `{baseURL}/v1/assistants/{id}/{path}/` with `X-Session-Token`
-    /// - Local: `http://localhost:{port}/{path}` with `Authorization: Bearer {jwt}`
-    private static func buildDaemonRequest(
-        path: String,
-        method: String,
-        timeout: TimeInterval = 5
-    ) throws -> URLRequest {
-        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        let assistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
-
-        if let assistant, assistant.isManaged {
-            guard let token = SessionTokenManager.getToken(), !token.isEmpty else {
-                throw ClientError.notAuthenticated
-            }
-            let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
-            let proxyPath = path.hasPrefix("v1/") ? String(path.dropFirst(3)) : path
-            let trailingSlash = proxyPath.hasSuffix("/") ? "" : "/"
-            guard let url = URL(string: "\(baseURL)/v1/assistants/\(assistant.assistantId)/\(proxyPath)\(trailingSlash)") else {
-                throw ClientError.invalidURL
-            }
-            var request = URLRequest(url: url)
-            request.httpMethod = method
-            request.timeoutInterval = timeout
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue(token, forHTTPHeaderField: "X-Session-Token")
-            if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
-                request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
-            }
-            return request
-        }
-
-        // Local mode: direct to daemon runtime HTTP server.
-        let port = assistant?.daemonPort
-            ?? Int(ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "")
-            ?? 7821
-        guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
-            throw ClientError.notAuthenticated
-        }
-        guard let url = URL(string: "http://localhost:\(port)/\(path)") else {
-            throw ClientError.invalidURL
-        }
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.timeoutInterval = timeout
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         return request
     }
 
