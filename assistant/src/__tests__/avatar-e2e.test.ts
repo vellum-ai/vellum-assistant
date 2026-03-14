@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // Mock state — mutable variables control per-test behavior
 // ---------------------------------------------------------------------------
 
+let mockGeminiKey: string | undefined = "test-gemini-key";
 let mockWorkspaceDir = "/tmp/test-workspace-e2e";
 
 const mkdirSyncFn = mock(() => {});
@@ -28,6 +29,12 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     imageGenModel: "gemini-2.5-flash-image",
   }),
+}));
+
+mock.module("../security/secure-keys.js", () => ({
+  getSecureKeyAsync: async (name: string) =>
+    name === "gemini" ? mockGeminiKey : null,
+  getSecureKey: () => null,
 }));
 
 mock.module("../util/platform.js", () => ({
@@ -134,6 +141,7 @@ describe("avatar E2E integration", () => {
   const originalGeminiKey = process.env.GEMINI_API_KEY;
 
   beforeEach(() => {
+    mockGeminiKey = "test-gemini-key";
     mockWorkspaceDir = "/tmp/test-workspace-e2e";
 
     mkdirSyncFn.mockClear();
@@ -196,6 +204,8 @@ describe("avatar E2E integration", () => {
   // -----------------------------------------------------------------------
 
   test("no Gemini key — error surfaced", async () => {
+    mockGeminiKey = undefined;
+
     const result = await executeAvatar("a whimsical owl");
 
     expect(result.isError).toBe(true);

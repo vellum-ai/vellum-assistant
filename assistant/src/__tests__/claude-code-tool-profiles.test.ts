@@ -36,6 +36,13 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
+// Mock secure-keys — provide a fake Anthropic API key
+mock.module("../security/secure-keys.js", () => ({
+  getSecureKeyAsync: async (name: string) =>
+    name === "anthropic" ? "fake-anthropic-key" : null,
+  getSecureKey: () => null,
+}));
+
 import { claudeCodeTool } from "../tools/claude-code/claude-code.js";
 import type { ToolContext } from "../tools/types.js";
 
