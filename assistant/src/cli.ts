@@ -1390,11 +1390,16 @@ export async function startCli(): Promise<void> {
   process.on("SIGINT", () => {
     spinner.stop();
     if (generating && sessionId) {
-      httpSend(`/v1/conversations/${encodeURIComponent(sessionId)}/cancel`, {
-        method: "POST",
-      }).catch(() => {
+      try {
+        const signalsDir = join(getWorkspaceDir(), "signals");
+        mkdirSync(signalsDir, { recursive: true });
+        writeFileSync(
+          join(signalsDir, "cancel"),
+          JSON.stringify({ sessionId }),
+        );
+      } catch {
         // Best-effort cancel
-      });
+      }
     } else {
       rl.close();
     }

@@ -21,6 +21,7 @@ import {
   validateAllowlistFile,
 } from "../security/secret-allowlist.js";
 import { handleBashSignal } from "../signals/bash.js";
+import { handleCancelSignal } from "../signals/cancel.js";
 import { handleConfirmationSignal } from "../signals/confirm.js";
 import { handleMcpReloadSignal } from "../signals/mcp-reload.js";
 import { handleTrustRuleSignal } from "../signals/trust-rule.js";
@@ -227,8 +228,9 @@ export class ConfigWatcher {
     }
 
     const exactSignalHandlers: Record<string, () => void> = {
-      "mcp-reload": handleMcpReloadSignal,
+      cancel: handleCancelSignal,
       confirm: handleConfirmationSignal,
+      "mcp-reload": handleMcpReloadSignal,
       "trust-rule": handleTrustRuleSignal,
     };
 
