@@ -22,12 +22,15 @@ import { loadRawConfig, saveRawConfig } from "./config/loader.js";
 import { shouldAutoStartDaemon } from "./daemon/connection-policy.js";
 import { isHttpHealthy } from "./daemon/daemon-control.js";
 import { getModelInfo } from "./daemon/handlers/config-model.js";
+import { renderHistoryContent } from "./daemon/handlers/shared.js";
 import { ensureDaemonRunning } from "./daemon/lifecycle.js";
 import type {
   ConfirmationRequest,
   ServerMessage,
 } from "./daemon/message-protocol.js";
 import { MODEL_TO_PROVIDER } from "./daemon/session-slash.js";
+import { getMessages } from "./memory/conversation-crud.js";
+import { getConversationByKey } from "./memory/conversation-key-store.js";
 import {
   copyToClipboard,
   extractLastCodeBlock,
@@ -1150,45 +1153,45 @@ export async function startCli(): Promise<void> {
     }
 
     if (content === "/copy-session") {
-      // Fetch history via HTTP
-      httpSend(
-        `/v1/messages?conversationKey=${encodeURIComponent(conversationKey)}`,
-        { method: "GET" },
-      )
-        .then(async (resp) => {
-          if (resp.ok) {
-            const data = (await resp.json()) as {
-              messages: Array<{ role: string; content: string }>;
-            };
-            if (data.messages.length === 0) {
-              process.stdout.write("\n  No messages to copy.\n\n");
-            } else {
-              try {
-                const formatted = formatSessionForExport(
-                  data.messages.map((m) => ({
-                    role: m.role as "user" | "assistant",
-                    text: m.content,
-                  })),
-                );
-                copyToClipboard(formatted);
-                process.stdout.write(
-                  `\n  Copied session (${data.messages.length} messages) to clipboard.\n\n`,
-                );
-              } catch (err) {
-                process.stdout.write(
-                  `\n  Clipboard error: ${(err as Error).message}\n\n`,
-                );
-              }
+      try {
+        const mapping = getConversationByKey(conversationKey);
+        if (!mapping) {
+          process.stdout.write("\n  No messages to copy.\n\n");
+          prompt();
+          return;
+        }
+        const rawMessages = getMessages(mapping.conversationId);
+        if (rawMessages.length === 0) {
+          process.stdout.write("\n  No messages to copy.\n\n");
+        } else {
+          const rendered = rawMessages.map((msg) => {
+            let parsedContent: unknown;
+            try {
+              parsedContent = JSON.parse(msg.content);
+            } catch {
+              parsedContent = msg.content;
             }
-          } else {
-            process.stdout.write("[Failed to fetch history]\n");
+            return {
+              role: msg.role as "user" | "assistant",
+              text: renderHistoryContent(parsedContent).text,
+            };
+          });
+          try {
+            const formatted = formatSessionForExport(rendered);
+            copyToClipboard(formatted);
+            process.stdout.write(
+              `\n  Copied session (${rawMessages.length} messages) to clipboard.\n\n`,
+            );
+          } catch (err) {
+            process.stdout.write(
+              `\n  Clipboard error: ${(err as Error).message}\n\n`,
+            );
           }
-          prompt();
-        })
-        .catch(() => {
-          process.stdout.write("[Failed to fetch history]\n");
-          prompt();
-        });
+        }
+      } catch {
+        process.stdout.write("[Failed to fetch history]\n");
+      }
+      prompt();
       return;
     }
 
@@ -1252,37 +1255,37 @@ export async function startCli(): Promise<void> {
     }
 
     if (content === "/history") {
-      httpSend(
-        `/v1/messages?conversationKey=${encodeURIComponent(conversationKey)}`,
-        { method: "GET" },
-      )
-        .then(async (resp) => {
-          if (resp.ok) {
-            const data = (await resp.json()) as {
-              messages: Array<{ role: string; content: string }>;
-            };
-            process.stdout.write("\n");
-            if (data.messages.length === 0) {
-              process.stdout.write("  No messages in this session.\n");
-            } else {
-              for (const m of data.messages) {
-                const label = m.role === "user" ? "you" : "assistant";
-                const preview = truncate(m.content, 120);
-                process.stdout.write(
-                  `  ${label}> ${preview.replace(/\n/g, " ")}\n`,
-                );
-              }
-            }
-            process.stdout.write("\n");
+      try {
+        const mapping = getConversationByKey(conversationKey);
+        process.stdout.write("\n");
+        if (!mapping) {
+          process.stdout.write("  No messages in this session.\n");
+        } else {
+          const rawMessages = getMessages(mapping.conversationId);
+          if (rawMessages.length === 0) {
+            process.stdout.write("  No messages in this session.\n");
           } else {
-            process.stdout.write("[Failed to fetch history]\n");
+            for (const msg of rawMessages) {
+              let parsedContent: unknown;
+              try {
+                parsedContent = JSON.parse(msg.content);
+              } catch {
+                parsedContent = msg.content;
+              }
+              const text = renderHistoryContent(parsedContent).text;
+              const label = msg.role === "user" ? "you" : "assistant";
+              const preview = truncate(text, 120);
+              process.stdout.write(
+                `  ${label}> ${preview.replace(/\n/g, " ")}\n`,
+              );
+            }
           }
-          prompt();
-        })
-        .catch(() => {
-          process.stdout.write("[Failed to fetch history]\n");
-          prompt();
-        });
+        }
+        process.stdout.write("\n");
+      } catch {
+        process.stdout.write("[Failed to fetch history]\n");
+      }
+      prompt();
       return;
     }
 
