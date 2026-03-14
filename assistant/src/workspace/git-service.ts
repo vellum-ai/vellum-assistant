@@ -272,7 +272,7 @@ export class WorkspaceGitService {
     try {
       const stat = statSync(lockPath);
       const ageMs = Date.now() - stat.mtimeMs;
-      if (ageMs < GitService.LOCK_STALE_THRESHOLD_MS) {
+      if (ageMs < WorkspaceGitService.LOCK_STALE_THRESHOLD_MS) {
         log.debug(
           `index.lock exists but is only ${Math.round(ageMs / 1000)}s old — leaving it`,
         );
