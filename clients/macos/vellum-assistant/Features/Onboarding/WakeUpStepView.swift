@@ -30,8 +30,12 @@ struct WakeUpStepView: View {
         return NSImage(contentsOf: url)
     }()
 
+    private var managedSignInEnabled: Bool {
+        MacOSClientFeatureFlagManager.shared.isEnabled("managed_sign_in_enabled")
+    }
+
     private var primaryButtonTitle: String {
-        onboardingPrimaryButtonTitle(isAuthenticated: authManager?.isAuthenticated == true)
+        onboardingPrimaryButtonTitle(isAuthenticated: authManager?.isAuthenticated == true, managedSignInEnabled: managedSignInEnabled)
     }
 
     // MARK: - Body
@@ -80,6 +84,7 @@ struct WakeUpStepView: View {
                 OnboardingButton(title: primaryButtonTitle, style: .primary) {
                     onContinueWithVellum()
                 }
+                .disabled(!managedSignInEnabled && authManager?.isAuthenticated != true)
                 .accessibilityLabel("Sign in")
             }
 
