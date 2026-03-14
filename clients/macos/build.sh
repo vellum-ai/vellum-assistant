@@ -35,14 +35,20 @@ swift_with_retry() {
     local _pch_cleaned=0
     local _stderr_log
     _stderr_log=$(mktemp)
-    trap "rm -f '$_stderr_log'" RETURN
+    # FIFO for stderr streaming. Process substitutions (2> >(tee ...)) are
+    # not tracked by `wait` in bash < 4.4 (macOS ships 3.2), so tee could
+    # still be writing when grep reads the log. A named pipe with an explicit
+    # tee PID gives correct synchronization on all bash versions.
+    local _fifo
+    _fifo=$(mktemp -u)
+    mkfifo "$_fifo"
+    trap "rm -f '$_stderr_log' '$_fifo'" RETURN
     while true; do
-        # Stream stderr to terminal in real time via tee, also capturing to
-        # log file.  `wait` ensures the tee process substitution has flushed
-        # before grep reads the log.
         local _cmd_exit=0
-        "$@" 2> >(tee "$_stderr_log" >&2) || _cmd_exit=$?
-        wait
+        tee "$_stderr_log" >&2 < "$_fifo" &
+        local _tee_pid=$!
+        "$@" 2>"$_fifo" || _cmd_exit=$?
+        wait "$_tee_pid"
         if [ "$_cmd_exit" -eq 0 ]; then
             return 0
         fi
