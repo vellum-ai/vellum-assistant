@@ -74,14 +74,6 @@ final class OnboardingState {
         !speechGranted || !accessibilityGranted || !screenGranted
     }
 
-    var userHostedEnabled: Bool {
-        MacOSClientFeatureFlagManager.shared.isEnabled("user_hosted_enabled")
-    }
-
-    var managedSignInEnabled: Bool {
-        MacOSClientFeatureFlagManager.shared.isEnabled("managed_sign_in_enabled")
-    }
-
     /// Continuous crack progress (0.0–1.0) derived from step and permission state.
     /// For the first meeting variant, uses a timer-driven stored property instead.
     var crackProgress: CGFloat {
