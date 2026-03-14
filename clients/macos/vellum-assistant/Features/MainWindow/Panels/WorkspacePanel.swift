@@ -285,7 +285,7 @@ private struct WorkspaceTreeSidebar: View {
                     Spacer()
                 }
             } else {
-                ScrollView {
+                ScrollView([.vertical, .horizontal]) {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         if let rootEntries = state.directoryCache[""] {
                             ForEach(rootEntries) { entry in
@@ -449,11 +449,8 @@ private struct WorkspaceTreeRow: View {
                         Text(entry.name)
                             .font(VFont.body)
                             .foregroundColor(VColor.contentDefault)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
-
-                    Spacer()
                 }
                 .padding(.leading, CGFloat(depth) * 16 + VSpacing.sm)
                 .padding(.trailing, VSpacing.sm)
