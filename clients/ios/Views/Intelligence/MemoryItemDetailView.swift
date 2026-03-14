@@ -14,6 +14,7 @@ struct MemoryItemDetailView: View {
     @State private var editKind: String
     @State private var editStatus: String
     @State private var editImportance: Double
+    @State private var editBaseline: MemoryItemPayload?
     @State private var showDeleteConfirm = false
     @State private var showSaveError = false
     @State private var showDeleteError = false
@@ -57,7 +58,15 @@ struct MemoryItemDetailView: View {
                 }
             } else {
                 ToolbarItem(placement: .primaryAction) {
-                    Button("Edit") { isEditing = true }
+                    Button("Edit") {
+                        editBaseline = liveItem
+                        editSubject = liveItem.subject
+                        editStatement = liveItem.statement
+                        editKind = liveItem.kind
+                        editStatus = liveItem.status
+                        editImportance = liveItem.importance ?? 0.5
+                        isEditing = true
+                    }
                 }
                 ToolbarItem(placement: .secondaryAction) {
                     Button(role: .destructive) {
@@ -231,21 +240,21 @@ struct MemoryItemDetailView: View {
     // MARK: - Actions
 
     private func saveEdits() {
-        guard !isSaving else { return }
+        guard !isSaving, let baseline = editBaseline else { return }
         isSaving = true
         Task {
-            let current = liveItem
             let result = await store.updateItem(
-                id: current.id,
-                subject: editSubject != current.subject ? editSubject : nil,
-                statement: editStatement != current.statement ? editStatement : nil,
-                kind: editKind != current.kind ? editKind : nil,
-                status: editStatus != current.status ? editStatus : nil,
-                importance: editImportance != (current.importance ?? 0.5) ? editImportance : nil
+                id: baseline.id,
+                subject: editSubject != baseline.subject ? editSubject : nil,
+                statement: editStatement != baseline.statement ? editStatement : nil,
+                kind: editKind != baseline.kind ? editKind : nil,
+                status: editStatus != baseline.status ? editStatus : nil,
+                importance: editImportance != (baseline.importance ?? 0.5) ? editImportance : nil
             )
             isSaving = false
             if result != nil {
                 isEditing = false
+                editBaseline = nil
             } else {
                 showSaveError = true
             }
@@ -259,6 +268,7 @@ struct MemoryItemDetailView: View {
         editStatus = liveItem.status
         editImportance = liveItem.importance ?? 0.5
         isEditing = false
+        editBaseline = nil
     }
 
     // MARK: - Helpers
