@@ -62,8 +62,10 @@ struct SettingsDeveloperTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            // Platform URL
-            platformUrlSection
+            // Platform URL (dev mode only)
+            if store.isDevMode {
+                platformUrlSection
+            }
             // Assistant Info
             assistantInfoSection
             // Switch Assistant
@@ -421,11 +423,16 @@ struct SettingsDeveloperTab: View {
                 path: "assistants/\(selectedAssistantId)/healthz",
                 timeout: 10
             )
-            guard response.statusCode == 200 else { return }
+            guard response.statusCode == 200 else {
+                healthz = DaemonHealthz()
+                return
+            }
             let decoder = JSONDecoder()
             decoder.keyDecodingStrategy = .convertFromSnakeCase
             healthz = try decoder.decode(DaemonHealthz.self, from: response.data)
-        } catch {}
+        } catch {
+            healthz = DaemonHealthz()
+        }
     }
 
     private func infoRow(label: String, value: String, mono: Bool = false) -> some View {
