@@ -1217,49 +1217,78 @@ export async function startCli(): Promise<void> {
 
     if (content === "/model" || content.startsWith("/model ")) {
       const modelArg = content.slice("/model".length).trim();
-      if (modelArg) {
-        httpSend("/v1/model", {
-          method: "PUT",
-          body: JSON.stringify({ modelId: modelArg }),
-        })
-          .then(async (resp) => {
-            if (resp.ok) {
-              const data = (await resp.json()) as {
-                model: string;
-                provider: string;
-              };
+      try {
+        const signalsDir = join(getWorkspaceDir(), "signals");
+        mkdirSync(signalsDir, { recursive: true });
+        const resultPath = join(signalsDir, "model.result");
+        try {
+          unlinkSync(resultPath);
+        } catch {
+          // May not exist yet.
+        }
+        const requestId = randomUUID();
+        const payload: { action: string; requestId: string; modelId?: string } =
+          modelArg
+            ? { action: "set", modelId: modelArg, requestId }
+            : { action: "get", requestId };
+        writeFileSync(join(signalsDir, "model"), JSON.stringify(payload));
+
+        let settled = false;
+
+        const onResult = (): void => {
+          try {
+            const raw = readFileSync(resultPath, "utf-8");
+            const result = JSON.parse(raw) as {
+              ok?: boolean;
+              model?: string;
+              provider?: string;
+              requestId?: string;
+              error?: string;
+            };
+            if (result.requestId !== requestId) return;
+            if (settled) return;
+            settled = true;
+            modelWatcher.close();
+            clearTimeout(modelTimeoutId);
+            if (result.ok && result.model && result.provider) {
               process.stdout.write(
-                `\n  Model: ${data.model} (${data.provider})\n\n`,
+                `\n  Model: ${result.model} (${result.provider})\n\n`,
               );
             } else {
-              process.stdout.write("[Failed to set model]\n");
-            }
-            prompt();
-          })
-          .catch(() => {
-            process.stdout.write("[Failed to set model]\n");
-            prompt();
-          });
-      } else {
-        httpSend("/v1/model", { method: "GET" })
-          .then(async (resp) => {
-            if (resp.ok) {
-              const data = (await resp.json()) as {
-                model: string;
-                provider: string;
-              };
+              const action = modelArg ? "set model" : "get model info";
               process.stdout.write(
-                `\n  Model: ${data.model} (${data.provider})\n\n`,
+                `[Failed to ${action}: ${result.error ?? "unknown error"}]\n`,
               );
-            } else {
-              process.stdout.write("[Failed to get model info]\n");
             }
             prompt();
-          })
-          .catch(() => {
-            process.stdout.write("[Failed to get model info]\n");
+          } catch {
+            // Result file not yet readable; ignore.
+          }
+        };
+
+        const modelWatcher = watch(signalsDir, (_event, filename) => {
+          if (filename === "model.result") {
+            onResult();
+          }
+        });
+
+        const modelTimeoutId = setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            modelWatcher.close();
+            const action = modelArg ? "Model set" : "Model get";
+            process.stdout.write(`[${action} timed out]\n`);
             prompt();
-          });
+          }
+        }, 5_000);
+
+        if (existsSync(resultPath)) {
+          onResult();
+        }
+      } catch {
+        const action = modelArg ? "set model" : "get model info";
+        process.stdout.write(`[Failed to ${action}]\n`);
+        prompt();
       }
       return;
     }

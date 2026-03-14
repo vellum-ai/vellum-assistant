@@ -136,6 +136,10 @@ mock.module("../signals/conversation-undo.js", () => ({
   handleConversationUndoSignal: () => {},
 }));
 
+mock.module("../signals/model.js", () => ({
+  handleModelSignal: () => {},
+}));
+
 let resetAllowlistCallCount = 0;
 mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {
