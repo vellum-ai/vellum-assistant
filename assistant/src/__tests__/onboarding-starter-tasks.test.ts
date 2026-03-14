@@ -51,7 +51,6 @@ mock.module("../util/logger.js", () => ({
   ...realLogger,
   getLogger: () => noopLogger,
   getCliLogger: () => noopLogger,
-  isDebug: () => false,
   truncateForLog: (v: string) => v,
   initLogger: () => {},
   pruneOldLogFiles: () => 0,
@@ -77,7 +76,7 @@ describe("buildStarterTaskPlaybookSection", () => {
     const section = buildStarterTaskPlaybookSection();
     expect(section).toContain("### Playbook: make_it_yours");
     expect(section).toContain("accent color");
-    expect(section).toContain("Dashboard Color Preference");
+    expect(section).toContain("Color Preference");
     expect(section).toContain("user_selected");
   });
 

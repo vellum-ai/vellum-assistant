@@ -16,14 +16,15 @@ import {
   findGuardianForChannel,
   getChannelById,
   getContactInternal,
+  updateChannelInteraction,
   updateChannelLastSeenById,
   updateChannelStatus,
-  updateContactInteraction,
   upsertContact,
 } from "./contact-store.js";
 import type {
   ChannelPolicy,
   ChannelStatus,
+  ContactRole,
   ContactWriteResult,
 } from "./types.js";
 
@@ -146,6 +147,8 @@ export function upsertContactChannel(params: {
   createdBySessionId?: string;
   verifiedAt?: number;
   verifiedVia?: string;
+  role?: ContactRole;
+  contactId?: string;
 }): ContactWriteResult | null {
   let address: string;
 
@@ -173,7 +176,9 @@ export function upsertContactChannel(params: {
     : null;
 
   upsertContact({
+    id: params.contactId,
     displayName,
+    role: params.role,
     channels: [
       {
         type: params.sourceChannel,
@@ -189,6 +194,10 @@ export function upsertContactChannel(params: {
         verifiedVia: params.verifiedVia ?? undefined,
       },
     ],
+    // When a specific contactId is provided, reassign conflicting channels from
+    // other contacts. This enables invite redemption to bind a redeemer's
+    // existing channel identity to the invite's target contact.
+    reassignConflictingChannels: !!params.contactId,
   });
 
   const contactResult = findContactChannel({
@@ -278,13 +287,13 @@ export function touchChannelLastSeen(channelId: string): void {
 }
 
 /**
- * Increment the interaction count and update lastInteraction on a contact.
- * Expects a plain contact UUID (Contact.id).
+ * Track an interaction on the specific channel that received it.
+ * Swallows errors to avoid disrupting the inbound message hot path.
  */
-export function touchContactInteraction(contactId: string): void {
+export function touchContactInteraction(channelId: string): void {
   try {
-    updateContactInteraction(contactId);
+    updateChannelInteraction(channelId);
   } catch (err) {
-    log.warn({ err }, "Failed to update contact interaction stats");
+    log.warn({ err }, "Failed to update channel interaction stats");
   }
 }

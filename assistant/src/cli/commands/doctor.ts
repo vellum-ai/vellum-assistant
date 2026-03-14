@@ -3,17 +3,19 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 
 import type { Command } from "commander";
 
+import { getRuntimeHttpPort } from "../../config/env.js";
 import { loadRawConfig } from "../../config/loader.js";
 import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
+import { isHttpHealthy } from "../../daemon/daemon-control.js";
+import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import {
   getDbPath,
+  getHooksDir,
   getLogPath,
   getRootDir,
   getWorkspaceDir,
-  getWorkspaceHooksDir,
   getWorkspaceSkillsDir,
 } from "../../util/platform.js";
-import { getHttpBaseUrl, httpHealthCheck } from "../http-client.js";
 import { log } from "../logger.js";
 
 export function registerDoctorCommand(program: Command): void {
@@ -33,18 +35,17 @@ Output symbols:
 
 Diagnostic checks performed:
   1.  Bun is installed           Verifies bun is available in PATH
-  2.  API key configured         Checks for a valid provider API key in config or env
+  2.  API key configured         Checks for a valid provider API key in secure storage
   3.  Assistant reachable         HTTP health check against the assistant server
   4.  Database exists/readable   Opens the SQLite database and runs a test query
   5.  Directory structure        Verifies required ~/.vellum/ directories exist
   6.  Disk space                 Ensures at least 100MB free on the data partition
   7.  Log file size              Warns if the log file exceeds 50MB
   8.  Database integrity         Runs SQLite PRAGMA integrity_check
-  9.  HTTP token permissions     Verifies the http-token file has 0600 or 0700 mode
-  10. Trust rule syntax          Validates trust.json structure and rule fields
-  11. WASM files                 Checks that tree-sitter WASM binaries are present
-  12. Browser runtime            Verifies Playwright and Chromium availability
-  13. Sandbox diagnostics        Reports sandbox backend status and configuration
+  9.  Trust rule syntax          Validates trust.json structure and rule fields
+  10. WASM files                 Checks that tree-sitter WASM binaries are present
+  11. Browser runtime            Verifies Playwright and Chromium availability
+  12. Sandbox diagnostics        Reports sandbox backend status and configuration
 
 Examples:
   $ assistant doctor`,
@@ -57,7 +58,7 @@ Examples:
       log.info("Vellum Doctor\n");
 
       // 0. Connection policy info
-      const httpUrl = getHttpBaseUrl();
+      const httpUrl = `http://127.0.0.1:${getRuntimeHttpPort()}`;
       const autostart = shouldAutoStartDaemon();
       log.info(`  HTTP:      ${httpUrl}`);
       log.info(`  Autostart: ${autostart ? "enabled" : "disabled"}\n`);
@@ -74,36 +75,19 @@ Examples:
       const raw = loadRawConfig();
       const provider =
         typeof raw.provider === "string" ? raw.provider : "anthropic";
-      const providerEnvVar: Record<string, string> = {
-        anthropic: "ANTHROPIC_API_KEY",
-        openai: "OPENAI_API_KEY",
-        gemini: "GEMINI_API_KEY",
-        ollama: "OLLAMA_API_KEY",
-        fireworks: "FIREWORKS_API_KEY",
-        openrouter: "OPENROUTER_API_KEY",
-      };
-      const configKey = (raw.apiKeys as Record<string, string> | undefined)?.[
-        provider
-      ];
-      const envVar = providerEnvVar[provider];
-      const envKey = envVar ? process.env[envVar] : undefined;
+      const configKey = await getSecureKeyAsync(provider);
 
       if (provider === "ollama") {
         pass("Provider configured (Ollama; API key optional)");
-      } else if (envKey || configKey) {
+      } else if (configKey) {
         pass("API key configured");
       } else {
-        fail(
-          "API key configured",
-          envVar
-            ? `set ${envVar} or run: assistant config set apiKeys.${provider} <key>`
-            : `set API key for provider "${provider}"`,
-        );
+        fail("API key configured", `run: assistant keys set ${provider} <key>`);
       }
 
       // 3. Daemon reachable (HTTP health check)
       try {
-        const healthy = await httpHealthCheck(2000);
+        const healthy = await isHttpHealthy();
         if (healthy) {
           pass("Assistant reachable");
         } else {
@@ -149,7 +133,7 @@ Examples:
         `${dataDir}/db`,
         `${dataDir}/logs`,
         getWorkspaceSkillsDir(),
-        getWorkspaceHooksDir(),
+        getHooksDir(),
         `${rootDir}/protected`,
       ];
       const missing = requiredDirs.filter((d) => !existsSync(d));
@@ -231,30 +215,7 @@ Examples:
         fail("Database integrity check", "database file not found");
       }
 
-      // 9. HTTP token
-      const tokenPath = `${rootDir}/http-token`;
-      if (existsSync(tokenPath)) {
-        try {
-          const tokenStat = statSync(tokenPath);
-          const mode = tokenStat.mode & 0o777;
-          if (mode === 0o600 || mode === 0o700) {
-            pass(
-              `HTTP token permissions (${mode.toString(8).padStart(4, "0")})`,
-            );
-          } else {
-            fail(
-              "HTTP token permissions",
-              `expected 0600 or 0700, got 0${mode.toString(8)}`,
-            );
-          }
-        } catch {
-          fail("HTTP token permissions", "could not stat http-token file");
-        }
-      } else {
-        pass("HTTP token (not present — assistant not running)");
-      }
-
-      // 10. Trust rule syntax
+      // 9. Trust rule syntax
       const trustPath = `${rootDir}/protected/trust.json`;
       if (existsSync(trustPath)) {
         try {
@@ -294,7 +255,7 @@ Examples:
         pass("Trust rule syntax (no trust.json yet)");
       }
 
-      // 11. WASM files
+      // 10. WASM files
       const wasmFiles = [
         { pkg: "web-tree-sitter", file: "web-tree-sitter.wasm" },
         { pkg: "tree-sitter-bash", file: "tree-sitter-bash.wasm" },
@@ -336,7 +297,7 @@ Examples:
         fail("WASM files", missingWasm.join(", "));
       }
 
-      // 12. Browser runtime (Playwright + Chromium)
+      // 11. Browser runtime (Playwright + Chromium)
       const { checkBrowserRuntime } =
         await import("../../tools/browser/runtime-check.js");
       const browserStatus = await checkBrowserRuntime();
@@ -354,7 +315,7 @@ Examples:
         );
       }
 
-      // 13. Sandbox backend diagnostics
+      // 12. Sandbox backend diagnostics
       const { runSandboxDiagnostics } =
         await import("../../tools/terminal/sandbox-diagnostics.js");
       const sandbox = runSandboxDiagnostics();

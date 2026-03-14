@@ -73,8 +73,7 @@ describe("onboarding template contracts", () => {
       // User detail fields must be resolved (provided, inferred, or declined)
       expect(lower).toContain("resolved");
       expect(lower).toContain("work role");
-      expect(lower).toContain("2 suggestions shown");
-      expect(lower).toContain("selected one, deferred both");
+      expect(lower).toContain("2 suggestions from step 6");
     });
 
     test("contains refusal policy", () => {

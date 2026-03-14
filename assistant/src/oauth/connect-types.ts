@@ -34,8 +34,8 @@ export interface OAuthScopePolicy {
  * Code-side behavioral configuration for a well-known OAuth provider.
  *
  * Protocol-level fields (authUrl, tokenUrl, defaultScopes, scopePolicy,
- * tokenEndpointAuthMethod, callbackTransport, loopbackPort, userinfoUrl,
- * extraParams) are stored in the `oauth_providers` DB table. This
+ * tokenEndpointAuthMethod, callbackTransport, userinfoUrl, extraParams)
+ * are stored in the `oauth_providers` DB table. This
  * interface contains only fields that require code references (functions,
  * templates, skill IDs) and cannot be serialised to a DB row.
  */
@@ -74,6 +74,13 @@ export interface OAuthProviderBehavior {
    * agent to load this skill rather than embedding instructions inline.
    */
   setupSkillId?: string;
+  /**
+   * Fixed port for the loopback OAuth callback server. When set, the
+   * server binds to this port instead of an OS-assigned random port.
+   * Required for providers that need pre-registered redirect URIs
+   * (e.g. Slack, Notion).
+   */
+  loopbackPort?: number;
 }
 
 // ---------------------------------------------------------------------------

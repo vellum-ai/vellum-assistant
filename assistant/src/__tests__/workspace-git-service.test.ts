@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -1222,6 +1223,52 @@ describe("WorkspaceGitService", () => {
       const now = Date.now();
       // Use a deadline slightly in the past to avoid timing flakes
       expect(isDeadlineExpired(now - 1)).toBe(true);
+    });
+  });
+
+  describe("git hook hardening", () => {
+    test("does not execute pre-commit hooks during commitChanges", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const hookPath = join(testDir, ".git", "hooks", "pre-commit");
+      const markerPath = join(testDir, "hook-ran.txt");
+      writeFileSync(
+        hookPath,
+        `#!/bin/sh\necho hook-ran > "${markerPath}"\nexit 1\n`,
+      );
+      chmodSync(hookPath, 0o755);
+
+      writeFileSync(join(testDir, "test.txt"), "content");
+      await service.commitChanges("Add file safely");
+
+      expect(existsSync(markerPath)).toBe(false);
+    });
+
+    test("does not execute hooks configured via core.hooksPath during commitIfDirty", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const hooksDir = join(testDir, "custom-hooks");
+      mkdirSync(hooksDir, { recursive: true });
+      const markerPath = join(testDir, "core-hooks-ran.txt");
+      const hookPath = join(hooksDir, "pre-commit");
+      writeFileSync(
+        hookPath,
+        `#!/bin/sh\necho core-hooks-ran > "${markerPath}"\nexit 1\n`,
+      );
+      chmodSync(hookPath, 0o755);
+      execFileSync("git", ["config", "core.hooksPath", hooksDir], {
+        cwd: testDir,
+      });
+
+      writeFileSync(join(testDir, "dirty.txt"), "dirty");
+      const result = await service.commitIfDirty(() => ({
+        message: "commit if dirty",
+      }));
+
+      expect(result.committed).toBe(true);
+      expect(existsSync(markerPath)).toBe(false);
     });
   });
 });

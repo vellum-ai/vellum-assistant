@@ -3,17 +3,13 @@ import type { ToolDefinition } from "../../providers/types.js";
 export const memoryRecallDefinition: ToolDefinition = {
   name: "memory_recall",
   description:
-    "Deep search across all memory sources (semantic, lexical, entity graph, recency) for specific information. Use this when you need to recall details about past conversations, decisions, preferences, project context, or any prior knowledge. Returns formatted memory context with item IDs for use with memory_manage.",
+    "Hybrid search across memory (semantic and recency) for specific information. Use this when you need to recall details about past conversations, decisions, preferences, project context, or any prior knowledge. Returns formatted memory context with item IDs for use with memory_manage.",
   input_schema: {
     type: "object",
     properties: {
       query: {
         type: "string",
         description: "The search query — be specific and descriptive",
-      },
-      max_results: {
-        type: "number",
-        description: "Maximum number of memory items to return (default: 10)",
       },
       scope: {
         type: "string",
@@ -44,17 +40,12 @@ const memoryManageProperties = {
   kind: {
     type: "string" as const,
     enum: [
+      "identity",
       "preference",
-      "fact",
+      "project",
       "decision",
-      "profile",
-      "relationship",
+      "constraint",
       "event",
-      "opinion",
-      "instruction",
-      "style",
-      "playbook",
-      "learning",
     ],
     description: "Category of the memory item (required for save)",
   },

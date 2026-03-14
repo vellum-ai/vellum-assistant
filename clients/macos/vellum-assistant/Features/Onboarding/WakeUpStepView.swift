@@ -30,8 +30,15 @@ struct WakeUpStepView: View {
         return NSImage(contentsOf: url)
     }()
 
+    private var managedSignInEnabled: Bool {
+        MacOSClientFeatureFlagManager.shared.isEnabled("managed_sign_in_enabled")
+    }
+
     private var primaryButtonTitle: String {
-        onboardingPrimaryButtonTitle(isAuthenticated: authManager?.isAuthenticated == true)
+        onboardingPrimaryButtonTitle(
+            isAuthenticated: authManager?.isAuthenticated == true,
+            hasAssistant: LockfileAssistant.loadLatest() != nil
+        )
     }
 
     // MARK: - Body
@@ -40,7 +47,7 @@ struct WakeUpStepView: View {
         // Title
         Text("Welcome to Vellum")
             .font(.system(size: 32, weight: .regular, design: .serif))
-            .foregroundColor(VColor.textPrimary)
+            .foregroundColor(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.xs)
@@ -48,7 +55,7 @@ struct WakeUpStepView: View {
         // Subtitle
         Text("The safest way to create your\npersonal assistant.")
             .font(.system(size: 16))
-            .foregroundColor(VColor.textSecondary)
+            .foregroundColor(VColor.contentSecondary)
             .multilineTextAlignment(.center)
             .opacity(showSubtext ? 1 : 0)
             .offset(y: showSubtext ? 0 : 8)
@@ -63,7 +70,7 @@ struct WakeUpStepView: View {
                         .progressViewStyle(.circular)
                     Text("Checking...")
                         .font(VFont.monoMedium)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
                 .frame(height: 36)
             } else if authManager?.isSubmitting == true {
@@ -73,26 +80,36 @@ struct WakeUpStepView: View {
                         .progressViewStyle(.circular)
                     Text("Signing in...")
                         .font(VFont.monoMedium)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
                 .frame(height: 36)
-            } else {
-                OnboardingButton(title: primaryButtonTitle, style: .primary) {
-                    onContinueWithVellum()
+            } else if managedSignInEnabled {
+                let buttonTitle = primaryButtonTitle
+                VStack(spacing: VSpacing.xs) {
+                    OnboardingButton(title: buttonTitle, style: .primary) {
+                        onContinueWithVellum()
+                    }
+                    .accessibilityLabel(buttonTitle)
                 }
-                .accessibilityLabel("Sign in")
-            }
 
-            OnboardingButton(title: "Self-host", style: .tertiary) {
-                onStartWithAPIKey()
+                if authManager?.isAuthenticated != true {
+                    OnboardingButton(title: "Skip for now", style: .secondary) {
+                        onStartWithAPIKey()
+                    }
+                    .accessibilityLabel("Skip for now")
+                }
+            } else {
+                OnboardingButton(title: "Get Started", style: .primary) {
+                    onStartWithAPIKey()
+                }
+                .accessibilityLabel("Get Started")
             }
-            .accessibilityLabel("Self-host")
 
             // Auth error message
             if let error = authManager?.errorMessage {
                 Text(error)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.error)
+                    .foregroundColor(VColor.systemNegativeStrong)
                     .multilineTextAlignment(.center)
             }
         }
@@ -116,7 +133,7 @@ struct WakeUpStepView: View {
 
         Text("\u{00A9} 2026 Vellum Inc.")
             .font(VFont.monoSmall)
-            .foregroundStyle(VColor.textMuted.opacity(0.5))
+            .foregroundStyle(VColor.contentTertiary.opacity(0.5))
             .padding(.bottom, VSpacing.sm)
 
         // Characters peeking up from the bottom — single composed image
@@ -133,23 +150,4 @@ struct WakeUpStepView: View {
                 .accessibilityHidden(true)
         }
     }
-}
-
-// MARK: - Previews
-
-#Preview("Onboarding context") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        VStack(spacing: 0) {
-            Spacer()
-            Image("VellyLogo")
-                .resizable()
-                .interpolation(.none)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 128, height: 128)
-                .padding(.bottom, VSpacing.xxl)
-            WakeUpStepView(state: OnboardingState())
-        }
-    }
-    .frame(width: 520, height: 580)
 }

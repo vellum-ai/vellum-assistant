@@ -94,21 +94,6 @@ export function isDeviceApproved(hashedDeviceId: string): boolean {
   return getDevices().has(hashedDeviceId);
 }
 
-/** Add or update a device in the allowlist. */
-export function approveDevice(
-  hashedDeviceId: string,
-  deviceName: string,
-): void {
-  const devices = getDevices();
-  devices.set(hashedDeviceId, {
-    hashedDeviceId,
-    deviceName,
-    lastPairedAt: Date.now(),
-  });
-  saveToDisk(devices);
-  log.info({ hashedDeviceId }, "Device approved and saved to allowlist");
-}
-
 /** Update lastPairedAt and deviceName for an existing device (auto-approve refresh). */
 export function refreshDevice(
   hashedDeviceId: string,
@@ -122,33 +107,4 @@ export function refreshDevice(
     saveToDisk(devices);
     log.info({ hashedDeviceId }, "Device metadata refreshed");
   }
-}
-
-/** Remove a device from the allowlist. Returns true if removed. */
-export function removeDevice(hashedDeviceId: string): boolean {
-  const devices = getDevices();
-  const removed = devices.delete(hashedDeviceId);
-  if (removed) {
-    saveToDisk(devices);
-    log.info({ hashedDeviceId }, "Device removed from allowlist");
-  }
-  return removed;
-}
-
-/** Clear all approved devices. */
-export function clearAllDevices(): void {
-  const devices = getDevices();
-  devices.clear();
-  saveToDisk(devices);
-  log.info("All approved devices cleared");
-}
-
-/** List all approved devices. */
-export function listDevices(): ApprovedDevice[] {
-  return Array.from(getDevices().values());
-}
-
-/** Reset the in-memory cache (for testing). */
-export function resetCache(): void {
-  cachedDevices = null;
 }

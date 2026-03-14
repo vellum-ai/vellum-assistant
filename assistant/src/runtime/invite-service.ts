@@ -8,14 +8,17 @@
  * /v1/contacts/channels endpoints.
  */
 
+import { startInviteCall } from "../calls/call-domain.js";
 import { isChannelId } from "../channels/types.js";
 import {
   createInvite,
+  findById,
   findByTokenHash,
   hashToken,
   type IngressInvite,
   type InviteStatus,
   listInvites,
+  markInviteExpired,
   revokeInvite,
 } from "../memory/invite-store.js";
 import {
@@ -31,7 +34,6 @@ import {
 } from "./channel-invite-transport.js";
 import { generateInviteInstruction } from "./invite-instruction-generator.js";
 import {
-  type InviteRedemptionOutcome,
   redeemInvite as redeemInviteTyped,
   redeemVoiceInviteCode as redeemVoiceInviteCodeTyped,
   type VoiceRedemptionOutcome,
@@ -156,9 +158,14 @@ export async function createIngressInvite(params: {
   voiceCodeDigits?: number;
   friendName?: string;
   guardianName?: string;
+  contactId: string;
 }): Promise<IngressResult<InviteResponseData>> {
   if (!params.sourceChannel) {
     return { ok: false, error: "sourceChannel is required for create" };
+  }
+
+  if (!params.contactId) {
+    return { ok: false, error: "contactId is required for create" };
   }
 
   // For voice invites: generate a one-time numeric code, hash it, and pass
@@ -210,6 +217,7 @@ export async function createIngressInvite(params: {
 
   const { invite, rawToken } = createInvite({
     sourceChannel: params.sourceChannel,
+    contactId: params.contactId,
     note: params.note,
     maxUses: params.maxUses,
     expiresInMs: params.expiresInMs,
@@ -248,6 +256,10 @@ export async function createIngressInvite(params: {
       hasShareUrl: !!share?.url,
       shareUrl: share?.url,
     });
+  }
+
+  if (isVoice && params.friendName) {
+    guardianInstruction = `${params.friendName} will need this code when they answer. Share it with them first.`;
   }
 
   // Voice invites must not expose the token — callers must redeem via the
@@ -291,6 +303,36 @@ export function revokeIngressInvite(
   return { ok: true, data: inviteToResponse(revoked) };
 }
 
+export async function triggerInviteCall(
+  inviteId: string,
+): Promise<IngressResult<{ callSid: string }>> {
+  if (!inviteId) return { ok: false, error: "inviteId is required" };
+  const invite = findById(inviteId);
+  if (!invite) return { ok: false, error: "Invite not found" };
+  if (invite.status !== "active")
+    return { ok: false, error: "Invite is not active" };
+  if (invite.expiresAt && invite.expiresAt <= Date.now()) {
+    markInviteExpired(invite.id);
+    return { ok: false, error: "Invite has expired" };
+  }
+  if (invite.sourceChannel !== "phone")
+    return { ok: false, error: "Only phone invites support call triggering" };
+  if (
+    !invite.expectedExternalUserId ||
+    !invite.friendName ||
+    !invite.guardianName
+  ) {
+    return { ok: false, error: "Invite is missing required voice metadata" };
+  }
+  const result = await startInviteCall({
+    phoneNumber: invite.expectedExternalUserId,
+    friendName: invite.friendName,
+    guardianName: invite.guardianName,
+  });
+  if (!result.ok) return { ok: false, error: result.error };
+  return { ok: true, data: { callSid: result.callSid } };
+}
+
 export function redeemIngressInvite(params: {
   token?: string;
   externalUserId?: string;
@@ -327,25 +369,6 @@ export function redeemIngressInvite(params: {
     return { ok: false, error: "Invite not found after redemption" };
   }
   return { ok: true, data: inviteToResponse(inv) };
-}
-
-// ---------------------------------------------------------------------------
-// Typed invite redemption — preferred entry point for new callers
-// ---------------------------------------------------------------------------
-
-export { type InviteRedemptionOutcome } from "./invite-redemption-service.js";
-export { type VoiceRedemptionOutcome } from "./invite-redemption-service.js";
-
-export function redeemIngressInviteTyped(params: {
-  rawToken: string;
-  sourceChannel: string;
-  externalUserId?: string;
-  externalChatId?: string;
-  displayName?: string;
-  username?: string;
-  assistantId?: string;
-}): InviteRedemptionOutcome {
-  return redeemInviteTyped(params);
 }
 
 export function redeemVoiceInviteCode(params: {

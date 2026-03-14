@@ -51,9 +51,7 @@ mock.module("../calls/twilio-provider.js", () => ({
   },
 }));
 
-mock.module("../security/secure-keys.js", () => ({
-  getSecureKey: () => null,
-}));
+mock.module("../security/secure-keys.js", () => ({}));
 
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,

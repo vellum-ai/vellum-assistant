@@ -19,7 +19,7 @@ mock.module("../config/env.js", () => ({
 }));
 
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKey: (key: string) => {
+  getSecureKeyAsync: async (key: string) => {
     if (key === credentialKey("vellum", "assistant_api_key")) {
       return mockAssistantApiKey;
     }
@@ -40,44 +40,44 @@ describe("resolveManagedProxyContext", () => {
     mockAssistantApiKey = null;
   });
 
-  test("returns disabled when platform URL is empty", () => {
+  test("returns disabled when platform URL is empty", async () => {
     mockPlatformBaseUrl = "";
     mockAssistantApiKey = "sk-test-key";
 
-    const ctx = resolveManagedProxyContext();
+    const ctx = await resolveManagedProxyContext();
     expect(ctx.enabled).toBe(false);
     expect(ctx.platformBaseUrl).toBe("");
   });
 
-  test("returns disabled when assistant API key is missing", () => {
+  test("returns disabled when assistant API key is missing", async () => {
     mockPlatformBaseUrl = "https://platform.example.com";
     mockAssistantApiKey = null;
 
-    const ctx = resolveManagedProxyContext();
+    const ctx = await resolveManagedProxyContext();
     expect(ctx.enabled).toBe(false);
     expect(ctx.assistantApiKey).toBe("");
   });
 
-  test("returns disabled when both are missing", () => {
-    const ctx = resolveManagedProxyContext();
+  test("returns disabled when both are missing", async () => {
+    const ctx = await resolveManagedProxyContext();
     expect(ctx.enabled).toBe(false);
   });
 
-  test("returns enabled when both platform URL and API key are present", () => {
+  test("returns enabled when both platform URL and API key are present", async () => {
     mockPlatformBaseUrl = "https://platform.example.com/";
     mockAssistantApiKey = "sk-test-key";
 
-    const ctx = resolveManagedProxyContext();
+    const ctx = await resolveManagedProxyContext();
     expect(ctx.enabled).toBe(true);
     expect(ctx.platformBaseUrl).toBe("https://platform.example.com");
     expect(ctx.assistantApiKey).toBe("sk-test-key");
   });
 
-  test("strips trailing slashes from platform URL", () => {
+  test("strips trailing slashes from platform URL", async () => {
     mockPlatformBaseUrl = "https://platform.example.com///";
     mockAssistantApiKey = "sk-test-key";
 
-    const ctx = resolveManagedProxyContext();
+    const ctx = await resolveManagedProxyContext();
     expect(ctx.platformBaseUrl).toBe("https://platform.example.com");
   });
 });
@@ -88,14 +88,14 @@ describe("hasManagedProxyPrereqs", () => {
     mockAssistantApiKey = null;
   });
 
-  test("returns false when prerequisites are missing", () => {
-    expect(hasManagedProxyPrereqs()).toBe(false);
+  test("returns false when prerequisites are missing", async () => {
+    expect(await hasManagedProxyPrereqs()).toBe(false);
   });
 
-  test("returns true when prerequisites are satisfied", () => {
+  test("returns true when prerequisites are satisfied", async () => {
     mockPlatformBaseUrl = "https://platform.example.com";
     mockAssistantApiKey = "sk-test-key";
-    expect(hasManagedProxyPrereqs()).toBe(true);
+    expect(await hasManagedProxyPrereqs()).toBe(true);
   });
 });
 
@@ -105,36 +105,34 @@ describe("buildManagedBaseUrl", () => {
     mockAssistantApiKey = "sk-test-key";
   });
 
-  test("builds correct URL for managed providers", () => {
-    expect(buildManagedBaseUrl("openai")).toBe(
-      "https://platform.example.com/v1/runtime-proxy/openai",
+  test("builds correct URL for managed providers", async () => {
+    expect(await buildManagedBaseUrl("anthropic")).toBe(
+      "https://platform.example.com/v1/runtime-proxy/anthropic",
     );
-    expect(buildManagedBaseUrl("anthropic")).toBe(
+    expect(await buildManagedBaseUrl("gemini")).toBe(
       "https://platform.example.com/v1/runtime-proxy/vertex",
     );
-    expect(buildManagedBaseUrl("gemini")).toBe(
+    expect(await buildManagedBaseUrl("vertex")).toBe(
       "https://platform.example.com/v1/runtime-proxy/vertex",
     );
-    expect(buildManagedBaseUrl("fireworks")).toBe(
-      "https://platform.example.com/v1/runtime-proxy/fireworks",
-    );
-    expect(buildManagedBaseUrl("openrouter")).toBe(
-      "https://platform.example.com/v1/runtime-proxy/openrouter",
-    );
   });
 
-  test("returns undefined for non-managed provider (ollama)", () => {
-    expect(buildManagedBaseUrl("ollama")).toBeUndefined();
+  test("returns undefined for non-managed providers", async () => {
+    expect(await buildManagedBaseUrl("openai")).toBeUndefined();
+    expect(await buildManagedBaseUrl("fireworks")).toBeUndefined();
+    expect(await buildManagedBaseUrl("openrouter")).toBeUndefined();
+    expect(await buildManagedBaseUrl("ollama")).toBeUndefined();
   });
 
-  test("returns undefined for unknown provider", () => {
-    expect(buildManagedBaseUrl("unknown-provider")).toBeUndefined();
+  test("returns undefined for unknown provider", async () => {
+    expect(await buildManagedBaseUrl("unknown-provider")).toBeUndefined();
   });
 
-  test("returns undefined when prerequisites are missing", () => {
+  test("returns undefined when prerequisites are missing", async () => {
     mockPlatformBaseUrl = "";
     mockAssistantApiKey = null;
-    expect(buildManagedBaseUrl("openai")).toBeUndefined();
+    expect(await buildManagedBaseUrl("anthropic")).toBeUndefined();
+    expect(await buildManagedBaseUrl("vertex")).toBeUndefined();
   });
 });
 
@@ -144,22 +142,24 @@ describe("managedFallbackEnabledFor", () => {
     mockAssistantApiKey = "sk-test-key";
   });
 
-  test("returns true for managed providers with prerequisites", () => {
-    expect(managedFallbackEnabledFor("openai")).toBe(true);
-    expect(managedFallbackEnabledFor("anthropic")).toBe(true);
+  test("returns true only for managed fallback providers with prerequisites", async () => {
+    expect(await managedFallbackEnabledFor("anthropic")).toBe(true);
+    expect(await managedFallbackEnabledFor("gemini")).toBe(true);
+    expect(await managedFallbackEnabledFor("openai")).toBe(false);
   });
 
-  test("returns false for non-managed provider", () => {
-    expect(managedFallbackEnabledFor("ollama")).toBe(false);
+  test("returns false for non-managed provider", async () => {
+    expect(await managedFallbackEnabledFor("ollama")).toBe(false);
   });
 
-  test("returns false for unknown provider", () => {
-    expect(managedFallbackEnabledFor("unknown")).toBe(false);
+  test("returns false for unknown provider", async () => {
+    expect(await managedFallbackEnabledFor("unknown")).toBe(false);
   });
 
-  test("returns false when prerequisites are missing", () => {
+  test("returns false when prerequisites are missing", async () => {
     mockPlatformBaseUrl = "";
     mockAssistantApiKey = null;
-    expect(managedFallbackEnabledFor("openai")).toBe(false);
+    expect(await managedFallbackEnabledFor("anthropic")).toBe(false);
+    expect(await managedFallbackEnabledFor("gemini")).toBe(false);
   });
 });

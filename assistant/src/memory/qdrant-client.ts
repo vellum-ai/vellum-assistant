@@ -5,6 +5,11 @@ import { getLogger } from "../util/logger.js";
 
 const log = getLogger("qdrant-client");
 
+export interface QdrantSparseVector {
+  indices: number[];
+  values: number[];
+}
+
 export interface QdrantClientConfig {
   url: string;
   collection: string;
@@ -28,7 +33,6 @@ export interface QdrantPointPayload {
   conversation_id?: string;
   message_id?: string;
   memory_scope_id?: string;
-  entity_ids?: string[];
   modality?: "text" | "image" | "audio" | "video";
 }
 
@@ -79,17 +83,29 @@ export class VellumQdrantClient {
     this.embeddingModel = config.embeddingModel;
   }
 
-  async ensureCollection(): Promise<void> {
-    if (this.collectionReady) return;
+  async ensureCollection(): Promise<{ migrated: boolean }> {
+    if (this.collectionReady) return { migrated: false };
+
+    let migrated = false;
 
     try {
       const exists = await this.client.collectionExists(this.collection);
       if (exists.exists) {
         try {
           const info = await this.client.getCollection(this.collection);
-          const currentSize = (
-            info.config?.params?.vectors as { size?: number }
-          )?.size;
+          const vectorsConfig = info.config?.params?.vectors;
+
+          // Detect whether the collection uses unnamed vectors (legacy) vs named vectors
+          const isUnnamedVectors =
+            vectorsConfig != null &&
+            typeof vectorsConfig === "object" &&
+            "size" in vectorsConfig;
+
+          const currentSize = isUnnamedVectors
+            ? (vectorsConfig as { size?: number })?.size
+            : (vectorsConfig as Record<string, { size?: number }> | undefined)
+                ?.dense?.size;
+
           const dimMismatch =
             currentSize != null && currentSize !== this.vectorSize;
 
@@ -102,7 +118,19 @@ export class VellumQdrantClient {
             }
           }
 
-          if (dimMismatch || modelMismatch) {
+          if (isUnnamedVectors) {
+            log.warn(
+              {
+                collection: this.collection,
+                currentSize,
+                expectedSize: this.vectorSize,
+              },
+              "Qdrant collection uses unnamed vectors (legacy) — deleting and recreating with named vectors. Embeddings will be re-indexed.",
+            );
+            await this.client.deleteCollection(this.collection);
+            migrated = true;
+            // Fall through to collection creation below
+          } else if (dimMismatch || modelMismatch) {
             log.warn(
               {
                 collection: this.collection,
@@ -113,12 +141,13 @@ export class VellumQdrantClient {
               "Qdrant collection incompatible (dimension or model change) — deleting and recreating. Embeddings will be regenerated on demand.",
             );
             await this.client.deleteCollection(this.collection);
+            migrated = true;
             // Fall through to collection creation below
           } else {
             if (await this.ensurePayloadIndexesSafe()) {
               this.collectionReady = true;
             }
-            return;
+            return { migrated: false };
           }
         } catch (err) {
           log.warn(
@@ -128,7 +157,7 @@ export class VellumQdrantClient {
           if (await this.ensurePayloadIndexesSafe()) {
             this.collectionReady = true;
           }
-          return;
+          return { migrated: false };
         }
       }
     } catch {
@@ -137,15 +166,20 @@ export class VellumQdrantClient {
 
     log.info(
       { collection: this.collection, vectorSize: this.vectorSize },
-      "Creating Qdrant collection",
+      "Creating Qdrant collection with named vectors (dense + sparse)",
     );
 
     try {
       await this.client.createCollection(this.collection, {
         vectors: {
-          size: this.vectorSize,
-          distance: "Cosine",
-          on_disk: this.onDisk,
+          dense: {
+            size: this.vectorSize,
+            distance: "Cosine",
+            on_disk: this.onDisk,
+          },
+        },
+        sparse_vectors: {
+          sparse: {}, // Qdrant auto-infers sparse vector params
         },
         hnsw_config: {
           on_disk: this.onDisk,
@@ -174,7 +208,7 @@ export class VellumQdrantClient {
         if (await this.ensurePayloadIndexesSafe()) {
           this.collectionReady = true;
         }
-        return;
+        return { migrated };
       }
       throw err;
     }
@@ -191,6 +225,8 @@ export class VellumQdrantClient {
         "Qdrant collection created with payload indexes",
       );
     }
+
+    return { migrated };
   }
 
   async upsert(
@@ -198,6 +234,7 @@ export class VellumQdrantClient {
     targetId: string,
     vector: number[],
     payload: Omit<QdrantPointPayload, "target_type" | "target_id">,
+    sparseVector?: QdrantSparseVector,
   ): Promise<string> {
     await this.ensureCollection();
 
@@ -205,20 +242,33 @@ export class VellumQdrantClient {
     const existing = await this.findByTarget(targetType, targetId);
     const pointId = existing ?? uuid();
 
+    const namedVector: Record<
+      string,
+      number[] | { indices: number[]; values: number[] }
+    > = {
+      dense: vector,
+    };
+    if (sparseVector) {
+      namedVector.sparse = {
+        indices: sparseVector.indices,
+        values: sparseVector.values,
+      };
+    }
+
+    const point = {
+      id: pointId,
+      vector: namedVector,
+      payload: {
+        target_type: targetType,
+        target_id: targetId,
+        ...payload,
+      },
+    };
+
     try {
       await this.client.upsert(this.collection, {
         wait: true,
-        points: [
-          {
-            id: pointId,
-            vector,
-            payload: {
-              target_type: targetType,
-              target_id: targetId,
-              ...payload,
-            },
-          },
-        ],
+        points: [point],
       });
     } catch (err) {
       if (this.isCollectionMissing(err)) {
@@ -226,17 +276,7 @@ export class VellumQdrantClient {
         await this.ensureCollection();
         await this.client.upsert(this.collection, {
           wait: true,
-          points: [
-            {
-              id: pointId,
-              vector,
-              payload: {
-                target_type: targetType,
-                target_id: targetId,
-                ...payload,
-              },
-            },
-          ],
+          points: [point],
         });
       } else {
         throw err;
@@ -253,26 +293,22 @@ export class VellumQdrantClient {
   ): Promise<QdrantSearchResult[]> {
     await this.ensureCollection();
 
+    const searchParams = {
+      vector: { name: "dense", vector },
+      limit,
+      with_payload: true,
+      score_threshold: 0.0,
+      filter: filter as Parameters<QdrantRestClient["search"]>[1]["filter"],
+    };
+
     let results;
     try {
-      results = await this.client.search(this.collection, {
-        vector,
-        limit,
-        with_payload: true,
-        score_threshold: 0.0,
-        filter: filter as Parameters<QdrantRestClient["search"]>[1]["filter"],
-      });
+      results = await this.client.search(this.collection, searchParams);
     } catch (err) {
       if (this.isCollectionMissing(err)) {
         this.collectionReady = false;
         await this.ensureCollection();
-        results = await this.client.search(this.collection, {
-          vector,
-          limit,
-          with_payload: true,
-          score_threshold: 0.0,
-          filter: filter as Parameters<QdrantRestClient["search"]>[1]["filter"],
-        });
+        results = await this.client.search(this.collection, searchParams);
       } else {
         throw err;
       }
@@ -332,6 +368,65 @@ export class VellumQdrantClient {
     };
 
     return this.search(vector, limit, filter);
+  }
+
+  /**
+   * Hybrid search using both dense and sparse vectors with RRF fusion.
+   * Performs two prefetch queries (dense + sparse) and fuses results
+   * using Reciprocal Rank Fusion via Qdrant's query API.
+   */
+  async hybridSearch(params: {
+    denseVector: number[];
+    sparseVector: QdrantSparseVector;
+    filter?: object;
+    limit: number;
+    prefetchLimit?: number;
+  }): Promise<QdrantSearchResult[]> {
+    await this.ensureCollection();
+
+    const { denseVector, sparseVector, filter, limit, prefetchLimit } = params;
+    const effectivePrefetchLimit = prefetchLimit ?? 40;
+
+    const queryParams = {
+      prefetch: [
+        {
+          query: denseVector as unknown as number[],
+          using: "dense",
+          limit: effectivePrefetchLimit,
+        },
+        {
+          query: {
+            indices: sparseVector.indices,
+            values: sparseVector.values,
+          },
+          using: "sparse",
+          limit: effectivePrefetchLimit,
+        },
+      ],
+      query: { fusion: "rrf" as const },
+      limit,
+      filter: filter as Record<string, unknown> | undefined,
+      with_payload: true,
+    };
+
+    let results;
+    try {
+      results = await this.client.query(this.collection, queryParams);
+    } catch (err) {
+      if (this.isCollectionMissing(err)) {
+        this.collectionReady = false;
+        await this.ensureCollection();
+        results = await this.client.query(this.collection, queryParams);
+      } else {
+        throw err;
+      }
+    }
+
+    return (results.points ?? []).map((point) => ({
+      id: typeof point.id === "string" ? point.id : String(point.id),
+      score: point.score ?? 0,
+      payload: point.payload as unknown as QdrantPointPayload,
+    }));
   }
 
   async deleteByTarget(targetType: string, targetId: string): Promise<void> {
@@ -492,7 +587,9 @@ export class VellumQdrantClient {
       points: [
         {
           id: this.SENTINEL_ID,
-          vector: new Array(this.vectorSize).fill(0), // zero vector, never matched in search
+          vector: {
+            dense: new Array(this.vectorSize).fill(0), // zero vector, never matched in search
+          },
           payload: { _meta: true, embedding_model: model },
         },
       ],

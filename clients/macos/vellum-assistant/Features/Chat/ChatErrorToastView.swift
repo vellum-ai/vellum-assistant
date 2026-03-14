@@ -47,8 +47,8 @@ struct ChatSessionErrorToast: View {
     init(
         message: String,
         subtitle: String? = nil,
-        icon: VIcon = .triangleAlert,
-        accentColor: Color = VColor.error,
+        icon: VIcon = .circleAlert,
+        accentColor: Color = VColor.systemNegativeStrong,
         actionLabel: String? = nil,
         onAction: (() -> Void)? = nil,
         onDismiss: (() -> Void)? = nil
@@ -69,11 +69,10 @@ struct ChatSessionErrorToast: View {
     var body: some View {
         HStack(spacing: VSpacing.sm) {
             VIconView(icon, size: 14)
-                .offset(y: -1)
 
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(message)
-                    .font(VFont.caption)
+                    .font(VFont.body)
                     .lineLimit(4)
                     .textSelection(.enabled)
 
@@ -86,16 +85,21 @@ struct ChatSessionErrorToast: View {
                 }
             }
 
-            Spacer()
+            if actionLabel != nil || showCopyDebug || onDismiss != nil {
+                Spacer(minLength: 100)
+            }
 
             if let actionLabel, let onAction {
                 Button(action: onAction) {
                     Text(actionLabel)
-                        .font(VFont.captionMedium)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.auxWhite) // color-literal-ok
                         .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.xs)
-                        .background(Color.white.opacity(0.2)) // Intentional: translucent contrast on solid accent background
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                        .frame(height: 24)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .strokeBorder(VColor.auxWhite, lineWidth: 1.5)
+                        )
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(actionLabel)
@@ -120,7 +124,7 @@ struct ChatSessionErrorToast: View {
                 .accessibilityLabel("Dismiss error")
             }
         }
-        .foregroundColor(.white) // Intentional: always white on solid accent background
+        .foregroundColor(VColor.auxWhite) // Intentional: always white on solid accent background
         .frame(minHeight: 32)
         .padding(.leading, VSpacing.md)
         .padding(.trailing, VSpacing.lg)
@@ -143,6 +147,10 @@ struct ChatSessionErrorToast: View {
             return .cloudOff
         case .providerBilling:
             return .creditCard
+        case .providerOrdering:
+            return .cloudOff
+        case .providerWebSearch:
+            return .cloudOff
         case .contextTooLarge:
             return .fileText
         case .sessionAborted:
@@ -152,7 +160,7 @@ struct ChatSessionErrorToast: View {
         case .authenticationRequired:
             return .lock
         case .unknown:
-            return .triangleAlert
+            return .circleAlert
         }
     }
 
@@ -161,15 +169,17 @@ struct ChatSessionErrorToast: View {
     private static func accentColor(for category: SessionErrorCategory) -> Color {
         switch category {
         case .rateLimit:
-            return VColor.warning
+            return VColor.systemMidStrong
         case .providerNetwork:
-            return Amber._500
+            return VColor.systemMidStrong
         case .sessionAborted:
-            return VColor.textSecondary
+            return VColor.systemPositiveStrong
         case .contextTooLarge:
-            return VColor.warning
+            return VColor.systemMidStrong
+        case .providerOrdering, .providerWebSearch:
+            return VColor.systemMidStrong
         default:
-            return VColor.error
+            return VColor.systemNegativeStrong
         }
     }
 

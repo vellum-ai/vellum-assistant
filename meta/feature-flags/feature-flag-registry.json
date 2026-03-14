@@ -26,19 +26,11 @@
       "defaultEnabled": true
     },
     {
-      "id": "messaging",
-      "scope": "assistant",
-      "key": "feature_flags.messaging.enabled",
-      "label": "Messaging",
-      "description": "Enable messaging skill section in the system prompt",
-      "defaultEnabled": true
-    },
-    {
       "id": "collect-usage-data",
       "scope": "assistant",
       "key": "feature_flags.collect-usage-data.enabled",
       "label": "Collect usage data",
-      "description": "Send crash reports and error diagnostics to help improve the app",
+      "description": "Send crash reports, error diagnostics, and anonymized usage telemetry to help improve the app",
       "defaultEnabled": true
     },
     {
@@ -47,14 +39,6 @@
       "key": "user_hosted_enabled",
       "label": "User Hosted Enabled",
       "description": "Enable user-hosted onboarding flow",
-      "defaultEnabled": false
-    },
-    {
-      "id": "command-palette",
-      "scope": "assistant",
-      "key": "feature_flags.command-palette.enabled",
-      "label": "Command Palette",
-      "description": "Enable the CMD+K command palette for unified search across conversations, memories, schedules, and contacts",
       "defaultEnabled": false
     },
     {
@@ -74,14 +58,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "outbound-proxy-sidecar",
-      "scope": "assistant",
-      "key": "feature_flags.outbound-proxy-sidecar.enabled",
-      "label": "Outbound Proxy Sidecar",
-      "description": "Route proxy session management through the sidecar process instead of running in-process",
-      "defaultEnabled": false
-    },
-    {
       "id": "app-builder-multifile",
       "scope": "assistant",
       "key": "feature_flags.app-builder-multifile.enabled",
@@ -98,20 +74,12 @@
       "defaultEnabled": false
     },
     {
-      "id": "gmail",
-      "scope": "assistant",
-      "key": "feature_flags.gmail.enabled",
-      "label": "Gmail",
-      "description": "Enable Gmail management skill (archive, label, declutter)",
-      "defaultEnabled": true
-    },
-    {
-      "id": "sequences",
-      "scope": "assistant",
-      "key": "feature_flags.sequences.enabled",
-      "label": "Email Sequences",
-      "description": "Enable email sequence management skill",
-      "defaultEnabled": true
+      "id": "mobile-pairing",
+      "scope": "macos",
+      "key": "mobile_pairing_enabled",
+      "label": "Mobile Pairing",
+      "description": "Show the Mobile (iOS) pairing card in Settings > Account",
+      "defaultEnabled": false
     },
     {
       "id": "settings-developer-nav",
@@ -120,6 +88,22 @@
       "label": "Settings Developer Nav",
       "description": "Control Developer nav visibility in macOS settings",
       "defaultEnabled": true
+    },
+    {
+      "id": "developer-menu-items",
+      "scope": "macos",
+      "key": "developer_menu_items_enabled",
+      "label": "Developer Menu Items",
+      "description": "Show Component Gallery and Replay Onboarding in the menu bar",
+      "defaultEnabled": false
+    },
+    {
+      "id": "logfire",
+      "scope": "assistant",
+      "key": "feature_flags.logfire.enabled",
+      "label": "Logfire LLM Observability",
+      "description": "Enable Logfire tracing for LLM request/response telemetry when LOGFIRE_TOKEN is set",
+      "defaultEnabled": false
     }
   ]
 }

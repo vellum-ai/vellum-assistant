@@ -21,24 +21,29 @@ struct AssistantEvent: Decodable {
 // MARK: - Conversations List Response
 
 /// Response shape from `GET /v1/conversations`.
-struct ConversationsListResponse: Decodable {
-    struct Session: Decodable {
-        let id: String
-        let title: String
-        let createdAt: Int?
-        let updatedAt: Int
-        let threadType: String?
-        let source: String?
-        let scheduleJobId: String?
-        let channelBinding: ChannelBinding?
-        let conversationOriginChannel: String?
-        let conversationOriginInterface: String?
-        let assistantAttention: AssistantAttention?
-        let displayOrder: Double?
-        let isPinned: Bool?
+public struct ConversationsListResponse: Decodable {
+    public struct Session: Decodable {
+        public let id: String
+        public let title: String
+        public let createdAt: Int?
+        public let updatedAt: Int
+        public let threadType: String?
+        public let source: String?
+        public let scheduleJobId: String?
+        public let channelBinding: ChannelBinding?
+        public let conversationOriginChannel: String?
+        public let conversationOriginInterface: String?
+        public let assistantAttention: AssistantAttention?
+        public let displayOrder: Double?
+        public let isPinned: Bool?
     }
-    let sessions: [Session]
-    let hasMore: Bool?
+    public let sessions: [Session]
+    public let hasMore: Bool?
+}
+
+/// Response shape from `GET /v1/conversations/:id`.
+struct SingleConversationResponse: Decodable {
+    let session: ConversationsListResponse.Session
 }
 
 private struct HTTPErrorEnvelope: Decodable {
@@ -178,6 +183,13 @@ public final class HTTPTransport {
     var serverToLocalSessionMap: [String: String] = [:]
     private let serverToLocalSessionMapCap = 500
 
+    /// Session IDs that originated from this client instance.
+    /// Host tool requests are only executed for these session IDs.
+    private var locallyOwnedSessionIds: Set<String> = []
+    /// Session IDs that belong to private (temporary) threads.
+    /// Populated when a session_create with threadType "private" is handled locally.
+    var privateSessionIds: Set<String> = []
+
     let decoder = JSONDecoder()
     let encoder = JSONEncoder()
 
@@ -200,9 +212,9 @@ public final class HTTPTransport {
         // Strip trailing slash for clean URL construction
         self.baseURL = baseURL.hasSuffix("/") ? String(baseURL.dropLast()) : baseURL
         self.bearerToken = bearerToken
-        // conversationKey is accepted for DaemonConfig API compatibility but no longer stored;
-        // the SSE stream subscribes to all events without a conversationKey filter.
-        _ = conversationKey
+        if !conversationKey.isEmpty {
+            locallyOwnedSessionIds.insert(conversationKey)
+        }
         self.sourceChannel = Self.defaultSourceChannel
         self.transportMetadata = transportMetadata
 
@@ -249,6 +261,7 @@ public final class HTTPTransport {
         case sendMessage
         case getMessages(conversationId: String?)
         case conversations(limit: Int, offset: Int)
+        case conversationById(id: String)
         case confirm
         case secret
         case guardianActionsPending(conversationId: String)
@@ -268,14 +281,15 @@ public final class HTTPTransport {
         case contactChannelUpdate(contactChannelId: String)
         case contactsUpsert
         case contactsInvitesCreate
+        case contactsInvitesCall(id: String)
         case channelsReadiness
         case surfaceContent(surfaceId: String, sessionId: String)
         case usageTotals(from: Int, to: Int)
         case usageDaily(from: Int, to: Int)
         case usageBreakdown(from: Int, to: Int, groupBy: String)
-        case workspaceTree(path: String)
-        case workspaceFile(path: String)
-        case workspaceFileContent(path: String)
+        case workspaceTree(path: String, showHidden: Bool)
+        case workspaceFile(path: String, showHidden: Bool)
+        case workspaceFileContent(path: String, showHidden: Bool)
         case workspaceWrite
         case workspaceMkdir
         case workspaceRename
@@ -330,6 +344,7 @@ public final class HTTPTransport {
         case conversationSearch(query: String, limit: Int?, maxMessagesPerConversation: Int?)
         case messageContent(id: String, sessionId: String?)
         case deleteQueuedMessage(id: String, sessionId: String)
+        case sessionsReorder
         // Skill management
         case skillsList
         case skillEnable(id: String)
@@ -345,10 +360,6 @@ public final class HTTPTransport {
         case skillsCreate
 
         // Computer Use
-        case cuSessionCreate
-        case cuSessionAbort(sessionId: String)
-        case cuObservation
-        case cuTaskSubmit
         case cuWatch
 
         // Recordings
@@ -380,6 +391,7 @@ public final class HTTPTransport {
         case integrationsSlackConfig
         case integrationsVercelConfig
         case integrationsTelegramConfig
+        case integrationsIngressConfig
 
         // Surface Undo
         case surfaceUndo(surfaceId: String)
@@ -417,12 +429,25 @@ public final class HTTPTransport {
         // Host File Proxy
         case hostFileResult
 
+        // Host CU Proxy
+        case hostCuResult
+
         // BTW side-chain
         case btw
 
         // Misc
         case channelVerificationSessions
+        case channelVerificationSessionsStatus
+        case channelVerificationSessionsResend
+        case channelVerificationSessionsRevoke
         case registerDeviceToken
+
+        // Memory Items
+        case memoryItemsList(kind: String?, status: String?, search: String?, sort: String?, order: String?, limit: Int, offset: Int)
+        case memoryItemGet(id: String)
+        case memoryItemCreate
+        case memoryItemUpdate(id: String)
+        case memoryItemDelete(id: String)
     }
 
     /// Build a URL for the given endpoint using the current route mode.
@@ -460,18 +485,21 @@ public final class HTTPTransport {
             return ("/v1/messages", nil)
         case .getMessages(let conversationId):
             if let id = conversationId {
-                let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? id
+                let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? id
                 return ("/v1/messages", "conversationId=\(encoded)")
             }
             return ("/v1/messages", nil)
         case .conversations(let limit, let offset):
             return ("/v1/conversations", "limit=\(limit)&offset=\(offset)")
+        case .conversationById(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/conversations/\(encoded)", nil)
         case .confirm:
             return ("/v1/confirm", nil)
         case .secret:
             return ("/v1/secret", nil)
         case .guardianActionsPending(let conversationId):
-            let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationId
+            let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
             return ("/v1/guardian-actions/pending", "conversationId=\(encoded)")
         case .guardianActionsDecision:
             return ("/v1/guardian-actions/decision", nil)
@@ -495,14 +523,14 @@ public final class HTTPTransport {
             return ("/v1/trust-rules/manage/\(encoded)", nil)
         case .pendingInteractions(let conversationKey):
             if let key = conversationKey {
-                let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? key
+                let encoded = key.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? key
                 return ("/v1/pending-interactions", "conversationKey=\(encoded)")
             }
             return ("/v1/pending-interactions", nil)
         case .contactsList(let limit, let role):
             var q = "limit=\(limit)"
             if let role {
-                let encoded = role.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? role
+                let encoded = role.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? role
                 q += "&role=\(encoded)"
             }
             return ("/v1/contacts", q)
@@ -519,28 +547,38 @@ public final class HTTPTransport {
             return ("/v1/contacts", nil)
         case .contactsInvitesCreate:
             return ("/v1/contacts/invites", nil)
+        case .contactsInvitesCall(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/contacts/invites/\(encoded)/call", nil)
         case .channelsReadiness:
             return ("/v1/channels/readiness", nil)
         case .surfaceContent(let surfaceId, let sessionId):
             let sEncoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
-            let qEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
+            let qEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? sessionId
             return ("/v1/surfaces/\(sEncoded)", "sessionId=\(qEncoded)")
         case .usageTotals(let from, let to):
             return ("/v1/usage/totals", "from=\(from)&to=\(to)")
         case .usageDaily(let from, let to):
             return ("/v1/usage/daily", "from=\(from)&to=\(to)")
         case .usageBreakdown(let from, let to, let groupBy):
-            let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? groupBy
+            let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? groupBy
             return ("/v1/usage/breakdown", "from=\(from)&to=\(to)&groupBy=\(encoded)")
-        case .workspaceTree(let path):
+        case .workspaceTree(let path, let showHidden):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-            return ("/v1/workspace/tree", path.isEmpty ? nil : "path=\(encoded)")
-        case .workspaceFile(let path):
+            var params: [String] = []
+            if !path.isEmpty { params.append("path=\(encoded)") }
+            if showHidden { params.append("showHidden=true") }
+            return ("/v1/workspace/tree", params.isEmpty ? nil : params.joined(separator: "&"))
+        case .workspaceFile(let path, let showHidden):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-            return ("/v1/workspace/file", "path=\(encoded)")
-        case .workspaceFileContent(let path):
+            var query = "path=\(encoded)"
+            if showHidden { query += "&showHidden=true" }
+            return ("/v1/workspace/file", query)
+        case .workspaceFileContent(let path, let showHidden):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-            return ("/v1/workspace/file/content", "path=\(encoded)")
+            var query = "path=\(encoded)"
+            if showHidden { query += "&showHidden=true" }
+            return ("/v1/workspace/file/content", query)
         case .workspaceWrite:
             return ("/v1/workspace/write", nil)
         case .workspaceMkdir:
@@ -674,14 +712,16 @@ public final class HTTPTransport {
         case .messageContent(let id, let sessionId):
             let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             if let sessionId {
-                let sEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
+                let sEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? sessionId
                 return ("/v1/messages/\(idEncoded)/content", "sessionId=\(sEncoded)")
             }
             return ("/v1/messages/\(idEncoded)/content", nil)
         case .deleteQueuedMessage(let id, let sessionId):
             let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            let sEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
+            let sEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? sessionId
             return ("/v1/messages/queued/\(idEncoded)", "sessionId=\(sEncoded)")
+        case .sessionsReorder:
+            return ("/v1/sessions/reorder", nil)
         // Skill management
         case .skillsList:
             return ("/v1/skills", nil)
@@ -715,15 +755,6 @@ public final class HTTPTransport {
         case .skillsCreate:
             return ("/v1/skills", nil)
         // Computer Use
-        case .cuSessionCreate:
-            return ("/v1/computer-use/sessions", nil)
-        case .cuSessionAbort(let sessionId):
-            let encoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sessionId
-            return ("/v1/computer-use/sessions/\(encoded)/abort", nil)
-        case .cuObservation:
-            return ("/v1/computer-use/observations", nil)
-        case .cuTaskSubmit:
-            return ("/v1/computer-use/tasks", nil)
         case .cuWatch:
             return ("/v1/computer-use/watch", nil)
         // Recordings
@@ -772,6 +803,8 @@ public final class HTTPTransport {
             return ("/v1/integrations/vercel/config", nil)
         case .integrationsTelegramConfig:
             return ("/v1/integrations/telegram/config", nil)
+        case .integrationsIngressConfig:
+            return ("/v1/integrations/ingress/config", nil)
         // Surface Undo
         case .surfaceUndo(let surfaceId):
             let encoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
@@ -815,14 +848,43 @@ public final class HTTPTransport {
         // Host File Proxy
         case .hostFileResult:
             return ("/v1/host-file-result", nil)
+        // Host CU Proxy
+        case .hostCuResult:
+            return ("/v1/host-cu-result", nil)
         // BTW side-chain
         case .btw:
             return ("/v1/btw", nil)
         // Misc
         case .channelVerificationSessions:
             return ("/v1/channel-verification-sessions", nil)
+        case .channelVerificationSessionsStatus:
+            return ("/v1/channel-verification-sessions/status", nil)
+        case .channelVerificationSessionsResend:
+            return ("/v1/channel-verification-sessions/resend", nil)
+        case .channelVerificationSessionsRevoke:
+            return ("/v1/channel-verification-sessions/revoke", nil)
         case .registerDeviceToken:
             return ("/v1/device-token", nil)
+        // Memory Items
+        case .memoryItemsList(let kind, let status, let search, let sort, let order, let limit, let offset):
+            var queryParts = ["limit=\(limit)", "offset=\(offset)"]
+            if let kind { queryParts.append("kind=\(kind.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? kind)") }
+            if let status { queryParts.append("status=\(status.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? status)") }
+            if let search, !search.isEmpty { queryParts.append("search=\(search.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? search)") }
+            if let sort { queryParts.append("sort=\(sort.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? sort)") }
+            if let order { queryParts.append("order=\(order.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? order)") }
+            return ("/v1/memory-items", queryParts.joined(separator: "&"))
+        case .memoryItemGet(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/memory-items/\(encoded)", nil)
+        case .memoryItemCreate:
+            return ("/v1/memory-items", nil)
+        case .memoryItemUpdate(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/memory-items/\(encoded)", nil)
+        case .memoryItemDelete(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/memory-items/\(encoded)", nil)
         }
     }
 
@@ -841,18 +903,21 @@ public final class HTTPTransport {
             return ("\(prefix)/messages/", nil)
         case .getMessages(let conversationId):
             if let id = conversationId {
-                let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? id
+                let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? id
                 return ("\(prefix)/messages/", "conversationId=\(encoded)")
             }
             return ("\(prefix)/messages/", nil)
         case .conversations(let limit, let offset):
             return ("\(prefix)/conversations/", "limit=\(limit)&offset=\(offset)")
+        case .conversationById(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/conversations/\(encoded)/", nil)
         case .confirm:
             return ("\(prefix)/confirm/", nil)
         case .secret:
             return ("\(prefix)/secret/", nil)
         case .guardianActionsPending(let conversationId):
-            let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationId
+            let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
             return ("\(prefix)/guardian-actions/pending/", "conversationId=\(encoded)")
         case .guardianActionsDecision:
             return ("\(prefix)/guardian-actions/decision/", nil)
@@ -876,14 +941,14 @@ public final class HTTPTransport {
             return ("\(prefix)/trust-rules/manage/\(encoded)/", nil)
         case .pendingInteractions(let conversationKey):
             if let key = conversationKey {
-                let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? key
+                let encoded = key.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? key
                 return ("\(prefix)/pending-interactions/", "conversationKey=\(encoded)")
             }
             return ("\(prefix)/pending-interactions/", nil)
         case .contactsList(let limit, let role):
             var q = "limit=\(limit)"
             if let role {
-                let encoded = role.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? role
+                let encoded = role.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? role
                 q += "&role=\(encoded)"
             }
             return ("\(prefix)/contacts/", q)
@@ -900,28 +965,38 @@ public final class HTTPTransport {
             return ("\(prefix)/contacts/", nil)
         case .contactsInvitesCreate:
             return ("\(prefix)/contacts/invites/", nil)
+        case .contactsInvitesCall(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/contacts/invites/\(encoded)/call/", nil)
         case .channelsReadiness:
             return ("\(prefix)/channels/readiness/", nil)
         case .surfaceContent(let surfaceId, let sessionId):
             let sEncoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
-            let qEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
+            let qEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? sessionId
             return ("\(prefix)/surfaces/\(sEncoded)/", "sessionId=\(qEncoded)")
         case .usageTotals(let from, let to):
             return ("\(prefix)/usage/totals/", "from=\(from)&to=\(to)")
         case .usageDaily(let from, let to):
             return ("\(prefix)/usage/daily/", "from=\(from)&to=\(to)")
         case .usageBreakdown(let from, let to, let groupBy):
-            let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? groupBy
+            let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? groupBy
             return ("\(prefix)/usage/breakdown/", "from=\(from)&to=\(to)&groupBy=\(encoded)")
-        case .workspaceTree(let path):
+        case .workspaceTree(let path, let showHidden):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-            return ("\(prefix)/workspace/tree/", path.isEmpty ? nil : "path=\(encoded)")
-        case .workspaceFile(let path):
+            var params: [String] = []
+            if !path.isEmpty { params.append("path=\(encoded)") }
+            if showHidden { params.append("showHidden=true") }
+            return ("\(prefix)/workspace/tree/", params.isEmpty ? nil : params.joined(separator: "&"))
+        case .workspaceFile(let path, let showHidden):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-            return ("\(prefix)/workspace/file/", "path=\(encoded)")
-        case .workspaceFileContent(let path):
+            var query = "path=\(encoded)"
+            if showHidden { query += "&showHidden=true" }
+            return ("\(prefix)/workspace/file/", query)
+        case .workspaceFileContent(let path, let showHidden):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-            return ("\(prefix)/workspace/file/content/", "path=\(encoded)")
+            var query = "path=\(encoded)"
+            if showHidden { query += "&showHidden=true" }
+            return ("\(prefix)/workspace/file/content/", query)
         case .workspaceWrite:
             return ("\(prefix)/workspace/write/", nil)
         case .workspaceMkdir:
@@ -1055,14 +1130,16 @@ public final class HTTPTransport {
         case .messageContent(let id, let sessionId):
             let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             if let sessionId {
-                let sEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
+                let sEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? sessionId
                 return ("\(prefix)/messages/\(idEncoded)/content/", "sessionId=\(sEncoded)")
             }
             return ("\(prefix)/messages/\(idEncoded)/content/", nil)
         case .deleteQueuedMessage(let id, let sessionId):
             let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            let sEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
+            let sEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? sessionId
             return ("\(prefix)/messages/queued/\(idEncoded)/", "sessionId=\(sEncoded)")
+        case .sessionsReorder:
+            return ("\(prefix)/sessions/reorder/", nil)
         // Skill management
         case .skillsList:
             return ("\(prefix)/skills/", nil)
@@ -1096,15 +1173,6 @@ public final class HTTPTransport {
         case .skillsCreate:
             return ("\(prefix)/skills/", nil)
         // Computer Use
-        case .cuSessionCreate:
-            return ("\(prefix)/computer-use/sessions/", nil)
-        case .cuSessionAbort(let sessionId):
-            let encoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sessionId
-            return ("\(prefix)/computer-use/sessions/\(encoded)/abort/", nil)
-        case .cuObservation:
-            return ("\(prefix)/computer-use/observations/", nil)
-        case .cuTaskSubmit:
-            return ("\(prefix)/computer-use/tasks/", nil)
         case .cuWatch:
             return ("\(prefix)/computer-use/watch/", nil)
         // Recordings
@@ -1153,6 +1221,8 @@ public final class HTTPTransport {
             return ("\(prefix)/integrations/vercel/config/", nil)
         case .integrationsTelegramConfig:
             return ("\(prefix)/integrations/telegram/config/", nil)
+        case .integrationsIngressConfig:
+            return ("\(prefix)/integrations/ingress/config/", nil)
         // Surface Undo
         case .surfaceUndo(let surfaceId):
             let encoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
@@ -1196,14 +1266,43 @@ public final class HTTPTransport {
         // Host File Proxy
         case .hostFileResult:
             return ("\(prefix)/host-file-result/", nil)
+        // Host CU Proxy
+        case .hostCuResult:
+            return ("\(prefix)/host-cu-result/", nil)
         // BTW side-chain
         case .btw:
             return ("\(prefix)/btw/", nil)
         // Misc
         case .channelVerificationSessions:
             return ("\(prefix)/channel-verification-sessions/", nil)
+        case .channelVerificationSessionsStatus:
+            return ("\(prefix)/channel-verification-sessions/status/", nil)
+        case .channelVerificationSessionsResend:
+            return ("\(prefix)/channel-verification-sessions/resend/", nil)
+        case .channelVerificationSessionsRevoke:
+            return ("\(prefix)/channel-verification-sessions/revoke/", nil)
         case .registerDeviceToken:
             return ("\(prefix)/device-token/", nil)
+        // Memory Items
+        case .memoryItemsList(let kind, let status, let search, let sort, let order, let limit, let offset):
+            var queryParts = ["limit=\(limit)", "offset=\(offset)"]
+            if let kind { queryParts.append("kind=\(kind.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? kind)") }
+            if let status { queryParts.append("status=\(status.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? status)") }
+            if let search, !search.isEmpty { queryParts.append("search=\(search.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? search)") }
+            if let sort { queryParts.append("sort=\(sort.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? sort)") }
+            if let order { queryParts.append("order=\(order.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? order)") }
+            return ("\(prefix)/memory-items/", queryParts.joined(separator: "&"))
+        case .memoryItemGet(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/memory-items/\(encoded)/", nil)
+        case .memoryItemCreate:
+            return ("\(prefix)/memory-items/", nil)
+        case .memoryItemUpdate(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/memory-items/\(encoded)/", nil)
+        case .memoryItemDelete(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/memory-items/\(encoded)/", nil)
         }
     }
 
@@ -1369,10 +1468,10 @@ public final class HTTPTransport {
                         }
                     }
                     if statusCode == 403 {
-                        // 403 during assistant switch: the http-token (gateway_service_v1
-                        // profile) may lack chat.read scope needed for SSE. The actor
-                        // token is still bootstrapping. Use a short retry delay so SSE
-                        // reconnects quickly once the actor token is available.
+                        // 403 during assistant switch: the bearer token may lack
+                        // chat.read scope needed for SSE. The actor token is still
+                        // bootstrapping. Use a short retry delay so SSE reconnects
+                        // quickly once the actor token is available.
                         self.sseReconnectDelay = 1.0
                     }
                     self.handleSSEDisconnect()
@@ -1452,16 +1551,39 @@ public final class HTTPTransport {
 
         do {
             let event = try decoder.decode(AssistantEvent.self, from: jsonData)
+            if shouldIgnoreHostToolRequest(event.message) { return }
             handleServerMessage(event.message)
         } catch {
             // Try decoding as a bare ServerMessage (some endpoints may send unwrapped)
             do {
                 let message = try decoder.decode(ServerMessage.self, from: jsonData)
+                if shouldIgnoreHostToolRequest(message) { return }
                 handleServerMessage(message)
             } catch {
                 let byteCount = jsonData.count
                 log.error("Failed to decode SSE event: \(error.localizedDescription), bytes: \(byteCount)")
             }
+        }
+    }
+
+    /// Returns `true` if the message is a host tool request whose sessionId
+    /// does not belong to this client, meaning it should be silently dropped.
+    private func shouldIgnoreHostToolRequest(_ message: ServerMessage) -> Bool {
+        switch message {
+        case .hostBashRequest(let msg):
+            if locallyOwnedSessionIds.contains(msg.sessionId) { return false }
+            log.warning("Ignoring host_bash_request for non-local session \(msg.sessionId, privacy: .public)")
+            return true
+        case .hostFileRequest(let msg):
+            if locallyOwnedSessionIds.contains(msg.sessionId) { return false }
+            log.warning("Ignoring host_file_request for non-local session \(msg.sessionId, privacy: .public)")
+            return true
+        case .hostCuRequest(let msg):
+            if locallyOwnedSessionIds.contains(msg.sessionId) { return false }
+            log.warning("Ignoring host_cu_request for non-local session \(msg.sessionId, privacy: .public)")
+            return true
+        default:
+            return false
         }
     }
 
@@ -1522,7 +1644,7 @@ public final class HTTPTransport {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse else { return .transientFailure }
 
-            if http.statusCode == 200 {
+            if http.statusCode == 200 || http.statusCode == 201 {
                 let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
                 if let id = json?["id"] as? String {
                     return .success(id: id)
@@ -1550,6 +1672,8 @@ public final class HTTPTransport {
     }
 
     func sendMessage(content: String?, sessionId: String, attachments: [UserMessageAttachment]? = nil, uploadedAttachmentIds: [String]? = nil, isRetry: Bool = false) async {
+        locallyOwnedSessionIds.insert(sessionId)
+
         // On retry, reuse already-uploaded attachment IDs to avoid duplicates
         var attachmentIds: [String] = uploadedAttachmentIds ?? []
 
@@ -1593,6 +1717,9 @@ public final class HTTPTransport {
         }
         if !attachmentIds.isEmpty {
             body["attachmentIds"] = attachmentIds
+        }
+        if privateSessionIds.contains(sessionId) {
+            body["threadType"] = "private"
         }
 
         do {
@@ -1638,6 +1765,18 @@ public final class HTTPTransport {
                         failedMessageContent: content
                     )))
                 }
+            } else if http.statusCode == 422,
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let errorCategory = json["error"] as? String,
+                      errorCategory == "secret_blocked" {
+                // Surface secret-block errors through the .error path so
+                // ChatViewModel's secret_blocked handler can offer "Send Anyway".
+                let message = (json["message"] as? String) ?? "Message blocked — contains secrets"
+                log.warning("Message blocked by secret-ingress check")
+                onMessage?(.error(ErrorMessage(
+                    message: message,
+                    category: "secret_blocked"
+                )))
             } else {
                 let errorBody = String(data: data, encoding: .utf8) ?? "unknown"
                 log.error("Send message failed (\(http.statusCode)): \(errorBody)")
@@ -2319,6 +2458,7 @@ public final class HTTPTransport {
             let share: SharePayload?
             let status: String
             let inviteCode: String?
+            let voiceCode: String?
             let guardianInstruction: String?
             let channelHandle: String?
         }
@@ -2438,8 +2578,12 @@ public final class HTTPTransport {
         note: String? = nil,
         maxUses: Int? = nil,
         contactName: String? = nil,
+        contactId: String? = nil,
+        expectedExternalUserId: String? = nil,
+        friendName: String? = nil,
+        guardianName: String? = nil,
         isRetry: Bool = false
-    ) async throws -> (inviteId: String, token: String, shareUrl: String?, inviteCode: String?, guardianInstruction: String?, channelHandle: String?)? {
+    ) async throws -> (inviteId: String, token: String?, shareUrl: String?, inviteCode: String?, voiceCode: String?, guardianInstruction: String?, channelHandle: String?)? {
         guard let url = buildURL(for: .contactsInvitesCreate) else { return nil }
 
         var request = URLRequest(url: url)
@@ -2451,6 +2595,10 @@ public final class HTTPTransport {
         if let note { body["note"] = note }
         if let maxUses { body["maxUses"] = maxUses }
         if let contactName { body["contactName"] = contactName }
+        if let contactId { body["contactId"] = contactId }
+        if let expectedExternalUserId { body["expectedExternalUserId"] = expectedExternalUserId }
+        if let friendName { body["friendName"] = friendName }
+        if let guardianName { body["guardianName"] = guardianName }
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -2459,7 +2607,7 @@ public final class HTTPTransport {
             if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                 if case .success = refreshResult {
-                    return try await createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses, contactName: contactName, isRetry: true)
+                    return try await createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses, contactName: contactName, contactId: contactId, expectedExternalUserId: expectedExternalUserId, friendName: friendName, guardianName: guardianName, isRetry: true)
                 }
                 return nil
             }
@@ -2467,8 +2615,29 @@ public final class HTTPTransport {
         }
 
         let decoded = try decoder.decode(HTTPCreateInviteResponse.self, from: data)
-        guard let invite = decoded.invite, let token = invite.token else { return nil }
-        return (inviteId: invite.id, token: token, shareUrl: invite.share?.url, inviteCode: invite.inviteCode, guardianInstruction: invite.guardianInstruction, channelHandle: invite.channelHandle)
+        guard let invite = decoded.invite else { return nil }
+        return (inviteId: invite.id, token: invite.token, shareUrl: invite.share?.url, inviteCode: invite.inviteCode, voiceCode: invite.voiceCode, guardianInstruction: invite.guardianInstruction, channelHandle: invite.channelHandle)
+    }
+
+    // MARK: - Invite Call
+
+    func triggerInviteCall(inviteId: String, isRetry: Bool = false) async throws -> Bool {
+        guard let url = buildURL(for: .contactsInvitesCall(id: inviteId)) else { return false }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+        request.httpBody = try JSONSerialization.data(withJSONObject: [:] as [String: Any])
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse {
+            if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult { return try await triggerInviteCall(inviteId: inviteId, isRetry: true) }
+                return false
+            }
+            guard (200...201).contains(http.statusCode) else { return false }
+        }
+        return true
     }
 
     // MARK: - Channel Readiness
@@ -2753,8 +2922,8 @@ public final class HTTPTransport {
                     }
                 }
                 // 403 during assistant switch: the actor token hasn't been
-                // bootstrapped yet (http-token lacks chat.read scope). Retry
-                // a few times with a delay to let ensureActorCredentials() finish.
+                // bootstrapped yet. Retry a few times with a delay to let
+                // ensureActorCredentials() finish.
                 if statusCode == 403 && authRetryCount < 6 {
                     log.info("Session list fetch got 403 — waiting for actor token (attempt \(authRetryCount + 1)/6)")
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -2779,6 +2948,61 @@ public final class HTTPTransport {
         } catch {
             log.error("Fetch session list error: \(error.localizedDescription)")
             onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [], hasMore: nil)))
+        }
+    }
+
+    /// Fetch a single conversation by its daemon ID.
+    /// Returns `nil` if the conversation doesn't exist (404) or the request fails.
+    func fetchConversationById(_ conversationId: String, isRetry: Bool = false) async -> ConversationsListResponse.Session? {
+        guard let url = buildURL(for: .conversationById(id: conversationId)) else { return nil }
+
+        var request = URLRequest(url: url)
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+                if statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await fetchConversationById(conversationId, isRetry: true)
+                    }
+                }
+                log.error("Fetch conversation \(conversationId) failed (HTTP \(statusCode))")
+                return nil
+            }
+            let decoded = try decoder.decode(SingleConversationResponse.self, from: data)
+            return decoded.session
+        } catch {
+            log.error("Failed to fetch conversation \(conversationId): \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Delete a single conversation on the backend (fire-and-forget).
+    func deleteConversation(_ conversationId: String, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .conversationById(id: conversationId)) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            if statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await deleteConversation(conversationId, isRetry: true)
+                    return
+                }
+            }
+            if statusCode != 204 && statusCode != 200 {
+                log.error("Delete conversation \(conversationId) failed (HTTP \(statusCode))")
+            }
+        } catch {
+            log.error("Delete conversation \(conversationId) error: \(error.localizedDescription)")
         }
     }
 
@@ -3095,8 +3319,8 @@ public final class HTTPTransport {
     // MARK: - Workspace API
 
     /// Fetch the workspace directory tree from `GET /v1/workspace/tree`.
-    func fetchWorkspaceTree(path: String, isRetry: Bool = false) async -> WorkspaceTreeResponse? {
-        guard let url = buildURL(for: .workspaceTree(path: path)) else { return nil }
+    func fetchWorkspaceTree(path: String, showHidden: Bool = false, isRetry: Bool = false) async -> WorkspaceTreeResponse? {
+        guard let url = buildURL(for: .workspaceTree(path: path, showHidden: showHidden)) else { return nil }
 
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
@@ -3108,7 +3332,7 @@ public final class HTTPTransport {
                 if http.statusCode == 401 && !isRetry {
                     let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                     if case .success = refreshResult {
-                        return await fetchWorkspaceTree(path: path, isRetry: true)
+                        return await fetchWorkspaceTree(path: path, showHidden: showHidden, isRetry: true)
                     }
                     return nil
                 }
@@ -3122,8 +3346,8 @@ public final class HTTPTransport {
     }
 
     /// Fetch a single workspace file's metadata from `GET /v1/workspace/file`.
-    func fetchWorkspaceFile(path: String, isRetry: Bool = false) async -> WorkspaceFileResponse? {
-        guard let url = buildURL(for: .workspaceFile(path: path)) else { return nil }
+    func fetchWorkspaceFile(path: String, showHidden: Bool = false, isRetry: Bool = false) async -> WorkspaceFileResponse? {
+        guard let url = buildURL(for: .workspaceFile(path: path, showHidden: showHidden)) else { return nil }
 
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
@@ -3135,7 +3359,7 @@ public final class HTTPTransport {
                 if http.statusCode == 401 && !isRetry {
                     let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                     if case .success = refreshResult {
-                        return await fetchWorkspaceFile(path: path, isRetry: true)
+                        return await fetchWorkspaceFile(path: path, showHidden: showHidden, isRetry: true)
                     }
                     return nil
                 }
@@ -3149,8 +3373,8 @@ public final class HTTPTransport {
     }
 
     /// Build a URL for streaming/downloading workspace file content.
-    func workspaceFileContentURL(path: String) -> URL? {
-        return buildURL(for: .workspaceFileContent(path: path))
+    func workspaceFileContentURL(path: String, showHidden: Bool = false) -> URL? {
+        return buildURL(for: .workspaceFileContent(path: path, showHidden: showHidden))
     }
 
     /// Write (create or overwrite) a file in the workspace via `POST /v1/workspace/write`.
@@ -3670,6 +3894,48 @@ public final class HTTPTransport {
             }
         } catch {
             log.error("Delete queued message error: \(error.localizedDescription)")
+        }
+    }
+
+    func reorderThreads(updates: [ReorderThreadsRequestUpdate], isRetry: Bool = false) async {
+        guard let url = buildURL(for: .sessionsReorder) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        let body: [String: Any] = [
+            "updates": updates.map { u in
+                var entry: [String: Any] = [
+                    "sessionId": u.sessionId,
+                    "isPinned": u.isPinned
+                ]
+                if let order = u.displayOrder {
+                    entry["displayOrder"] = order
+                }
+                return entry
+            }
+        ]
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if http.statusCode == 200 {
+                // Success — no response event needed
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await reorderThreads(updates: updates, isRetry: true)
+                }
+            } else {
+                log.error("Reorder threads failed (HTTP \(http.statusCode))")
+            }
+        } catch {
+            log.error("Reorder threads error: \(error.localizedDescription)")
         }
     }
 
@@ -4452,6 +4718,190 @@ public final class HTTPTransport {
             if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
                 request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
             }
+        }
+    }
+
+    // MARK: - Memory Items
+
+    /// Fetch a paginated list of memory items with optional filters.
+    func fetchMemoryItems(
+        kind: String? = nil,
+        status: String? = "active",
+        search: String? = nil,
+        sort: String? = "lastSeenAt",
+        order: String? = "desc",
+        limit: Int = 100,
+        offset: Int = 0,
+        isRetry: Bool = false
+    ) async -> MemoryItemsListResponse? {
+        guard let url = buildURL(for: .memoryItemsList(
+            kind: kind, status: status, search: search,
+            sort: sort, order: order, limit: limit, offset: offset
+        )) else { return nil }
+
+        var request = URLRequest(url: url)
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await fetchMemoryItems(kind: kind, status: status, search: search, sort: sort, order: order, limit: limit, offset: offset, isRetry: true)
+                    }
+                    return nil
+                }
+                guard (200...299).contains(http.statusCode) else { return nil }
+            }
+            return try decoder.decode(MemoryItemsListResponse.self, from: data)
+        } catch {
+            log.error("fetchMemoryItems failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Fetch a single memory item by ID.
+    func fetchMemoryItem(id: String, isRetry: Bool = false) async -> MemoryItemPayload? {
+        guard let url = buildURL(for: .memoryItemGet(id: id)) else { return nil }
+
+        var request = URLRequest(url: url)
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await fetchMemoryItem(id: id, isRetry: true)
+                    }
+                    return nil
+                }
+                guard (200...299).contains(http.statusCode) else { return nil }
+            }
+            struct Wrapper: Decodable { let item: MemoryItemPayload }
+            return try decoder.decode(Wrapper.self, from: data).item
+        } catch {
+            log.error("fetchMemoryItem failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Create a new memory item.
+    func createMemoryItem(
+        kind: String,
+        subject: String,
+        statement: String,
+        importance: Double? = nil,
+        isRetry: Bool = false
+    ) async -> MemoryItemPayload? {
+        guard let url = buildURL(for: .memoryItemCreate) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        var body: [String: Any] = [
+            "kind": kind,
+            "subject": subject,
+            "statement": statement
+        ]
+        if let importance { body["importance"] = importance }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await createMemoryItem(kind: kind, subject: subject, statement: statement, importance: importance, isRetry: true)
+                    }
+                    return nil
+                }
+                guard (200...201).contains(http.statusCode) else { return nil }
+            }
+            struct Wrapper: Decodable { let item: MemoryItemPayload }
+            return try decoder.decode(Wrapper.self, from: data).item
+        } catch {
+            log.error("createMemoryItem failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Update an existing memory item.
+    func updateMemoryItem(
+        id: String,
+        subject: String? = nil,
+        statement: String? = nil,
+        kind: String? = nil,
+        status: String? = nil,
+        importance: Double? = nil,
+        verificationState: String? = nil,
+        isRetry: Bool = false
+    ) async -> MemoryItemPayload? {
+        guard let url = buildURL(for: .memoryItemUpdate(id: id)) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        var body: [String: Any] = [:]
+        if let subject { body["subject"] = subject }
+        if let statement { body["statement"] = statement }
+        if let kind { body["kind"] = kind }
+        if let status { body["status"] = status }
+        if let importance { body["importance"] = importance }
+        if let verificationState { body["verificationState"] = verificationState }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await updateMemoryItem(id: id, subject: subject, statement: statement, kind: kind, status: status, importance: importance, verificationState: verificationState, isRetry: true)
+                    }
+                    return nil
+                }
+                guard (200...299).contains(http.statusCode) else { return nil }
+            }
+            struct Wrapper: Decodable { let item: MemoryItemPayload }
+            return try decoder.decode(Wrapper.self, from: data).item
+        } catch {
+            log.error("updateMemoryItem failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Delete a memory item by ID.
+    func deleteMemoryItem(id: String, isRetry: Bool = false) async -> Bool {
+        guard let url = buildURL(for: .memoryItemDelete(id: id)) else { return false }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await deleteMemoryItem(id: id, isRetry: true)
+                    }
+                    return false
+                }
+                return http.statusCode == 204
+            }
+            return false
+        } catch {
+            log.error("deleteMemoryItem failed: \(error.localizedDescription)")
+            return false
         }
     }
 

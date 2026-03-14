@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - 'gateway/**'
+      - 'meta/feature-flags/**'
       - '.github/workflows/ci-main-gateway.yaml'
 
 jobs:
@@ -28,6 +29,9 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Sync feature flag registry
+        run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
 
       - name: Lint
         run: bun run lint

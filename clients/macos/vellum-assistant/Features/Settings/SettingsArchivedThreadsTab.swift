@@ -25,7 +25,7 @@ struct SettingsArchivedThreadsTab: View {
                 }
                 .padding(VSpacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .vCard(background: VColor.surfaceSubtle)
+                .vCard(background: VColor.surfaceOverlay)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -49,19 +49,19 @@ private struct ArchivedThreadRow: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text(thread.title)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
                     .truncationMode(.tail)
 
                 Text("\(Self.dateFormatter.string(from: thread.createdAt)) · \(thread.source ?? "vellum-assistant")")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .lineLimit(1)
             }
 
             Spacer()
 
-            VButton(label: "Unarchive", style: .secondary, size: .small) {
+            VButton(label: "Unarchive", style: .outlined) {
                 onUnarchive()
             }
         }
@@ -71,10 +71,3 @@ private struct ArchivedThreadRow: View {
 
 // MARK: - Preview
 
-#Preview("Archived Threads - Empty") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        SettingsArchivedThreadsTab(threadManager: ThreadManager(daemonClient: DaemonClient()))
-    }
-    .frame(width: 600, height: 400)
-}

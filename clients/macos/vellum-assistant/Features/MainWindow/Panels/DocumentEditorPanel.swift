@@ -12,29 +12,29 @@ struct DocumentEditorPanelView: View {
             HStack {
                 Text(documentManager.title)
                     .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer()
                 if documentManager.wordCount > 0 {
                     Text("\(documentManager.wordCount) words")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
                 if documentManager.isSaving {
                     ProgressView().controlSize(.small).scaleEffect(0.7)
                 } else {
-                    VIconButton(label: "Export", icon: VIcon.arrowDownToLine.rawValue, isActive: false, iconOnly: true) {
+                    VButton(label: "Export", iconOnly: VIcon.arrowDownToLine.rawValue, style: .ghost) {
                         documentManager.exportToFile()
                     }
                 }
-                VIconButton(label: "Close", icon: VIcon.x.rawValue, isActive: false, iconOnly: true, action: onClose)
+                VButton(label: "Close", iconOnly: VIcon.x.rawValue, style: .ghost, action: onClose)
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.sm)
-            .background(VColor.backgroundSubtle)
+            .background(VColor.surfaceBase)
 
-            Divider().background(VColor.surfaceBorder)
+            Divider().background(VColor.borderBase)
 
             DocumentEditorView(
                 documentManager: documentManager,

@@ -134,10 +134,10 @@ registerTool(mockBundledSkillTool);
 
 // Register CU tools so classifyRisk returns their declared Low risk level
 // instead of falling through to Medium (unknown tool).
-import { registerComputerUseActionTools } from "../tools/computer-use/registry.js";
-import { requestComputerControlTool } from "../tools/computer-use/request-computer-control.js";
-registerComputerUseActionTools();
-registerTool(requestComputerControlTool);
+import { allComputerUseTools } from "../tools/computer-use/definitions.js";
+for (const tool of allComputerUseTools) {
+  registerTool(tool);
+}
 
 function writeSkill(
   skillId: string,
@@ -897,16 +897,16 @@ describe("Permission Checker", () => {
       );
     });
 
-    test("computer_use_request_control prompts by default via computer-use ask rule", async () => {
+    test("computer_use_observe prompts by default via computer-use ask rule", async () => {
       const result = await check(
-        "computer_use_request_control",
-        { task: "Open system settings" },
+        "computer_use_observe",
+        { reason: "Check current screen state before acting" },
         "/tmp",
       );
       expect(result.decision).toBe("prompt");
       expect(result.reason).toContain("ask rule");
       expect(result.matchedRule?.id).toBe(
-        "default:ask-computer_use_request_control-global",
+        "default:ask-computer_use_observe-global",
       );
     });
 
@@ -1947,7 +1947,7 @@ describe("Permission Checker", () => {
       ).toHaveLength(0);
     });
 
-    test("returns directory options when toolName is omitted (backward compat)", () => {
+    test("returns directory options when toolName is omitted", () => {
       const options = generateScopeOptions("/home/user/project");
       expect(options).toHaveLength(3);
       expect(options[0].scope).toBe("/home/user/project");
@@ -2121,11 +2121,11 @@ describe("Permission Checker", () => {
     });
   });
 
-  // ── backward compat: addRule basics (PR 2/40) ──
+  // ── addRule basics ──
   // These tests verify that addRule() creates standard rules that
   // match by tool name, pattern glob, and scope prefix.
 
-  describe("backward compat: addRule basics (PR 2/40)", () => {
+  describe("addRule basics", () => {
     test("rule matches by tool/pattern/scope", async () => {
       addRule("skill_test_tool", "skill_test_tool:*", "/tmp", "allow", 2000);
       const result = await check("skill_test_tool", {}, "/tmp");
@@ -2174,7 +2174,7 @@ describe("Permission Checker", () => {
       expect(v2Result.matchedRule?.id).toBe(v1Result.matchedRule?.id);
     });
 
-    test("findHighestPriorityRule works without policy context (backward compat)", () => {
+    test("findHighestPriorityRule works without policy context", () => {
       // Calling findHighestPriorityRule without the optional 4th ctx
       // parameter still works — wildcard rules match any caller.
       addRule("skill_test_tool", "skill_test_tool:*", "/tmp", "allow", 2000);
@@ -2199,14 +2199,14 @@ describe("Permission Checker", () => {
     });
   });
 
-  // ── checker policy context backward compat (PR 17) ─────────────
+  // ── optional policyContext parameter ─────────────
 
-  describe("checker policy context backward compat (PR 17)", () => {
-    test("check() without policyContext still works (backward compatible)", async () => {
-      addRule("bash", "echo backward-compat", "/tmp", "allow", 2000);
+  describe("optional policyContext parameter", () => {
+    test("check() without policyContext still works", async () => {
+      addRule("bash", "echo test-optional-ctx", "/tmp", "allow", 2000);
       const result = await check(
         "bash",
-        { command: "echo backward-compat" },
+        { command: "echo test-optional-ctx" },
         "/tmp",
       );
       expect(result.decision).toBe("allow");
@@ -4406,11 +4406,6 @@ describe("computer-use tool permission defaults", () => {
       // in the registry. In workspace mode, Low risk tools are auto-allowed.
       expect(risk).toBe(RiskLevel.Low);
     }
-  });
-
-  test("computer_use_request_control classifies as Low risk", async () => {
-    const risk = await classifyRisk("computer_use_request_control", {});
-    expect(risk).toBe(RiskLevel.Low);
   });
 });
 

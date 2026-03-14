@@ -134,7 +134,7 @@ async function searchMemoriesSemantic(
   existingIds: Set<string>,
 ): Promise<GlobalSearchMemory[]> {
   const config = getConfig();
-  const backendStatus = getMemoryBackendStatus(config);
+  const backendStatus = await getMemoryBackendStatus(config);
   if (!backendStatus.provider) return [];
 
   try {

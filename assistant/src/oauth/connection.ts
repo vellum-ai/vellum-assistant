@@ -1,7 +1,7 @@
 export interface OAuthConnectionRequest {
   method: string;
   path: string; // relative, e.g. "/2/tweets"
-  query?: Record<string, string>;
+  query?: Record<string, string | string[]>;
   headers?: Record<string, string>;
   body?: unknown; // JSON-serializable
   /**

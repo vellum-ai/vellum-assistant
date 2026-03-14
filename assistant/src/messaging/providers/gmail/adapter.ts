@@ -86,7 +86,7 @@ function mapGmailMessage(msg: GmailMessage): Message {
 export const gmailMessagingProvider: MessagingProvider = {
   id: "gmail",
   displayName: "Gmail",
-  credentialService: "integration:gmail",
+  credentialService: "integration:google",
   capabilities: new Set([
     "threads",
     "labels",

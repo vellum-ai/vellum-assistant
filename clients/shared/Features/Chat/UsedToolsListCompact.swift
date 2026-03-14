@@ -14,7 +14,7 @@ public struct UsedToolsListCompact: View {
 
     private var pillIcon: VIcon { .circleCheck }
 
-    private var pillIconColor: Color { VColor.success }
+    private var pillIconColor: Color { VColor.systemPositiveStrong }
 
     public init(toolCalls: [ToolCallData]) {
         self.toolCalls = toolCalls
@@ -32,11 +32,11 @@ public struct UsedToolsListCompact: View {
 
                     Text(pillLabel)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .lineLimit(1)
 
                     VIconView(.chevronRight, size: 9)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                         .animation(VAnimation.fast, value: isExpanded)
                 }
@@ -44,7 +44,7 @@ public struct UsedToolsListCompact: View {
                 .padding(.vertical, VSpacing.xs)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.lg)
-                        .fill(VColor.backgroundSubtle.opacity(0.3))
+                        .fill(VColor.surfaceBase.opacity(0.3))
                 )
                 .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
             }
@@ -78,24 +78,24 @@ private struct CompactToolRow: View {
             // Status icon
             ZStack {
                 RoundedRectangle(cornerRadius: VRadius.xs)
-                    .fill(toolCall.isError ? VColor.error : VColor.success)
+                    .fill(toolCall.isError ? VColor.systemNegativeStrong : VColor.systemPositiveStrong)
                     .frame(width: 20, height: 20)
 
                 VIconView(toolCall.isError ? .x : .check, size: 9)
-                    .foregroundColor(.white)
+                    .foregroundColor(VColor.auxWhite)
             }
 
             // Tool description + duration
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(toolCall.actionDescription)
                     .font(VFont.captionMedium)
-                    .foregroundColor(toolCall.isError ? VColor.error : VColor.textPrimary)
+                    .foregroundColor(toolCall.isError ? VColor.systemNegativeStrong : VColor.contentDefault)
                     .lineLimit(1)
 
                 if let started = toolCall.startedAt, let completed = toolCall.completedAt {
                     Text(formatDuration(completed.timeIntervalSince(started)))
                         .font(VFont.small)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
 

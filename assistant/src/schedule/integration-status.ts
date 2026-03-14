@@ -1,12 +1,13 @@
 import { hasTwilioCredentials } from "../calls/twilio-rest.js";
-import { getConnectionByProvider } from "../oauth/oauth-store.js";
-import { credentialKey } from "../security/credential-key.js";
-import { getSecureKey } from "../security/secure-keys.js";
+import {
+  getConnectionByProvider,
+  isProviderConnected,
+} from "../oauth/oauth-store.js";
 
 interface IntegrationProbe {
   name: string;
   category: string;
-  isConnected: () => boolean;
+  isConnected: () => Promise<boolean>;
 }
 
 // Registry — add new integrations here:
@@ -14,50 +15,56 @@ const INTEGRATION_PROBES: IntegrationProbe[] = [
   {
     name: "Gmail",
     category: "email",
-    isConnected: () =>
-      getConnectionByProvider("integration:gmail")?.status === "active",
+    isConnected: () => isProviderConnected("integration:google"),
   },
   {
     name: "Slack",
     category: "messaging",
-    isConnected: () =>
-      getConnectionByProvider("integration:slack")?.status === "active",
+    isConnected: () => isProviderConnected("integration:slack"),
   },
   {
     name: "Twilio",
     category: "telephony",
-    isConnected: () => hasTwilioCredentials(),
+    isConnected: async () => hasTwilioCredentials(),
   },
   {
     name: "Telegram",
     category: "messaging",
-    isConnected: () =>
-      !!getSecureKey(credentialKey("telegram", "bot_token")) &&
-      !!getSecureKey(credentialKey("telegram", "webhook_secret")),
+    isConnected: async () => {
+      const conn = getConnectionByProvider("telegram");
+      return !!(conn && conn.status === "active");
+    },
   },
 ];
 
-export function getIntegrationSummary(): Array<{
-  name: string;
-  category: string;
-  connected: boolean;
-}> {
-  return INTEGRATION_PROBES.map((probe) => ({
-    name: probe.name,
-    category: probe.category,
-    connected: probe.isConnected(),
-  }));
+export async function getIntegrationSummary(): Promise<
+  Array<{
+    name: string;
+    category: string;
+    connected: boolean;
+  }>
+> {
+  return Promise.all(
+    INTEGRATION_PROBES.map(async (probe) => ({
+      name: probe.name,
+      category: probe.category,
+      connected: await probe.isConnected(),
+    })),
+  );
 }
 
-export function formatIntegrationSummary(): string {
-  const summary = getIntegrationSummary();
+export async function formatIntegrationSummary(): Promise<string> {
+  const summary = await getIntegrationSummary();
   return summary
     .map((s) => `${s.name} ${s.connected ? "\u2713" : "\u2717"}`)
     .join(" | ");
 }
 
-export function hasCapability(category: string): boolean {
-  return INTEGRATION_PROBES.some(
-    (probe) => probe.category === category && probe.isConnected(),
+export async function hasCapability(category: string): Promise<boolean> {
+  const results = await Promise.all(
+    INTEGRATION_PROBES.filter((probe) => probe.category === category).map(
+      (probe) => probe.isConnected(),
+    ),
   );
+  return results.some(Boolean);
 }

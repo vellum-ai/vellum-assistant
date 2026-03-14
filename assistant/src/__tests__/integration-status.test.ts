@@ -1,16 +1,15 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { OAuthConnectionRow } from "../oauth/oauth-store.js";
 import { credentialKey } from "../security/credential-key.js";
 
 const secureKeyValues = new Map<string, string>();
 let mockTwilioAccountSid: string | undefined;
 
-/** Simulated active OAuth connections keyed by provider. */
-const oauthConnections = new Map<string, OAuthConnectionRow>();
+/** Set of providers that should report as connected via isProviderConnected(). */
+const connectedProviders = new Set<string>();
 
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKey: (account: string) => secureKeyValues.get(account),
+  getSecureKeyAsync: async (account: string) => secureKeyValues.get(account),
 }));
 
 mock.module("../config/loader.js", () => ({
@@ -22,26 +21,17 @@ mock.module("../config/loader.js", () => ({
 }));
 
 mock.module("../oauth/oauth-store.js", () => ({
+  isProviderConnected: (providerKey: string) =>
+    connectedProviders.has(providerKey),
   getConnectionByProvider: (providerKey: string) =>
-    oauthConnections.get(providerKey),
+    connectedProviders.has(providerKey)
+      ? { id: `conn-${providerKey}`, status: "active" }
+      : undefined,
 }));
 
-/** Helper to insert a fake active connection for a provider. */
+/** Mark a provider as fully connected (active row + access token). */
 function setOAuthConnected(providerKey: string): void {
-  oauthConnections.set(providerKey, {
-    id: "fake-id",
-    oauthAppId: "fake-app",
-    providerKey,
-    accountInfo: null,
-    grantedScopes: "[]",
-    expiresAt: null,
-    hasRefreshToken: 0,
-    status: "active",
-    label: null,
-    metadata: null,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  });
+  connectedProviders.add(providerKey);
 }
 
 const { getIntegrationSummary, formatIntegrationSummary, hasCapability } =
@@ -50,13 +40,13 @@ const { getIntegrationSummary, formatIntegrationSummary, hasCapability } =
 describe("integration-status", () => {
   beforeEach(() => {
     secureKeyValues.clear();
-    oauthConnections.clear();
+    connectedProviders.clear();
     mockTwilioAccountSid = undefined;
   });
 
   describe("getIntegrationSummary", () => {
-    test("returns all disconnected when no keys are set", () => {
-      const summary = getIntegrationSummary();
+    test("returns all disconnected when no keys are set", async () => {
+      const summary = await getIntegrationSummary();
       expect(summary).toEqual([
         { name: "Gmail", category: "email", connected: false },
         { name: "Slack", category: "messaging", connected: false },
@@ -65,33 +55,25 @@ describe("integration-status", () => {
       ]);
     });
 
-    test("returns all connected when all keys are set", () => {
-      setOAuthConnected("integration:gmail");
+    test("returns all connected when all keys are set", async () => {
+      setOAuthConnected("integration:google");
       setOAuthConnected("integration:slack");
       mockTwilioAccountSid = "sid";
       secureKeyValues.set(credentialKey("twilio", "auth_token"), "auth");
-      secureKeyValues.set(credentialKey("telegram", "bot_token"), "tok");
-      secureKeyValues.set(
-        credentialKey("telegram", "webhook_secret"),
-        "secret",
-      );
+      setOAuthConnected("telegram");
 
-      const summary = getIntegrationSummary();
+      const summary = await getIntegrationSummary();
       expect(summary.every((s: { connected: boolean }) => s.connected)).toBe(
         true,
       );
     });
 
-    test("returns mixed status", () => {
+    test("returns mixed status", async () => {
       mockTwilioAccountSid = "sid";
       secureKeyValues.set(credentialKey("twilio", "auth_token"), "auth");
-      secureKeyValues.set(credentialKey("telegram", "bot_token"), "tok");
-      secureKeyValues.set(
-        credentialKey("telegram", "webhook_secret"),
-        "secret",
-      );
+      setOAuthConnected("telegram");
 
-      const summary = getIntegrationSummary();
+      const summary = await getIntegrationSummary();
       const connected = summary.filter(
         (s: { connected: boolean }) => s.connected,
       );
@@ -109,18 +91,17 @@ describe("integration-status", () => {
       ]);
     });
 
-    test("Twilio disconnected when only account_sid is set (missing auth_token)", () => {
+    test("Twilio disconnected when only account_sid is set (missing auth_token)", async () => {
       mockTwilioAccountSid = "sid";
 
-      const summary = getIntegrationSummary();
+      const summary = await getIntegrationSummary();
       const twilio = summary.find((s: { name: string }) => s.name === "Twilio");
       expect(twilio?.connected).toBe(false);
     });
 
-    test("Telegram disconnected when only bot_token is set (missing webhook_secret)", () => {
-      secureKeyValues.set(credentialKey("telegram", "bot_token"), "tok");
-
-      const summary = getIntegrationSummary();
+    test("Telegram disconnected when no connection record exists", async () => {
+      // No oauth_connection record for telegram — should be disconnected
+      const summary = await getIntegrationSummary();
       const telegram = summary.find(
         (s: { name: string }) => s.name === "Telegram",
       );
@@ -129,40 +110,32 @@ describe("integration-status", () => {
   });
 
   describe("formatIntegrationSummary", () => {
-    test("shows checkmarks and crosses", () => {
+    test("shows checkmarks and crosses", async () => {
       mockTwilioAccountSid = "sid";
       secureKeyValues.set(credentialKey("twilio", "auth_token"), "auth");
-      secureKeyValues.set(credentialKey("telegram", "bot_token"), "tok");
-      secureKeyValues.set(
-        credentialKey("telegram", "webhook_secret"),
-        "secret",
-      );
+      setOAuthConnected("telegram");
 
-      const result = formatIntegrationSummary();
+      const result = await formatIntegrationSummary();
       expect(result).toBe(
         "Gmail \u2717 | Slack \u2717 | Twilio \u2713 | Telegram \u2713",
       );
     });
 
-    test("all disconnected", () => {
-      const result = formatIntegrationSummary();
+    test("all disconnected", async () => {
+      const result = await formatIntegrationSummary();
       expect(result).toBe(
         "Gmail \u2717 | Slack \u2717 | Twilio \u2717 | Telegram \u2717",
       );
     });
 
-    test("all connected", () => {
-      setOAuthConnected("integration:gmail");
+    test("all connected", async () => {
+      setOAuthConnected("integration:google");
       setOAuthConnected("integration:slack");
       mockTwilioAccountSid = "sid";
       secureKeyValues.set(credentialKey("twilio", "auth_token"), "auth");
-      secureKeyValues.set(credentialKey("telegram", "bot_token"), "tok");
-      secureKeyValues.set(
-        credentialKey("telegram", "webhook_secret"),
-        "secret",
-      );
+      setOAuthConnected("telegram");
 
-      const result = formatIntegrationSummary();
+      const result = await formatIntegrationSummary();
       expect(result).toBe(
         "Gmail \u2713 | Slack \u2713 | Twilio \u2713 | Telegram \u2713",
       );
@@ -170,33 +143,28 @@ describe("integration-status", () => {
   });
 
   describe("hasCapability", () => {
-    test("returns false when no integrations in category are connected", () => {
-      expect(hasCapability("email")).toBe(false);
-      expect(hasCapability("messaging")).toBe(false);
+    test("returns false when no integrations in category are connected", async () => {
+      expect(await hasCapability("email")).toBe(false);
+      expect(await hasCapability("messaging")).toBe(false);
     });
 
-    test("returns true when any integration in category is connected", () => {
-      secureKeyValues.set(credentialKey("telegram", "bot_token"), "tok");
-      secureKeyValues.set(
-        credentialKey("telegram", "webhook_secret"),
-        "secret",
-      );
-      expect(hasCapability("messaging")).toBe(true);
+    test("returns true when any integration in category is connected", async () => {
+      setOAuthConnected("telegram");
+      expect(await hasCapability("messaging")).toBe(true);
     });
 
-    test("returns false when only partial credentials exist for category integrations", () => {
-      secureKeyValues.set(credentialKey("telegram", "bot_token"), "tok");
-      // Missing webhook_secret — Telegram should not count as connected
-      expect(hasCapability("messaging")).toBe(false);
+    test("returns false when no connection record exists for category integrations", async () => {
+      // No oauth_connection record for telegram — should not count as connected
+      expect(await hasCapability("messaging")).toBe(false);
     });
 
-    test("returns false for unknown categories", () => {
-      expect(hasCapability("nonexistent")).toBe(false);
+    test("returns false for unknown categories", async () => {
+      expect(await hasCapability("nonexistent")).toBe(false);
     });
 
-    test("email category checks Gmail", () => {
-      setOAuthConnected("integration:gmail");
-      expect(hasCapability("email")).toBe(true);
+    test("email category checks Gmail", async () => {
+      setOAuthConnected("integration:google");
+      expect(await hasCapability("email")).toBe(true);
     });
   });
 });

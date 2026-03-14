@@ -27,9 +27,13 @@ const geminiGenerateContentFn = mock(async () => geminiGenerateContentResult);
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
-    apiKeys: { gemini: mockGeminiKey },
     imageGenModel: "gemini-2.5-flash-image",
   }),
+}));
+
+mock.module("../security/secure-keys.js", () => ({
+  getSecureKeyAsync: async (name: string) =>
+    name === "gemini" ? mockGeminiKey : null,
 }));
 
 mock.module("../util/platform.js", () => ({

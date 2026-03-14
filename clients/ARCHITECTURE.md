@@ -74,15 +74,10 @@ graph LR
         MSG["messages<br/>───────────────<br/>id, conversation_id (FK)<br/>role: user | assistant<br/>content: JSON array<br/>created_at"]
         TOOL["tool_invocations<br/>───────────────<br/>tool_name, input, result<br/>decision, risk_level<br/>duration_ms"]
         SEG["memory_segments<br/>───────────────<br/>Text chunks for retrieval<br/>Linked to messages<br/>token_estimate per segment"]
-        FTS["memory_segment_fts<br/>───────────────<br/>FTS5 virtual table<br/>Auto-synced via triggers<br/>Powers lexical search"]
         ITEMS["memory_items<br/>───────────────<br/>Extracted facts/entities<br/>kind, subject, statement<br/>confidence, fingerprint (dedup)<br/>verification_state, scope_id<br/>first/last seen timestamps"]
-        CONFLICTS["memory_item_conflicts<br/>───────────────<br/>Pending/resolved contradiction pairs<br/>existing_item_id + candidate_item_id<br/>clarification question + resolution note<br/>partial unique pending pair index"]
-        ENTITIES["memory_entities<br/>───────────────<br/>Canonical entities + aliases<br/>mention_count, first/last seen<br/>Resolved across messages"]
-        RELS["memory_entity_relations<br/>───────────────<br/>Directional entity edges<br/>Unique by source/target/relation<br/>first/last seen + evidence"]
-        ITEM_ENTS["memory_item_entities<br/>───────────────<br/>Join table linking extracted<br/>memory_items to entities"]
         SUM["memory_summaries<br/>───────────────<br/>scope: conversation | weekly<br/>Compressed history for context<br/>window management"]
         EMB["memory_embeddings<br/>───────────────<br/>target: segment | item | summary<br/>provider + model metadata<br/>vector_json (float array)<br/>Powers semantic search"]
-        JOBS["memory_jobs<br/>───────────────<br/>Async task queue<br/>Types: embed, extract,<br/>summarize, backfill,<br/>conflict resolution, cleanup<br/>Status: pending → running →<br/>completed | failed"]
+        JOBS["memory_jobs<br/>───────────────<br/>Async task queue<br/>Types: embed, extract,<br/>summarize, backfill, cleanup<br/>Status: pending → running →<br/>completed | failed"]
         ATT["attachments<br/>───────────────<br/>base64-encoded file data<br/>mime_type, size_bytes<br/>Linked to messages via<br/>message_attachments join"]
         REM["reminders<br/>───────────────<br/>One-time scheduled reminders<br/>label, message, fireAt<br/>mode: notify | execute<br/>status: pending → fired | cancelled"]
         SCHED_JOBS["cron_jobs (recurrence schedules)<br/>───────────────<br/>Recurring schedule definitions<br/>cron_expression: cron or RRULE string<br/>schedule_syntax: 'cron' | 'rrule'<br/>timezone, message, next_run_at<br/>enabled, retry_count<br/>Legacy alias: scheduleJobs"]
@@ -113,15 +108,16 @@ graph LR
 
 ## Computer Use Session — Detailed Data Flow
 
+Computer use runs through the daemon's main session loop. The daemon decides when to
+invoke CU tools, sends `host_cu_request` messages to the client, which executes them
+locally via `HostCuExecutor` and posts `host_cu_result` back.
+
 ```mermaid
 sequenceDiagram
     participant User
-    participant UI as TaskInputView
+    participant Chat as ChatView
     participant AD as AppDelegate
-    participant CLS as Classifier (Haiku)
-    participant TextSess as Session (text_qa)
-    participant TW as TextResponseWindow
-    participant Session as ComputerUseSession
+    participant HCE as HostCuExecutor
     participant AX as AccessibilityTree
     participant SC as ScreenCapture
     participant DC as DaemonClient
@@ -131,87 +127,66 @@ sequenceDiagram
     participant AE as ActionExecutor
     participant macOS as macOS (CGEvents)
 
-    User->>UI: Type task / Voice / Paste
-    UI->>AD: submit(TaskSubmission)
-    Note over AD: TaskSubmission carries<br/>source: 'voice' | 'text' | nil
-    AD->>CLS: classifyInteraction(task, source)
+    User->>Chat: Type task / Voice / Paste
+    Chat->>DC: POST /v1/messages
+    DC->>Daemon: HTTP POST
+    Note over Daemon: Creates conversation in SQLite<br/>Starts agent loop
 
-    alt source === 'voice' → text_qa path
-        Note over CLS: Bypass Haiku API call<br/>Route directly to text_qa
-        CLS-->>AD: InteractionType.textQA
-        AD->>DC: send(SessionCreate + UserMessage)
-        Note over DC: HTTP POST
-        DC->>Daemon: HTTP
-        Note over Daemon: Creates conversation in SQLite<br/>Wires escalation handler
-        Daemon-->>DC: task_routed(text_qa)
-        DC-->>AD: route to text_qa UI
-        Note over Daemon: Starts streaming immediately
-        Daemon->>Claude: API call with text prompt
-        Claude-->>Daemon: streaming text response
-        Daemon-->>DC: assistant_text_delta (stream)
-        DC-->>TextSess: text deltas
-        TextSess-->>TW: display streaming response
-        Daemon-->>DC: message_complete
+    Daemon->>Claude: API call with user message
+    Claude-->>Daemon: tool_use (computer use tool)
+    Note over Daemon: Model decides CU is needed
 
-    else source === 'text' or nil → computer_use path
-        Note over CLS: Haiku-4.5 direct call<br/>5s timeout, heuristic fallback
-        CLS-->>AD: InteractionType.computerUse
+    loop host_cu_request / host_cu_result
+        Daemon-->>DC: host_cu_request (SSE)
+        Note over DC: Contains: tool name, parameters,<br/>step number, reasoning
 
-        AD->>Session: init(task, daemonClient, ...)
-        Session->>DC: send(CuSessionCreateMessage)
-        Note over DC: HTTP POST
+        DC-->>AD: getOrCreateHostCuOverlay()
+        Note over AD: Creates HostCuSessionProxy<br/>Shows SessionOverlayWindow<br/>Pauses ambient agent
 
-        loop PERCEIVE → INFER → VERIFY → EXECUTE → WAIT
-            par Parallel Capture
-                Session->>AX: enumerate()
-                Note over AX: AXUIElement tree walk<br/>Sets AXEnhancedUserInterface<br/>Chrome: force-renderer-accessibility<br/>Filters to interactive elements<br/>Format: [ID] role "title" at (x,y)
-                AX-->>Session: axTree + axDiff
-            and
-                Session->>SC: capture()
-                Note over SC: ScreenCaptureKit<br/>Exclude own windows<br/>Downscale to 1280x720<br/>JPEG @ 0.6 quality
-                SC-->>Session: base64 screenshot
-            end
+        AD->>HCE: execute(request)
 
-            Session->>DC: send(CuObservationMessage)
-            Note over DC: Contains: axTree, axDiff,<br/>screenshot, secondaryWindows,<br/>executionResult/error
+        HCE->>AV: verify(action, history)
+        Note over AV: Step limit (max 50)<br/>Loop detection (3x same)<br/>Sensitive data check<br/>Destructive key check<br/>System menu bar block<br/>AppleScript sandboxing
 
-            DC->>Daemon: HTTP POST
-            Daemon->>Claude: API call with observation
-            Note over Daemon: Loads conversation from SQLite<br/>Appends observation as user msg<br/>Stores in messages table
-            Claude-->>Daemon: tool_use response
-            Note over Daemon: Stores assistant msg in SQLite<br/>Logs tool_invocation<br/>Enqueues memory jobs
-            Daemon-->>DC: CuActionMessage
-
-            DC-->>Session: action (tool + input)
-
-            Session->>AV: verify(action, history)
-            Note over AV: Step limit (max 50)<br/>Loop detection (3x same)<br/>Sensitive data check<br/>Destructive key check<br/>System menu bar block<br/>AppleScript sandboxing
-
-            alt allowed
-                AV-->>Session: .allowed
-            else needsConfirmation
-                AV-->>Session: .needsConfirmation(reason)
-                Session->>User: confirmation dialog
-                User-->>Session: approve/block
-            else blocked
-                AV-->>Session: .blocked(reason)
-                Note over Session: 3 consecutive blocks<br/>= session terminated
-            end
-
-            Session->>AE: execute(action)
-            Note over AE: click: CGEvent mouse down/up<br/>type: clipboard paste + Cmd+V<br/>key: CGEvent key events<br/>scroll: scroll wheel events<br/>openApp: NSWorkspace launch<br/>appleScript: osascript subprocess
-
-            AE->>macOS: CGEvent injection
-            macOS-->>AE: result
-
-            Session->>Session: waitForUISettle()
-            Note over Session: Min 100ms for CGEvents<br/>Poll AX tree 5x @ 100ms<br/>Return early on tree change<br/>Max 1200ms timeout
+        alt allowed
+            AV-->>HCE: .allowed
+        else needsConfirmation
+            AV-->>HCE: .needsConfirmation(reason)
+            HCE->>User: confirmation dialog
+            User-->>HCE: approve/block
+        else blocked
+            AV-->>HCE: .blocked(reason)
         end
 
-        Daemon-->>DC: CuCompleteMessage
-        DC-->>Session: session complete
-        Session-->>AD: .completed(summary)
+        HCE->>AE: execute(action)
+        Note over AE: click: CGEvent mouse down/up<br/>type: clipboard paste + Cmd+V<br/>key: CGEvent key events<br/>scroll: scroll wheel events<br/>openApp: NSWorkspace launch<br/>appleScript: osascript subprocess
+
+        AE->>macOS: CGEvent injection
+        macOS-->>AE: result
+
+        par Parallel Capture
+            HCE->>AX: enumerate()
+            Note over AX: AXUIElement tree walk<br/>Sets AXEnhancedUserInterface<br/>Filters to interactive elements<br/>Format: [ID] role "title" at (x,y)
+            AX-->>HCE: axTree + axDiff
+        and
+            HCE->>SC: capture()
+            Note over SC: ScreenCaptureKit<br/>Exclude own windows<br/>Downscale to 1280x720<br/>JPEG @ 0.6 quality
+            SC-->>HCE: base64 screenshot
+        end
+
+        HCE->>DC: POST host_cu_result
+        Note over DC: Contains: axTree, axDiff,<br/>screenshot, secondaryWindows,<br/>executionResult/error
+
+        DC->>Daemon: HTTP POST
+        Daemon->>Claude: API call with observation
+        Note over Daemon: Appends tool result<br/>Stores in messages table
+        Claude-->>Daemon: next tool_use or end_turn
     end
+
+    Note over Daemon: Agent loop ends (end_turn)
+    Daemon-->>DC: message_complete (SSE)
+    DC-->>AD: dismissHostCuOverlay()
+end
 ```
 
 ---
@@ -227,7 +202,7 @@ idle → starting → recording → stopping → idle
                                       └→ failed → idle
 ```
 
-A recording is initiated via dedicated HTTP endpoints (`/v1/recording/*`). The daemon generates a unique `recordingId`, stores bidirectional mappings (`recordingId ↔ conversationId`), and sends a `recording_start` SSE event to the macOS client. The client manages the actual screen capture via `RecordingManager.swift` and reports status transitions back to the daemon via HTTP.
+A recording is initiated via dedicated HTTP endpoints (`/v1/recordings/*`). The daemon generates a unique `recordingId`, stores bidirectional mappings (`recordingId ↔ conversationId`), and sends a `recording_start` SSE event to the macOS client. The client manages the actual screen capture via `RecordingManager.swift` and reports status transitions back to the daemon via HTTP.
 
 ### Key Files
 
@@ -246,7 +221,7 @@ A recording is initiated via dedicated HTTP endpoints (`/v1/recording/*`). The d
 
 ### Intent Routing
 
-Recording is managed through dedicated HTTP endpoints (`/v1/recording/*`) rather than intent detection in user messages. Clients call these endpoints directly to start, stop, and query recording status.
+Recording is managed through dedicated HTTP endpoints (`/v1/recordings/*`) rather than intent detection in user messages. Clients call these endpoints directly to start, stop, and query recording status.
 
 ### File-Backed Attachments
 
@@ -264,7 +239,7 @@ sequenceDiagram
     participant Daemon as Daemon (Bun)
     participant RM as RecordingManager
 
-    Client->>Daemon: POST /v1/recording/start
+    Client->>Daemon: POST /v1/recordings/start
     Daemon->>Client: recording_start { recordingId, options }
     Client->>RM: startRecording(recordingId)
     RM-->>Client: capture started
@@ -272,7 +247,7 @@ sequenceDiagram
 
     Note over RM: Screen capture in progress...
 
-    Client->>Daemon: POST /v1/recording/stop
+    Client->>Daemon: POST /v1/recordings/stop
     Daemon->>Client: recording_stop { recordingId }
     Client->>RM: stopRecording()
     RM-->>Client: file saved at filePath
@@ -721,7 +696,6 @@ The Intelligence tab is the iOS hub for skills and contacts management, gated on
 | View | File | Purpose |
 |------|------|---------|
 | `InstalledSkillsView` | `ios/Views/Intelligence/InstalledSkillsView.swift` | List of installed skills with enable/disable swipe actions and uninstall |
-| `CommunitySkillsView` | `ios/Views/Intelligence/CommunitySkillsView.swift` | Searchable community skill browser with debounced search |
 | `SkillDetailView` | `ios/Views/Intelligence/SkillDetailView.swift` | Skill details with ClaWhub inspect data, enable/disable/uninstall actions |
 | `ContactsListView` | `ios/Views/Intelligence/ContactsListView.swift` | Searchable contacts list with guardian section and delete swipe actions |
 | `ContactDetailView` | `ios/Views/Intelligence/ContactDetailView.swift` | Contact details with channel list and policy editing via confirmation dialog |

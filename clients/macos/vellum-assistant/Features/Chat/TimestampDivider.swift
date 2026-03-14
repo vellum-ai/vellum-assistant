@@ -78,7 +78,7 @@ struct TimestampDivider: View {
             line
             Text(formattedTime)
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
             line
         }
         .padding(.vertical, VSpacing.xs)
@@ -86,7 +86,7 @@ struct TimestampDivider: View {
 
     private var line: some View {
         Rectangle()
-            .fill(VColor.surfaceBorder.opacity(0.3))
+            .fill(VColor.borderBase.opacity(0.3))
             .frame(height: 0.5)
     }
 }

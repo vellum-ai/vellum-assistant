@@ -192,7 +192,7 @@ final class DictationOverlayWindow {
         case .recording:
             let dot = NSView(frame: NSRect(x: 0, y: 0, width: 8, height: 8))
             dot.wantsLayer = true
-            dot.layer?.backgroundColor = NSColor(VColor.error).cgColor
+            dot.layer?.backgroundColor = NSColor(VColor.systemNegativeStrong).cgColor
             dot.layer?.cornerRadius = 4
             dot.widthAnchor.constraint(equalToConstant: 8).isActive = true
             dot.heightAnchor.constraint(equalToConstant: 8).isActive = true
@@ -210,13 +210,13 @@ final class DictationOverlayWindow {
             return s
 
         case .transforming:
-            return makeSymbolView(.wand, color: VColor.accent)
+            return makeSymbolView(.wand, color: VColor.primaryBase)
 
         case .done:
-            return makeSymbolView(.circleCheck, color: VColor.success)
+            return makeSymbolView(.circleCheck, color: VColor.systemPositiveStrong)
 
         case .error:
-            return makeSymbolView(.triangleAlert, color: VColor.error)
+            return makeSymbolView(.triangleAlert, color: VColor.systemNegativeStrong)
         }
     }
 
@@ -234,16 +234,16 @@ final class DictationOverlayWindow {
     private func labelContent(for state: DictationState) -> (String, NSColor) {
         switch state {
         case .recording:
-            return ("Recording...", NSColor(VColor.textSecondary))
+            return ("Recording...", NSColor(VColor.contentSecondary))
         case .processing:
-            return ("Processing...", NSColor(VColor.textSecondary))
+            return ("Processing...", NSColor(VColor.contentSecondary))
         case .transforming(let instruction):
             let truncated = instruction.count > 30 ? String(instruction.prefix(30)) + "..." : instruction
-            return ("Transforming: \(truncated)", NSColor(VColor.textSecondary))
+            return ("Transforming: \(truncated)", NSColor(VColor.contentSecondary))
         case .done:
-            return ("Done", NSColor(VColor.success))
+            return ("Done", NSColor(VColor.systemPositiveStrong))
         case .error(let message):
-            return (message, NSColor(VColor.error))
+            return (message, NSColor(VColor.systemNegativeStrong))
         }
     }
 
@@ -261,7 +261,7 @@ final class DictationOverlayWindow {
     private func makeTranscriptionLabel() -> NSTextField {
         let field = NSTextField(labelWithString: "")
         field.font = NSFont(name: "Inter", size: 10) ?? NSFont.systemFont(ofSize: 10)
-        field.textColor = NSColor(VColor.textMuted)
+        field.textColor = NSColor(VColor.contentTertiary)
         field.lineBreakMode = .byWordWrapping
         field.maximumNumberOfLines = 2
         field.isHidden = true
@@ -274,9 +274,9 @@ private class OverlayBackgroundView: NSView {
     override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
-        layer?.backgroundColor = NSColor(VColor.surface).withAlphaComponent(0.95).cgColor
+        layer?.backgroundColor = NSColor(VColor.surfaceBase).withAlphaComponent(0.95).cgColor
         layer?.cornerRadius = VRadius.lg
         layer?.borderWidth = 1
-        layer?.borderColor = NSColor(VColor.surfaceBorder).cgColor
+        layer?.borderColor = NSColor(VColor.borderBase).cgColor
     }
 }

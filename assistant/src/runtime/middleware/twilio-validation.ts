@@ -57,7 +57,7 @@ export async function validateTwilioWebhook(
 ): Promise<{ body: string } | Response> {
   const rawBody = await req.text();
 
-  const authToken = TwilioConversationRelayProvider.getAuthToken();
+  const authToken = await TwilioConversationRelayProvider.getAuthToken();
 
   if (!authToken) {
     log.error(

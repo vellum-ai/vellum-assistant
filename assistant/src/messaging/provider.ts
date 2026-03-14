@@ -82,12 +82,12 @@ export interface MessagingProvider {
 
   /**
    * Override the default credential check used by getConnectedProviders().
-   * When present, the registry calls this instead of looking for
-   * credential/{credentialService}/access_token. Useful for providers
-   * that don't use OAuth (e.g. Telegram bot tokens stored under a
-   * non-standard key).
+   * When present, the registry calls this instead of checking for an
+   * active oauth-store connection via isProviderConnected(). Useful
+   * for providers that don't use OAuth (e.g. Telegram bot tokens stored
+   * under a non-standard key).
    */
-  isConnected?(): boolean;
+  isConnected?(): Promise<boolean>;
 
   /** Platform-specific capabilities for tool routing (e.g. 'reactions', 'threads', 'labels'). */
   capabilities: Set<string>;

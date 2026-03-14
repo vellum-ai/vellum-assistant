@@ -49,12 +49,12 @@ public struct CurrentStepIndicator: View {
                 // Spinner or checkmark
                 if let current = current, current.isComplete {
                     VIconView(.circleCheck, size: 14)
-                        .foregroundColor(VColor.accent)
+                        .foregroundColor(VColor.primaryBase)
                 } else {
                     ProgressView()
                         .scaleEffect(0.7)
                         .frame(width: 16, height: 16)
-                        .tint(VColor.accent)
+                        .tint(VColor.primaryBase)
                 }
 
                 // Current step text with loading indicator
@@ -63,20 +63,20 @@ public struct CurrentStepIndicator: View {
                         // Show tool name if available, otherwise show generic "Thinking..."
                         Text(current?.friendlyName ?? "Thinking...")
                             .font(VFont.bodyMedium)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
 
                         // Progress counter inline with title
                         if totalCount > 1 {
                             Text("(\(completedCount)/\(totalCount))")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                         }
                     }
 
                     if isLoading {
                         Text("Working...")
                             .font(VFont.small)
-                            .foregroundColor(VColor.accent)
+                            .foregroundColor(VColor.primaryBase)
                             .opacity(pulseOpacity)
                     }
                 }
@@ -85,17 +85,17 @@ public struct CurrentStepIndicator: View {
 
                 // Chevron to indicate it's clickable
                 VIconView(.chevronRight, size: 10)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(isHovered ? VColor.surfaceBorder.opacity(0.5) : VColor.surface)
+                    .fill(isHovered ? VColor.borderBase.opacity(0.5) : VColor.surfaceBase)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(isLoading ? VColor.accent.opacity(0.5) : VColor.surfaceBorder, lineWidth: isLoading ? 1.5 : 1)
+                    .stroke(isLoading ? VColor.primaryBase.opacity(0.5) : VColor.borderBase, lineWidth: isLoading ? 1.5 : 1)
             )
             .onHover { hovering in
                 withAnimation(VAnimation.fast) {
@@ -131,67 +131,4 @@ public struct CurrentStepIndicator: View {
 // MARK: - Preview
 
 #if DEBUG
-#Preview("CurrentStepIndicator") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-
-        VStack(spacing: VSpacing.xl) {
-            // In progress
-            CurrentStepIndicator(
-                toolCalls: [
-                    ToolCallData(
-                        toolName: "Web Search",
-                        inputSummary: "flights from New York to London",
-                        isComplete: true
-                    ),
-                    ToolCallData(
-                        toolName: "Browser Navigate",
-                        inputSummary: "https://google.com/flights",
-                        isComplete: false
-                    ),
-                    ToolCallData(
-                        toolName: "Browser Click",
-                        inputSummary: "Departure field",
-                        isComplete: false
-                    )
-                ],
-                isStreaming: true,
-                onTap: {}
-            )
-
-            // Single step
-            CurrentStepIndicator(
-                toolCalls: [
-                    ToolCallData(
-                        toolName: "Checking Navitime schedule for specific date",
-                        inputSummary: "",
-                        isComplete: false
-                    )
-                ],
-                isStreaming: true,
-                onTap: {}
-            )
-
-            // Completed
-            CurrentStepIndicator(
-                toolCalls: [
-                    ToolCallData(
-                        toolName: "Web Search",
-                        inputSummary: "flights",
-                        isComplete: true
-                    ),
-                    ToolCallData(
-                        toolName: "Browser Navigate",
-                        inputSummary: "url",
-                        isComplete: true
-                    )
-                ],
-                isStreaming: false,
-                onTap: {}
-            )
-        }
-        .padding(VSpacing.xl)
-        .frame(width: 500)
-    }
-}
 #endif

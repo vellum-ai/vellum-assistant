@@ -10,7 +10,7 @@ import type { RouteDefinition } from "../http-router.js";
 
 const log = getLogger("surface-action-routes");
 
-/** Any object that can handle a surface action (Session or ComputerUseSession). */
+/** Any object that can handle a surface action. */
 interface SurfaceActionTarget {
   handleSurfaceAction(
     surfaceId: string,

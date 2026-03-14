@@ -5,10 +5,15 @@ import {
   saveRawConfig,
   setNestedValue,
 } from "../../config/loader.js";
+import {
+  ensureManualTokenConnection,
+  removeManualTokenConnection,
+} from "../../oauth/manual-token-connection.js";
+import { getConnectionByProvider } from "../../oauth/oauth-store.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
-  getSecureKey,
+  getSecureKeyAsync,
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
 import {
@@ -34,19 +39,22 @@ export interface SlackChannelConfigResult {
 
 // -- Business logic --
 
-export function getSlackChannelConfig(): SlackChannelConfigResult {
-  const hasBotToken = !!getSecureKey(
+export async function getSlackChannelConfig(): Promise<SlackChannelConfigResult> {
+  const hasBotToken = !!(await getSecureKeyAsync(
     credentialKey("slack_channel", "bot_token"),
-  );
-  const hasAppToken = !!getSecureKey(
+  ));
+  const hasAppToken = !!(await getSecureKeyAsync(
     credentialKey("slack_channel", "app_token"),
-  );
+  ));
+  const conn = getConnectionByProvider("slack_channel");
+  const connected =
+    !!(conn && conn.status === "active") && hasBotToken && hasAppToken;
   const { teamId, teamName, botUserId, botUsername } = getConfig().slack;
   return {
     success: true,
     hasBotToken,
     hasAppToken,
-    connected: hasBotToken && hasAppToken,
+    connected,
     ...(teamId ? { teamId } : {}),
     ...(teamName ? { teamName } : {}),
     ...(botUserId ? { botUserId } : {}),
@@ -83,17 +91,17 @@ export async function setSlackChannelConfig(
         user?: string;
       };
       if (!data.ok) {
-        const storedBotToken = !!getSecureKey(
+        const errHasBotToken = !!(await getSecureKeyAsync(
           credentialKey("slack_channel", "bot_token"),
-        );
-        const storedAppToken = !!getSecureKey(
+        ));
+        const errHasAppToken = !!(await getSecureKeyAsync(
           credentialKey("slack_channel", "app_token"),
-        );
+        ));
         return {
           success: false,
-          hasBotToken: storedBotToken,
-          hasAppToken: storedAppToken,
-          connected: storedBotToken && storedAppToken,
+          hasBotToken: errHasBotToken,
+          hasAppToken: errHasAppToken,
+          connected: errHasBotToken && errHasAppToken,
           error: `Slack API validation failed: ${
             data.error ?? "unknown error"
           }`,
@@ -107,17 +115,17 @@ export async function setSlackChannelConfig(
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const storedBotToken = !!getSecureKey(
+      const errHasBotToken = !!(await getSecureKeyAsync(
         credentialKey("slack_channel", "bot_token"),
-      );
-      const storedAppToken = !!getSecureKey(
+      ));
+      const errHasAppToken = !!(await getSecureKeyAsync(
         credentialKey("slack_channel", "app_token"),
-      );
+      ));
       return {
         success: false,
-        hasBotToken: storedBotToken,
-        hasAppToken: storedAppToken,
-        connected: storedBotToken && storedAppToken,
+        hasBotToken: errHasBotToken,
+        hasAppToken: errHasAppToken,
+        connected: errHasBotToken && errHasAppToken,
         error: `Failed to validate bot token: ${message}`,
       };
     }
@@ -127,17 +135,17 @@ export async function setSlackChannelConfig(
       botToken,
     );
     if (!stored) {
-      const storedBotToken = !!getSecureKey(
+      const errHasBotToken = !!(await getSecureKeyAsync(
         credentialKey("slack_channel", "bot_token"),
-      );
-      const storedAppToken = !!getSecureKey(
+      ));
+      const errHasAppToken = !!(await getSecureKeyAsync(
         credentialKey("slack_channel", "app_token"),
-      );
+      ));
       return {
         success: false,
-        hasBotToken: storedBotToken,
-        hasAppToken: storedAppToken,
-        connected: storedBotToken && storedAppToken,
+        hasBotToken: errHasBotToken,
+        hasAppToken: errHasAppToken,
+        connected: errHasBotToken && errHasAppToken,
         error: "Failed to store bot token in secure storage",
       };
     }
@@ -165,17 +173,17 @@ export async function setSlackChannelConfig(
   // Validate and store app token
   if (appToken) {
     if (!appToken.startsWith("xapp-")) {
-      const storedBotToken = !!getSecureKey(
+      const errHasBotToken = !!(await getSecureKeyAsync(
         credentialKey("slack_channel", "bot_token"),
-      );
-      const storedAppToken = !!getSecureKey(
+      ));
+      const errHasAppToken = !!(await getSecureKeyAsync(
         credentialKey("slack_channel", "app_token"),
-      );
+      ));
       return {
         success: false,
-        hasBotToken: storedBotToken,
-        hasAppToken: storedAppToken,
-        connected: storedBotToken && storedAppToken,
+        hasBotToken: errHasBotToken,
+        hasAppToken: errHasAppToken,
+        connected: errHasBotToken && errHasAppToken,
         error: 'Invalid app token: must start with "xapp-"',
       };
     }
@@ -185,17 +193,17 @@ export async function setSlackChannelConfig(
       appToken,
     );
     if (!stored) {
-      const storedBotToken = !!getSecureKey(
+      const errHasBotToken = !!(await getSecureKeyAsync(
         credentialKey("slack_channel", "bot_token"),
-      );
-      const storedAppToken = !!getSecureKey(
+      ));
+      const errHasAppToken = !!(await getSecureKeyAsync(
         credentialKey("slack_channel", "app_token"),
-      );
+      ));
       return {
         success: false,
-        hasBotToken: storedBotToken,
-        hasAppToken: storedAppToken,
-        connected: storedBotToken && storedAppToken,
+        hasBotToken: errHasBotToken,
+        hasAppToken: errHasAppToken,
+        connected: errHasBotToken && errHasAppToken,
         error: "Failed to store app token in secure storage",
       };
     }
@@ -203,12 +211,12 @@ export async function setSlackChannelConfig(
     upsertCredentialMetadata("slack_channel", "app_token", {});
   }
 
-  const hasBotToken = !!getSecureKey(
+  const hasBotToken = !!(await getSecureKeyAsync(
     credentialKey("slack_channel", "bot_token"),
-  );
-  const hasAppToken = !!getSecureKey(
+  ));
+  const hasAppToken = !!(await getSecureKeyAsync(
     credentialKey("slack_channel", "app_token"),
-  );
+  ));
 
   if (hasBotToken && !hasAppToken) {
     warning =
@@ -216,6 +224,17 @@ export async function setSlackChannelConfig(
   } else if (!hasBotToken && hasAppToken) {
     warning =
       "App token stored but bot token is missing — connection incomplete.";
+  }
+
+  // Sync oauth_connection record so getConnectionByProvider("slack_channel")
+  // reflects the current credential state.
+  if (hasBotToken && hasAppToken) {
+    const accountInfo = metadata.teamName
+      ? `${metadata.teamName}${metadata.botUsername ? ` (@${metadata.botUsername})` : ""}`
+      : undefined;
+    await ensureManualTokenConnection("slack_channel", accountInfo);
+  } else {
+    removeManualTokenConnection("slack_channel");
   }
 
   return {
@@ -237,12 +256,13 @@ export async function clearSlackChannelConfig(): Promise<SlackChannelConfigResul
   );
 
   if (r1 === "error" || r2 === "error") {
-    const hasBotToken = !!getSecureKey(
+    // Check each key individually so partial deletions report accurate status.
+    const hasBotToken = !!(await getSecureKeyAsync(
       credentialKey("slack_channel", "bot_token"),
-    );
-    const hasAppToken = !!getSecureKey(
+    ));
+    const hasAppToken = !!(await getSecureKeyAsync(
       credentialKey("slack_channel", "app_token"),
-    );
+    ));
     return {
       success: false,
       hasBotToken,
@@ -254,6 +274,9 @@ export async function clearSlackChannelConfig(): Promise<SlackChannelConfigResul
 
   deleteCredentialMetadata("slack_channel", "bot_token");
   deleteCredentialMetadata("slack_channel", "app_token");
+
+  // Remove the oauth_connection row so getConnectionByProvider returns undefined.
+  removeManualTokenConnection("slack_channel");
 
   const raw = loadRawConfig();
   setNestedValue(raw, "slack.teamId", "");

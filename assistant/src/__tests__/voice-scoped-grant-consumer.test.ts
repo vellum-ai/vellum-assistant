@@ -44,7 +44,6 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
-  isDebug: () => false,
   truncateForLog: (value: string) => value,
 }));
 
@@ -56,7 +55,6 @@ mock.module("../config/loader.js", () => ({
 
     provider: "anthropic",
     providerOrder: ["anthropic"],
-    apiKeys: { anthropic: "test-key" },
     calls: {
       enabled: true,
       provider: "twilio",

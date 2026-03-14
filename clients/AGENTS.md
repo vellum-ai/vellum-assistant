@@ -248,7 +248,7 @@ All UI icons use **vendored Lucide PDF assets** rendered through the `VIcon` enu
 - If a needed component does not exist, add it to the appropriate `DesignSystem/` subdirectory (`Core/` for primitives, `Components/` for composed elements, `Modifiers/` for view modifiers).
 - Follow existing naming conventions: prefix with `V`, use descriptive names (for example `VProgressBar`, `VAvatar`).
 - New components must be reusable and platform-agnostic; do not embed platform-specific code.
-- Add a `#Preview` block to the component file and a corresponding section in `Gallery/` so it appears in the component catalog.
+- Do not add `#Preview` / `PreviewProvider` blocks. Add or update the corresponding section in `Gallery/` so the component is represented in the catalog.
 - If you create a component inline in a feature and it could be reused elsewhere, extract it into the design system before merging.
 
 ### Avoiding Duplication

@@ -8,8 +8,8 @@ public struct VToggle: View {
 
     private let trackWidth: CGFloat = 36
     private let trackHeight: CGFloat = 24
-    private let knobSize: CGFloat = 18
-    private let knobPadding: CGFloat = 3
+    private let knobSize: CGFloat = 20
+    private let knobPadding: CGFloat = 2
 
     public init(isOn: Binding<Bool>, label: String? = nil, helperText: String? = nil) {
         self._isOn = isOn
@@ -27,12 +27,12 @@ public struct VToggle: View {
                     if let label {
                         Text(label)
                             .font(VFont.bodyMedium)
-                            .foregroundColor(isEnabled ? VColor.textPrimary : VColor.textMuted)
+                            .foregroundColor(isEnabled ? VColor.contentDefault : VColor.contentDisabled)
                     }
                     if let helperText {
                         Text(helperText)
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
                 }
             }
@@ -64,34 +64,27 @@ public struct VToggle: View {
             Circle()
                 .fill(knobColor)
                 .frame(width: knobSize, height: knobSize)
-                .shadow(color: Color.black.opacity(0.08), radius: 2, x: 0, y: 1)
+                .shadow(color: VColor.auxBlack.opacity(0.08), radius: 2, x: 0, y: 1)
                 .padding(.horizontal, knobPadding)
         }
     }
 
     private var trackColor: Color {
         if !isEnabled {
-            return isOn ? VColor.toggleOn.opacity(0.5) : VColor.toggleOff
+            return VColor.surfaceBase
         }
-        return isOn ? VColor.toggleOn : VColor.toggleOff
+        return isOn ? VColor.primaryActive : VColor.surfaceBase
     }
 
     private var knobColor: Color {
         if !isEnabled {
-            return VColor.toggleKnobDisabled
+            return VColor.surfaceOverlay
         }
-        return VColor.toggleKnob
+        return VColor.auxWhite
     }
 }
 
 #if DEBUG
-struct VToggle_Preview: PreviewProvider {
-    static var previews: some View {
-        VTogglePreviewWrapper()
-            .frame(width: 300, height: 200)
-            .previewDisplayName("VToggle")
-    }
-}
 
 private struct VTogglePreviewWrapper: View {
     @State private var isOnA = true
@@ -99,7 +92,7 @@ private struct VTogglePreviewWrapper: View {
 
     var body: some View {
         ZStack {
-            VColor.background.ignoresSafeArea()
+            VColor.surfaceOverlay.ignoresSafeArea()
             VStack(alignment: .leading, spacing: 16) {
                 VToggle(isOn: $isOnA, label: "Enabled toggle")
                 VToggle(isOn: $isOnB, label: "Disabled toggle")

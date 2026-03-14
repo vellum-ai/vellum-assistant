@@ -20,6 +20,17 @@ import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
 const log = getLogger("runtime-http");
+const MANAGED_PROXY_CREDENTIAL = {
+  service: "vellum",
+  field: "assistant_api_key",
+};
+
+function isManagedProxyCredential(service: string, field: string): boolean {
+  return (
+    service === MANAGED_PROXY_CREDENTIAL.service &&
+    field === MANAGED_PROXY_CREDENTIAL.field
+  );
+}
 
 export async function handleAddSecret(req: Request): Promise<Response> {
   const body = (await req.json()) as {
@@ -62,7 +73,7 @@ export async function handleAddSecret(req: Request): Promise<Response> {
         );
       }
       invalidateConfigCache();
-      initializeProviders(getConfig());
+      await initializeProviders(getConfig());
       log.info({ provider: name }, "API key updated via HTTP");
       return Response.json({ success: true, type, name }, { status: 201 });
     }
@@ -89,6 +100,9 @@ export async function handleAddSecret(req: Request): Promise<Response> {
         );
       }
       upsertCredentialMetadata(service, field, {});
+      if (isManagedProxyCredential(service, field)) {
+        await initializeProviders(getConfig());
+      }
       log.info({ service, field }, "Credential added via HTTP");
       return Response.json({ success: true, type, name }, { status: 201 });
     }
@@ -148,7 +162,7 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
         );
       }
       invalidateConfigCache();
-      initializeProviders(getConfig());
+      await initializeProviders(getConfig());
       log.info({ provider: name }, "API key deleted via HTTP");
       return Response.json({ success: true, type, name });
     }
@@ -181,6 +195,9 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
         );
       }
       deleteCredentialMetadata(service, field);
+      if (isManagedProxyCredential(service, field)) {
+        await initializeProviders(getConfig());
+      }
       log.info({ service, field }, "Credential deleted via HTTP");
       return Response.json({ success: true, type, name });
     }

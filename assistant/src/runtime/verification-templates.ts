@@ -165,7 +165,7 @@ const voiceTemplates: Record<
     "That code was incorrect. Please try again.",
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_SUCCESS]: (_vars) =>
-    "Verification successful. Thank you. Goodbye.",
+    "Verification successful.",
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_FAILURE]: (_vars) =>
     "Too many incorrect attempts. Goodbye.",

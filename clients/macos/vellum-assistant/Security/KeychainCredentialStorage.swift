@@ -9,7 +9,7 @@ struct KeychainCredentialStorage: CredentialStorage {
         KeychainBrokerService.get(account: account)
     }
     func set(account: String, value: String) -> Bool {
-        KeychainBrokerService.set(account: account, value: value)
+        KeychainBrokerService.set(account: account, value: value) == errSecSuccess
     }
     func delete(account: String) -> Bool {
         KeychainBrokerService.delete(account: account)

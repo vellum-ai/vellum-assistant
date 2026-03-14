@@ -2,7 +2,6 @@ import { v4 as uuid } from "uuid";
 
 import {
   type InterfaceId,
-  isChannelId,
   parseChannelId,
   parseInterfaceId,
 } from "../../channels/types.js";
@@ -12,32 +11,25 @@ import {
   generateCanonicalRequestCode,
   resolveCanonicalGuardianRequest,
 } from "../../memory/canonical-guardian-store.js";
-import { getAttentionStateByConversationIds } from "../../memory/conversation-attention-store.js";
 import {
   batchSetDisplayOrders,
   clearAll,
   createConversation,
   getConversation,
-  getDisplayMetaForConversations,
   updateConversationTitle,
 } from "../../memory/conversation-crud.js";
-import {
-  countConversations,
-  listConversations,
-} from "../../memory/conversation-queries.js";
 import {
   GENERATING_TITLE,
   queueGenerateConversationTitle,
   UNTITLED_FALLBACK,
 } from "../../memory/conversation-title-service.js";
-import * as externalConversationStore from "../../memory/external-conversation-store.js";
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { truncate } from "../../util/truncate.js";
 import { HostBashProxy } from "../host-bash-proxy.js";
+import { HostCuProxy } from "../host-cu-proxy.js";
 import { HostFileProxy } from "../host-file-proxy.js";
 import type {
-  CancelRequest,
   ConfirmationResponse,
   DeleteQueuedMessage,
   RegenerateRequest,
@@ -60,25 +52,7 @@ import {
   type HandlerContext,
   log,
   pendingStandaloneSecrets,
-  wireEscalationHandler,
 } from "./shared.js";
-
-/**
- * Extract a valid ChannelId from a binding's sourceChannel, which may carry a
- * `notification:` namespace prefix (e.g. `"notification:telegram"` -> `"telegram"`).
- * Returns the ChannelId if valid, or null otherwise.
- */
-function parseBindingSourceChannel(
-  sourceChannel: string,
-): import("../../channels/types.js").ChannelId | null {
-  if (isChannelId(sourceChannel)) return sourceChannel;
-  const NOTIFICATION_PREFIX = "notification:";
-  if (sourceChannel.startsWith(NOTIFICATION_PREFIX)) {
-    const inner = sourceChannel.slice(NOTIFICATION_PREFIX.length);
-    if (isChannelId(inner)) return inner;
-  }
-  return null;
-}
 
 export function syncCanonicalStatusFromConfirmationDecision(
   requestId: string,
@@ -165,6 +139,12 @@ export function makeEventSender(params: {
         conversationId,
         kind: "host_file",
       });
+    } else if (event.type === "host_cu_request") {
+      pendingInteractions.register(event.requestId, {
+        session,
+        conversationId,
+        kind: "host_cu",
+      });
     }
 
     ctx.send(event);
@@ -188,21 +168,6 @@ export function handleConfirmationResponse(
         msg.selectedScope,
         undefined,
         { source: "button" },
-      );
-      syncCanonicalStatusFromConfirmationDecision(msg.requestId, msg.decision);
-      pendingInteractions.resolve(msg.requestId);
-      return;
-    }
-  }
-
-  // Also check computer-use sessions — they have their own PermissionPrompter
-  for (const [, cuSession] of ctx.cuSessions) {
-    if (cuSession.hasPendingConfirmation(msg.requestId)) {
-      cuSession.handleConfirmationResponse(
-        msg.requestId,
-        msg.decision,
-        msg.selectedPattern,
-        msg.selectedScope,
       );
       syncCanonicalStatusFromConfirmationDecision(msg.requestId, msg.decision);
       pendingInteractions.resolve(msg.requestId);
@@ -251,83 +216,6 @@ export function handleSecretResponse(
   );
 }
 
-export function handleSessionList(
-  ctx: HandlerContext,
-  offset = 0,
-  limit = 50,
-): void {
-  const conversations = listConversations(limit, false, offset);
-  const totalCount = countConversations();
-  const conversationIds = conversations.map((c) => c.id);
-  const bindings =
-    externalConversationStore.getBindingsForConversations(conversationIds);
-  const attentionStates = getAttentionStateByConversationIds(conversationIds);
-  const displayMetas = getDisplayMetaForConversations(conversationIds);
-  ctx.send({
-    type: "session_list_response",
-    sessions: conversations.map((c) => {
-      const binding = bindings.get(c.id);
-      const originChannel = parseChannelId(c.originChannel);
-      const originInterface = parseInterfaceId(c.originInterface);
-      const attn = attentionStates.get(c.id);
-      const displayMeta = displayMetas.get(c.id);
-      const assistantAttention = attn
-        ? {
-            hasUnseenLatestAssistantMessage:
-              attn.latestAssistantMessageAt != null &&
-              (attn.lastSeenAssistantMessageAt == null ||
-                attn.lastSeenAssistantMessageAt <
-                  attn.latestAssistantMessageAt),
-            ...(attn.latestAssistantMessageAt != null
-              ? { latestAssistantMessageAt: attn.latestAssistantMessageAt }
-              : {}),
-            ...(attn.lastSeenAssistantMessageAt != null
-              ? { lastSeenAssistantMessageAt: attn.lastSeenAssistantMessageAt }
-              : {}),
-            ...(attn.lastSeenConfidence != null
-              ? { lastSeenConfidence: attn.lastSeenConfidence }
-              : {}),
-            ...(attn.lastSeenSignalType != null
-              ? { lastSeenSignalType: attn.lastSeenSignalType }
-              : {}),
-          }
-        : undefined;
-      return {
-        id: c.id,
-        title: c.title ?? "Untitled",
-        createdAt: c.createdAt,
-        updatedAt: c.updatedAt,
-        threadType: normalizeThreadType(c.threadType),
-        source: c.source ?? "user",
-        ...(binding && parseBindingSourceChannel(binding.sourceChannel)
-          ? {
-              channelBinding: {
-                sourceChannel: parseBindingSourceChannel(
-                  binding.sourceChannel,
-                )!,
-                externalChatId: binding.externalChatId,
-                externalUserId: binding.externalUserId,
-                displayName: binding.displayName,
-                username: binding.username,
-              },
-            }
-          : {}),
-        ...(c.scheduleJobId ? { scheduleJobId: c.scheduleJobId } : {}),
-        ...(originChannel ? { conversationOriginChannel: originChannel } : {}),
-        ...(originInterface
-          ? { conversationOriginInterface: originInterface }
-          : {}),
-        ...(assistantAttention ? { assistantAttention } : {}),
-        ...(displayMeta?.displayOrder != null
-          ? { displayOrder: displayMeta.displayOrder }
-          : {}),
-        ...(displayMeta?.isPinned ? { isPinned: displayMeta.isPinned } : {}),
-      };
-    }),
-    hasMore: offset + conversations.length < totalCount,
-  });
-}
-
 /**
  * Clear all sessions and DB conversations. Returns the number of sessions cleared.
  */
@@ -339,11 +227,6 @@ export function clearAllSessions(ctx: HandlerContext): number {
   // the "clear all conversations" intent.
   clearAll();
   return cleared;
-}
-
-export function handleSessionsClear(ctx: HandlerContext): void {
-  const cleared = clearAllSessions(ctx);
-  ctx.send({ type: "sessions_clear_response", cleared });
 }
 
 export async function handleSessionCreate(
@@ -362,7 +245,6 @@ export async function handleSessionCreate(
     maxResponseTokens: msg.maxResponseTokens,
     transport: msg.transport,
   });
-  wireEscalationHandler(session, ctx);
 
   // Pre-activate skills before sending session_info so they're available
   // for the initial message processing.
@@ -431,6 +313,11 @@ export async function handleSessionCreate(
         pendingInteractions.resolve(requestId);
       });
       session.setHostFileProxy(fileProxy);
+      const cuProxy = new HostCuProxy(sendEvent, (requestId) => {
+        pendingInteractions.resolve(requestId);
+      });
+      session.setHostCuProxy(cuProxy);
+      session.addPreactivatedSkillId("computer-use");
     }
     session.updateClient(sendEvent, false);
     session
@@ -492,13 +379,7 @@ export async function switchSession(
     // Load the session without rebinding the client — the session stays headless
     await ctx.getOrCreateSession(sessionId);
   } else {
-    const session = await ctx.getOrCreateSession(sessionId);
-    // Only wire the escalation handler if one isn't already set — handleTaskSubmit
-    // sets a handler with the client's actual screen dimensions, and overwriting it
-    // here would replace those dimensions with the daemon's defaults.
-    if (!session.hasEscalationHandler()) {
-      wireEscalationHandler(session, ctx);
-    }
+    await ctx.getOrCreateSession(sessionId);
   }
 
   return {
@@ -581,31 +462,28 @@ export function cancelGeneration(
   return true;
 }
 
-export function handleCancel(msg: CancelRequest, ctx: HandlerContext): void {
-  const sessionId = msg.sessionId;
-  if (sessionId) {
-    cancelGeneration(sessionId, ctx);
-  }
-}
-
 /**
- * Undo the last message in a session. Returns the removed count, or null if session not found.
+ * Undo the last message in a session. Returns the removed count, or null if
+ * the conversation does not exist. Restores evicted sessions from the database.
  */
-export function undoLastMessage(
+export async function undoLastMessage(
   sessionId: string,
   ctx: HandlerContext,
-): { removedCount: number } | null {
-  const session = ctx.sessions.get(sessionId);
-  if (!session) {
+): Promise<{ removedCount: number } | null> {
+  if (!getConversation(sessionId)) {
     return null;
   }
+  const session = await ctx.getOrCreateSession(sessionId);
   ctx.touchSession(sessionId);
   const removedCount = session.undo();
   return { removedCount };
 }
 
-export function handleUndo(msg: UndoRequest, ctx: HandlerContext): void {
-  const result = undoLastMessage(msg.sessionId, ctx);
+export async function handleUndo(
+  msg: UndoRequest,
+  ctx: HandlerContext,
+): Promise<void> {
+  const result = await undoLastMessage(msg.sessionId, ctx);
   if (!result) {
     ctx.send({ type: "error", message: "No active session" });
     return;
@@ -620,17 +498,18 @@ export function handleUndo(msg: UndoRequest, ctx: HandlerContext): void {
 /**
  * Regenerate the last assistant response for a session. The caller provides
  * a `sendEvent` callback for delivering streaming events via HTTP/SSE.
- * Returns null if the session is not found. Throws on regeneration errors.
+ * Returns null if the conversation does not exist. Restores evicted sessions
+ * from the database when needed. Throws on regeneration errors.
  */
 export async function regenerateResponse(
   sessionId: string,
   ctx: HandlerContext,
   sendEvent: (event: ServerMessage) => void,
 ): Promise<{ requestId: string } | null> {
-  const session = ctx.sessions.get(sessionId);
-  if (!session) {
+  if (!getConversation(sessionId)) {
     return null;
   }
+  const session = await ctx.getOrCreateSession(sessionId);
   ctx.touchSession(sessionId);
   session.updateClient(sendEvent, false);
   const requestId = uuid();
@@ -661,11 +540,11 @@ export async function handleRegenerate(
   msg: RegenerateRequest,
   ctx: HandlerContext,
 ): Promise<void> {
-  const session = ctx.sessions.get(msg.sessionId);
-  if (!session) {
+  if (!getConversation(msg.sessionId)) {
     ctx.send({ type: "error", message: "No active session" });
     return;
   }
+  const session = await ctx.getOrCreateSession(msg.sessionId);
 
   const regenerateChannel =
     parseChannelId(session.getTurnChannelContext()?.assistantMessageChannel) ??

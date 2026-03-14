@@ -1,25 +1,37 @@
-import { getSecureKey } from "../security/secure-keys.js";
+import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { BYOOAuthConnection } from "./byo-connection.js";
 import type { OAuthConnection } from "./connection.js";
-import { getConnectionByProvider, getProvider } from "./oauth-store.js";
+import {
+  getApp,
+  getConnectionByProvider,
+  getConnectionByProviderAndAccount,
+  getProvider,
+} from "./oauth-store.js";
 
 /**
  * Resolve an OAuthConnection for a given credential service.
  *
+ * When `accountInfo` is provided, resolves the connection for that specific
+ * account (e.g. "user@gmail.com"). Otherwise falls back to the most recent
+ * active connection.
+ *
  * Reads exclusively from the SQLite oauth-store. Throws if no connection
  * exists (authorization required).
  */
-export function resolveOAuthConnection(
+export async function resolveOAuthConnection(
   credentialService: string,
-): OAuthConnection {
-  const conn = getConnectionByProvider(credentialService);
+  accountInfo?: string,
+): Promise<OAuthConnection> {
+  const conn = accountInfo
+    ? getConnectionByProviderAndAccount(credentialService, accountInfo)
+    : getConnectionByProvider(credentialService);
   if (!conn) {
     throw new Error(
       `No credential found for "${credentialService}". Authorization required.`,
     );
   }
 
-  const accessToken = getSecureKey(
+  const accessToken = await getSecureKeyAsync(
     `oauth_connection/${conn.id}/access_token`,
   );
 
@@ -29,7 +41,16 @@ export function resolveOAuthConnection(
     );
   }
 
-  const provider = getProvider(credentialService);
+  // Look up the provider by credentialService first; fall back to the
+  // connection's app's canonical providerKey so custom credential_service
+  // overrides (e.g. "integration:github-work") still resolve to the well-known
+  // provider's base URL. We traverse conn -> oauthApp -> providerKey because
+  // conn.providerKey equals credentialService (getConnectionByProvider queries
+  // WHERE providerKey = credentialService), whereas the app's providerKey is a
+  // foreign key to the oauthProviders table.
+  const provider =
+    getProvider(credentialService) ??
+    getProvider(getApp(conn.oauthAppId)?.providerKey ?? "");
   const baseUrl = provider?.baseUrl;
 
   if (!baseUrl) {

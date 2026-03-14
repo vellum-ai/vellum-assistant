@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { chmodSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { config as dotenvConfig } from "dotenv";
@@ -15,6 +14,7 @@ import {
   getQdrantUrlEnv,
   getRuntimeHttpHost,
   getRuntimeHttpPort,
+  setIngressPublicBaseUrl,
   validateEnv,
 } from "../config/env.js";
 import { loadConfig } from "../config/loader.js";
@@ -22,16 +22,22 @@ import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { getHookManager } from "../hooks/manager.js";
 import { installTemplates } from "../hooks/templates.js";
 import { closeSentry, initSentry } from "../instrument.js";
-import { initLogfire } from "../logfire.js";
+import { disableLogfire, initLogfire } from "../logfire.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
+import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
 import {
   deleteMessageById,
   getConversationThreadType,
   getMessages,
+  purgePrivateConversations,
 } from "../memory/conversation-crud.js";
 import { initializeDb } from "../memory/db.js";
-import { selectEmbeddingBackend } from "../memory/embedding-backend.js";
+import {
+  selectEmbeddingBackend,
+  SPARSE_EMBEDDING_VERSION,
+} from "../memory/embedding-backend.js";
+import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import { startMemoryJobsWorker } from "../memory/jobs-worker.js";
 import { initQdrantClient } from "../memory/qdrant-client.js";
 import { QdrantManager } from "../memory/qdrant-manager.js";
@@ -40,6 +46,7 @@ import {
   emitNotificationSignal,
   registerBroadcastFn,
 } from "../notifications/emit-signal.js";
+import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { syncUpdateBulletinOnStartup } from "../prompts/update-bulletin.js";
@@ -57,6 +64,7 @@ import {
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { startScheduler } from "../schedule/scheduler.js";
+import { UsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { getLogger, initLogger } from "../util/logger.js";
 import {
   ensureDataDir,
@@ -159,7 +167,68 @@ export async function runDaemon(): Promise<void> {
     initializeDb();
     // Seed well-known OAuth provider configurations (insert-if-not-exists)
     seedOAuthProviders();
+    // Backfill oauth_connection rows for manual-token providers (Telegram,
+    // Slack channel) that already have keychain credentials from before the
+    // oauth_connection migration. Safe to call on every startup.
+    try {
+      await backfillManualTokenConnections();
+    } catch (err) {
+      log.warn(
+        { err },
+        "Manual-token connection backfill failed — continuing startup",
+      );
+    }
     log.info("Daemon startup: DB initialized");
+
+    // Purge private (temporary) conversations from the previous session.
+    // These are ephemeral by design and should not survive daemon restarts.
+    const { count: purgedCount, deletedMemory } = purgePrivateConversations();
+    if (purgedCount > 0) {
+      log.info(
+        { purgedCount },
+        `Purged ${purgedCount} private conversation(s) from previous session`,
+      );
+      // Qdrant may not be ready at startup, so enqueue vector cleanup jobs
+      // rather than attempting direct deletion.
+      for (const segId of deletedMemory.segmentIds) {
+        enqueueMemoryJob("delete_qdrant_vectors", {
+          targetType: "segment",
+          targetId: segId,
+        });
+      }
+      for (const itemId of deletedMemory.orphanedItemIds) {
+        enqueueMemoryJob("delete_qdrant_vectors", {
+          targetType: "item",
+          targetId: itemId,
+        });
+      }
+      if (
+        deletedMemory.segmentIds.length > 0 ||
+        deletedMemory.orphanedItemIds.length > 0
+      ) {
+        log.info(
+          {
+            segments: deletedMemory.segmentIds.length,
+            orphanedItems: deletedMemory.orphanedItemIds.length,
+          },
+          "Enqueued Qdrant vector cleanup jobs for purged private conversations",
+        );
+      }
+    }
+
+    // Expire pending interaction-bound canonical guardian requests left over
+    // from before this process started.  Their in-memory pending-interaction
+    // session references are gone, so they can never be completed.  Only
+    // interaction-bound kinds (tool_approval, pending_question) are expired;
+    // persistent kinds (access_request, tool_grant_request) remain valid
+    // across restarts.
+    const expiredCount = expireAllPendingCanonicalRequests();
+    if (expiredCount > 0) {
+      log.info(
+        { event: "startup_expired_stale_requests", expiredCount },
+        `Expired ${expiredCount} stale interaction-bound canonical request(s) from previous process`,
+      );
+    }
 
     // Ensure a vellum guardian binding exists and mint the CLI edge token
     // as an actor token bound to the guardian principal.
@@ -187,9 +256,6 @@ export async function runDaemon(): Promise<void> {
         hashedDeviceId,
       });
 
-      // Persist the CLI edge token in the encrypted credential store so
-      // that in-process readers (built-in CLI, etc.) can retrieve it
-      // without touching the filesystem.
       const stored = setSecureKey(
         BOOTSTRAPPED_ACTOR_HTTP_TOKEN,
         credentials.accessToken,
@@ -198,14 +264,7 @@ export async function runDaemon(): Promise<void> {
         log.warn("Failed to persist CLI edge token in credential store");
       }
 
-      // DEPRECATED: The http-token file is kept for backward compatibility
-      // until all consumers are migrated to the credential store.
-      const httpTokenPath = join(getRootDir(), "http-token");
-      writeFileSync(httpTokenPath, credentials.accessToken, { mode: 0o600 });
-      chmodSync(httpTokenPath, 0o600);
-      log.info(
-        "Daemon startup: CLI edge token written to credential store and http-token",
-      );
+      log.info("Daemon startup: CLI edge token written to credential store");
     } else {
       log.warn("No guardian principal available — CLI edge token not written");
     }
@@ -246,6 +305,19 @@ export async function runDaemon(): Promise<void> {
     log.info("Daemon startup: loading config");
     const config = loadConfig();
 
+    // Seed module-level ingress state from the workspace config so that
+    // getIngressPublicBaseUrl() returns the correct value immediately after
+    // startup (before any handleIngressConfig("set") call). Without this,
+    // code paths that read the module-level state directly (e.g. session-slash
+    // pairing info) would see undefined until an explicit set.
+    if (config.ingress.enabled && config.ingress.publicBaseUrl) {
+      setIngressPublicBaseUrl(config.ingress.publicBaseUrl);
+      log.info(
+        { url: config.ingress.publicBaseUrl },
+        "Daemon startup: seeded ingress URL from workspace config",
+      );
+    }
+
     if (config.logFile.dir) {
       initLogger({
         dir: config.logFile.dir,
@@ -261,6 +333,25 @@ export async function runDaemon(): Promise<void> {
     );
     if (!collectUsageData) {
       await closeSentry();
+    }
+
+    let telemetryReporter: UsageTelemetryReporter | null = null;
+    if (collectUsageData) {
+      telemetryReporter = new UsageTelemetryReporter();
+      telemetryReporter.start();
+      log.info("Usage telemetry reporter started");
+    }
+
+    // If Logfire observability is not explicitly enabled, disable it so
+    // wrapWithLogfire() calls during provider setup become no-ops. Logfire
+    // is initialized eagerly (before config loads) for the same reason as
+    // Sentry — but the feature flag gates whether it actually traces.
+    const logfireEnabled = isAssistantFeatureFlagEnabled(
+      "feature_flags.logfire.enabled",
+      config,
+    );
+    if (!logfireEnabled) {
+      disableLogfire();
     }
 
     await initializeProvidersAndTools(config);
@@ -284,11 +375,11 @@ export async function runDaemon(): Promise<void> {
     const qdrantManager = new QdrantManager({ url: qdrantUrl });
     try {
       await qdrantManager.start();
-      const embeddingSelection = selectEmbeddingBackend(config);
+      const embeddingSelection = await selectEmbeddingBackend(config);
       const embeddingModel = embeddingSelection.backend
-        ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}`
+        ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}:sparse-v${SPARSE_EMBEDDING_VERSION}`
         : undefined;
-      initQdrantClient({
+      const qdrantClient = initQdrantClient({
         url: qdrantUrl,
         collection: config.memory.qdrant.collection,
         vectorSize: config.memory.qdrant.vectorSize,
@@ -296,6 +387,17 @@ export async function runDaemon(): Promise<void> {
         quantization: config.memory.qdrant.quantization,
         embeddingModel,
       });
+
+      // Eagerly ensure the collection exists so we detect migrations
+      // (unnamed→named vectors, dimension/model changes) at startup.
+      // If a destructive migration occurred, enqueue a rebuild_index job
+      // to re-embed all memory items from the SQLite cache.
+      const { migrated } = await qdrantClient.ensureCollection();
+      if (migrated) {
+        enqueueMemoryJob("rebuild_index", {});
+        log.info("Qdrant collection was migrated — enqueued rebuild_index job");
+      }
+
       log.info("Qdrant vector store initialized");
     } catch (err) {
       log.warn(
@@ -367,6 +469,7 @@ export async function runDaemon(): Promise<void> {
             scheduleId: schedule.id,
             name: schedule.name,
           },
+          dedupeKey: `schedule:complete:${schedule.id}:${Date.now()}`,
         });
       },
       (notification) => {
@@ -421,8 +524,7 @@ export async function runDaemon(): Promise<void> {
 
     const hostname = getRuntimeHttpHost();
 
-    // Mint a JWT bearer token for the pairing flow. This replaces the
-    // old static http-token that was removed — the pairing handler
+    // Mint a JWT bearer token for the pairing flow. The pairing handler
     // and HTTP auto-approve logic both guard on a non-empty bearer token.
     const pairingBearerToken = mintPairingBearerToken();
 
@@ -476,6 +578,7 @@ export async function runDaemon(): Promise<void> {
         clearAllSessions: () => clearAllSessions(server.getHandlerContext()),
         cancelGeneration: (sessionId) =>
           cancelGeneration(sessionId, server.getHandlerContext()),
+        destroySession: (sessionId) => server.destroySession(sessionId),
         undoLastMessage: (sessionId) =>
           undoLastMessage(sessionId, server.getHandlerContext()),
         regenerateResponse: (sessionId) => {
@@ -505,12 +608,9 @@ export async function runDaemon(): Promise<void> {
           );
         },
       },
-      getComputerUseDeps: () => {
+      getWatchDeps: () => {
         const ctx = server.getHandlerContext();
         return {
-          cuSessions: ctx.cuSessions,
-          sharedRequestTimestamps: ctx.sharedRequestTimestamps,
-          cuObservationParseSequence: ctx.cuObservationParseSequence,
           handleWatchObservation: async (params) => {
             await handleWatchObservation(
               {
@@ -784,6 +884,7 @@ export async function runDaemon(): Promise<void> {
       memoryWorker,
       qdrantManager,
       mcpManager,
+      telemetryReporter,
       cleanupPidFile,
     });
   } catch (err) {

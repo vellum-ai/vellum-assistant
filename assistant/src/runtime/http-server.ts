@@ -43,6 +43,10 @@ import {
   type SignalType,
 } from "../memory/conversation-attention-store.js";
 import {
+  getConversation,
+  getDisplayMetaForConversations,
+} from "../memory/conversation-crud.js";
+import {
   countConversations,
   listConversations,
 } from "../memory/conversation-queries.js";
@@ -110,7 +114,6 @@ import {
   stopGuardianExpirySweep,
 } from "./routes/channel-routes.js";
 import { channelVerificationRouteDefinitions } from "./routes/channel-verification-routes.js";
-import { computerUseRouteDefinitions } from "./routes/computer-use-routes.js";
 import {
   contactCatchAllRouteDefinitions,
   contactRouteDefinitions,
@@ -126,6 +129,7 @@ import { guardianActionRouteDefinitions } from "./routes/guardian-action-routes.
 import { handleGuardianBootstrap } from "./routes/guardian-bootstrap-routes.js";
 import { handleGuardianRefresh } from "./routes/guardian-refresh-routes.js";
 import { hostBashRouteDefinitions } from "./routes/host-bash-routes.js";
+import { hostCuRouteDefinitions } from "./routes/host-cu-routes.js";
 import { hostFileRouteDefinitions } from "./routes/host-file-routes.js";
 import { handleHealth } from "./routes/identity-routes.js";
 import { identityRouteDefinitions } from "./routes/identity-routes.js";
@@ -135,7 +139,7 @@ import { telegramRouteDefinitions } from "./routes/integrations/telegram.js";
 import { twilioRouteDefinitions } from "./routes/integrations/twilio.js";
 import { inviteRouteDefinitions } from "./routes/invite-routes.js";
 import { logExportRouteDefinitions } from "./routes/log-export-routes.js";
-import { mcpRouteDefinitions } from "./routes/mcp-routes.js";
+import { memoryItemRouteDefinitions } from "./routes/memory-item-routes.js";
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
 import type { PairingHandlerContext } from "./routes/pairing-routes.js";
 import {
@@ -155,6 +159,7 @@ import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
 import { trustRulesRouteDefinitions } from "./routes/trust-rules-routes.js";
 import { usageRouteDefinitions } from "./routes/usage-routes.js";
+import { watchRouteDefinitions } from "./routes/watch-routes.js";
 import { workItemRouteDefinitions } from "./routes/work-items-routes.js";
 import { workspaceRouteDefinitions } from "./routes/workspace-routes.js";
 
@@ -216,7 +221,7 @@ export class RuntimeHttpServer {
   private getSkillContext?: RuntimeHttpServerOptions["getSkillContext"];
   private sessionManagementDeps?: RuntimeHttpServerOptions["sessionManagementDeps"];
   private getModelSetContext?: RuntimeHttpServerOptions["getModelSetContext"];
-  private getComputerUseDeps?: RuntimeHttpServerOptions["getComputerUseDeps"];
+  private getWatchDeps?: RuntimeHttpServerOptions["getWatchDeps"];
   private getRecordingDeps?: RuntimeHttpServerOptions["getRecordingDeps"];
   private router: HttpRouter;
 
@@ -237,7 +242,7 @@ export class RuntimeHttpServer {
     this.getSkillContext = options.getSkillContext;
     this.sessionManagementDeps = options.sessionManagementDeps;
     this.getModelSetContext = options.getModelSetContext;
-    this.getComputerUseDeps = options.getComputerUseDeps;
+    this.getWatchDeps = options.getWatchDeps;
     this.getRecordingDeps = options.getRecordingDeps;
     this.router = new HttpRouter(this.buildRouteTable());
   }
@@ -270,16 +275,16 @@ export class RuntimeHttpServer {
   }
 
   private get pairingContext(): PairingHandlerContext {
-    const ipcBroadcast = this.pairingBroadcast;
+    const broadcast = this.pairingBroadcast;
     return {
       pairingStore: this.pairingStore,
       bearerToken: this.bearerToken,
       featureFlagToken: this.readFeatureFlagToken(),
-      pairingBroadcast: ipcBroadcast
+      pairingBroadcast: broadcast
         ? (msg) => {
             // Broadcast to all clients via the event hub so HTTP/SSE clients
             // (e.g. macOS app) receive pairing approval requests.
-            ipcBroadcast(msg);
+            broadcast(msg);
             void assistantEventHub.publish(
               buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, msg),
             );
@@ -722,9 +727,9 @@ export class RuntimeHttpServer {
       ...secretRouteDefinitions(),
       ...identityRouteDefinitions(),
       ...debugRouteDefinitions(),
-      ...mcpRouteDefinitions(),
       ...usageRouteDefinitions(),
       ...workspaceRouteDefinitions(),
+      ...memoryItemRouteDefinitions(),
       ...settingsRouteDefinitions(),
       ...scheduleRouteDefinitions({
         sendMessageDeps: this.sendMessageDeps,
@@ -794,6 +799,7 @@ export class RuntimeHttpServer {
           const conversations = listConversations(limit, false, offset);
           const totalCount = countConversations();
           const conversationIds = conversations.map((c) => c.id);
+          const displayMeta = getDisplayMetaForConversations(conversationIds);
           const bindings =
             externalConversationStore.getBindingsForConversations(
               conversationIds,
@@ -855,13 +861,22 @@ export class RuntimeHttpServer {
                   ? { conversationOriginChannel: originChannel }
                   : {}),
                 ...(assistantAttention ? { assistantAttention } : {}),
+                ...(displayMeta.get(c.id)?.isPinned
+                  ? {
+                      isPinned: true,
+                      displayOrder: displayMeta.get(c.id)!.displayOrder,
+                    }
+                  : displayMeta.get(c.id)?.displayOrder != null
+                    ? {
+                        displayOrder: displayMeta.get(c.id)!.displayOrder,
+                      }
+                    : {}),
               };
             }),
             hasMore: offset + conversations.length < totalCount,
           });
         },
       },
-
       ...conversationAttentionRouteDefinitions(),
 
       ...(this.sessionManagementDeps
@@ -932,6 +947,89 @@ export class RuntimeHttpServer {
         },
       },
 
+      // conversations/:id must be registered AFTER all literal conversations/<word>
+      // routes above (attention, seen, unread) so the parameterized :id does not
+      // shadow them.
+      {
+        endpoint: "conversations/:id",
+        method: "GET",
+        handler: ({ params }) => {
+          const conversation = getConversation(params.id);
+          if (!conversation) {
+            return httpError(
+              "NOT_FOUND",
+              `Conversation ${params.id} not found`,
+              404,
+            );
+          }
+          const bindings =
+            externalConversationStore.getBindingsForConversations([
+              conversation.id,
+            ]);
+          const attentionStates = getAttentionStateByConversationIds([
+            conversation.id,
+          ]);
+          const binding = bindings.get(conversation.id);
+          const originChannel = parseChannelId(conversation.originChannel);
+          const attn = attentionStates.get(conversation.id);
+          const assistantAttention = attn
+            ? {
+                hasUnseenLatestAssistantMessage:
+                  attn.latestAssistantMessageAt != null &&
+                  (attn.lastSeenAssistantMessageAt == null ||
+                    attn.lastSeenAssistantMessageAt <
+                      attn.latestAssistantMessageAt),
+                ...(attn.latestAssistantMessageAt != null
+                  ? {
+                      latestAssistantMessageAt: attn.latestAssistantMessageAt,
+                    }
+                  : {}),
+                ...(attn.lastSeenAssistantMessageAt != null
+                  ? {
+                      lastSeenAssistantMessageAt:
+                        attn.lastSeenAssistantMessageAt,
+                    }
+                  : {}),
+                ...(attn.lastSeenConfidence != null
+                  ? { lastSeenConfidence: attn.lastSeenConfidence }
+                  : {}),
+                ...(attn.lastSeenSignalType != null
+                  ? { lastSeenSignalType: attn.lastSeenSignalType }
+                  : {}),
+              }
+            : undefined;
+          return Response.json({
+            session: {
+              id: conversation.id,
+              title: conversation.title ?? "Untitled",
+              createdAt: conversation.createdAt,
+              updatedAt: conversation.updatedAt,
+              threadType:
+                conversation.threadType === "private" ? "private" : "standard",
+              source: conversation.source ?? "user",
+              ...(conversation.scheduleJobId
+                ? { scheduleJobId: conversation.scheduleJobId }
+                : {}),
+              ...(binding
+                ? {
+                    channelBinding: {
+                      sourceChannel: binding.sourceChannel,
+                      externalChatId: binding.externalChatId,
+                      externalUserId: binding.externalUserId,
+                      displayName: binding.displayName,
+                      username: binding.username,
+                    },
+                  }
+                : {}),
+              ...(originChannel
+                ? { conversationOriginChannel: originChannel }
+                : {}),
+              ...(assistantAttention ? { assistantAttention } : {}),
+            },
+          });
+        },
+      },
+
       ...btwRouteDefinitions({
         sendMessageDeps: this.sendMessageDeps,
       }),
@@ -946,6 +1044,7 @@ export class RuntimeHttpServer {
       ...globalSearchRouteDefinitions(),
       ...approvalRouteDefinitions(),
       ...hostBashRouteDefinitions(),
+      ...hostCuRouteDefinitions(),
       ...hostFileRouteDefinitions(),
       ...(this.getSkillContext
         ? skillRouteDefinitions({
@@ -973,9 +1072,9 @@ export class RuntimeHttpServer {
       ...channelReadinessRouteDefinitions(),
       ...attachmentRouteDefinitions(),
 
-      ...(this.getComputerUseDeps
-        ? computerUseRouteDefinitions({
-            getComputerUseDeps: this.getComputerUseDeps,
+      ...(this.getWatchDeps
+        ? watchRouteDefinitions({
+            getWatchDeps: this.getWatchDeps,
           })
         : []),
       ...(this.getRecordingDeps

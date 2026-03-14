@@ -40,6 +40,7 @@ import {
 } from "../lib/constants";
 import type { RemoteHost, Species } from "../lib/constants";
 import { hatchDocker } from "../lib/docker";
+import { mintLocalBearerToken } from "../lib/jwt";
 import { hatchGcp } from "../lib/gcp";
 import type { PollResult, WatchHatchingResult } from "../lib/gcp";
 import {
@@ -134,25 +135,11 @@ trap 'EXIT_CODE=\$?; if [ \$EXIT_CODE -ne 0 ]; then echo "Startup script failed 
 ${userSetup}
 ANTHROPIC_API_KEY=${anthropicApiKey}
 VELLUM_ASSISTANT_NAME=${instanceName}
-mkdir -p "\$HOME/.vellum"
-cat > "\$HOME/.vellum/.env" << DOTENV_EOF
+mkdir -p "\$HOME/.config/vellum"
+cat > "\$HOME/.config/vellum/env" << DOTENV_EOF
 ANTHROPIC_API_KEY=\$ANTHROPIC_API_KEY
 RUNTIME_HTTP_PORT=7821
 DOTENV_EOF
-
-mkdir -p "\$HOME/.vellum/workspace"
-cat > "\$HOME/.vellum/workspace/config.json" << CONFIG_EOF
-{
-  "logFile": {
-    "dir": "\$HOME/.vellum/workspace/data/logs"
-  },
-  "gateway": {
-    "runtimeProxyEnabled": true,
-    "unmappedPolicy": "default",
-    "defaultAssistantId": "self"
-  }
-}
-CONFIG_EOF
 
 ${ownershipFixup}
 
@@ -774,6 +761,10 @@ async function hatchLocal(
   console.log(`   Species: ${species}`);
   console.log("");
 
+  if (!process.env.APP_VERSION) {
+    process.env.APP_VERSION = cliPkg.version;
+  }
+
   await startLocalDaemon(watch, resources);
 
   let runtimeUrl: string;
@@ -804,17 +795,9 @@ async function hatchLocal(
     delete process.env.BASE_DATA_DIR;
   }
 
-  // Read the bearer token (JWT) written by the daemon so the CLI can
-  // with the gateway (which requires auth by default). The daemon writes under
-  // getRootDir() which resolves to <instanceDir>/.vellum/.
-  let bearerToken: string | undefined;
-  try {
-    const tokenPath = join(resources.instanceDir, ".vellum", "http-token");
-    const token = readFileSync(tokenPath, "utf-8").trim();
-    if (token) bearerToken = token;
-  } catch {
-    // Token file may not exist if daemon started without HTTP server
-  }
+  // Mint a JWT from the signing key so the CLI can authenticate with the
+  // daemon/gateway (which requires auth by default).
+  const bearerToken = mintLocalBearerToken(resources.instanceDir);
 
   const localEntry: AssistantEntry = {
     assistantId: instanceName,

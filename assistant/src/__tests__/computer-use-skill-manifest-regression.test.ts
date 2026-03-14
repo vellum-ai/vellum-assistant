@@ -29,7 +29,7 @@ const manifestPath = resolve(
 const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
 
 describe("computer-use skill manifest regression", () => {
-  test("manifest has exactly 12 tools", () => {
+  test("manifest has exactly 11 tools", () => {
     expect(manifest.tools).toHaveLength(COMPUTER_USE_TOOL_COUNT);
   });
 

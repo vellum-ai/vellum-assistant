@@ -27,6 +27,7 @@ import {
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
 } from "../memory/conversation-crud.js";
+import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import {
@@ -40,6 +41,10 @@ import { getSigningKeyFingerprint } from "../runtime/auth/token-service.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { checkIngressForSecrets } from "../security/secret-ingress.js";
+import { registerCancelCallback } from "../signals/cancel.js";
+import { registerConversationUndoCallback } from "../signals/conversation-undo.js";
+import { appendEventToStream } from "../signals/event-stream.js";
+import { registerUserMessageCallback } from "../signals/user-message.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { IngressBlockedError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
@@ -48,15 +53,16 @@ import {
   getWorkspacePromptPath,
 } from "../util/platform.js";
 import { registerDaemonCallbacks } from "../work-items/work-item-runner.js";
-import { ComputerUseSession } from "./computer-use-session.js";
 import { ConfigWatcher } from "./config-watcher.js";
 import { parseIdentityFields } from "./handlers/identity.js";
+import { undoLastMessage } from "./handlers/sessions.js";
 import type {
   HandlerContext,
   SessionCreateOptions,
 } from "./handlers/shared.js";
 import type { SkillOperationContext } from "./handlers/skills.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
+import { HostCuProxy } from "./host-cu-proxy.js";
 import { HostFileProxy } from "./host-file-proxy.js";
 import type { ServerMessage } from "./message-protocol.js";
 import {
@@ -214,14 +220,18 @@ function makePendingInteractionRegistrar(
         conversationId,
         kind: "host_file",
       });
+    } else if (msg.type === "host_cu_request") {
+      pendingInteractions.register(msg.requestId, {
+        session,
+        conversationId,
+        kind: "host_cu",
+      });
     }
   };
 }
 
 export class DaemonServer {
   private sessions = new Map<string, Session>();
-  private cuSessions = new Map<string, ComputerUseSession>();
-  private cuObservationParseSequence = new Map<string, number>();
   private sessionOptions = new Map<string, SessionCreateOptions>();
   private sessionCreating = new Map<string, Promise<Session>>();
   private sharedRequestTimestamps: number[] = [];
@@ -272,6 +282,7 @@ export class DaemonServer {
   constructor() {
     this.evictor = new SessionEvictor(this.sessions);
     getSubagentManager().sharedRequestTimestamps = this.sharedRequestTimestamps;
+    getSubagentManager().broadcastToAllClients = (msg) => this.broadcast(msg);
     this.evictor.onEvict = (sessionId: string) => {
       getSubagentManager().abortAllForParent(sessionId);
     };
@@ -343,6 +354,16 @@ export class DaemonServer {
           "assistant-events hub subscriber threw during broadcast",
         );
       });
+
+    // Dual-write to file-based stream for cross-process consumers.
+    // No-op when no subscriber files exist for this conversation.
+    if (sessionId) {
+      try {
+        appendEventToStream(sessionId, event);
+      } catch {
+        // Best-effort; file I/O failures must not block the hub chain.
+      }
+    }
   }
 
   broadcast(msg: ServerMessage): void {
@@ -374,7 +395,7 @@ export class DaemonServer {
 
   async start(): Promise<void> {
     const config = getConfig();
-    initializeProviders(config);
+    await initializeProviders(config);
     this.configWatcher.initFingerprint(config);
 
     this.evictor.start();
@@ -383,6 +404,55 @@ export class DaemonServer {
       getOrCreateSession: (conversationId) =>
         this.getOrCreateSession(conversationId),
       broadcast: (msg) => this.broadcast(msg),
+    });
+
+    registerCancelCallback((sessionId) => {
+      const session = this.sessions.get(sessionId);
+      if (!session) return false;
+      this.evictor.touch(sessionId);
+      session.abort();
+      getSubagentManager().abortAllForParent(sessionId);
+      return true;
+    });
+
+    registerConversationUndoCallback((sessionId) =>
+      undoLastMessage(sessionId, this.handlerContext()),
+    );
+
+    registerUserMessageCallback(async (params) => {
+      const { conversationId } = getOrCreateConversation(
+        params.conversationKey,
+      );
+      const session = await this.getOrCreateSession(conversationId);
+      if (session.isProcessing()) {
+        const requestId = crypto.randomUUID();
+        const resolvedChannel = resolveTurnChannel(params.sourceChannel);
+        const resolvedInterface = resolveTurnInterface(params.sourceInterface);
+        const result = session.enqueueMessage(
+          params.content,
+          [],
+          () => {},
+          requestId,
+          undefined,
+          undefined,
+          {
+            userMessageChannel: resolvedChannel,
+            assistantMessageChannel: resolvedChannel,
+            userMessageInterface: resolvedInterface,
+            assistantMessageInterface: resolvedInterface,
+          },
+        );
+        return { accepted: !result.rejected };
+      }
+      await this.persistAndProcessMessage(
+        conversationId,
+        params.content,
+        undefined,
+        undefined,
+        params.sourceChannel,
+        params.sourceInterface,
+      );
+      return { accepted: true };
     });
 
     this.configWatcher.start(
@@ -411,11 +481,6 @@ export class DaemonServer {
       session.dispose();
     }
     this.sessions.clear();
-
-    for (const cuSession of this.cuSessions.values()) {
-      cuSession.abort();
-    }
-    this.cuSessions.clear();
 
     log.info("Daemon server stopped");
   }
@@ -447,6 +512,20 @@ export class DaemonServer {
     return count;
   }
 
+  /**
+   * Abort and dispose a single in-memory session, removing it from the session
+   * map. No-op if no session exists for the given ID.
+   */
+  destroySession(sessionId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    this.evictor.remove(sessionId);
+    getSubagentManager().abortAllForParent(sessionId);
+    session.dispose();
+    this.sessions.delete(sessionId);
+    this.sessionOptions.delete(sessionId);
+  }
+
   private evictSessionsForReload(): void {
     const subagentManager = getSubagentManager();
     for (const [id, session] of this.sessions) {
@@ -469,8 +548,8 @@ export class DaemonServer {
     this.configWatcher.lastFingerprint = value;
   }
 
-  refreshConfigFromSources(): boolean {
-    const changed = this.configWatcher.refreshConfigFromSources();
+  async refreshConfigFromSources(): Promise<boolean> {
+    const changed = await this.configWatcher.refreshConfigFromSources();
     if (changed) this.evictSessionsForReload();
     return changed;
   }
@@ -539,6 +618,22 @@ export class DaemonServer {
         );
         newSession.updateClient(sendToClient, true);
         await newSession.loadFromDb();
+        // Restore trust/auth context and assistant ID from stored options so
+        // that evicted sessions rehydrated by undo/regenerate don't run with
+        // unscoped history.  Without this, an untrusted actor could operate
+        // on the full conversation after eviction.
+        if (storedOptions?.assistantId) {
+          newSession.setAssistantId(storedOptions.assistantId);
+        }
+        if (storedOptions?.trustContext) {
+          newSession.setTrustContext(storedOptions.trustContext);
+        }
+        if (storedOptions?.authContext) {
+          newSession.setAuthContext(storedOptions.authContext);
+        }
+        if (storedOptions?.trustContext || storedOptions?.authContext) {
+          await newSession.ensureActorScopedHistory();
+        }
         this.applyTransportMetadata(newSession, storedOptions);
         this.sessions.set(conversationId, newSession);
         return newSession;
@@ -563,8 +658,6 @@ export class DaemonServer {
   private handlerContext(): HandlerContext {
     return {
       sessions: this.sessions,
-      cuSessions: this.cuSessions,
-      cuObservationParseSequence: this.cuObservationParseSequence,
       sharedRequestTimestamps: this.sharedRequestTimestamps,
       debounceTimers: this.configWatcher.timers,
       suppressConfigReload: this.configWatcher.suppressConfigReload,
@@ -642,7 +735,12 @@ export class DaemonServer {
     session.setAuthContext(options?.authContext ?? null);
     await session.ensureActorScopedHistory();
     session.setChannelCapabilities(
-      resolveChannelCapabilities(sourceChannel, sourceInterface),
+      resolveChannelCapabilities(
+        sourceChannel,
+        sourceInterface,
+        null,
+        options?.transport?.chatType,
+      ),
     );
     // Only create the host bash proxy for desktop client interfaces that can
     // execute commands on the user's machine. Non-desktop sessions (CLI,
@@ -665,9 +763,18 @@ export class DaemonServer {
           }),
         );
       }
+      if (!session.isProcessing() || !session.hostCuProxy) {
+        session.setHostCuProxy(
+          new HostCuProxy(session.getCurrentSender(), (requestId) => {
+            pendingInteractions.resolve(requestId);
+          }),
+        );
+      }
+      session.addPreactivatedSkillId("computer-use");
     } else if (!session.isProcessing()) {
       session.setHostBashProxy(undefined);
       session.setHostFileProxy(undefined);
+      session.setHostCuProxy(undefined);
     }
     session.setCommandIntent(options?.commandIntent ?? null);
     session.setTurnChannelContext({
@@ -772,7 +879,7 @@ export class DaemonServer {
       sourceInterface,
     );
 
-    const slashResult = resolveSlash(content);
+    const slashResult = await resolveSlash(content);
 
     if (slashResult.kind === "unknown") {
       const serverTurnCtx = session.getTurnChannelContext();
@@ -907,23 +1014,15 @@ export class DaemonServer {
 
   /**
    * Look up an active session by ID without creating one.
-   * Checks both normal sessions and computer-use sessions so the HTTP
-   * surface-action path is consistent with dispatch.
    */
-  findSession(sessionId: string): Session | ComputerUseSession | undefined {
-    return this.cuSessions.get(sessionId) ?? this.sessions.get(sessionId);
+  findSession(sessionId: string): Session | undefined {
+    return this.sessions.get(sessionId);
   }
 
   /**
    * Look up an active session that owns a given surfaceId.
-   * Falls back across both normal and computer-use sessions.
    */
-  findSessionBySurfaceId(
-    surfaceId: string,
-  ): Session | ComputerUseSession | undefined {
-    for (const s of this.cuSessions.values()) {
-      if (s.surfaceState.has(surfaceId)) return s;
-    }
+  findSessionBySurfaceId(surfaceId: string): Session | undefined {
     for (const s of this.sessions.values()) {
       if (s.surfaceState.has(surfaceId)) return s;
     }

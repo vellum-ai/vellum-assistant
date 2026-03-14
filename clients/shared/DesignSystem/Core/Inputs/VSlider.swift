@@ -15,8 +15,8 @@ public struct VSlider: View {
 
     // MARK: - Layout Constants
 
-    private let trackHeight: CGFloat = 28
-    private let thumbWidth: CGFloat = 28
+    private let trackHeight: CGFloat = 32
+    private let thumbWidth: CGFloat = 32
     private let tickMarkWidth: CGFloat = 1
     private let gripLineCount: Int = 3
     private let gripLineWidth: CGFloat = 1
@@ -74,12 +74,12 @@ public struct VSlider: View {
         ZStack(alignment: .leading) {
             // Unfilled track (edge-to-edge)
             Rectangle()
-                .fill(VColor.sliderTrack)
+                .fill(VColor.borderBase)
                 .frame(height: trackHeight)
 
             // Filled track (from left edge to thumb center)
             Rectangle()
-                .fill(VColor.sliderFill)
+                .fill(VColor.primaryBase)
                 .frame(width: thumbOffset + thumbWidth / 2, height: trackHeight)
         }
         .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
@@ -90,18 +90,18 @@ public struct VSlider: View {
     private var thumbView: some View {
         ZStack {
             RoundedRectangle(cornerRadius: VRadius.xs)
-                .fill(Forest._700)
+                .fill(VColor.primaryHover)
                 .frame(width: thumbWidth, height: trackHeight)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.xs)
-                        .stroke(Forest._800, lineWidth: 1)
+                        .stroke(VColor.borderActive, lineWidth: 1)
                 )
 
             // Grip lines
             HStack(spacing: gripLineSpacing) {
                 ForEach(0..<gripLineCount, id: \.self) { _ in
                     RoundedRectangle(cornerRadius: 0.5)
-                        .fill(Forest._300)
+                        .fill(VColor.systemPositiveWeak)
                         .frame(width: gripLineWidth, height: gripLineHeight)
                 }
             }
@@ -131,7 +131,7 @@ public struct VSlider: View {
                         let tickX = trackWidth * tickFraction + thumbWidth / 2
 
                         RoundedRectangle(cornerRadius: 0.5)
-                            .fill(VColor.ghostPressed)
+                            .fill(VColor.surfaceActive)
                             .frame(width: tickMarkWidth, height: trackHeight)
                             .offset(x: tickX - tickMarkWidth / 2)
                     }
@@ -144,13 +144,6 @@ public struct VSlider: View {
 // MARK: - Preview
 
 #if DEBUG
-struct VSlider_Preview: PreviewProvider {
-    static var previews: some View {
-        VSliderPreviewWrapper()
-            .frame(width: 400, height: 300)
-            .previewDisplayName("VSlider")
-    }
-}
 
 private struct VSliderPreviewWrapper: View {
     @State private var value1: Double = 50
@@ -159,26 +152,26 @@ private struct VSliderPreviewWrapper: View {
 
     var body: some View {
         ZStack {
-            VColor.background.ignoresSafeArea()
+            VColor.surfaceOverlay.ignoresSafeArea()
             VStack(alignment: .leading, spacing: VSpacing.xl) {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Default: \(Int(value1))")
                         .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                     VSlider(value: $value1)
                 }
 
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("With tick marks: \(Int(value2))")
                         .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                     VSlider(value: $value2, range: 0...100, step: 5, showTickMarks: true)
                 }
 
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Small range (1-10): \(Int(value3))")
                         .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                     VSlider(value: $value3, range: 1...10, step: 1, showTickMarks: true)
                 }
             }

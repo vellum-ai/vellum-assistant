@@ -75,13 +75,11 @@ mock.module("../util/logger.js", () => ({
     debug: () => {},
     trace: () => {},
     fatal: () => {},
-    isDebug: () => false,
     child: () => ({
       info: () => {},
       warn: () => {},
       error: () => {},
       debug: () => {},
-      isDebug: () => false,
     }),
   }),
 }));
@@ -102,19 +100,55 @@ mock.module("../security/secure-keys.js", () => {
     return "not-found" as const;
   };
   return {
-    getSecureKey: (account: string) => secureKeyStore[account] ?? undefined,
-    setSecureKey: syncSet,
-    deleteSecureKey: syncDelete,
+    getSecureKeyAsync: async (account: string) =>
+      secureKeyStore[account] ?? undefined,
     setSecureKeyAsync: async (account: string, value: string) =>
       syncSet(account, value),
     deleteSecureKeyAsync: async (account: string) => syncDelete(account),
-    listSecureKeys: () => Object.keys(secureKeyStore),
-    getBackendType: () => "encrypted",
-    isDowngradedFromKeychain: () => false,
+    listSecureKeysAsync: async () => Object.keys(secureKeyStore),
     _resetBackend: () => {},
-    _setBackend: () => {},
   };
 });
+
+// Mock oauth-store (getConnectionByProvider)
+let oauthConnectionStore: Record<
+  string,
+  { id: string; status: string; accountInfo?: string | null }
+> = {};
+
+mock.module("../oauth/oauth-store.js", () => ({
+  getConnectionByProvider: (providerKey: string) =>
+    oauthConnectionStore[providerKey] ?? undefined,
+  createConnection: () => ({ id: "test-conn-id" }),
+  updateConnection: () => true,
+  deleteConnection: (id: string) => {
+    for (const [key, conn] of Object.entries(oauthConnectionStore)) {
+      if (conn.id === id) {
+        delete oauthConnectionStore[key];
+        return true;
+      }
+    }
+    return false;
+  },
+  upsertApp: async () => ({ id: "test-app-id" }),
+}));
+
+// Mock manual-token-connection
+mock.module("../oauth/manual-token-connection.js", () => ({
+  ensureManualTokenConnection: async (
+    providerKey: string,
+    accountInfo?: string,
+  ) => {
+    oauthConnectionStore[providerKey] = {
+      id: `conn-${providerKey}`,
+      status: "active",
+      accountInfo: accountInfo ?? null,
+    };
+  },
+  removeManualTokenConnection: (providerKey: string) => {
+    delete oauthConnectionStore[providerKey];
+  },
+}));
 
 // Mock credential metadata store
 let credentialMetadataStore: Array<{
@@ -187,31 +221,57 @@ describe("Slack channel config handler", () => {
   beforeEach(() => {
     secureKeyStore = {};
     credentialMetadataStore = [];
+    oauthConnectionStore = {};
     configStore = {};
     globalThis.fetch = originalFetch;
   });
 
-  test("GET returns correct shape when not configured", () => {
-    const result = getSlackChannelConfig();
+  test("GET returns correct shape when not configured", async () => {
+    const result = await getSlackChannelConfig();
     expect(result.success).toBe(true);
     expect(result.hasBotToken).toBe(false);
     expect(result.hasAppToken).toBe(false);
     expect(result.connected).toBe(false);
   });
 
-  test("GET returns connected: true when both tokens are set", () => {
+  test("GET returns connected: true when oauth_connection is active and both keys exist", async () => {
+    oauthConnectionStore["slack_channel"] = {
+      id: "conn-slack",
+      status: "active",
+    };
     secureKeyStore[credentialKey("slack_channel", "bot_token")] = "xoxb-test";
     secureKeyStore[credentialKey("slack_channel", "app_token")] = "xapp-test";
 
-    const result = getSlackChannelConfig();
+    const result = await getSlackChannelConfig();
     expect(result.success).toBe(true);
     expect(result.hasBotToken).toBe(true);
     expect(result.hasAppToken).toBe(true);
     expect(result.connected).toBe(true);
   });
 
-  test("GET returns metadata from config when available", () => {
+  test("GET reports per-field token presence independently of connection row", async () => {
+    // Only bot_token in keychain, no app_token, but connection row exists
+    oauthConnectionStore["slack_channel"] = {
+      id: "conn-slack",
+      status: "active",
+    };
     secureKeyStore[credentialKey("slack_channel", "bot_token")] = "xoxb-test";
+
+    const result = await getSlackChannelConfig();
+    expect(result.success).toBe(true);
+    expect(result.hasBotToken).toBe(true);
+    expect(result.hasAppToken).toBe(false);
+    // connected requires both keys AND connection row
+    expect(result.connected).toBe(false);
+  });
+
+  test("GET returns metadata from config when available", async () => {
+    oauthConnectionStore["slack_channel"] = {
+      id: "conn-slack",
+      status: "active",
+    };
+    secureKeyStore[credentialKey("slack_channel", "bot_token")] = "xoxb-test";
+    secureKeyStore[credentialKey("slack_channel", "app_token")] = "xapp-test";
     configStore = {
       slack: {
         teamId: "T123",
@@ -221,7 +281,7 @@ describe("Slack channel config handler", () => {
       },
     };
 
-    const result = getSlackChannelConfig();
+    const result = await getSlackChannelConfig();
     expect(result.teamId).toBe("T123");
     expect(result.teamName).toBe("TestTeam");
     expect(result.botUserId).toBe("U_BOT");

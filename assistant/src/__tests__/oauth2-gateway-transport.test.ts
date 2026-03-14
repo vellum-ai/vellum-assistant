@@ -185,6 +185,7 @@ describe("OAuth2 gateway transport", () => {
       // The auth URL should contain the gateway redirect_uri, not a loopback one
       expect(capturedAuthUrl).toContain("redirect_uri=");
       expect(capturedAuthUrl).not.toContain("127.0.0.1");
+      expect(capturedAuthUrl).not.toMatch(/localhost:\d+/);
       expect(capturedAuthUrl).toContain(
         encodeURIComponent("https://gw.example.com"),
       );
@@ -212,9 +213,9 @@ describe("OAuth2 gateway transport", () => {
       // Give the loopback server time to start
       await new Promise((r) => setTimeout(r, 50));
 
-      // Auth URL should use a 127.0.0.1 redirect_uri
+      // Auth URL should use a localhost redirect_uri
       expect(capturedAuthUrl).toContain("redirect_uri=");
-      expect(capturedAuthUrl).toContain("127.0.0.1");
+      expect(capturedAuthUrl).toMatch(/localhost|127\.0\.0\.1/);
       expect(capturedAuthUrl).toContain(encodeURIComponent("/oauth/callback"));
 
       // Extract the redirect_uri and simulate the callback
@@ -277,7 +278,7 @@ describe("OAuth2 gateway transport", () => {
       await new Promise((r) => setTimeout(r, 50));
 
       // Should use loopback redirect even though gateway URL is available
-      expect(capturedAuthUrl).toContain("127.0.0.1");
+      expect(capturedAuthUrl).toMatch(/localhost|127\.0\.0\.1/);
       expect(capturedAuthUrl).not.toContain("gw.example.com");
 
       // Simulate callback to loopback server
@@ -395,7 +396,7 @@ describe("OAuth2 gateway transport", () => {
       await new Promise((r) => setTimeout(r, 50));
 
       expect(capturedAuthUrl).toContain("redirect_uri=");
-      expect(capturedAuthUrl).toContain("127.0.0.1");
+      expect(capturedAuthUrl).toMatch(/localhost|127\.0\.0\.1/);
       expect(capturedAuthUrl).toContain("code_challenge=");
       expect(capturedAuthUrl).toContain("code_challenge_method=S256");
 

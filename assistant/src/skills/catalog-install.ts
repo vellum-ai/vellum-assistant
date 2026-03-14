@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, posix, resolve, sep } from "node:path";
 import { gunzipSync } from "node:zlib";
 
 import { getLogger } from "../util/logger.js";
@@ -160,16 +160,35 @@ export function extractTarToDir(tarBuffer: Buffer, destDir: string): boolean {
 
     // Skip directories and empty names
     if (name && typeFlag !== 53 /* '5' */) {
-      // Prevent path traversal
-      const normalizedName = name.replace(/^\.\//, "");
-      if (!normalizedName.startsWith("..") && !normalizedName.includes("/..")) {
-        const destPath = join(destDir, normalizedName);
+      // Prevent path traversal and absolute path writes
+      const normalizedName = name.replace(/\\/g, "/").replace(/^\.\/+/, "");
+      const normalizedPath = posix.normalize(normalizedName);
+      const hasWindowsDrivePrefix = /^[a-zA-Z]:\//.test(normalizedPath);
+      const isTraversal =
+        normalizedPath === ".." || normalizedPath.startsWith("../");
+
+      if (
+        normalizedPath &&
+        normalizedPath !== "." &&
+        !normalizedPath.startsWith("/") &&
+        !hasWindowsDrivePrefix &&
+        !isTraversal
+      ) {
+        const destRoot = resolve(destDir);
+        const destPath = resolve(destRoot, normalizedPath);
+        const insideDestination =
+          destPath === destRoot || destPath.startsWith(destRoot + sep);
+        if (!insideDestination) {
+          offset += Math.ceil(size / 512) * 512;
+          continue;
+        }
+
         mkdirSync(dirname(destPath), { recursive: true });
         writeFileSync(destPath, tarBuffer.subarray(offset, offset + size));
 
         if (
-          normalizedName === "SKILL.md" ||
-          normalizedName.endsWith("/SKILL.md")
+          normalizedPath === "SKILL.md" ||
+          normalizedPath.endsWith("/SKILL.md")
         ) {
           foundSkillMd = true;
         }
@@ -320,26 +339,62 @@ export async function installSkillLocally(
 // ─── Auto-install (for skill_load) ──────────────────────────────────────────
 
 /**
+ * Resolve the catalog skill list, checking local (dev mode) first, then remote.
+ *
+ * In dev mode with a local catalog, returns local entries immediately to avoid
+ * unnecessary network latency.  Pass `skillId` to trigger a deferred remote
+ * fetch only when the requested skill is not found locally — this preserves the
+ * ability to discover remote-only skills without penalising every call with a
+ * 10s timeout on flaky networks.
+ *
+ * Callers that install multiple skills in a loop should call this once and pass
+ * the result to `autoInstallFromCatalog` to avoid redundant network requests.
+ */
+export async function resolveCatalog(
+  skillId?: string,
+): Promise<CatalogSkill[]> {
+  const repoSkillsDir = getRepoSkillsDir();
+  if (repoSkillsDir) {
+    const local = readLocalCatalog(repoSkillsDir);
+    if (local.length > 0) {
+      // If no specific skill requested, or it exists locally, skip remote fetch
+      if (!skillId || local.some((s) => s.id === skillId)) {
+        return local;
+      }
+      // Skill not found locally — merge with remote so remote-only skills
+      // can still be discovered. Local entries take precedence by id.
+      try {
+        const remote = await fetchCatalog();
+        const localIds = new Set(local.map((s) => s.id));
+        return [...local, ...remote.filter((s) => !localIds.has(s.id))];
+      } catch {
+        return local;
+      }
+    }
+  }
+
+  return fetchCatalog();
+}
+
+/**
  * Attempt to find and install a skill from the first-party catalog.
  * Returns true if the skill was installed, false if not found in catalog.
  * Throws on install failures (network, filesystem, etc).
+ *
+ * When `catalog` is provided it is used directly, avoiding a redundant
+ * network fetch — pass a pre-resolved catalog when calling in a loop.
  */
 export async function autoInstallFromCatalog(
   skillId: string,
+  catalog?: CatalogSkill[],
 ): Promise<boolean> {
-  // Check local catalog first (dev mode), then remote
-  const repoSkillsDir = getRepoSkillsDir();
-  let entry: CatalogSkill | undefined;
+  let skills: CatalogSkill[];
 
-  if (repoSkillsDir) {
-    const localCatalog = readLocalCatalog(repoSkillsDir);
-    entry = localCatalog.find((s) => s.id === skillId);
-  }
-
-  if (!entry) {
+  if (catalog) {
+    skills = catalog;
+  } else {
     try {
-      const remoteCatalog = await fetchCatalog();
-      entry = remoteCatalog.find((s) => s.id === skillId);
+      skills = await resolveCatalog(skillId);
     } catch (err) {
       log.warn(
         { err, skillId },
@@ -349,6 +404,7 @@ export async function autoInstallFromCatalog(
     }
   }
 
+  const entry = skills.find((s) => s.id === skillId);
   if (!entry) {
     return false;
   }

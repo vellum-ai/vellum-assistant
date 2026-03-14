@@ -2,9 +2,9 @@ import SwiftUI
 
 public struct CardModifier: ViewModifier {
     public var radius: CGFloat = VRadius.lg
-    public var background: Color = VColor.surface
+    public var background: Color = VColor.surfaceBase
 
-    public init(radius: CGFloat = VRadius.lg, background: Color = VColor.surface) {
+    public init(radius: CGFloat = VRadius.lg, background: Color = VColor.surfaceBase) {
         self.radius = radius
         self.background = background
     }
@@ -17,28 +17,15 @@ public struct CardModifier: ViewModifier {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: radius)
-                    .strokeBorder(VColor.cardBorder, lineWidth: 2)
+                    .strokeBorder(VColor.borderDisabled, lineWidth: 2)
                     .allowsHitTesting(false)
             )
     }
 }
 
 public extension View {
-    func vCard(radius: CGFloat = VRadius.lg, background: Color = VColor.surface) -> some View {
+    func vCard(radius: CGFloat = VRadius.lg, background: Color = VColor.surfaceBase) -> some View {
         modifier(CardModifier(radius: radius, background: background))
     }
 }
 
-#Preview("CardModifier") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        HStack(spacing: 16) {
-            Text("xs").padding().vCard(radius: VRadius.xs)
-            Text("md").padding().vCard(radius: VRadius.lg)
-            Text("xl").padding().vCard(radius: VRadius.xl)
-        }
-        .foregroundColor(VColor.textPrimary)
-        .padding()
-    }
-    .frame(width: 400, height: 120)
-}

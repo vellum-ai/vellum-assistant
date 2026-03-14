@@ -392,8 +392,8 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(user.content[1].cache_control).toEqual({ type: "ephemeral" });
   });
 
-  test("workspace + dynamic profile: cache still lands on trailing block", async () => {
-    // Simulates workspace prepended + dynamic profile appended
+  test("workspace + multi-block user message: cache still lands on trailing block", async () => {
+    // Simulates workspace prepended + extra context block appended
     const injectedUser: Message = {
       role: "user",
       content: [
@@ -670,7 +670,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
   // ensureToolPairing — server_tool_use / web_search_tool_result pairing
   // -----------------------------------------------------------------------
 
-  test("server_tool_use with missing web_search_tool_result gets synthetic result injected", async () => {
+  test("server_tool_use without web_search_tool_result passes through as-is (no synthetic injection)", async () => {
+    // Server-side tools are self-paired within the assistant message.
+    // ensureToolPairing should NOT inject synthetic results for them.
     const messages: Message[] = [
       userMsg("Search for something"),
       {
@@ -684,7 +686,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
           },
         ],
       },
-      userMsg("Thanks"), // user text but no web_search_tool_result
+      userMsg("Thanks"),
     ];
     await provider.sendMessage(messages);
 
@@ -697,14 +699,17 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       }>;
     }>;
 
-    // The user message after assistant should contain a synthetic web_search_tool_result
-    const userAfterAssistant = sent[2];
-    expect(userAfterAssistant.role).toBe("user");
-    expect(userAfterAssistant.content[0].type).toBe("web_search_tool_result");
-    expect(userAfterAssistant.content[0].tool_use_id).toBe("srvtoolu_abc123");
+    // server_tool_use stays in the assistant message, no synthetic result injected
+    expect(sent).toHaveLength(3);
+    expect(sent[1].role).toBe("assistant");
+    expect(sent[1].content[0].type).toBe("server_tool_use");
+    expect(sent[2].role).toBe("user");
+    expect(sent[2].content[0].type).toBe("text"); // original user text, not a synthetic result
   });
 
-  test("server_tool_use at end of messages gets synthetic web_search_tool_result appended", async () => {
+  test("server_tool_use at end of messages is not modified (no synthetic append)", async () => {
+    // Server-side tools don't need cross-message pairing, so no synthetic
+    // user message should be appended.
     const messages: Message[] = [
       userMsg("Search something"),
       {
@@ -726,11 +731,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       content: Array<{ type: string; tool_use_id?: string }>;
     }>;
 
-    // A synthetic user message should have been appended
-    expect(sent).toHaveLength(3);
-    expect(sent[2].role).toBe("user");
-    expect(sent[2].content[0].type).toBe("web_search_tool_result");
-    expect(sent[2].content[0].tool_use_id).toBe("srvtoolu_end");
+    // No synthetic user message appended — just the original 2 messages
+    expect(sent).toHaveLength(2);
+    expect(sent[1].role).toBe("assistant");
+    expect(sent[1].content[0].type).toBe("server_tool_use");
   });
 
   test("server_tool_use with matching web_search_tool_result passes through unchanged", async () => {
@@ -781,7 +785,85 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(resultBlocks[0].tool_use_id).toBe("srvtoolu_ok");
   });
 
-  test("mixed tool_use and server_tool_use with partial results gets missing ones filled", async () => {
+  test("server_tool_use + web_search_tool_result + tool_use in same assistant message stays intact", async () => {
+    // This is the core bug scenario: Anthropic returns server_tool_use,
+    // web_search_tool_result, text, and tool_use all in one assistant message.
+    // The server pair must stay together in the assistant message.
+    const messages: Message[] = [
+      userMsg("Search and fetch"),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "server_tool_use",
+            id: "srvtoolu_search",
+            name: "web_search",
+            input: { query: "test" },
+          },
+          {
+            type: "web_search_tool_result",
+            tool_use_id: "srvtoolu_search",
+            content: [
+              {
+                type: "web_search_result",
+                url: "https://example.com",
+                title: "Example",
+                encrypted_content: "enc_123",
+              },
+            ],
+          },
+          { type: "text", text: "Based on the search results..." },
+          {
+            type: "tool_use",
+            id: "tu_fetch",
+            name: "fetch_url",
+            input: { url: "https://example.com" },
+          },
+        ],
+      },
+      toolResultMsg("tu_fetch", "page content here"),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        id?: string;
+        tool_use_id?: string;
+      }>;
+    }>;
+
+    // The server_tool_use pair (server_tool_use + web_search_tool_result) should
+    // be in the leading portion of the assistant message, before tool_use.
+    // splitAssistantForToolPairing: leading=[server_tool_use, web_search_tool_result, text],
+    // toolUseBlocks=[tool_use], carryover=[]
+    const assistantMsg = sent[1];
+    expect(assistantMsg.role).toBe("assistant");
+    const blockTypes = assistantMsg.content.map((b) => b.type);
+    expect(blockTypes).toContain("server_tool_use");
+    expect(blockTypes).toContain("web_search_tool_result");
+    expect(blockTypes).toContain("tool_use");
+
+    // The tool_result for the client-side tool_use should be in the user message
+    const userMsg2 = sent[2];
+    expect(userMsg2.role).toBe("user");
+    expect(
+      userMsg2.content.some(
+        (b) => b.type === "tool_result" && b.tool_use_id === "tu_fetch",
+      ),
+    ).toBe(true);
+
+    // No synthetic web_search_tool_result injected anywhere
+    const allBlocks = sent.flatMap((m) => m.content);
+    const webSearchResults = allBlocks.filter(
+      (b) => b.type === "web_search_tool_result",
+    );
+    expect(webSearchResults).toHaveLength(1); // only the original one
+    expect(webSearchResults[0].tool_use_id).toBe("srvtoolu_search");
+  });
+
+  test("mixed tool_use and server_tool_use — only client-side tool_use gets pairing, server tools pass through", async () => {
     const messages: Message[] = [
       userMsg("Do things"),
       {
@@ -796,7 +878,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
           },
         ],
       },
-      // Only tu_a has a result
+      // Only tu_a has a result — server_tool_use doesn't need one in the user message
       toolResultMsg("tu_a", "result A"),
     ];
     await provider.sendMessage(messages);
@@ -806,20 +888,29 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       content: Array<{
         type: string;
         tool_use_id?: string;
+        id?: string;
       }>;
     }>;
 
+    // Assistant message should have tool_use in paired portion, server_tool_use in carryover
+    // ensureToolPairing splits: paired = [tool_use(tu_a)], carryover = [server_tool_use(srvtoolu_b)]
+    // Result: assistant(tool_use) → user(tool_result) → assistant(server_tool_use) → user(continue)
+    const assistantMsg = sent[1];
+    expect(assistantMsg.role).toBe("assistant");
+    expect(assistantMsg.content[0].type).toBe("tool_use");
+
     const userAfterAssistant = sent[2];
-    // Should have tool_result for tu_a and synthetic web_search_tool_result for srvtoolu_b
-    expect(userAfterAssistant.content).toHaveLength(2);
+    expect(userAfterAssistant.role).toBe("user");
+    // Only tool_result for tu_a — no synthetic web_search_tool_result
     expect(userAfterAssistant.content[0]).toMatchObject({
       type: "tool_result",
       tool_use_id: "tu_a",
     });
-    expect(userAfterAssistant.content[1]).toMatchObject({
-      type: "web_search_tool_result",
-      tool_use_id: "srvtoolu_b",
-    });
+
+    // server_tool_use preserved in a carryover assistant message
+    const carryoverAssistant = sent[3];
+    expect(carryoverAssistant.role).toBe("assistant");
+    expect(carryoverAssistant.content[0].type).toBe("server_tool_use");
   });
 
   test("assistant message with only unknown blocks gets placeholder text", async () => {

@@ -41,7 +41,6 @@ import {
   expireGuardianActionRequest,
   getExpiredDeliveriesByConversation,
   getExpiredDeliveriesByDestination,
-  getExpiredDeliveryByConversation,
   getFollowupDeliveriesByConversation,
   getGuardianActionRequest,
   getPendingDeliveriesByConversation,
@@ -180,34 +179,34 @@ describe("guardian-action-late-reply", () => {
     expect(deliveries).toHaveLength(0);
   });
 
-  // ── getExpiredDeliveryByConversation ───────────────────────────────
+  // ── getExpiredDeliveriesByConversation (singular-to-plural migration) ──
 
-  test("getExpiredDeliveryByConversation returns expired delivery for mac channel", () => {
+  test("getExpiredDeliveriesByConversation returns expired delivery for mac channel", () => {
     const { delivery, deliveryConvId } = createExpiredRequest("conv-late-4", {
       conversationId: "mac-conv-1",
     });
 
-    const found = getExpiredDeliveryByConversation(deliveryConvId);
-    expect(found).not.toBeNull();
-    expect(found!.id).toBe(delivery.id);
+    const found = getExpiredDeliveriesByConversation(deliveryConvId);
+    expect(found).toHaveLength(1);
+    expect(found[0].id).toBe(delivery.id);
   });
 
-  test("getExpiredDeliveryByConversation returns null for non-matching conversation", () => {
+  test("getExpiredDeliveriesByConversation returns empty for non-matching conversation", () => {
     createExpiredRequest("conv-late-5", { conversationId: "mac-conv-2" });
 
-    const found = getExpiredDeliveryByConversation("nonexistent-conv");
-    expect(found).toBeNull();
+    const found = getExpiredDeliveriesByConversation("nonexistent-conv");
+    expect(found).toHaveLength(0);
   });
 
-  test("getExpiredDeliveryByConversation returns null when followup already started", () => {
+  test("getExpiredDeliveriesByConversation returns empty when followup already started", () => {
     const { request, deliveryConvId } = createExpiredRequest("conv-late-6", {
       conversationId: "mac-conv-3",
     });
 
     startFollowupFromExpiredRequest(request.id, "already answered");
 
-    const found = getExpiredDeliveryByConversation(deliveryConvId);
-    expect(found).toBeNull();
+    const found = getExpiredDeliveriesByConversation(deliveryConvId);
+    expect(found).toHaveLength(0);
   });
 
   // ── startFollowupFromExpiredRequest ───────────────────────────────
@@ -309,8 +308,8 @@ describe("guardian-action-late-reply", () => {
     );
     expect(expiredByDest).toHaveLength(0);
 
-    const expiredByConv = getExpiredDeliveryByConversation(answeredConvId);
-    expect(expiredByConv).toBeNull();
+    const expiredByConv = getExpiredDeliveriesByConversation(answeredConvId);
+    expect(expiredByConv).toHaveLength(0);
   });
 
   // ── Composed follow-up text verification ──────────────────────────

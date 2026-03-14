@@ -641,7 +641,7 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 | **3. `skill_load` tool**           | `executeSkillLoad()` in `tools/skills/load.ts`           | If the model attempts to load a flagged-off skill by name, the tool returns an error: `"skill is currently unavailable (disabled by feature flag)"`.                                                        |
 | **4. Runtime tool projection**     | `projectSkillTools()` in `daemon/session-skill-tools.ts` | Even if a skill was previously active in a session (has `<loaded_skill>` markers in history), the per-turn projection drops it when the flag is OFF. Already-registered tools are unregistered.             |
 | **5. Included child skills**       | `executeSkillLoad()` in `tools/skills/load.ts`           | When a parent skill includes children via the `includes` directive, each child is independently checked against its feature flag. Flagged-off children are silently excluded from the loaded skill content. |
-| **6. Skill install gate**          | `handleSkillsInstall()` in `daemon/handlers/skills.ts`   | When a client requests skill installation, the handler checks the skill's feature flag before proceeding. If the flag is OFF, the install is rejected with an error.                                        |
+| **6. Skill install gate**          | `installSkill()` in `daemon/handlers/skills.ts`           | When a client requests skill installation, the function checks the skill's feature flag before proceeding. If the flag is OFF, the install is rejected with an error.                                       |
 
 All six enforcement points derive the flag key via `skillFlagKey(skill)` — which returns `undefined` for ungated skills, short-circuiting the check — and then call `isAssistantFeatureFlagEnabled(flagKey, config)` for consistency.
 
@@ -657,7 +657,7 @@ All six enforcement points derive the flag key via `skillFlagKey(skill)` — whi
 | `src/tools/skills/load.ts`                      | `executeSkillLoad()` — enforcement points 3 and 5                                                                                                                         |
 | `src/daemon/session-skill-tools.ts`             | `projectSkillTools()` — enforcement point 4                                                                                                                               |
 | `src/config/schema.ts`                          | `assistantFeatureFlagValues` field definition in `AssistantConfig` (Zod schema)                                                                                           |
-| `src/daemon/handlers/skills.ts`                 | `handleSkillsList()` — uses `resolveSkillStates()` for client responses; `handleSkillsInstall()` — enforcement point 6                                                    |
+| `src/daemon/handlers/skills.ts`                 | `listSkills()` — uses `resolveSkillStates()` for client responses; `installSkill()` — enforcement point 6                                                                 |
 | `meta/feature-flags/feature-flag-registry.json` | Unified feature flag registry (repo root) — all declared flags with scope, label, default values, and descriptions                                                        |
 | `src/config/feature-flag-registry.json`         | Bundled copy of the unified registry for compiled binary resolution                                                                                                       |
 
@@ -692,15 +692,10 @@ graph LR
         MSG["messages<br/>───────────────<br/>id, conversation_id (FK)<br/>role: user | assistant<br/>content: JSON array<br/>created_at"]
         TOOL["tool_invocations<br/>───────────────<br/>tool_name, input, result<br/>decision, risk_level<br/>duration_ms"]
         SEG["memory_segments<br/>───────────────<br/>Text chunks for retrieval<br/>Linked to messages<br/>token_estimate per segment"]
-        FTS["memory_segment_fts<br/>───────────────<br/>FTS5 virtual table<br/>Auto-synced via triggers<br/>Powers lexical search"]
         ITEMS["memory_items<br/>───────────────<br/>Extracted facts/entities<br/>kind, subject, statement<br/>confidence, fingerprint (dedup)<br/>verification_state, scope_id<br/>first/last seen timestamps"]
-        CONFLICTS["memory_item_conflicts<br/>───────────────<br/>Pending/resolved contradiction pairs<br/>existing_item_id + candidate_item_id<br/>clarification question + resolution note<br/>partial unique pending pair index"]
-        ENTITIES["memory_entities<br/>───────────────<br/>Canonical entities + aliases<br/>mention_count, first/last seen<br/>Resolved across messages"]
-        RELS["memory_entity_relations<br/>───────────────<br/>Directional entity edges<br/>Unique by source/target/relation<br/>first/last seen + evidence"]
-        ITEM_ENTS["memory_item_entities<br/>───────────────<br/>Join table linking extracted<br/>memory_items to entities"]
         SUM["memory_summaries<br/>───────────────<br/>scope: conversation | weekly<br/>Compressed history for context<br/>window management"]
         EMB["memory_embeddings<br/>───────────────<br/>target: segment | item | summary<br/>provider + model metadata<br/>vector_json (float array)<br/>Powers semantic search"]
-        JOBS["memory_jobs<br/>───────────────<br/>Async task queue<br/>Types: embed, extract,<br/>summarize, backfill,<br/>conflict resolution, cleanup<br/>Status: pending → running →<br/>completed | failed"]
+        JOBS["memory_jobs<br/>───────────────<br/>Async task queue<br/>Types: embed, extract,<br/>summarize, backfill, cleanup<br/>Status: pending → running →<br/>completed | failed"]
         ATT["attachments<br/>───────────────<br/>base64-encoded file data<br/>mime_type, size_bytes<br/>Linked to messages via<br/>message_attachments join"]
         REM["reminders<br/>───────────────<br/>One-time scheduled reminders<br/>label, message, fireAt<br/>mode: notify | execute<br/>status: pending → fired | cancelled<br/>routing_intent: single_channel |<br/>multi_channel | all_channels<br/>routing_hints_json (free-form)"]
         SCHED_JOBS["cron_jobs (recurrence schedules)<br/>───────────────<br/>Recurring schedule definitions<br/>cron_expression: cron or RRULE string<br/>schedule_syntax: 'cron' | 'rrule'<br/>timezone, message, next_run_at<br/>enabled, retry_count<br/>Legacy alias: scheduleJobs"]
@@ -940,8 +935,7 @@ graph TB
     end
 
     subgraph "Text Q&A Session"
-        TEXT_TOOLS["Tools: sandbox file_* / bash,<br/>host_file_* / host_bash,<br/>ui_show, ...<br/>+ dynamically projected skill tools<br/>(browser_* via bundled browser skill)"]
-        ESCALATE["computer_use_request_control<br/>(proxy tool)"]
+        TEXT_TOOLS["Tools: sandbox file_* / bash,<br/>host_file_* / host_bash,<br/>ui_show, ...<br/>+ dynamically projected skill tools<br/>(browser_* via bundled browser skill,<br/>computer_use_* via bundled computer-use skill)"]
     end
 
     SUBMIT --> SLASH_CHECK
@@ -953,22 +947,21 @@ graph TB
     CLASSIFIER -->|"text_qa"| QA_ROUTE
 
     QA_ROUTE --> TEXT_TOOLS
-    TEXT_TOOLS -.->|"User explicitly requests<br/>computer control"| ESCALATE
-    ESCALATE -.->|"Creates CU session<br/>via surfaceProxyResolver"| CU_ROUTE
+    TEXT_TOOLS -.->|"computer_use_* actions<br/>forwarded via HostCuProxy"| CU_ROUTE
 ```
 
 ### Action Execution Hierarchy
 
 The text_qa system prompt includes an action execution hierarchy that guides tool selection toward the least invasive method:
 
-| Priority        | Method                         | Tool                                  | When to use                                                 |
-| --------------- | ------------------------------ | ------------------------------------- | ----------------------------------------------------------- |
-| **BEST**        | Sandboxed filesystem/shell     | `file_*`, `bash`                      | Work that can stay isolated in sandbox filesystem           |
-| **BETTER**      | Explicit host filesystem/shell | `host_file_*`, `host_bash`            | Host reads/writes/commands that must touch the real machine |
-| **GOOD**        | Headless browser               | `browser_*` (bundled `browser` skill) | Web automation, form filling, scraping (background)         |
-| **LAST RESORT** | Foreground computer use        | `computer_use_request_control`        | Only on explicit user request ("go ahead", "take over")     |
+| Priority        | Method                         | Tool                                            | When to use                                                 |
+| --------------- | ------------------------------ | ----------------------------------------------- | ----------------------------------------------------------- |
+| **BEST**        | Sandboxed filesystem/shell     | `file_*`, `bash`                                | Work that can stay isolated in sandbox filesystem           |
+| **BETTER**      | Explicit host filesystem/shell | `host_file_*`, `host_bash`                      | Host reads/writes/commands that must touch the real machine |
+| **GOOD**        | Headless browser               | `browser_*` (bundled `browser` skill)           | Web automation, form filling, scraping (background)         |
+| **LAST RESORT** | Foreground computer use        | `computer_use_*` (bundled `computer-use` skill) | Only on explicit user request ("go ahead", "take over")     |
 
-The `computer_use_request_control` tool is a core proxy tool available only to text*qa sessions. When invoked, the session's `surfaceProxyResolver` creates a CU session and sends a `task_routed` message to the client, effectively escalating from text_qa to foreground computer use. The CU session constructor sets `preactivatedSkillIds: ['computer-use']`, and its `getProjectedCuToolDefinitions()` calls `projectSkillTools()` to load the 12 `computer_use*\*`action tools from the bundled`computer-use` skill (via TOOLS.json). These tools are not core-registered at daemon startup; they exist only within CU sessions through skill projection.
+Computer-use tools are proxy tools provided by the bundled `computer-use` skill, preactivated via `preactivatedSkillIds` in desktop sessions. Each tool forwards actions to the connected macOS client via `HostCuProxy`, which handles request/resolve proxying, step counting, loop detection, and observation formatting within the unified agent loop. These tools are not core-registered at daemon startup; they exist only through skill projection.
 
 ### Sandbox Filesystem and Host Access
 
@@ -988,7 +981,7 @@ graph TB
     SBPL --> SB_FS["Sandbox filesystem root<br/>~/.vellum/workspace"]
     BWRAP --> SB_FS
 
-    EXEC -->|"host_file_* / host_bash / computer_use_request_control"| HOST_TOOLS["Host-target tools<br/>(unchanged by backend choice)"]
+    EXEC -->|"host_file_* / host_bash"| HOST_TOOLS["Host-target tools<br/>(unchanged by backend choice)"]
     EXEC -->|"computer_use_* (skill-projected<br/>in CU sessions only)"| SKILL_CU_TOOLS["CU skill tools<br/>(bundled computer-use skill)"]
     HOST_TOOLS --> CHECK["Permission checker + trust-store"]
     SKILL_CU_TOOLS --> CHECK
@@ -1005,7 +998,7 @@ graph TB
 - **Host tools unchanged**: `host_bash`, `host_file_read`, `host_file_write`, and `host_file_edit` always execute directly on the host regardless of which sandbox backend is active.
 - Sandbox defaults: `file_*` and `bash` execute within `~/.vellum/workspace`.
 - Host access is explicit: `host_file_read`, `host_file_write`, `host_file_edit`, and `host_bash` are separate tools.
-- Prompt defaults: host tools, `computer_use_request_control`, and `computer_use_*` skill-projected actions default to `ask` unless a trust rule allowlists/denylists them.
+- Prompt defaults: host tools and `computer_use_*` skill-projected actions default to `ask` unless a trust rule allowlists/denylists them.
 - Browser tool defaults: all `browser_*` tools are auto-allowed by default via seeded allow rules at priority 100, preserving the frictionless UX from when browser was a core tool.
 - Confirmation payloads include `executionTarget` (`sandbox` or `host`) so clients can label where the action will run.
 
@@ -1187,16 +1180,16 @@ skills/<skill-id>/
 
 The following capabilities ship as bundled skills in `assistant/src/config/bundled-skills/`:
 
-| Skill ID        | Tools                                                                                                                                                                                                                                                                                              | Purpose                                                                                                                                                                                                                                                                                                         |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `browser`       | `browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_close`, `browser_click`, `browser_type`, `browser_press_key`, `browser_wait_for`, `browser_extract`, `browser_fill_credential`                                                                                              | Headless browser automation — web scraping, form filling, interaction (previously core-registered as `headless-browser`; now skill-provided with default allow rules)                                                                                                                                           |
-| `gmail`         | Gmail search, archive, send, etc.                                                                                                                                                                                                                                                                  | Email management via OAuth2 integration                                                                                                                                                                                                                                                                         |
-| `claude-code`   | Claude Code tool                                                                                                                                                                                                                                                                                   | Delegate coding tasks to Claude Code subprocess                                                                                                                                                                                                                                                                 |
-| `computer-use`  | `computer_use_click`, `computer_use_double_click`, `computer_use_right_click`, `computer_use_type_text`, `computer_use_key`, `computer_use_scroll`, `computer_use_drag`, `computer_use_open_app`, `computer_use_run_applescript`, `computer_use_wait`, `computer_use_done`, `computer_use_respond` | Computer-use action tools — internally preactivated by `ComputerUseSession` via `preactivatedSkillIds`; not user-invocable or model-discoverable in text sessions. Each wrapper script forwards to `forwardComputerUseProxyTool()` which uses the session's proxy resolver to send actions to the macOS client. |
-| `weather`       | `get-weather`                                                                                                                                                                                                                                                                                      | Fetch current weather data                                                                                                                                                                                                                                                                                      |
-| `app-builder`   | `app_create`, `app_list`, `app_query`, `app_update`, `app_delete`, `app_file_list`, `app_file_read`, `app_file_edit`, `app_file_write`                                                                                                                                                             | Dynamic app authoring — CRUD and file-level editing for persistent apps (activated via `skill_load app-builder`; `app_open` remains a core proxy tool)                                                                                                                                                          |
-| `self-upgrade`  | (instruction-only)                                                                                                                                                                                                                                                                                 | Self-improvement workflow                                                                                                                                                                                                                                                                                       |
-| `start-the-day` | (instruction-only)                                                                                                                                                                                                                                                                                 | Morning briefing routine                                                                                                                                                                                                                                                                                        |
+| Skill ID        | Tools                                                                                                                                                                                                                                                             | Purpose                                                                                                                                                                                                                                                                                              |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `browser`       | `browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_close`, `browser_click`, `browser_type`, `browser_press_key`, `browser_wait_for`, `browser_extract`, `browser_fill_credential`                                                             | Headless browser automation — web scraping, form filling, interaction (previously core-registered as `headless-browser`; now skill-provided with default allow rules)                                                                                                                                |
+| `gmail`         | Gmail search, archive, send, etc.                                                                                                                                                                                                                                 | Email management via OAuth2 integration                                                                                                                                                                                                                                                              |
+| `claude-code`   | Claude Code tool                                                                                                                                                                                                                                                  | Delegate coding tasks to Claude Code subprocess                                                                                                                                                                                                                                                      |
+| `computer-use`  | `computer_use_observe`, `computer_use_click`, `computer_use_type_text`, `computer_use_key`, `computer_use_scroll`, `computer_use_drag`, `computer_use_wait`, `computer_use_open_app`, `computer_use_run_applescript`, `computer_use_done`, `computer_use_respond` | Computer-use proxy tools — preactivated via `preactivatedSkillIds` in desktop sessions. Each tool forwards actions to the connected macOS client via `HostCuProxy`, which handles request/resolve proxying, step counting, loop detection, and observation formatting within the unified agent loop. |
+| `weather`       | `get-weather`                                                                                                                                                                                                                                                     | Fetch current weather data                                                                                                                                                                                                                                                                           |
+| `app-builder`   | `app_create`, `app_list`, `app_query`, `app_update`, `app_delete`, `app_file_list`, `app_file_read`, `app_file_edit`, `app_file_write`                                                                                                                            | Dynamic app authoring — CRUD and file-level editing for persistent apps (activated via `skill_load app-builder`; `app_open` remains a core proxy tool)                                                                                                                                               |
+| `self-upgrade`  | (instruction-only)                                                                                                                                                                                                                                                | Self-improvement workflow                                                                                                                                                                                                                                                                            |
+| `start-the-day` | (instruction-only)                                                                                                                                                                                                                                                | Morning briefing routine                                                                                                                                                                                                                                                                             |
 
 ### Activation and Projection Flow
 
@@ -1240,7 +1233,7 @@ graph TB
     RESOLVE --> PROVIDER
 ```
 
-**Internal preactivation**: Some bundled skills are preactivated programmatically rather than by user slash commands or model discovery. For example, `ComputerUseSession` sets `preactivatedSkillIds: ['computer-use']` in its constructor, causing `projectSkillTools()` to load the 12 `computer_use_*` tool definitions from the bundled skill's `TOOLS.json` on the first turn. These tools are never exposed in text sessions — they only appear in the CU session's agent loop.
+**Internal preactivation**: Some bundled skills are preactivated programmatically rather than by user slash commands or model discovery. For example, desktop sessions set `preactivatedSkillIds: ['computer-use']`, causing `projectSkillTools()` to load the 11 `computer_use_*` tool definitions from the bundled skill's `TOOLS.json` on the first turn. These proxy tools forward actions to the connected macOS client via `HostCuProxy`.
 
 ### Skill Tool Execution
 
@@ -1917,10 +1910,8 @@ Connected channels are resolved at signal emission time: vellum is always includ
 | User preferences                             | UserDefaults                                                      | plist                               | Foundation                         | Permanent                                                  |
 | Session logs                                 | `~/Library/.../logs/session-*.json`                               | JSON per session                    | Swift Codable                      | Unbounded                                                  |
 | Conversations & messages                     | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite + WAL                        | Drizzle ORM (Bun)                  | Permanent                                                  |
-| Memory segments & FTS                        | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite FTS5                         | Drizzle ORM                        | Permanent                                                  |
+| Memory segments                              | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent                                                  |
 | Extracted facts                              | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent, deduped                                         |
-| Conflict lifecycle rows                      | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Pending until clarified, then retained as resolved history |
-| Entity graph (entities/relations/item links) | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent, deduped by unique relation edge                 |
 | Embeddings                                   | `~/.vellum/workspace/data/db/assistant.db`                        | JSON float arrays                   | Drizzle ORM                        | Permanent                                                  |
 | Async job queue                              | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Completed jobs persist                                     |
 | Attachments                                  | `~/.vellum/workspace/data/db/assistant.db`                        | Base64 in SQLite                    | Drizzle ORM                        | Permanent                                                  |

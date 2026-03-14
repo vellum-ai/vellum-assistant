@@ -684,7 +684,7 @@ async function handleDictation(body: DictationBody): Promise<Response> {
   const transcription = expandSnippets(body.transcription, profile.snippets);
 
   try {
-    const provider = getConfiguredProvider();
+    const provider = await getConfiguredProvider();
     if (!provider) {
       log.warn(
         "Dictation: no provider available, using heuristic + raw transcription",
@@ -843,7 +843,7 @@ async function handleCommandMode(
   const maxTokens = Math.max(1024, computeMaxTokens(inputLength));
 
   try {
-    const provider = getConfiguredProvider();
+    const provider = await getConfiguredProvider();
     if (!provider) {
       log.warn("Command mode: no provider available, returning selected text");
       const normalizedText = applyDictionary(

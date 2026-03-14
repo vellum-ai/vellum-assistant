@@ -57,6 +57,10 @@ public final class MainWindowState: ObservableObject {
     @Published var avatarCustomizationReturnPanel: SidePanelType = .intelligence
 
     @Published var selectedSubagentId: String?
+
+    /// Transient memory ID to deep-link into when the Intelligence panel opens.
+    /// Consumed once by IntelligencePanel/MemoriesPanel, then set back to nil.
+    @Published var pendingMemoryId: String?
     @Published var activeDynamicSurface: UiSurfaceShowMessage?
     @Published var activeDynamicParsedSurface: Surface?
     @Published var hasAPIKey: Bool
@@ -218,6 +222,12 @@ public final class MainWindowState: ObservableObject {
     func showPanel(_ panel: SidePanelType) {
         selection = .panel(panel)
         lastActivePanelString = String(describing: panel)
+    }
+
+    /// Navigate to the Intelligence panel and deep-link to a specific memory.
+    func showMemory(id: String) {
+        pendingMemoryId = id
+        showPanel(.intelligence)
     }
 
     func refreshAPIKeyStatus(isConnected: Bool) {

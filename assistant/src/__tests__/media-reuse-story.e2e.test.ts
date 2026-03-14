@@ -52,7 +52,6 @@ mock.module("../config/loader.js", () => ({
 
     model: "test",
     provider: "test",
-    apiKeys: {},
     memory: { enabled: false },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     timeouts: { shellDefaultTimeoutSec: 30, shellMaxTimeoutSec: 60 },
@@ -79,13 +78,9 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 }));
 
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKey: (account: string) => secureKeyValues.get(account),
-  setSecureKey: () => true,
-  deleteSecureKey: () => "deleted",
-  listSecureKeys: () => [],
-  getBackendType: () => "encrypted",
+  getSecureKeyAsync: async (account: string) => secureKeyValues.get(account),
+  listSecureKeysAsync: async () => [],
   _resetBackend: () => {},
-  _setBackend: () => {},
 }));
 
 // Stub ensureLocalCA / certs so tests never run openssl

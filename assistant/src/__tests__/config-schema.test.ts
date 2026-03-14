@@ -67,9 +67,11 @@ import {
   resolveVoiceQualityProfile,
 } from "../calls/voice-quality.js";
 import { invalidateConfigCache, loadConfig } from "../config/loader.js";
-import { AssistantConfigSchema } from "../config/schema.js";
+import {
+  AssistantConfigSchema,
+  DEFAULT_ELEVENLABS_VOICE_ID,
+} from "../config/schema.js";
 import { _setStorePath } from "../security/encrypted-store.js";
-import { _setBackend } from "../security/secure-keys.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -89,7 +91,6 @@ describe("AssistantConfigSchema", () => {
     expect(result.provider).toBe("anthropic");
     expect(result.model).toBe("claude-opus-4-6");
     expect(result.maxTokens).toBe(16000);
-    expect(result.apiKeys).toEqual({});
     expect(result.thinking).toEqual({
       enabled: false,
       streamThinking: false,
@@ -137,7 +138,6 @@ describe("AssistantConfigSchema", () => {
       provider: "openai",
       model: "gpt-4",
       maxTokens: 4096,
-      apiKeys: { openai: "sk-test" },
       thinking: { enabled: true },
       timeouts: {
         shellDefaultTimeoutSec: 30,
@@ -161,79 +161,13 @@ describe("AssistantConfigSchema", () => {
     expect(result.secretDetection.action).toBe("block");
   });
 
-  test("applies memory.conflicts defaults", () => {
-    const result = AssistantConfigSchema.parse({});
-    expect(result.memory.conflicts).toEqual({
-      enabled: true,
-      gateMode: "soft",
-      resolverLlmTimeoutMs: 12000,
-      relevanceThreshold: 0.3,
-      conflictableKinds: [
-        "preference",
-        "profile",
-        "constraint",
-        "instruction",
-        "style",
-      ],
-    });
-  });
-
-  test("rejects invalid memory.conflicts.relevanceThreshold", () => {
-    const result = AssistantConfigSchema.safeParse({
-      memory: { conflicts: { relevanceThreshold: 2 } },
-    });
-    expect(result.success).toBe(false);
-  });
-
-  test("rejects invalid memory.conflicts.conflictableKinds entry", () => {
-    const result = AssistantConfigSchema.safeParse({
-      memory: { conflicts: { conflictableKinds: ["invalid_kind"] } },
-    });
-    expect(result.success).toBe(false);
-  });
-
-  test("rejects empty memory.conflicts.conflictableKinds", () => {
-    const result = AssistantConfigSchema.safeParse({
-      memory: { conflicts: { conflictableKinds: [] } },
-    });
-    expect(result.success).toBe(false);
-  });
-
-  test("applies memory.profile defaults", () => {
-    const result = AssistantConfigSchema.parse({});
-    expect(result.memory.profile).toEqual({
-      enabled: true,
-      maxInjectTokens: 800,
-    });
-  });
-
-  test("rejects invalid memory.profile.maxInjectTokens", () => {
-    const result = AssistantConfigSchema.safeParse({
-      memory: { profile: { maxInjectTokens: 0 } },
-    });
-    expect(result.success).toBe(false);
-  });
-
-  test("applies rollout defaults for dynamic budget and entity relation features", () => {
+  test("applies rollout defaults for dynamic budget", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.memory.retrieval.dynamicBudget).toEqual({
       enabled: true,
       minInjectTokens: 1200,
       maxInjectTokens: 10000,
       targetHeadroomTokens: 10000,
-    });
-    expect(result.memory.entity.extractRelations).toEqual({
-      enabled: true,
-      backfillBatchSize: 200,
-    });
-    expect(result.memory.entity.relationRetrieval).toEqual({
-      enabled: true,
-      maxSeedEntities: 8,
-      maxNeighborEntities: 20,
-      maxEdges: 40,
-      neighborScoreMultiplier: 0.7,
-      maxDepth: 3,
-      depthDecay: true,
     });
   });
 
@@ -242,7 +176,6 @@ describe("AssistantConfigSchema", () => {
     expect(result.memory.cleanup).toEqual({
       enabled: true,
       enqueueIntervalMs: 6 * 60 * 60 * 1000,
-      resolvedConflictRetentionMs: 30 * 24 * 60 * 60 * 1000,
       supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
       conversationRetentionDays: 90,
     });
@@ -421,13 +354,6 @@ describe("AssistantConfigSchema", () => {
   test("rejects negative auditLog.retentionDays", () => {
     const result = AssistantConfigSchema.safeParse({
       auditLog: { retentionDays: -7 },
-    });
-    expect(result.success).toBe(false);
-  });
-
-  test("rejects non-string apiKeys values", () => {
-    const result = AssistantConfigSchema.safeParse({
-      apiKeys: { anthropic: 123 },
     });
     expect(result.success).toBe(false);
   });
@@ -920,9 +846,8 @@ describe("AssistantConfigSchema", () => {
     expect(result.calls.callerIdentity.userNumber).toBe("+14155559999");
   });
 
-  test("legacy defaultMode field is silently stripped by schema", () => {
-    // Backward compatibility: existing configs with defaultMode should parse
-    // without error — Zod strips unrecognized keys by default.
+  test("unknown defaultMode field is silently stripped by schema", () => {
+    // Zod strips unrecognized keys by default.
     const result = AssistantConfigSchema.parse({
       calls: {
         callerIdentity: {
@@ -973,10 +898,10 @@ describe("resolveVoiceQualityProfile", () => {
     expect(profile.voice).toBe("test-voice-id");
   });
 
-  test("defaults to Rachel voice ID when elevenlabs.voiceId is not set", () => {
+  test("defaults to Amelia voice ID when elevenlabs.voiceId is not set", () => {
     const config = AssistantConfigSchema.parse({});
     const profile = resolveVoiceQualityProfile(config);
-    expect(profile.voice).toBe("21m00Tcm4TlvDq8ikWAM");
+    expect(profile.voice).toBe(DEFAULT_ELEVENLABS_VOICE_ID);
   });
 
   test("applies voice tuning params from elevenlabs config", () => {
@@ -1062,13 +987,11 @@ describe("loadConfig with schema validation", () => {
     }
     ensureTestDir();
     _setStorePath(join(TEST_DIR, "keys.enc"));
-    _setBackend("encrypted");
     invalidateConfigCache();
   });
 
   afterEach(() => {
     _setStorePath(null);
-    _setBackend(undefined);
     invalidateConfigCache();
   });
 
@@ -1177,7 +1100,7 @@ describe("loadConfig with schema validation", () => {
     expect(config.sandbox.enabled).toBe(true);
   });
 
-  test("loads sandbox with only enabled (backward compatibility)", () => {
+  test("loads sandbox with only enabled field", () => {
     writeConfig({ sandbox: { enabled: false } });
     const config = loadConfig();
     expect(config.sandbox.enabled).toBe(false);
@@ -1230,31 +1153,6 @@ describe("loadConfig with schema validation", () => {
     writeConfig({ permissions: { mode: "yolo" } });
     const config = loadConfig();
     expect(config.permissions.mode).toBe("workspace");
-  });
-
-  test("does not mutate default apiKeys when fallback config is overridden by env keys", () => {
-    const originalAnthropicApiKey = process.env.ANTHROPIC_API_KEY;
-    try {
-      const testKey = ["test", "in", "memory", "default", "leak"].join("-");
-      process.env.ANTHROPIC_API_KEY = testKey;
-      writeConfig("this is not a config object");
-
-      const configWithEnv = loadConfig();
-      expect(configWithEnv.apiKeys.anthropic).toBe(testKey);
-
-      invalidateConfigCache();
-      delete process.env.ANTHROPIC_API_KEY;
-      writeConfig("still not a config object");
-
-      const configWithoutEnv = loadConfig();
-      expect(configWithoutEnv.apiKeys.anthropic).toBeUndefined();
-    } finally {
-      if (originalAnthropicApiKey !== undefined) {
-        process.env.ANTHROPIC_API_KEY = originalAnthropicApiKey;
-      } else {
-        delete process.env.ANTHROPIC_API_KEY;
-      }
-    }
   });
 
   // ── Calls config (loader integration) ──────────────────────────────
@@ -1313,13 +1211,11 @@ describe("Call entrypoint gating", () => {
     }
     ensureTestDir();
     _setStorePath(join(TEST_DIR, "keys.enc"));
-    _setBackend("encrypted");
     invalidateConfigCache();
   });
 
   afterEach(() => {
     _setStorePath(null);
-    _setBackend(undefined);
     invalidateConfigCache();
   });
 

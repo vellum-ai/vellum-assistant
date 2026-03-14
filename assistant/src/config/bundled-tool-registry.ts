@@ -48,6 +48,7 @@ import * as computerUseClick from "./bundled-skills/computer-use/tools/computer-
 import * as computerUseDone from "./bundled-skills/computer-use/tools/computer-use-done.js";
 import * as computerUseDrag from "./bundled-skills/computer-use/tools/computer-use-drag.js";
 import * as computerUseKey from "./bundled-skills/computer-use/tools/computer-use-key.js";
+import * as computerUseObserve from "./bundled-skills/computer-use/tools/computer-use-observe.js";
 import * as computerUseOpenApp from "./bundled-skills/computer-use/tools/computer-use-open-app.js";
 import * as computerUseRespond from "./bundled-skills/computer-use/tools/computer-use-respond.js";
 import * as computerUseRunApplescript from "./bundled-skills/computer-use/tools/computer-use-run-applescript.js";
@@ -88,8 +89,6 @@ import * as calendarListEvents from "./bundled-skills/google-calendar/tools/cale
 import * as calendarRsvp from "./bundled-skills/google-calendar/tools/calendar-rsvp.js";
 // ── image-studio ───────────────────────────────────────────────────────────────
 import * as mediaGenerateImage from "./bundled-skills/image-studio/tools/media-generate-image.js";
-// ── knowledge-graph ────────────────────────────────────────────────────────────
-import * as graphQuery from "./bundled-skills/knowledge-graph/tools/graph-query.js";
 // ── media-processing ───────────────────────────────────────────────────────────
 import * as analyzeKeyframes from "./bundled-skills/media-processing/tools/analyze-keyframes.js";
 import * as extractKeyframes from "./bundled-skills/media-processing/tools/extract-keyframes.js";
@@ -219,6 +218,7 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["claude-code:tools/claude-code.ts", claudeCode],
 
   // computer-use
+  ["computer-use:tools/computer-use-observe.ts", computerUseObserve],
   ["computer-use:tools/computer-use-click.ts", computerUseClick],
   ["computer-use:tools/computer-use-type-text.ts", computerUseTypeText],
   ["computer-use:tools/computer-use-key.ts", computerUseKey],
@@ -275,9 +275,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
 
   // image-studio
   ["image-studio:tools/media-generate-image.ts", mediaGenerateImage],
-
-  // knowledge-graph
-  ["knowledge-graph:tools/graph-query.ts", graphQuery],
 
   // media-processing
   ["media-processing:tools/ingest-media.ts", ingestMedia],

@@ -13,8 +13,7 @@ import {
 } from "../../../../messaging/providers/slack/client.js";
 import type { SlackConversation } from "../../../../messaging/providers/slack/types.js";
 import { getConnectionByProvider } from "../../../../oauth/oauth-store.js";
-import { credentialKey } from "../../../../security/credential-key.js";
-import { getSecureKey } from "../../../../security/secure-keys.js";
+import { getSecureKeyAsync } from "../../../../security/secure-keys.js";
 import { getLogger } from "../../../../util/logger.js";
 import { httpError } from "../../../http-errors.js";
 import type { RouteDefinition } from "../../../http-router.js";
@@ -26,17 +25,13 @@ const log = getLogger("slack-share");
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the Slack bot token from secure storage.
- * Prefers the OAuth integration token, falls back to the legacy channel token.
+ * Resolve the Slack bot token from the OAuth connection store.
  */
-function resolveSlackToken(): string | undefined {
+async function resolveSlackToken(): Promise<string | undefined> {
   const conn = getConnectionByProvider("integration:slack");
-  const oauthToken = conn
-    ? getSecureKey(`oauth_connection/${conn.id}/access_token`)
+  return conn
+    ? await getSecureKeyAsync(`oauth_connection/${conn.id}/access_token`)
     : undefined;
-  return (
-    oauthToken ?? getSecureKey(credentialKey("slack_channel", "bot_token"))
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -66,7 +61,7 @@ const TYPE_SORT_ORDER: Record<string, number> = {
 };
 
 export async function handleListSlackChannels(): Promise<Response> {
-  const token = resolveSlackToken();
+  const token = await resolveSlackToken();
   if (!token) {
     return httpError("SERVICE_UNAVAILABLE", "No Slack token configured", 503);
   }
@@ -142,7 +137,7 @@ export async function handleListSlackChannels(): Promise<Response> {
 export async function handleShareToSlackChannel(
   req: Request,
 ): Promise<Response> {
-  const token = resolveSlackToken();
+  const token = await resolveSlackToken();
   if (!token) {
     return httpError("SERVICE_UNAVAILABLE", "No Slack token configured", 503);
   }

@@ -50,6 +50,8 @@ import * as approvalOverrides from "../runtime/session-approval-overrides.js";
 import { ToolExecutor } from "../tools/executor.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
+import type { CuObservationResult } from "./host-cu-proxy.js";
+import { HostCuProxy } from "./host-cu-proxy.js";
 import { HostFileProxy } from "./host-file-proxy.js";
 import type {
   ServerMessage,
@@ -63,7 +65,6 @@ import type {
   ConfirmationStateChanged,
 } from "./message-types/messages.js";
 import { runAgentLoopImpl } from "./session-agent-loop.js";
-import { ConflictGate } from "./session-conflict-gate.js";
 import type { HistorySessionContext } from "./session-history.js";
 import {
   regenerate as regenerateImpl,
@@ -157,13 +158,13 @@ export class Session {
   /** @internal */ contextCompactedMessageCount = 0;
   /** @internal */ contextCompactedAt: number | null = null;
   /** @internal */ currentRequestId?: string;
-  /** @internal */ conflictGate = new ConflictGate();
   /** @internal */ hasNoClient = false;
   /** @internal */ hasAttachments = false;
   /** @internal */ headlessLock = false;
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
   /** @internal */ hostBashProxy?: HostBashProxy;
+  /** @internal */ hostCuProxy?: HostCuProxy;
   /** @internal */ hostFileProxy?: HostFileProxy;
   /** @internal */ readonly queue = new MessageQueue();
   /** @internal */ currentActiveSurfaceId?: string;
@@ -202,13 +203,10 @@ export class Session {
     actions?: Array<{ id: string; label: string; style?: string }>;
     display?: string;
   }> = [];
-  /** @internal */ onEscalateToComputerUse?: (
-    task: string,
-    sourceSessionId: string,
-  ) => boolean;
   /** @internal */ workspaceTopLevelContext: string | null = null;
   /** @internal */ workspaceTopLevelDirty = true;
   public readonly traceEmitter: TraceEmitter;
+  public readonly hasSystemPromptOverride: boolean;
   public memoryPolicy: SessionMemoryPolicy;
   /** @internal */ streamThinking: boolean;
   /** @internal */ turnCount = 0;
@@ -320,6 +318,7 @@ export class Session {
     // When a systemPromptOverride was provided, use it as-is; otherwise
     // rebuild the full prompt each turn (picks up any workspace file changes).
     const hasSystemPromptOverride = systemPrompt !== buildSystemPrompt();
+    this.hasSystemPromptOverride = hasSystemPromptOverride;
 
     const resolveSystemPromptCallback = (
       _history: import("../providers/types.js").Message[],
@@ -351,6 +350,7 @@ export class Session {
       provider,
       systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
       config: config.contextWindow,
+      toolTokenBudget: this.agentLoop.getToolTokenBudget(),
     });
 
     void getHookManager().trigger("session-start", {
@@ -391,6 +391,7 @@ export class Session {
     this.traceEmitter.updateSender(sendToClient);
     if (!opts?.skipProxySenderUpdate) {
       this.hostBashProxy?.updateSender(sendToClient, !hasNoClient);
+      this.hostCuProxy?.updateSender(sendToClient, !hasNoClient);
       this.hostFileProxy?.updateSender(sendToClient, !hasNoClient);
     }
   }
@@ -403,6 +404,7 @@ export class Session {
   /** Mark host proxies as unavailable so tool execution uses local fallback. */
   clearProxyAvailability(): void {
     this.hostBashProxy?.updateSender(this.sendToClient, false);
+    this.hostCuProxy?.updateSender(this.sendToClient, false);
     this.hostFileProxy?.updateSender(this.sendToClient, false);
   }
 
@@ -410,22 +412,13 @@ export class Session {
   restoreProxyAvailability(): void {
     if (!this.hasNoClient) {
       this.hostBashProxy?.updateSender(this.sendToClient, true);
+      this.hostCuProxy?.updateSender(this.sendToClient, true);
       this.hostFileProxy?.updateSender(this.sendToClient, true);
     }
   }
 
   setSandboxOverride(enabled: boolean | undefined): void {
     this.sandboxOverride = enabled;
-  }
-
-  setEscalationHandler(
-    handler: (task: string, sourceSessionId: string) => boolean,
-  ): void {
-    this.onEscalateToComputerUse = handler;
-  }
-
-  hasEscalationHandler(): boolean {
-    return this.onEscalateToComputerUse !== undefined;
   }
 
   isProcessing(): boolean {
@@ -450,6 +443,7 @@ export class Session {
   dispose(): void {
     approvalOverrides.clearMode(this.conversationId);
     this.hostBashProxy?.dispose();
+    this.hostCuProxy?.dispose();
     this.hostFileProxy?.dispose();
     disposeSession(this);
   }
@@ -678,12 +672,17 @@ export class Session {
       return { allow: true };
     }
 
-    // Persistent allow: cascade if the pattern matches any allowlist candidate
+    // Persistent allow: cascade if the pattern matches any allowlist candidate.
+    // "always_allow" must NOT cascade to high-risk pending confirmations —
+    // only "always_allow_high_risk" has consent for those.
     if (
       (decision === "always_allow" || decision === "always_allow_high_risk") &&
       selectedPattern &&
       details
     ) {
+      if (decision === "always_allow" && details.riskLevel === "high") {
+        return null;
+      }
       for (const option of details.allowlistOptions) {
         if (patternMatchesCandidate(selectedPattern, option.pattern)) {
           return { allow: true };
@@ -744,6 +743,17 @@ export class Session {
       this.hostFileProxy.dispose();
     }
     this.hostFileProxy = proxy;
+  }
+
+  resolveHostCu(requestId: string, observation: CuObservationResult): void {
+    this.hostCuProxy?.resolve(requestId, observation);
+  }
+
+  setHostCuProxy(proxy: HostCuProxy | undefined): void {
+    if (this.hostCuProxy && this.hostCuProxy !== proxy) {
+      this.hostCuProxy.dispose();
+    }
+    this.hostCuProxy = proxy;
   }
 
   // ── Server-authoritative state signals ─────────────────────────────
@@ -811,6 +821,18 @@ export class Session {
 
   setPreactivatedSkillIds(ids: string[] | undefined): void {
     this.preactivatedSkillIds = ids;
+  }
+
+  /**
+   * Add a skill ID to the preactivated set without replacing existing entries.
+   * No-op if the ID is already present.
+   */
+  addPreactivatedSkillId(id: string): void {
+    if (!this.preactivatedSkillIds) {
+      this.preactivatedSkillIds = [id];
+    } else if (!this.preactivatedSkillIds.includes(id)) {
+      this.preactivatedSkillIds.push(id);
+    }
   }
 
   setTurnChannelContext(ctx: TurnChannelContext): void {

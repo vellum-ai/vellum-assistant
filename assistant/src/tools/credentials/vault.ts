@@ -1,7 +1,9 @@
 import { getConfig } from "../../config/loader.js";
 import { orchestrateOAuthConnect } from "../../oauth/connect-orchestrator.js";
 import {
+  disconnectOAuthProvider,
   getAppByProviderAndClientId,
+  getConnectionByProviderAndAccount,
   getMostRecentAppByProvider,
   getProvider,
 } from "../../oauth/oauth-store.js";
@@ -16,11 +18,10 @@ import { buildAssistantEvent } from "../../runtime/assistant-event.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import { credentialKey } from "../../security/credential-key.js";
-import type { TokenEndpointAuthMethod } from "../../security/oauth2.js";
 import {
   deleteSecureKeyAsync,
-  getSecureKey,
-  listSecureKeys,
+  getSecureKeyAsync,
+  listSecureKeysAsync,
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
@@ -72,6 +73,11 @@ class CredentialStoreTool implements Tool {
             type: "string",
             description: "Service name, e.g. gmail, github",
           },
+          account: {
+            type: "string",
+            description:
+              "Account identifier (e.g. email address) to target a specific connection when multiple accounts are connected for the same service. If omitted, uses the most recently connected account.",
+          },
           field: {
             type: "string",
             description: "Field name, e.g. password, username, recovery_email",
@@ -112,16 +118,6 @@ class CredentialStoreTool implements Tool {
             description:
               'Human-readable description of intended usage (for store/prompt actions), e.g. "GitHub login for pushing changes"',
           },
-          auth_url: {
-            type: "string",
-            description:
-              "OAuth2 authorization endpoint (only for oauth2_connect action). Auto-filled for well-known services (gmail, slack).",
-          },
-          token_url: {
-            type: "string",
-            description:
-              "OAuth2 token endpoint (only for oauth2_connect action). Auto-filled for well-known services (gmail, slack).",
-          },
           scopes: {
             type: "array",
             items: { type: "string" },
@@ -133,26 +129,10 @@ class CredentialStoreTool implements Tool {
             description:
               "OAuth2 client ID (only for oauth2_connect action). If omitted, looked up from previously stored credentials.",
           },
-          extra_params: {
-            type: "object",
-            description:
-              "Extra query params for OAuth2 auth URL (only for oauth2_connect action)",
-          },
-          userinfo_url: {
-            type: "string",
-            description:
-              "Endpoint to fetch account info after OAuth2 auth (only for oauth2_connect action)",
-          },
           client_secret: {
             type: "string",
             description:
               "OAuth2 client secret for providers that require it (e.g. Google, Slack). If omitted, looked up from previously stored credentials; if still absent, PKCE-only is used (only for oauth2_connect action)",
-          },
-          token_endpoint_auth_method: {
-            type: "string",
-            enum: ["client_secret_basic", "client_secret_post"],
-            description:
-              'How to send client credentials at the token endpoint: "client_secret_post" (default, in POST body) or "client_secret_basic" (HTTP Basic Auth header). Only for oauth2_connect action.',
           },
           alias: {
             type: "string",
@@ -387,10 +367,12 @@ class CredentialStoreTool implements Tool {
 
         const allMetadata = listCredentialMetadata();
         // Verify secrets still exist by reading all key names once (instead of
-        // per-entry getSecureKey calls that each re-read/re-derive the store).
+        // per-entry getSecureKeyAsync calls that each re-read/re-derive the store).
+        // Uses the async variant to include keys from both the primary backend
+        // (e.g. keychain) and the encrypted store (legacy keys).
         let secureKeySet: Set<string> | undefined;
         try {
-          secureKeySet = new Set(listSecureKeys());
+          secureKeySet = new Set(await listSecureKeysAsync());
         } catch (err) {
           log.error(
             { err },
@@ -475,6 +457,33 @@ class CredentialStoreTool implements Tool {
           log.warn(
             { service, field, err },
             "metadata delete failed after removing credential",
+          );
+        }
+        // Also clean up any OAuth connection for this service (best-effort)
+        try {
+          const accountHint = input.account as string | undefined;
+          let oauthResult: "disconnected" | "not-found" | "error";
+          if (accountHint) {
+            const targetConn = getConnectionByProviderAndAccount(
+              service,
+              accountHint,
+            );
+            oauthResult = targetConn
+              ? await disconnectOAuthProvider(service, undefined, targetConn.id)
+              : "not-found";
+          } else {
+            oauthResult = await disconnectOAuthProvider(service);
+          }
+          if (oauthResult === "error") {
+            log.warn(
+              { service },
+              "OAuth disconnect failed after removing credential — secure key deletion error",
+            );
+          }
+        } catch (err) {
+          log.warn(
+            { service, err },
+            "OAuth disconnect failed after removing credential",
           );
         }
         return {
@@ -734,7 +743,7 @@ class CredentialStoreTool implements Tool {
             isError: true,
           };
 
-        // Resolve aliases (e.g. "gmail" → "integration:gmail")
+        // Resolve aliases (e.g. "gmail" → "integration:google")
         const service = resolveService(rawService);
 
         // Code-side behavioral fields (identityVerifier, setup, etc.)
@@ -758,8 +767,8 @@ class CredentialStoreTool implements Tool {
           if (dbApp) {
             if (!clientId) clientId = dbApp.clientId;
             if (!clientSecret) {
-              clientSecret = getSecureKey(
-                `oauth_app/${dbApp.id}/client_secret`,
+              clientSecret = await getSecureKeyAsync(
+                dbApp.clientSecretCredentialPath,
               );
             }
           }
@@ -768,35 +777,13 @@ class CredentialStoreTool implements Tool {
         // Early guardrails that stay in vault.ts (credential resolution is vault-specific)
         const inputScopes = input.scopes as string[] | undefined;
 
-        if (providerRow) {
-          // Well-known provider (gmail, slack, twitter): the orchestrator
-          // resolves authUrl/tokenUrl/scopes from the DB provider row.
-        } else {
-          // Custom/unknown provider: require authUrl, tokenUrl, scopes from input
-          if (!input.auth_url)
-            return {
-              content:
-                "Error: auth_url is required for oauth2_connect action (no well-known config for this service)",
-              isError: true,
-            };
-          if (!input.token_url)
-            return {
-              content:
-                "Error: token_url is required for oauth2_connect action (no well-known config for this service)",
-              isError: true,
-            };
-          if (!inputScopes)
-            return {
-              content:
-                "Error: scopes is required for oauth2_connect action (no well-known config for this service)",
-              isError: true,
-            };
+        if (!providerRow) {
+          return {
+            content: `Error: no OAuth provider registered for "${service}". Ensure the provider is seeded in the database.`,
+            isError: true,
+          };
         }
 
-        const authUrl =
-          (input.auth_url as string | undefined) ?? providerRow?.authUrl;
-        const tokenUrl =
-          (input.token_url as string | undefined) ?? providerRow?.tokenUrl;
         if (!clientId)
           return {
             content:
@@ -809,7 +796,7 @@ class CredentialStoreTool implements Tool {
         // browser-automation workarounds that inevitably fail.
         const requiresSecret =
           behavior?.setup?.requiresClientSecret ??
-          !!(providerRow?.tokenEndpointAuthMethod || providerRow?.extraParams);
+          !!(providerRow.tokenEndpointAuthMethod || providerRow.extraParams);
         if (requiresSecret && !clientSecret) {
           const skillId = behavior?.setupSkillId;
           const skillHint = skillId
@@ -821,40 +808,15 @@ class CredentialStoreTool implements Tool {
           };
         }
 
-        const tokenEndpointAuthMethod =
-          (input.token_endpoint_auth_method as
-            | TokenEndpointAuthMethod
-            | undefined) ??
-          (providerRow?.tokenEndpointAuthMethod as
-            | TokenEndpointAuthMethod
-            | undefined);
-
-        // Delegate to the shared orchestrator.
-        // For profile-based providers, pass user scopes as requestedScopes so the
-        // scope policy engine (resolveScopes) is invoked. For custom providers,
-        // pass scopes directly as an explicit override.
+        // Delegate to the shared orchestrator — it resolves authUrl, tokenUrl,
+        // extraParams, userinfoUrl, and tokenEndpointAuthMethod from the DB.
         const result = await orchestrateOAuthConnect({
           service: rawService,
           clientId,
           clientSecret,
           isInteractive: !!context.isInteractive,
           sendToClient: context.sendToClient,
-          allowedTools: input.allowed_tools as string[] | undefined,
-          authUrl,
-          tokenUrl,
-          ...(providerRow
-            ? {
-                // Well-known provider: let orchestrator resolve scopes via policy engine.
-                // Only pass requestedScopes if the user explicitly provided scopes.
-                ...(inputScopes ? { requestedScopes: inputScopes } : {}),
-              }
-            : {
-                // Custom provider: explicit scopes override (bypasses policy engine)
-                scopes: inputScopes,
-              }),
-          extraParams: input.extra_params as Record<string, string> | undefined,
-          userinfoUrl: input.userinfo_url as string | undefined,
-          tokenEndpointAuthMethod,
+          ...(inputScopes ? { requestedScopes: inputScopes } : {}),
           onDeferredComplete: (deferredResult) => {
             // Emit oauth_connect_result to all connected SSE clients so the
             // UI can update immediately when the deferred browser flow completes.
@@ -942,8 +904,9 @@ class CredentialStoreTool implements Tool {
             | "loopback"
             | "gateway"
             | null) ?? "gateway";
-        if (transport === "loopback" && descProviderRow.loopbackPort) {
-          redirectUri = `http://127.0.0.1:${descProviderRow.loopbackPort}/oauth/callback`;
+        const loopbackPort = descBehavior?.loopbackPort;
+        if (transport === "loopback" && loopbackPort) {
+          redirectUri = `http://localhost:${loopbackPort}/oauth/callback`;
         } else if (transport === "loopback") {
           redirectUri =
             "(automatic — no redirect URI needed, uses random localhost port)";

@@ -10,7 +10,6 @@ enum VerifyResult {
 final class ActionVerifier {
     private var actionHistory: [AgentAction] = []
     private let maxSteps: Int
-    private(set) var blockedCount: Int = 0
 
     init(maxSteps: Int = 50) {
         self.maxSteps = maxSteps
@@ -87,24 +86,11 @@ final class ActionVerifier {
         return .allowed
     }
 
-    /// Record an action that was confirmed by the user and will be executed.
-    /// This ensures confirmed actions count toward step limits and loop detection.
-    func recordConfirmedAction(_ action: AgentAction) {
-        actionHistory.append(action)
-    }
-
     func reset() {
         actionHistory.removeAll()
-        blockedCount = 0
     }
 
     var currentStepCount: Int { actionHistory.count }
-
-    var consecutiveBlockCount: Int { blockedCount }
-
-    func recordBlock() { blockedCount += 1 }
-
-    func resetBlockCount() { blockedCount = 0 }
 
     // MARK: - Loop Detection
 

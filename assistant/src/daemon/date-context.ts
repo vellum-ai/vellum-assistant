@@ -33,10 +33,6 @@ const WEEKDAY_NAMES = [
   "Friday",
   "Saturday",
 ] as const;
-const TIMEZONE_SUBJECT_LINE_RE = /^\s*-\s*time\s*zone\s*:\s*(.+)$/i;
-const TIMEZONE_SUBJECT_COMPACT_RE = /^\s*-\s*timezone\s*:\s*(.+)$/i;
-const TIMEZONE_TOKEN_RE =
-  /\b(?:[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+)+|(?:UTC|GMT)(?:[+-]\d{1,2}(?::?\d{2})?)?)\b/gi;
 const UTC_GMT_OFFSET_TOKEN_RE = /^(?:UTC|GMT)([+-])(\d{1,2})(?::?(\d{2}))?$/i;
 
 function normalizeOffsetToken(offsetToken: string): string {
@@ -111,6 +107,17 @@ function canonicalizeTimeZone(timeZone: string): string | null {
       return null;
     }
   }
+  // Check abbreviation mapping before Intl (many abbreviations are not recognized by Intl)
+  const abbrIana = TIMEZONE_ABBREVIATIONS[trimmed.toUpperCase()];
+  if (abbrIana) {
+    try {
+      return new Intl.DateTimeFormat("en-US", {
+        timeZone: abbrIana,
+      }).resolvedOptions().timeZone;
+    } catch {
+      return null;
+    }
+  }
   try {
     return new Intl.DateTimeFormat("en-US", {
       timeZone: trimmed,
@@ -120,6 +127,114 @@ function canonicalizeTimeZone(timeZone: string): string | null {
   }
 }
 
+/**
+ * Common timezone abbreviation → IANA identifier mapping.
+ * Used as a fallback when `Intl.DateTimeFormat` does not recognize the abbreviation.
+ */
+const TIMEZONE_ABBREVIATIONS: Record<string, string> = {
+  // North America
+  PST: "America/Los_Angeles",
+  PDT: "America/Los_Angeles",
+  MST: "America/Denver",
+  MDT: "America/Denver",
+  CST: "America/Chicago",
+  CDT: "America/Chicago",
+  EST: "America/New_York",
+  EDT: "America/New_York",
+  AKST: "America/Anchorage",
+  AKDT: "America/Anchorage",
+  HST: "Pacific/Honolulu",
+  AST: "America/Puerto_Rico",
+  NST: "America/St_Johns",
+  NDT: "America/St_Johns",
+  // Europe
+  BST: "Europe/London",
+  CET: "Europe/Paris",
+  CEST: "Europe/Paris",
+  EET: "Europe/Athens",
+  EEST: "Europe/Athens",
+  WEST: "Europe/Lisbon",
+  MSK: "Europe/Moscow",
+  // Asia / Oceania
+  JST: "Asia/Tokyo",
+  KST: "Asia/Seoul",
+  HKT: "Asia/Hong_Kong",
+  SGT: "Asia/Singapore",
+  WIB: "Asia/Jakarta",
+  PHT: "Asia/Manila",
+  PKT: "Asia/Karachi",
+  NPT: "Asia/Kathmandu",
+  AEST: "Australia/Sydney",
+  AEDT: "Australia/Sydney",
+  ACST: "Australia/Adelaide",
+  ACDT: "Australia/Adelaide",
+  AWST: "Australia/Perth",
+  NZST: "Pacific/Auckland",
+  NZDT: "Pacific/Auckland",
+  // South America
+  BRT: "America/Sao_Paulo",
+};
+
+/**
+ * Regex matching IANA timezone identifiers (e.g. "America/New_York"),
+ * UTC/GMT offset tokens (e.g. "UTC+5", "GMT-8:30"), and common
+ * timezone abbreviations (e.g. "PST", "EST", "JST").
+ *
+ * Abbreviation alternation is built from `TIMEZONE_ABBREVIATIONS` keys.
+ */
+const TIMEZONE_ABBR_ALTERNATION = Object.keys(TIMEZONE_ABBREVIATIONS).join("|");
+const TIMEZONE_TOKEN_RE = new RegExp(
+  `\\b(?:[A-Za-z][A-Za-z0-9_+-]*(?:/[A-Za-z0-9_+-]+)+|(?:UTC|GMT)(?:[+-]\\d{1,2}(?::?\\d{2})?)?|(?:${TIMEZONE_ABBR_ALTERNATION}))\\b`,
+  "gi",
+);
+
+/**
+ * Extract the user's timezone from V2 memory recall injected text.
+ *
+ * Scans the `<user_identity>` section (if present) for lines containing
+ * "timezone" and tries to resolve an IANA identifier. Falls back to
+ * scanning the full text body.
+ */
+export function extractUserTimeZoneFromRecall(
+  injectedText: string,
+): string | null {
+  if (!injectedText || injectedText.trim().length === 0) return null;
+
+  // Prefer lines inside <user_identity> that mention "timezone"
+  const identityMatch = injectedText.match(
+    /<user_identity>([\s\S]*?)<\/user_identity>/,
+  );
+  if (identityMatch) {
+    const identityBlock = identityMatch[1];
+    for (const line of identityBlock.split("\n")) {
+      if (/time\s*zone/i.test(line)) {
+        for (const token of extractTimeZoneCandidates(line)) {
+          const canonical = canonicalizeTimeZone(token);
+          if (canonical) return canonical;
+        }
+      }
+    }
+    // Scan full identity block for any timezone token
+    for (const token of extractTimeZoneCandidates(identityBlock)) {
+      const canonical = canonicalizeTimeZone(token);
+      if (canonical) return canonical;
+    }
+  }
+
+  // Fallback: scan entire injected text for timezone tokens in
+  // lines that mention "timezone"
+  for (const line of injectedText.split("\n")) {
+    if (/time\s*zone/i.test(line)) {
+      for (const token of extractTimeZoneCandidates(line)) {
+        const canonical = canonicalizeTimeZone(token);
+        if (canonical) return canonical;
+      }
+    }
+  }
+
+  return null;
+}
+
 function extractTimeZoneCandidates(text: string): string[] {
   const matches = (text.match(TIMEZONE_TOKEN_RE) ?? [])
     .map((token) => token.trim())
@@ -127,38 +242,6 @@ function extractTimeZoneCandidates(text: string): string[] {
   const ianaTokens = matches.filter((token) => token.includes("/"));
   const offsetTokens = matches.filter((token) => !token.includes("/"));
   return [...ianaTokens, ...offsetTokens];
-}
-
-/**
- * Extract a valid user timezone from compiled `<dynamic-user-profile>` text.
- *
- * Prefers explicit `timezone:` profile lines, then falls back to scanning the
- * full profile body for valid IANA timezone identifiers.
- */
-export function extractUserTimeZoneFromDynamicProfile(
-  profileText: string,
-): string | null {
-  const trimmed = profileText.trim();
-  if (trimmed.length === 0) return null;
-
-  const candidateTexts: string[] = [];
-  for (const line of trimmed.split("\n")) {
-    const match =
-      line.match(TIMEZONE_SUBJECT_LINE_RE) ??
-      line.match(TIMEZONE_SUBJECT_COMPACT_RE);
-    if (match) {
-      candidateTexts.push(match[1]);
-    }
-  }
-  candidateTexts.push(trimmed);
-
-  for (const text of candidateTexts) {
-    for (const token of extractTimeZoneCandidates(text)) {
-      const canonical = canonicalizeTimeZone(token);
-      if (canonical) return canonical;
-    }
-  }
-  return null;
 }
 
 /**

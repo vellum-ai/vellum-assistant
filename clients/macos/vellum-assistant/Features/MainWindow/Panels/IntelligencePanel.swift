@@ -5,17 +5,27 @@ import VellumAssistantShared
 
 struct IntelligencePanel: View {
     var onClose: () -> Void
-    var onEditAvatar: () -> Void
     var onInvokeSkill: ((SkillInfo) -> Void)?
     let daemonClient: DaemonClient
+    var initialTab: String? = nil
+    @Binding var pendingMemoryId: String?
 
-    @State private var selectedTab: IntelligenceTab = .identity
+    @State private var selectedTab: IntelligenceTab
+
+    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, daemonClient: DaemonClient, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil)) {
+        self.onClose = onClose
+        self.onInvokeSkill = onInvokeSkill
+        self.daemonClient = daemonClient
+        self.initialTab = initialTab
+        _pendingMemoryId = pendingMemoryId
+        _selectedTab = State(initialValue: IntelligenceTab(rawValue: initialTab ?? "") ?? .identity)
+    }
 
     private enum IntelligenceTab: String, CaseIterable {
         case identity = "Identity"
-        case installedSkills = "Installed Skills"
-        case communitySkills = "Community Skills"
+        case installedSkills = "Skills"
         case workspace = "Workspace"
+        case memories = "Memories"
     }
 
     private let maxContentWidth: CGFloat = 1100
@@ -26,12 +36,10 @@ struct IntelligencePanel: View {
             HStack(alignment: .center) {
                 Text("Intelligence")
                     .font(VFont.panelTitle)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentEmphasized)
                 Spacer()
             }
             .padding(.bottom, VSpacing.md)
-
-            Divider().background(VColor.surfaceBorder)
 
             // Tab bar
             VStack(spacing: 0) {
@@ -42,16 +50,20 @@ struct IntelligencePanel: View {
                     Spacer()
                 }
 
-                Divider().background(VColor.surfaceBorder)
+                Divider().background(VColor.borderDisabled)
             }
             .padding(.top, VSpacing.md)
             .padding(.bottom, VSpacing.md)
 
             // Tab content
             tabContent
-                .padding(.top, VSpacing.sm)
         }
         .padding(VSpacing.xl)
+        .onChange(of: pendingMemoryId) {
+            if pendingMemoryId != nil {
+                withAnimation(VAnimation.fast) { selectedTab = .memories }
+            }
+        }
     }
 
     // MARK: - Tab Button
@@ -65,11 +77,11 @@ struct IntelligencePanel: View {
             VStack(spacing: VSpacing.sm) {
                 Text(label)
                     .font(VFont.body)
-                    .foregroundColor(isActive ? VColor.textPrimary : VColor.textMuted)
+                    .foregroundColor(isActive ? VColor.primaryActive : VColor.contentSecondary)
                     .padding(.bottom, VSpacing.xs)
 
                 Rectangle()
-                    .fill(isActive ? VColor.textPrimary : Color.clear)
+                    .fill(isActive ? VColor.borderActive : Color.clear)
                     .frame(height: 2)
             }
             .fixedSize()
@@ -86,35 +98,32 @@ struct IntelligencePanel: View {
         case .identity:
             IdentityPanel(
                 onClose: onClose,
-                onEditAvatar: onEditAvatar,
                 daemonClient: daemonClient
             )
+            .padding(.top, VSpacing.sm)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .clipped()
 
         case .installedSkills:
             AgentPanelContent(
                 onInvokeSkill: onInvokeSkill,
-                daemonClient: daemonClient,
-                visibleTab: .installed
+                daemonClient: daemonClient
             )
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-
-        case .communitySkills:
-            AgentPanelContent(
-                onInvokeSkill: onInvokeSkill,
-                daemonClient: daemonClient,
-                visibleTab: .available
-            )
+            .padding(.top, VSpacing.sm)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
         case .workspace:
             WorkspacePanel(daemonClient: daemonClient)
+                .padding(.top, VSpacing.sm)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+
+        case .memories:
+            MemoriesPanel(daemonClient: daemonClient, focusedMemoryId: $pendingMemoryId)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
     }
 }
 
 #Preview {
-    IntelligencePanel(onClose: {}, onEditAvatar: {}, daemonClient: DaemonClient())
+    IntelligencePanel(onClose: {}, daemonClient: DaemonClient())
 }

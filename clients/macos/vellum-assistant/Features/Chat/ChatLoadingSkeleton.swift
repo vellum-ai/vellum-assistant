@@ -12,9 +12,9 @@ struct ChatLoadingSkeleton: View {
     /// Darker bone that uses a subtler shimmer to avoid the bright white sweep.
     private func chatBone(width: CGFloat? = nil, height: CGFloat = 14) -> some View {
         RoundedRectangle(cornerRadius: VRadius.sm)
-            .fill(VColor.textMuted.opacity(0.15))
+            .fill(VColor.contentTertiary.opacity(0.15))
             .frame(width: width, height: height)
-            .vShimmer(highlightColor: VColor.textMuted.opacity(0.1))
+            .vShimmer(highlightColor: VColor.contentTertiary.opacity(0.1))
     }
 
     var body: some View {
@@ -40,7 +40,7 @@ struct ChatLoadingSkeleton: View {
         .padding(.vertical, VSpacing.md)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.userBubble)
+                .fill(VColor.surfaceActive)
         )
         .frame(maxWidth: VSpacing.chatBubbleMaxWidth * 0.65)
         .frame(maxWidth: .infinity, alignment: .trailing)
@@ -69,12 +69,4 @@ struct ChatLoadingSkeleton: View {
 }
 
 #if DEBUG
-#Preview("ChatLoadingSkeleton") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        ChatLoadingSkeleton()
-            .padding(VSpacing.lg)
-    }
-    .frame(width: 700, height: 400)
-}
 #endif

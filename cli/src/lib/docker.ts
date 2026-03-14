@@ -7,7 +7,6 @@ import { saveAssistantEntry, setActiveAssistant } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
 import { DEFAULT_GATEWAY_PORT } from "./constants";
 import type { Species } from "./constants";
-import { discoverPublicUrl } from "./local";
 import { generateRandomSuffix } from "./random-name";
 import { exec, execOutput } from "./step-runner";
 import {
@@ -18,6 +17,102 @@ import {
 } from "./xdg-log";
 
 const _require = createRequire(import.meta.url);
+
+/**
+ * Checks whether the `docker` CLI and daemon are available on the system.
+ * Installs Colima and Docker via Homebrew if the CLI is missing, and starts
+ * Colima if the Docker daemon is not reachable.
+ */
+async function ensureDockerInstalled(): Promise<void> {
+  let installed = false;
+  try {
+    await execOutput("docker", ["--version"]);
+    installed = true;
+  } catch {
+    // docker CLI not found — install it
+  }
+
+  if (!installed) {
+    // Check whether Homebrew is available before attempting to use it.
+    let hasBrew = false;
+    try {
+      await execOutput("brew", ["--version"]);
+      hasBrew = true;
+    } catch {
+      // brew not found
+    }
+
+    if (!hasBrew) {
+      console.log("🍺 Homebrew not found. Installing Homebrew...");
+      try {
+        await exec("bash", [
+          "-c",
+          'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"',
+        ]);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        throw new Error(
+          `Failed to install Homebrew. Please install Docker manually from https://www.docker.com/products/docker-desktop/\n${message}`,
+        );
+      }
+
+      // Homebrew on Apple Silicon installs to /opt/homebrew; add it to PATH
+      // so subsequent brew/colima/docker invocations work in this session.
+      if (!process.env.PATH?.includes("/opt/homebrew")) {
+        process.env.PATH = `/opt/homebrew/bin:/opt/homebrew/sbin:${process.env.PATH}`;
+      }
+    }
+
+    console.log("🐳 Docker not found. Installing via Homebrew...");
+    try {
+      await exec("brew", ["install", "colima", "docker"]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Failed to install Docker via Homebrew. Please install Docker manually.\n${message}`,
+      );
+    }
+
+    try {
+      await execOutput("docker", ["--version"]);
+    } catch {
+      throw new Error(
+        "Docker was installed but is still not available on PATH. " +
+          "You may need to restart your terminal.",
+      );
+    }
+  }
+
+  // Verify the Docker daemon is reachable; start Colima if it isn't
+  try {
+    await exec("docker", ["info"]);
+  } catch {
+    let hasColima = false;
+    try {
+      await execOutput("colima", ["version"]);
+      hasColima = true;
+    } catch {
+      // colima not found
+    }
+
+    if (!hasColima) {
+      throw new Error(
+        "Docker daemon is not running and Colima is not installed.\n" +
+          "Please start Docker Desktop, or install Colima with 'brew install colima' and run 'colima start'.",
+      );
+    }
+
+    console.log("🚀 Docker daemon not running. Starting Colima...");
+    try {
+      await exec("colima", ["start"]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Failed to start Colima. Please run 'colima start' manually.\n${message}`,
+      );
+    }
+  }
+}
 
 interface DockerRoot {
   /** Directory to use as the Docker build context */
@@ -180,6 +275,8 @@ export async function hatchDocker(
 ): Promise<void> {
   resetLogFile("hatch.log");
 
+  await ensureDockerInstalled();
+
   let repoRoot: string;
   let dockerfileDir: string;
   try {
@@ -273,8 +370,10 @@ export async function hatchDocker(
     );
   }
 
-  const publicUrl = await discoverPublicUrl(gatewayPort);
-  const runtimeUrl = publicUrl || `http://localhost:${gatewayPort}`;
+  // Docker containers bind to 0.0.0.0 so localhost always works. Skip
+  // mDNS/LAN discovery — the .local hostname often fails to resolve on the
+  // host machine itself (mDNS is designed for cross-device discovery).
+  const runtimeUrl = `http://localhost:${gatewayPort}`;
   const dockerEntry: AssistantEntry = {
     assistantId: instanceName,
     runtimeUrl,

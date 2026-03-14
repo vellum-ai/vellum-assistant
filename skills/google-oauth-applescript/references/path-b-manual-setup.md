@@ -1,4 +1,4 @@
-# Path B: Manual Channel Setup (Telegram, SMS, Slack, etc.)
+# Path B: Manual Channel Setup (Telegram, Slack, etc.)
 
 When the user is on a non-interactive channel, walk them through a text-based setup. The channel path uses **Web application** credentials because the OAuth callback goes through the public gateway URL.
 
@@ -54,32 +54,38 @@ Tell the user:
 
 > **Step 3: Configure the OAuth consent screen**
 >
-> This has a few parts. Work through them in order:
+> Open: `https://console.cloud.google.com/auth/branding?project=PROJECT_ID`
 >
-> **3a. Branding** — Open: `https://console.cloud.google.com/auth/branding?project=PROJECT_ID`
+> **If you see a setup wizard** (numbered steps: App Information → Audience → Contact Information → Finish):
 >
-> If the page is empty or shows **Get Started**, fill in:
+> 1. **App Information:** Set app name to **Vellum Assistant**
+> 2. **Audience:** Select **External**
+> 3. **Contact Information:** Enter your email
+> 4. Click **Create**
 >
-> - App name: **Vellum Assistant**
-> - User support email: **your email**
-> - Developer contact email: **your email**
-> - Click **Save**
+> After the wizard completes, open `https://console.cloud.google.com/auth/audience?project=PROJECT_ID` and scroll to **Test users** → click **+ Add users** → add your email → **Save**.
 >
-> If branding is already configured, skip to the next part.
+> **If you see a Branding page** (with fields for App name, support email, etc.):
 >
-> **3b. Audience** — Open: `https://console.cloud.google.com/auth/audience?project=PROJECT_ID`
+> - **3a. Branding** — Fill in:
+>   - App name: **Vellum Assistant**
+>   - User support email: **your email**
+>   - Developer contact email: **your email**
+>   - Click **Save**
+> - **3b. Audience** — Open: `https://console.cloud.google.com/auth/audience?project=PROJECT_ID`
+>   - Set user type to **External** if not already set
+>   - Scroll to **Test users**, click **+ Add users**, add **your email**, click **Save**
 >
-> - Set user type to **External** if not already set
-> - Scroll to **Test users**, click **+ Add users**, add **your email**, click **Save**
+> **Then, regardless of which flow you saw:**
 >
-> **3c. Scopes** — Open: `https://console.cloud.google.com/auth/scopes?project=PROJECT_ID`
+> - **Scopes** — Open: `https://console.cloud.google.com/auth/scopes?project=PROJECT_ID`
+>   - Click **Add or Remove Scopes** — a panel will open
+>   - Scroll down to the **"Manually add scopes"** text box and paste these (comma-separated):
+>     `https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/contacts.readonly`
+>   - Click **Update** at the bottom of the panel
+>   - Back on the main page, scroll down and click **Save**
 >
-> - Click **Add or Remove Scopes**
-> - Find the **"Manually add scopes"** text box and paste these (comma-separated):
->   `https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/contacts.readonly`
-> - Click **Add to Table**, then **Save**
->
-> Let me know when all three parts are done.
+> Let me know when all parts are done.
 
 ## Path B Step 5: Create Web Application Credentials
 
@@ -120,7 +126,7 @@ After the user sends it:
 
 ```
 credential_store store:
-  service: "integration:gmail"
+  service: "integration:google"
   field: "client_id"
   value: "<the client id the user sent>"
 ```
@@ -139,7 +145,7 @@ After the user sends the suffix, reconstruct and store the full secret:
 
 ```
 credential_store store:
-  service: "integration:gmail"
+  service: "integration:google"
   field: "client_secret"
   value: "GOCSPX-<the suffix the user sent>"
 ```
@@ -155,7 +161,7 @@ Tell the user:
 ```
 credential_store:
   action: "oauth2_connect"
-  service: "integration:gmail"
+  service: "integration:google"
 ```
 
 Send the returned auth URL to the user. If they see **This app isn't verified**, tell them to click **Advanced** and continue to **Vellum Assistant**.

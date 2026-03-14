@@ -78,12 +78,12 @@ struct TraceTimelineView: View {
                         }
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
-                        .foregroundColor(Amber._500)
-                        .background(Moss._700)
+                        .foregroundColor(VColor.systemNegativeHover)
+                        .background(VColor.surfaceActive)
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                         .overlay(
                             RoundedRectangle(cornerRadius: VRadius.sm)
-                                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                                .stroke(VColor.borderBase, lineWidth: 1)
                         )
                     }
                     .buttonStyle(.plain)
@@ -106,28 +106,28 @@ struct TraceTimelineView: View {
 
                 Text(requestId.isEmpty ? "System" : "Request \(requestId.prefix(8))")
                     .font(VFont.captionMedium)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .textSelection(.enabled)
 
                 if groupStatus == .cancelled {
                     Text("Cancelled")
                         .font(VFont.small)
-                        .foregroundColor(Amber._500)
+                        .foregroundColor(VColor.systemNegativeHover)
                         .textSelection(.enabled)
                 } else if groupStatus == .handedOff {
                     Text("Handed off")
                         .font(VFont.small)
-                        .foregroundColor(Forest._400)
+                        .foregroundColor(VColor.systemPositiveWeak)
                         .textSelection(.enabled)
                 } else if groupStatus == .error {
                     Text("Error")
                         .font(VFont.small)
-                        .foregroundColor(Danger._500)
+                        .foregroundColor(VColor.systemNegativeStrong)
                         .textSelection(.enabled)
                 }
 
                 Rectangle()
-                    .fill(VColor.surfaceBorder)
+                    .fill(VColor.borderBase)
                     .frame(height: 1)
             }
 
@@ -149,11 +149,11 @@ struct TraceTimelineView: View {
 
     private func groupStatusColor(_ status: TraceStore.RequestGroupStatus) -> Color {
         switch status {
-        case .active: return Emerald._400
-        case .completed: return Emerald._400
-        case .cancelled: return Amber._500
-        case .handedOff: return Forest._400
-        case .error: return Danger._500
+        case .active: return VColor.systemPositiveStrong
+        case .completed: return VColor.systemPositiveStrong
+        case .cancelled: return VColor.systemNegativeHover
+        case .handedOff: return VColor.systemPositiveWeak
+        case .error: return VColor.systemNegativeStrong
         }
     }
 
@@ -180,7 +180,7 @@ struct TraceTimelineView: View {
 
                     if hasAttributes {
                         VIconView(isExpanded ? .chevronUp : .chevronDown, size: 9)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                             .frame(width: 16)
                     }
                 }
@@ -194,11 +194,11 @@ struct TraceTimelineView: View {
                         HStack(spacing: VSpacing.sm) {
                             Text(key)
                                 .font(VFont.small)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                                 .textSelection(.enabled)
                             Text(stringValue(attrs[key]))
                                 .font(VFont.small)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.contentSecondary)
                                 .lineLimit(3)
                                 .textSelection(.enabled)
                         }
@@ -207,7 +207,7 @@ struct TraceTimelineView: View {
                 .padding(.leading, 26)
                 .padding(.vertical, VSpacing.xs)
                 .padding(.trailing, VSpacing.sm)
-                .background(Moss._700.opacity(0.5))
+                .background(VColor.surfaceActive.opacity(0.5))
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
             }
         }

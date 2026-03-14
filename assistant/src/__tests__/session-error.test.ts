@@ -77,6 +77,7 @@ describe("classifySessionError", () => {
         const result = classifySessionError(new Error(msg), baseCtx);
         expect(result.code).toBe("PROVIDER_NETWORK");
         expect(result.retryable).toBe(true);
+        expect(result.errorCategory).toBe("provider_network");
       });
     }
   });
@@ -95,6 +96,8 @@ describe("classifySessionError", () => {
         const result = classifySessionError(new Error(msg), baseCtx);
         expect(result.code).toBe("PROVIDER_RATE_LIMIT");
         expect(result.retryable).toBe(true);
+        expect(result.userMessage).toContain("busy");
+        expect(result.errorCategory).toBe("rate_limit");
       });
     }
   });
@@ -127,6 +130,7 @@ describe("classifySessionError", () => {
         expect(result.code).toBe("PROVIDER_API");
         expect(result.userMessage).toContain("timed out");
         expect(result.retryable).toBe(true);
+        expect(result.errorCategory).toBe("provider_timeout");
       });
     }
 
@@ -166,6 +170,8 @@ describe("classifySessionError", () => {
         const result = classifySessionError(new Error(msg), baseCtx);
         expect(result.code).toBe("CONTEXT_TOO_LARGE");
         expect(result.retryable).toBe(false);
+        expect(result.userMessage).toContain("too long");
+        expect(result.errorCategory).toBe("context_too_large");
       });
     }
   });
@@ -205,6 +211,71 @@ describe("classifySessionError", () => {
     });
   });
 
+  describe("ordering errors (tool_use/tool_result mismatches)", () => {
+    const cases = [
+      "tool_result block not immediately after tool_use block",
+      "tool_use block must have a matching tool_result",
+      "tool_use_id abc123 without corresponding tool_result",
+      "tool_result references tool_use_id not found in conversation",
+      "messages have invalid order",
+    ];
+
+    for (const msg of cases) {
+      it(`classifies "${msg}" as PROVIDER_ORDERING`, () => {
+        const result = classifySessionError(new Error(msg), baseCtx);
+        expect(result.code).toBe("PROVIDER_ORDERING");
+        expect(result.retryable).toBe(true);
+        expect(result.userMessage).toBe(
+          "An internal error occurred. Please try again.",
+        );
+        expect(result.errorCategory).toBe("tool_ordering");
+      });
+    }
+
+    it("classifies ProviderError 400 with ordering message as PROVIDER_ORDERING", () => {
+      const err = new ProviderError(
+        "Anthropic API error (400): tool_use_id abc without tool_result",
+        "anthropic",
+        400,
+      );
+      const result = classifySessionError(err, baseCtx);
+      expect(result.code).toBe("PROVIDER_ORDERING");
+      expect(result.retryable).toBe(true);
+      expect(result.errorCategory).toBe("tool_ordering");
+    });
+  });
+
+  describe("web search ordering errors", () => {
+    const cases = [
+      "web_search tool_use block without result",
+      "web_search tool_result missing from conversation",
+    ];
+
+    for (const msg of cases) {
+      it(`classifies "${msg}" as PROVIDER_WEB_SEARCH`, () => {
+        const result = classifySessionError(new Error(msg), baseCtx);
+        expect(result.code).toBe("PROVIDER_WEB_SEARCH");
+        expect(result.retryable).toBe(true);
+        expect(result.userMessage).toBe(
+          "An internal error occurred with web search. Please try again.",
+        );
+        expect(result.errorCategory).toBe("web_search_ordering");
+      });
+    }
+
+    it("classifies ProviderError 400 with web_search ordering message as PROVIDER_WEB_SEARCH", () => {
+      const err = new ProviderError(
+        "Anthropic API error (400): web_search tool_use without result block",
+        "anthropic",
+        400,
+      );
+      const result = classifySessionError(err, baseCtx);
+      expect(result.code).toBe("PROVIDER_WEB_SEARCH");
+      expect(result.retryable).toBe(true);
+      expect(result.errorCategory).toBe("web_search_ordering");
+    });
+  });
+
   describe("abort/cancel errors (non-user-initiated)", () => {
     it('classifies "aborted" as SESSION_ABORTED', () => {
       const result = classifySessionError(
@@ -232,6 +303,7 @@ describe("classifySessionError", () => {
       expect(result.code).toBe("REGENERATE_FAILED");
       expect(result.retryable).toBe(true);
       expect(result.userMessage).toContain("regenerate");
+      expect(result.errorCategory).toContain("regenerate:");
     });
 
     it("returns REGENERATE_FAILED for generic errors", () => {
@@ -251,6 +323,7 @@ describe("classifySessionError", () => {
       expect(result.code).toBe("SESSION_PROCESSING_FAILED");
       expect(result.retryable).toBe(false);
       expect(result.userMessage).toContain("something completely unexpected");
+      expect(result.errorCategory).toBe("processing_failed");
     });
 
     it("includes debugDetails with stack trace", () => {
@@ -291,6 +364,7 @@ describe("classifySessionError", () => {
       const result = classifySessionError(err, baseCtx);
       expect(result.code).toBe("PROVIDER_RATE_LIMIT");
       expect(result.retryable).toBe(true);
+      expect(result.errorCategory).toBe("rate_limit");
     });
 
     it("classifies ProviderError with 500 as PROVIDER_API (retryable)", () => {
@@ -344,19 +418,39 @@ describe("classifySessionError", () => {
     });
   });
 
+  describe("errorCategory is always present", () => {
+    it("includes errorCategory on all classified errors", () => {
+      const cases: Array<{ error: unknown; ctx: ErrorContext }> = [
+        { error: new Error("ECONNREFUSED"), ctx: baseCtx },
+        { error: new Error("rate limit"), ctx: baseCtx },
+        { error: new Error("prompt is too long"), ctx: baseCtx },
+        { error: new Error("unknown"), ctx: baseCtx },
+        {
+          error: new ProviderError("error", "anthropic", 500),
+          ctx: baseCtx,
+        },
+      ];
+      for (const { error, ctx } of cases) {
+        const result = classifySessionError(error, ctx);
+        expect(result.errorCategory).toBeDefined();
+        expect(result.errorCategory.length).toBeGreaterThan(0);
+      }
+    });
+  });
+
   describe("debug detail truncation", () => {
     it("truncates debugDetails longer than 4000 chars", () => {
       const longMsg = "x".repeat(5000);
       const result = classifySessionError(new Error(longMsg), baseCtx);
       expect(result.debugDetails!.length).toBeLessThanOrEqual(4020); // 4000 + truncation marker
-      expect(result.debugDetails!).toContain("… (truncated)");
+      expect(result.debugDetails!).toContain("(truncated)");
     });
 
     it("preserves debugDetails under 4000 chars", () => {
       const shortMsg = "short error message";
       const result = classifySessionError(new Error(shortMsg), baseCtx);
       expect(result.debugDetails).toBeDefined();
-      expect(result.debugDetails!).not.toContain("… (truncated)");
+      expect(result.debugDetails!).not.toContain("(truncated)");
     });
   });
 
@@ -391,6 +485,7 @@ describe("buildSessionErrorMessage", () => {
       userMessage: "Network error",
       retryable: true,
       debugDetails: "ECONNREFUSED",
+      errorCategory: "provider_network",
     });
 
     expect(msg.type).toBe("session_error");
@@ -399,6 +494,7 @@ describe("buildSessionErrorMessage", () => {
     expect(msg.userMessage).toBe("Network error");
     expect(msg.retryable).toBe(true);
     expect(msg.debugDetails).toBe("ECONNREFUSED");
+    expect(msg.errorCategory).toBe("provider_network");
   });
 
   it("omits debugDetails when not provided", () => {
@@ -406,9 +502,36 @@ describe("buildSessionErrorMessage", () => {
       code: "UNKNOWN",
       userMessage: "Something went wrong",
       retryable: false,
+      errorCategory: "processing_failed",
     });
 
     expect(msg.type).toBe("session_error");
     expect(msg.debugDetails).toBeUndefined();
+    expect(msg.errorCategory).toBe("processing_failed");
+  });
+
+  it("includes errorCategory for ordering errors", () => {
+    const msg = buildSessionErrorMessage("session-789", {
+      code: "PROVIDER_ORDERING",
+      userMessage: "An internal error occurred. Please try again.",
+      retryable: true,
+      errorCategory: "tool_ordering",
+    });
+
+    expect(msg.errorCategory).toBe("tool_ordering");
+    expect(msg.code).toBe("PROVIDER_ORDERING");
+  });
+
+  it("includes errorCategory for web search errors", () => {
+    const msg = buildSessionErrorMessage("session-abc", {
+      code: "PROVIDER_WEB_SEARCH",
+      userMessage:
+        "An internal error occurred with web search. Please try again.",
+      retryable: true,
+      errorCategory: "web_search_ordering",
+    });
+
+    expect(msg.errorCategory).toBe("web_search_ordering");
+    expect(msg.code).toBe("PROVIDER_WEB_SEARCH");
   });
 });

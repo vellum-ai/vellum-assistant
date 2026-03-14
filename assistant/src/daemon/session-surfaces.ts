@@ -202,7 +202,8 @@ export interface SurfaceSessionContext {
     }>;
     display?: string;
   }>;
-  onEscalateToComputerUse?: (task: string, sourceSessionId: string) => boolean;
+  /** Optional proxy for delegating computer-use actions to a connected desktop client. */
+  hostCuProxy?: import("./host-cu-proxy.js").HostCuProxy;
   isProcessing(): boolean;
   enqueueMessage(
     content: string,
@@ -613,6 +614,7 @@ export function handleSurfaceAction(
             userMessage: `Something went wrong: ${message}`,
             retryable: false,
             debugDetails: `History-restored relay prompt processing failed: ${message}`,
+            errorCategory: "processing_failed",
           }),
         );
       });
@@ -931,13 +933,52 @@ export function buildUserFacingLabel(
 
 /**
  * Resolve a proxy tool call that targets a UI surface.
- * Handles ui_show, ui_update, ui_dismiss, computer_use_request_control, and app_open.
+ * Handles ui_show, ui_update, ui_dismiss, computer_use_* proxy tools, and app_open.
  */
 export async function surfaceProxyResolver(
   ctx: SurfaceSessionContext,
   toolName: string,
   input: Record<string, unknown>,
+  signal?: AbortSignal,
 ): Promise<ToolExecutionResult> {
+  // Route CU proxy tools (all computer_use_* action tools)
+  if (toolName.startsWith("computer_use_")) {
+    if (!ctx.hostCuProxy || !ctx.hostCuProxy.isAvailable()) {
+      return {
+        content: "Computer use is not available — no desktop client connected.",
+        isError: true,
+      };
+    }
+
+    // Terminal tools resolve immediately without a client round-trip
+    if (
+      toolName === "computer_use_done" ||
+      toolName === "computer_use_respond"
+    ) {
+      const summary =
+        typeof input.summary === "string"
+          ? input.summary
+          : typeof input.answer === "string"
+            ? input.answer
+            : "Task complete";
+      ctx.hostCuProxy.reset();
+      return { content: summary, isError: false };
+    }
+
+    // Record the action and proxy to the connected desktop client
+    const reasoning =
+      typeof input.reasoning === "string" ? input.reasoning : undefined;
+    ctx.hostCuProxy.recordAction(toolName, input, reasoning);
+    return ctx.hostCuProxy.request(
+      toolName,
+      input,
+      ctx.conversationId,
+      ctx.hostCuProxy.stepCount,
+      reasoning,
+      signal,
+    );
+  }
+
   if (toolName === "ui_show" || toolName === "ui_update") {
     const caps = ctx.channelCapabilities;
     if (caps && !caps.supportsDynamicUi) {
@@ -1148,32 +1189,6 @@ export async function surfaceProxyResolver(
     ctx.lastSurfaceAction.delete(surfaceId);
     return {
       content: lastAction ? "Surface completed" : "Surface dismissed",
-      isError: false,
-    };
-  }
-
-  if (toolName === "computer_use_request_control") {
-    const task =
-      typeof input.task === "string"
-        ? input.task
-        : "Perform the requested task";
-    if (!ctx.onEscalateToComputerUse) {
-      return {
-        content:
-          "Computer control escalation is not available in this session.",
-        isError: true,
-      };
-    }
-    const success = ctx.onEscalateToComputerUse(task, ctx.conversationId);
-    if (!success) {
-      return {
-        content: "Computer control escalation failed — no active connection.",
-        isError: true,
-      };
-    }
-    return {
-      content:
-        "Computer control activated. The task has been handed off to foreground computer use.",
       isError: false,
     };
   }

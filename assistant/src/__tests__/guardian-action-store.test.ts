@@ -35,12 +35,9 @@ import {
   expireGuardianActionRequest,
   getDeliveriesByRequestId,
   getExpiredDeliveriesByConversation,
-  getExpiredDeliveryByConversation,
   getFollowupDeliveriesByConversation,
-  getFollowupDeliveryByConversation,
   getGuardianActionRequest,
   getPendingDeliveriesByConversation,
-  getPendingDeliveryByConversation,
   startFollowupFromExpiredRequest,
   updateDeliveryStatus,
 } from "../memory/guardian-action-store.js";
@@ -153,17 +150,6 @@ describe("guardian-action-store", () => {
     expect(deliveries[0].requestId).toBe(request.id);
   });
 
-  test("getPendingDeliveryByConversation returns first from multiple (backward compat)", () => {
-    const convId = "compat-pending-conv";
-    ensureConversation(convId);
-
-    createPendingRequestWithDelivery("source-conv-compat-p1", convId);
-    createPendingRequestWithDelivery("source-conv-compat-p2", convId);
-
-    const single = getPendingDeliveryByConversation(convId);
-    expect(single).not.toBeNull();
-  });
-
   test("getPendingDeliveriesByConversation returns empty for non-matching conversation", () => {
     ensureConversation("other-conv");
     createPendingRequestWithDelivery("source-conv-no-match", "other-conv");
@@ -196,26 +182,6 @@ describe("guardian-action-store", () => {
     const requestIds = deliveries.map((d) => d.requestId);
     expect(requestIds).toContain(req1.id);
     expect(requestIds).toContain(req2.id);
-  });
-
-  test("getExpiredDeliveryByConversation returns first from multiple (backward compat)", () => {
-    const convId = "compat-expired-conv";
-    ensureConversation(convId);
-
-    const { request: req1 } = createPendingRequestWithDelivery(
-      "source-conv-compat-e1",
-      convId,
-    );
-    const { request: req2 } = createPendingRequestWithDelivery(
-      "source-conv-compat-e2",
-      convId,
-    );
-
-    expireGuardianActionRequest(req1.id, "sweep_timeout");
-    expireGuardianActionRequest(req2.id, "sweep_timeout");
-
-    const single = getExpiredDeliveryByConversation(convId);
-    expect(single).not.toBeNull();
   });
 
   test("getExpiredDeliveriesByConversation excludes deliveries with followup already started", () => {
@@ -269,29 +235,6 @@ describe("guardian-action-store", () => {
     const requestIds = deliveries.map((d) => d.requestId);
     expect(requestIds).toContain(req1.id);
     expect(requestIds).toContain(req2.id);
-  });
-
-  test("getFollowupDeliveryByConversation returns first from multiple (backward compat)", () => {
-    const convId = "compat-followup-conv";
-    ensureConversation(convId);
-
-    const { request: req1 } = createPendingRequestWithDelivery(
-      "source-conv-compat-f1",
-      convId,
-    );
-    const { request: req2 } = createPendingRequestWithDelivery(
-      "source-conv-compat-f2",
-      convId,
-    );
-
-    expireGuardianActionRequest(req1.id, "sweep_timeout");
-    expireGuardianActionRequest(req2.id, "sweep_timeout");
-
-    startFollowupFromExpiredRequest(req1.id, "late 1");
-    startFollowupFromExpiredRequest(req2.id, "late 2");
-
-    const single = getFollowupDeliveryByConversation(convId);
-    expect(single).not.toBeNull();
   });
 
   test("getFollowupDeliveriesByConversation returns empty for non-matching conversation", () => {

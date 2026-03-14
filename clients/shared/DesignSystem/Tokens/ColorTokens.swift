@@ -45,19 +45,19 @@ public func adaptiveColor(light: Color, dark: Color) -> Color {
     #endif
 }
 
-// MARK: - Color Scales
+// MARK: - Raw Palette Scales (Token Internals Only)
 
-public enum Emerald {
-    public static let _950 = Color(hex: 0x073D2E)
-    public static let _900 = Color(hex: 0x0A5843)
-    public static let _800 = Color(hex: 0x0C7356)
-    public static let _700 = Color(hex: 0x10906A)
-    public static let _600 = Color(hex: 0x18B07A)
-    public static let _500 = Color(hex: 0x38CF93)
-    public static let _400 = Color(hex: 0x6EE7B5)
-    public static let _300 = Color(hex: 0xA6F2D1)
-    public static let _200 = Color(hex: 0xD2F9E8)
-    public static let _100 = Color(hex: 0xECFDF5)
+enum Emerald {
+    static let _950 = Color(hex: 0x073D2E)
+    static let _900 = Color(hex: 0x0A5843)
+    static let _800 = Color(hex: 0x0C7356)
+    static let _700 = Color(hex: 0x10906A)
+    static let _600 = Color(hex: 0x18B07A)
+    static let _500 = Color(hex: 0x38CF93)
+    static let _400 = Color(hex: 0x6EE7B5)
+    static let _300 = Color(hex: 0xA6F2D1)
+    static let _200 = Color(hex: 0xD2F9E8)
+    static let _100 = Color(hex: 0xECFDF5)
 }
 
 public enum Danger {
@@ -79,6 +79,7 @@ public enum Amber {
     public static let _800 = Color(hex: 0xA35E0C)
     public static let _700 = Color(hex: 0xC97C10)
     public static let _600 = Color(hex: 0xE8A020)
+    public static let _550 = Color(hex: 0xF1B21E)
     public static let _500 = Color(hex: 0xFAC426)
     public static let _400 = Color(hex: 0xFDD94E)
     public static let _300 = Color(hex: 0xFEEC94)
@@ -86,67 +87,47 @@ public enum Amber {
     public static let _100 = Color(hex: 0xFEFCE8)
 }
 
-/// Warm neutral scale for light mode — sandstone/limestone tones.
-public enum Stone {
-    public static let _950 = Color(hex: 0x1C1917)
-    public static let _900 = Color(hex: 0x292524)
-    public static let _800 = Color(hex: 0x44403C)
-    public static let _700 = Color(hex: 0x57534E)
-    public static let _600 = Color(hex: 0x78716C)
-    public static let _500 = Color(hex: 0x97918B)
-    public static let _400 = Color(hex: 0xA8A29E)
-    public static let _300 = Color(hex: 0xD6D3D1)
-    public static let _200 = Color(hex: 0xE7E5E4)
-    public static let _100 = Color(hex: 0xF5F5F4)
-    public static let _50  = Color(hex: 0xFAFAF9)
+enum Stone {
+    static let _950 = Color(hex: 0x1C1917)
+    static let _900 = Color(hex: 0x292524)
+    static let _800 = Color(hex: 0x44403C)
+    static let _700 = Color(hex: 0x57534E)
+    static let _600 = Color(hex: 0x78716C)
+    static let _500 = Color(hex: 0x97918B)
+    static let _400 = Color(hex: 0xA8A29E)
+    static let _300 = Color(hex: 0xD6D3D1)
+    static let _200 = Color(hex: 0xE7E5E4)
+    static let _100 = Color(hex: 0xF5F5F4)
+    static let _50  = Color(hex: 0xFAFAF9)
 }
 
-/// Cool neutral scale — alias of Stone for contexts expecting Tailwind-style "slate".
-public enum Slate {
-    public static let _950 = Stone._950
-    public static let _900 = Stone._900
-    public static let _800 = Stone._800
-    public static let _700 = Stone._700
-    public static let _600 = Stone._600
-    public static let _500 = Stone._500
-    public static let _400 = Stone._400
-    public static let _300 = Stone._300
-    public static let _200 = Stone._200
-    public static let _100 = Stone._100
-    public static let _50  = Stone._50
+enum Slate {
+    static let _950 = Stone._950
+    static let _900 = Stone._900
+    static let _800 = Stone._800
+    static let _700 = Stone._700
+    static let _600 = Stone._600
+    static let _500 = Stone._500
+    static let _400 = Stone._400
+    static let _300 = Stone._300
+    static let _200 = Stone._200
+    static let _100 = Stone._100
+    static let _50  = Stone._50
 }
 
-/// Sage green accent scale — alias of Forest for onboarding UI.
-public enum Sage {
-    public static let _950 = Forest._950
-    public static let _900 = Forest._900
-    public static let _800 = Forest._800
-    public static let _700 = Forest._700
-    public static let _600 = Forest._600
-    public static let _500 = Forest._500
-    public static let _400 = Forest._400
-    public static let _300 = Forest._300
-    public static let _200 = Forest._200
-    public static let _100 = Forest._100
+enum Moss {
+    static let _950 = Color(hex: 0x20201E)
+    static let _900 = Color(hex: 0x2A2A28)
+    static let _700 = Color(hex: 0x3A3A37)
+    static let _600 = Color(hex: 0x4A4A46)
+    static let _500 = Color(hex: 0x6B6B65)
+    static let _400 = Color(hex: 0xA1A096)
+    static let _300 = Color(hex: 0xBDB9A9)
+    static let _200 = Color(hex: 0xD4D1C1)
+    static let _100 = Color(hex: 0xE8E6DA)
+    static let _50  = Color(hex: 0xF5F3EB)
 }
 
-// MARK: - Dark Theme Scales
-
-/// Warm neutral scale for dark mode backgrounds & text.
-public enum Moss {
-    public static let _950 = Color(hex: 0x20201E)
-    public static let _900 = Color(hex: 0x2A2A28)
-    public static let _700 = Color(hex: 0x3A3A37)
-    public static let _600 = Color(hex: 0x4A4A46)
-    public static let _500 = Color(hex: 0x6B6B65)
-    public static let _400 = Color(hex: 0xA1A096)
-    public static let _300 = Color(hex: 0xBDB9A9)
-    public static let _200 = Color(hex: 0xD4D1C1)
-    public static let _100 = Color(hex: 0xE8E6DA)
-    public static let _50  = Color(hex: 0xF5F3EB)
-}
-
-/// Sage green accent scale for dark mode.
 public enum Forest {
     public static let _950 = Color(hex: 0x1A2316)
     public static let _900 = Color(hex: 0x2A3825)
@@ -160,198 +141,229 @@ public enum Forest {
     public static let _100 = Color(hex: 0xEDF2EB)
 }
 
-// MARK: - Semantic Color Tokens
+enum Sage {
+    static let _950 = Forest._950
+    static let _900 = Forest._900
+    static let _800 = Forest._800
+    static let _700 = Forest._700
+    static let _600 = Forest._600
+    static let _500 = Forest._500
+    static let _400 = Forest._400
+    static let _300 = Forest._300
+    static let _200 = Forest._200
+    static let _100 = Forest._100
+}
+
+// MARK: - Canonical Semantic Tokens
+
+public enum VSemanticColorToken: String, CaseIterable {
+    case primaryDisabled
+    case primaryBase
+    case primaryHover
+    case primaryActive
+
+    case surfaceBase
+    case surfaceOverlay
+    case surfaceActive
+    case surfaceLift
+
+    case borderDisabled
+    case borderBase
+    case borderHover
+    case borderActive
+
+    case contentEmphasized
+    case contentDefault
+    case contentSecondary
+    case contentTertiary
+    case contentDisabled
+    case contentBackground
+    case contentInset
+
+    case systemPositiveStrong
+    case systemPositiveWeak
+    case systemNegativeStrong
+    case systemNegativeHover
+    case systemNegativeWeak
+    case systemMidStrong
+    case systemMidWeak
+
+    case auxWhite
+}
+
+public struct VSemanticColorPair: Equatable {
+    public let lightHex: String
+    public let darkHex: String
+
+    public init(lightHex: String, darkHex: String) {
+        self.lightHex = lightHex
+        self.darkHex = darkHex
+    }
+
+    public var lightColor: Color { Color(hexString: lightHex) }
+    public var darkColor: Color { Color(hexString: darkHex) }
+}
+
+private enum FigmaRawColor {
+    // Primary
+    static let primaryLightDisabled = Color(hex: 0xD4D1C1)
+    static let primaryDarkDisabled = Color(hex: 0x3A3A37)
+    static let primaryLightBase = Color(hex: 0x516748)
+    static let primaryDarkBase = Color(hex: 0x657D5B)
+    static let primaryLightHover = Color(hex: 0x657D5B)
+    static let primaryDarkHover = Color(hex: 0x516748)
+    static let primaryLightActive = Color(hex: 0x7A8B6F)
+    static let primaryDarkActive = Color(hex: 0x7A8B6F)
+
+    // Surface
+    static let surfaceLightBase = Color(hex: 0xE8E6DA)
+    static let surfaceDarkBase = Color(hex: 0x2A2A28)
+    static let surfaceLightOverlay = Color(hex: 0xF5F3EB)
+    static let surfaceDarkOverlay = Color(hex: 0x20201E)
+    static let surfaceLightActive = Color(hex: 0xD4D1C1)
+    static let surfaceDarkActive = Color(hex: 0x3A3A37)
+    static let surfaceLightLift = Color(hex: 0xFFFFFF)
+    static let surfaceDarkLift = Color(hex: 0x000000)
+
+    // Border
+    static let borderLightDisabled = Color(hex: 0xD4D1C1)
+    static let borderDarkDisabled = Color(hex: 0x3A3A37)
+    static let borderLightBase = Color(hex: 0xBDB9A9)
+    static let borderDarkBase = Color(hex: 0x4A4A46)
+    static let borderLightHover = Color(hex: 0xA1A096)
+    static let borderDarkHover = Color(hex: 0x6B6B65)
+    static let borderLightActive = Color(hex: 0x7A8B6F)
+    static let borderDarkActive = Color(hex: 0x7A8B6F)
+
+    // Content
+    static let contentLightEmphasized = Color(hex: 0x20201E)
+    static let contentDarkEmphasized = Color(hex: 0xF5F3EB)
+    static let contentLightDefault = Color(hex: 0x2A2A28)
+    static let contentDarkDefault = Color(hex: 0xE8E6DA)
+    static let contentLightSecondary = Color(hex: 0x4A4A46)
+    static let contentDarkSecondary = Color(hex: 0xBDB9A9)
+    static let contentLightTertiary = Color(hex: 0xA1A096)
+    static let contentDarkTertiary = Color(hex: 0xA1A096)
+    static let contentLightDisabled = Color(hex: 0xBDB9A9)
+    static let contentDarkDisabled = Color(hex: 0x6B6B65)
+    static let contentLightBackground = Color(hex: 0xD4D1C1)
+    static let contentDarkBackground = Color(hex: 0x3A3A37)
+    static let contentLightInset = Color(hex: 0xFFFFFF)
+    static let contentDarkInset = Color(hex: 0x000000)
+
+    // System
+    static let systemLightPositiveStrong = Color(hex: 0x516748)
+    static let systemDarkPositiveStrong = Color(hex: 0x516748)
+    static let systemLightPositiveWeak = Color(hex: 0xD4DFD0)
+    static let systemDarkPositiveWeak = Color(hex: 0x1A2316)
+    static let systemLightNegativeStrong = Color(hex: 0xDA491A)
+    static let systemDarkNegativeStrong = Color(hex: 0xDA491A)
+    static let systemLightNegativeHover = Color(hex: 0xE86B40)
+    static let systemDarkNegativeHover = Color(hex: 0xAB3F1C)
+    static let systemLightNegativeWeak = Color(hex: 0xF7DAC9)
+    static let systemDarkNegativeWeak = Color(hex: 0x4E281D)
+    static let systemLightMidStrong = Color(hex: 0xF1B21E)
+    static let systemDarkMidStrong = Color(hex: 0xF1B21E)
+    static let systemLightMidWeak = Color(hex: 0xFCF3DD)
+    static let systemDarkMidWeak = Color(hex: 0x4B3D1E)
+}
 
 public enum VColor {
-    // Backgrounds
-    public static let background = adaptiveColor(light: Moss._100, dark: Moss._900)
-    public static let backgroundSubtle = adaptiveColor(light: Moss._50, dark: Moss._950)
-    public static let chatBackground = adaptiveColor(light: Moss._100, dark: Moss._900)
-    public static let surface = adaptiveColor(light: .white, dark: Moss._700)
-    public static let surfaceBorder = adaptiveColor(light: Moss._100, dark: Moss._600)
-    public static let cardBorder = adaptiveColor(light: Color(hex: 0xE8E6DA), dark: Color(hex: 0x4A4A46))
-    public static let surfaceSubtle = adaptiveColor(light: Moss._50, dark: Moss._900)
-    public static let inputBackground = adaptiveColor(light: Moss._100, dark: Moss._700)
+    public static let semanticPairs: [VSemanticColorToken: VSemanticColorPair] = [
+        .primaryDisabled: .init(lightHex: "#D4D1C1", darkHex: "#3A3A37"),
+        .primaryBase: .init(lightHex: "#516748", darkHex: "#657D5B"),
+        .primaryHover: .init(lightHex: "#657D5B", darkHex: "#516748"),
+        .primaryActive: .init(lightHex: "#7A8B6F", darkHex: "#7A8B6F"),
 
-    // Text
-    public static let textPrimary = adaptiveColor(light: Stone._900, dark: Moss._50)
-    public static let textSecondary = adaptiveColor(light: Stone._700, dark: Moss._400)
-    public static let textMuted = adaptiveColor(light: Stone._600, dark: Moss._500)
+        .surfaceBase: .init(lightHex: "#E8E6DA", darkHex: "#2A2A28"),
+        .surfaceOverlay: .init(lightHex: "#F5F3EB", darkHex: "#20201E"),
+        .surfaceActive: .init(lightHex: "#D4D1C1", darkHex: "#3A3A37"),
+        .surfaceLift: .init(lightHex: "#FFFFFF", darkHex: "#000000"),
 
-    // Accent
-    public static let accent = adaptiveColor(light: Color(hex: 0x262624), dark: Forest._600)
+        .borderDisabled: .init(lightHex: "#D4D1C1", darkHex: "#3A3A37"),
+        .borderBase: .init(lightHex: "#BDB9A9", darkHex: "#4A4A46"),
+        .borderHover: .init(lightHex: "#A1A096", darkHex: "#6B6B65"),
+        .borderActive: .init(lightHex: "#7A8B6F", darkHex: "#7A8B6F"),
 
-    // Icon & button accent
-    public static let iconAccent = adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._500)
+        .contentEmphasized: .init(lightHex: "#20201E", darkHex: "#F5F3EB"),
+        .contentDefault: .init(lightHex: "#2A2A28", darkHex: "#E8E6DA"),
+        .contentSecondary: .init(lightHex: "#4A4A46", darkHex: "#BDB9A9"),
+        .contentTertiary: .init(lightHex: "#A1A096", darkHex: "#A1A096"),
+        .contentDisabled: .init(lightHex: "#BDB9A9", darkHex: "#6B6B65"),
+        .contentBackground: .init(lightHex: "#D4D1C1", darkHex: "#3A3A37"),
+        .contentInset: .init(lightHex: "#FFFFFF", darkHex: "#000000"),
 
-    // Active/highlighted icon foreground — lighter green in dark mode for better contrast
-    public static let activeIconForeground = adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._300)
+        .systemPositiveStrong: .init(lightHex: "#516748", darkHex: "#516748"),
+        .systemPositiveWeak: .init(lightHex: "#D4DFD0", darkHex: "#1A2316"),
+        .systemNegativeStrong: .init(lightHex: "#DA491A", darkHex: "#DA491A"),
+        .systemNegativeHover: .init(lightHex: "#E86B40", darkHex: "#AB3F1C"),
+        .systemNegativeWeak: .init(lightHex: "#F7DAC9", darkHex: "#4E281D"),
+        .systemMidStrong: .init(lightHex: "#F1B21E", darkHex: "#F1B21E"),
+        .systemMidWeak: .init(lightHex: "#FCF3DD", darkHex: "#4B3D1E"),
 
-    // Send button — always green
-    public static let sendButton = Color(hex: 0x216C37)
-    public static let accentSubtle = adaptiveColor(light: Forest._100, dark: Forest._900)
-
-    // Onboarding accent (amber) — always dark theme
-    public static let onboardingAccent = Amber._500
-    public static let onboardingAccentDark = Amber._600
-    public static let onboardingAccentDarker = Amber._800
-
-    // Status
-    public static let success = adaptiveColor(light: Emerald._700, dark: Emerald._600)
-    public static let error = adaptiveColor(light: Danger._700, dark: Danger._600)
-    public static let warning = adaptiveColor(light: Amber._700, dark: Amber._600)
-
-    // Chat
-    public static let codeBackground = adaptiveColor(light: Moss._200, dark: Moss._700)
-    public static let codeText = adaptiveColor(light: Color(hex: 0xDC2626), dark: Color(hex: 0xF87171))
-    public static let userBubble = adaptiveColor(light: Moss._200, dark: Moss._950)
-    public static let userBubbleText = adaptiveColor(light: Stone._900, dark: Moss._50)
-    public static let userBubbleTextSecondary = adaptiveColor(light: Stone._600, dark: Moss._50.opacity(0.8))
-
-    // Navigation
-    public static let navHover = adaptiveColor(light: Color(hex: 0xE8E6DA), dark: Moss._700)
-    public static let navActive = adaptiveColor(light: Color(hex: 0xD4DFD0), dark: Moss._600)
-    public static let segmentSelected = adaptiveColor(light: .white, dark: Moss._600)
-    public static let segmentHover = adaptiveColor(light: Stone._100, dark: Moss._600)
-
-    // Interactive states
-    public static let ghostHover = adaptiveColor(light: Stone._100, dark: Moss._700)
-    public static let ghostPressed = adaptiveColor(light: Stone._200, dark: Moss._600)
-    public static let divider = adaptiveColor(light: Stone._300, dark: Moss._600)
-    public static let hoverOverlay = adaptiveColor(light: Color(hex: 0x000000), dark: Moss._200)
-    public static let toggleOn = adaptiveColor(light: Color(hex: 0x2A3825), dark: Forest._600)
-    public static let toggleOff = adaptiveColor(light: Color(hex: 0xE8E6DA), dark: Moss._700)
-    public static let toggleBorder = adaptiveColor(light: Stone._400, dark: Moss._600)
-    public static let toggleKnob = adaptiveColor(light: Stone._50, dark: Color.white)
-    public static let toggleKnobDisabled = adaptiveColor(light: Color(hex: 0xBDB9A9), dark: Moss._500)
-
-    // Radio option (activation key picker)
-    public static let radioBorder = adaptiveColor(light: Moss._200, dark: Moss._600)
-    public static let radioSelectedFill = adaptiveColor(light: Color(hex: 0x2A3825), dark: Forest._600)
-    public static let radioUnselectedStroke = adaptiveColor(light: Moss._300, dark: Moss._500)
-    public static let radioSelectedBg = adaptiveColor(light: Moss._200, dark: Moss._700)
-
-    // Slash command highlight — green tint for /command tokens in composer and chat
-    public static let slashCommand = adaptiveColor(light: Forest._500, dark: Forest._300)
-
-    // Button colors
-    public static let buttonPrimary = adaptiveColor(light: Color(hex: 0x537D53), dark: Color(hex: 0x537D53))
-    public static let buttonPrimaryHover = adaptiveColor(light: Color(hex: 0x629062), dark: Color(hex: 0x629062))
-    public static let buttonPrimaryPressed = adaptiveColor(light: Color(hex: 0x456C47), dark: Color(hex: 0x456C47))
-    public static let buttonSecondaryBg = adaptiveColor(light: Color(hex: 0xD4DFD4), dark: Moss._700)
-    public static let buttonSecondaryBgHover = adaptiveColor(light: Color(hex: 0xCBD8CB), dark: Color(hex: 0x424240))
-    public static let buttonSecondaryBgPressed = adaptiveColor(light: Color(hex: 0xC3D2C3), dark: Moss._600)
-    public static let buttonSecondaryBorder = adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._500)
-    public static let buttonSecondaryText = adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400)
-    public static let buttonTertiaryBackground = adaptiveColor(light: Moss._200, dark: Moss._700)
-
-    // Neutral button — dark fill that works in both light and dark modes
-    public static let buttonNeutral = adaptiveColor(light: Stone._800, dark: Moss._500)
-    public static let buttonNeutralHover = adaptiveColor(light: Stone._700, dark: Moss._400)
-    public static let buttonNeutralPressed = adaptiveColor(light: Stone._900, dark: Moss._600)
-
-    // Danger button
-    public static let buttonDanger = Color(hex: 0xC1421B)
-    public static let buttonDangerHover = Color(hex: 0xD4582F)
-    public static let buttonDangerPressed = Color(hex: 0xE0745A)
-
-    // Tag & shortcut
-    public static let tagText = adaptiveColor(light: Moss._500, dark: Moss._400)
-    public static let tagBorder = adaptiveColor(light: Stone._300, dark: Moss._100)
-
-    // Unread indicator
-    public static let unreadIndicator = Danger._600
-
-    // Skill type pill colors
-    public static let skillCoreForeground = adaptiveColor(light: Color(hex: 0x2A2A28), dark: Moss._200)
-    public static let skillCoreBackground = adaptiveColor(light: Moss._100, dark: Moss._700)
-    public static let skillInstalledForeground = adaptiveColor(light: Color(hex: 0x3A6B3A), dark: Forest._400)
-    public static let skillInstalledBackground = adaptiveColor(light: Color(hex: 0xD4E8D4), dark: Forest._900)
-    public static let skillCreatedForeground = adaptiveColor(light: Color(hex: 0x3A4A6B), dark: Color(hex: 0x8AAED4))
-    public static let skillCreatedBackground = adaptiveColor(light: Color(hex: 0xD4DCE8), dark: Color(hex: 0x2A3A4E))
-    public static let skillExtraForeground = adaptiveColor(light: Color(hex: 0x6B6B5E), dark: Moss._400)
-    public static let skillExtraBackground = adaptiveColor(light: Color(hex: 0xDDDBCE), dark: Moss._700)
-
-    // Skill category colors (constellation)
-    public static let skillCatCommunication = Color(hex: 0x8B5DAA)
-    public static let skillCatProductivity = Color(hex: 0x4682B4)
-    public static let skillCatDevelopment = Color(hex: 0xC1421B)
-    public static let skillCatMedia = Color(hex: 0xD4A017)
-    public static let skillCatAutomation = Color(hex: 0x2E8B57)
-    public static let skillCatWebSocial = Color(hex: 0xCD853F)
-    public static let skillCatKnowledge = Color(hex: 0x6B8E23)
-    public static let skillCatIntegration = Color(hex: 0x708090)
-
-    // Thread icon backgrounds
-    public static let threadIconBackgrounds: [Color] = [
-        Color(hex: 0x4B6845), // forest green
-        Color(hex: 0x4A5568), // slate blue-gray
-        Color(hex: 0x5B4E3A), // warm brown
-        Color(hex: 0x3D5A5B), // teal
-        Color(hex: 0x6B4C5A), // muted mauve
-        Color(hex: 0x4E5D3E), // olive
-        Color(hex: 0x5A4A6B), // dusty purple
-        Color(hex: 0x5C6B4A), // sage
+        .auxWhite: .init(lightHex: "#FFFFFF", darkHex: "#FFFFFF"),
     ]
 
-    // Theme toggle
-    public static let themeToggleSelected = adaptiveColor(light: Color(hex: 0xD3DECF), dark: Forest._800)
-    public static let themeToggleBackground = adaptiveColor(light: Moss._100, dark: Moss._700)
+    // Primary
+    public static let primaryDisabled = adaptiveColor(light: FigmaRawColor.primaryLightDisabled, dark: FigmaRawColor.primaryDarkDisabled)
+    public static let primaryBase = adaptiveColor(light: FigmaRawColor.primaryLightBase, dark: FigmaRawColor.primaryDarkBase)
+    public static let primaryHover = adaptiveColor(light: FigmaRawColor.primaryLightHover, dark: FigmaRawColor.primaryDarkHover)
+    public static let primaryActive = adaptiveColor(light: FigmaRawColor.primaryLightActive, dark: FigmaRawColor.primaryDarkActive)
 
-    // Onboarding
-    public static let onboardingGradientEdge = adaptiveColor(light: Stone._100, dark: Moss._900)
-    public static let onboardingGradientOuter = adaptiveColor(light: Stone._200, dark: Moss._950)
-    public static let onboardingHatchGradientOuter = adaptiveColor(light: Moss._200, dark: Moss._950)
-    public static let onboardingStepBackground = adaptiveColor(light: Stone._900, dark: Forest._600)
-    public static let onboardingFileIcon = adaptiveColor(light: Stone._900, dark: Forest._600)
-    public static let onboardingLink = adaptiveColor(light: Color(hex: 0x262624), dark: Forest._400)
-    public static let onboardingBorderStroke = adaptiveColor(light: Stone._900.opacity(0.3), dark: Forest._600.opacity(0.3))
+    // Surface
+    public static let surfaceBase = adaptiveColor(light: FigmaRawColor.surfaceLightBase, dark: FigmaRawColor.surfaceDarkBase)
+    public static let surfaceOverlay = adaptiveColor(light: FigmaRawColor.surfaceLightOverlay, dark: FigmaRawColor.surfaceDarkOverlay)
+    public static let surfaceActive = adaptiveColor(light: FigmaRawColor.surfaceLightActive, dark: FigmaRawColor.surfaceDarkActive)
+    public static let surfaceLift = adaptiveColor(light: FigmaRawColor.surfaceLightLift, dark: FigmaRawColor.surfaceDarkLift)
 
-    // Onboarding code block
-    public static let codeBlockBackground = adaptiveColor(light: Color(hex: 0xF2F2F7), dark: Color(hex: 0x3A3A37).opacity(0.5))
+    // Border
+    public static let borderDisabled = adaptiveColor(light: FigmaRawColor.borderLightDisabled, dark: FigmaRawColor.borderDarkDisabled)
+    public static let borderBase = adaptiveColor(light: FigmaRawColor.borderLightBase, dark: FigmaRawColor.borderDarkBase)
+    public static let borderHover = adaptiveColor(light: FigmaRawColor.borderLightHover, dark: FigmaRawColor.borderDarkHover)
+    public static let borderActive = adaptiveColor(light: FigmaRawColor.borderLightActive, dark: FigmaRawColor.borderDarkActive)
 
-    // Slider
-    public static let sliderTrack = adaptiveColor(light: Moss._100, dark: Moss._700)
-    public static let sliderFill = adaptiveColor(light: Forest._300, dark: Forest._500)
+    // Content
+    public static let contentEmphasized = adaptiveColor(light: FigmaRawColor.contentLightEmphasized, dark: FigmaRawColor.contentDarkEmphasized)
+    public static let contentDefault = adaptiveColor(light: FigmaRawColor.contentLightDefault, dark: FigmaRawColor.contentDarkDefault)
+    public static let contentSecondary = adaptiveColor(light: FigmaRawColor.contentLightSecondary, dark: FigmaRawColor.contentDarkSecondary)
+    public static let contentTertiary = adaptiveColor(light: FigmaRawColor.contentLightTertiary, dark: FigmaRawColor.contentDarkTertiary)
+    public static let contentDisabled = adaptiveColor(light: FigmaRawColor.contentLightDisabled, dark: FigmaRawColor.contentDarkDisabled)
+    public static let contentBackground = adaptiveColor(light: FigmaRawColor.contentLightBackground, dark: FigmaRawColor.contentDarkBackground)
+    public static let contentInset = adaptiveColor(light: FigmaRawColor.contentLightInset, dark: FigmaRawColor.contentDarkInset)
 
-    // App card (inline chat widget)
-    public static let appCardBackground = adaptiveColor(light: Color(hex: 0xF5F3EB), dark: Color(hex: 0x20201E))
+    // System
+    public static let systemPositiveStrong = adaptiveColor(light: FigmaRawColor.systemLightPositiveStrong, dark: FigmaRawColor.systemDarkPositiveStrong)
+    public static let systemPositiveWeak = adaptiveColor(light: FigmaRawColor.systemLightPositiveWeak, dark: FigmaRawColor.systemDarkPositiveWeak)
+    public static let systemNegativeStrong = adaptiveColor(light: FigmaRawColor.systemLightNegativeStrong, dark: FigmaRawColor.systemDarkNegativeStrong)
+    public static let systemNegativeHover = adaptiveColor(light: FigmaRawColor.systemLightNegativeHover, dark: FigmaRawColor.systemDarkNegativeHover)
+    public static let systemNegativeWeak = adaptiveColor(light: FigmaRawColor.systemLightNegativeWeak, dark: FigmaRawColor.systemDarkNegativeWeak)
+    public static let systemMidStrong = adaptiveColor(light: FigmaRawColor.systemLightMidStrong, dark: FigmaRawColor.systemDarkMidStrong)
+    public static let systemMidWeak = adaptiveColor(light: FigmaRawColor.systemLightMidWeak, dark: FigmaRawColor.systemDarkMidWeak)
 
-    // Subagent / skill chip
-    public static let statusRunning = adaptiveColor(light: Forest._600, dark: Forest._400)
-    public static let skillChipBorder = adaptiveColor(light: Amber._400, dark: Amber._600)
+    // Utility: non-adaptive explicit white/black for overlays, shadows, text-on-filled
+    public static let auxWhite = Color(hex: 0xFFFFFF)
+    public static let auxBlack = Color(hex: 0x000000)
 
-    // Contextual text — primary in light, secondary in dark
-    public static let contextualText = adaptiveColor(light: Stone._900, dark: Moss._400)
+    // Secondary "fun" colors — non-adaptive, used for decorative elements like the skills graph
+    public static let funYellow = Color(hex: 0xE9C91A)
+    public static let funRed    = Color(hex: 0xEF4400)
+    public static let funPurple = Color(hex: 0xA665C9)
+    public static let funPink   = Color(hex: 0xDB4B77)
+    public static let funCoral  = Color(hex: 0xE9642F)
+    public static let funTeal   = Color(hex: 0x0E9B8B)
+    public static let funGreen  = Color(hex: 0x4C9B50)
 
-    // Panel divider — used in identity panel sidebar
-    public static let panelDivider = adaptiveColor(light: Moss._50, dark: Moss._500)
+    /// Deterministic thread icon background palette — semantic compositions of existing tokens.
+    public static let threadIconBackgrounds: [Color] = [
+        primaryBase, primaryHover, primaryActive,
+        systemPositiveStrong, systemNegativeStrong, systemMidStrong,
+        contentSecondary, contentTertiary,
+    ]
 
-    // Composer background fill
-    public static let composerBackground = adaptiveColor(light: Moss._200, dark: Moss._700)
-
-    // Voice composer — inverse/high-contrast tokens for voice mode
-    public static let voiceComposerBackground = adaptiveColor(light: Slate._900, dark: Color(hex: 0xE8E6DA))
-    public static let voiceComposerTextPrimary = adaptiveColor(light: .white, dark: Slate._900)
-    public static let voiceComposerTextSecondary = adaptiveColor(light: Slate._300, dark: Slate._400)
-    public static let voiceComposerControlBackground = adaptiveColor(light: Slate._800, dark: Slate._800)
-
-    // Microphone icon color
-    public static let micIcon = adaptiveColor(light: Forest._500, dark: Moss._400)
-
-    // Success button states
-    public static let buttonSuccessBg = adaptiveColor(light: Forest._200, dark: Forest._900)
-    public static let buttonSuccessBgHover = adaptiveColor(light: Forest._300, dark: Forest._800)
-    public static let buttonSuccessBgPressed = adaptiveColor(light: Forest._400, dark: Forest._700)
-
-    // Icon button ghost states
-    public static let iconGhostActiveBg = adaptiveColor(light: Moss._100, dark: Moss._700)
-    public static let iconGhostActivePressed = adaptiveColor(light: Moss._200, dark: Moss._600)
-    public static let iconGhostActiveDisabled = adaptiveColor(light: Moss._100, dark: Moss._700)
-
-    // Sidebar drop indicator
-    public static let dropIndicator = adaptiveColor(light: Forest._500, dark: Forest._400)
-
-    // Sidebar action text (Show more / Show less)
-    public static let sidebarActionText = adaptiveColor(light: Forest._600, dark: Forest._400)
+    public static func pair(for token: VSemanticColorToken) -> VSemanticColorPair {
+        guard let pair = semanticPairs[token] else {
+            preconditionFailure("Missing semantic color pair for token: \(token.rawValue)")
+        }
+        return pair
+    }
 }

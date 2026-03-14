@@ -61,6 +61,8 @@ final class OnboardingState {
     var customQRCodeImageData: Data = Data()
     var selectedModel: String = "claude-opus-4-6"
     var isHatching: Bool = false
+    var isManagedHatch: Bool = false
+    var hasExistingManagedAssistant: Bool = false
     var hatchLogLines: [String] = []
     var hatchCompleted: Bool = false
     var hatchFailed: Bool = false
@@ -80,6 +82,10 @@ final class OnboardingState {
 
     var userHostedEnabled: Bool {
         MacOSClientFeatureFlagManager.shared.isEnabled("user_hosted_enabled")
+    }
+
+    var managedSignInEnabled: Bool {
+        MacOSClientFeatureFlagManager.shared.isEnabled("managed_sign_in_enabled")
     }
 
     /// Continuous crack progress (0.0–1.0) derived from step and permission state.
@@ -143,7 +149,15 @@ final class OnboardingState {
         // When userHostedEnabled is on and a cloud provider is selected, the flow
         // has 4 steps (0–3); otherwise it stays at 3 steps (0–2).
         let hasCloudStep = MacOSClientFeatureFlagManager.shared.isEnabled("user_hosted_enabled") && cloudProvider != "local" && cloudProvider != "docker"
-        let maxStep = onboardingVariant == .firstMeeting ? 4 : (hasCloudStep ? 3 : 2)
+        let isManagedSignIn = MacOSClientFeatureFlagManager.shared.isEnabled("managed_sign_in_enabled")
+        let maxStep: Int
+        if isManagedSignIn {
+            maxStep = 1
+        } else if onboardingVariant == .firstMeeting {
+            maxStep = 4
+        } else {
+            maxStep = hasCloudStep ? 3 : 2
+        }
         if currentStep > maxStep {
             currentStep = maxStep
         }
@@ -175,6 +189,8 @@ final class OnboardingState {
     func resetForRetry() {
         // Reset hatch flags
         isHatching = false
+        isManagedHatch = false
+        hasExistingManagedAssistant = false
         hatchFailed = false
         hatchCompleted = false
         hatchLogLines = []

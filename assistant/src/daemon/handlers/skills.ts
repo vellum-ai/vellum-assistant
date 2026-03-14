@@ -9,12 +9,7 @@ import {
   saveRawConfig,
 } from "../../config/loader.js";
 import { resolveSkillStates, skillFlagKey } from "../../config/skill-state.js";
-import {
-  ensureSkillIcon,
-  loadSkillBySelector,
-  loadSkillCatalog,
-  type SkillSummary,
-} from "../../config/skills.js";
+import { loadSkillCatalog, type SkillSummary } from "../../config/skills.js";
 import {
   createTimeout,
   extractText,
@@ -36,20 +31,6 @@ import {
   validateManagedSkillId,
 } from "../../skills/managed-store.js";
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
-import type {
-  SkillDetailRequest,
-  SkillsCheckUpdatesRequest,
-  SkillsConfigureRequest,
-  SkillsCreateRequest,
-  SkillsDisableRequest,
-  SkillsDraftRequest,
-  SkillsEnableRequest,
-  SkillsInspectRequest,
-  SkillsInstallRequest,
-  SkillsSearchRequest,
-  SkillsUninstallRequest,
-  SkillsUpdateRequest,
-} from "../message-protocol.js";
 import {
   CONFIG_RELOAD_DEBOUNCE_MS,
   ensureSkillEntry,
@@ -250,12 +231,20 @@ export interface SkillListItem {
   provenance: SkillProvenance;
 }
 
+/** Sorting rank for provenance-based ordering: first-party first, local last. */
+function provenanceSortRank(p: SkillProvenance): number {
+  if (p.kind === "first-party") return 0;
+  if (p.kind === "third-party" && p.provider) return 1;
+  if (p.kind === "third-party") return 2;
+  return 3; // local
+}
+
 export function listSkills(_ctx: SkillOperationContext): SkillListItem[] {
   const config = getConfig();
   const catalog = loadSkillCatalog();
   const resolved = resolveSkillStates(catalog, config);
 
-  return resolved.map((r) => ({
+  const items = resolved.map((r) => ({
     id: r.summary.id,
     name: r.summary.displayName,
     description: r.summary.description,
@@ -272,6 +261,17 @@ export function listSkills(_ctx: SkillOperationContext): SkillListItem[] {
     userInvocable: r.summary.userInvocable,
     provenance: resolveProvenance(r.summary),
   }));
+
+  // Sort: first-party > third-party with provider > third-party without > local,
+  // alphabetical by name within each tier.
+  items.sort((a, b) => {
+    const rankDiff =
+      provenanceSortRank(a.provenance) - provenanceSortRank(b.provenance);
+    if (rankDiff !== 0) return rankDiff;
+    return a.name.localeCompare(b.name);
+  });
+
+  return items;
 }
 
 export function enableSkill(
@@ -584,7 +584,7 @@ export async function draftSkill(
     if (missing.length > 0) {
       let llmGenerated = false;
       try {
-        const provider = getConfiguredProvider();
+        const provider = await getConfiguredProvider();
         if (provider) {
           const { signal, cleanup } = createTimeout(LLM_DRAFT_TIMEOUT_MS);
           try {
@@ -762,184 +762,4 @@ export async function createSkill(
     log.error({ err }, "Failed to create skill");
     return { success: false, error: message };
   }
-}
-
-// ─── HTTP handlers (thin wrappers) ──────────────────────────────────────────
-
-export function handleSkillsList(ctx: HandlerContext): void {
-  const skills = listSkills(ctx);
-  ctx.send({ type: "skills_list_response", skills });
-}
-
-export function handleSkillsEnable(
-  msg: SkillsEnableRequest,
-  ctx: HandlerContext,
-): void {
-  const result = enableSkill(msg.name, ctx);
-  ctx.send({
-    type: "skills_operation_response",
-    operation: "enable",
-    ...result,
-  });
-}
-
-export function handleSkillsDisable(
-  msg: SkillsDisableRequest,
-  ctx: HandlerContext,
-): void {
-  const result = disableSkill(msg.name, ctx);
-  ctx.send({
-    type: "skills_operation_response",
-    operation: "disable",
-    ...result,
-  });
-}
-
-export function handleSkillsConfigure(
-  msg: SkillsConfigureRequest,
-  ctx: HandlerContext,
-): void {
-  const result = configureSkill(
-    msg.name,
-    { env: msg.env, apiKey: msg.apiKey, config: msg.config },
-    ctx,
-  );
-  ctx.send({
-    type: "skills_operation_response",
-    operation: "configure",
-    ...result,
-  });
-}
-
-export async function handleSkillsInstall(
-  msg: SkillsInstallRequest,
-  ctx: HandlerContext,
-): Promise<void> {
-  const result = await installSkill(
-    { slug: msg.slug, version: msg.version },
-    ctx,
-  );
-  ctx.send({
-    type: "skills_operation_response",
-    operation: "install",
-    ...result,
-  });
-}
-
-export async function handleSkillsUninstall(
-  msg: SkillsUninstallRequest,
-  ctx: HandlerContext,
-): Promise<void> {
-  const result = await uninstallSkill(msg.name, ctx);
-  ctx.send({
-    type: "skills_operation_response",
-    operation: "uninstall",
-    ...result,
-  });
-}
-
-export async function handleSkillsUpdate(
-  msg: SkillsUpdateRequest,
-  ctx: HandlerContext,
-): Promise<void> {
-  const result = await updateSkill(msg.name, ctx);
-  ctx.send({
-    type: "skills_operation_response",
-    operation: "update",
-    ...result,
-  });
-}
-
-export async function handleSkillsCheckUpdates(
-  _msg: SkillsCheckUpdatesRequest,
-  ctx: HandlerContext,
-): Promise<void> {
-  const result = await checkSkillUpdates(ctx);
-  ctx.send({
-    type: "skills_operation_response",
-    operation: "check_updates",
-    ...result,
-  });
-}
-
-export async function handleSkillsSearch(
-  msg: SkillsSearchRequest,
-  ctx: HandlerContext,
-): Promise<void> {
-  const result = await searchSkills(msg.query, ctx);
-  ctx.send({
-    type: "skills_operation_response",
-    operation: "search",
-    ...result,
-  });
-}
-
-export async function handleSkillsInspect(
-  msg: SkillsInspectRequest,
-  ctx: HandlerContext,
-): Promise<void> {
-  const result = await inspectSkill(msg.slug, ctx);
-  ctx.send({
-    type: "skills_inspect_response",
-    ...result,
-  });
-}
-
-export async function handleSkillDetail(
-  msg: SkillDetailRequest,
-  ctx: HandlerContext,
-): Promise<void> {
-  const result = loadSkillBySelector(msg.skillId);
-  if (result.skill) {
-    const icon = await ensureSkillIcon(
-      result.skill.directoryPath,
-      result.skill.displayName,
-      result.skill.description,
-    );
-    ctx.send({
-      type: "skill_detail_response",
-      skillId: result.skill.id,
-      body: result.skill.body,
-      ...(icon ? { icon } : {}),
-    });
-  } else {
-    ctx.send({
-      type: "skill_detail_response",
-      skillId: msg.skillId,
-      body: "",
-      error: result.error ?? "Skill not found",
-    });
-  }
-}
-
-export async function handleSkillsDraft(
-  msg: SkillsDraftRequest,
-  ctx: HandlerContext,
-): Promise<void> {
-  const result = await draftSkill({ sourceText: msg.sourceText }, ctx);
-  ctx.send({ type: "skills_draft_response", ...result });
-}
-
-export async function handleSkillsCreate(
-  msg: SkillsCreateRequest,
-  ctx: HandlerContext,
-): Promise<void> {
-  const result = await createSkill(
-    {
-      skillId: msg.skillId,
-      name: msg.name,
-      description: msg.description,
-      emoji: msg.emoji,
-      bodyMarkdown: msg.bodyMarkdown,
-      userInvocable: msg.userInvocable,
-      disableModelInvocation: msg.disableModelInvocation,
-      overwrite: msg.overwrite,
-    },
-    ctx,
-  );
-  ctx.send({
-    type: "skills_operation_response",
-    operation: "create",
-    ...result,
-  });
 }

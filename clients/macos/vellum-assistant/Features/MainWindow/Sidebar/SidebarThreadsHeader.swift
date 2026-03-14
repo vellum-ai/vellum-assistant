@@ -11,24 +11,24 @@ struct SidebarThreadsHeader: View {
         HStack {
             Text("Threads")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
             Spacer()
             if hasUnseenThreads {
-                VIconButton(
+                VButton(
                     label: "Mark all as seen",
-                    icon: VIcon.circleCheck.rawValue,
-                    iconOnly: true,
+                    iconOnly: VIcon.circleCheck.rawValue,
+                    style: .ghost,
                     tooltip: "Mark all as seen",
                     action: onMarkAllSeen
                 )
                 .disabled(isLoading)
             }
-            VIconButton(label: "New thread", icon: VIcon.squarePen.rawValue, iconOnly: true, action: onNewThread)
+            VButton(label: "New thread", iconOnly: VIcon.squarePen.rawValue, style: .ghost, action: onNewThread)
                 .disabled(isLoading)
                 .opacity(isLoading ? 0.4 : 1)
         }
-        .padding(.leading, SidebarLayoutMetrics.iconSlotSize)
-        .padding(.trailing, VSpacing.md)
+        .padding(.leading, 0)
+        .padding(.trailing, 0)
         .padding(.top, SidebarLayoutMetrics.sectionTitleTopGap)
         .contextMenu {
             Button {

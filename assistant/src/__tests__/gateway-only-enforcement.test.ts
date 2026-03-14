@@ -57,7 +57,6 @@ mock.module("../config/loader.js", () => ({
   loadConfig: () => ({
     model: "test",
     provider: "test",
-    apiKeys: {},
     memory: { enabled: false },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     secretDetection: { enabled: false },
@@ -80,7 +79,6 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     model: "test",
     provider: "test",
-    apiKeys: {},
     memory: { enabled: false },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     secretDetection: { enabled: false },
@@ -112,27 +110,7 @@ mock.module("../calls/twilio-provider.js", () => ({
   },
 }));
 
-import { credentialKey } from "../security/credential-key.js";
-
-const secureKeyStore: Record<string, string | undefined> = {
-  [credentialKey("twilio", "account_sid")]: "AC_test",
-  [credentialKey("twilio", "auth_token")]: "test_token",
-};
-
-mock.module("../security/secure-keys.js", () => ({
-  getSecureKey: (key: string) => secureKeyStore[key] ?? null,
-  setSecureKey: (key: string, value: string) => {
-    secureKeyStore[key] = value;
-    return true;
-  },
-  deleteSecureKey: (key: string) => {
-    if (key in secureKeyStore) {
-      delete secureKeyStore[key];
-      return "deleted";
-    }
-    return "not-found";
-  },
-}));
+mock.module("../security/secure-keys.js", () => ({}));
 
 // NOTE: Do NOT mock '../inbound/public-ingress-urls.js' here.
 // Those are pure functions that derive URLs from the config object returned by

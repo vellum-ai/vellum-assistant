@@ -70,17 +70,17 @@ public struct ConfirmationSurfaceView: View {
             // Header with icon
             HStack(alignment: .top, spacing: VSpacing.md) {
                 VIconView(.triangleAlert, size: 24)
-                    .foregroundStyle(data.destructive ? VColor.error : VColor.warning)
+                    .foregroundStyle(data.destructive ? VColor.systemNegativeStrong : VColor.systemNegativeHover)
                 Text(inlineMarkdown(data.message))
                     .font(VFont.headline)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
             }
 
             // Detail text
             if let detail = data.detail {
                 Text(inlineMarkdown(detail))
                     .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
             }
 
             // Action buttons
@@ -89,7 +89,7 @@ public struct ConfirmationSurfaceView: View {
 
                 VButton(
                     label: data.cancelLabel ?? "Cancel",
-                    style: .tertiary
+                    style: .outlined
                 ) {
                     selectedAction = .cancelled
                     onAction(cancelActionId)
@@ -112,23 +112,23 @@ public struct ConfirmationSurfaceView: View {
             switch action {
             case .confirmed:
                 VIconView(.circleCheck, size: 12)
-                    .foregroundColor(VColor.success)
+                    .foregroundColor(VColor.systemPositiveStrong)
                 Text(data.confirmedLabel ?? "Done")
                     .font(VFont.captionMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
             case .cancelled:
                 VIconView(.circleX, size: 12)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                 Text(data.cancelLabel ?? "Dismissed")
                     .font(VFont.captionMedium)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
             }
         }
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.sm)
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.backgroundSubtle.opacity(0.5))
+                .fill(VColor.surfaceBase.opacity(0.5))
         )
     }
 }

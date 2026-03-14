@@ -45,7 +45,7 @@ struct SkillDetailView: View {
                     if !inspected.skill.summary.isEmpty {
                         Text(inspected.skill.summary)
                             .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
 
                     if let owner = inspected.owner {
@@ -63,10 +63,10 @@ struct SkillDetailView: View {
                             VStack(alignment: .leading, spacing: VSpacing.xs) {
                                 Text("Changelog")
                                     .font(VFont.caption)
-                                    .foregroundColor(VColor.textMuted)
+                                    .foregroundColor(VColor.contentTertiary)
                                 Text(changelog)
                                     .font(VFont.body)
-                                    .foregroundColor(VColor.textSecondary)
+                                    .foregroundColor(VColor.contentSecondary)
                             }
                         }
                     }
@@ -164,12 +164,12 @@ struct SkillDetailView: View {
 
             Text(skill.name)
                 .font(VFont.title)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             if !skill.description.isEmpty {
                 Text(skill.description)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
             }
 
@@ -190,7 +190,7 @@ struct SkillDetailView: View {
                     Text("Update available")
                         .font(VFont.caption)
                 }
-                .foregroundColor(VColor.accent)
+                .foregroundColor(VColor.primaryBase)
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("Update available for this skill")
             }
@@ -205,11 +205,11 @@ struct SkillDetailView: View {
         HStack {
             Text(label)
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
             Spacer()
             Text(value)
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(label): \(value)")

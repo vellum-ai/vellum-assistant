@@ -29,9 +29,12 @@ mock.module("../util/logger.js", () => ({
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
-
-    apiKeys: { anthropic: "test-key" },
   }),
+}));
+
+mock.module("../security/secure-keys.js", () => ({
+  getSecureKeyAsync: async (name: string) =>
+    name === "anthropic" ? "fake-anthropic-key" : null,
 }));
 
 // ---------------------------------------------------------------------------

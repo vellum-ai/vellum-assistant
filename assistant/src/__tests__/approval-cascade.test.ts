@@ -54,7 +54,6 @@ mock.module("../util/platform.js", () => ({
 }));
 
 mock.module("../memory/guardian-action-store.js", () => ({
-  getPendingDeliveryByConversation: () => null,
   getGuardianActionRequest: () => null,
   resolveGuardianActionRequest: () => {},
 }));
@@ -79,9 +78,7 @@ mock.module("../config/loader.js", () => ({
     },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     timeouts: { permissionTimeoutSec: 300 },
-    apiKeys: {},
     skills: { entries: {}, allowBundled: true },
-    memory: { retrieval: { injectionStrategy: "inline" } },
     permissions: { mode: "workspace" },
   }),
   loadRawConfig: () => ({}),
@@ -130,18 +127,6 @@ mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {},
 }));
 
-mock.module("../memory/admin.js", () => ({
-  getMemoryConflictAndCleanupStats: () => ({
-    conflicts: { pending: 0, resolved: 0, oldestPendingAgeMs: null },
-    cleanup: {
-      resolvedBacklog: 0,
-      supersededBacklog: 0,
-      resolvedCompleted24h: 0,
-      supersededCompleted24h: 0,
-    },
-  }),
-}));
-
 mock.module("../memory/conversation-crud.js", () => ({
   getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
@@ -182,13 +167,12 @@ mock.module("../memory/retriever.js", () => ({
     enabled: false,
     degraded: false,
     injectedText: "",
-    lexicalHits: 0,
+
     semanticHits: 0,
     recencyHits: 0,
     injectedTokens: 0,
     latencyMs: 0,
   }),
-  injectMemoryRecallIntoUserMessage: (msg: Message) => msg,
   stripMemoryRecallMessages: (msgs: Message[]) => msgs,
 }));
 
@@ -217,6 +201,9 @@ mock.module("../memory/llm-usage-store.js", () => ({
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     constructor() {}
+    getToolTokenBudget() {
+      return 0;
+    }
     async run(
       _messages: Message[],
       _onEvent: (event: AgentEvent) => void,
@@ -547,6 +534,68 @@ describe("approval cascading", () => {
     expect(approvedIds).toContain("req-match-1");
     expect(approvedIds).toContain("req-match-2");
     expect(approvedIds).not.toContain("req-nomatch");
+  });
+
+  test("always_allow does NOT cascade to high-risk pending confirmations", () => {
+    const emitted: ServerMessage[] = [];
+    const session = makeSession((msg) => emitted.push(msg), CONV_ID);
+
+    // Medium-risk pending — should cascade
+    seedPendingConfirmation(session, "req-medium");
+    registerPendingInteraction(
+      session,
+      "req-medium",
+      CONV_ID,
+      makeConfirmationDetails(["asset_materialize:report.pdf"]),
+    );
+
+    // High-risk pending — should NOT cascade via always_allow
+    seedPendingConfirmation(session, "req-high");
+    registerPendingInteraction(session, "req-high", CONV_ID, {
+      toolName: "bash",
+      input: { command: "rm -rf /" },
+      riskLevel: "high",
+      allowlistOptions: [
+        {
+          label: "asset_materialize:dangerous.bin",
+          description: "Allow asset_materialize:dangerous.bin",
+          pattern: "asset_materialize:dangerous.bin",
+        },
+      ],
+      scopeOptions: [{ label: "Everywhere", scope: "everywhere" }],
+    });
+
+    // Primary request
+    seedPendingConfirmation(session, "req-primary");
+    registerPendingInteraction(
+      session,
+      "req-primary",
+      CONV_ID,
+      makeConfirmationDetails(["asset_materialize:image.png"]),
+    );
+
+    session.handleConfirmationResponse(
+      "req-primary",
+      "always_allow",
+      "asset_materialize:**",
+    );
+
+    const approvedMsgs = emitted.filter(
+      (m) =>
+        m.type === "confirmation_state_changed" &&
+        (m as unknown as ConfirmationStateChanged).state === "approved",
+    ) as unknown as ConfirmationStateChanged[];
+
+    const approvedIds = approvedMsgs.map((m) => m.requestId).sort();
+    expect(approvedIds).toContain("req-primary");
+    expect(approvedIds).toContain("req-medium");
+    expect(approvedIds).not.toContain("req-high");
+
+    // High-risk should still be pending (not emitted at all)
+    const allResolvedIds = emitted
+      .filter((m) => m.type === "confirmation_state_changed")
+      .map((m) => (m as unknown as ConfirmationStateChanged).requestId);
+    expect(allResolvedIds).not.toContain("req-high");
   });
 
   test("always_deny cascades deny to pattern-matching pending", () => {

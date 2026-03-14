@@ -14,50 +14,61 @@ struct SidebarPrimaryRow: View {
     let action: () -> Void
     @State private var isHovered = false
 
+    private var iconColor: Color {
+        isActive ? VColor.primaryActive : VColor.primaryBase
+    }
+
+    private var textColor: Color {
+        isActive ? VColor.contentEmphasized : VColor.contentSecondary
+    }
+
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: isExpanded ? VSpacing.xs : 0) {
-                VIconView(.resolve(icon), size: 13)
-                    .foregroundColor(VColor.buttonSecondaryText)
-                    .frame(width: SidebarLayoutMetrics.iconSlotSize, height: SidebarLayoutMetrics.iconSlotSize)
-                Text(label)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(width: isExpanded ? nil : 0, alignment: .leading)
-                    .clipped()
-                    .opacity(isExpanded ? 1 : 0)
-                    .allowsHitTesting(false)
-                if isExpanded {
-                    Spacer()
-                    if let trailingIcon {
-                        VIconView(.resolve(trailingIcon), size: 10)
-                            .foregroundColor(VColor.buttonSecondaryText)
-                    }
+        HStack(spacing: isExpanded ? VSpacing.xs : 0) {
+            VIconView(.resolve(icon), size: 13)
+                .foregroundColor(iconColor)
+                .frame(width: SidebarLayoutMetrics.iconSlotSize, height: SidebarLayoutMetrics.iconSlotSize)
+            Text(label)
+                .font(VFont.body)
+                .foregroundColor(textColor)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(width: isExpanded ? nil : 0, alignment: .leading)
+                .clipped()
+                .opacity(isExpanded ? 1 : 0)
+                .allowsHitTesting(false)
+            if isExpanded {
+                Spacer()
+                if let trailingIcon {
+                    VIconView(.resolve(trailingIcon), size: 10)
+                        .foregroundColor(iconColor)
                 }
             }
-            .padding(.leading, isExpanded ? VSpacing.xs : 0)
-            .padding(.trailing, isExpanded ? VSpacing.sm : 0)
-            .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
-            .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
-            .frame(maxWidth: .infinity, alignment: isExpanded ? .leading : .center)
-            .background(
-                (isActive ? VColor.navActive : VColor.navHover.opacity(isHovered ? 1 : 0))
-                    .animation(VAnimation.fast, value: isHovered)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .padding(.horizontal, isExpanded ? VSpacing.sm : VSpacing.xs)
+        .padding(.leading, isExpanded ? VSpacing.xs : 0)
+        .padding(.trailing, isExpanded ? VSpacing.sm : 0)
+        .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
+        .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
+        .frame(maxWidth: .infinity, alignment: isExpanded ? .leading : .center)
+        .background(
+            isActive ? VColor.surfaceActive :
+            isHovered ? VColor.surfaceBase :
+            Color.clear
+        )
+        .animation(VAnimation.fast, value: isHovered)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .contentShape(Rectangle())
+        .onTapGesture { action() }
+        .onHover { isHovered = $0 }
+        .padding(.horizontal, 0)
         .help(isExpanded ? "" : label)
-        .onHover { hovering in
-            isHovered = hovering
-        }
         .pointerCursor()
     }
 }
 
 /// Convenience alias — existing callsites use `SidebarNavRow`.
 typealias SidebarNavRow = SidebarPrimaryRow
+
+// MARK: - Gallery Preview
+
+#if DEBUG
+#endif

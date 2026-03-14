@@ -3,7 +3,6 @@ import VellumAssistantShared
 
 struct IdentityPanel: View {
     let onClose: () -> Void
-    let onEditAvatar: () -> Void
     let daemonClient: DaemonClient
     @State private var appearance = AvatarAppearanceManager.shared
 
@@ -16,6 +15,8 @@ struct IdentityPanel: View {
     @State private var viewingFilePath: String?
     @State private var isFullscreen: Bool = false
     @State private var showAvatarSheet: Bool = false
+    @State private var introText: String? = nil
+    @State private var introTask: Task<Void, Never>? = nil
 
     private let sidebarMinWidth: CGFloat = 200
     private let sidebarMaxWidth: CGFloat = 280
@@ -41,29 +42,42 @@ struct IdentityPanel: View {
                 if !isFullscreen {
                     VStack(spacing: 0) {
                         VStack(spacing: 0) {
-                            // "I'm [name]!" heading
-                            Text("I'm \(assistantDisplayName)!")
-                                .font(.system(size: 22, weight: .regular, design: .rounded))
-                                .foregroundColor(VColor.textPrimary)
-                                .multilineTextAlignment(.center)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                                .padding(.top, VSpacing.xxl)
-                                .padding(.horizontal, VSpacing.lg)
+                            // Daemon-generated intro heading (nil = loading, shows nothing)
+                            if let introText {
+                                Text(introText)
+                                    .font(.system(size: 22, weight: .regular, design: .rounded))
+                                    .foregroundColor(VColor.contentDefault)
+                                    .multilineTextAlignment(.center)
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                                    .padding(.top, VSpacing.xxl)
+                                    .padding(.horizontal, VSpacing.lg)
+                            }
 
                             Spacer()
 
                             // Large centered avatar
-                            VAvatarImage(image: appearance.fullAvatarImage, size: avatarSize, showBorder: false)
-                                .frame(maxWidth: .infinity, alignment: .center)
+                            Group {
+                                if let body = appearance.characterBodyShape,
+                                   let eyes = appearance.characterEyeStyle,
+                                   let color = appearance.characterColor {
+                                    AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color, size: avatarSize,
+                                                       entryAnimationEnabled: true)
+                                        .frame(width: avatarSize, height: avatarSize)
+                                        .frame(maxWidth: .infinity, alignment: .center)
+                                } else {
+                                    VAvatarImage(image: appearance.fullAvatarImage, size: avatarSize, showBorder: false)
+                                        .frame(maxWidth: .infinity, alignment: .center)
+                                }
+                            }
 
                             // Update Avatar button
-                            VButton(label: "Update Avatar", style: .secondary) { showAvatarSheet = true }
+                            VButton(label: "Update Avatar", style: .outlined) { showAvatarSheet = true }
                                 .padding(.top, VSpacing.md)
 
                             Spacer()
 
                             // Divider
-                            Divider().background(VColor.panelDivider)
+                            Divider().background(VColor.surfaceOverlay)
 
                             // Role + Hatched date
                             VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -80,7 +94,7 @@ struct IdentityPanel: View {
                             .padding(.vertical, VSpacing.lg)
                         }
                         .frame(maxHeight: .infinity)
-                        .background(VColor.inputBackground)
+                        .background(VColor.surfaceBase)
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                     }
                     .frame(width: computedSidebarWidth)
@@ -99,17 +113,17 @@ struct IdentityPanel: View {
                 isFullscreen: $isFullscreen
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(isFullscreen ? Color.clear : VColor.backgroundSubtle)
+            .background(isFullscreen ? Color.clear : VColor.surfaceOverlay)
             .clipShape(RoundedRectangle(cornerRadius: isFullscreen ? 0 : VRadius.lg))
             .overlay(
                 RoundedRectangle(cornerRadius: isFullscreen ? 0 : VRadius.lg)
-                    .stroke(isFullscreen ? Color.clear : VColor.surfaceBorder, lineWidth: 1)
+                    .stroke(isFullscreen ? Color.clear : VColor.borderDisabled, lineWidth: 1)
             )
                 .padding(.trailing, 0)
             }
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isFullscreen)
             .overlay {
-                Color.black.opacity(viewingFilePath != nil ? 0.4 : 0)
+                VColor.auxBlack.opacity(viewingFilePath != nil ? 0.4 : 0)
                     .ignoresSafeArea()
                     .allowsHitTesting(viewingFilePath != nil)
                     .onTapGesture { viewingFilePath = nil }
@@ -118,29 +132,25 @@ struct IdentityPanel: View {
                     WorkspaceFileSheet(filePath: path, onClose: { viewingFilePath = nil })
                         .frame(width: 600, height: 500)
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-                        .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
+                        .shadow(color: VColor.auxBlack.opacity(0.5), radius: 20, y: 8)
                         .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 }
             }
             .animation(VAnimation.standard, value: viewingFilePath != nil)
             .overlay {
-                Color.black.opacity(showAvatarSheet ? 0.4 : 0)
+                VColor.auxBlack.opacity(showAvatarSheet ? 0.4 : 0)
                     .ignoresSafeArea()
                     .allowsHitTesting(showAvatarSheet)
                     .onTapGesture { showAvatarSheet = false }
 
                 if showAvatarSheet {
                     AvatarManagementSheet(
-                        onClose: { showAvatarSheet = false },
-                        onEditAvatar: {
-                            showAvatarSheet = false
-                            onEditAvatar()
-                        }
+                        onClose: { showAvatarSheet = false }
                     )
                     .frame(width: 360)
                     .fixedSize(horizontal: false, vertical: true)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-                    .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
+                    .shadow(color: VColor.auxBlack.opacity(0.5), radius: 20, y: 8)
                     .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 }
             }
@@ -158,6 +168,38 @@ struct IdentityPanel: View {
                         remoteIdentity = await daemonClient.fetchRemoteIdentity()
                     }
                 }
+
+                generateIntro()
+            }
+            .onDisappear { introTask?.cancel() }
+        }
+    }
+
+    // MARK: - Intro Generation
+
+    private func generateIntro() {
+        introTask?.cancel()
+        introText = nil
+
+        introTask = Task {
+            let key = "identity-intro-\(UUID().uuidString)"
+            let prompt = "Generate a very short intro for yourself (2-5 words). This should feel natural to your personality — playful, formal, chill, whatever fits you. Some examples for inspiration (don't limit yourself to these): \"I'm [name]!\", \"It's [name]\", \"Hey, I'm [name]\", \"[name] here.\", \"[name], at your service.\" Output ONLY the intro text, nothing else."
+            var result = ""
+            do {
+                let stream = daemonClient.sendBtwMessage(
+                    content: prompt,
+                    conversationKey: key
+                )
+                for try await delta in stream {
+                    guard !Task.isCancelled else { return }
+                    result += delta
+                }
+                self.introText = result.isEmpty ? nil : result
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.introText = "I'm \(assistantDisplayName)!"
             }
         }
     }
@@ -231,19 +273,19 @@ struct IdentityPanel: View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
             Text(label)
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
 
             if truncate {
                 Text(value)
                     .font(mono ? VFont.mono : VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .help(value)
             } else {
                 Text(value)
                     .font(mono ? VFont.mono : VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .textSelection(.enabled)
             }
         }
@@ -253,10 +295,10 @@ struct IdentityPanel: View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
             Text(label)
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
             Text(value)
                 .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentEmphasized)
         }
     }
 
@@ -295,14 +337,14 @@ private struct WorkspaceFileSheet: View {
             // Header
             HStack {
                 VIconView(.fileText, size: 13)
-                    .foregroundColor(Amber._400)
+                    .foregroundColor(VColor.systemNegativeHover)
                 Text(fileName)
                     .font(VFont.cardTitle)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 Spacer()
                 Button(action: onClose) {
                     VIconView(.x, size: 12)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .frame(width: 32, height: 32)
                         .contentShape(Rectangle())
                 }
@@ -312,7 +354,7 @@ private struct WorkspaceFileSheet: View {
             .padding(.horizontal, VSpacing.xl)
             .padding(.vertical, VSpacing.lg)
 
-            Divider().background(VColor.surfaceBorder)
+            Divider().background(VColor.borderBase)
 
             // Content
             ScrollView {
@@ -320,7 +362,7 @@ private struct WorkspaceFileSheet: View {
                     .padding(VSpacing.xl)
             }
         }
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
         .task(id: filePath) {
             fileContent = (try? String(contentsOfFile: filePath, encoding: .utf8)) ?? "Unable to read file."
         }

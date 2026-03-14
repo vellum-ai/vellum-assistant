@@ -33,9 +33,13 @@ mock.module("../util/logger.js", () => ({
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
-
-    apiKeys: { anthropic: "test-key" },
   }),
+}));
+
+// Mock secure-keys — provide a fake Anthropic API key
+mock.module("../security/secure-keys.js", () => ({
+  getSecureKeyAsync: async (name: string) =>
+    name === "anthropic" ? "fake-anthropic-key" : null,
 }));
 
 import { claudeCodeTool } from "../tools/claude-code/claude-code.js";
@@ -83,7 +87,7 @@ describe("claude_code tool profile support", () => {
     }
   });
 
-  test("omitted profile defaults to general (backward compat)", async () => {
+  test("omitted profile defaults to general", async () => {
     const result = await claudeCodeTool.execute(
       { prompt: "test" },
       makeContext(),

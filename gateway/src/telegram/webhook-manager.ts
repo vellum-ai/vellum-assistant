@@ -59,9 +59,7 @@ export async function reconcileTelegramWebhook(
   }
 
   if (!ingressUrl) {
-    log.debug(
-      "Skipping webhook reconciliation: ingress.publicBaseUrl not set",
-    );
+    log.debug("Skipping webhook reconciliation: ingress.publicBaseUrl not set");
     return;
   }
 

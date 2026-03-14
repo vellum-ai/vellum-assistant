@@ -11,9 +11,12 @@ import { join, dirname } from "path";
 
 const DEFAULT_PLATFORM_URL = "https://platform.vellum.ai";
 
+function getXdgConfigHome(): string {
+  return process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
+}
+
 function getPlatformTokenPath(): string {
-  const base = process.env.BASE_DATA_DIR || homedir();
-  return join(base, ".vellum", "platform-token");
+  return join(getXdgConfigHome(), "vellum", "platform-token");
 }
 
 export function getPlatformUrl(): string {
@@ -50,6 +53,30 @@ export interface PlatformUser {
   id: string;
   email: string;
   display: string;
+}
+
+interface OrganizationListResponse {
+  results: { id: string; name: string }[];
+}
+
+export async function fetchOrganizationId(token: string): Promise<string> {
+  const url = `${getPlatformUrl()}/v1/organizations/`;
+  const response = await fetch(url, {
+    headers: { "X-Session-Token": token },
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch organizations (${response.status}). Try logging in again.`,
+    );
+  }
+
+  const body = (await response.json()) as OrganizationListResponse;
+  const orgId = body.results?.[0]?.id;
+  if (!orgId) {
+    throw new Error("No organization found for this account.");
+  }
+  return orgId;
 }
 
 interface AllauthSessionResponse {

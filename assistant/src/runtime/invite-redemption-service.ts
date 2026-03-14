@@ -8,7 +8,7 @@
  */
 
 import type { ChannelId } from "../channels/types.js";
-import { findContactChannel } from "../contacts/contact-store.js";
+import { findContactChannel, getContact } from "../contacts/contact-store.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getSqlite } from "../memory/db.js";
 import {
@@ -135,7 +135,17 @@ export function redeemInvite(params: {
   const existingChannel = contactResult?.channel ?? null;
   const existingContact = contactResult?.contact ?? null;
 
-  if (existingChannel && existingChannel.status === "active") {
+  // If the invite targets a specific contact and the sender's existing channel
+  // belongs to a different contact, ignore the existing match — the invite
+  // should bind the sender's identity to the target contact, not the existing one.
+  const targetMismatch =
+    existingContact && existingContact.id !== invite.contactId;
+
+  if (
+    existingChannel &&
+    existingChannel.status === "active" &&
+    !targetMismatch
+  ) {
     return { ok: true, type: "already_member", memberId: existingChannel.id };
   }
 
@@ -150,7 +160,7 @@ export function redeemInvite(params: {
   // in a non-active state (revoked/pending), reactivate it via upsertContactChannel
   // and consume an invite use atomically. The fresh-member path below also
   // uses upsertContactChannel to keep contacts in sync.
-  if (existingChannel) {
+  if (existingChannel && !targetMismatch) {
     // Sentinel error used to trigger a transaction rollback when the invite
     // was concurrently revoked/expired between pre-validation and write time.
     const STALE_INVITE = Symbol("stale_invite");
@@ -184,11 +194,13 @@ export function redeemInvite(params: {
             // Reactivation should not overwrite a guardian-managed nickname.
             displayName: preservedDisplayName,
             username,
+            role: "contact",
             status: "active",
             policy: "allow",
             inviteId: invite.id,
             verifiedAt: Date.now(),
             verifiedVia: "invite",
+            contactId: invite.contactId,
           });
 
           const recorded = recordInviteUse({
@@ -220,6 +232,16 @@ export function redeemInvite(params: {
 
   // Fresh member creation: upsert into contacts tables and consume an invite
   // use atomically, mirroring the reactivation path above.
+  // When the invite targets a specific contact (targetMismatch path), preserve
+  // the target contact's guardian-assigned display name if it has one.
+  let freshDisplayName = displayName;
+  if (invite.contactId) {
+    const targetContact = getContact(invite.contactId);
+    if (targetContact?.displayName?.trim().length) {
+      freshDisplayName = targetContact.displayName;
+    }
+  }
+
   const STALE_INVITE_FRESH = Symbol("stale_invite_fresh");
   let freshResult: ReturnType<typeof upsertContactChannel> | undefined;
   try {
@@ -229,13 +251,15 @@ export function redeemInvite(params: {
           sourceChannel,
           externalUserId,
           externalChatId,
-          displayName,
+          displayName: freshDisplayName,
           username,
+          role: "contact",
           status: "active",
           policy: "allow",
           inviteId: invite.id,
           verifiedAt: Date.now(),
           verifiedVia: "invite",
+          contactId: invite.contactId,
         });
 
         const recorded = recordInviteUse({
@@ -338,8 +362,18 @@ export function redeemVoiceInviteCode(params: {
     externalUserId: canonicalCallerId,
   });
   const existingVoiceChannel = voiceContactResult?.channel ?? null;
+  const voiceContact = voiceContactResult?.contact ?? null;
 
-  if (existingVoiceChannel && existingVoiceChannel.status === "active") {
+  // If the invite targets a specific contact and the sender's existing channel
+  // belongs to a different contact, ignore the existing match — the invite
+  // should bind the sender's identity to the target contact, not the existing one.
+  const targetMismatch = voiceContact && voiceContact.id !== invite.contactId;
+
+  if (
+    existingVoiceChannel &&
+    existingVoiceChannel.status === "active" &&
+    !targetMismatch
+  ) {
     return {
       ok: true,
       type: "already_member",
@@ -356,12 +390,17 @@ export function redeemVoiceInviteCode(params: {
   const STALE_INVITE = Symbol("stale_invite");
   let memberId: string | undefined;
 
-  // Reactivation should not overwrite a guardian-managed nickname (same
-  // protection as the token-based redemption path above).
-  const voiceContact = voiceContactResult?.contact ?? null;
-  const preservedDisplayName = voiceContact?.displayName?.trim().length
+  // When the invite targets a specific contact (targetMismatch path), preserve
+  // the target contact's guardian-assigned display name if it has one.
+  let preservedDisplayName = voiceContact?.displayName?.trim().length
     ? voiceContact.displayName
     : (invite.friendName ?? undefined);
+  if (targetMismatch && invite.contactId) {
+    const targetContact = getContact(invite.contactId);
+    if (targetContact?.displayName?.trim().length) {
+      preservedDisplayName = targetContact.displayName;
+    }
+  }
 
   try {
     getSqlite()
@@ -371,11 +410,13 @@ export function redeemVoiceInviteCode(params: {
           externalUserId: callerExternalUserId,
           externalChatId: callerExternalUserId,
           displayName: preservedDisplayName,
+          role: "contact",
           status: "active",
           policy: "allow",
           inviteId: invite.id,
           verifiedAt: Date.now(),
           verifiedVia: "invite",
+          contactId: invite.contactId,
         });
         memberId = writeResult!.channel.id;
 
@@ -476,7 +517,17 @@ export function redeemInviteByCode(params: {
   const existingChannel = contactResult?.channel ?? null;
   const existingContact = contactResult?.contact ?? null;
 
-  if (existingChannel && existingChannel.status === "active") {
+  // If the invite targets a specific contact and the sender's existing channel
+  // belongs to a different contact, ignore the existing match — the invite
+  // should bind the sender's identity to the target contact, not the existing one.
+  const targetMismatch =
+    existingContact && existingContact.id !== invite.contactId;
+
+  if (
+    existingChannel &&
+    existingChannel.status === "active" &&
+    !targetMismatch
+  ) {
     return { ok: true, type: "already_member", memberId: existingChannel.id };
   }
 
@@ -489,7 +540,7 @@ export function redeemInviteByCode(params: {
 
   // Inactive member reactivation: reactivate via upsertContactChannel and consume
   // an invite use atomically.
-  if (existingChannel) {
+  if (existingChannel && !targetMismatch) {
     const STALE_INVITE_REACTIVATE = Symbol("stale_invite_reactivate");
     const canonicalMemberId = existingChannel.externalUserId
       ? canonicalizeInboundIdentity(
@@ -520,11 +571,13 @@ export function redeemInviteByCode(params: {
             externalChatId,
             displayName: preservedDisplayName,
             username,
+            role: "contact",
             status: "active",
             policy: "allow",
             inviteId: invite.id,
             verifiedAt: Date.now(),
             verifiedVia: "invite",
+            contactId: invite.contactId,
           });
 
           const recorded = recordInviteUse({
@@ -553,6 +606,16 @@ export function redeemInviteByCode(params: {
 
   // Fresh member creation: upsert into contacts tables and consume an invite
   // use atomically.
+  // When the invite targets a specific contact (targetMismatch path), preserve
+  // the target contact's guardian-assigned display name if it has one.
+  let freshDisplayName = displayName;
+  if (invite.contactId) {
+    const targetContact = getContact(invite.contactId);
+    if (targetContact?.displayName?.trim().length) {
+      freshDisplayName = targetContact.displayName;
+    }
+  }
+
   const STALE_INVITE_FRESH = Symbol("stale_invite_fresh");
   let freshResult: ReturnType<typeof upsertContactChannel> | undefined;
   try {
@@ -562,13 +625,15 @@ export function redeemInviteByCode(params: {
           sourceChannel,
           externalUserId,
           externalChatId,
-          displayName,
+          displayName: freshDisplayName,
           username,
+          role: "contact",
           status: "active",
           policy: "allow",
           inviteId: invite.id,
           verifiedAt: Date.now(),
           verifiedVia: "invite",
+          contactId: invite.contactId,
         });
 
         const recorded = recordInviteUse({

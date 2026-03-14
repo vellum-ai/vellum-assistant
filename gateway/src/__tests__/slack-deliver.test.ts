@@ -671,6 +671,40 @@ describe("slack-deliver endpoint", () => {
     expect(body.error).toContain("user is required");
   });
 
+  test("returns 400 when ephemeral message includes attachments", async () => {
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
+    const req = makeRequest({
+      chatId: "C123",
+      text: "secret info",
+      ephemeral: true,
+      user: "U456",
+      attachments: [
+        {
+          id: "att-img",
+          filename: "photo.png",
+          mimeType: "image/png",
+          sizeBytes: 100,
+        },
+      ],
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(400);
+
+    const body = await res.json();
+    expect(body.error).toBe(
+      "attachments are not supported for ephemeral messages",
+    );
+
+    const uploadCall = fetchCalls.find((c) =>
+      c.url.includes("files.completeUploadExternal"),
+    );
+    expect(uploadCall).toBeUndefined();
+  });
+
   test("ephemeral message includes thread_ts when threadTs query param is set", async () => {
     const handler = createSlackDeliverHandler(
       makeConfig(),

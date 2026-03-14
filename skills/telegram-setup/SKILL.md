@@ -36,14 +36,13 @@ Collect the token through the secure credential prompt:
 ## Step 2: Validate Token and Configure Bot
 
 ```bash
-BOT_TOKEN=$(assistant credentials reveal telegram:bot_token)
+BOT_TOKEN=$(assistant credentials reveal --service telegram --field bot_token)
 GETME_RESPONSE=$(curl -sf "https://api.telegram.org/bot${BOT_TOKEN}/getMe")
 BOT_USERNAME=$(echo "$GETME_RESPONSE" | jq -r '.result.username')
 assistant config set telegram.botUsername "$BOT_USERNAME"
 ```
 
 If the `curl` call fails, the token is invalid — ask the user to re-enter (repeat Step 1).
-
 
 ## Step 3: Set Up Public Ingress and Webhooks
 
@@ -54,14 +53,15 @@ Telegram needs a publicly reachable URL to send webhook events to. Load the `pub
 ### Generate Webhook Secret
 
 Check to see if one already exists:
+
 ```bash
-assistant credentials inspect telegram:webhook_secret
+assistant credentials inspect --service telegram --field webhook_secret
 ```
 
 If not, generate and set one:
 
 ```bash
-assistant credentials set telegram:webhook_secret "$(uuidgen)"
+assistant credentials set --service telegram --field webhook_secret "$(uuidgen)"
 ```
 
 ### Register Platform Callback Route
@@ -75,7 +75,7 @@ Only needed for containerized deployments. A "not available" error is expected l
 ## Step 4: Register Bot Commands
 
 ```bash
-BOT_TOKEN=$(assistant credentials reveal telegram:bot_token)
+BOT_TOKEN=$(assistant credentials reveal --service telegram --field bot_token)
 curl -sf -X POST "https://api.telegram.org/bot${BOT_TOKEN}/setMyCommands" \
   -H "Content-Type: application/json" \
   -d '{"commands":[{"command":"new","description":"Start a new conversation"},{"command":"help","description":"Show available commands"}]}'
@@ -104,7 +104,7 @@ Summarize:
 To disconnect Telegram:
 
 ```bash
-assistant credentials delete telegram:bot_token
-assistant credentials delete telegram:webhook_secret
+assistant credentials delete --service telegram --field bot_token
+assistant credentials delete --service telegram --field webhook_secret
 assistant config set telegram.botUsername ""
 ```

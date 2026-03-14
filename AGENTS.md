@@ -33,10 +33,19 @@ The full test suite is large and will hang or timeout if run unscoped. **Never r
   `cd assistant && bun test src/path/to/file.test.ts`
 - To run tests matching a pattern: `cd assistant && bun test src/path/to/file.test.ts --grep "pattern"`
 - Use `bunx tsc --noEmit` for full-project type-checking instead of running all tests.
+- **Regression tests for unfixed bugs**: When adding tests that reproduce a bug or document expected behavior before the fix lands, use `test.todo("description", () => {})` so mainline stays green. Never commit normally-failing `test(...)` cases — red CI blocks merges and erodes signal. Convert `test.todo` to `test` when the implementation PR lands.
 
 ## PR Workflow
 
-- **Linear tickets**: Include issue ID in branch names and commit messages. Keep status in sync: In Progress when starting, In Review when PR is created, Done when merged.
+- **Linear tickets**: When a Linear ticket is provided anywhere in context (user message, TODO, plan), use the issue identifier (e.g. `JARVIS-123`) throughout:
+  - **Branch name**: Include the identifier, e.g. `do/jarvis-123-fix-stale-approvals`. Linear auto-links branches that contain the issue ID.
+  - **Single-PR workflows** (`/do`, `/work`, standalone PRs):
+    - **Commit message**: Include `Closes JARVIS-123` (or `Fixes`, `Resolves`) in the commit body so Linear auto-closes the issue when the PR merges.
+    - **PR description**: Mention `Closes JARVIS-123` in the PR body for redundancy.
+  - **Multi-PR plans** (`/run-plan`, `/blitz`, `/safe-blitz`):
+    - **Intermediate PRs**: Use `Part of JARVIS-123` in commit messages and PR bodies. This links the PR to the issue without triggering Linear's auto-close automation.
+    - **Final PR only**: Use `Closes JARVIS-123` to trigger the auto-close.
+  - **Status sync**: Set In Progress when starting work. For single-PR workflows, move to In Review when the PR is opened. For multi-PR plans, do not toggle status between PRs — let the final PR's `Closes` keyword handle the Done transition.
 - **Track merged PRs**: Append PR URL to `.private/UNREVIEWED_PRS.md` so `/check-reviews` can triage.
 - **Human attention comments**: After creating a PR with non-routine changes (architectural decisions, security, complex logic, deletions, low confidence), leave a `gh pr comment` highlighting where to focus review and the risk level. Skip for routine changes.
 
@@ -98,9 +107,9 @@ When the daemon runs with `BASE_DATA_DIR` set to an instance directory (e.g. `~/
 
 Use `QDRANT_HTTP_PORT` (not `QDRANT_URL`) when allocating per-instance Qdrant ports. Setting `QDRANT_URL` triggers QdrantManager's external/remote mode which bypasses the local managed Qdrant lifecycle (download, start, health checks). The CLI deletes `QDRANT_URL` from the environment when spawning instance daemons to ensure local Qdrant management is used.
 
-## Memory Conflict Handling — Internal Only
+## Workspace Export & Secrets
 
-Memory conflicts must never surface as user-facing clarification prompts. The conflict gate evaluates and resolves conflicts internally without producing any user-visible output — no injected instructions, no clarification questions, no blocking the user's request. The response path always continues answering the user. If you add or modify conflict-related code, verify that `ConflictGate.evaluate()` returns `void` (not a user-facing string), that no conflict text is emitted into the agent loop's message stream, and that `session-runtime-assembly.ts` does not inject conflict instructions. Guard tests: `session-conflict-gate.test.ts`, `session-agent-loop.test.ts`, `memory-lifecycle-e2e.test.ts`.
+The entire ~/.vellum/workspace directory (minus embedding models and Qdrant vector indices) is included in diagnostic log exports when users choose "Send logs to Vellum". **Never store secrets, API keys, or sensitive credentials in the workspace directory.** Use the credential store (`assistant credentials`) or the `~/.vellum/protected/` directory for sensitive data.
 
 ## Release Update Hygiene
 
@@ -109,6 +118,22 @@ When shipping a release with user/assistant-facing changes, update `assistant/sr
 ## Companion Repos
 
 - **[`vellum-assistant-platform`](../vellum-assistant-platform)** — Django backend that manages platform-hosted ("managed") assistants. Handles authentication (WorkOS OIDC), organization management, assistant lifecycle, and runtime proxying. The desktop app authenticates against it and proxies all runtime traffic through it. Stack: Python 3.14, Django, DRF, PostgreSQL, Redis/Valkey. See `../vellum-assistant-platform/AGENTS.md` for development instructions.
+
+## Sentry & Linear Integration
+
+The Sentry organization is `vellum` (region: `us.sentry.io`, URL: `vellum.sentry.io`). Two projects exist: `vellum-assistant-brain` (daemon/runtime) and `vellum-assistant-macos` (desktop app).
+
+**Sentry CLI**: Use the newer `sentry` CLI (not the legacy `sentry-cli`). Install from `https://cli.sentry.dev/install`. Authenticate with `sentry auth login`. The [sentry-cli skill](https://github.com/vellum-ai/claude-skills/tree/main/skills/sentry-cli) documents all available commands. Use `sentry api` for raw API calls.
+
+**Linking Sentry ↔ Linear**: Linear is installed as a Sentry App (third-party), not a first-party integration. It lives under `/sentry-app-installations/` (UUID: `d72b980e-5340-4284-a381-095feeb37905`), not `/integrations/`. To link a Sentry issue to a Linear issue:
+
+```bash
+sentry api '/sentry-app-installations/d72b980e-5340-4284-a381-095feeb37905/external-issues/' \
+  --method POST \
+  -d '{"issueId": "<sentry_issue_id>", "webUrl": "<linear_issue_url>", "displayName": "<linear_identifier>", "identifier": "<linear_identifier>", "project": "<sentry_project_slug>"}'
+```
+
+For the reverse direction (Linear → Sentry), use `mcp__linear-server__save_issue` with a `links` attachment containing the Sentry issue URL.
 
 ## See Also
 

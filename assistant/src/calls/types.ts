@@ -58,7 +58,7 @@ export type PendingQuestionStatus =
  * uses this as the primary signal for deterministic flow selection,
  * with Twilio setup custom parameters as a secondary/observability signal.
  */
-export type CallMode = "normal" | "verification";
+export type CallMode = "normal" | "verification" | "invite";
 
 export interface CallSession {
   id: string;
@@ -71,6 +71,8 @@ export interface CallSession {
   status: CallStatus;
   callMode: CallMode | null;
   verificationSessionId: string | null;
+  inviteFriendName: string | null;
+  inviteGuardianName: string | null;
   callerIdentityMode: string | null;
   callerIdentitySource: string | null;
   initiatedFromConversationId?: string | null;

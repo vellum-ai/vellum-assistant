@@ -149,16 +149,6 @@ final class FirstMeetingIntroductionViewModel {
                     log.info("First meeting greeting complete via handoff (\(accumulated.count) chars)")
                     return
 
-                case .cuError(let error) where error.sessionId == self.sessionId && self.sessionId != nil:
-                    self.isThinking = false
-                    self.streamingText = ""
-                    log.error("First meeting start failed: \(error.message)")
-                    self.messages.append(InterviewMessage(
-                        role: .assistant,
-                        text: "I'm having trouble connecting. Please try again in a moment."
-                    ))
-                    return
-
                 case .sessionError(let error) where error.sessionId == self.sessionId && self.sessionId != nil:
                     self.isThinking = false
                     self.streamingText = ""
@@ -278,16 +268,6 @@ final class FirstMeetingIntroductionViewModel {
                         self.isFinished = true
                     }
                     log.info("Follow-up response complete via handoff (\(accumulated.count) chars), turn \(nextTurn)/\(self.maxTurns)")
-                    return
-
-                case .cuError(let error) where error.sessionId == sessionId:
-                    self.isThinking = false
-                    self.streamingText = ""
-                    log.error("Session error during follow-up: \(error.message)")
-                    self.messages.append(InterviewMessage(
-                        role: .assistant,
-                        text: "Something went wrong. Please try again."
-                    ))
                     return
 
                 case .sessionError(let error) where error.sessionId == sessionId:

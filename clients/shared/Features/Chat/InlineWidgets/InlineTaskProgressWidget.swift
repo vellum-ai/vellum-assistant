@@ -80,7 +80,7 @@ public struct InlineTaskProgressWidget: View {
         HStack(alignment: .center, spacing: VSpacing.sm) {
             Text(data.title)
                 .font(VFont.headline)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             Spacer()
 
@@ -113,7 +113,7 @@ public struct InlineTaskProgressWidget: View {
             ForEach(Array(data.steps.enumerated()), id: \.element.id) { index, step in
                 stepRow(step)
                 if index < data.steps.count - 1 {
-                    Divider().background(Moss._700.opacity(0.3))
+                    Divider().background(VColor.surfaceActive.opacity(0.3))
                 }
             }
         }
@@ -127,12 +127,12 @@ public struct InlineTaskProgressWidget: View {
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(step.label)
                     .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 if let detail = step.detail {
                     Text(detail)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
             }
 
@@ -148,35 +148,35 @@ public struct InlineTaskProgressWidget: View {
         switch status {
         case "completed":
             VIconView(.circleCheck, size: 14)
-                .foregroundColor(Emerald._500)
+                .foregroundColor(VColor.systemPositiveStrong)
         case "in_progress":
             ProgressView()
                 .controlSize(.small)
-                .tint(Amber._500)
+                .tint(VColor.systemNegativeHover)
         case "waiting":
             VIconView(.clock, size: 14)
-                .foregroundColor(Amber._500)
+                .foregroundColor(VColor.systemNegativeHover)
         case "failed":
             VIconView(.circleX, size: 14)
-                .foregroundColor(Danger._500)
+                .foregroundColor(VColor.systemNegativeStrong)
         default:
             VIconView(.circle, size: 14)
-                .foregroundColor(Moss._500)
+                .foregroundColor(VColor.contentDisabled)
         }
     }
 
     private func statusInfo(for status: String) -> (label: String, icon: VIcon, color: Color) {
         switch status {
         case "completed":
-            return ("Completed", .circleCheck, Emerald._500)
+            return ("Completed", .circleCheck, VColor.systemPositiveStrong)
         case "in_progress":
-            return ("In Progress", .refreshCw, Amber._500)
+            return ("In Progress", .refreshCw, VColor.systemNegativeHover)
         case "waiting":
-            return ("Waiting", .clock, Amber._500)
+            return ("Waiting", .clock, VColor.systemNegativeHover)
         case "failed":
-            return ("Failed", .circleX, Danger._500)
+            return ("Failed", .circleX, VColor.systemNegativeStrong)
         default:
-            return ("Pending", .circle, Moss._500)
+            return ("Pending", .circle, VColor.contentDisabled)
         }
     }
 }
@@ -184,25 +184,4 @@ public struct InlineTaskProgressWidget: View {
 // MARK: - Preview
 
 #if DEBUG
-#Preview("InlineTaskProgressWidget") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        ScrollView {
-            InlineTaskProgressWidget(data: TaskProgressData(
-                title: "Ordering lunch",
-                status: "in_progress",
-                steps: [
-                    TaskStepItem(id: "1", label: "Find nearby restaurants", status: "completed", detail: "Found 3 options within 1 mile"),
-                    TaskStepItem(id: "2", label: "Select restaurant", status: "completed", detail: "Chose Thai Palace"),
-                    TaskStepItem(id: "3", label: "Place order", status: "in_progress", detail: "Adding items to cart"),
-                    TaskStepItem(id: "4", label: "Confirm payment", status: "pending", detail: nil),
-                    TaskStepItem(id: "5", label: "Track delivery", status: "pending", detail: nil),
-                ]
-            ))
-            .padding()
-            .frame(width: 450)
-        }
-    }
-    .frame(width: 500, height: 400)
-}
 #endif

@@ -10,7 +10,7 @@ describe("oauth provider behaviors", () => {
     const service = resolveService("gmail");
     const behavior = getProviderBehavior(service);
 
-    expect(service).toBe("integration:gmail");
+    expect(service).toBe("integration:google");
     expect(behavior).toBeDefined();
     expect(behavior?.injectionTemplates).toBeDefined();
     expect(behavior?.injectionTemplates).toHaveLength(3);

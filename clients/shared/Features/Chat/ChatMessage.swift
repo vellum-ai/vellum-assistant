@@ -44,6 +44,8 @@ public struct ToolConfirmationData: Equatable {
     public let persistentDecisionsAllowed: Bool
     /// Which temporary approval options the daemon supports for this request (e.g. "allow_10m", "allow_thread").
     public let temporaryOptionsAvailable: [String]
+    /// The tool_use block ID for client-side correlation with specific tool calls.
+    public let toolUseId: String?
     public var state: ToolConfirmationState = .pending
     /// The decision string that was used to approve (e.g. "allow", "allow_10m", "allow_thread", "always_allow").
     /// Set when the state transitions to `.approved`.
@@ -527,7 +529,7 @@ public struct ToolConfirmationData: Equatable {
         )
     }
 
-    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, diff: ConfirmationRequestDiff? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption] = [], scopeOptions: [ConfirmationRequestScopeOption] = [], executionTarget: String? = nil, persistentDecisionsAllowed: Bool = true, temporaryOptionsAvailable: [String] = [], state: ToolConfirmationState = .pending) {
+    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, diff: ConfirmationRequestDiff? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption] = [], scopeOptions: [ConfirmationRequestScopeOption] = [], executionTarget: String? = nil, persistentDecisionsAllowed: Bool = true, temporaryOptionsAvailable: [String] = [], toolUseId: String? = nil, state: ToolConfirmationState = .pending) {
         self.requestId = requestId
         self.toolName = toolName
         self.input = input
@@ -538,6 +540,7 @@ public struct ToolConfirmationData: Equatable {
         self.executionTarget = executionTarget
         self.persistentDecisionsAllowed = persistentDecisionsAllowed
         self.temporaryOptionsAvailable = temporaryOptionsAvailable
+        self.toolUseId = toolUseId
         self.state = state
     }
 
@@ -822,6 +825,9 @@ public struct ToolCallData: Identifiable, Equatable {
     /// changes without expensive full-string comparison. Incremented on
     /// every write, even when `partialOutput` is at the character cap.
     public var partialOutputRevision: Int = 0
+    /// Live pending confirmation attached to this tool call for inline rendering.
+    /// Set when a `confirmation_request` arrives, cleared when approved/denied.
+    public var pendingConfirmation: ToolConfirmationData?
     /// Sub-tool steps for claude_code tool calls (live progress tracking).
     public var claudeCodeSteps: [ClaudeCodeSubStep] = []
     /// Pre-decoded NSImage cached to avoid repeated base64 decoding in SwiftUI body.
@@ -855,6 +861,7 @@ public struct ToolCallData: Identifiable, Equatable {
             && lhs.completedAt == rhs.completedAt
             && lhs.confirmationDecision == rhs.confirmationDecision
             && lhs.confirmationLabel == rhs.confirmationLabel
+            && lhs.pendingConfirmation == rhs.pendingConfirmation
     }
 
     public init(id: UUID = UUID(), toolName: String, inputSummary: String, inputFull: String? = nil, inputRawValue: String? = nil, result: String? = nil, isError: Bool = false, isComplete: Bool = false, arrivedBeforeText: Bool = true, imageData: String? = nil, startedAt: Date? = nil, completedAt: Date? = nil) {
@@ -1035,8 +1042,6 @@ public struct ToolCallData: Identifiable, Equatable {
             return "Ran an AppleScript"
         case "computer_use_wait":
             return "Waited for the screen"
-        case "computer_use_request_control":
-            return "Requested computer control"
         case "computer_use_done", "computer_use_respond":
             return "Finished the task"
         case "ui_show":

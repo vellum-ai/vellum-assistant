@@ -18,6 +18,7 @@ export function createOAuthTables(database: DrizzleDb): void {
       extra_params TEXT,
       callback_transport TEXT,
       loopback_port INTEGER,
+      ping_url TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )
@@ -28,6 +29,7 @@ export function createOAuthTables(database: DrizzleDb): void {
       id TEXT PRIMARY KEY,
       provider_key TEXT NOT NULL REFERENCES oauth_providers(provider_key),
       client_id TEXT NOT NULL,
+      client_secret_credential_path TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )

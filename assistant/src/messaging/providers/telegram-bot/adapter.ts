@@ -6,17 +6,19 @@
  * with OAuth tokens, Telegram delivery is proxied through the gateway which
  * owns the bot token and handles Telegram API retries.
  *
- * The `token` parameter in MessagingProvider methods is unused for Telegram
- * because delivery is authenticated via the gateway's bearer token, not
- * a per-user OAuth token.
+ * The `connectionOrToken` parameter in MessagingProvider methods is unused
+ * for Telegram because delivery is authenticated via the gateway's bearer
+ * token, not a per-user OAuth token.
  */
 
 import { getGatewayInternalBaseUrl } from "../../../config/env.js";
 import { getOrCreateConversation } from "../../../memory/conversation-key-store.js";
 import * as externalConversationStore from "../../../memory/external-conversation-store.js";
+import type { OAuthConnection } from "../../../oauth/connection.js";
+import { getConnectionByProvider } from "../../../oauth/oauth-store.js";
 import { mintDaemonDeliveryToken } from "../../../runtime/auth/token-service.js";
 import { credentialKey } from "../../../security/credential-key.js";
-import { getSecureKey } from "../../../security/secure-keys.js";
+import { getSecureKeyAsync } from "../../../security/secure-keys.js";
 import type { MessagingProvider } from "../../provider.js";
 import type {
   ConnectionInfo,
@@ -42,8 +44,8 @@ function getBearerToken(): string {
 }
 
 /** Read the Telegram bot token from the credential vault. */
-function getBotToken(): string | undefined {
-  return getSecureKey(credentialKey("telegram", "bot_token"));
+async function getBotToken(): Promise<string | undefined> {
+  return getSecureKeyAsync(credentialKey("telegram", "bot_token"));
 }
 
 export const telegramBotMessagingProvider: MessagingProvider = {
@@ -53,24 +55,31 @@ export const telegramBotMessagingProvider: MessagingProvider = {
   capabilities: new Set(["send"]),
 
   /**
-   * Custom connectivity check. The standard registry check looks for
-   * credential/telegram/access_token, but the Telegram bot token is
-   * stored as credential/telegram/bot_token. This method lets the
-   * registry detect that Telegram credentials exist.
+   * Custom connectivity check using both the oauth_connection record AND
+   * actual keychain credentials. The connection row alone can become stale
+   * if clearTelegramConfig() returns early on a secure-key deletion error
+   * without removing the row. Checking both ensures we don't report
+   * Telegram as connected when secrets are missing.
    *
    * Both bot_token and webhook_secret are required — the gateway's
    * /deliver/telegram endpoint rejects requests without the webhook
    * secret, so partial credentials would cause every send to fail.
    */
-  isConnected(): boolean {
-    return (
-      getBotToken() !== undefined &&
-      !!getSecureKey(credentialKey("telegram", "webhook_secret"))
+  async isConnected(): Promise<boolean> {
+    const conn = getConnectionByProvider("telegram");
+    if (!(conn && conn.status === "active")) return false;
+    const botToken = await getBotToken();
+    if (botToken === undefined) return false;
+    const webhookSecret = await getSecureKeyAsync(
+      credentialKey("telegram", "webhook_secret"),
     );
+    return !!webhookSecret;
   },
 
-  async testConnection(_token: string): Promise<ConnectionInfo> {
-    const botToken = getBotToken();
+  async testConnection(
+    _connectionOrToken: OAuthConnection | string,
+  ): Promise<ConnectionInfo> {
+    const botToken = await getBotToken();
     if (!botToken) {
       return {
         connected: false,
@@ -114,7 +123,7 @@ export const telegramBotMessagingProvider: MessagingProvider = {
   },
 
   async sendMessage(
-    _token: string,
+    _connectionOrToken: OAuthConnection | string,
     conversationId: string,
     text: string,
     _options?: SendOptions,
@@ -152,7 +161,7 @@ export const telegramBotMessagingProvider: MessagingProvider = {
   // interact with chats where users have initiated contact or the bot
   // has been added to a group.
   async listConversations(
-    _token: string,
+    _connectionOrToken: OAuthConnection | string,
     _options?: ListOptions,
   ): Promise<Conversation[]> {
     return [];
@@ -160,7 +169,7 @@ export const telegramBotMessagingProvider: MessagingProvider = {
 
   // Telegram Bot API does not provide message history retrieval.
   async getHistory(
-    _token: string,
+    _connectionOrToken: OAuthConnection | string,
     _conversationId: string,
     _options?: HistoryOptions,
   ): Promise<Message[]> {
@@ -169,7 +178,7 @@ export const telegramBotMessagingProvider: MessagingProvider = {
 
   // Telegram Bot API does not support message search.
   async search(
-    _token: string,
+    _connectionOrToken: OAuthConnection | string,
     _query: string,
     _options?: SearchOptions,
   ): Promise<SearchResult> {

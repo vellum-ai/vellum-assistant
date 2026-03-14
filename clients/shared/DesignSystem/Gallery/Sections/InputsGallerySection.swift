@@ -25,17 +25,17 @@ struct InputsGallerySection: View {
                 VStack(alignment: .leading, spacing: VSpacing.xl) {
                     Text("Live value: \"\(textFieldValue)\"")
                         .font(VFont.mono)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("Plain").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        Text("Plain").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                         VTextField(placeholder: "Type something...", text: $textFieldValue)
                     }
 
                     VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("Leading icon").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        Text("Leading icon").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                         VTextField(
                             placeholder: "Search...",
                             text: $textFieldValue,
@@ -44,7 +44,7 @@ struct InputsGallerySection: View {
                     }
 
                     VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("Trailing icon").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        Text("Trailing icon").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                         VTextField(
                             placeholder: "Enter email...",
                             text: $textFieldValue,
@@ -53,7 +53,7 @@ struct InputsGallerySection: View {
                     }
 
                     VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("Both icons").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        Text("Both icons").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                         VTextField(
                             placeholder: "Search files...",
                             text: $textFieldValue,
@@ -64,7 +64,7 @@ struct InputsGallerySection: View {
                 }
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - VSlider
             GallerySectionHeader(
@@ -76,30 +76,30 @@ struct InputsGallerySection: View {
                 VStack(alignment: .leading, spacing: VSpacing.xl) {
                     Text("Live value: \(Int(sliderValue))")
                         .font(VFont.mono)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("Default (0–100, step 1)").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        Text("Default (0–100, step 1)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                         VSlider(value: $sliderValue)
                     }
 
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("With tick marks (0–100, step 5): \(Int(sliderSteppedValue))")
-                            .font(VFont.caption).foregroundColor(VColor.textMuted)
+                            .font(VFont.caption).foregroundColor(VColor.contentTertiary)
                         VSlider(value: $sliderSteppedValue, range: 0...100, step: 5, showTickMarks: true)
                     }
 
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Small range (1–10, step 1): \(Int(sliderSmallValue))")
-                            .font(VFont.caption).foregroundColor(VColor.textMuted)
+                            .font(VFont.caption).foregroundColor(VColor.contentTertiary)
                         VSlider(value: $sliderSmallValue, range: 1...10, step: 1, showTickMarks: true)
                     }
                 }
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - VTextEditor
             GallerySectionHeader(
@@ -113,20 +113,20 @@ struct InputsGallerySection: View {
                         VStack(alignment: .leading) {
                             Text("Min Height: \(Int(minHeight))")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.contentSecondary)
                             Slider(value: $minHeight, in: 40...200, step: 10)
                                 .frame(maxWidth: 200)
                         }
                         VStack(alignment: .leading) {
                             Text("Max Height: \(Int(maxHeight))")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.contentSecondary)
                             Slider(value: $maxHeight, in: 100...400, step: 20)
                                 .frame(maxWidth: 200)
                         }
                     }
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     VTextEditor(
                         placeholder: "Write your thoughts...",
@@ -137,11 +137,11 @@ struct InputsGallerySection: View {
 
                     Text("Characters: \(textEditorValue.count)")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - VToggle
             GallerySectionHeader(
@@ -153,23 +153,23 @@ struct InputsGallerySection: View {
                 VStack(alignment: .leading, spacing: VSpacing.xl) {
                     Text("Toggle A: \(toggleA ? "ON" : "OFF")  |  Toggle B: \(toggleB ? "ON" : "OFF")")
                         .font(VFont.mono)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("With label").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        Text("With label").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                         VToggle(isOn: $toggleA, label: "Enable feature")
                     }
 
                     VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("Without label").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        Text("Without label").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                         VToggle(isOn: $toggleB)
                     }
                 }
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - VDropdown
             GallerySectionHeader(
@@ -181,12 +181,12 @@ struct InputsGallerySection: View {
                 VStack(alignment: .leading, spacing: VSpacing.xl) {
                     Text("Live value: \"\(dropdownValue)\"")
                         .font(VFont.mono)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("Empty state (placeholder visible)").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        Text("Empty state (placeholder visible)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                         VDropdown(
                             placeholder: "Select an option...",
                             selection: .constant(""),
@@ -200,7 +200,7 @@ struct InputsGallerySection: View {
                     }
 
                     VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("Selected state (interactive)").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        Text("Selected state (interactive)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                         VDropdown(
                             placeholder: "Select an option...",
                             selection: $dropdownValue,

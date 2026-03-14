@@ -28,14 +28,14 @@ enum SkillCategory: String, CaseIterable {
 
     var color: Color {
         switch self {
-        case .communication: return VColor.skillCatCommunication
-        case .productivity: return VColor.skillCatProductivity
-        case .development: return VColor.skillCatDevelopment
-        case .media: return VColor.skillCatMedia
-        case .automation: return VColor.skillCatAutomation
-        case .webSocial: return VColor.skillCatWebSocial
-        case .knowledge: return VColor.skillCatKnowledge
-        case .integration: return VColor.skillCatIntegration
+        case .communication: return VColor.funPurple
+        case .productivity: return VColor.funTeal
+        case .development: return VColor.funRed
+        case .media: return VColor.funPink
+        case .automation: return VColor.funYellow
+        case .webSocial: return VColor.funCoral
+        case .knowledge: return VColor.funGreen
+        case .integration: return VColor.primaryBase
         }
     }
 
@@ -220,7 +220,7 @@ private struct CategoryNodeView: View {
 
             Text(category.displayName)
                 .font(VFont.bodyMedium)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .frame(maxWidth: size * 0.85)
@@ -228,7 +228,7 @@ private struct CategoryNodeView: View {
         .frame(width: size, height: size)
         .background(
             ZStack {
-                RoundedRectangle(cornerRadius: VRadius.xl).fill(VColor.background)
+                RoundedRectangle(cornerRadius: VRadius.xl).fill(VColor.surfaceOverlay)
                 RoundedRectangle(cornerRadius: VRadius.xl).fill(category.color.opacity(isHovered ? 0.25 : 0.14))
             }
         )
@@ -263,7 +263,7 @@ private struct SubCategoryNodeView: View {
 
             Text(label)
                 .font(VFont.small)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(maxWidth: size * 0.85)
@@ -271,7 +271,7 @@ private struct SubCategoryNodeView: View {
         .frame(width: size, height: size)
         .background(
             ZStack {
-                RoundedRectangle(cornerRadius: VRadius.lg).fill(VColor.background)
+                RoundedRectangle(cornerRadius: VRadius.lg).fill(VColor.surfaceOverlay)
                 RoundedRectangle(cornerRadius: VRadius.lg).fill(category.color.opacity(isHovered ? 0.20 : 0.10))
             }
         )
@@ -315,7 +315,7 @@ private struct SkillNodeView: View {
 
             Text(item.label)
                 .font(VFont.caption)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .lineLimit(2)
                 .truncationMode(.tail)
                 .multilineTextAlignment(.center)
@@ -324,7 +324,7 @@ private struct SkillNodeView: View {
         .frame(width: size, height: size)
         .background(
             ZStack {
-                RoundedRectangle(cornerRadius: VRadius.lg).fill(VColor.background)
+                RoundedRectangle(cornerRadius: VRadius.lg).fill(VColor.surfaceOverlay)
                 RoundedRectangle(cornerRadius: VRadius.lg).fill(item.color.opacity(isHovered ? 0.20 : 0.10))
             }
         )
@@ -385,14 +385,14 @@ private struct SkillPopoverView: View {
 
                 Text(item.label)
                     .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .lineLimit(2)
             }
 
             if let description = item.description, !description.isEmpty {
                 Text(description)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .lineLimit(4)
             }
 
@@ -412,11 +412,11 @@ private struct SkillPopoverView: View {
         .frame(maxWidth: 250, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surface)
+                .fill(VColor.surfaceBase)
         )
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                .stroke(VColor.borderBase, lineWidth: 1)
         )
         .vShadow(VShadow.md)
     }
@@ -473,11 +473,10 @@ private func resolveOverlap(
 /// Each category's subtree stays within its angular sector to prevent cross-category overlap.
 /// Skills are placed in compact grids extending outward from their parent.
 /// Every node is checked against all previously-placed nodes to prevent overlap.
-private func buildTree(center: CGPoint, groups: [CategoryGroup]) -> (nodes: [TreeNode], edges: [EdgeLine]) {
+private func buildTree(center: CGPoint, groups: [CategoryGroup], centerSize: CGFloat = 90) -> (nodes: [TreeNode], edges: [EdgeLine]) {
     var nodes: [TreeNode] = []
     var edges: [EdgeLine] = []
 
-    let centerSize: CGFloat = 90
     let catSize: CGFloat = 80
     let subCatSize: CGFloat = 56
     let skillSize: CGFloat = 64
@@ -700,8 +699,13 @@ struct ConstellationView: View {
     // Node sizes
     private let categoryNodeSize: CGFloat = 80
     private let skillNodeSize: CGFloat = 64
-    private let centerAvatarSize: CGFloat = 90
+    private let customAvatarSize: CGFloat = 90
+    private let nativeCharacterAvatarSize: CGFloat = 112
     private let subCatNodeSize: CGFloat = 56
+
+    private var centerAvatarSize: CGFloat {
+        hasCustomAvatar ? customAvatarSize : nativeCharacterAvatarSize
+    }
 
     /// Tree layout positions, keyed by node ID.
     @State private var treePositions: [String: CGPoint] = [:]
@@ -754,9 +758,19 @@ struct ConstellationView: View {
         return result
     }
 
+    /// Whether the user has uploaded a custom avatar image (vs. the bundled native character).
+    /// Native characters set characterBodyShape/eyeStyle/color when saved, so if any
+    /// component is present the avatar is a built character, not a custom upload.
+    private var hasCustomAvatar: Bool {
+        appearance.customAvatarImage != nil
+            && appearance.characterBodyShape == nil
+            && appearance.characterEyeStyle == nil
+            && appearance.characterColor == nil
+    }
+
     /// Computes tree layout synchronously and populates all state vars.
     private func computeLayout(center: CGPoint) {
-        let result = buildTree(center: center, groups: groups)
+        let result = buildTree(center: center, groups: groups, centerSize: centerAvatarSize)
         treeNodes = result.nodes
         treeEdges = result.edges
         var positions: [String: CGPoint] = [:]
@@ -979,12 +993,12 @@ struct ConstellationView: View {
     // MARK: - Fullscreen Toggle (top-left)
 
     private var fullscreenToggle: some View {
-        VIconButton(
+        VButton(
             label: isFullscreen ? "Collapse" : "Expand",
-            icon: isFullscreen
+            iconOnly: isFullscreen
                 ? VIcon.minimize.rawValue
                 : VIcon.maximize.rawValue,
-            iconOnly: true,
+            style: .ghost,
             tooltip: isFullscreen ? "Exit fullscreen" : "Enter fullscreen"
         ) {
             withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
@@ -998,33 +1012,89 @@ struct ConstellationView: View {
     @ViewBuilder
     private func viewportControls(viewSize: CGSize) -> some View {
         HStack(spacing: VSpacing.xxs) {
-            VIconButton(label: "Zoom in", icon: VIcon.zoomIn.rawValue, iconOnly: true, tooltip: "Zoom in") {
+            VButton(label: "Zoom in", iconOnly: VIcon.zoomIn.rawValue, style: .ghost, tooltip: "Zoom in") {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                     zoomScale = min(3.0, zoomScale + 0.25)
                     baseZoomScale = zoomScale
                 }
             }
 
-            VIconButton(label: "Zoom out", icon: VIcon.zoomOut.rawValue, iconOnly: true, tooltip: "Zoom out") {
+            VButton(label: "Zoom out", iconOnly: VIcon.zoomOut.rawValue, style: .ghost, tooltip: "Zoom out") {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                     zoomScale = max(0.4, zoomScale - 0.25)
                     baseZoomScale = zoomScale
                 }
             }
 
-            VIconButton(label: "Fit all", icon: VIcon.scan.rawValue, iconOnly: true, tooltip: "Fit all skills") {
+            VButton(label: "Fit all", iconOnly: VIcon.scan.rawValue, style: .ghost, tooltip: "Fit all skills") {
                 fitAll(viewSize: viewSize)
             }
         }
         .padding(VSpacing.xs)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surface.opacity(0.85))
+                .fill(VColor.surfaceBase.opacity(0.85))
         )
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                .stroke(VColor.borderBase, lineWidth: 1)
         )
+    }
+
+    // MARK: - Center Avatar
+
+    @ViewBuilder
+    private func centerAvatarView(showGlow: Bool) -> some View {
+        VAvatarImage(image: appearance.fullAvatarImage, size: centerAvatarSize, showBorder: false)
+            .if(showGlow) { view in
+                view.background(
+                    ZStack {
+                        // Outer glow ring
+                        Circle()
+                            .fill(
+                                RadialGradient(
+                                    colors: [
+                                        VColor.primaryActive.opacity(0.25),
+                                        VColor.primaryActive.opacity(0.08),
+                                        Color.clear
+                                    ],
+                                    center: .center,
+                                    startRadius: (centerAvatarSize + 16) / 2 - 4,
+                                    endRadius: (centerAvatarSize + 16) / 2 + 12
+                                )
+                            )
+                            .frame(width: centerAvatarSize + 40, height: centerAvatarSize + 40)
+
+                        // Frosted backdrop
+                        Circle()
+                            .fill(
+                                RadialGradient(
+                                    colors: [
+                                        VColor.surfaceOverlay.opacity(0.95),
+                                        VColor.surfaceOverlay.opacity(0.85)
+                                    ],
+                                    center: .center,
+                                    startRadius: 0,
+                                    endRadius: (centerAvatarSize + 16) / 2
+                                )
+                            )
+                            .frame(width: centerAvatarSize + 16, height: centerAvatarSize + 16)
+
+                        // Subtle inner ring
+                        Circle()
+                            .stroke(VColor.primaryActive.opacity(0.3), lineWidth: 1.5)
+                            .frame(width: centerAvatarSize + 16, height: centerAvatarSize + 16)
+                    }
+                )
+            }
+            .allowsHitTesting(false)
+            .position(effectivePosition(forId: "__center__"))
+            .scaleEffect(phase.centerVisible ? 1 : 0.6)
+            .opacity(phase.centerVisible ? 1 : 0)
+            .animation(
+                .spring(response: 0.5, dampingFraction: 0.7).delay(0.05),
+                value: phase
+            )
     }
 
     // MARK: - Canvas
@@ -1034,13 +1104,13 @@ struct ConstellationView: View {
         ZStack {
             // Background radial glow
             RadialGradient(
-                colors: [Forest._600.opacity(0.06), Color.clear],
+                colors: [VColor.primaryBase.opacity(0.06), Color.clear],
                 center: .center,
                 startRadius: 0,
                 endRadius: min(size.width, size.height) * 0.5
             )
 
-            // Edge lines drawn first (behind nodes)
+            // Edge lines (behind nodes)
             // Uses SwiftUI Path shapes instead of Canvas so edges are never clipped
             // to the view bounds — they extend as far as the nodes go.
             ForEach(treeEdges) { edge in
@@ -1062,7 +1132,7 @@ struct ConstellationView: View {
 
                 switch node.kind {
                 case .center:
-                    EmptyView() // Center avatar is rendered separately below
+                    EmptyView() // Center avatar is rendered separately
 
                 case .category(let category):
                     CategoryNodeView(category: category, size: categoryNodeSize)
@@ -1120,55 +1190,8 @@ struct ConstellationView: View {
                 }
             }
 
-            // Center avatar on top of everything (full-size for constellation display)
-            VAvatarImage(image: appearance.fullAvatarImage, size: centerAvatarSize, showBorder: false)
-                .background(
-                    ZStack {
-                        // Outer glow ring
-                        Circle()
-                            .fill(
-                                RadialGradient(
-                                    colors: [
-                                        Forest._500.opacity(0.25),
-                                        Forest._500.opacity(0.08),
-                                        Color.clear
-                                    ],
-                                    center: .center,
-                                    startRadius: (centerAvatarSize + 16) / 2 - 4,
-                                    endRadius: (centerAvatarSize + 16) / 2 + 12
-                                )
-                            )
-                            .frame(width: centerAvatarSize + 40, height: centerAvatarSize + 40)
-
-                        // Frosted backdrop
-                        Circle()
-                            .fill(
-                                RadialGradient(
-                                    colors: [
-                                        VColor.background.opacity(0.95),
-                                        VColor.background.opacity(0.85)
-                                    ],
-                                    center: .center,
-                                    startRadius: 0,
-                                    endRadius: (centerAvatarSize + 16) / 2
-                                )
-                            )
-                            .frame(width: centerAvatarSize + 16, height: centerAvatarSize + 16)
-
-                        // Subtle inner ring
-                        Circle()
-                            .stroke(Forest._500.opacity(0.3), lineWidth: 1.5)
-                            .frame(width: centerAvatarSize + 16, height: centerAvatarSize + 16)
-                    }
-                )
-                .allowsHitTesting(false)
-                .position(effectivePosition(forId: "__center__"))
-                .scaleEffect(phase.centerVisible ? 1 : 0.6)
-                .opacity(phase.centerVisible ? 1 : 0)
-                .animation(
-                    .spring(response: 0.5, dampingFraction: 0.7).delay(0.05),
-                    value: phase
-                )
+            // Center avatar on top of edges/nodes; glow only for custom uploads
+            centerAvatarView(showGlow: hasCustomAvatar)
         }
     }
 }
@@ -1195,7 +1218,7 @@ private struct DottedGridBackground: View {
                     )
                     context.fill(
                         Path(ellipseIn: rect),
-                        with: .color(VColor.textMuted.opacity(0.2))
+                        with: .color(VColor.contentTertiary.opacity(0.2))
                     )
                 }
             }

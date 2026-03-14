@@ -1,0 +1,4 @@
+{
+  "entry": ["src/**/*.test.ts", "src/**/__tests__/**/*.ts", "src/adapters/openclaw-http-server.ts"],
+  "project": ["src/**/*.ts", "src/**/*.tsx"]
+}

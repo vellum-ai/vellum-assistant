@@ -18,6 +18,7 @@ export async function run(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  const account = input.account as string | undefined;
   if (!context.triggeredBySurfaceAction) {
     return err(
       "This tool requires user confirmation via a surface action. Present results in a selection table with action buttons and wait for the user to click before proceeding.",
@@ -31,7 +32,10 @@ export async function run(
   }
 
   try {
-    const connection = resolveOAuthConnection("integration:gmail");
+    const connection = await resolveOAuthConnection(
+      "integration:google",
+      account,
+    );
     const message = await getMessage(connection, messageId, "metadata", [
       "List-Unsubscribe",
       "List-Unsubscribe-Post",

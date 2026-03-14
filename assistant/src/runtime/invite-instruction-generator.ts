@@ -24,49 +24,6 @@ const GENERATION_TIMEOUT_MS = 5_000;
 const MAX_INSTRUCTION_LENGTH = 500;
 
 // ---------------------------------------------------------------------------
-// Channel display label
-// ---------------------------------------------------------------------------
-
-/** Human-readable label for a channel type. */
-export function channelDisplayLabel(type: string): string {
-  switch (type) {
-    case "telegram":
-      return "Telegram";
-    case "email":
-      return "Email";
-    case "slack":
-      return "Slack";
-    case "phone":
-      return "Voice";
-    default:
-      return type.charAt(0).toUpperCase() + type.slice(1);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Deterministic fallback
-// ---------------------------------------------------------------------------
-
-/**
- * Build a deterministic fallback instruction when the LLM is unavailable.
- */
-export function buildFallbackInstruction(params: {
-  contactName?: string;
-  channelLabel: string;
-  channelHandle?: string;
-  shareUrl?: string;
-}): string {
-  const contact = params.contactName || "the contact";
-  const handle = params.channelHandle
-    ? ` at ${params.channelHandle}`
-    : ` on ${params.channelLabel}`;
-  if (params.shareUrl) {
-    return `Send ${contact} this link: ${params.shareUrl} — or tell them to message me${handle} with the code below.`;
-  }
-  return `Tell ${contact} to message me${handle} with the code below.`;
-}
-
-// ---------------------------------------------------------------------------
 // LLM-powered generation
 // ---------------------------------------------------------------------------
 
@@ -88,15 +45,32 @@ export async function generateInviteInstruction(params: {
    */
   shareUrl?: string;
 }): Promise<string> {
-  const channelLabel = channelDisplayLabel(params.channelType);
-  const fallback = buildFallbackInstruction({
-    contactName: params.contactName,
-    channelLabel,
-    channelHandle: params.channelHandle,
-    shareUrl: params.shareUrl,
-  });
+  const channelLabel = (() => {
+    switch (params.channelType) {
+      case "telegram":
+        return "Telegram";
+      case "email":
+        return "Email";
+      case "slack":
+        return "Slack";
+      case "phone":
+        return "Voice";
+      default:
+        return (
+          params.channelType.charAt(0).toUpperCase() +
+          params.channelType.slice(1)
+        );
+    }
+  })();
+  const contact = params.contactName || "the contact";
+  const handle = params.channelHandle
+    ? ` at ${params.channelHandle}`
+    : ` on ${channelLabel}`;
+  const fallback = params.shareUrl
+    ? `Send ${contact} this link: ${params.shareUrl} — or tell them to message me${handle} with the code below.`
+    : `Tell ${contact} to message me${handle} with the code below.`;
 
-  const resolved = resolveConfiguredProvider();
+  const resolved = await resolveConfiguredProvider();
   if (!resolved) {
     log.debug(
       "No provider available for invite instruction generation, using fallback",

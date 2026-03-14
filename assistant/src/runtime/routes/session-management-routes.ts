@@ -4,12 +4,20 @@
  * POST   /v1/conversations/switch         — switch to an existing conversation
  * PATCH  /v1/conversations/:id/name       — rename a conversation
  * DELETE /v1/conversations                 — clear all conversations
+ * DELETE /v1/conversations/:id            — delete a single conversation
  * POST   /v1/conversations/:id/cancel     — cancel generation
  * POST   /v1/conversations/:id/undo       — undo last message
  * POST   /v1/conversations/:id/regenerate — regenerate last assistant response
+ * POST   /v1/sessions/reorder             — reorder / pin sessions
  */
 
+import {
+  batchSetDisplayOrders,
+  deleteConversation,
+  getConversation,
+} from "../../memory/conversation-crud.js";
 import { setConversationKeyIfAbsent } from "../../memory/conversation-key-store.js";
+import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
@@ -29,7 +37,11 @@ export interface SessionManagementDeps {
   renameSession: (sessionId: string, name: string) => boolean;
   clearAllSessions: () => number;
   cancelGeneration: (sessionId: string) => boolean;
-  undoLastMessage: (sessionId: string) => { removedCount: number } | null;
+  /** Abort and dispose an active in-memory session (if any) before deletion. */
+  destroySession: (sessionId: string) => void;
+  undoLastMessage: (
+    sessionId: string,
+  ) => Promise<{ removedCount: number } | null>;
   regenerateResponse: (
     sessionId: string,
   ) => Promise<{ requestId: string } | null>;
@@ -103,6 +115,43 @@ export function sessionManagementRouteDefinitions(
       },
     },
     {
+      endpoint: "conversations/:id",
+      method: "DELETE",
+      policyKey: "conversations",
+      handler: async ({ params }) => {
+        const conversation = getConversation(params.id);
+        if (!conversation) {
+          return httpError(
+            "NOT_FOUND",
+            `Conversation ${params.id} not found`,
+            404,
+          );
+        }
+        // Tear down the in-memory session (abort + dispose) before removing
+        // persistence so that a running agent loop doesn't write to a deleted
+        // conversation row, tripping FK constraints.
+        deps.destroySession(params.id);
+        const deleted = deleteConversation(params.id);
+        // Enqueue Qdrant vector cleanup jobs rather than calling directly.
+        // Qdrant may not be initialized yet when the HTTP server starts
+        // accepting requests, so enqueueing ensures cleanup is retried.
+        for (const segId of deleted.segmentIds) {
+          enqueueMemoryJob("delete_qdrant_vectors", {
+            targetType: "segment",
+            targetId: segId,
+          });
+        }
+        for (const itemId of deleted.orphanedItemIds) {
+          enqueueMemoryJob("delete_qdrant_vectors", {
+            targetType: "item",
+            targetId: itemId,
+          });
+        }
+        log.info({ conversationId: params.id }, "Deleted conversation");
+        return new Response(null, { status: 204 });
+      },
+    },
+    {
       endpoint: "conversations/:id/cancel",
       method: "POST",
       policyKey: "conversations/cancel",
@@ -115,8 +164,8 @@ export function sessionManagementRouteDefinitions(
       endpoint: "conversations/:id/undo",
       method: "POST",
       policyKey: "conversations/undo",
-      handler: ({ params }) => {
-        const result = deps.undoLastMessage(params.id);
+      handler: async ({ params }) => {
+        const result = await deps.undoLastMessage(params.id);
         if (!result) {
           return httpError(
             "NOT_FOUND",
@@ -157,6 +206,31 @@ export function sessionManagementRouteDefinitions(
             500,
           );
         }
+      },
+    },
+    {
+      endpoint: "sessions/reorder",
+      method: "POST",
+      policyKey: "sessions/reorder",
+      handler: async ({ req }) => {
+        const body = (await req.json()) as {
+          updates?: Array<{
+            sessionId: string;
+            displayOrder?: number;
+            isPinned?: boolean;
+          }>;
+        };
+        if (!Array.isArray(body.updates)) {
+          return httpError("BAD_REQUEST", "Missing updates array", 400);
+        }
+        batchSetDisplayOrders(
+          body.updates.map((u) => ({
+            id: u.sessionId,
+            displayOrder: u.displayOrder ?? null,
+            isPinned: u.isPinned ?? false,
+          })),
+        );
+        return Response.json({ ok: true });
       },
     },
   ];

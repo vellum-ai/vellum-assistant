@@ -13,6 +13,7 @@ export async function run(
   input: Record<string, unknown>,
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  const account = input.account as string | undefined;
   const messageId = input.message_id as string | undefined;
   const messageIds = input.message_ids as string[] | undefined;
   const addLabelIds = input.add_label_ids as string[] | undefined;
@@ -20,7 +21,10 @@ export async function run(
 
   if (messageIds && messageIds.length > 0) {
     try {
-      const connection = resolveOAuthConnection("integration:gmail");
+      const connection = await resolveOAuthConnection(
+        "integration:google",
+        account,
+      );
       await batchModifyMessages(connection, messageIds, {
         addLabelIds,
         removeLabelIds,
@@ -33,7 +37,10 @@ export async function run(
 
   if (messageId) {
     try {
-      const connection = resolveOAuthConnection("integration:gmail");
+      const connection = await resolveOAuthConnection(
+        "integration:google",
+        account,
+      );
       await modifyMessage(connection, messageId, {
         addLabelIds,
         removeLabelIds,

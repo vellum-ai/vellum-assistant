@@ -2,7 +2,7 @@ import { ApiError, GoogleGenAI } from "@google/genai";
 
 // --- Request / Response types ---
 
-export interface ImageGenerationRequest {
+interface ImageGenerationRequest {
   prompt: string;
   mode: "generate" | "edit";
   /** Base64-encoded source images for edit mode */
@@ -14,13 +14,13 @@ export interface ImageGenerationRequest {
 }
 
 /** Credentials for direct Gemini API access. */
-export interface DirectCredentials {
+interface DirectCredentials {
   type: "direct";
   apiKey: string;
 }
 
 /** Credentials for managed proxy access via Vertex AI. */
-export interface ManagedProxyCredentials {
+interface ManagedProxyCredentials {
   type: "managed-proxy";
   assistantApiKey: string;
   baseUrl: string;
@@ -28,14 +28,14 @@ export interface ManagedProxyCredentials {
 
 export type ImageGenCredentials = DirectCredentials | ManagedProxyCredentials;
 
-export interface GeneratedImage {
+interface GeneratedImage {
   mimeType: string;
   dataBase64: string;
   /** Short title derived from the model's text response, if available. */
   title?: string;
 }
 
-export interface ImageGenerationResult {
+interface ImageGenerationResult {
   images: GeneratedImage[];
   text?: string;
   resolvedModel: string;

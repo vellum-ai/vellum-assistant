@@ -154,6 +154,19 @@ export function getPlatformInternalApiKey(): string {
   return str("PLATFORM_INTERNAL_API_KEY") ?? "";
 }
 
+// ── Telemetry ──────────────────────────────────────────────────────────────────
+
+export function getTelemetryPlatformUrl(): string {
+  return str("TELEMETRY_PLATFORM_URL") ?? "https://platform.vellum.ai";
+}
+
+export function getTelemetryAppToken(): string {
+  return (
+    str("TELEMETRY_APP_TOKEN") ??
+    "e01cf85768cc3617e986f0a7f1966b72e25316526c5db54c8b94a9c3c5c9eaed"
+  );
+}
+
 // ── Startup validation ──────────────────────────────────────────────────────
 
 /**
@@ -162,6 +175,11 @@ export function getPlatformInternalApiKey(): string {
  * deprecated vars.
  */
 export function validateEnv(): void {
+  const gatewayPort = getGatewayPort();
+  if (gatewayPort < 1 || gatewayPort > 65535) {
+    throw new Error(`Invalid GATEWAY_PORT: ${gatewayPort} (must be 1-65535)`);
+  }
+
   const httpPort = getRuntimeHttpPort();
   if (httpPort < 1 || httpPort > 65535) {
     throw new Error(`Invalid RUNTIME_HTTP_PORT: ${httpPort} (must be 1-65535)`);

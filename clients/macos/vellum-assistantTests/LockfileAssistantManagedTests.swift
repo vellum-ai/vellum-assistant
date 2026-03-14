@@ -1,3 +1,4 @@
+import VellumAssistantShared
 import XCTest
 @testable import VellumAssistantLib
 

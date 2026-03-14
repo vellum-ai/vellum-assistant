@@ -116,6 +116,7 @@ export interface RuntimeMessageSessionOptions {
     channelId: ChannelId;
     hints?: string[];
     uxBrief?: string;
+    chatType?: string;
   };
   assistantId?: string;
   trustContext?: TrustContext;
@@ -219,8 +220,8 @@ export interface RuntimeHttpServerOptions {
   sessionManagementDeps?: SessionManagementDeps;
   /** Lazy factory for model config set context (session eviction, config reload suppression). */
   getModelSetContext?: () => import("../daemon/handlers/config-model.js").ModelSetContext;
-  /** Provider for computer-use session dependencies (CU routes). */
-  getComputerUseDeps?: () => import("./routes/computer-use-routes.js").ComputerUseDeps;
+  /** Provider for watch observation dependencies (watch routes). */
+  getWatchDeps?: () => import("./routes/watch-routes.js").WatchDeps;
   /** Provider for recording dependencies (recording routes). */
   getRecordingDeps?: () => import("./routes/recording-routes.js").RecordingDeps;
 }
@@ -231,6 +232,8 @@ export interface RuntimeAttachmentMetadata {
   mimeType: string;
   sizeBytes: number;
   kind: string;
+  data?: string;
+  thumbnailData?: string;
 }
 
 export interface RuntimeMessagePayload {

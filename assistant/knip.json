@@ -1,0 +1,10 @@
+{
+  "entry": [
+    "src/**/*.test.ts",
+    "src/**/__tests__/**/*.ts",
+    "scripts/**/*.ts",
+    "src/daemon/main.ts"
+  ],
+  "project": ["src/**/*.ts", "src/**/*.tsx", "scripts/**/*.ts"],
+  "ignoreDependencies": []
+}

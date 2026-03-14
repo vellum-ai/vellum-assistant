@@ -149,6 +149,10 @@ public final class ChatViewModel: ObservableObject {
         get { messageManager.assistantStatusText }
         set { messageManager.assistantStatusText = newValue }
     }
+    public var isCompacting: Bool {
+        get { messageManager.isCompacting }
+        set { messageManager.isCompacting = newValue }
+    }
     public var hasPendingConfirmation: Bool {
         messages.contains(where: { $0.confirmation?.state == .pending })
     }
@@ -355,17 +359,23 @@ public final class ChatViewModel: ObservableObject {
     public var isVoiceModeActive: Bool = false
     var pendingUserAttachments: [UserMessageAttachment]?
     /// Stores the last user message that failed to send, enabling retry.
-    private(set) var lastFailedMessageText: String?
+    private(set) var lastFailedMessageText: String? {
+        didSet { syncRetryStateToErrorManager() }
+    }
     private(set) var lastFailedMessageDisplayText: String?
     private(set) var lastFailedMessageAttachments: [UserMessageAttachment]?
     /// Set only when a send operation (bootstrapSession or sendUserMessage) fails.
     /// Used by `isRetryableError` to ensure the retry button only appears for
     /// actual send failures, not for unrelated errors (attachment validation,
     /// confirmation response failures, regenerate errors, etc.).
-    private(set) var lastFailedSendError: String?
+    private(set) var lastFailedSendError: String? {
+        didSet { syncRetryStateToErrorManager() }
+    }
     /// Stores the text of a message that was blocked by the secret-ingress check.
     /// Set when an error with category "secret_blocked" arrives.
-    var secretBlockedMessageText: String?
+    var secretBlockedMessageText: String? {
+        didSet { syncRetryStateToErrorManager() }
+    }
     /// Stashed context from the blocked send, so sendAnyway() can reconstruct
     /// the original UserMessageMessage with attachments and surface metadata.
     var secretBlockedAttachments: [UserMessageAttachment]?
@@ -549,6 +559,23 @@ public final class ChatViewModel: ObservableObject {
     @Published public var btwLoading: Bool = false
     /// The in-flight btw streaming task, stored for cancellation.
     private var btwTask: Task<Void, Never>?
+
+    // MARK: - Empty-State Greeting
+
+    /// A daemon-generated greeting shown when the conversation is empty, or nil before generation.
+    @Published public var emptyStateGreeting: String? = nil
+    /// True while a greeting is being streamed from the daemon.
+    @Published public var isGeneratingGreeting: Bool = false
+    /// The in-flight greeting streaming task, stored for cancellation.
+    private var greetingTask: Task<Void, Never>?
+
+    private static let fallbackGreetings = [
+        "What are we working on?",
+        "I'm here whenever you need me.",
+        "What's on your mind?",
+        "Let's make something happen.",
+        "Ready when you are.",
+    ]
 
     /// Whether there are more messages above the current display window.
     /// True when either:
@@ -1168,6 +1195,43 @@ public final class ChatViewModel: ObservableObject {
         btwTask = nil
         btwResponse = nil
         btwLoading = false
+    }
+
+    // MARK: - Empty-State Greeting Generation
+
+    /// Stream a short, personality-matched greeting from the daemon for the empty conversation state.
+    /// Each call cancels any in-flight generation and starts fresh. On error, falls back to a
+    /// random default greeting so the UI always receives a value.
+    public func generateGreeting() {
+        greetingTask?.cancel()
+        emptyStateGreeting = nil
+        isGeneratingGreeting = true
+
+        greetingTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let key = "greeting-\(UUID().uuidString)"
+            var result = ""
+            do {
+                let stream = self.daemonClient.sendBtwMessage(
+                    content: "Generate a short, casual greeting for when the user opens a new conversation (under 8 words, like \"Ready when you are.\" or \"What's on your mind?\"). Match your personality. Output ONLY the greeting, nothing else.",
+                    conversationKey: key
+                )
+                for try await delta in stream {
+                    guard !Task.isCancelled else { return }
+                    result += delta
+                }
+                guard !Task.isCancelled else { return }
+                self.emptyStateGreeting = result.isEmpty
+                    ? Self.fallbackGreetings.randomElement()!
+                    : result
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.emptyStateGreeting = Self.fallbackGreetings.randomElement()!
+            }
+            self.isGeneratingGreeting = false
+        }
     }
 
     private func bootstrapSession(userMessage: String?, attachments: [UserMessageAttachment]?) {
@@ -1953,16 +2017,18 @@ public final class ChatViewModel: ObservableObject {
             // Preserve attachments so they are resent with the retry.
             // ChatAttachment.data may already be cleared for older messages,
             // but for a just-sent 429'd message it is still populated.
+            // Also keep file-path-based attachments even when data is empty,
+            // since the daemon can read the file from disk.
             lastFailedMessageAttachments = lastMsg.attachments.compactMap { att in
-                guard !att.data.isEmpty else { return nil }
+                guard !att.data.isEmpty || att.filePath != nil else { return nil }
                 return UserMessageAttachment(
                     id: att.id,
                     filename: att.filename,
                     mimeType: att.mimeType,
                     data: att.data,
                     extractedText: nil,
-                    sizeBytes: nil,
-                    thumbnailData: nil,
+                    sizeBytes: att.sizeBytes,
+                    thumbnailData: att.thumbnailData?.base64EncodedString(),
                     filePath: att.filePath
                 )
             }
@@ -1991,6 +2057,17 @@ public final class ChatViewModel: ObservableObject {
     /// Whether the current error is a secret-ingress block that can be bypassed.
     public var isSecretBlockError: Bool {
         secretBlockedMessageText != nil
+    }
+
+    /// Forward retry-related state to `errorManager` so `@ObservedObject` views
+    /// (e.g. `ErrorToastOverlay`) receive reactive updates. Called automatically
+    /// via `didSet` on `lastFailedMessageText`, `lastFailedSendError`, and
+    /// `secretBlockedMessageText`.
+    private func syncRetryStateToErrorManager() {
+        errorManager.isConnectionError = isConnectionError
+        errorManager.isSecretBlockError = isSecretBlockError
+        errorManager.isRetryableError = isRetryableError
+        errorManager.hasRetryPayload = hasRetryPayload
     }
 
     /// Resend the secret-blocked message with the bypass flag so the backend skips the check.
@@ -2151,6 +2228,7 @@ public final class ChatViewModel: ObservableObject {
                 messages[index].confirmation?.approvedDecision = decision
             }
         }
+        clearPendingConfirmation(requestId: requestId)
         // Dismiss the corresponding floating panel / native notification if one exists
         onInlineConfirmationResponse?(requestId, decision)
     }
@@ -2184,6 +2262,7 @@ public final class ChatViewModel: ObservableObject {
             messages[index].confirmation?.state = .approved
             messages[index].confirmation?.approvedDecision = decision
         }
+        clearPendingConfirmation(requestId: requestId)
         // Dismiss the corresponding floating panel / native notification if one exists
         onInlineConfirmationResponse?(requestId, "allow")
     }
@@ -2199,6 +2278,22 @@ public final class ChatViewModel: ObservableObject {
             case "deny":
                 messages[index].confirmation?.state = .denied
             default:
+                break
+            }
+        }
+        clearPendingConfirmation(requestId: requestId)
+    }
+
+    /// Clear `pendingConfirmation` on the matching tool call so the inline bubble
+    /// reflects the submitted decision without waiting for the daemon's
+    /// `confirmation_state_changed` echo.
+    private func clearPendingConfirmation(requestId: String) {
+        for i in messages.indices.reversed() {
+            guard messages[i].role == .assistant, messages[i].confirmation == nil else { continue }
+            if let tcIdx = messages[i].toolCalls.firstIndex(where: {
+                $0.pendingConfirmation?.requestId == requestId
+            }) {
+                messages[i].toolCalls[tcIdx].pendingConfirmation = nil
                 break
             }
         }
@@ -2643,6 +2738,7 @@ public final class ChatViewModel: ObservableObject {
         reconnectLatchTimeoutTask?.cancel()
         reconnectDebounceTask?.cancel()
         btwTask?.cancel()
+        greetingTask?.cancel()
         memoryPressureSource?.cancel()
         if let observer = reconnectObserver {
             NotificationCenter.default.removeObserver(observer)

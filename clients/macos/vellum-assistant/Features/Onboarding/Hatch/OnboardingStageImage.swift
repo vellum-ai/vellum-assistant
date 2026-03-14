@@ -1,4 +1,5 @@
 import SwiftUI
+import VellumAssistantShared
 
 /// Displays the correct stage PNG for the current onboarding step
 /// with Pokemon-style hatch animations: shaking, white flash, glow.
@@ -34,7 +35,7 @@ struct OnboardingStageImage: View {
                 Ellipse()
                     .fill(
                         RadialGradient(
-                            colors: [.white.opacity(0.6), .white.opacity(0.0)],
+                            colors: [VColor.auxWhite.opacity(0.6), VColor.auxWhite.opacity(0.0)],
                             center: .center,
                             startRadius: 10,
                             endRadius: 100
@@ -72,7 +73,7 @@ struct OnboardingStageImage: View {
 
             // White flash overlay
             Rectangle()
-                .fill(.white)
+                .fill(VColor.auxWhite)
                 .opacity(flashOpacity)
         }
         .onAppear {

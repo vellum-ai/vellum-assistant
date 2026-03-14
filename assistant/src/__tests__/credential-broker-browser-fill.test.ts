@@ -50,7 +50,7 @@ mock.module("../tools/registry.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { credentialKey } from "../security/credential-key.js";
-import { setSecureKey } from "../security/secure-keys.js";
+import { setSecureKeyAsync } from "../security/secure-keys.js";
 import { CredentialBroker } from "../tools/credentials/broker.js";
 import {
   _setMetadataPath,
@@ -93,7 +93,7 @@ describe("CredentialBroker.browserFill", () => {
     upsertCredentialMetadata("github", "token", {
       allowedTools: ["browser_fill_credential"],
     });
-    setSecureKey(credentialKey("github", "token"), "ghp_secret123");
+    await setSecureKeyAsync(credentialKey("github", "token"), "ghp_secret123");
 
     let filledValue: string | undefined;
     const result = await broker.browserFill({
@@ -115,7 +115,7 @@ describe("CredentialBroker.browserFill", () => {
     upsertCredentialMetadata("github", "token", {
       allowedTools: ["browser_fill_credential"],
     });
-    setSecureKey(credentialKey("github", "token"), "ghp_secret123");
+    await setSecureKeyAsync(credentialKey("github", "token"), "ghp_secret123");
 
     const result = await broker.browserFill({
       service: "github",
@@ -149,7 +149,7 @@ describe("CredentialBroker.browserFill", () => {
     upsertCredentialMetadata("github", "token", {
       allowedTools: ["browser_fill_credential"],
     });
-    // No setSecureKey call — metadata exists but value doesn't
+    // No setSecureKeyAsync call — metadata exists but value doesn't
 
     const result = await broker.browserFill({
       service: "github",
@@ -168,7 +168,7 @@ describe("CredentialBroker.browserFill", () => {
     upsertCredentialMetadata("github", "token", {
       allowedTools: ["browser_fill_credential"],
     });
-    setSecureKey(credentialKey("github", "token"), "ghp_secret123");
+    await setSecureKeyAsync(credentialKey("github", "token"), "ghp_secret123");
 
     const result = await broker.browserFill({
       service: "github",
@@ -194,8 +194,8 @@ describe("CredentialBroker.browserFill", () => {
     upsertCredentialMetadata("github", "password", {
       allowedTools: ["browser_fill_credential"],
     });
-    setSecureKey(credentialKey("github", "username"), "octocat");
-    setSecureKey(credentialKey("github", "password"), "hunter2");
+    await setSecureKeyAsync(credentialKey("github", "username"), "octocat");
+    await setSecureKeyAsync(credentialKey("github", "password"), "hunter2");
 
     const filled: Record<string, string> = {};
 
@@ -228,7 +228,7 @@ describe("CredentialBroker.browserFill", () => {
       allowedTools: ["browser_fill_credential"],
       allowedDomains: ["github.com"],
     });
-    setSecureKey(credentialKey("github", "token"), "ghp_secret123");
+    await setSecureKeyAsync(credentialKey("github", "token"), "ghp_secret123");
 
     const result = await broker.browserFill({
       service: "github",
@@ -246,7 +246,7 @@ describe("CredentialBroker.browserFill", () => {
       allowedTools: ["browser_fill_credential"],
       allowedDomains: ["github.com"],
     });
-    setSecureKey(credentialKey("github", "token"), "ghp_secret123");
+    await setSecureKeyAsync(credentialKey("github", "token"), "ghp_secret123");
 
     const result = await broker.browserFill({
       service: "github",
@@ -264,7 +264,7 @@ describe("CredentialBroker.browserFill", () => {
       allowedTools: ["browser_fill_credential"],
       allowedDomains: ["github.com"],
     });
-    setSecureKey(credentialKey("github", "token"), "ghp_secret123");
+    await setSecureKeyAsync(credentialKey("github", "token"), "ghp_secret123");
 
     const result = await broker.browserFill({
       service: "github",
@@ -287,7 +287,7 @@ describe("CredentialBroker.browserFill", () => {
       allowedTools: ["browser_fill_credential"],
       allowedDomains: ["github.com"],
     });
-    setSecureKey(credentialKey("github", "token"), "ghp_secret123");
+    await setSecureKeyAsync(credentialKey("github", "token"), "ghp_secret123");
 
     const result = await broker.browserFill({
       service: "github",
@@ -306,7 +306,7 @@ describe("CredentialBroker.browserFill", () => {
     upsertCredentialMetadata("github", "token", {
       allowedTools: ["browser_fill_credential"],
     });
-    setSecureKey(credentialKey("github", "token"), "ghp_secret123");
+    await setSecureKeyAsync(credentialKey("github", "token"), "ghp_secret123");
 
     // No domain provided and no allowedDomains policy — should succeed
     const result = await broker.browserFill({
@@ -323,7 +323,7 @@ describe("CredentialBroker.browserFill", () => {
     upsertCredentialMetadata("github", "token", {
       allowedTools: ["other_tool"],
     });
-    setSecureKey(credentialKey("github", "token"), "ghp_secret123");
+    await setSecureKeyAsync(credentialKey("github", "token"), "ghp_secret123");
 
     let fillCalled = false;
     const result = await broker.browserFill({
@@ -344,7 +344,7 @@ describe("CredentialBroker.browserFill", () => {
 
   test("denies fill when allowedTools is empty (fail-closed)", async () => {
     upsertCredentialMetadata("github", "token", { allowedTools: [] });
-    setSecureKey(credentialKey("github", "token"), "ghp_secret123");
+    await setSecureKeyAsync(credentialKey("github", "token"), "ghp_secret123");
 
     const result = await broker.browserFill({
       service: "github",
@@ -363,7 +363,10 @@ describe("CredentialBroker.browserFill", () => {
     upsertCredentialMetadata("github", "token", {
       allowedTools: ["browser_fill_credential"],
     });
-    setSecureKey(credentialKey("github", "token"), "ghp_supersecret");
+    await setSecureKeyAsync(
+      credentialKey("github", "token"),
+      "ghp_supersecret",
+    );
 
     const result = await broker.browserFill({
       service: "github",
@@ -389,7 +392,7 @@ describe("CredentialBroker.browserFill", () => {
         allowedTools: ["s3_upload", "cloudfront_invalidate"],
         allowedDomains: [],
       });
-      setSecureKey(credentialKey("aws", "access_key"), "AKIA_test");
+      await setSecureKeyAsync(credentialKey("aws", "access_key"), "AKIA_test");
 
       let fillCalled = false;
       const result = await broker.browserFill({
@@ -414,7 +417,7 @@ describe("CredentialBroker.browserFill", () => {
         allowedTools: ["browser_fill_credential"],
         allowedDomains: ["github.com"],
       });
-      setSecureKey(credentialKey("github", "pat"), "ghp_fill_test");
+      await setSecureKeyAsync(credentialKey("github", "pat"), "ghp_fill_test");
 
       let fillCalled = false;
       const result = await broker.browserFill({
@@ -438,7 +441,7 @@ describe("CredentialBroker.browserFill", () => {
         allowedTools: ["slack_post"],
         allowedDomains: ["slack.com"],
       });
-      setSecureKey(credentialKey("slack", "bot_token"), "xoxb-test");
+      await setSecureKeyAsync(credentialKey("slack", "bot_token"), "xoxb-test");
 
       const result = await broker.browserFill({
         service: "slack",
@@ -461,7 +464,7 @@ describe("CredentialBroker.browserFill", () => {
       upsertCredentialMetadata("custom", "key", {
         allowedTools: [],
       });
-      setSecureKey(credentialKey("custom", "key"), "secret");
+      await setSecureKeyAsync(credentialKey("custom", "key"), "secret");
 
       const result = await broker.browserFill({
         service: "custom",
@@ -491,7 +494,7 @@ describe("CredentialBroker.browserFill", () => {
       upsertCredentialMetadata("github", "token", {
         allowedTools: ["browser_fill_credential"],
       });
-      setSecureKey(credentialKey("github", "token"), "ghp_updated");
+      await setSecureKeyAsync(credentialKey("github", "token"), "ghp_updated");
 
       let filledValue: string | undefined;
       const result = await broker.browserFill({
@@ -515,8 +518,8 @@ describe("CredentialBroker.browserFill", () => {
       upsertCredentialMetadata("github", "password", {
         allowedTools: ["other_tool"],
       });
-      setSecureKey(credentialKey("github", "username"), "octocat");
-      setSecureKey(credentialKey("github", "password"), "hunter2");
+      await setSecureKeyAsync(credentialKey("github", "username"), "octocat");
+      await setSecureKeyAsync(credentialKey("github", "password"), "hunter2");
 
       // username allows browser_fill_credential
       const r1 = await broker.browserFill({
@@ -549,8 +552,8 @@ describe("CredentialBroker.browserFill", () => {
         allowedTools: ["browser_fill_credential"],
         allowedDomains: ["gitlab.com"],
       });
-      setSecureKey(credentialKey("github", "token"), "gh_tok");
-      setSecureKey(credentialKey("gitlab", "token"), "gl_tok");
+      await setSecureKeyAsync(credentialKey("github", "token"), "gh_tok");
+      await setSecureKeyAsync(credentialKey("gitlab", "token"), "gl_tok");
 
       // github credential on github.com succeeds
       let filled1 = "";

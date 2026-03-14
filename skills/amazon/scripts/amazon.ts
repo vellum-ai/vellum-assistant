@@ -352,8 +352,9 @@ switch (subcommand) {
                 "[amazon:verbose] ----------------------------\n\n",
               );
             }
-            const d = (result as unknown as Record<string, unknown>)
-              .__debug as Record<string, unknown> | undefined;
+            const d = (result as unknown as Record<string, unknown>).__debug as
+              | Record<string, unknown>
+              | undefined;
             if (d?.addCartJson) {
               process.stderr.write(
                 `[amazon:verbose] Raw Amazon response: ${d.addCartJson}\n\n`,

@@ -63,13 +63,13 @@ public struct VInlineActionField: View {
             } label: {
                 Text(actionLabel)
                     .font(VFont.captionMedium)
-                    .foregroundColor(isActionDisabled ? VColor.textMuted : .white)
+                    .foregroundColor(isActionDisabled ? VColor.contentTertiary : VColor.auxWhite)
                     .padding(.horizontal, VSpacing.md)
                     .padding(.vertical, VSpacing.buttonV)
                     .background(
                         isActionDisabled
-                            ? VColor.surfaceBorder.opacity(0.5)
-                            : (isHovered ? VColor.buttonPrimaryHover : VColor.buttonPrimary)
+                            ? VColor.borderBase.opacity(0.5)
+                            : (isHovered ? VColor.primaryHover : VColor.primaryBase)
                     )
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                     .animation(VAnimation.fast, value: isHovered)
@@ -82,11 +82,11 @@ public struct VInlineActionField: View {
             }
             .padding(.trailing, VSpacing.sm)
         }
-        .background(VColor.inputBackground)
+        .background(VColor.surfaceActive)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                .stroke(VColor.borderBase, lineWidth: 1)
         )
         .onChange(of: fieldFocused) { _, focused in
             externalFocused?.wrappedValue = focused
@@ -99,24 +99,17 @@ public struct VInlineActionField: View {
             SecureField(placeholder, text: $text)
                 .textFieldStyle(.plain)
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
         } else {
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
         }
     }
 }
 
 #if DEBUG
-struct VInlineActionField_Preview: PreviewProvider {
-    static var previews: some View {
-        VInlineActionFieldPreviewWrapper()
-            .frame(width: 450, height: 200)
-            .previewDisplayName("VInlineActionField")
-    }
-}
 
 private struct VInlineActionFieldPreviewWrapper: View {
     @State private var text = ""
@@ -124,7 +117,7 @@ private struct VInlineActionFieldPreviewWrapper: View {
 
     var body: some View {
         ZStack {
-            VColor.background.ignoresSafeArea()
+            VColor.surfaceOverlay.ignoresSafeArea()
             VStack(spacing: 16) {
                 VInlineActionField(text: $text, placeholder: "Enter a value") {}
                 VInlineActionField(text: $secureText, placeholder: "Your API key", isSecure: true) {}

@@ -9,13 +9,17 @@ import VellumAssistantShared
 final class IdentityViewModel {
     var identity: RemoteIdentityInfo?
     var isLoading = false
+    var introText: String? = nil
+    private var introTask: Task<Void, Never>?
 
     var skillsStore: SkillsStore?
     var contactsStore: ContactsStore?
+    var memoriesStore: MemoryItemsStore?
 
     // Cached counts — updated via Combine when the stores' @Published properties change.
     var installedSkillsCount: Int = 0
     var contactsCount: Int = 0
+    var memoriesCount: Int = 0
 
     private var cancellables: Set<AnyCancellable> = []
 
@@ -39,16 +43,27 @@ final class IdentityViewModel {
             .sink { [weak self] count in self?.contactsCount = count }
             .store(in: &cancellables)
 
+        let memories = MemoryItemsStore(daemonClient: daemonClient)
+        memoriesStore = memories
+        memories.$items
+            .map(\.count)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] count in self?.memoriesCount = count }
+            .store(in: &cancellables)
+
         skills.fetchSkills(force: true)
         contacts.loadContacts()
+        Task { await memories.loadItems() }
     }
 
     func tearDown() {
         cancellables.removeAll()
         skillsStore = nil
         contactsStore = nil
+        memoriesStore = nil
         installedSkillsCount = 0
         contactsCount = 0
+        memoriesCount = 0
     }
 
     func fetchIdentity(client: any DaemonClientProtocol) async {
@@ -56,6 +71,35 @@ final class IdentityViewModel {
         isLoading = true
         identity = await daemonClient.fetchRemoteIdentity()
         isLoading = false
+        generateIntro(client: client)
+    }
+
+    func generateIntro(client: any DaemonClientProtocol) {
+        introTask?.cancel()
+        introText = nil
+        introTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let key = "identity-intro-\(UUID().uuidString)"
+            var result = ""
+            do {
+                let stream = client.sendBtwMessage(
+                    content: "Generate a very short intro for yourself (2-5 words). This should feel natural to your personality — playful, formal, chill, whatever fits you. Some examples for inspiration (don't limit yourself to these): \"I'm [name]!\", \"It's [name]\", \"Hey, I'm [name]\", \"[name] here.\", \"[name], at your service.\" Output ONLY the intro text, nothing else.",
+                    conversationKey: key
+                )
+                for try await delta in stream {
+                    guard !Task.isCancelled else { return }
+                    result += delta
+                }
+                self.introText = result.isEmpty ? nil : result
+            } catch is CancellationError {
+                return
+            } catch {
+                // Fallback to formatted name
+                if let name = self.identity?.name, !name.isEmpty {
+                    self.introText = "I'm \(name)!"
+                }
+            }
+        }
     }
 }
 
@@ -95,6 +139,18 @@ struct IdentityView: View {
 
     private var intelligenceContent: some View {
         List {
+            // Intro text section
+            if let introText = viewModel.introText {
+                Section {
+                    Text(introText)
+                        .font(.system(size: 22, weight: .regular, design: .rounded))
+                        .foregroundColor(VColor.contentDefault)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                }
+            }
+
             // Identity card section
             if let identity = viewModel.identity {
                 Section {
@@ -104,7 +160,7 @@ struct IdentityView: View {
 
             // Navigation section
             Section {
-                // Installed Skills
+                // Skills
                 NavigationLink {
                     if let store = viewModel.skillsStore {
                         InstalledSkillsView(skillsStore: store)
@@ -112,40 +168,23 @@ struct IdentityView: View {
                 } label: {
                     HStack(spacing: VSpacing.sm) {
                         VIconView(.brain, size: 16)
-                            .foregroundColor(VColor.accent)
+                            .foregroundColor(VColor.primaryBase)
                             .frame(width: 24)
-                        Text("Installed Skills")
+                        Text("Skills")
                             .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                         Spacer()
                         if viewModel.installedSkillsCount > 0 {
                             Text("\(viewModel.installedSkillsCount)")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 2)
                                 .background(
                                     Capsule()
-                                        .fill(VColor.surfaceBorder)
+                                        .fill(VColor.borderBase)
                                 )
                         }
-                    }
-                }
-                .disabled(viewModel.skillsStore == nil)
-
-                // Community Skills
-                NavigationLink {
-                    if let store = viewModel.skillsStore {
-                        CommunitySkillsView(skillsStore: store)
-                    }
-                } label: {
-                    HStack(spacing: VSpacing.sm) {
-                        VIconView(.globe, size: 16)
-                            .foregroundColor(VColor.accent)
-                            .frame(width: 24)
-                        Text("Community Skills")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
                     }
                 }
                 .disabled(viewModel.skillsStore == nil)
@@ -158,26 +197,55 @@ struct IdentityView: View {
                 } label: {
                     HStack(spacing: VSpacing.sm) {
                         VIconView(.users, size: 16)
-                            .foregroundColor(VColor.accent)
+                            .foregroundColor(VColor.primaryBase)
                             .frame(width: 24)
                         Text("Contacts")
                             .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                         Spacer()
                         if viewModel.contactsCount > 0 {
                             Text("\(viewModel.contactsCount)")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 2)
                                 .background(
                                     Capsule()
-                                        .fill(VColor.surfaceBorder)
+                                        .fill(VColor.borderBase)
                                 )
                         }
                     }
                 }
                 .disabled(viewModel.contactsStore == nil)
+
+                // Memories
+                NavigationLink {
+                    if let store = viewModel.memoriesStore {
+                        MemoriesListView(store: store)
+                    }
+                } label: {
+                    HStack(spacing: VSpacing.sm) {
+                        VIconView(.bookOpen, size: 16)
+                            .foregroundColor(VColor.primaryBase)
+                            .frame(width: 24)
+                        Text("Memories")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentDefault)
+                        Spacer()
+                        if viewModel.memoriesCount > 0 {
+                            Text("\(viewModel.memoriesCount)")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.contentTertiary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 2)
+                                .background(
+                                    Capsule()
+                                        .fill(VColor.borderBase)
+                                )
+                        }
+                    }
+                }
+                .disabled(viewModel.memoriesStore == nil)
             }
 
             // Workspace section
@@ -187,11 +255,11 @@ struct IdentityView: View {
                 } label: {
                     HStack(spacing: VSpacing.sm) {
                         VIconView(.folder, size: 16)
-                            .foregroundColor(VColor.accent)
+                            .foregroundColor(VColor.primaryBase)
                             .frame(width: 24)
                         Text("Browse Workspace")
                             .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                     }
                 }
             }
@@ -199,6 +267,9 @@ struct IdentityView: View {
         .refreshable {
             viewModel.skillsStore?.fetchSkills(force: true)
             viewModel.contactsStore?.loadContacts()
+            if let memoriesStore = viewModel.memoriesStore {
+                await memoriesStore.loadItems()
+            }
             await viewModel.fetchIdentity(client: clientProvider.client)
         }
     }
@@ -215,12 +286,12 @@ struct IdentityView: View {
                 if !identity.name.isEmpty {
                     Text(identity.name)
                         .font(VFont.headline)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                 }
                 if !identity.role.isEmpty {
                     Text(identity.role)
                         .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
             }
 
@@ -236,16 +307,16 @@ struct IdentityView: View {
     private var disconnectedState: some View {
         VStack(spacing: VSpacing.lg) {
             VIconView(.monitor, size: 48)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .accessibilityHidden(true)
 
             Text("Connect to your Assistant")
                 .font(VFont.title)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             Text("Intelligence information is available when connected to your Assistant.")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
 
@@ -266,7 +337,7 @@ struct IdentityView: View {
             ProgressView()
             Text("Loading...")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

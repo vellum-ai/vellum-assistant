@@ -17,13 +17,14 @@ export async function run(
   }
 
   try {
-    const provider = resolveProvider(platform);
+    const provider = await resolveProvider(platform);
     if (!provider.markRead) {
       return err(
         `${provider.displayName} does not support marking messages as read.`,
       );
     }
-    const conn = getProviderConnection(provider);
+    const account = input.account as string | undefined;
+    const conn = await getProviderConnection(provider, account);
     await provider.markRead(conn, conversationId, messageId);
     return ok("Marked as read.");
   } catch (e) {

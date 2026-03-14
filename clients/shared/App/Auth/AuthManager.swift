@@ -178,6 +178,9 @@ public final class AuthManager {
         }
         await SessionTokenManager.deleteTokenAsync()
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
+        UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+        UserDefaults.standard.removeObject(forKey: "managed_assistant_id")
+        UserDefaults.standard.removeObject(forKey: "managed_platform_base_url")
         state = .unauthenticated
         errorMessage = nil
     }

@@ -24,7 +24,7 @@ public struct AppWorkspaceDockLayout<Dock: View, Workspace: View>: View {
                     dock
                         .frame(width: dockWidth)
                         .animation(nil, value: dockWidth)
-                        .background(dockBackground ?? VColor.backgroundSubtle)
+                        .background(dockBackground ?? VColor.surfaceBase)
                         .clipShape(RoundedRectangle(cornerRadius: dockCornerRadius ?? VRadius.lg))
                         .padding([.bottom, .leading], VSpacing.xs)
                         .transition(.move(edge: .leading))
@@ -34,7 +34,7 @@ public struct AppWorkspaceDockLayout<Dock: View, Workspace: View>: View {
 
                 workspace
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(VColor.backgroundSubtle)
+                    .background(VColor.surfaceBase)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                     .padding(.leading, showDock ? 0 : VSpacing.xs)
                     .padding([.bottom, .trailing], VSpacing.xs)
@@ -48,13 +48,13 @@ public struct AppWorkspaceDockLayout<Dock: View, Workspace: View>: View {
         ZStack {
             // Thin vertical line
             Rectangle()
-                .fill(isDividerHovered || isDragging ? VColor.accent : VColor.surfaceBorder)
+                .fill(isDividerHovered || isDragging ? VColor.primaryBase : VColor.borderBase)
                 .frame(width: 1)
 
             // Small pill — only visible on hover/drag
             if isDividerHovered || isDragging {
                 Capsule()
-                    .fill(VColor.accent)
+                    .fill(VColor.primaryBase)
                     .frame(width: 4, height: 32)
                     .transition(.opacity)
             }

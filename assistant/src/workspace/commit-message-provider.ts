@@ -33,7 +33,7 @@ export interface CommitMessageProvider {
 /**
  * Build a short summary of what changed from a list of file paths.
  */
-export function buildChangeSummary(files: string[]): string {
+function buildChangeSummary(files: string[]): string {
   if (files.length === 0) {
     return "workspace changes";
   }

@@ -19,7 +19,6 @@ import type {
 const mockConfig = {
   provider: "anthropic",
   model: "test",
-  apiKeys: {},
   maxTokens: 4096,
   dataDir: "/tmp",
   timeouts: {
@@ -64,7 +63,6 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
-  isDebug: () => false,
   truncateForLog: (value: string) => value,
 }));
 

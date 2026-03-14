@@ -117,19 +117,8 @@ export function buildAccessRequestIdentityLine(
   return `${parts.join(" ")} is requesting access to the assistant.`;
 }
 
-export function buildAccessRequestDecisionDirective(
-  requestCode: string,
-): string {
-  const code = requestCode.toUpperCase();
-  return `Reply "${code} approve" to grant access or "${code} reject" to deny.`;
-}
-
 export function buildAccessRequestInviteDirective(): string {
   return 'Reply "open invite flow" to start Trusted Contacts invite flow.';
-}
-
-export function buildAccessRequestRevokedNote(): string {
-  return "Note: this user was previously revoked.";
 }
 
 /**
@@ -222,10 +211,13 @@ export function buildAccessRequestContractText(
   const lines: string[] = [];
   lines.push(buildAccessRequestIdentityLine(payload));
   if (previousMemberStatus === "revoked") {
-    lines.push(buildAccessRequestRevokedNote());
+    lines.push("Note: this user was previously revoked.");
   }
   if (requestCode) {
-    lines.push(buildAccessRequestDecisionDirective(requestCode));
+    const code = requestCode.toUpperCase();
+    lines.push(
+      `Reply "${code} approve" to grant access or "${code} reject" to deny.`,
+    );
   }
   lines.push(buildAccessRequestInviteDirective());
   return lines.join("\n");

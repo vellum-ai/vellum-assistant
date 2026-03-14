@@ -39,17 +39,18 @@ mock.module("@google/genai", () => ({
 // ---------------------------------------------------------------------------
 let mockPlatformBaseUrl = "";
 let mockAssistantApiKey: string | null = null;
+let mockProviderKeys: Record<string, string> = {};
 
 mock.module("../config/env.js", () => ({
   getPlatformBaseUrl: () => mockPlatformBaseUrl,
 }));
 
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKey: (key: string) => {
+  getSecureKeyAsync: async (key: string) => {
     if (key === credentialKey("vellum", "assistant_api_key")) {
       return mockAssistantApiKey;
     }
-    return null;
+    return mockProviderKeys[key] ?? null;
   },
 }));
 
@@ -67,13 +68,14 @@ import {
 const PLATFORM_BASE = "https://platform.example.com";
 const MANAGED_API_KEY = "ast-managed-key-123";
 
-const MANAGED_PROVIDERS: string[] = [
+const DIRECT_OR_MANAGED_PROVIDER_KEYS: string[] = [
   "openai",
   "anthropic",
   "gemini",
   "fireworks",
   "openrouter",
 ];
+const MANAGED_FALLBACK_PROVIDERS: string[] = ["anthropic", "gemini"];
 
 function enableManagedProxy() {
   mockPlatformBaseUrl = PLATFORM_BASE;
@@ -86,14 +88,13 @@ function disableManagedProxy() {
 }
 
 /**
- * Build an apiKeys record with a user key for every provider in `names`.
+ * Set mock secure keys with a user key for every provider in `names`.
  */
-function userKeysFor(...names: string[]): Record<string, string> {
-  const keys: Record<string, string> = {};
+function setUserKeysFor(...names: string[]): void {
+  mockProviderKeys = {};
   for (const n of names) {
-    keys[n] = `user-key-${n}`;
+    mockProviderKeys[n] = `user-key-${n}`;
   }
-  return keys;
 }
 
 // ---------------------------------------------------------------------------
@@ -102,17 +103,18 @@ function userKeysFor(...names: string[]): Record<string, string> {
 
 beforeEach(() => {
   disableManagedProxy();
+  mockProviderKeys = {};
   lastGeminiConstructorOpts = null;
 });
 
 describe("managed proxy integration — credential precedence", () => {
   describe("user keys present → providers use direct connections (not proxy)", () => {
-    test.each(MANAGED_PROVIDERS)(
+    test.each(DIRECT_OR_MANAGED_PROVIDER_KEYS)(
       "%s routes via user-key when user key is provided regardless of managed context",
-      (provider: string) => {
+      async (provider: string) => {
         enableManagedProxy();
-        initializeProviders({
-          apiKeys: userKeysFor(provider),
+        setUserKeysFor(provider);
+        await initializeProviders({
           provider,
           model: "test-model",
         });
@@ -121,29 +123,29 @@ describe("managed proxy integration — credential precedence", () => {
       },
     );
 
-    test("all five managed providers route via user-key with user keys", () => {
+    test("all five configured providers route via user-key when user keys exist", async () => {
       enableManagedProxy();
-      initializeProviders({
-        apiKeys: userKeysFor(...MANAGED_PROVIDERS),
+      setUserKeysFor(...DIRECT_OR_MANAGED_PROVIDER_KEYS);
+      await initializeProviders({
         provider: "anthropic",
         model: "test-model",
       });
       const registered = listProviders();
-      for (const p of MANAGED_PROVIDERS) {
+      for (const p of DIRECT_OR_MANAGED_PROVIDER_KEYS) {
         expect(registered).toContain(p);
         expect(getProviderRoutingSource(p)).toBe("user-key");
       }
     });
 
-    test("user keys still route via user-key when managed context is disabled", () => {
+    test("user keys still route via user-key when managed context is disabled", async () => {
       disableManagedProxy();
-      initializeProviders({
-        apiKeys: userKeysFor(...MANAGED_PROVIDERS),
+      setUserKeysFor(...DIRECT_OR_MANAGED_PROVIDER_KEYS);
+      await initializeProviders({
         provider: "anthropic",
         model: "test-model",
       });
       const registered = listProviders();
-      for (const p of MANAGED_PROVIDERS) {
+      for (const p of DIRECT_OR_MANAGED_PROVIDER_KEYS) {
         expect(registered).toContain(p);
         expect(getProviderRoutingSource(p)).toBe("user-key");
       }
@@ -151,14 +153,13 @@ describe("managed proxy integration — credential precedence", () => {
   });
 
   describe("user keys absent + managed context available → providers use managed proxy", () => {
-    test.each(MANAGED_PROVIDERS)(
+    test.each(MANAGED_FALLBACK_PROVIDERS)(
       "%s routes via managed-proxy when no user key",
-      (provider: string) => {
+      async (provider: string) => {
         enableManagedProxy();
-        initializeProviders({
-          apiKeys: {},
-          // For ollama, provider selection does not trigger managed proxy
-          provider: provider === "openai" ? "openai" : "anthropic",
+        mockProviderKeys = {};
+        await initializeProviders({
+          provider: "anthropic",
           model: "test-model",
         });
         expect(listProviders()).toContain(provider);
@@ -166,24 +167,25 @@ describe("managed proxy integration — credential precedence", () => {
       },
     );
 
-    test("all five managed providers route via managed-proxy simultaneously", () => {
+    test("managed bootstrap registers anthropic and gemini only", async () => {
       enableManagedProxy();
-      initializeProviders({
-        apiKeys: {},
+      mockProviderKeys = {};
+      await initializeProviders({
         provider: "anthropic",
         model: "test-model",
       });
-      const registered = listProviders();
-      for (const p of MANAGED_PROVIDERS) {
-        expect(registered).toContain(p);
-        expect(getProviderRoutingSource(p)).toBe("managed-proxy");
+      expect(listProviders()).toEqual(["anthropic", "gemini"]);
+      expect(getProviderRoutingSource("anthropic")).toBe("managed-proxy");
+      expect(getProviderRoutingSource("gemini")).toBe("managed-proxy");
+      for (const p of ["openai", "fireworks", "openrouter"]) {
+        expect(getProviderRoutingSource(p)).toBeUndefined();
       }
     });
 
-    test("managed anthropic uses vertex proxy path instead of anthropic proxy path", () => {
+    test("managed anthropic uses anthropic proxy path", async () => {
       enableManagedProxy();
-      initializeProviders({
-        apiKeys: {},
+      mockProviderKeys = {};
+      await initializeProviders({
         provider: "anthropic",
         model: "claude-opus-4-6",
       });
@@ -200,20 +202,17 @@ describe("managed proxy integration — credential precedence", () => {
 
       expect(anthropicClient).toBeDefined();
       const baseURL: string = anthropicClient.baseURL;
-      expect(baseURL).toContain("/v1/runtime-proxy/vertex");
-      expect(baseURL).not.toContain("/v1/runtime-proxy/anthropic");
+      expect(baseURL).toContain("/v1/runtime-proxy/anthropic");
     });
 
-    test("managed gemini uses vertex proxy path instead of gemini proxy path", () => {
+    test("managed gemini uses vertex proxy path", async () => {
       enableManagedProxy();
-      initializeProviders({
-        apiKeys: {},
+      mockProviderKeys = {};
+      await initializeProviders({
         provider: "anthropic",
         model: "test-model",
       });
 
-      // The GoogleGenAI constructor was captured by the mock — verify it
-      // received httpOptions.baseUrl pointing at the vertex proxy path.
       expect(lastGeminiConstructorOpts).toBeDefined();
       const httpOptions = lastGeminiConstructorOpts!.httpOptions as
         | { baseUrl?: string }
@@ -225,12 +224,12 @@ describe("managed proxy integration — credential precedence", () => {
   });
 
   describe("neither user keys nor managed context → providers not initialized", () => {
-    test.each(MANAGED_PROVIDERS)(
+    test.each(DIRECT_OR_MANAGED_PROVIDER_KEYS)(
       "%s is NOT registered when no user key and no managed context",
-      (provider: string) => {
+      async (provider: string) => {
         disableManagedProxy();
-        initializeProviders({
-          apiKeys: {},
+        mockProviderKeys = {};
+        await initializeProviders({
           provider: "anthropic",
           model: "test-model",
         });
@@ -239,10 +238,10 @@ describe("managed proxy integration — credential precedence", () => {
       },
     );
 
-    test("registry is empty when no keys and no managed context (non-ollama primary)", () => {
+    test("registry is empty when no keys and no managed context (non-ollama primary)", async () => {
       disableManagedProxy();
-      initializeProviders({
-        apiKeys: {},
+      mockProviderKeys = {};
+      await initializeProviders({
         provider: "anthropic",
         model: "test-model",
       });
@@ -251,65 +250,71 @@ describe("managed proxy integration — credential precedence", () => {
   });
 
   describe("mixed: some user keys + managed fallback fills gaps", () => {
-    test("user key for anthropic routes direct, managed fallback fills remaining four via proxy", () => {
+    test("user key for anthropic routes direct and managed fallback only fills gemini", async () => {
       enableManagedProxy();
-      initializeProviders({
-        apiKeys: userKeysFor("anthropic"),
+      setUserKeysFor("anthropic");
+      await initializeProviders({
         provider: "anthropic",
         model: "test-model",
       });
       const registered = listProviders();
       expect(registered).toContain("anthropic");
       expect(getProviderRoutingSource("anthropic")).toBe("user-key");
-      for (const p of ["openai", "gemini", "fireworks", "openrouter"]) {
-        expect(registered).toContain(p);
-        expect(getProviderRoutingSource(p)).toBe("managed-proxy");
+      expect(registered).toContain("gemini");
+      expect(getProviderRoutingSource("gemini")).toBe("managed-proxy");
+      for (const p of ["openai", "fireworks", "openrouter"]) {
+        expect(registered).not.toContain(p);
+        expect(getProviderRoutingSource(p)).toBeUndefined();
       }
     });
 
-    test("user key for openai routes direct, managed fallback fills remaining four via proxy", () => {
+    test("user key for openai routes direct while anthropic and gemini still bootstrap via managed proxy", async () => {
       enableManagedProxy();
-      initializeProviders({
-        apiKeys: userKeysFor("openai"),
+      setUserKeysFor("openai");
+      await initializeProviders({
         provider: "openai",
         model: "test-model",
       });
       const registered = listProviders();
       expect(registered).toContain("openai");
       expect(getProviderRoutingSource("openai")).toBe("user-key");
-      for (const p of ["anthropic", "gemini", "fireworks", "openrouter"]) {
-        expect(registered).toContain(p);
-        expect(getProviderRoutingSource(p)).toBe("managed-proxy");
+      expect(registered).toContain("anthropic");
+      expect(getProviderRoutingSource("anthropic")).toBe("managed-proxy");
+      expect(registered).toContain("gemini");
+      expect(getProviderRoutingSource("gemini")).toBe("managed-proxy");
+      for (const p of ["fireworks", "openrouter"]) {
+        expect(registered).not.toContain(p);
+        expect(getProviderRoutingSource(p)).toBeUndefined();
       }
     });
   });
 });
 
 describe("managed proxy integration — ollama exclusion", () => {
-  test("ollama is never registered via managed proxy fallback", () => {
+  test("ollama is never registered via managed proxy fallback", async () => {
     enableManagedProxy();
-    initializeProviders({
-      apiKeys: {},
+    mockProviderKeys = {};
+    await initializeProviders({
       provider: "anthropic",
       model: "test-model",
     });
     expect(listProviders()).not.toContain("ollama");
   });
 
-  test("ollama registers only when explicitly configured as provider", () => {
+  test("ollama registers only when explicitly configured as provider", async () => {
     enableManagedProxy();
-    initializeProviders({
-      apiKeys: {},
+    mockProviderKeys = {};
+    await initializeProviders({
       provider: "ollama",
       model: "test-model",
     });
     expect(listProviders()).toContain("ollama");
   });
 
-  test("ollama registers with explicit API key", () => {
+  test("ollama registers with explicit API key", async () => {
     enableManagedProxy();
-    initializeProviders({
-      apiKeys: { ollama: "ollama-key" },
+    mockProviderKeys = { ollama: "ollama-key" };
+    await initializeProviders({
       provider: "anthropic",
       model: "test-model",
     });
@@ -325,8 +330,8 @@ describe("managed proxy integration — ollama exclusion", () => {
 });
 
 describe("managed proxy integration — constants integrity", () => {
-  test("all five managed providers have metadata with managed=true and a proxyPath", () => {
-    for (const provider of MANAGED_PROVIDERS) {
+  test("anthropic, gemini, and vertex have metadata with managed=true and a proxyPath", () => {
+    for (const provider of ["anthropic", "gemini", "vertex"]) {
       const meta = MANAGED_PROVIDER_META[provider];
       expect(meta).toBeDefined();
       expect(meta.managed).toBe(true);
@@ -335,24 +340,22 @@ describe("managed proxy integration — constants integrity", () => {
     }
   });
 
-  test("anthropic and gemini route through vertex proxy path", () => {
+  test("anthropic routes through anthropic proxy path", () => {
     expect(MANAGED_PROVIDER_META.anthropic.proxyPath).toBe(
-      "/v1/runtime-proxy/vertex",
+      "/v1/runtime-proxy/anthropic",
     );
+  });
+
+  test("gemini routes through vertex proxy path", () => {
     expect(MANAGED_PROVIDER_META.gemini.proxyPath).toBe(
       "/v1/runtime-proxy/vertex",
     );
   });
 
-  test("other providers use their own proxy paths", () => {
-    expect(MANAGED_PROVIDER_META.openai.proxyPath).toBe(
-      "/v1/runtime-proxy/openai",
-    );
-    expect(MANAGED_PROVIDER_META.fireworks.proxyPath).toBe(
-      "/v1/runtime-proxy/fireworks",
-    );
-    expect(MANAGED_PROVIDER_META.openrouter.proxyPath).toBe(
-      "/v1/runtime-proxy/openrouter",
-    );
+  test("openai-compatible providers are not managed proxy capable", () => {
+    for (const provider of ["openai", "fireworks", "openrouter"]) {
+      expect(MANAGED_PROVIDER_META[provider].managed).toBe(false);
+      expect(MANAGED_PROVIDER_META[provider].proxyPath).toBeUndefined();
+    }
   });
 });

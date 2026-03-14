@@ -6,15 +6,11 @@
  * fields like `toolName`.
  */
 
-export const GUARDIAN_QUESTION_REQUEST_KINDS = {
-  pending_question: "pending_question",
-  tool_approval: "tool_approval",
-  tool_grant_request: "tool_grant_request",
-  access_request: "access_request",
-} as const;
-
 export type GuardianQuestionRequestKind =
-  keyof typeof GUARDIAN_QUESTION_REQUEST_KINDS;
+  | "pending_question"
+  | "tool_approval"
+  | "tool_grant_request"
+  | "access_request";
 export type GuardianQuestionInstructionMode = "approval" | "answer";
 
 interface GuardianRequestKindModeConfig {
@@ -151,7 +147,7 @@ function nonEmptyString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-export function parseGuardianQuestionRequestKind(
+function parseGuardianQuestionRequestKind(
   payload: Record<string, unknown>,
 ): GuardianQuestionRequestKind | null {
   const raw = nonEmptyString(payload.requestKind);
@@ -241,7 +237,7 @@ export function parseGuardianQuestionPayload(
   }
 }
 
-export function resolveGuardianInstructionModeForRequestKind(
+function resolveGuardianInstructionModeForRequestKind(
   requestKind: GuardianQuestionRequestKind,
   toolName?: string | null,
 ): GuardianQuestionInstructionMode {

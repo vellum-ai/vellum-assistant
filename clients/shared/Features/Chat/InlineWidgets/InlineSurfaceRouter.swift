@@ -83,7 +83,7 @@ public struct InlineSurfaceRouter: View {
             if !isTemplateCard, !isDynamicPreview, !isDocumentPreview, let title = surface.title {
                 Text(title)
                     .font(VFont.cardTitle)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
             }
 
             surfaceContent
@@ -106,11 +106,11 @@ public struct InlineSurfaceRouter: View {
                     }
                 } label: {
                     VIconView(.arrowUpRight, size: 10)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .padding(VSpacing.xs)
                         .background(
                             RoundedRectangle(cornerRadius: VRadius.sm)
-                                .fill(VColor.surfaceBorder.opacity(0.3))
+                                .fill(VColor.borderBase.opacity(0.3))
                         )
                 }
                 .buttonStyle(.plain)
@@ -125,11 +125,11 @@ public struct InlineSurfaceRouter: View {
                         )
                     } label: {
                         VIconView(.arrowUpRight, size: 10)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                             .padding(VSpacing.xs)
                             .background(
                                 RoundedRectangle(cornerRadius: VRadius.sm)
-                                    .fill(VColor.surfaceBorder.opacity(0.3))
+                                    .fill(VColor.borderBase.opacity(0.3))
                             )
                     }
                     .buttonStyle(.plain)
@@ -155,10 +155,10 @@ public struct InlineSurfaceRouter: View {
     @ViewBuilder
     private var strippedPlaceholder: some View {
         HStack(spacing: VSpacing.sm) {
-            VLoadingIndicator(size: 14, color: VColor.textSecondary)
+            VLoadingIndicator(size: 14, color: VColor.contentSecondary)
             Text(surface.title ?? "Loading surface…")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
         }
         .padding(VSpacing.md)
         .frame(maxWidth: 540, alignment: .leading)
@@ -177,10 +177,10 @@ public struct InlineSurfaceRouter: View {
     private var strippedFailedPlaceholder: some View {
         HStack(spacing: VSpacing.sm) {
             VIconView(.triangleAlert, size: 12)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
             Text("Failed to load surface")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
         }
         .padding(VSpacing.md)
         .frame(maxWidth: 540, alignment: .leading)
@@ -322,16 +322,16 @@ public struct InlineSurfaceRouter: View {
                 Spacer()
                 HStack(spacing: VSpacing.sm) {
                     VIconView(.circleCheck, size: 12)
-                        .foregroundColor(VColor.success)
+                        .foregroundColor(VColor.systemPositiveStrong)
                     Text(label)
                         .font(VFont.captionMedium)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                 }
                 .padding(.horizontal, VSpacing.md)
                 .padding(.vertical, VSpacing.sm)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(VColor.backgroundSubtle.opacity(0.5))
+                        .fill(VColor.surfaceBase.opacity(0.5))
                 )
             }
         } else {
@@ -366,17 +366,17 @@ public struct InlineSurfaceRouter: View {
 
     private func buttonForeground(_ style: SurfaceActionStyle) -> Color {
         switch style {
-        case .primary: return .white
-        case .destructive: return .white
-        case .secondary: return VColor.textPrimary
+        case .primary: return VColor.auxWhite
+        case .destructive: return VColor.auxWhite
+        case .secondary: return VColor.contentDefault
         }
     }
 
     private func buttonBackground(_ style: SurfaceActionStyle) -> Color {
         switch style {
-        case .primary: return VColor.accent
-        case .destructive: return VColor.error
-        case .secondary: return VColor.surfaceBorder.opacity(0.5)
+        case .primary: return VColor.primaryBase
+        case .destructive: return VColor.systemNegativeStrong
+        case .secondary: return VColor.borderBase.opacity(0.5)
         }
     }
 }

@@ -104,14 +104,14 @@ struct InputBarView: View {
             }) {
                 Text("Cancel")
                     .font(VFont.captionMedium)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
             .buttonStyle(.plain)
             .padding(.bottom, VSpacing.xs)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, VSpacing.lg)
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
     }
 
     private var voiceOrbState: VoiceOrbState {
@@ -126,10 +126,10 @@ struct InputBarView: View {
     private var standardInputRow: some View {
         HStack(spacing: VSpacing.md) {
             // Attachment button — tap opens photo library (most common), long-press shows both options
-            VIconButton(
+            VButton(
                 label: "Attach file",
-                icon: VIcon.paperclip.rawValue,
-                iconOnly: true,
+                iconOnly: VIcon.paperclip.rawValue,
+                style: .ghost,
                 action: { showPhotosPicker = true }
             )
             .contextMenu {
@@ -164,48 +164,46 @@ struct InputBarView: View {
             TextField("Message...", text: $text, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .padding(VSpacing.md)
-                .background(VColor.surface)
+                .background(VColor.surfaceBase)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                 .focused(isInputFocused)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.lg)
-                        .stroke(VColor.surfaceBorder, lineWidth: isInputFocused.wrappedValue ? 1.5 : 1)
+                        .stroke(VColor.borderBase, lineWidth: isInputFocused.wrappedValue ? 1.5 : 1)
                 )
                 .animation(VAnimation.fast, value: isInputFocused.wrappedValue)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.lg)
-                        .stroke(VColor.surfaceBorder.opacity(0.12), lineWidth: 3)
+                        .stroke(VColor.borderBase.opacity(0.12), lineWidth: 3)
                         .opacity(isInputFocused.wrappedValue ? 1 : 0)
                         .animation(VAnimation.fast, value: isInputFocused.wrappedValue)
                 )
-                .shadow(color: VColor.textPrimary.opacity(0.06), radius: 8, x: 0, y: 2)
+                .shadow(color: VColor.contentDefault.opacity(0.06), radius: 8, x: 0, y: 2)
 
             // Stop button (shown while generating but not yet cancelling)
             if isGenerating && !isCancelling {
-                VIconButton(
+                VButton(
                     label: "Stop generation",
-                    icon: VIcon.square.rawValue,
-                    iconOnly: true,
-                    variant: .neutral,
+                    iconOnly: VIcon.square.rawValue,
+                    style: .contrast,
                     action: onStop
                 )
             } else {
                 // Mic button — tap to expand the animated voice orb
-                VIconButton(
+                VButton(
                     label: "Start voice input",
-                    icon: VIcon.mic.rawValue,
-                    iconOnly: true,
+                    iconOnly: VIcon.mic.rawValue,
+                    style: .ghost,
                     action: toggleVoiceInput
                 )
 
                 // Send button
-                VIconButton(
+                VButton(
                     label: "Send message",
-                    icon: VIcon.arrowUp.rawValue,
-                    iconOnly: true,
-                    variant: .primary,
+                    iconOnly: VIcon.arrowUp.rawValue,
+                    style: .primary,
                     action: {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         onSend()
@@ -215,7 +213,7 @@ struct InputBarView: View {
             }
         }
         .padding(VSpacing.md)
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
     }
 
     private var canSend: Bool {
@@ -519,30 +517,4 @@ struct InputBarView: View {
     }
 }
 
-struct InputBarView_Previews: PreviewProvider {
-    struct PreviewWrapper: View {
-        @State private var text = "Hello world"
-        @FocusState private var isFocused: Bool
-
-        var body: some View {
-            VStack {
-                Spacer()
-                InputBarView(
-                    text: $text,
-                    isInputFocused: $isFocused,
-                    isGenerating: false,
-                    isCancelling: false,
-                    onSend: { log.debug("Send tapped") },
-                    onStop: { log.debug("Stop tapped") },
-                    viewModel: ChatViewModel(daemonClient: DaemonClient(config: .default))
-                )
-            }
-            .background(VColor.background)
-        }
-    }
-
-    static var previews: some View {
-        PreviewWrapper()
-    }
-}
 #endif

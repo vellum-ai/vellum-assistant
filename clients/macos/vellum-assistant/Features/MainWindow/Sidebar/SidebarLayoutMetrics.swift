@@ -14,7 +14,7 @@ enum SidebarLayoutMetrics {
     static let rowVerticalPadding: CGFloat = VSpacing.xs  // 4pt — compact density
 
     /// Minimum row height to ensure touch/click targets remain accessible.
-    static let rowMinHeight: CGFloat = 28
+    static let rowMinHeight: CGFloat = 32
 
     // MARK: - List Row Spacing
 
@@ -36,6 +36,15 @@ enum SidebarLayoutMetrics {
 
     /// Gap below the "Scheduled" label before the first scheduled row.
     static let scheduledHeaderBottomGap: CGFloat = VSpacing.xs  // 4pt
+
+    // MARK: - Archive Confirm
+
+    /// Trailing padding reserved for the "Confirm" pill button overlay during archive flow.
+    static let archiveConfirmTrailingPadding: CGFloat = 72
+
+    /// Trailing padding reserved for the archive icon overlay on hover
+    /// (20pt icon + 4pt trailing padding on the overlay + 8pt gap).
+    static let archiveIconTrailingPadding: CGFloat = 32
 
     // MARK: - Section Divider
 

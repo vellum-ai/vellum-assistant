@@ -38,7 +38,7 @@ let configuredProvider: { sendMessage: () => Promise<unknown> } | null = null;
 let extractedToolUse: unknown = null;
 
 mock.module("../providers/provider-send-message.js", () => ({
-  getConfiguredProvider: () => configuredProvider,
+  getConfiguredProvider: async () => configuredProvider,
   createTimeout: () => ({
     signal: new AbortController().signal,
     cleanup: () => {},

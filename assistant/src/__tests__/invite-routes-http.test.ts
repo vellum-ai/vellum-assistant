@@ -26,9 +26,6 @@ mock.module("../util/logger.js", () => ({
 // Prevent ensureTelegramBotUsernameResolved() from reading real credentials
 // and calling the Telegram API.
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKey: () => undefined,
-  setSecureKey: () => {},
-  deleteSecureKey: () => {},
   getSecureKeyAsync: async () => undefined,
   setSecureKeyAsync: async () => {},
   deleteSecureKeyAsync: async () => {},
@@ -41,15 +38,33 @@ mock.module("../telegram/bot-username.js", () => ({
   getTelegramBotUsername: () => mockTelegramBotUsername,
 }));
 
+// Mock startInviteCall from call-domain — test env lacks Twilio credentials.
+let mockStartInviteCallResult:
+  | { ok: true; callSid: string }
+  | { ok: false; error: string; status?: number } = {
+  ok: true,
+  callSid: "CA_test_sid_123",
+};
+mock.module("../calls/call-domain.js", () => ({
+  startInviteCall: async () => mockStartInviteCallResult,
+}));
+
+import { upsertContact } from "../contacts/contact-store.js";
 import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
 import {
   handleCreateInvite,
   handleListInvites,
   handleRedeemInvite,
   handleRevokeInvite,
+  handleTriggerInviteCall,
 } from "../runtime/routes/invite-routes.js";
 
 initializeDb();
+
+/** Create a throwaway contact and return its ID, for use as the invite's contactId. */
+function createTargetContact(displayName = "Test Contact"): string {
+  return upsertContact({ displayName, role: "contact" }).id;
+}
 
 afterAll(() => {
   resetDb();
@@ -79,6 +94,7 @@ describe("ingress invite HTTP routes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sourceChannel: "telegram",
+        contactId: createTargetContact(),
         note: "Test invite",
         maxUses: 5,
       }),
@@ -108,6 +124,7 @@ describe("ingress invite HTTP routes", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sourceChannel: "telegram",
+          contactId: createTargetContact(),
           note: "Share link test",
         }),
       });
@@ -151,14 +168,20 @@ describe("ingress invite HTTP routes", () => {
       new Request("http://localhost/v1/contacts/invites", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sourceChannel: "telegram" }),
+        body: JSON.stringify({
+          sourceChannel: "telegram",
+          contactId: createTargetContact(),
+        }),
       }),
     );
     await handleCreateInvite(
       new Request("http://localhost/v1/contacts/invites", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sourceChannel: "telegram" }),
+        body: JSON.stringify({
+          sourceChannel: "telegram",
+          contactId: createTargetContact(),
+        }),
       }),
     );
 
@@ -177,7 +200,10 @@ describe("ingress invite HTTP routes", () => {
       new Request("http://localhost/v1/contacts/invites", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sourceChannel: "telegram" }),
+        body: JSON.stringify({
+          sourceChannel: "telegram",
+          contactId: createTargetContact(),
+        }),
       }),
     );
     const created = (await createRes.json()) as { invite: { id: string } };
@@ -202,7 +228,11 @@ describe("ingress invite HTTP routes", () => {
       new Request("http://localhost/v1/contacts/invites", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sourceChannel: "telegram", maxUses: 1 }),
+        body: JSON.stringify({
+          sourceChannel: "telegram",
+          contactId: createTargetContact(),
+          maxUses: 1,
+        }),
       }),
     );
     const created = (await createRes.json()) as { invite: { token: string } };
@@ -270,7 +300,10 @@ describe("ingress service shared logic", () => {
       new Request("http://localhost/v1/contacts/invites", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sourceChannel: "telegram" }),
+        body: JSON.stringify({
+          sourceChannel: "telegram",
+          contactId: createTargetContact(),
+        }),
       }),
     );
     const created = (await createRes.json()) as {
@@ -300,6 +333,7 @@ describe("voice invite HTTP routes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sourceChannel: "phone",
+        contactId: createTargetContact(),
         expectedExternalUserId: "+15551234567",
         friendName: "Alice",
         guardianName: "Bob",
@@ -336,6 +370,7 @@ describe("voice invite HTTP routes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sourceChannel: "phone",
+        contactId: createTargetContact(),
         friendName: "Alice",
         guardianName: "Bob",
       }),
@@ -355,6 +390,7 @@ describe("voice invite HTTP routes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sourceChannel: "phone",
+        contactId: createTargetContact(),
         expectedExternalUserId: "not-a-phone-number",
         friendName: "Alice",
         guardianName: "Bob",
@@ -375,6 +411,7 @@ describe("voice invite HTTP routes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sourceChannel: "phone",
+        contactId: createTargetContact(),
         expectedExternalUserId: "+15551234567",
         guardianName: "Bob",
       }),
@@ -394,6 +431,7 @@ describe("voice invite HTTP routes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sourceChannel: "phone",
+        contactId: createTargetContact(),
         expectedExternalUserId: "+15551234567",
         friendName: "Alice",
       }),
@@ -413,6 +451,7 @@ describe("voice invite HTTP routes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sourceChannel: "phone",
+        contactId: createTargetContact(),
         expectedExternalUserId: "+15551234567",
         friendName: "Alice",
         guardianName: "Bob",
@@ -436,6 +475,7 @@ describe("voice invite HTTP routes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sourceChannel: "phone",
+        contactId: createTargetContact(),
         expectedExternalUserId: "+15551234567",
         friendName: "Alice",
         guardianName: "Bob",
@@ -460,6 +500,7 @@ describe("voice invite HTTP routes", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sourceChannel: "phone",
+          contactId: createTargetContact(),
           expectedExternalUserId: "+15551234567",
           friendName: "Alice",
           guardianName: "Bob",
@@ -517,6 +558,7 @@ describe("voice invite HTTP routes", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sourceChannel: "phone",
+          contactId: createTargetContact(),
           expectedExternalUserId: "+15551234567",
           friendName: "Alice",
           guardianName: "Bob",
@@ -539,5 +581,121 @@ describe("voice invite HTTP routes", () => {
 
     expect(res.status).toBe(400);
     expect(body.ok).toBe(false);
+  });
+
+  test("voice invite creation returns guardianInstruction with friend name", async () => {
+    const req = new Request("http://localhost/v1/contacts/invites", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceChannel: "phone",
+        contactId: createTargetContact(),
+        expectedExternalUserId: "+15551234567",
+        friendName: "Alice",
+        guardianName: "Bob",
+      }),
+    });
+
+    const res = await handleCreateInvite(req);
+    const body = (await res.json()) as Record<string, unknown>;
+
+    expect(res.status).toBe(201);
+    expect(body.ok).toBe(true);
+    const invite = body.invite as Record<string, unknown>;
+    expect(invite.guardianInstruction).toBe(
+      "Alice will need this code when they answer. Share it with them first.",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Trigger invite call endpoint
+// ---------------------------------------------------------------------------
+
+describe("POST /v1/contacts/invites/:id/call", () => {
+  beforeEach(() => {
+    resetTables();
+    mockStartInviteCallResult = { ok: true, callSid: "CA_test_sid_123" };
+  });
+
+  test("triggers a call for an active phone invite", async () => {
+    const createRes = await handleCreateInvite(
+      new Request("http://localhost/v1/contacts/invites", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceChannel: "phone",
+          contactId: createTargetContact(),
+          expectedExternalUserId: "+15551234567",
+          friendName: "Alice",
+          guardianName: "Bob",
+        }),
+      }),
+    );
+    const created = (await createRes.json()) as { invite: { id: string } };
+
+    const res = await handleTriggerInviteCall(created.invite.id);
+    const body = (await res.json()) as Record<string, unknown>;
+
+    expect(res.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.callSid).toBe("CA_test_sid_123");
+  });
+
+  test("returns 400 for non-existent invite", async () => {
+    const res = await handleTriggerInviteCall("nonexistent-id");
+    const body = (await res.json()) as Record<string, unknown>;
+
+    expect(res.status).toBe(400);
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe("Invite not found");
+  });
+
+  test("returns 400 for a revoked (non-active) invite", async () => {
+    const createRes = await handleCreateInvite(
+      new Request("http://localhost/v1/contacts/invites", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceChannel: "phone",
+          contactId: createTargetContact(),
+          expectedExternalUserId: "+15551234567",
+          friendName: "Alice",
+          guardianName: "Bob",
+        }),
+      }),
+    );
+    const created = (await createRes.json()) as { invite: { id: string } };
+
+    // Revoke the invite
+    handleRevokeInvite(created.invite.id);
+
+    const res = await handleTriggerInviteCall(created.invite.id);
+    const body = (await res.json()) as Record<string, unknown>;
+
+    expect(res.status).toBe(400);
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe("Invite is not active");
+  });
+
+  test("returns 400 for a non-phone invite", async () => {
+    const createRes = await handleCreateInvite(
+      new Request("http://localhost/v1/contacts/invites", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceChannel: "telegram",
+          contactId: createTargetContact(),
+        }),
+      }),
+    );
+    const created = (await createRes.json()) as { invite: { id: string } };
+
+    const res = await handleTriggerInviteCall(created.invite.id);
+    const body = (await res.json()) as Record<string, unknown>;
+
+    expect(res.status).toBe(400);
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe("Only phone invites support call triggering");
   });
 });

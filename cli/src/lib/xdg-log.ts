@@ -49,14 +49,14 @@ export function resetLogFile(name: string): void {
 /**
  * Copy the current log file into `destDir` with a timestamped name so that
  * previous session logs are preserved for debugging. No-op when the source
- * file is missing or empty.
+ * file is missing or empty, or when `destDir` does not already exist.
  */
 export function archiveLogFile(name: string, destDir: string): void {
   try {
+    if (!existsSync(destDir)) return;
     const srcPath = join(getLogDir(), name);
     if (!existsSync(srcPath) || statSync(srcPath).size === 0) return;
 
-    mkdirSync(destDir, { recursive: true });
     const ts = new Date().toISOString().replace(/[:.]/g, "-");
     const base = name.replace(/\.log$/, "");
     copyFileSync(srcPath, join(destDir, `${base}-${ts}.log`));

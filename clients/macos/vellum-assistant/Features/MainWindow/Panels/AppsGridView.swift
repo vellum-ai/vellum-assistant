@@ -27,6 +27,10 @@ struct AppsGridView: View {
     @State private var sharedAppsTask: Task<Void, Never>?
     @State private var sharedAppsTaskGeneration = 0
 
+    // Local apps fetched from daemon
+    @State private var hasFetchedLocalApps = false
+    @State private var localAppsTask: Task<Void, Never>?
+
     /// Cache of lazily-loaded preview screenshots keyed by app ID.
     /// Empty string is used as a sentinel for "fetched but no preview available".
     @State private var previewCache: [String: String] = [:]
@@ -40,33 +44,36 @@ struct AppsGridView: View {
 
     var body: some View {
         Group {
-            if appListManager.apps.isEmpty && sharedApps.isEmpty && hasFetchedShared {
+            if appListManager.apps.isEmpty && sharedApps.isEmpty && hasFetchedShared && hasFetchedLocalApps {
                 noAppsEmptyState
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     // Header
                     HStack(alignment: .center) {
-                        Text("Things")
+                        Text("Library")
                             .font(VFont.panelTitle)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                         Spacer()
                     }
                     .padding(.bottom, VSpacing.md)
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     mainContent
                 }
                 .padding(VSpacing.xl)
             }
         }
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
         .onAppear {
             if !hasFetchedShared { fetchSharedApps() }
+            if !hasFetchedLocalApps { refreshLocalAppsFromDaemon() }
         }
         .onDisappear {
             sharedAppsTask?.cancel()
             sharedAppsTask = nil
+            localAppsTask?.cancel()
+            localAppsTask = nil
             for task in previewTasks.values { task.cancel() }
             previewTasks.removeAll()
         }
@@ -130,16 +137,16 @@ struct AppsGridView: View {
     private var noAppsEmptyState: some View {
         VStack(spacing: VSpacing.xl) {
             VIconView(.layoutGrid, size: 40)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
 
             VStack(spacing: VSpacing.sm) {
-                Text("No things yet")
+                Text("Your library is empty")
                     .font(VFont.bodyBold)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
 
-                Text("Ask the assistant to build something")
+                Text("Ask your assistant to build something")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -148,7 +155,7 @@ struct AppsGridView: View {
     // MARK: - Search Bar
 
     private var searchBar: some View {
-        VSearchBar(placeholder: "Find your things", text: $searchText)
+        VSearchBar(placeholder: "Search your library", text: $searchText)
     }
 
     // MARK: - App Card
@@ -179,12 +186,22 @@ struct AppsGridView: View {
                                     .aspectRatio(contentMode: .fill)
                             )
                             .clipped()
+                    } else if let icon = app.icon, !icon.isEmpty,
+                              let nsImage = MainWindowView.buildAppIcon(iconBase64: nil, emojiIcon: icon, appName: app.name) {
+                        Color.clear
+                            .aspectRatio(16.0 / 10.0, contentMode: .fit)
+                            .overlay(
+                                Image(nsImage: nsImage)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                            )
+                            .clipped()
                     } else {
                         ZStack {
-                            Moss._100
+                            VColor.surfaceBase
 
                             VIconView(appIcon, size: 32)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                         }
                         .aspectRatio(16.0 / 10.0, contentMode: .fit)
                     }
@@ -192,7 +209,7 @@ struct AppsGridView: View {
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.lg)
-                        .stroke(VColor.surfaceBorder, lineWidth: 1)
+                        .stroke(VColor.borderBase, lineWidth: 1)
                 )
                 .overlay(alignment: .topTrailing) {
                     ZStack {
@@ -201,7 +218,7 @@ struct AppsGridView: View {
                                 .controlSize(.small)
                                 .frame(width: 24, height: 24)
                         } else {
-                            VIconButton(label: "App actions", icon: VIcon.ellipsis.rawValue, iconOnly: true, variant: .primary, size: 24) {}
+                            VButton(label: "App actions", iconOnly: VIcon.ellipsis.rawValue, style: .primary, iconSize: 24) {}
                                 .allowsHitTesting(false)
                         }
                         Menu {
@@ -272,12 +289,12 @@ struct AppsGridView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(app.name)
                         .font(VFont.bodyBold)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                         .lineLimit(1)
 
                     Text(Self.formatDate(app.lastOpenedAt))
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .lineLimit(1)
                 }
                 .padding(.horizontal, VSpacing.xs)
@@ -336,7 +353,7 @@ struct AppsGridView: View {
                             .clipped()
                     } else {
                         ZStack {
-                            Moss._100
+                            VColor.surfaceBase
 
                             Text(app.icon ?? "\u{1F4F1}")
                                 .font(.system(size: 32))
@@ -347,27 +364,27 @@ struct AppsGridView: View {
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.lg)
-                        .stroke(VColor.surfaceBorder, lineWidth: 1)
+                        .stroke(VColor.borderBase, lineWidth: 1)
                 )
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: VSpacing.xs) {
                         Text(app.name)
                             .font(VFont.bodyBold)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                             .lineLimit(1)
 
                         if let signer = app.signerDisplayName {
                             Text("by \(signer)")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                                 .lineLimit(1)
                         }
                     }
 
                     Text(Self.formatISO(app.installedAt))
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .lineLimit(1)
                 }
                 .padding(.horizontal, VSpacing.xs)
@@ -515,13 +532,45 @@ struct AppsGridView: View {
         sharedAppsTask = task
     }
 
+    private func refreshLocalAppsFromDaemon() {
+        localAppsTask?.cancel()
+        localAppsTask = Task { @MainActor in
+            let stream = daemonClient.subscribe()
+            do {
+                try daemonClient.sendAppsList()
+            } catch {
+                hasFetchedLocalApps = true
+                return
+            }
+            for await message in stream {
+                guard !Task.isCancelled else { return }
+                if case .appsListResponse(let response) = message {
+                    // Only sync if daemon returned apps — empty response may indicate an error
+                    if !response.apps.isEmpty {
+                        let daemonItems = response.apps.map {
+                            AppListManager.AppItem_Daemon(
+                                id: $0.id, name: $0.name, description: $0.description,
+                                icon: $0.icon, appType: nil, createdAt: $0.createdAt
+                            )
+                        }
+                        appListManager.syncFromDaemon(daemonItems)
+                    }
+                    hasFetchedLocalApps = true
+                    return
+                }
+            }
+            // Stream ended without a response (e.g. daemon disconnected)
+            if !Task.isCancelled { hasFetchedLocalApps = true }
+        }
+    }
+
     // MARK: - Sections
 
     private func appSection(title: String, apps: [AppListManager.AppItem]) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             Text(title)
                 .font(VFont.headline)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
 
             LazyVGrid(columns: columns, spacing: VSpacing.xxl) {
                 ForEach(apps) { app in
@@ -536,7 +585,7 @@ struct AppsGridView: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             Text(title)
                 .font(VFont.headline)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
 
             LazyVGrid(columns: columns, spacing: VSpacing.xxl) {
                 ForEach(apps) { app in
@@ -608,35 +657,3 @@ struct AppsGridView: View {
 
 // MARK: - Preview
 
-struct AppsGridView_Previews: PreviewProvider {
-    struct PreviewWrapper: View {
-        @StateObject private var appListManager = AppListManager()
-
-        var body: some View {
-            AppsGridView(
-                appListManager: appListManager,
-                daemonClient: DaemonClient(),
-                gatewayBaseURL: "http://127.0.0.1:3000",
-                onOpenApp: { _ in }
-            )
-            .onAppear {
-                appListManager.recordAppOpen(id: "1", name: "Weather", icon: nil, appType: "app")
-                appListManager.recordAppOpen(id: "2", name: "Notes", icon: nil, appType: "app")
-                appListManager.recordAppOpen(id: "3", name: "Calendar", icon: nil, appType: "app")
-                appListManager.recordAppOpen(id: "4", name: "Music", icon: nil, appType: "app")
-                appListManager.recordAppOpen(id: "5", name: "Photos", icon: nil, appType: "site")
-                appListManager.recordAppOpen(id: "6", name: "Maps", icon: nil, appType: "app")
-                appListManager.pinApp(id: "1")
-                appListManager.pinApp(id: "2")
-            }
-        }
-    }
-
-    static var previews: some View {
-        ZStack {
-            VColor.background.ignoresSafeArea()
-            PreviewWrapper()
-        }
-        .frame(width: 800, height: 600)
-    }
-}

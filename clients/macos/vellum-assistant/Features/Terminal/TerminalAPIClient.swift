@@ -1,5 +1,6 @@
 import Foundation
 import os
+import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "TerminalAPI")
 
@@ -7,34 +8,29 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 ///
 /// Manages creating, destroying, and communicating with PTY terminal sessions
 /// on managed assistant hosts via the platform's REST + SSE endpoints.
+/// Uses `GatewayHTTPClient` for authentication and request construction.
 @MainActor
 final class TerminalAPIClient {
 
-    private let baseURL: String
-    private let token: String
-    private let organizationId: String?
+    private let assistantId: String
 
-    init(baseURL: String, token: String, organizationId: String?) {
-        self.baseURL = baseURL.hasSuffix("/") ? String(baseURL.dropLast()) : baseURL
-        self.token = token
-        self.organizationId = organizationId
+    init(assistantId: String) {
+        self.assistantId = assistantId
     }
 
     // MARK: - Session Lifecycle
 
     /// Creates a new terminal session and returns the session ID.
-    func createSession(assistantId: String) async throws -> String {
-        let url = try buildURL(path: "/v1/assistants/\(assistantId)/terminal/sessions/")
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 30
-        applyAuth(&request)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    func createSession() async throws -> String {
+        let response = try await GatewayHTTPClient.post(
+            path: "assistants/\(assistantId)/terminal/sessions",
+            timeout: 30
+        )
+        guard response.isSuccess else {
+            throw TerminalAPIError.httpError(response.statusCode)
+        }
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        try validateResponse(response)
-
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let json = try JSONSerialization.jsonObject(with: response.data) as? [String: Any]
         if let sessionId = json?["session_id"] as? String {
             return sessionId
         }
@@ -45,48 +41,39 @@ final class TerminalAPIClient {
     }
 
     /// Destroys an existing terminal session. Errors are swallowed (best-effort).
-    func destroySession(assistantId: String, sessionId: String) async {
-        guard let url = try? buildURL(path: "/v1/assistants/\(assistantId)/terminal/sessions/\(sessionId)/") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        request.timeoutInterval = 10
-        applyAuth(&request)
-
-        _ = try? await URLSession.shared.data(for: request)
+    func destroySession(sessionId: String) async {
+        _ = try? await GatewayHTTPClient.delete(
+            path: "assistants/\(assistantId)/terminal/sessions/\(sessionId)",
+            timeout: 10
+        )
     }
 
     // MARK: - Input / Resize
 
     /// Sends keyboard input to the PTY stdin.
-    func sendInput(assistantId: String, sessionId: String, data: String) async throws {
-        let url = try buildURL(path: "/v1/assistants/\(assistantId)/terminal/sessions/\(sessionId)/input/")
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 10
-        applyAuth(&request)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        let body: [String: Any] = ["data": data]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (_, response) = try await URLSession.shared.data(for: request)
-        try validateResponse(response)
+    func sendInput(sessionId: String, data: String) async throws {
+        let body = try JSONSerialization.data(withJSONObject: ["data": data])
+        let response = try await GatewayHTTPClient.post(
+            path: "assistants/\(assistantId)/terminal/sessions/\(sessionId)/input",
+            body: body,
+            timeout: 10
+        )
+        guard response.isSuccess else {
+            throw TerminalAPIError.httpError(response.statusCode)
+        }
     }
 
     /// Notifies the backend of a PTY window resize.
-    func resize(assistantId: String, sessionId: String, cols: Int, rows: Int) async throws {
-        let url = try buildURL(path: "/v1/assistants/\(assistantId)/terminal/sessions/\(sessionId)/resize/")
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 10
-        applyAuth(&request)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        let body: [String: Any] = ["cols": cols, "rows": rows]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (_, response) = try await URLSession.shared.data(for: request)
-        try validateResponse(response)
+    func resize(sessionId: String, cols: Int, rows: Int) async throws {
+        let body = try JSONSerialization.data(withJSONObject: ["cols": cols, "rows": rows] as [String: Any])
+        let response = try await GatewayHTTPClient.post(
+            path: "assistants/\(assistantId)/terminal/sessions/\(sessionId)/resize",
+            body: body,
+            timeout: 10
+        )
+        guard response.isSuccess else {
+            throw TerminalAPIError.httpError(response.statusCode)
+        }
     }
 
     // MARK: - SSE Output Stream
@@ -97,35 +84,21 @@ final class TerminalAPIClient {
     /// The returned `AsyncThrowingStream` ends when the SSE connection closes
     /// or is cancelled.
     func subscribeEvents(
-        assistantId: String,
         sessionId: String
     ) -> (stream: AsyncThrowingStream<TerminalOutputEvent, Error>, cancel: () -> Void) {
-        let url = try? buildURL(path: "/v1/assistants/\(assistantId)/terminal/sessions/\(sessionId)/events/")
-
         let task = UncheckedSendableBox<Task<Void, Never>?>(nil)
 
+        let assistantId = self.assistantId
         let stream = AsyncThrowingStream<TerminalOutputEvent, Error> { continuation in
-            guard let url else {
-                continuation.finish(throwing: TerminalAPIError.invalidURL)
-                return
-            }
-
-            var request = URLRequest(url: url)
-            request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-            request.timeoutInterval = .infinity
-            self.applyAuth(&request)
-
-            let sseTask = Task { @MainActor [weak self] in
-                guard self != nil else {
-                    continuation.finish()
-                    return
-                }
-
+            let sseTask = Task { @MainActor in
                 do {
-                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
+                    let (bytes, urlResponse) = try await GatewayHTTPClient.stream(
+                        path: "assistants/\(assistantId)/terminal/sessions/\(sessionId)/events",
+                        timeout: .infinity
+                    )
 
-                    guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+                    guard let http = urlResponse as? HTTPURLResponse, http.statusCode == 200 else {
+                        let statusCode = (urlResponse as? HTTPURLResponse)?.statusCode ?? -1
                         continuation.finish(throwing: TerminalAPIError.httpError(statusCode))
                         return
                     }
@@ -186,30 +159,6 @@ final class TerminalAPIClient {
         return (stream, cancel)
     }
 
-    // MARK: - Helpers
-
-    private func buildURL(path: String) throws -> URL {
-        guard let url = URL(string: "\(baseURL)\(path)") else {
-            throw TerminalAPIError.invalidURL
-        }
-        return url
-    }
-
-    private func applyAuth(_ request: inout URLRequest) {
-        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
-        if let orgId = organizationId, !orgId.isEmpty {
-            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
-        }
-    }
-
-    private func validateResponse(_ response: URLResponse) throws {
-        guard let http = response as? HTTPURLResponse else {
-            throw TerminalAPIError.invalidResponse
-        }
-        guard (200...299).contains(http.statusCode) else {
-            throw TerminalAPIError.httpError(http.statusCode)
-        }
-    }
 }
 
 // MARK: - Types
@@ -220,16 +169,12 @@ struct TerminalOutputEvent: Sendable {
 }
 
 enum TerminalAPIError: LocalizedError {
-    case invalidURL
-    case invalidResponse
     case httpError(Int)
     case missingSessionId
     case streamEnded
 
     var errorDescription: String? {
         switch self {
-        case .invalidURL: return "Invalid terminal API URL"
-        case .invalidResponse: return "Invalid response from terminal API"
         case .httpError(let code): return "Terminal API error (HTTP \(code))"
         case .missingSessionId: return "Backend did not return a session ID"
         case .streamEnded: return "Terminal stream ended unexpectedly"

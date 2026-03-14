@@ -8,13 +8,21 @@ import {
   registerCallbackRoute,
   shouldUsePlatformCallbacks,
 } from "../../inbound/platform-callback-registration.js";
+import {
+  ensureManualTokenConnection,
+  removeManualTokenConnection,
+} from "../../oauth/manual-token-connection.js";
+import { getConnectionByProvider } from "../../oauth/oauth-store.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
-  getSecureKey,
+  getSecureKeyAsync,
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
-import { getTelegramBotUsername } from "../../telegram/bot-username.js";
+import {
+  getTelegramBotId,
+  getTelegramBotUsername,
+} from "../../telegram/bot-username.js";
 import {
   deleteCredentialMetadata,
   upsertCredentialMetadata,
@@ -60,17 +68,23 @@ export type TelegramConfigResult = Omit<TelegramConfigResponse, "type">;
 
 // -- Extracted business logic functions --
 
-export function getTelegramConfig(): TelegramConfigResult {
-  const hasBotToken = !!getSecureKey(credentialKey("telegram", "bot_token"));
-  const hasWebhookSecret = !!getSecureKey(
+export async function getTelegramConfig(): Promise<TelegramConfigResult> {
+  const hasBotToken = !!(await getSecureKeyAsync(
+    credentialKey("telegram", "bot_token"),
+  ));
+  const hasWebhookSecret = !!(await getSecureKeyAsync(
     credentialKey("telegram", "webhook_secret"),
-  );
+  ));
+  const conn = getConnectionByProvider("telegram");
+  const connected = !!(conn && conn.status === "active");
+  const botId = getTelegramBotId();
   const botUsername = getTelegramBotUsername();
   return {
     success: true,
     hasBotToken,
+    botId,
     botUsername,
-    connected: hasBotToken && hasWebhookSecret,
+    connected: connected && hasBotToken && hasWebhookSecret,
     hasWebhookSecret,
   };
 }
@@ -82,7 +96,8 @@ export async function setTelegramConfig(
   // Track provenance so we only rollback tokens that were freshly provided.
   const isNewToken = !!botToken;
   const resolvedToken =
-    botToken || getSecureKey(credentialKey("telegram", "bot_token"));
+    botToken ||
+    (await getSecureKeyAsync(credentialKey("telegram", "bot_token")));
   if (!resolvedToken) {
     return {
       success: false,
@@ -95,6 +110,7 @@ export async function setTelegramConfig(
 
   // Validate token via Telegram getMe API
   let botUsername: string;
+  let botId: string;
   try {
     const res = await fetch(
       `https://api.telegram.org/bot${resolvedToken}/getMe`,
@@ -111,7 +127,7 @@ export async function setTelegramConfig(
     }
     const data = (await res.json()) as {
       ok: boolean;
-      result?: { username?: string };
+      result?: { id?: number; username?: string };
     };
     if (!data.ok || !data.result?.username) {
       return {
@@ -123,6 +139,7 @@ export async function setTelegramConfig(
       };
     }
     botUsername = data.result.username;
+    botId = data.result.id != null ? String(data.result.id) : "";
   } catch (err) {
     const message = summarizeTelegramError(err);
     return {
@@ -152,16 +169,17 @@ export async function setTelegramConfig(
   // Store credential metadata record for policy checks
   upsertCredentialMetadata("telegram", "bot_token", {});
 
-  // Persist bot username to config for the config-based path
+  // Persist bot username and bot ID to config for the config-based path
   const raw = loadRawConfig();
+  setNestedValue(raw, "telegram.botId", botId);
   setNestedValue(raw, "telegram.botUsername", botUsername);
   saveRawConfig(raw);
   invalidateConfigCache();
 
   // Ensure webhook secret exists (generate if missing)
-  let hasWebhookSecret = !!getSecureKey(
+  let hasWebhookSecret = !!(await getSecureKeyAsync(
     credentialKey("telegram", "webhook_secret"),
-  );
+  ));
   if (!hasWebhookSecret) {
     const { randomUUID } = await import("node:crypto");
     const webhookSecret = randomUUID();
@@ -180,9 +198,10 @@ export async function setTelegramConfig(
         await deleteSecureKeyAsync(credentialKey("telegram", "bot_token"));
         deleteCredentialMetadata("telegram", "bot_token");
       }
-      // Always revert the config write — the botUsername was written
+      // Always revert the config write — the botId and botUsername were written
       // optimistically before webhook secret provisioning.
       const rawRollback = loadRawConfig();
+      setNestedValue(rawRollback, "telegram.botId", "");
       setNestedValue(rawRollback, "telegram.botUsername", "");
       saveRawConfig(rawRollback);
       invalidateConfigCache();
@@ -200,9 +219,17 @@ export async function setTelegramConfig(
     upsertCredentialMetadata("telegram", "webhook_secret", {});
   }
 
+  // Sync oauth_connection record so getConnectionByProvider("telegram")
+  // reflects the current credential state.
+  await ensureManualTokenConnection(
+    "telegram",
+    botUsername ? `@${botUsername}` : undefined,
+  );
+
   const result: TelegramConfigResult = {
     success: true,
     hasBotToken: true,
+    botId,
     botUsername,
     connected: true,
     hasWebhookSecret,
@@ -227,7 +254,9 @@ export async function clearTelegramConfig(): Promise<TelegramConfigResult> {
   // The gateway reconcile short-circuits when credentials are absent,
   // so we must call the Telegram API directly while the token is still
   // available.
-  const botToken = getSecureKey(credentialKey("telegram", "bot_token"));
+  const botToken = await getSecureKeyAsync(
+    credentialKey("telegram", "bot_token"),
+  );
   if (botToken) {
     try {
       await fetch(`https://api.telegram.org/bot${botToken}/deleteWebhook`);
@@ -245,10 +274,13 @@ export async function clearTelegramConfig(): Promise<TelegramConfigResult> {
   );
 
   if (r1 === "error" || r2 === "error") {
-    const hasBotToken = !!getSecureKey(credentialKey("telegram", "bot_token"));
-    const hasWebhookSecret = !!getSecureKey(
+    // Check each key individually so partial deletions report accurate status.
+    const hasBotToken = !!(await getSecureKeyAsync(
+      credentialKey("telegram", "bot_token"),
+    ));
+    const hasWebhookSecret = !!(await getSecureKeyAsync(
       credentialKey("telegram", "webhook_secret"),
-    );
+    ));
     return {
       success: false,
       hasBotToken,
@@ -261,9 +293,13 @@ export async function clearTelegramConfig(): Promise<TelegramConfigResult> {
   deleteCredentialMetadata("telegram", "bot_token");
   deleteCredentialMetadata("telegram", "webhook_secret");
 
-  // Clear bot username from config so getTelegramBotUsername() doesn't
-  // return a stale value after disconnect.
+  // Remove the oauth_connection row so getConnectionByProvider returns undefined.
+  removeManualTokenConnection("telegram");
+
+  // Clear bot ID and username from config so getTelegramBotId() and
+  // getTelegramBotUsername() don't return stale values after disconnect.
   const raw = loadRawConfig();
+  setNestedValue(raw, "telegram.botId", "");
   setNestedValue(raw, "telegram.botUsername", "");
   saveRawConfig(raw);
   invalidateConfigCache();
@@ -279,7 +315,9 @@ export async function clearTelegramConfig(): Promise<TelegramConfigResult> {
 export async function setTelegramCommands(
   commands?: Array<{ command: string; description: string }>,
 ): Promise<TelegramConfigResult> {
-  const storedToken = getSecureKey(credentialKey("telegram", "bot_token"));
+  const storedToken = await getSecureKeyAsync(
+    credentialKey("telegram", "bot_token"),
+  );
   if (!storedToken) {
     return {
       success: false,
@@ -306,38 +344,36 @@ export async function setTelegramCommands(
     );
     if (!res.ok) {
       const body = await res.text();
+      const cmdConn = getConnectionByProvider("telegram");
+      const cmdConnected = !!(cmdConn && cmdConn.status === "active");
       return {
         success: false,
         hasBotToken: true,
-        connected: !!getSecureKey(credentialKey("telegram", "webhook_secret")),
-        hasWebhookSecret: !!getSecureKey(
-          credentialKey("telegram", "webhook_secret"),
-        ),
+        connected: cmdConnected,
+        hasWebhookSecret: cmdConnected,
         error: `Failed to set bot commands: ${body}`,
       };
     }
   } catch (err) {
     const message = summarizeTelegramError(err);
+    const cmdConn = getConnectionByProvider("telegram");
+    const cmdConnected = !!(cmdConn && cmdConn.status === "active");
     return {
       success: false,
       hasBotToken: true,
-      connected: !!getSecureKey(credentialKey("telegram", "webhook_secret")),
-      hasWebhookSecret: !!getSecureKey(
-        credentialKey("telegram", "webhook_secret"),
-      ),
+      connected: cmdConnected,
+      hasWebhookSecret: cmdConnected,
       error: `Failed to set bot commands: ${message}`,
     };
   }
 
-  const hasBotToken = !!getSecureKey(credentialKey("telegram", "bot_token"));
-  const hasWebhookSecret = !!getSecureKey(
-    credentialKey("telegram", "webhook_secret"),
-  );
+  const cmdConn = getConnectionByProvider("telegram");
+  const cmdConnected = !!(cmdConn && cmdConn.status === "active");
   return {
     success: true,
-    hasBotToken,
-    connected: hasBotToken && hasWebhookSecret,
-    hasWebhookSecret,
+    hasBotToken: true,
+    connected: cmdConnected,
+    hasWebhookSecret: cmdConnected,
     commandsRegistered: resolvedCommands.map((c) => c.command),
   };
 }
@@ -368,6 +404,7 @@ export async function setupTelegram(
 
   return {
     ...commandsResult,
+    botId: setResult.botId,
     botUsername: setResult.botUsername,
   };
 }
@@ -382,7 +419,7 @@ export async function handleTelegramConfig(
     let result: TelegramConfigResult;
 
     if (msg.action === "get") {
-      result = getTelegramConfig();
+      result = await getTelegramConfig();
     } else if (msg.action === "set") {
       result = await setTelegramConfig(msg.botToken);
     } else if (msg.action === "clear") {

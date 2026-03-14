@@ -81,4 +81,32 @@ describe("buildMultipartMime", () => {
     expect(decoded).toContain('filename="b.png"');
     expect(decoded).toContain("Content-Type: image/png");
   });
+
+  test("sanitizes CRLF from header values to prevent header injection", () => {
+    const result = buildMultipartMime({
+      to: "victim@example.com\r\nBcc: attacker@example.com",
+      subject: "Fwd: Hello\r\nCc: attacker@example.com",
+      body: "Body",
+      cc: "team@example.com\nX-Injected: yes",
+      bcc: "audit@example.com\r\nX-Another: value",
+      inReplyTo: "<id@example.com>\nReferences: <evil@example.com>",
+      attachments: [],
+    });
+
+    const decoded = Buffer.from(
+      result.replace(/-/g, "+").replace(/_/g, "/"),
+      "base64",
+    ).toString("utf-8");
+
+    expect(decoded).toContain("To: victim@example.com Bcc: attacker@example.com");
+    expect(decoded).toContain("Subject: Fwd: Hello Cc: attacker@example.com");
+    expect(decoded).toContain("Cc: team@example.com X-Injected: yes");
+    expect(decoded).toContain("Bcc: audit@example.com X-Another: value");
+    expect(decoded).toContain(
+      "In-Reply-To: <id@example.com> References: <evil@example.com>",
+    );
+    expect(decoded).not.toContain("\r\nBcc: attacker@example.com");
+    expect(decoded).not.toContain("\r\nCc: attacker@example.com");
+  });
+
 });

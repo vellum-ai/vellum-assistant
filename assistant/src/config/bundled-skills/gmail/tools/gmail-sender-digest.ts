@@ -48,6 +48,7 @@ export async function run(
   input: Record<string, unknown>,
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  const account = input.account as string | undefined;
   const query = (input.query as string) ?? "category:promotions newer_than:90d";
   const maxMessages = Math.min(
     (input.max_messages as number) ?? 5000,
@@ -57,7 +58,10 @@ export async function run(
   const inputPageToken = input.page_token as string | undefined;
 
   try {
-    const connection = resolveOAuthConnection("integration:gmail");
+    const connection = await resolveOAuthConnection(
+      "integration:google",
+      account,
+    );
     // Pipeline: fire metadata fetches for each page of IDs as they arrive,
     // overlapping fetch latency with pagination latency
     const allMessageIds: string[] = [];

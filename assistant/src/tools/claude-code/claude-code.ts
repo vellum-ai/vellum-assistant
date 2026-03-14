@@ -2,9 +2,9 @@ import {
   getCCCommand,
   loadCCCommandTemplate,
 } from "../../commands/cc-command-registry.js";
-import { getConfig } from "../../config/loader.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
+import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import type { WorkerProfile } from "../../swarm/worker-backend.js";
 import { getProfilePolicy } from "../../swarm/worker-backend.js";
 import { getLogger } from "../../util/logger.js";
@@ -121,7 +121,7 @@ export const claudeCodeTool: Tool = {
             type: "string",
             enum: ["general", "researcher", "coder", "reviewer"],
             description:
-              "Worker profile that scopes tool access. Defaults to general (backward compatible).",
+              "Worker profile that scopes tool access. Defaults to general.",
           },
         },
       },
@@ -203,12 +203,12 @@ export const claudeCodeTool: Tool = {
     const profilePolicy = getProfilePolicy(profileName);
 
     // Validate API key
-    const config = getConfig();
-    const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
+    const apiKey =
+      (await getSecureKeyAsync("anthropic")) ?? process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       return {
         content:
-          "Error: No Anthropic API key configured. Set it via config or ANTHROPIC_API_KEY environment variable.",
+          "Error: No Anthropic API key configured. Set it via `keys set anthropic <key>` or configure it from the Settings page under API Keys.",
         isError: true,
       };
     }
@@ -261,7 +261,7 @@ export const claudeCodeTool: Tool = {
           return { behavior: "allow" as const };
         }
 
-        // Auto-approve safe read-only tools (backward compat for general profile)
+        // Auto-approve safe read-only tools (general profile default)
         if (AUTO_APPROVE_TOOLS.has(toolName)) {
           return { behavior: "allow" as const };
         }

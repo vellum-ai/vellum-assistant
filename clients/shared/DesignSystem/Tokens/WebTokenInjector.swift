@@ -8,30 +8,68 @@ public enum WebTokenInjector {
     /// tokens under `:root`, with light-mode defaults and a
     /// `@media (prefers-color-scheme: dark)` override.
     ///
-    /// Hex values are resolved from the Moss / Forest / Stone palettes so the
+    /// Values are resolved from the canonical Figma semantic token table so the
     /// block is self-contained (no dependency on palette custom properties).
     public static func cssTokenBlock() -> String {
         """
         :root {
-          --v-bg: #FFFFFF;
-          --v-surface: #F5F5F7;
-          --v-surface-border: #D2D2D7;
-          --v-text: #1D1D1F;
-          --v-text-secondary: #86868B;
-          --v-text-muted: #AEAEB2;
-          --v-accent: #657D5B;
-          --v-accent-hover: #516748;
+          --v-primary-disabled: #D4D1C1;
+          --v-primary-base: #516748;
+          --v-primary-hover: #657D5B;
+          --v-primary-active: #7A8B6F;
+          --v-surface-base: #E8E6DA;
+          --v-surface-overlay: #F5F3EB;
+          --v-surface-active: #D4D1C1;
+          --v-surface-lift: #FFFFFF;
+          --v-border-disabled: #D4D1C1;
+          --v-border-base: #BDB9A9;
+          --v-border-hover: #A1A096;
+          --v-border-active: #7A8B6F;
+          --v-content-emphasized: #20201E;
+          --v-content-default: #2A2A28;
+          --v-content-secondary: #4A4A46;
+          --v-content-tertiary: #A1A096;
+          --v-content-disabled: #BDB9A9;
+          --v-content-background: #D4D1C1;
+          --v-content-inset: #FFFFFF;
+          --v-system-positive-strong: #516748;
+          --v-system-positive-weak: #D4DFD0;
+          --v-system-negative-strong: #DA491A;
+          --v-system-negative-hover: #E86B40;
+          --v-system-negative-weak: #F7DAC9;
+          --v-system-mid-strong: #F1B21E;
+          --v-system-mid-weak: #FCF3DD;
+          --v-aux-white: #FFFFFF;
         }
         @media (prefers-color-scheme: dark) {
           :root {
-            --v-bg: #20201E;
-            --v-surface: #3A3A37;
-            --v-surface-border: #4A4A46;
-            --v-text: #F5F3EB;
-            --v-text-secondary: #A1A096;
-            --v-text-muted: #6B6B65;
-            --v-accent: #657D5B;
-            --v-accent-hover: #516748;
+            --v-primary-disabled: #3A3A37;
+            --v-primary-base: #657D5B;
+            --v-primary-hover: #516748;
+            --v-primary-active: #7A8B6F;
+            --v-surface-base: #2A2A28;
+            --v-surface-overlay: #20201E;
+            --v-surface-active: #3A3A37;
+            --v-surface-lift: #000000;
+            --v-border-disabled: #3A3A37;
+            --v-border-base: #4A4A46;
+            --v-border-hover: #6B6B65;
+            --v-border-active: #7A8B6F;
+            --v-content-emphasized: #F5F3EB;
+            --v-content-default: #E8E6DA;
+            --v-content-secondary: #BDB9A9;
+            --v-content-tertiary: #A1A096;
+            --v-content-disabled: #6B6B65;
+            --v-content-background: #3A3A37;
+            --v-content-inset: #000000;
+            --v-system-positive-strong: #516748;
+            --v-system-positive-weak: #1A2316;
+            --v-system-negative-strong: #DA491A;
+            --v-system-negative-hover: #AB3F1C;
+            --v-system-negative-weak: #4E281D;
+            --v-system-mid-strong: #F1B21E;
+            --v-system-mid-weak: #4B3D1E;
+            --v-aux-white: #FFFFFF;
           }
         }
         """
@@ -39,30 +77,31 @@ public enum WebTokenInjector {
 
     /// Returns a CSS block tuned for the document editor context.
     ///
-    /// The editor uses warmer Stone-palette tones and a pure-white surface so
-    /// that document content is easy to read and edit.  The accent colour maps
-    /// to a neutral dark (light mode) / green (dark mode) instead of the
-    /// global Forest-green to keep the editing chrome unobtrusive.
+    /// The editor uses the same semantic token contract but maps to warmer
+    /// Stone-palette tones and a pure-white surface so that document content
+    /// is easy to read and edit.
     public static func editorCSSTokenBlock() -> String {
         """
         :root {
-          --v-bg: #FFFFFF;
-          --v-surface: #FFFFFF;
-          --v-surface-border: #E7E5E4;
-          --v-text: #292524;
-          --v-text-secondary: #78716C;
-          --v-text-muted: #97918B;
-          --v-accent: #262624;
+          --v-surface-base: #FFFFFF;
+          --v-surface-overlay: #FFFFFF;
+          --v-border-base: #E7E5E4;
+          --v-content-emphasized: #292524;
+          --v-content-default: #292524;
+          --v-content-secondary: #78716C;
+          --v-content-tertiary: #97918B;
+          --v-primary-base: #262624;
         }
         @media (prefers-color-scheme: dark) {
           :root {
-            --v-bg: #262624;
-            --v-surface: #2F2F2D;
-            --v-surface-border: #3A3A37;
-            --v-text: #F5F3EB;
-            --v-text-secondary: #A1A096;
-            --v-text-muted: #6B6B65;
-            --v-accent: #216C37;
+            --v-surface-base: #262624;
+            --v-surface-overlay: #2F2F2D;
+            --v-border-base: #3A3A37;
+            --v-content-emphasized: #F5F3EB;
+            --v-content-default: #F5F3EB;
+            --v-content-secondary: #A1A096;
+            --v-content-tertiary: #6B6B65;
+            --v-primary-base: #216C37;
           }
         }
         """

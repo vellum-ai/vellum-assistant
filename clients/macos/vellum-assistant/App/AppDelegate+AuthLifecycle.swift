@@ -26,7 +26,7 @@ extension AppDelegate {
         }
     }
 
-    func showAuthWindow() {
+    func showAuthWindow(reusingWindow existingWindow: NSWindow? = nil) {
         if let existing = authWindow {
             existing.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -48,29 +48,51 @@ extension AppDelegate {
         )
 
         let hostingController = NSHostingController(rootView: authView)
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 620),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentViewController = hostingController
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.isMovableByWindowBackground = true
-        window.backgroundColor = NSColor(VColor.background)
-        window.isReleasedWhenClosed = false
-        window.contentMinSize = NSSize(width: 420, height: 580)
 
-        let startWidth: CGFloat = 460
-        let startHeight: CGFloat = 620
-        if let visibleFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame {
-            let x = visibleFrame.midX - startWidth / 2
-            let y = visibleFrame.midY - startHeight / 2
-            window.setFrame(NSRect(x: x, y: y, width: startWidth, height: startHeight), display: true)
+        let window: NSWindow
+        if let existingWindow {
+            window = existingWindow
+            window.contentViewController = hostingController
+            window.isMovableByWindowBackground = true
+            window.backgroundColor = NSColor(VColor.surfaceOverlay)
+            window.contentMinSize = NSSize(width: 420, height: 580)
+            window.setFrameAutosaveName("")
+
+            let targetWidth: CGFloat = 460
+            let targetHeight: CGFloat = 620
+            let currentFrame = window.frame
+            let newFrame = NSRect(
+                x: currentFrame.midX - targetWidth / 2,
+                y: currentFrame.midY - targetHeight / 2,
+                width: targetWidth,
+                height: targetHeight
+            )
+            window.setFrame(newFrame, display: true, animate: true)
         } else {
-            window.setContentSize(NSSize(width: startWidth, height: startHeight))
-            window.center()
+            window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 460, height: 620),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                backing: .buffered,
+                defer: false
+            )
+            window.contentViewController = hostingController
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.isMovableByWindowBackground = true
+            window.backgroundColor = NSColor(VColor.surfaceOverlay)
+            window.isReleasedWhenClosed = false
+            window.contentMinSize = NSSize(width: 420, height: 580)
+
+            let startWidth: CGFloat = 460
+            let startHeight: CGFloat = 620
+            if let visibleFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame {
+                let x = visibleFrame.midX - startWidth / 2
+                let y = visibleFrame.midY - startHeight / 2
+                window.setFrame(NSRect(x: x, y: y, width: startWidth, height: startHeight), display: true)
+            } else {
+                window.setContentSize(NSSize(width: startWidth, height: startHeight))
+                window.center()
+            }
         }
 
         NSApp.activateAsDockAppIfNeeded()
@@ -111,11 +133,11 @@ extension AppDelegate {
         }
     }
 
-    @objc func performLogout() {
+    @objc public func performLogout() {
         Task {
             await authManager.logout()
 
-            mainWindow?.close()
+            let detachedWindow = mainWindow?.detachWindow()
             mainWindow = nil
             conversationBadgeCancellable?.cancel()
             conversationBadgeCancellable = nil
@@ -167,7 +189,7 @@ extension AppDelegate {
 
             hasSetupApp = false
             hasSetupDaemon = false
-            showAuthWindow()
+            showAuthWindow(reusingWindow: detachedWindow)
         }
     }
 
@@ -273,17 +295,11 @@ extension AppDelegate {
         mainWindow?.close()
         mainWindow = nil
 
-        // Cancel any in-progress bootstrap tasks from the previous assistant
-        bootstrapRetryTask?.cancel()
-        bootstrapRetryTask = nil
-
         // 3. Persist the new assistant selection
         UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")
         SentryDeviceInfo.updateAssistantTag(assistant.assistantId)
         // Clear stale org ID so the next bootstrap re-resolves it for the new assistant
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
-        assistant.writeToWorkspaceConfig()
-
         // Clear stale actor token for the previous assistant
         actorTokenBootstrapTask?.cancel()
         actorTokenBootstrapTask = nil
@@ -444,10 +460,6 @@ extension AppDelegate {
         // a fresh instance during re-onboarding (equivalent to `vellum sleep`).
         daemonClient.disconnect()
         assistantCli.stop()
-        // Cancel any in-progress bootstrap retry so it doesn't race with the
-        // new onboarding flow.
-        bootstrapRetryTask?.cancel()
-        bootstrapRetryTask = nil
         actorTokenBootstrapTask?.cancel()
         actorTokenBootstrapTask = nil
         ActorTokenManager.deleteToken()

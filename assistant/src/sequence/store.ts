@@ -1,5 +1,5 @@
 /**
- * SQLite-backed implementation of the SequenceStore interface.
+ * SQLite-backed sequence store.
  *
  * Follows the same patterns as schedule-store.ts:
  * - Flat exported functions (no class)
@@ -28,7 +28,6 @@ import type {
   Sequence,
   SequenceEnrollment,
   SequenceStep,
-  SequenceStore,
   UpdateSequenceInput,
 } from "./types.js";
 
@@ -376,21 +375,3 @@ export function updateEnrollmentThreadId(id: string, threadId: string): void {
     .where(eq(sequenceEnrollments.id, id))
     .run();
 }
-
-// ── Aggregate export matching the SequenceStore interface ───────────
-
-export const sqliteSequenceStore: SequenceStore = {
-  createSequence,
-  getSequence,
-  listSequences,
-  updateSequence,
-  deleteSequence,
-  enrollContact,
-  getEnrollment,
-  listEnrollments,
-  claimDueEnrollments,
-  advanceEnrollment,
-  exitEnrollment,
-  findActiveEnrollmentsByEmail,
-  countActiveEnrollments,
-};

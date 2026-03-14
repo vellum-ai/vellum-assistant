@@ -43,13 +43,13 @@ struct SlackChannelPickerView: View {
             header
                 .padding(VSpacing.lg)
 
-            VColor.surfaceBorder.frame(height: 1)
+            VColor.borderBase.frame(height: 1)
 
             VSearchBar(placeholder: "Search channels...", text: $searchText)
                 .padding(.horizontal, VSpacing.md)
                 .padding(.vertical, VSpacing.sm)
 
-            VColor.surfaceBorder.frame(height: 1)
+            VColor.borderBase.frame(height: 1)
 
             if isLoading {
                 loadingState
@@ -77,14 +77,14 @@ struct SlackChannelPickerView: View {
             Button(action: onCancel) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Back")
 
             Text("Send to Slack")
                 .font(VFont.headline)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             Spacer()
         }
@@ -98,7 +98,7 @@ struct SlackChannelPickerView: View {
                 .controlSize(.small)
             Text("Loading channels...")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, VSpacing.xxl)
@@ -110,7 +110,7 @@ struct SlackChannelPickerView: View {
         VStack(spacing: VSpacing.sm) {
             Text(message)
                 .font(VFont.caption)
-                .foregroundColor(VColor.error)
+                .foregroundColor(VColor.systemNegativeStrong)
                 .multilineTextAlignment(.center)
 
             Button("Retry") {
@@ -118,7 +118,7 @@ struct SlackChannelPickerView: View {
             }
             .buttonStyle(.plain)
             .font(VFont.captionMedium)
-            .foregroundColor(VColor.accent)
+            .foregroundColor(VColor.primaryBase)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, VSpacing.xxl)
@@ -129,7 +129,7 @@ struct SlackChannelPickerView: View {
     private var emptyState: some View {
         Text(searchText.isEmpty ? "No channels found" : "No matching channels")
             .font(VFont.caption)
-            .foregroundColor(VColor.textMuted)
+            .foregroundColor(VColor.contentTertiary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, VSpacing.xxl)
     }
@@ -155,19 +155,19 @@ struct SlackChannelPickerView: View {
             HStack(spacing: VSpacing.sm) {
                 Image(systemName: iconName(for: channel))
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .frame(width: 18, height: 18)
 
                 Text(channel.name)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
 
                 Spacer()
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
-            .background(VColor.navHover.opacity(hoveredChannelID == channel.id ? 1 : 0))
+            .background(VColor.surfaceBase.opacity(hoveredChannelID == channel.id ? 1 : 0))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -231,29 +231,3 @@ struct SlackChannelPickerView: View {
         }
     }
 }
-
-// MARK: - Preview
-
-#if DEBUG
-private struct SlackChannelPickerPreviewWrapper: View {
-    var body: some View {
-        SlackChannelPickerView(
-            gatewayBaseURL: "http://localhost:3000",
-            onSelect: { channel in
-                print("Selected: \(channel.name)")
-            },
-            onCancel: {
-                print("Cancelled")
-            }
-        )
-    }
-}
-
-#Preview("SlackChannelPicker") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        SlackChannelPickerPreviewWrapper()
-    }
-    .frame(width: 300, height: 400)
-}
-#endif

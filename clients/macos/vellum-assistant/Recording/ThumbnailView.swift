@@ -53,13 +53,13 @@ struct ThumbnailView: View {
 
     private var placeholder: some View {
         RoundedRectangle(cornerRadius: VRadius.sm)
-            .fill(VColor.backgroundSubtle)
+            .fill(VColor.surfaceBase)
             .frame(width: size.width, height: size.height)
     }
 
     private var loadingSkeleton: some View {
         RoundedRectangle(cornerRadius: VRadius.sm)
-            .fill(VColor.backgroundSubtle)
+            .fill(VColor.surfaceBase)
             .frame(width: size.width, height: size.height)
             .opacity(isPulsing ? 0.4 : 1.0)
             .onAppear {
@@ -74,18 +74,18 @@ struct ThumbnailView: View {
     private var failedState: some View {
         VStack(spacing: VSpacing.xs) {
             VIconView(.squareDashed, size: min(size.width, size.height) * 0.3)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
             if size.height >= 50 {
                 Text("Preview unavailable")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .lineLimit(1)
             }
         }
         .frame(width: size.width, height: size.height)
         .background(
             RoundedRectangle(cornerRadius: VRadius.sm)
-                .fill(VColor.backgroundSubtle)
+                .fill(VColor.surfaceBase)
         )
     }
 }

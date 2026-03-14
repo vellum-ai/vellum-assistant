@@ -13,7 +13,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKey: (key: string) => mockSecureKeys[key] ?? null,
+  getSecureKeyAsync: async (key: string) => mockSecureKeys[key] ?? null,
 }));
 
 mock.module("../config/loader.js", () => ({
@@ -41,8 +41,8 @@ describe("twilio-config", () => {
     };
   });
 
-  test("returns config when credentials and phone number are set", () => {
-    const config = getTwilioConfig();
+  test("returns config when credentials and phone number are set", async () => {
+    const config = await getTwilioConfig();
     expect(config.accountSid).toBe("AC_test_sid");
     expect(config.authToken).toBe("test_auth_token");
     expect(config.phoneNumber).toBe("+15551234567");
@@ -50,16 +50,16 @@ describe("twilio-config", () => {
     expect(config.wssBaseUrl).toBe("wss://test.example.com/twilio/relay");
   });
 
-  test("throws ConfigError when account SID is missing", () => {
+  test("throws ConfigError when account SID is missing", async () => {
     mockLoadConfigResult = {
       twilio: { accountSid: "", phoneNumber: "+15551234567" },
     };
-    expect(() => getTwilioConfig()).toThrow(
+    expect(getTwilioConfig()).rejects.toThrow(
       /Twilio credentials not configured/,
     );
   });
 
-  test("throws ConfigError when auth token is missing", () => {
+  test("throws ConfigError when auth token is missing", async () => {
     mockSecureKeys = {};
     mockLoadConfigResult = {
       twilio: {
@@ -67,26 +67,26 @@ describe("twilio-config", () => {
         phoneNumber: "+15551234567",
       },
     };
-    expect(() => getTwilioConfig()).toThrow(
+    expect(getTwilioConfig()).rejects.toThrow(
       /Twilio credentials not configured/,
     );
   });
 
-  test("throws ConfigError when phone number is missing", () => {
+  test("throws ConfigError when phone number is missing", async () => {
     mockLoadConfigResult = {
       twilio: {
         accountSid: "AC_test_sid",
         phoneNumber: "",
       },
     };
-    expect(() => getTwilioConfig()).toThrow(
+    expect(getTwilioConfig()).rejects.toThrow(
       /Twilio phone number not configured/,
     );
   });
 
-  test("throws ConfigError when twilio config section is absent", () => {
+  test("throws ConfigError when twilio config section is absent", async () => {
     mockLoadConfigResult = {};
-    expect(() => getTwilioConfig()).toThrow(
+    expect(getTwilioConfig()).rejects.toThrow(
       /Twilio credentials not configured/,
     );
   });

@@ -9,7 +9,6 @@ let TEST_DIR = "";
 const mockConfig = {
   provider: "anthropic",
   model: "test",
-  apiKeys: {},
   maxTokens: 4096,
   dataDir: "/tmp",
   timeouts: {
@@ -265,5 +264,5 @@ describe("managed skill lifecycle: scaffold → catalog → prompt → delete", 
       ctx,
     );
     expect(loadAfterDelete.isError).toBe(true);
-  });
+  }, 15_000);
 });

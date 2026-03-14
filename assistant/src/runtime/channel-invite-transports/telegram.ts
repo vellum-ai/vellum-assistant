@@ -17,8 +17,11 @@ import {
   setNestedValue,
 } from "../../config/loader.js";
 import { credentialKey } from "../../security/credential-key.js";
-import { getSecureKey } from "../../security/secure-keys.js";
-import { getTelegramBotUsername } from "../../telegram/bot-username.js";
+import { getSecureKeyAsync } from "../../security/secure-keys.js";
+import {
+  getTelegramBotId,
+  getTelegramBotUsername,
+} from "../../telegram/bot-username.js";
 import { getLogger } from "../../util/logger.js";
 import type {
   ChannelInviteAdapter,
@@ -37,11 +40,11 @@ import type {
  * gap so that invite share links can be generated.
  */
 export async function ensureTelegramBotUsernameResolved(): Promise<void> {
-  if (getTelegramBotUsername()) {
-    return; // Username already cached in config
+  if (getTelegramBotUsername() && getTelegramBotId()) {
+    return; // Username and bot ID already cached in config
   }
 
-  const token = getSecureKey(credentialKey("telegram", "bot_token"));
+  const token = await getSecureKeyAsync(credentialKey("telegram", "bot_token"));
   if (!token) return;
 
   try {
@@ -64,7 +67,7 @@ export async function ensureTelegramBotUsernameResolved(): Promise<void> {
     }
     const body = (await res.json()) as {
       ok: boolean;
-      result?: { username?: string };
+      result?: { id?: number; username?: string };
     };
     const username = body.result?.username;
     if (!username) {
@@ -75,6 +78,9 @@ export async function ensureTelegramBotUsernameResolved(): Promise<void> {
     }
     // Write to config
     const raw = loadRawConfig();
+    if (body.result?.id != null) {
+      setNestedValue(raw, "telegram.botId", String(body.result.id));
+    }
     setNestedValue(raw, "telegram.botUsername", username);
     saveRawConfig(raw);
     invalidateConfigCache();

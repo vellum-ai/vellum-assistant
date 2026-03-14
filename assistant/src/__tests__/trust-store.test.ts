@@ -57,7 +57,6 @@ import {
 } from "../permissions/trust-store.js";
 
 const trustPath = join(testDir, "protected", "trust.json");
-const legacyTrustPath = join(testDir, "trust.json");
 const DEFAULT_TEMPLATES = getDefaultRuleTemplates();
 const NUM_DEFAULTS = DEFAULT_TEMPLATES.length;
 const DEFAULT_PRIORITY_BY_ID = new Map(
@@ -70,11 +69,6 @@ describe("Trust Store", () => {
     clearCache();
     try {
       rmSync(trustPath);
-    } catch {
-      /* may not exist */
-    }
-    try {
-      rmSync(legacyTrustPath);
     } catch {
       /* may not exist */
     }
@@ -777,8 +771,8 @@ describe("Trust Store", () => {
         "computer_use_click",
         "computer_use_drag",
         "computer_use_key",
+        "computer_use_observe",
         "computer_use_open_app",
-        "computer_use_request_control",
         "computer_use_run_applescript",
         "computer_use_scroll",
         "computer_use_type_text",
@@ -901,19 +895,17 @@ describe("Trust Store", () => {
       );
     });
 
-    test("findHighestPriorityRule matches default ask for computer_use_request_control", () => {
+    test("findHighestPriorityRule matches default ask for computer_use_observe", () => {
       const match = findHighestPriorityRule(
-        "computer_use_request_control",
-        ["computer_use_request_control:"],
+        "computer_use_observe",
+        ["computer_use_observe:"],
         "/tmp",
       );
       expect(match).not.toBeNull();
-      expect(match!.id).toBe("default:ask-computer_use_request_control-global");
+      expect(match!.id).toBe("default:ask-computer_use_observe-global");
       expect(match!.decision).toBe("ask");
       expect(match!.priority).toBe(
-        DEFAULT_PRIORITY_BY_ID.get(
-          "default:ask-computer_use_request_control-global",
-        )!,
+        DEFAULT_PRIORITY_BY_ID.get("default:ask-computer_use_observe-global")!,
       );
     });
 
@@ -1101,7 +1093,7 @@ describe("Trust Store", () => {
 
     // ── default allow: browser tools ────────────────────────────
 
-    test("all 10 browser tools have default allow rules", () => {
+    test("all 14 browser tools have default allow rules", () => {
       const templates = getDefaultRuleTemplates();
       const browserTools = [
         "browser_navigate",
@@ -1111,8 +1103,12 @@ describe("Trust Store", () => {
         "browser_click",
         "browser_type",
         "browser_press_key",
+        "browser_scroll",
+        "browser_select_option",
+        "browser_hover",
         "browser_wait_for",
         "browser_extract",
+        "browser_wait_for_download",
         "browser_fill_credential",
       ];
 
@@ -1225,79 +1221,6 @@ describe("Trust Store", () => {
   // ── loadFromDisk resilience (misc) ──────────────────────────────
 
   describe("loadFromDisk resilience (misc)", () => {
-    test("migrates legacy root trust file to protected path", () => {
-      mkdirSync(dirname(legacyTrustPath), { recursive: true });
-      writeFileSync(
-        legacyTrustPath,
-        JSON.stringify({
-          version: 3,
-          rules: [
-            {
-              id: "legacy-deny",
-              tool: "host_bash",
-              pattern: "rm -rf *",
-              scope: "everywhere",
-              decision: "deny",
-              priority: 200,
-              createdAt: 123,
-            },
-          ],
-        }),
-      );
-
-      clearCache();
-      const rules = getAllRules();
-
-      expect(rules.find((r) => r.id === "legacy-deny")).toBeDefined();
-      expect(readFileSync(trustPath, "utf-8")).toContain("legacy-deny");
-      expect(() => readFileSync(legacyTrustPath, "utf-8")).toThrow();
-    });
-
-    test("prefers protected trust file when both protected and legacy files exist", () => {
-      mkdirSync(dirname(trustPath), { recursive: true });
-      writeFileSync(
-        trustPath,
-        JSON.stringify({
-          version: 3,
-          rules: [
-            {
-              id: "protected-rule",
-              tool: "bash",
-              pattern: "protected *",
-              scope: "/tmp",
-              decision: "allow",
-              priority: 100,
-              createdAt: 1,
-            },
-          ],
-        }),
-      );
-      writeFileSync(
-        legacyTrustPath,
-        JSON.stringify({
-          version: 3,
-          rules: [
-            {
-              id: "legacy-rule",
-              tool: "bash",
-              pattern: "legacy *",
-              scope: "/tmp",
-              decision: "deny",
-              priority: 200,
-              createdAt: 2,
-            },
-          ],
-        }),
-      );
-
-      clearCache();
-      const rules = getAllRules();
-
-      expect(rules.find((r) => r.id === "protected-rule")).toBeDefined();
-      expect(rules.find((r) => r.id === "legacy-rule")).toBeUndefined();
-      expect(readFileSync(legacyTrustPath, "utf-8")).toContain("legacy-rule");
-    });
-
     test("malformed file (valid JSON but null) is handled gracefully", () => {
       mkdirSync(dirname(trustPath), { recursive: true });
       writeFileSync(trustPath, "null");
@@ -1538,10 +1461,10 @@ describe("Trust Store", () => {
       });
     });
 
-    // ── backward compatibility ────────────────────────────────────
+    // ── optional ctx parameter ────────────────────────────────────
 
-    describe("backward compatibility", () => {
-      test("existing callers without ctx parameter still work", () => {
+    describe("optional ctx parameter", () => {
+      test("callers without ctx parameter still work", () => {
         addRule("bash", "git *", "/tmp", "allow", 200);
         // Calling without the 4th argument — must still match
         const match = findHighestPriorityRule("bash", ["git status"], "/tmp");
@@ -1755,11 +1678,7 @@ describe("computer-use tool trust rule matching", () => {
   test("actionable CU tools have default ask trust rules", () => {
     // Actionable CU tools (those that perform screen interactions) should
     // have default "ask" rules so strict mode prompts before use.
-    const actionableCuTools = [
-      "computer_use_click",
-      "computer_use_type_text",
-      "computer_use_request_control",
-    ];
+    const actionableCuTools = ["computer_use_click", "computer_use_type_text"];
 
     for (const name of actionableCuTools) {
       const rule = findHighestPriorityRule(name, [name], "/tmp/test");

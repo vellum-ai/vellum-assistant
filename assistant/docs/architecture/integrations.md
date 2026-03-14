@@ -28,7 +28,7 @@ graph TB
         DRAFT["messaging_draft"]
         SENDER_DIGEST["messaging_sender_digest"]
         ARCHIVE_BY_SENDER["messaging_archive_by_sender"]
-        SHARED["shared.ts<br/>resolveProvider + withProviderToken"]
+        SHARED["shared.ts<br/>resolveProvider + getProviderConnection"]
     end
 
     subgraph "Gmail Skill (bundled-skills/gmail/)"
@@ -151,8 +151,8 @@ sequenceDiagram
 
     Note over UI,API: Tool Execution Flow
     Tool->>TokenMgr: withValidToken("gmail", callback)
-    TokenMgr->>Store: getConnectionByProvider("integration:gmail")
-    TokenMgr->>Vault: getSecureKey("oauth_connection/{conn.id}/access_token")
+    TokenMgr->>Store: getConnectionByProvider("integration:google")
+    TokenMgr->>Vault: getSecureKeyAsync("oauth_connection/{conn.id}/access_token")
     TokenMgr->>Store: check oauth_connections.expires_at
     alt Token expired
         TokenMgr->>Store: resolveRefreshConfig() → tokenUrl, clientId from provider/app rows
@@ -228,7 +228,7 @@ The OAuth extensibility layer makes adding a new OAuth provider a declarative op
 
 Protocol fields (`authUrl`, `tokenUrl`, `defaultScopes`, `scopePolicy`, `callbackTransport`) are stored in the `oauth_providers` database table rather than in code.
 
-Registered providers: `integration:gmail`, `integration:slack`, `integration:notion`. Short aliases (e.g. `gmail`, `slack`) are resolved via `resolveService()`.
+Registered providers: `integration:google`, `integration:slack`, `integration:notion`. Short aliases (e.g. `gmail`, `slack`) are resolved via `resolveService()`.
 
 ### Scope Policy Engine
 
@@ -250,7 +250,7 @@ Returns `{ ok: true, scopes }` or `{ ok: false, error, allowedScopes }`.
 1. **Resolve service** — alias expansion via `resolveService()`.
 2. **Load behavior** — `getProviderBehavior()` from the registry; load protocol fields from the `oauth_providers` DB table.
 3. **Compute scopes** — `resolveScopes()` with scope policy enforcement.
-4. **Build OAuth config** — merge profile defaults with caller overrides.
+4. **Build OAuth config** — assemble protocol-level config from the DB provider row.
 5. **Run flow** — interactive (opens browser, blocks until completion) or deferred (returns auth URL for the caller to deliver).
 6. **Verify identity** — runs the profile's `identityVerifier` if defined.
 7. **Store tokens** — `storeOAuth2Tokens()` persists access/refresh tokens, client credentials, and metadata.

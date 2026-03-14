@@ -16,5 +16,9 @@ enum UserDefaultsKeys {
     // Media embed settings
     static let mediaEmbedsEnabled = "media_embeds_enabled"
     static let mediaEmbedVideoAllowlistDomains = "media_embed_video_allowlist_domains"
+
+    // Managed assistant settings (cloud-hosted via Vellum platform)
+    static let managedAssistantId = "managed_assistant_id"
+    static let managedPlatformBaseURL = "managed_platform_base_url"
 }
 #endif

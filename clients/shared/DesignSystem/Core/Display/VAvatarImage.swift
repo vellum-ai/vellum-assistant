@@ -8,8 +8,8 @@ public struct VAvatarImage: View {
     public let image: NSImage
     public let size: CGFloat
 
-    /// Optional border color. Defaults to `VColor.surfaceBorder`.
-    public var borderColor: Color = VColor.surfaceBorder
+    /// Optional border color. Defaults to `VColor.borderBase`.
+    public var borderColor: Color = VColor.borderBase
 
     /// Whether to show a subtle border around the avatar.
     public var showBorder: Bool = true
@@ -17,12 +17,24 @@ public struct VAvatarImage: View {
     /// Cached transparency result to avoid expensive bitmap analysis on every render.
     private let isTransparent: Bool
 
-    public init(image: NSImage, size: CGFloat, borderColor: Color = VColor.surfaceBorder, showBorder: Bool = true) {
+    public init(image: NSImage, size: CGFloat, borderColor: Color = VColor.borderBase, showBorder: Bool = true) {
         self.image = image
         self.size = size
         self.borderColor = borderColor
         self.showBorder = showBorder
         self.isTransparent = Self.imageHasTransparency(image)
+    }
+
+    /// Initializer that accepts a precomputed transparency flag, avoiding the expensive
+    /// bitmap analysis in `imageHasTransparency`. Use this in animated render paths
+    /// where the view is rebuilt frequently (e.g. scale/opacity animations) and the
+    /// underlying image doesn't change between frames.
+    public init(image: NSImage, size: CGFloat, isTransparent: Bool, borderColor: Color = VColor.borderBase, showBorder: Bool = true) {
+        self.image = image
+        self.size = size
+        self.borderColor = borderColor
+        self.showBorder = showBorder
+        self.isTransparent = isTransparent
     }
 
     public var body: some View {
@@ -42,7 +54,9 @@ public struct VAvatarImage: View {
     }
 
     /// Detect whether an NSImage contains transparent pixels by sampling its bitmap.
-    private static func imageHasTransparency(_ nsImage: NSImage) -> Bool {
+    /// Public so callers in animated render paths can precompute the result once
+    /// (e.g. in `@State` + `.task {}`) and pass it to the `isTransparent:` initializer.
+    public static func imageHasTransparency(_ nsImage: NSImage) -> Bool {
         guard let tiffData = nsImage.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffData) else {
             return false
@@ -76,25 +90,5 @@ public struct VAvatarImage: View {
 }
 
 #if DEBUG
-#Preview("VAvatarImage") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        HStack(spacing: VSpacing.lg) {
-            VAvatarImage(
-                image: NSImage(systemSymbolName: "person.circle.fill", accessibilityDescription: nil)!,
-                size: 28
-            )
-            VAvatarImage(
-                image: NSImage(systemSymbolName: "person.circle.fill", accessibilityDescription: nil)!,
-                size: 40
-            )
-            VAvatarImage(
-                image: NSImage(systemSymbolName: "person.circle.fill", accessibilityDescription: nil)!,
-                size: 52
-            )
-        }
-    }
-    .frame(width: 300, height: 100)
-}
 #endif
 #endif

@@ -397,7 +397,7 @@ public final class MainWindow {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = false
-        window.backgroundColor = NSColor(VColor.backgroundSubtle)
+        window.backgroundColor = NSColor(VColor.surfaceBase)
         window.isReleasedWhenClosed = false
         window.contentMinSize = NSSize(width: 800, height: 600)
         window.setFrame(windowRect, display: false)
@@ -436,7 +436,7 @@ public final class MainWindow {
         guard let origin = defaultTrafficLightOrigin else { return }
         containerView.setFrameOrigin(NSPoint(
             x: origin.x + 2,
-            y: origin.y - 2.5
+            y: origin.y - 8
         ))
     }
 
@@ -453,5 +453,22 @@ public final class MainWindow {
         defaultTrafficLightOrigin = nil
         window?.close()
         window = nil
+    }
+
+    /// Tears down internal observers and detaches the underlying NSWindow
+    /// without closing it. The caller takes ownership of the returned window.
+    func detachWindow() -> NSWindow? {
+        if let observer = layoutObserver {
+            NotificationCenter.default.removeObserver(observer)
+            layoutObserver = nil
+        }
+        defaultTrafficLightOrigin = nil
+        if let zoomable = window as? TitleBarZoomableWindow {
+            zoomable.composerRedirectHandler = nil
+            zoomable.composerContainerView = nil
+        }
+        let detached = window
+        window = nil
+        return detached
     }
 }

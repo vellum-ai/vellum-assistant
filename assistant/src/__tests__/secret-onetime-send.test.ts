@@ -42,15 +42,11 @@ mock.module("../security/secure-keys.js", () => {
     return "not-found" as const;
   };
   return {
-    getSecureKey: (key: string) => storedKeys.get(key) ?? null,
-    setSecureKey: syncSet,
+    getSecureKeyAsync: async (key: string) => storedKeys.get(key) ?? undefined,
     setSecureKeyAsync: async (key: string, value: string) =>
       syncSet(key, value),
-    deleteSecureKey: syncDelete,
     deleteSecureKeyAsync: async (key: string) => syncDelete(key),
-    listSecureKeys: () => [],
-    getBackendType: () => "encrypted",
-    isDowngradedFromKeychain: () => false,
+    listSecureKeysAsync: async () => [],
   };
 });
 

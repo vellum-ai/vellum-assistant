@@ -9,7 +9,7 @@ const callTelegramApiMock = mock(
   (_method: string, _body: Record<string, unknown>, _opts?: unknown) =>
     Promise.resolve({}),
 );
-const sendTelegramReplyMock = mock(() => Promise.resolve({ messageId: 0 }));
+const sendTelegramReplyMock = mock(() => Promise.resolve());
 const handleInboundMock = mock(
   (_config: GatewayConfig, _normalized: unknown, _options?: unknown) =>
     Promise.resolve({ forwarded: true, rejected: false }),
@@ -239,7 +239,7 @@ describe("telegram-webhook callback query acknowledgment", () => {
     expect(sendTelegramReplyMock).not.toHaveBeenCalled();
   });
 
-  it("forwards /start as channel command-intent metadata and sends start acknowledgement", async () => {
+  it("forwards /start with payload as channel command-intent metadata without sending ACK", async () => {
     const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = JSON.stringify({
       update_id: 314,
@@ -263,14 +263,8 @@ describe("telegram-webhook callback query acknowledgment", () => {
       type: "start",
       payload: "ref-123",
     });
-    expect(sendTelegramReplyMock).toHaveBeenCalledTimes(1);
-    const sendArgs = sendTelegramReplyMock.mock.calls[0] as unknown as [
-      GatewayConfig,
-      string,
-      string,
-    ];
-    expect(sendArgs[1]).toBe("42");
-    expect(sendArgs[2]).toContain("Starting up");
+    // ACK is suppressed when /start has a payload
+    expect(sendTelegramReplyMock).not.toHaveBeenCalled();
   });
 
   it("does not call answerCallbackQuery for regular text messages", async () => {

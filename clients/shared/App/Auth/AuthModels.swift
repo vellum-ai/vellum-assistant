@@ -151,10 +151,11 @@ public struct HatchAssistantRequest: Codable, Sendable {
     }
 }
 
-/// Result type for platform assistant lookups where 404 is a normal outcome.
+/// Result type for platform assistant lookups where 404/403 are normal outcomes.
 public enum PlatformAssistantResult: Sendable {
     case found(PlatformAssistant)
     case notFound
+    case accessDenied
 }
 
 /// Errors specific to platform API calls (non-allauth endpoints).

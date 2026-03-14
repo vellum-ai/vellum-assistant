@@ -20,6 +20,7 @@ const HOST_FILE_TOOLS = [
   "host_file_edit",
 ] as const;
 const COMPUTER_USE_TOOLS = [
+  "computer_use_observe",
   "computer_use_click",
   "computer_use_type_text",
   "computer_use_key",
@@ -28,7 +29,6 @@ const COMPUTER_USE_TOOLS = [
   "computer_use_wait",
   "computer_use_open_app",
   "computer_use_run_applescript",
-  "computer_use_request_control",
   // computer_use_done and computer_use_respond are terminal signal tools
   // (RiskLevel.Low) — they don't perform any computer action, so they
   // should NOT get an 'ask' rule.

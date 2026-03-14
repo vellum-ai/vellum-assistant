@@ -4,7 +4,7 @@ import {
   getTwilioRelayUrl,
 } from "../inbound/public-ingress-urls.js";
 import { credentialKey } from "../security/credential-key.js";
-import { getSecureKey } from "../security/secure-keys.js";
+import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { ConfigError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 
@@ -20,7 +20,7 @@ export interface TwilioConfig {
 
 /**
  * Resolve the Twilio phone number using a unified fallback chain so that
- * all callers (calls, SMS adapter, readiness checks, invite transports)
+ * all callers (calls, readiness checks, invite transports)
  * agree on the same number.
  *
  * Resolution order:
@@ -38,10 +38,11 @@ export function resolveTwilioPhoneNumber(): string {
   return "";
 }
 
-export function getTwilioConfig(): TwilioConfig {
+export async function getTwilioConfig(): Promise<TwilioConfig> {
   const config = loadConfig();
   const accountSid = config.twilio?.accountSid || "";
-  const authToken = getSecureKey(credentialKey("twilio", "auth_token")) || "";
+  const authToken =
+    (await getSecureKeyAsync(credentialKey("twilio", "auth_token"))) || "";
   const phoneNumber = resolveTwilioPhoneNumber();
   const webhookBaseUrl = getPublicBaseUrl(config);
 

@@ -1,11 +1,10 @@
 /**
  * Atomicity tests for memory UPSERT paths.
  *
- * SQLite is single-writer, and indexMessageNow / createOrUpdatePendingConflict
- * are synchronous functions.  Because every call runs to completion before the
- * next microtask starts, the Promise.all / Promise.resolve().then() pattern
- * used here does NOT create true concurrent execution — calls still run
- * sequentially.
+ * SQLite is single-writer, and indexMessageNow is a synchronous function.
+ * Because every call runs to completion before the next microtask starts, the
+ * Promise.all / Promise.resolve().then() pattern used here does NOT create
+ * true concurrent execution — calls still run sequentially.
  *
  * What these tests DO verify is the correctness of the ON CONFLICT /
  * IMMEDIATE-transaction logic when the same logical operation is repeated many
@@ -47,6 +46,7 @@ mock.module("../util/logger.js", () => ({
 mock.module("../memory/qdrant-client.js", () => ({
   getQdrantClient: () => ({
     searchWithFilter: async () => [],
+    hybridSearch: async () => [],
     upsertPoints: async () => {},
     deletePoints: async () => {},
   }),
@@ -75,10 +75,6 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-import {
-  createOrUpdatePendingConflict,
-  listPendingConflicts,
-} from "../memory/conflict-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { indexMessageNow } from "../memory/indexer.js";
 import {
@@ -102,15 +98,9 @@ afterAll(() => {
 
 function resetTables() {
   const db = getDb();
-  db.run("DELETE FROM memory_item_conflicts");
-  db.run("DELETE FROM memory_item_entities");
-  db.run("DELETE FROM memory_entity_relations");
-  db.run("DELETE FROM memory_entities");
   db.run("DELETE FROM memory_item_sources");
   db.run("DELETE FROM memory_embeddings");
-  db.run("DELETE FROM memory_summaries");
   db.run("DELETE FROM memory_items");
-  db.run("DELETE FROM memory_segment_fts");
   db.run("DELETE FROM memory_segments");
   db.run("DELETE FROM memory_jobs");
   db.run("DELETE FROM messages");
@@ -149,50 +139,6 @@ function seedConversationAndMessage(
       createdAt: now,
     })
     .run();
-}
-
-/** Insert a pair of memory items that can serve as conflict participants. */
-function seedItemPair(
-  suffix: string,
-  scopeId = "default",
-): { existingItemId: string; candidateItemId: string } {
-  const db = getDb();
-  const now = Date.now();
-  const existingItemId = `existing-${suffix}`;
-  const candidateItemId = `candidate-${suffix}`;
-  db.insert(memoryItems)
-    .values([
-      {
-        id: existingItemId,
-        kind: "preference",
-        subject: "framework preference",
-        statement: `Existing statement ${suffix}`,
-        status: "active",
-        confidence: 0.8,
-        importance: 0.7,
-        fingerprint: `fp-existing-${suffix}`,
-        verificationState: "assistant_inferred",
-        scopeId,
-        firstSeenAt: now,
-        lastSeenAt: now,
-      },
-      {
-        id: candidateItemId,
-        kind: "preference",
-        subject: "framework preference",
-        statement: `Candidate statement ${suffix}`,
-        status: "pending_clarification",
-        confidence: 0.8,
-        importance: 0.7,
-        fingerprint: `fp-candidate-${suffix}`,
-        verificationState: "assistant_inferred",
-        scopeId,
-        firstSeenAt: now,
-        lastSeenAt: now,
-      },
-    ])
-    .run();
-  return { existingItemId, candidateItemId };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -349,7 +295,7 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
     }
   });
 
-  test("re-indexing with identical content does not change the stored segment", () => {
+  test("re-indexing with identical content does not change the stored segment", async () => {
     // When an indexer re-processes an already-indexed segment (same id + same
     // content hash), the ON CONFLICT DO UPDATE path must run but the row must
     // remain semantically equivalent to the original.
@@ -362,7 +308,7 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
 
     const config = TEST_CONFIG.memory;
 
-    const firstResult = indexMessageNow(
+    const firstResult = await indexMessageNow(
       {
         messageId,
         conversationId,
@@ -381,7 +327,7 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
       .all();
 
     // Re-index twice more with the same payload.
-    indexMessageNow(
+    await indexMessageNow(
       {
         messageId,
         conversationId,
@@ -391,7 +337,7 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
       },
       config,
     );
-    indexMessageNow(
+    await indexMessageNow(
       {
         messageId,
         conversationId,
@@ -481,191 +427,6 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
     const ids = segments.map((s) => s.id);
     const uniqueIds = new Set(ids);
     expect(uniqueIds.size).toBe(ids.length);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test suite: conflict creation UPSERT atomicity
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe("conflict creation UPSERT atomicity", () => {
-  beforeEach(() => {
-    resetTables();
-  });
-
-  test("repeated createOrUpdatePendingConflict calls for the same pair produce exactly one conflict row", async () => {
-    // Critical UPSERT path: the same conflict pair inserted multiple times
-    // (e.g. duplicate worker dispatches, retries).  The IMMEDIATE transaction
-    // guard in createOrUpdatePendingConflict must ensure only one row exists.
-    const pair = seedItemPair("parallel-create");
-
-    // Call createOrUpdatePendingConflict N times for the same pair.  Calls run
-    // sequentially (synchronous); the test verifies that repeated calls produce
-    // exactly one conflict row — the IMMEDIATE transaction deduplication path.
-    const WORKERS = 10;
-    const results = await Promise.all(
-      Array.from({ length: WORKERS }, (_, i) =>
-        Promise.resolve().then(() =>
-          createOrUpdatePendingConflict({
-            scopeId: "default",
-            existingItemId: pair.existingItemId,
-            candidateItemId: pair.candidateItemId,
-            relationship: "ambiguous_contradiction",
-            clarificationQuestion: `Worker ${i} discovered a contradiction`,
-          }),
-        ),
-      ),
-    );
-
-    // All callers must receive the same conflict ID — the deduplication path
-    // returns the existing row on the second and subsequent calls.
-    const firstId = results[0].id;
-    for (const result of results) {
-      expect(result.id).toBe(firstId);
-    }
-
-    // Exactly one pending conflict row in the DB.
-    const pending = listPendingConflicts("default");
-    expect(pending).toHaveLength(1);
-    expect(pending[0].id).toBe(firstId);
-  });
-
-  test("conflict creation for different pairs produces distinct rows without cross-contamination", async () => {
-    // Each unique item pair must get its own conflict row — deduplication must
-    // be scoped to the pair, not global.  Also exercises the idempotent
-    // insert-then-update path within each pair.
-    const PAIR_COUNT = 6;
-    const pairs = Array.from({ length: PAIR_COUNT }, (_, i) =>
-      seedItemPair(`multi-pair-${i}`),
-    );
-
-    // For each pair, make two calls: one insert and one update.  All calls run
-    // sequentially.  The test verifies that each pair ends up with exactly one
-    // conflict row (no cross-pair contamination, idempotent update path works).
-    await Promise.all(
-      pairs.flatMap((pair) => [
-        // First call: insert with 'contradiction'.
-        Promise.resolve().then(() =>
-          createOrUpdatePendingConflict({
-            scopeId: "default",
-            existingItemId: pair.existingItemId,
-            candidateItemId: pair.candidateItemId,
-            relationship: "contradiction",
-          }),
-        ),
-        // Second call: update to 'ambiguous_contradiction' — tests the idempotent update path.
-        Promise.resolve().then(() =>
-          createOrUpdatePendingConflict({
-            scopeId: "default",
-            existingItemId: pair.existingItemId,
-            candidateItemId: pair.candidateItemId,
-            relationship: "ambiguous_contradiction",
-          }),
-        ),
-      ]),
-    );
-
-    // Each pair must have produced exactly one pending conflict.
-    const pending = listPendingConflicts("default");
-    expect(pending).toHaveLength(PAIR_COUNT);
-
-    // All conflict IDs must be unique.
-    const ids = pending.map((c) => c.id);
-    expect(new Set(ids).size).toBe(PAIR_COUNT);
-
-    // Each returned conflict must reference the correct item pair.
-    for (let i = 0; i < PAIR_COUNT; i++) {
-      const pair = pairs[i];
-      const found = pending.find(
-        (c) =>
-          c.existingItemId === pair.existingItemId &&
-          c.candidateItemId === pair.candidateItemId,
-      );
-      expect(found).toBeDefined();
-      // The update call ran after the insert, so relationship is ambiguous_contradiction.
-      expect(found!.relationship).toBe("ambiguous_contradiction");
-    }
-  });
-
-  test("repeated updates to the same conflict row converge to a consistent state", async () => {
-    // Multiple update calls for the same conflict (e.g. repeated worker runs).
-    // All updates must succeed (last writer wins is acceptable) and the row
-    // must remain internally consistent.
-    const pair = seedItemPair("concurrent-update");
-    const first = createOrUpdatePendingConflict({
-      scopeId: "default",
-      existingItemId: pair.existingItemId,
-      candidateItemId: pair.candidateItemId,
-      relationship: "contradiction",
-      clarificationQuestion: "Initial question",
-    });
-
-    // Call createOrUpdatePendingConflict N times against the same existing row.
-    // Calls are sequential; the test verifies the row stays consistent (one row,
-    // valid status/relationship) after repeated updates — last writer wins.
-    const UPDATES = 8;
-    const results = await Promise.all(
-      Array.from({ length: UPDATES }, (_, i) =>
-        Promise.resolve().then(() =>
-          createOrUpdatePendingConflict({
-            scopeId: "default",
-            existingItemId: pair.existingItemId,
-            candidateItemId: pair.candidateItemId,
-            relationship: "ambiguous_contradiction",
-            clarificationQuestion: `Updated question from worker ${i}`,
-          }),
-        ),
-      ),
-    );
-
-    // All calls must return the same conflict ID.
-    for (const result of results) {
-      expect(result.id).toBe(first.id);
-    }
-
-    // Still exactly one row in the DB.
-    const pending = listPendingConflicts("default");
-    expect(pending).toHaveLength(1);
-
-    // The row must be consistent: valid status, valid relationship.
-    const conflict = pending[0];
-    expect(conflict.status).toBe("pending_clarification");
-    expect(conflict.relationship).toBe("ambiguous_contradiction");
-  });
-
-  test("scope isolation ensures conflicts in different scopes do not interfere", async () => {
-    // Conflicts created in different scopes must not cross-contaminate each
-    // other's conflict sets — scopeId must be part of the deduplication key.
-    const SCOPES = ["scope-alpha", "scope-beta", "scope-gamma"];
-    const scopePairs = SCOPES.map((scope) => ({
-      scope,
-      pair: seedItemPair(`scope-${scope}`, scope),
-    }));
-
-    // Make 3 calls per scope for all scopes.  Calls run sequentially; the test
-    // verifies that each scope produces exactly one conflict row and that there
-    // is no cross-scope contamination from repeated same-scope calls.
-    await Promise.all(
-      scopePairs.flatMap(({ scope, pair }) =>
-        Array.from({ length: 3 }, () =>
-          Promise.resolve().then(() =>
-            createOrUpdatePendingConflict({
-              scopeId: scope,
-              existingItemId: pair.existingItemId,
-              candidateItemId: pair.candidateItemId,
-              relationship: "contradiction",
-            }),
-          ),
-        ),
-      ),
-    );
-
-    for (const scope of SCOPES) {
-      const pending = listPendingConflicts(scope);
-      // Exactly one conflict per scope, no cross-scope leakage.
-      expect(pending).toHaveLength(1);
-      expect(pending[0].scopeId).toBe(scope);
-    }
   });
 });
 

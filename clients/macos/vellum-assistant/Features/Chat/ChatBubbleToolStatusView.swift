@@ -44,7 +44,12 @@ extension ChatBubble {
                 streamingCodePreview: message.streamingCodePreview,
                 streamingCodeToolName: message.streamingCodeToolName,
                 decidedConfirmations: effectiveConfirmations,
-                onRehydrate: onRehydrate
+                onRehydrate: onRehydrate,
+                onConfirmationAllow: onConfirmationAllow,
+                onConfirmationDeny: onConfirmationDeny,
+                onAlwaysAllow: onAlwaysAllow,
+                onTemporaryAllow: onTemporaryAllow,
+                activeConfirmationRequestId: activeConfirmationRequestId
             )
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
 
@@ -76,7 +81,7 @@ extension ChatBubble {
     func compactPermissionChip(_ confirmation: ToolConfirmationData) -> some View {
         let isApproved = confirmation.state == .approved
         let isDenied = confirmation.state == .denied
-        let chipColor: Color = isApproved ? VColor.iconAccent : isDenied ? VColor.error : VColor.textMuted
+        let chipColor: Color = isApproved ? VColor.primaryBase : isDenied ? VColor.systemNegativeStrong : VColor.contentTertiary
 
         return HStack(spacing: VSpacing.xs) {
             Group {

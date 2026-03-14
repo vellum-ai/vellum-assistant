@@ -34,6 +34,7 @@ export const WhatsAppConfigSchema = z.object({
 });
 
 export const TelegramConfigSchema = z.object({
+  botId: z.string({ error: "telegram.botId must be a string" }).default(""),
   botUsername: z
     .string({ error: "telegram.botUsername must be a string" })
     .default(""),

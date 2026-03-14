@@ -11,7 +11,7 @@ public struct TypingIndicatorView: View {
         HStack(spacing: 5) {
             ForEach(0..<3, id: \.self) { index in
                 Circle()
-                    .fill(VColor.textMuted)
+                    .fill(VColor.contentTertiary)
                     .frame(width: 8, height: 8)
                     .scaleEffect(animate ? 1.0 : 0.5)
                     .animation(
@@ -26,7 +26,7 @@ public struct TypingIndicatorView: View {
         .padding(.vertical, VSpacing.sm)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surface)
+                .fill(VColor.surfaceBase)
         )
         .onAppear {
             animate = true
@@ -40,14 +40,4 @@ public struct TypingIndicatorView: View {
 // MARK: - Preview
 
 #if DEBUG
-#Preview("TypingIndicatorView") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        HStack {
-            TypingIndicatorView()
-            Spacer()
-        }
-        .padding(VSpacing.xl)
-    }
-}
 #endif

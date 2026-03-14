@@ -18,7 +18,7 @@ final class ScreenSelectionView: NSView {
         super.draw(dirtyRect)
 
         // Semi-transparent dark overlay covering the entire screen
-        NSColor.black.withAlphaComponent(0.3).setFill()
+        NSColor.black.withAlphaComponent(0.3).setFill() // color-literal-ok: AppKit drawing context
         bounds.fill()
 
         guard let rect = selectionRect, rect.width > 1, rect.height > 1 else { return }
@@ -30,7 +30,7 @@ final class ScreenSelectionView: NSView {
         // White dashed border around the selection
         let border = NSBezierPath(rect: rect)
         border.lineWidth = 2
-        NSColor.white.setStroke()
+        NSColor.white.setStroke() // color-literal-ok: AppKit drawing context
         border.setLineDash([6, 4], count: 2, phase: 0)
         border.stroke()
     }

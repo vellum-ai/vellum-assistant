@@ -111,6 +111,7 @@ export function isOnboardingComplete(): boolean {
  */
 export interface BuildSystemPromptOptions {
   hasNoClient?: boolean;
+  excludeBootstrap?: boolean;
 }
 
 export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
@@ -135,7 +136,7 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   if (identity) parts.push(identity);
   if (soul) parts.push(soul);
   if (user) parts.push(user);
-  if (bootstrap) {
+  if (bootstrap && !options?.excludeBootstrap) {
     parts.push(
       "# First-Run Ritual\n\n" +
         "BOOTSTRAP.md is present — this is your first conversation. Follow its instructions.\n\n" +
@@ -283,7 +284,7 @@ function buildAttachmentSection(): string {
     "",
     'Example: `<vellum-attachment source="sandbox" path="scratch/chart.png" />`',
     "",
-    "Limits: up to 5 attachments per turn, 20 MB each. Tool outputs that produce image or file content blocks are also automatically converted into attachments.",
+    "Limits: 20 MB per attachment. Tool outputs that produce image or file content blocks are also automatically converted into attachments.",
     "",
     "### Inline Images and GIFs",
     "Embed images/GIFs inline using markdown: `![description](URL)`. Do NOT wrap in code fences.",
@@ -309,7 +310,7 @@ export function buildStarterTaskPlaybookSection(): string {
     '3. Let the user pick one. Accept color names, hex values, or descriptions (e.g. "something warm").',
     '4. Confirm the selection: "I\'ll set your accent color to **{label}** ({hex}). Sound good?"',
     "5. On confirmation:",
-    '   - Use `app_file_edit` to update the `## Dashboard Color Preference` section in USER.md with `label`, `hex`, `source: "user_selected"`, and `applied: true`.',
+    '   - Use `app_file_edit` to update the `## Color Preference` section in USER.md with `label`, `hex`, and `source: "user_selected"`.',
     "   - Use `app_file_edit` to update the `## Onboarding Tasks` section: set `make_it_yours` to `done`.",
     "6. If the user declines or wants to skip, set `make_it_yours` to `skipped` in USER.md and move on.",
     "",
@@ -466,7 +467,7 @@ function buildToolPermissionSection(): string {
     "",
     "### Always-Available Tools (No Approval Required)",
     "",
-    "- **file_read** on your workspace directory — You can freely read any file under your `.vellum` workspace at any time. Use this proactively to check files, load context, and inform your responses without asking. **Always use `file_read` for workspace files (IDENTITY.md, USER.md, SOUL.md, etc.), never `host_file_read`.**",
+    "- **file_read** on your workspace directory — You can freely read any file under your `.vellum` workspace at any time. Use this proactively to check files, load context, and inform your responses without asking. **Always use `file_read` for workspace files, never `host_file_read`.** Note: your core prompt files (IDENTITY.md, SOUL.md, USER.md) are already loaded into your system prompt — no need to re-read them at the start of a conversation.",
     "- **web_search** — You can search the web at any time without approval. Use this to look up documentation, current information, or anything you need.",
   ].join("\n");
 }
@@ -511,17 +512,8 @@ export function buildChannelAwarenessSection(): string {
     "- When the user asks about voice input or push-to-talk settings, use the tool to apply changes directly rather than directing them to settings.",
     "- When `microphone_permission_granted` is `false`, guide the user to grant microphone access in System Settings before using voice features.",
     "",
-    "### Group chat etiquette",
-    "- In group chats, you are a **participant**, not the user's proxy. Think before you speak.",
-    "- **Respond when:** directly mentioned, you can add genuine value, something witty fits naturally, or correcting important misinformation.",
-    '- **Stay silent when:** it\'s casual banter between humans, someone already answered, your response would just be "yeah" or "nice", or the conversation flows fine without you.',
-    "- **The human rule:** humans don't respond to every message in a group chat. Neither should you. Quality over quantity.",
-    "- On platforms with reactions (Discord, Slack), use emoji reactions naturally to acknowledge without cluttering.",
-    "",
     "### Platform formatting",
-    "- **Discord/WhatsApp:** Do not use markdown tables — use bullet lists instead.",
-    "- **Discord links:** Wrap multiple links in `<>` to suppress embeds.",
-    "- **WhatsApp:** No markdown headers — use **bold** or CAPS for emphasis.",
+    "- **WhatsApp:** Do not use markdown tables — use bullet lists instead. No markdown headers — use **bold** or CAPS for emphasis.",
   ].join("\n");
 }
 
@@ -627,16 +619,16 @@ function buildAccessPreferenceSection(hasNoClient: boolean): string {
           "",
           "### Foreground Computer Use — Last Resort",
           "",
-          "Foreground computer use (`computer_use_request_control`) takes over the user's cursor and",
-          "keyboard. It is disruptive and should be your LAST resort. Prefer this hierarchy:",
+          "Computer use tools (clicking, typing, scrolling) take over the user's cursor and keyboard.",
+          "They are disruptive and should be your LAST resort. Prefer this hierarchy:",
           "",
           "1. **CLI tools / osascript** — Use `host_bash` with shell commands or `osascript` with",
           "   AppleScript to accomplish tasks in the background without interrupting the user.",
           "2. **Background computer use** — If you must interact with a GUI app, prefer AppleScript",
           '   automation (e.g. `tell application "Safari" to set URL of current tab to ...`).',
-          "3. **Foreground computer use** — Only escalate via `computer_use_request_control` when",
-          "   the task genuinely cannot be done any other way (e.g. complex multi-step GUI interactions",
-          "   with no scripting support) or the user explicitly asks you to take control.",
+          "3. **Foreground computer use** — Only use computer use tools when the task genuinely",
+          "   cannot be done any other way (e.g. complex multi-step GUI interactions with no scripting",
+          "   support) or the user explicitly asks you to take control.",
         ]
       : []),
   ].join("\n");
@@ -690,7 +682,7 @@ function buildMemoryRecallSection(): string {
     "- The auto-injected memory context doesn't contain what you need",
     "- The user references something from a previous session",
     "",
-    "The tool searches across semantic, lexical, entity graph, and recency sources. Be specific in your query for best results.",
+    "The tool uses hybrid search (dense and sparse vectors) supplemented by recency. Be specific in your query for best results.",
   ].join("\n");
 }
 
@@ -715,7 +707,7 @@ function buildLearningMemorySection(): string {
     "",
     "When you make a mistake, hit a dead end, or discover something non-obvious, save it to memory so you don't repeat it.",
     "",
-    'Use `memory_manage` with `op: "save", kind: "learning"` for:',
+    'Use `memory_manage` with `op: "save", kind: "constraint"` for:',
     "- **Mistakes and corrections** — wrong assumptions, failed approaches, gotchas you ran into",
     "- **Discoveries** — undocumented behaviors, surprising API quirks, things that weren't obvious",
     "- **Working solutions** — the approach that actually worked after trial and error",
@@ -724,8 +716,8 @@ function buildLearningMemorySection(): string {
     "The statement should capture both what happened and the takeaway. Write it as advice to your future self.",
     "",
     "Examples:",
-    '- `memory_manage({ op: "save", kind: "learning", subject: "macOS Shortcuts CLI", statement: "shortcuts CLI requires full disk access to export shortcuts — if permission is denied, guide the user to grant it in System Settings rather than retrying." })`',
-    '- `memory_manage({ op: "save", kind: "learning", subject: "Gmail API pagination", statement: "Gmail search returns max 100 results per page. Always check nextPageToken and loop if the user asks for \'all\' messages." })`',
+    '- `memory_manage({ op: "save", kind: "constraint", subject: "macOS Shortcuts CLI", statement: "shortcuts CLI requires full disk access to export shortcuts — if permission is denied, guide the user to grant it in System Settings rather than retrying." })`',
+    '- `memory_manage({ op: "save", kind: "constraint", subject: "Gmail API pagination", statement: "Gmail search returns max 100 results per page. Always check nextPageToken and loop if the user asks for \'all\' messages." })`',
     "",
     "Don't overthink it. If you catch yourself thinking \"I'll remember that for next time,\" save it.",
   ].join("\n");
@@ -845,10 +837,10 @@ export function buildCliReferenceSection(): string {
   return [
     "## Assistant CLI",
     "",
-    "The `assistant` CLI is installed on the user's machine and available via `bash`.",
+    "The `assistant` CLI is available in the sandbox. Always use the `bash` tool (never `host_bash`) when running `assistant` commands.",
     "For account and authentication work, prefer real `assistant` CLI workflows over any legacy account-record abstraction.",
     "- Use `assistant credentials ...` for stored secrets and credential metadata.",
-    "- Use `assistant oauth token <service>` for connected integration tokens.",
+    "- Use `assistant oauth connections token <provider-key>` for connected integration tokens.",
     "- Use `assistant mcp auth <name>` when an MCP server needs OAuth login.",
     "- Use `assistant platform status` for platform-linked deployment and auth context.",
     "- If a bundled skill documents a service-specific `assistant <service>` auth or session flow, follow that CLI exactly.",
@@ -959,6 +951,22 @@ function buildDynamicSkillWorkflowSection(
       'When the user asks about email, messaging, inbox management, or wants to read/send/search messages on any platform (Gmail, Slack, Telegram), load the "messaging" skill using `skill_load`. The messaging skill handles connection setup, credential flows, and all messaging operations — do not improvise setup instructions from general knowledge.',
     );
   }
+
+  lines.push(
+    "",
+    "### Community Skills Discovery",
+    "",
+    "When no built-in skill satisfies a request, search the community skills.sh registry:",
+    "1. Run `assistant skills search <query>` to find community skills. Results include install counts and security audit badges (ATH, Socket, Snyk).",
+    "2. Present the search results to the user, highlighting the security audit status. ATH is Gen Agent Trust Hub. Audits show PASS (safe/low risk), WARN (medium risk), or FAIL (high/critical risk) for each provider.",
+    "3. Check the skill's **source owner** to determine the trust level:",
+    "   - **Vellum-owned** (source starts with `vellum-ai/`): These are first-party skills published by the Vellum team. Install them directly without prompting — they are vetted and trusted.",
+    "   - **Third-party** (any other owner): Ask the user for permission before installing. Say something like: \"I found a community skill that could help with this, but it's published by a third party — we haven't vetted it. Want to install it anyway?\" Share the skill name, source, audit results, and install count.",
+    "4. Install with `assistant skills add <owner>/<repo>@<skill-name>` (e.g., `assistant skills add vercel-labs/skills@find-skills`).",
+    "5. After installation, load the skill with `skill_load` as usual.",
+    "",
+    "**Never install third-party community skills without explicit user confirmation.** Vellum-owned skills (`vellum-ai/*`) can be installed automatically.",
+  );
 
   return lines.join("\n");
 }

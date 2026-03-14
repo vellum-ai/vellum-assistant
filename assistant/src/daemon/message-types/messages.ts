@@ -156,6 +156,8 @@ export interface ConfirmationRequest {
   persistentDecisionsAllowed?: boolean;
   /** Which temporary approval options the client should render (e.g. "Allow for 10 minutes", "Allow for this thread"). */
   temporaryOptionsAvailable?: Array<"allow_10m" | "allow_thread">;
+  /** The tool_use block ID for client-side correlation with specific tool calls. */
+  toolUseId?: string;
 }
 
 export interface SecretRequest {
@@ -288,6 +290,7 @@ export interface AssistantActivityState {
     | "tool_result_received"
     | "confirmation_requested"
     | "confirmation_resolved"
+    | "context_compacting"
     | "message_complete"
     | "generation_cancelled"
     | "error_terminal";

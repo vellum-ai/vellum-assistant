@@ -1,17 +1,12 @@
 # Trusted Contacts — Operator Runbook
 
-Operational procedures for inspecting, managing, and debugging the trusted contact access flow. HTTP commands use the assistant runtime API (default `http://localhost:7821`) with bearer authentication.
-
-> **Note:** The `/v1/contacts` endpoints are served by the assistant runtime, not
-> the gateway. If you prefer to route through the gateway (`localhost:7830`), set
-> `"gateway": { "runtimeProxyEnabled": true }` in workspace config — the proxy is
-> disabled by default and these routes will 404 without it.
+Operational procedures for inspecting, managing, and debugging the trusted contact access flow. HTTP commands use the gateway API (default `http://localhost:7830`) with bearer authentication.
 
 ## Prerequisites
 
 ```bash
-# Base URL — assistant runtime (adjust if using a non-default port)
-BASE=http://localhost:7821
+# Base URL — gateway (adjust if using a non-default port)
+BASE=http://localhost:7830
 
 # Bearer token: for operator use, retrieve from the daemon process environment
 # or use `assistant` CLI commands which handle auth automatically.

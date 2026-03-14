@@ -10,6 +10,11 @@ final class AvatarAppearanceManager {
     /// User-uploaded custom avatar image, persisted to disk.
     private(set) var customAvatarImage: NSImage?
 
+    /// The avatar component choices used to build the current character avatar (nil if uploaded image).
+    private(set) var characterBodyShape: AvatarBodyShape?
+    private(set) var characterEyeStyle: AvatarEyeStyle?
+    private(set) var characterColor: AvatarColor?
+
     /// Cached fallback avatar to avoid rebuilding on every access.
     /// @ObservationIgnored so that populating the cache inside a computed getter
     /// doesn't fire an observation notification and trigger another SwiftUI
@@ -111,6 +116,7 @@ final class AvatarAppearanceManager {
             fallback: "V"
         )
         loadCustomAvatar()
+        loadAvatarComponents()
         watchAvatarFile()
 
         // Refresh assistantName and invalidate cached fallback avatars when
@@ -172,7 +178,7 @@ final class AvatarAppearanceManager {
         customAvatarImage = NSImage(contentsOf: url)
     }
 
-    func setCustomAvatar(_ image: NSImage) {
+    func saveAvatar(_ image: NSImage, bodyShape: AvatarBodyShape? = nil, eyeStyle: AvatarEyeStyle? = nil, color: AvatarColor? = nil) {
         let url = customAvatarURL
         let dir = url.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -184,6 +190,12 @@ final class AvatarAppearanceManager {
         try? pngData.write(to: url)
         cachedChatAvatar = nil
         customAvatarImage = image
+
+        // Persist component choices (nil clears them for uploaded images)
+        characterBodyShape = bodyShape
+        characterEyeStyle = eyeStyle
+        characterColor = color
+        saveAvatarComponents()
     }
 
     /// Reloads the custom avatar from disk. Called when the daemon notifies
@@ -199,10 +211,49 @@ final class AvatarAppearanceManager {
     func clearCustomAvatar() {
         try? FileManager.default.removeItem(at: customAvatarURL)
         try? FileManager.default.removeItem(at: Self.legacyAppSupportCustomAvatarURL())
+        try? FileManager.default.removeItem(at: avatarComponentsURL)
         customAvatarImage = nil
+        characterBodyShape = nil
+        characterEyeStyle = nil
+        characterColor = nil
         cachedChatAvatar = nil
         cachedFallbackAvatar = nil
         cachedFullFallbackAvatar = nil
+    }
+
+    // MARK: - Avatar Components Persistence
+
+    private var avatarComponentsURL: URL {
+        customAvatarURL.deletingLastPathComponent().appendingPathComponent("avatar-components.json")
+    }
+
+    private struct AvatarComponents: Codable {
+        let bodyShape: String
+        let eyeStyle: String
+        let color: String
+    }
+
+    private func saveAvatarComponents() {
+        guard let body = characterBodyShape, let eyes = characterEyeStyle, let color = characterColor else {
+            try? FileManager.default.removeItem(at: avatarComponentsURL)
+            return
+        }
+        let components = AvatarComponents(bodyShape: body.rawValue, eyeStyle: eyes.rawValue, color: color.rawValue)
+        guard let data = try? JSONEncoder().encode(components) else { return }
+        try? data.write(to: avatarComponentsURL)
+    }
+
+    private func loadAvatarComponents() {
+        guard let data = try? Data(contentsOf: avatarComponentsURL),
+              let components = try? JSONDecoder().decode(AvatarComponents.self, from: data) else {
+            characterBodyShape = nil
+            characterEyeStyle = nil
+            characterColor = nil
+            return
+        }
+        characterBodyShape = AvatarBodyShape(rawValue: components.bodyShape)
+        characterEyeStyle = AvatarEyeStyle(rawValue: components.eyeStyle)
+        characterColor = AvatarColor(rawValue: components.color)
     }
 
     // MARK: - File Watching
@@ -318,16 +369,16 @@ final class AvatarAppearanceManager {
         let image = NSImage(size: NSSize(width: size, height: size))
         image.lockFocus()
 
-        // Draw circle with accent color (Forest._600 equivalent)
+        // Draw circle with accent color (VColor.primaryBase equivalent)
         let path = NSBezierPath(ovalIn: NSRect(x: 0, y: 0, width: size, height: size))
-        NSColor(Forest._600).setFill()
+        NSColor(VColor.primaryBase).setFill()
         path.fill()
 
         // Draw initial letter
         let initial = String(name.prefix(1)).uppercased()
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: size * 0.45, weight: .semibold),
-            .foregroundColor: NSColor.white
+            .foregroundColor: NSColor(VColor.auxWhite)
         ]
         let attrStr = NSAttributedString(string: initial, attributes: attrs)
         let textSize = attrStr.size()

@@ -22,5 +22,8 @@ public final class AmbientAgent: ObservableObject {
 
     func pause() {}
     func resume() {}
-    func teardown() {}
+    func teardown() {
+        activeWatchSession?.stop()
+        activeWatchSession = nil
+    }
 }

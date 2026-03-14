@@ -5,10 +5,16 @@ import { join } from "node:path";
 import QRCode from "qrcode";
 
 import { getGatewayPort, getIngressPublicBaseUrl } from "../config/env.js";
-import { getConfig, loadRawConfig, saveRawConfig } from "../config/loader.js";
+import {
+  API_KEY_PROVIDERS,
+  getConfig,
+  loadRawConfig,
+  saveRawConfig,
+} from "../config/loader.js";
 import { resolveSkillStates } from "../config/skill-state.js";
 import { loadSkillCatalog } from "../config/skills.js";
 import { initializeProviders } from "../providers/registry.js";
+import { getSecureKeyAsync } from "../security/secure-keys.js";
 import {
   buildInvocableSlashCatalog,
   resolveSlashSkillCommand,
@@ -53,14 +59,12 @@ export interface SlashContext {
 
 const AVAILABLE_MODELS = [
   "claude-opus-4-6",
-  "claude-opus-4-6-fast",
   "claude-sonnet-4-6",
   "claude-haiku-4-5-20251001",
 ] as const;
 
 const MODEL_DISPLAY_NAMES: Record<string, string> = {
   "claude-opus-4-6": "Claude Opus 4.6",
-  "claude-opus-4-6-fast": "Claude Opus 4.6 Fast",
   "claude-sonnet-4-6": "Claude Sonnet 4.6",
   "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
 };
@@ -74,11 +78,6 @@ const PROVIDER_MODEL_SHORTCUTS: Record<
     provider: "anthropic",
     model: "claude-opus-4-6",
     displayName: "Claude Opus 4.6",
-  },
-  "opus-fast": {
-    provider: "anthropic",
-    model: "claude-opus-4-6-fast",
-    displayName: "Claude Opus 4.6 Fast",
   },
   sonnet: {
     provider: "anthropic",
@@ -146,7 +145,9 @@ function matchModel(input: string): string | undefined {
   return AVAILABLE_MODELS.find((m) => m.includes(lower));
 }
 
-function resolveProviderModelCommand(content: string): SlashResolution | null {
+async function resolveProviderModelCommand(
+  content: string,
+): Promise<SlashResolution | null> {
   const trimmed = content.trim();
   if (!trimmed.startsWith("/")) return null;
 
@@ -163,10 +164,10 @@ function resolveProviderModelCommand(content: string): SlashResolution | null {
   const name = getAssistantName();
 
   // Check if API key exists for this provider (Ollama doesn't require an API key)
-  if (provider !== "ollama" && !config.apiKeys[provider]) {
+  if (provider !== "ollama" && !(await getSecureKeyAsync(provider))) {
     return {
       kind: "unknown",
-      message: `Cannot switch to ${displayName}. No API key configured for ${provider}.\n\nSet it with: \`config set apiKeys.${provider} <your-key>\``,
+      message: `Cannot switch to ${displayName}. No API key configured for ${provider}.\n\nSet it with: \`keys set ${provider} <your-key>\``,
     };
   }
 
@@ -189,7 +190,7 @@ function resolveProviderModelCommand(content: string): SlashResolution | null {
 
   // Re-initialize providers with new config
   const newConfig = getConfig();
-  initializeProviders(newConfig);
+  await initializeProviders(newConfig);
 
   const switchedMsg = name
     ? `Switched ${name} to **${displayName}**. New conversations will use this model.`
@@ -201,14 +202,23 @@ function resolveProviderModelCommand(content: string): SlashResolution | null {
   };
 }
 
-function resolveModelList(): SlashResolution {
+async function resolveModelList(): Promise<SlashResolution> {
   const config = getConfig();
+
+  // Build a set of providers that have a configured API key.
+  const configuredProviders = new Set<string>(["ollama"]);
+  for (const p of API_KEY_PROVIDERS) {
+    if (await getSecureKeyAsync(p)) {
+      configuredProviders.add(p);
+    }
+  }
+
   const lines = ["Available models:\n"];
 
   for (const [cmd, { provider, model, displayName }] of Object.entries(
     PROVIDER_MODEL_SHORTCUTS,
   )) {
-    const hasKey = provider === "ollama" || !!config.apiKeys[provider];
+    const hasKey = configuredProviders.has(provider);
     const isCurrent = config.provider === provider && config.model === model;
     const status = hasKey ? "✓" : "✗";
     const current = isCurrent ? " **[current]**" : "";
@@ -216,9 +226,7 @@ function resolveModelList(): SlashResolution {
   }
 
   lines.push("\n✓ = API key configured, ✗ = not configured");
-  lines.push(
-    "\nTip: Configure a provider with `config set apiKeys.<provider> <key>`",
-  );
+  lines.push("\nTip: Configure a provider with `keys set <provider> <key>`");
 
   return {
     kind: "unknown",
@@ -226,11 +234,13 @@ function resolveModelList(): SlashResolution {
   };
 }
 
-function resolveModelCommand(content: string): SlashResolution | null {
+async function resolveModelCommand(
+  content: string,
+): Promise<SlashResolution | null> {
   const trimmed = content.trim();
   // Match /models → route to list
   if (trimmed === "/models") {
-    return resolveModelList();
+    return await resolveModelList();
   }
 
   if (!trimmed.startsWith("/model")) return null;
@@ -253,7 +263,7 @@ function resolveModelCommand(content: string): SlashResolution | null {
 
   // Handle /model list
   if (args === "list") {
-    return resolveModelList();
+    return await resolveModelList();
   }
 
   // Try to match the model name
@@ -282,11 +292,11 @@ function resolveModelCommand(content: string): SlashResolution | null {
   }
 
   // Validate that Anthropic provider is available
-  if (!currentConfig.apiKeys.anthropic) {
+  if (!(await getSecureKeyAsync("anthropic"))) {
     const displayName = MODEL_DISPLAY_NAMES[matched] ?? matched;
     return {
       kind: "unknown",
-      message: `Cannot switch to ${displayName}. No API key configured for Anthropic.\n\nSet it with: \`config set apiKeys.anthropic <your-key>\``,
+      message: `Cannot switch to ${displayName}. No API key configured for Anthropic.\n\nSet it with: \`keys set anthropic <your-key>\``,
     };
   }
 
@@ -296,7 +306,7 @@ function resolveModelCommand(content: string): SlashResolution | null {
   raw.model = matched;
   saveRawConfig(raw);
   const config = getConfig();
-  initializeProviders(config);
+  await initializeProviders(config);
 
   const displayName = MODEL_DISPLAY_NAMES[matched] ?? matched;
   const switchedMsg = name
@@ -345,16 +355,16 @@ function resolveStatusCommand(context: SlashContext): SlashResolution {
  * Resolve slash commands against the current skill catalog.
  * Returns `unknown` with a deterministic message, or the (possibly rewritten) content.
  */
-export function resolveSlash(
+export async function resolveSlash(
   content: string,
   context?: SlashContext,
-): SlashResolution {
+): Promise<SlashResolution> {
   // Check provider shortcuts first (/gpt4, /opus, etc.)
-  const providerResult = resolveProviderModelCommand(content);
+  const providerResult = await resolveProviderModelCommand(content);
   if (providerResult) return providerResult;
 
   // Handle /model command
-  const modelResult = resolveModelCommand(content);
+  const modelResult = await resolveModelCommand(content);
   if (modelResult) return modelResult;
 
   // Handle /pair command

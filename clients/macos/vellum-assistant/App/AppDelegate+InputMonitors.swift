@@ -68,6 +68,7 @@ extension AppDelegate {
         registerQuickInputMonitor()
         registerFnVMonitor()
         registerCmdKMonitor()
+        registerCmdNMonitor()
 
         globalHotkeyObserver = Publishers.Merge3(
             UserDefaults.standard.publisher(for: \.globalHotkeyShortcut).map { _ in () },
@@ -159,6 +160,10 @@ extension AppDelegate {
             NSEvent.removeMonitor(monitor)
             cmdKLocalMonitor = nil
         }
+        if let monitor = cmdNLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            cmdNLocalMonitor = nil
+        }
         if let monitor = navLocalMonitor {
             NSEvent.removeMonitor(monitor)
             navLocalMonitor = nil
@@ -190,6 +195,23 @@ extension AppDelegate {
             _ = handler(event)
         }
         fnVLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+    }
+
+    /// Registers Cmd+N as a local shortcut to create a new thread.
+    func registerCmdNMonitor() {
+        let handler: (NSEvent) -> NSEvent? = { [weak self] event in
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard event.keyCode == 45, // kVK_ANSI_N
+                  mods == [.command] else {
+                return event
+            }
+            Task { @MainActor in
+                guard self?.isBootstrapping != true else { return }
+                self?.createNewThread()
+            }
+            return nil
+        }
+        cmdNLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
     }
 
     /// Registers Cmd+K as a local shortcut to open the command palette.
@@ -293,7 +315,7 @@ extension AppDelegate {
             CommandPaletteAction(id: "settings", icon: VIcon.settings.rawValue, label: "Settings", shortcutHint: "\u{2318},") { [weak self] in
                 self?.mainWindow?.windowState.showPanel(.settings)
             },
-            CommandPaletteAction(id: "app-directory", icon: VIcon.layoutGrid.rawValue, label: "Things", shortcutHint: nil) { [weak self] in
+            CommandPaletteAction(id: "app-directory", icon: VIcon.layoutGrid.rawValue, label: "Library", shortcutHint: nil) { [weak self] in
                 self?.mainWindow?.windowState.showPanel(.apps)
             },
             CommandPaletteAction(id: "intelligence", icon: VIcon.brain.rawValue, label: "Intelligence", shortcutHint: nil) { [weak self] in
@@ -327,6 +349,19 @@ extension AppDelegate {
 
         window.onSelectConversation = { [weak self] threadId in
             self?.mainWindow?.threadManager.selectThread(id: threadId)
+        }
+
+        window.onSelectSearchConversation = { [weak self] sessionId in
+            Task { @MainActor in
+                let found = await self?.mainWindow?.threadManager.selectThreadBySessionIdAsync(sessionId) ?? false
+                if found, let threadId = self?.mainWindow?.threadManager.activeThreadId {
+                    self?.mainWindow?.windowState.selection = .thread(threadId)
+                }
+            }
+        }
+
+        window.onSelectMemory = { [weak self] memoryId in
+            self?.mainWindow?.windowState.showMemory(id: memoryId)
         }
 
         // Wire runtime HTTP resolver for server search
@@ -535,10 +570,7 @@ extension AppDelegate {
             if event.keyCode == 53 { // Escape
                 Task { @MainActor in
                     self?.startSessionTask?.cancel()
-                    self?.thinkingWindow?.close()
-                    self?.thinkingWindow = nil
                     self?.currentSession?.cancel()
-                    self?.currentTextSession?.cancel()
                     self?.ambientAgent.resume()
                     self?.surfaceManager.dismissAll()
                     self?.toolConfirmationNotificationService.dismissAll()

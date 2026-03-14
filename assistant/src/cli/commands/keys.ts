@@ -2,9 +2,9 @@ import type { Command } from "commander";
 
 import { API_KEY_PROVIDERS } from "../../config/loader.js";
 import {
-  deleteSecureKey,
-  getSecureKey,
-  setSecureKey,
+  deleteSecureKeyAsync,
+  getSecureKeyAsync,
+  setSecureKeyAsync,
 } from "../../security/secure-keys.js";
 import { log } from "../logger.js";
 
@@ -40,10 +40,10 @@ omitted from the output.
 Examples:
   $ assistant keys list`,
     )
-    .action(() => {
+    .action(async () => {
       const stored: string[] = [];
       for (const provider of API_KEY_PROVIDERS) {
-        const value = getSecureKey(provider);
+        const value = await getSecureKeyAsync(provider);
         if (value) stored.push(provider);
       }
       if (stored.length === 0) {
@@ -74,8 +74,8 @@ Examples:
   $ assistant keys set openai sk-proj-xyz789
   $ assistant keys set fireworks fw-abc123`,
     )
-    .action((provider: string, key: string) => {
-      if (setSecureKey(provider, key)) {
+    .action(async (provider: string, key: string) => {
+      if (await setSecureKeyAsync(provider, key)) {
         log.info(`Stored API key for "${provider}"`);
       } else {
         log.error(`Failed to store API key for "${provider}"`);
@@ -99,8 +99,8 @@ Examples:
   $ assistant keys delete openai
   $ assistant keys delete anthropic`,
     )
-    .action((provider: string) => {
-      const result = deleteSecureKey(provider);
+    .action(async (provider: string) => {
+      const result = await deleteSecureKeyAsync(provider);
       if (result === "deleted") {
         log.info(`Deleted API key for "${provider}"`);
       } else if (result === "error") {

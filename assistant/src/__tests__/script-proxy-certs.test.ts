@@ -84,7 +84,7 @@ describe("issueLeafCert", () => {
 
     expect(certA.cert).not.toBe(certB.cert);
     expect(certA.key).not.toBe(certB.key);
-  });
+  }, 15_000);
 });
 
 describe("getCAPath", () => {

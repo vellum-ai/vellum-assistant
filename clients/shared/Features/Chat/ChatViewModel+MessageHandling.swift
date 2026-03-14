@@ -58,6 +58,8 @@ extension ChatViewModel {
         }
         if let tcIdx = tcIdx {
             messages[msgIdx].toolCalls[tcIdx].confirmationDecision = decision
+            // Clear live pending confirmation now that a decision has been made
+            messages[msgIdx].toolCalls[tcIdx].pendingConfirmation = nil
             // Use the tool category from the confirmation data as the label
             let label = ToolConfirmationData(requestId: "", toolName: toolName, riskLevel: "").toolCategory
             messages[msgIdx].toolCalls[tcIdx].confirmationLabel = label
@@ -1191,8 +1193,16 @@ extension ChatViewModel {
                 scopeOptions: msg.scopeOptions,
                 executionTarget: msg.executionTarget,
                 persistentDecisionsAllowed: msg.persistentDecisionsAllowed ?? true,
-                temporaryOptionsAvailable: msg.temporaryOptionsAvailable ?? []
+                temporaryOptionsAvailable: msg.temporaryOptionsAvailable ?? [],
+                toolUseId: msg.toolUseId
             )
+            // Attach confirmation to matching tool call if toolUseId is available
+            if let toolUseId = msg.toolUseId,
+               let assistantId = currentAssistantMessageId,
+               let msgIdx = messages.firstIndex(where: { $0.id == assistantId }),
+               let tcIdx = messages[msgIdx].toolCalls.firstIndex(where: { $0.toolUseId == toolUseId }) {
+                messages[msgIdx].toolCalls[tcIdx].pendingConfirmation = confirmation
+            }
             let confirmMsg = ChatMessage(
                 role: .assistant,
                 text: "",
@@ -1713,13 +1723,19 @@ extension ChatViewModel {
                 // Only reset sending state if no other messages are in-flight.
                 // Check for genuinely in-flight statuses (.processing, .queued)
                 // — NOT .sent, which is the default/terminal status for all
-                // previously delivered messages.
-                let hasActiveSend = isSending && messages.contains(where: { msg in
-                    guard msg.role == .user else { return false }
-                    if msg.status == .processing { return true }
-                    if case .queued = msg.status { return true }
-                    return false
-                })
+                // previously delivered messages. Also treat an active assistant
+                // response (currentAssistantMessageId != nil) as in-flight,
+                // because direct (non-queued) sends keep the user bubble at
+                // .sent while isSending is true and the assistant streams.
+                let hasActiveSend = isSending && (
+                    currentAssistantMessageId != nil ||
+                    messages.contains(where: { msg in
+                        guard msg.role == .user else { return false }
+                        if msg.status == .processing { return true }
+                        if case .queued = msg.status { return true }
+                        return false
+                    })
+                )
                 if !hasActiveSend {
                     isThinking = false
                     isSending = false
@@ -1854,9 +1870,24 @@ extension ChatViewModel {
             }
             // Stamp confirmation data on the corresponding ToolCallData in the
             // preceding assistant message so it survives thread switches.
+            let decision = mapConfirmationState(msg.state)
             if let toolName = confirmationToolName,
-               let state = mapConfirmationState(msg.state) {
+               let state = decision {
                 stampConfirmationOnToolCall(toolName: toolName, decision: state, toolUseId: msg.toolUseId, targetMessageId: precedingAssistantId)
+            }
+            // Clear pendingConfirmation when the confirmation reaches a terminal state
+            // (approved, denied, timed_out, resolved_stale) — but NOT on "pending" which
+            // is the initial state transition that fires immediately after the request is created.
+            if msg.state != "pending" {
+                for i in messages.indices.reversed() {
+                    guard messages[i].role == .assistant, messages[i].confirmation == nil else { continue }
+                    if let tcIdx = messages[i].toolCalls.firstIndex(where: {
+                        $0.pendingConfirmation?.requestId == msg.requestId
+                    }) {
+                        messages[i].toolCalls[tcIdx].pendingConfirmation = nil
+                        break
+                    }
+                }
             }
 
         case .assistantActivityState(let msg):
@@ -1868,6 +1899,7 @@ extension ChatViewModel {
             assistantActivityAnchor = msg.anchor
             assistantActivityReason = msg.reason
             assistantStatusText = msg.statusText
+            isCompacting = msg.reason == "context_compacting"
             switch msg.phase {
             case "thinking":
                 isThinking = true

@@ -15,7 +15,7 @@ export async function run(
   const pageToken = input.page_token as string | undefined;
 
   try {
-    const provider = resolveProvider(platform);
+    const provider = await resolveProvider(platform);
 
     if (!provider.senderDigest) {
       return err(
@@ -23,7 +23,8 @@ export async function run(
       );
     }
 
-    const conn = getProviderConnection(provider);
+    const account = input.account as string | undefined;
+    const conn = await getProviderConnection(provider, account);
     const result = await provider.senderDigest!(conn, query, {
       maxMessages,
       maxSenders,

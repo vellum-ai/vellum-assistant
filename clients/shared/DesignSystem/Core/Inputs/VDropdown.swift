@@ -30,68 +30,55 @@ public struct VDropdown<T: Hashable>: View {
     }
 
     public var body: some View {
-        ZStack {
-            // Visual layer — identical to VTextField(trailingIcon: "chevron.down")
+        Menu {
+            ForEach(options, id: \.value) { option in
+                Button {
+                    selection = option.value
+                } label: {
+                    HStack {
+                        Text(option.label)
+                        if option.value == selection {
+                            VIconView(.check, size: 12)
+                        }
+                    }
+                }
+            }
+        } label: {
             HStack(spacing: VSpacing.md) {
                 Group {
                     if let label = selectedLabel {
                         Text(label)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                     } else {
                         Text(placeholder)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
                 }
                 .font(VFont.body)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 VIconView(.chevronDown, size: 13)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .accessibilityHidden(true)
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.xs)
-            .frame(height: 28)
-            .background(VColor.inputBackground)
+            .frame(height: 32)
+            .background(VColor.surfaceActive)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                    .stroke(VColor.borderBase.opacity(0.5), lineWidth: 1)
             )
-
-            // Interaction layer — transparent Menu, no visual chrome
-            Menu {
-                ForEach(options, id: \.value) { option in
-                    Button {
-                        selection = option.value
-                    } label: {
-                        HStack {
-                            Text(option.label)
-                            if option.value == selection {
-                                VIconView(.check, size: 12)
-                            }
-                        }
-                    }
-                }
-            } label: {
-                Color.clear.contentShape(Rectangle())
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .accessibilityLabel(selectedLabel ?? placeholder)
         }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .accessibilityLabel(selectedLabel ?? placeholder)
         .frame(maxWidth: .infinity)
     }
 }
 
 #if DEBUG
-struct VDropdown_Preview: PreviewProvider {
-    static var previews: some View {
-        VDropdownPreviewWrapper()
-            .frame(width: 350, height: 200)
-            .previewDisplayName("VDropdown vs VTextField")
-    }
-}
 
 private struct VDropdownPreviewWrapper: View {
     @State private var selection = ""
@@ -104,7 +91,7 @@ private struct VDropdownPreviewWrapper: View {
 
     var body: some View {
         ZStack {
-            VColor.background.ignoresSafeArea()
+            VColor.surfaceOverlay.ignoresSafeArea()
             VStack(spacing: VSpacing.md) {
                 VDropdown(
                     placeholder: "Select an option\u{2026}",
@@ -119,7 +106,7 @@ private struct VDropdownPreviewWrapper: View {
 
                 Text("Selected: \"\(selection)\"")
                     .font(VFont.mono)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
             .padding()
         }

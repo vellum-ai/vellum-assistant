@@ -91,7 +91,8 @@ function parsePng(
 function parseJpeg(
   base64Data: string,
 ): { width: number; height: number } | null {
-  const buf = decodeBase64Bytes(base64Data, 65536);
+  // Scan up to 1 MiB to handle JPEGs with large EXIF/ICC metadata before the SOF marker
+  const buf = decodeBase64Bytes(base64Data, 1_048_576);
   if (!buf || buf.length < 2) return null;
 
   // Validate JPEG SOI marker
@@ -204,8 +205,9 @@ function parseWebp(
   }
 
   if (subFormat === "VP8L") {
-    // VP8L lossless
+    // VP8L lossless — validate signature byte 0x2f at offset 20
     if (buf.length < 25) return null;
+    if (buf[20] !== 0x2f) return null;
     const bits = readUint32LE(buf, 21);
     if (bits < 0) return null;
     const width = (bits & 0x3fff) + 1;

@@ -341,10 +341,3 @@ export async function restoreAppVersion(
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
-
-/**
- * @internal Test-only: reset module state.
- */
-export function _resetAppGitState(): void {
-  // no-op — kept for test API compatibility
-}

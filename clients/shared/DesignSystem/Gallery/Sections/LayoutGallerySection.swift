@@ -16,15 +16,15 @@ struct LayoutGallerySection: View {
 
             VCard(padding: 0) {
                 VToolbar {
-                    VIconButton(label: "Home", icon: VIcon.house.rawValue) {}
-                    VIconButton(label: "Search", icon: VIcon.search.rawValue) {}
-                    VIconButton(label: "Settings", icon: VIcon.settings.rawValue, isActive: true) {}
+                    VButton(label: "Home", icon: VIcon.house.rawValue, style: .ghost) {}
+                    VButton(label: "Search", icon: VIcon.search.rawValue, style: .ghost) {}
+                    VButton(label: "Settings", icon: VIcon.settings.rawValue, style: .ghost, isActive: true) {}
                     Spacer()
-                    VIconButton(label: "Add", icon: VIcon.plus.rawValue, iconOnly: true) {}
+                    VButton(label: "Add", iconOnly: VIcon.plus.rawValue, style: .ghost) {}
                 }
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - VSidePanel
             GallerySectionHeader(
@@ -37,16 +37,16 @@ struct LayoutGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Panel content goes here")
                             .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                         Text("This panel has a title header with a close button and scrollable content area.")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
                 }
                 .frame(width: 300, height: 200)
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - VSidePanel with Pinned Content
             GallerySectionHeader(
@@ -60,21 +60,21 @@ struct LayoutGallerySection: View {
                         items: ["Profile", "Settings", "Channels", "Overview"],
                         selection: $pinnedTabSelection
                     )
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
                 }) {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Tab \(pinnedTabSelection + 1) content")
                             .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                         Text("The tab bar above stays pinned while this content scrolls.")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
                 }
                 .frame(width: 300, height: 250)
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - VSplitView
             GallerySectionHeader(
@@ -89,13 +89,13 @@ struct LayoutGallerySection: View {
                         VStack(alignment: .leading) {
                             Text("Panel Width: \(Int(panelWidth))")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.contentSecondary)
                             Slider(value: $panelWidth, in: 200...400, step: 20)
                                 .frame(maxWidth: 200)
                         }
                     }
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     VSplitView(
                         panelWidth: $panelWidth,
@@ -104,25 +104,25 @@ struct LayoutGallerySection: View {
                         VStack {
                             Text("Main Content")
                                 .font(VFont.panelTitle)
-                                .foregroundColor(VColor.textPrimary)
+                                .foregroundColor(VColor.contentDefault)
                             Text("This is the primary area")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.contentSecondary)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(VColor.surface)
+                        .background(VColor.surfaceBase)
                     } panel: {
                         VSidePanel(title: "Details", onClose: { showPanel = false }, pinnedContent: { EmptyView() }) {
                             Text("Side panel content")
                                 .font(VFont.body)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.contentSecondary)
                         }
                     }
                     .frame(height: 250)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                            .stroke(VColor.borderBase, lineWidth: 1)
                     )
                 }
             }

@@ -27,21 +27,25 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var fnVGlobalMonitor: Any?
     var fnVLocalMonitor: Any?
     var overlayWindow: SessionOverlayWindow?
-    var currentSession: ComputerUseSession?
-    var currentTextSession: TextSession?
-    /// text_qa session IDs that should auto-enable CU auto-approve if they escalate.
-    var autoApproveEscalationSessionIds: Set<String> = []
+    var currentSession: (any SessionOverlayProviding)?
+    /// Proxy state tracker for host CU overlay (proxy-based computer use sessions).
+    var activeHostCuProxy: HostCuSessionProxy?
+    /// Conversation/session ID of the active host CU overlay.
+    var activeOverlayConversationId: String?
+    /// Cleanup task for dismissing the host CU overlay after completion.
+    var hostCuOverlayCleanupTask: Task<Void, Never>?
+    /// Combine subscriptions for host CU overlay state observation.
+    var hostCuOverlayCancellables = Set<AnyCancellable>()
     var isStartingSession = false
     var startSessionTask: Task<Void, Never>?
-    var textResponseWindow: TextResponseWindow?
     var voiceInput: VoiceInputManager?
     var voiceTranscriptionWindow: VoiceTranscriptionWindow?
-    var thinkingWindow: ThinkingIndicatorWindow?
     var quickInputWindow: QuickInputWindow?
     var quickInputHotKeyRef: EventHotKeyRef?
     var quickInputEventHandlerRef: EventHandlerRef?
     var commandPaletteWindow: CommandPaletteWindow?
     var cmdKLocalMonitor: Any?
+    var cmdNLocalMonitor: Any?
     var navLocalMonitor: Any?
     var zoomLocalMonitor: Any?
     public let services = AppServices()
@@ -67,20 +71,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     var onboardingWindow: OnboardingWindow?
     var authWindow: NSWindow?
-    var authManager: AuthManager { services.authManager }
+    public var authManager: AuthManager { services.authManager }
     public var mainWindow: MainWindow?
     var bundleConfirmationWindow: BundleConfirmationWindow?
 
     var pairingApprovalWindow: PairingApprovalWindow?
-    /// Window shown during first-launch bootstrap when daemon is slow to start.
-    var bootstrapInterstitialWindow: NSWindow?
     var crashReportWindow: NSWindow?
     var crashReportWindowObserver: NSObjectProtocol?
-    /// Active task for the bootstrap retry coordinator. Cancelled on dismiss.
-    var bootstrapRetryTask: Task<Void, Never>?
-    /// Tracks the most recent failure kind during bootstrap retries so that
-    /// diagnostic messages reflect the actual problem, not generic escalating text.
-    var bootstrapFailureKind: BootstrapFailureKind = .unknown
+    var logReportWindow: NSWindow?
+    var logReportWindowObserver: NSObjectProtocol?
     /// Background task that retries actor-token bootstrap until success.
     var actorTokenBootstrapTask: Task<Void, Never>?
     /// Opaque token returned by `NotificationCenter.addObserver(forName:)` for
@@ -203,7 +202,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
         let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
         SentrySDK.start { options in
-            options.dsn = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
+            options.dsn = MetricKitManager.macosDSN
             options.releaseName = "vellum-macos@\(appVersion)"
             options.dist = buildNumber
             options.environment = SentryDeviceInfo.sentryEnvironment
@@ -213,6 +212,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 profilingOptions.sessionSampleRate = perfOptIn ? 1.0 : 0
             }
             options.sendDefaultPii = false
+            options.maxAttachmentSize = MetricKitManager.sentryMaxAttachmentSize
         }
         SentryDeviceInfo.configureSentryScope()
 
@@ -258,6 +258,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // Set up menu bar and hotkeys early so they work regardless of auth state.
         setupMenuBar()
         setupHotKey()
+
+        // Install CLI symlinks early so they are available before the daemon
+        // starts, regardless of auth or onboarding state.
+        installCLISymlinkIfNeeded()
 
         let hasAssistants = lockfileHasAssistants()
         log.info("[appLaunch] skipOnboarding=\(skipOnboarding) hasAssistants=\(hasAssistants)")
@@ -335,7 +339,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         setupWindowObserver()
         setupNotifications()
         setupAutoUpdate()
-        installCLISymlinkIfNeeded()
 
         // Ensure actor credentials are present. On first launch this performs
         // initial bootstrap; on subsequent launches it schedules proactive
@@ -365,12 +368,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                     transitionBootstrap(to: .pendingWakeupSend)
                     await performRetriableWakeUpSend()
                 } else {
-                    // Daemon not ready — show blocking interstitial instead
-                    // of the chat empty state. The interstitial auto-retries
-                    // daemon connection and proceeds to wake-up send once
-                    // connected.
-                    log.warning("Daemon not ready after timeout — showing bootstrap interstitial")
-                    showBootstrapInterstitial()
+                    // Daemon not ready — show the main window with a
+                    // timeout screen so the user knows something went wrong.
+                    log.warning("Daemon not ready after timeout — showing timeout screen")
+                    transitionBootstrap(to: .timedOut)
+                    showMainWindow(isFirstLaunch: true)
+                    debugStateWriter.start(appDelegate: self)
                 }
             }
         } else {
@@ -423,5 +426,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     public func performZoomIn() { zoomManager.zoomIn() }
     public func performZoomOut() { zoomManager.zoomOut() }
     public func performZoomReset() { zoomManager.resetZoom() }
+
+    public func createNewThread() {
+        showMainWindow()
+        mainWindow?.threadManager.createThread()
+    }
 
 }

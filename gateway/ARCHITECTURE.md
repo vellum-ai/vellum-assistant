@@ -273,7 +273,7 @@ Outbound proactive (assistant → user, initiated by messaging provider):
   Runtime messaging provider → Gateway POST /deliver/telegram (bearer auth) → Telegram sendMessage/sendChatAction
 ```
 
-The `replyCallbackUrl` included in the inbound forward is built from the `gatewayInternalBaseUrl` config field, which defaults to `http://127.0.0.1:${GATEWAY_PORT}` and can be overridden via workspace config. This allows distributed deployments where the gateway and runtime are not co-located (e.g., separate containers or hosts).
+The `replyCallbackUrl` included in the inbound forward is built from the `gatewayInternalBaseUrl` config field, which is always derived from `GATEWAY_PORT` as `http://127.0.0.1:${GATEWAY_PORT}` (default port `7830`). Both the hostname (`127.0.0.1`) and port derivation are hardcoded in `gateway/src/config.ts`, so the gateway and runtime must be co-located (same host, `--network host`, or Docker Compose with shared networking) for callbacks to reach the gateway. Separate-host deployments are not currently supported.
 
 The `/deliver/telegram` endpoint requires bearer auth unconditionally (fail-closed). If no bearer token is configured and the dev-only bypass flag (`telegram.deliverAuthBypass` in `workspace/config.json`) is not set, the endpoint returns 503 rather than allowing unauthenticated access. The bypass requires `APP_VERSION=0.0.0-dev`.
 
@@ -583,11 +583,11 @@ Entry points:
 
 Both paths converge at:
   → Daemon handler validates token via Telegram getMe API
-    → setSecureKey("credential/telegram/bot_token", token)
+    → setSecureKeyAsync("credential/telegram/bot_token", token)
     → upsertCredentialMetadata("telegram", "bot_token", {})
     → Stores bot username in config at telegram.botUsername
     → Auto-generates webhook secret if missing
-      → setSecureKey("credential/telegram/webhook_secret", secret)
+      → setSecureKeyAsync("credential/telegram/webhook_secret", secret)
       → upsertCredentialMetadata("telegram", "webhook_secret", {})
       → On storage failure: rolls back bot_token + metadata, returns error
     → If webhook secret already exists: upserts metadata anyway (self-heal)
@@ -641,7 +641,7 @@ The Slack channel enables inbound and outbound messaging via Slack's Socket Mode
 3. Events are deduplicated by `event_id` using an in-memory `Map<string, number>` with a 24-hour TTL. A periodic cleanup sweep runs every hour to evict expired entries.
 4. The `normalizeSlackAppMention()` function strips leading bot-mention tokens (`<@U...>`) from the message text and produces a `GatewayInboundEvent` with `sourceChannel: "slack"`, using the Slack channel ID as `conversationExternalId` and the sender's user ID as `actorExternalId`.
 5. Routing uses the standard `resolveAssistant()` chain (conversation_id -> actor_id -> default/reject). Events that cannot be routed are dropped.
-6. The normalized event is forwarded to the runtime via `POST /v1/channels/inbound` with Slack-specific transport hints and a `replyCallbackUrl` pointing to `/deliver/slack`.
+6. The normalized event is forwarded to the runtime via `POST /v1/channels/inbound` with a `replyCallbackUrl` pointing to `/deliver/slack`.
 
 **Egress** (`POST /deliver/slack`):
 
@@ -1046,7 +1046,7 @@ Call behavior is controlled via the `calls` config block in the assistant config
 | `calls.model`                       | string   | _(unset — uses default model)_ | Optional override for the LLM model used in voice call conversations.                               |
 | `calls.voice.language`              | string   | `'en-US'`                      | Language code for TTS and transcription.                                                            |
 | `calls.voice.transcriptionProvider` | enum     | `'Deepgram'`                   | Speech-to-text provider (`Deepgram` or `Google`).                                                   |
-| `elevenlabs.voiceId`                | string   | `'21m00Tcm4TlvDq8ikWAM'`       | ElevenLabs voice ID used by both in-app TTS and phone calls. Defaults to Rachel.                    |
+| `elevenlabs.voiceId`                | string   | `'ZF6FPAbjXT4488VcRRnw'`       | ElevenLabs voice ID used by both in-app TTS and phone calls. Defaults to Amelia.                    |
 
 ### Caller Identity Resolution
 
@@ -1065,7 +1065,7 @@ Both the resolved mode and source are logged at info level on success, and rejec
 
 Voice and TTS settings are configurable via the `calls.voice` config block — they are not hardcoded. The function `resolveVoiceQualityProfile()` in `voice-quality.ts` reads the current config and resolves it into a `VoiceQualityProfile` containing the TTS provider, voice spec string, language, and transcription provider.
 
-All calls use **ElevenLabs** as the TTS provider via Twilio ConversationRelay. The voice ID is read from the shared `elevenlabs.voiceId` config key (defaulting to Rachel — `21m00Tcm4TlvDq8ikWAM`). Optional tuning parameters (`voiceModelId`, `speed`, `stability`, `similarityBoost`) are also read from the top-level `elevenlabs` config. When `voiceModelId` is set, the emitted voice spec uses the Twilio ConversationRelay extended format: `voiceId-model-speed_stability_similarity`. When `voiceModelId` is empty (the default), only the bare `voiceId` is sent.
+All calls use **ElevenLabs** as the TTS provider via Twilio ConversationRelay. The voice ID is read from the shared `elevenlabs.voiceId` config key (defaulting to Amelia — `ZF6FPAbjXT4488VcRRnw`). Optional tuning parameters (`voiceModelId`, `speed`, `stability`, `similarityBoost`) are also read from the top-level `elevenlabs` config. When `voiceModelId` is set, the emitted voice spec uses the Twilio ConversationRelay extended format: `voiceId-model-speed_stability_similarity`. When `voiceModelId` is empty (the default), only the bare `voiceId` is sent.
 
 The voice webhook in `twilio-routes.ts` calls `resolveVoiceQualityProfile()` and passes the result directly to `generateTwiML()` to produce ConversationRelay TwiML.
 

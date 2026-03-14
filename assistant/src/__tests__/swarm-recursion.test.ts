@@ -37,7 +37,6 @@ mock.module("../config/loader.js", () => ({
 
     provider: "anthropic",
     providerOrder: ["anthropic"],
-    apiKeys: { anthropic: "test-key" },
     swarm: {
       enabled: true,
       maxWorkers: 3,
@@ -67,6 +66,10 @@ const mockProvider = {
     };
   },
 };
+mock.module("../security/secure-keys.js", () => ({
+  getSecureKeyAsync: async () => "test-api-key",
+}));
+
 mock.module("../providers/registry.js", () => ({
   getProvider: () => mockProvider,
   getFailoverProvider: () => mockProvider,

@@ -85,7 +85,10 @@ mock.module("../runtime/approval-message-composer.js", () => ({
   composeApprovalMessageGenerative: async () => "mock generative message",
 }));
 
-import { findContactChannel } from "../contacts/contact-store.js";
+import {
+  findContactChannel,
+  upsertContact,
+} from "../contacts/contact-store.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { createInvite, revokeInvite } from "../memory/invite-store.js";
@@ -105,6 +108,11 @@ afterAll(() => {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** Create a throwaway contact and return its ID, for use as the invite's contactId. */
+function createTargetContact(displayName = "Test Contact"): string {
+  return upsertContact({ displayName, role: "contact" }).id;
+}
 
 const TEST_BEARER_TOKEN = "test-token";
 let msgCounter = 0;
@@ -178,6 +186,7 @@ describe("inbound invite redemption intercept", () => {
   test("non-member with valid invite token becomes active member without guardian approval", async () => {
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: createTargetContact(),
       maxUses: 5,
     });
 
@@ -231,6 +240,7 @@ describe("inbound invite redemption intercept", () => {
   test("non-member with expired token gets appropriate message", async () => {
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: createTargetContact(),
       maxUses: 1,
       expiresInMs: -1, // already expired
     });
@@ -252,6 +262,7 @@ describe("inbound invite redemption intercept", () => {
   test("non-member with revoked token gets refusal text", async () => {
     const { rawToken, invite } = createInvite({
       sourceChannel: "telegram",
+      contactId: createTargetContact(),
       maxUses: 5,
     });
     revokeInvite(invite.id);
@@ -292,6 +303,7 @@ describe("inbound invite redemption intercept", () => {
   test("duplicate Telegram webhook deliveries do not double-redeem", async () => {
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: createTargetContact(),
       maxUses: 5,
     });
 
@@ -353,7 +365,11 @@ describe("inbound invite redemption intercept", () => {
 
   test("channel mismatch returns appropriate message", async () => {
     // Create an invite for voice, but try to redeem via Telegram
-    const { rawToken } = createInvite({ sourceChannel: "phone", maxUses: 5 });
+    const { rawToken } = createInvite({
+      sourceChannel: "phone",
+      contactId: createTargetContact(),
+      maxUses: 5,
+    });
 
     const req = buildInviteRequest(rawToken);
     const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
@@ -372,6 +388,7 @@ describe("inbound invite redemption intercept", () => {
   test("already-active member with invite token gets acknowledgement", async () => {
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: createTargetContact(),
       maxUses: 5,
     });
 
@@ -397,11 +414,8 @@ describe("inbound invite redemption intercept", () => {
   });
 
   test("reactivation via invite preserves existing guardian-managed member display name", async () => {
-    const { rawToken } = createInvite({
-      sourceChannel: "telegram",
-      maxUses: 5,
-    });
-
+    // Pre-create a revoked member named "Jeff" — the invite should preserve
+    // that guardian-assigned name rather than overwriting with the Telegram name.
     upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "user-invite-123",
@@ -409,6 +423,21 @@ describe("inbound invite redemption intercept", () => {
       status: "revoked",
       policy: "allow",
       displayName: "Jeff",
+    });
+
+    // Look up the contact that upsertContactChannel created so we can use
+    // its ID as the invite's contactId (satisfies the FK constraint).
+    const existing = findContactChannel({
+      channelType: "telegram",
+      externalUserId: "user-invite-123",
+      externalChatId: "chat-invite-test",
+    });
+    const targetContactId = existing!.contact.id;
+
+    const { rawToken } = createInvite({
+      sourceChannel: "telegram",
+      contactId: targetContactId,
+      maxUses: 5,
     });
 
     const req = buildInviteRequest(rawToken, {

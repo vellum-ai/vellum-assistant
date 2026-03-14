@@ -49,7 +49,7 @@ mock.module("../tools/registry.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { credentialKey } from "../security/credential-key.js";
-import { setSecureKey } from "../security/secure-keys.js";
+import { setSecureKeyAsync } from "../security/secure-keys.js";
 import { CredentialBroker } from "../tools/credentials/broker.js";
 import {
   _setMetadataPath,
@@ -86,7 +86,10 @@ describe("CredentialBroker.serverUse", () => {
     upsertCredentialMetadata("vercel", "api_token", {
       allowedTools: ["publish_page"],
     });
-    setSecureKey(credentialKey("vercel", "api_token"), "test-vercel-token");
+    await setSecureKeyAsync(
+      credentialKey("vercel", "api_token"),
+      "test-vercel-token",
+    );
 
     const result = await broker.serverUse({
       service: "vercel",
@@ -110,7 +113,10 @@ describe("CredentialBroker.serverUse", () => {
     upsertCredentialMetadata("vercel", "api_token", {
       allowedTools: ["publish_page"],
     });
-    setSecureKey(credentialKey("vercel", "api_token"), "test-vercel-token");
+    await setSecureKeyAsync(
+      credentialKey("vercel", "api_token"),
+      "test-vercel-token",
+    );
 
     const result = await broker.serverUse({
       service: "vercel",
@@ -143,7 +149,7 @@ describe("CredentialBroker.serverUse", () => {
     upsertCredentialMetadata("vercel", "api_token", {
       allowedTools: ["publish_page"],
     });
-    // No setSecureKey — metadata exists but value doesn't
+    // No setSecureKeyAsync — metadata exists but value doesn't
 
     const result = await broker.serverUse({
       service: "vercel",
@@ -162,7 +168,10 @@ describe("CredentialBroker.serverUse", () => {
     upsertCredentialMetadata("vercel", "api_token", {
       allowedTools: ["publish_page"],
     });
-    setSecureKey(credentialKey("vercel", "api_token"), "test-vercel-token");
+    await setSecureKeyAsync(
+      credentialKey("vercel", "api_token"),
+      "test-vercel-token",
+    );
 
     const result = await broker.serverUse({
       service: "vercel",
@@ -183,7 +192,10 @@ describe("CredentialBroker.serverUse", () => {
     upsertCredentialMetadata("vercel", "api_token", {
       allowedTools: ["publish_page"],
     });
-    setSecureKey(credentialKey("vercel", "api_token"), "test-vercel-token");
+    await setSecureKeyAsync(
+      credentialKey("vercel", "api_token"),
+      "test-vercel-token",
+    );
 
     const result = await broker.serverUse({
       service: "vercel",
@@ -202,7 +214,10 @@ describe("CredentialBroker.serverUse", () => {
       allowedTools: ["publish_page"],
       allowedDomains: ["vercel.com"],
     });
-    setSecureKey(credentialKey("vercel", "api_token"), "test-vercel-token");
+    await setSecureKeyAsync(
+      credentialKey("vercel", "api_token"),
+      "test-vercel-token",
+    );
 
     const result = await broker.serverUse({
       service: "vercel",
@@ -223,7 +238,10 @@ describe("CredentialBroker.serverUse", () => {
       allowedTools: ["publish_page"],
       allowedDomains: [],
     });
-    setSecureKey(credentialKey("vercel", "api_token"), "test-vercel-token");
+    await setSecureKeyAsync(
+      credentialKey("vercel", "api_token"),
+      "test-vercel-token",
+    );
 
     const result = await broker.serverUse({
       service: "vercel",
@@ -248,7 +266,7 @@ describe("CredentialBroker.serverUse", () => {
       upsertCredentialMetadata("aws", "access_key", {
         allowedTools: ["deploy_lambda", "s3_upload"],
       });
-      setSecureKey(credentialKey("aws", "access_key"), "AKIA_test");
+      await setSecureKeyAsync(credentialKey("aws", "access_key"), "AKIA_test");
 
       const result = await broker.serverUse({
         service: "aws",
@@ -271,7 +289,10 @@ describe("CredentialBroker.serverUse", () => {
       upsertCredentialMetadata("stripe", "secret_key", {
         allowedTools: [],
       });
-      setSecureKey(credentialKey("stripe", "secret_key"), "sk_test_xyz");
+      await setSecureKeyAsync(
+        credentialKey("stripe", "secret_key"),
+        "sk_test_xyz",
+      );
 
       const result = await broker.serverUse({
         service: "stripe",
@@ -292,7 +313,10 @@ describe("CredentialBroker.serverUse", () => {
         allowedTools: ["git_push"],
         allowedDomains: ["github.com"],
       });
-      setSecureKey(credentialKey("github", "oauth_token"), "gho_test");
+      await setSecureKeyAsync(
+        credentialKey("github", "oauth_token"),
+        "gho_test",
+      );
 
       const result = await broker.serverUse({
         service: "github",
@@ -323,7 +347,10 @@ describe("CredentialBroker.serverUse", () => {
       upsertCredentialMetadata("vercel", "api_token", {
         allowedTools: ["publish_page", "unpublish_page"],
       });
-      setSecureKey(credentialKey("vercel", "api_token"), "tok_updated");
+      await setSecureKeyAsync(
+        credentialKey("vercel", "api_token"),
+        "tok_updated",
+      );
 
       const result = await broker.serverUse({
         service: "vercel",
@@ -343,8 +370,11 @@ describe("CredentialBroker.serverUse", () => {
       upsertCredentialMetadata("vercel", "deploy_hook", {
         allowedTools: ["trigger_deploy"],
       });
-      setSecureKey(credentialKey("vercel", "api_token"), "tok_api");
-      setSecureKey(credentialKey("vercel", "deploy_hook"), "hook_secret");
+      await setSecureKeyAsync(credentialKey("vercel", "api_token"), "tok_api");
+      await setSecureKeyAsync(
+        credentialKey("vercel", "deploy_hook"),
+        "hook_secret",
+      );
 
       // api_token should deny trigger_deploy
       const r1 = await broker.serverUse({
@@ -371,18 +401,18 @@ describe("CredentialBroker.serverUse", () => {
       expect(r2.result).toBe("triggered");
     });
 
-    test("different services with same field name are independent (serverUseById)", () => {
+    test("different services with same field name are independent (serverUseById)", async () => {
       const meta1 = upsertCredentialMetadata("github", "api_token", {
         allowedTools: ["github_api"],
       });
       upsertCredentialMetadata("gitlab", "api_token", {
         allowedTools: ["gitlab_api"],
       });
-      setSecureKey(credentialKey("github", "api_token"), "gh_tok");
-      setSecureKey(credentialKey("gitlab", "api_token"), "gl_tok");
+      await setSecureKeyAsync(credentialKey("github", "api_token"), "gh_tok");
+      await setSecureKeyAsync(credentialKey("gitlab", "api_token"), "gl_tok");
 
       // github credential should not serve gitlab tool
-      const r1 = broker.serverUseById({
+      const r1 = await broker.serverUseById({
         credentialId: meta1.credentialId,
         requestingTool: "gitlab_api",
       });
@@ -396,8 +426,8 @@ describe("CredentialBroker.serverUse", () => {
       upsertCredentialMetadata("gitlab", "api_token", {
         allowedTools: ["gitlab_api"],
       });
-      setSecureKey(credentialKey("github", "api_token"), "gh_tok");
-      setSecureKey(credentialKey("gitlab", "api_token"), "gl_tok");
+      await setSecureKeyAsync(credentialKey("github", "api_token"), "gh_tok");
+      await setSecureKeyAsync(credentialKey("gitlab", "api_token"), "gl_tok");
 
       // github credential should not serve gitlab tool
       const r1 = await broker.serverUse({
@@ -447,7 +477,7 @@ describe("CredentialBroker.serverUseById", () => {
     rmSync(TEST_DIR, { recursive: true, force: true });
   });
 
-  test("returns metadata and injection templates for valid credential", () => {
+  test("returns metadata and injection templates for valid credential", async () => {
     const meta = upsertCredentialMetadata("fal", "api_key", {
       allowedTools: ["media_proxy"],
       injectionTemplates: [
@@ -459,9 +489,9 @@ describe("CredentialBroker.serverUseById", () => {
         },
       ],
     });
-    setSecureKey(credentialKey("fal", "api_key"), "fal-secret-key");
+    await setSecureKeyAsync(credentialKey("fal", "api_key"), "fal-secret-key");
 
-    const result = broker.serverUseById({
+    const result = await broker.serverUseById({
       credentialId: meta.credentialId,
       requestingTool: "media_proxy",
     });
@@ -480,13 +510,13 @@ describe("CredentialBroker.serverUseById", () => {
     expect(serialized).not.toContain("fal-secret-key");
   });
 
-  test("denies when requesting tool is not in allowed list", () => {
+  test("denies when requesting tool is not in allowed list", async () => {
     const meta = upsertCredentialMetadata("fal", "api_key", {
       allowedTools: ["media_proxy"],
     });
-    setSecureKey(credentialKey("fal", "api_key"), "fal-secret-key");
+    await setSecureKeyAsync(credentialKey("fal", "api_key"), "fal-secret-key");
 
-    const result = broker.serverUseById({
+    const result = await broker.serverUseById({
       credentialId: meta.credentialId,
       requestingTool: "unauthorized_tool",
     });
@@ -498,8 +528,8 @@ describe("CredentialBroker.serverUseById", () => {
     expect(result.reason).toContain("media_proxy");
   });
 
-  test("returns not found for unknown credential ID", () => {
-    const result = broker.serverUseById({
+  test("returns not found for unknown credential ID", async () => {
+    const result = await broker.serverUseById({
       credentialId: "nonexistent-id",
       requestingTool: "media_proxy",
     });
@@ -510,14 +540,14 @@ describe("CredentialBroker.serverUseById", () => {
     expect(result.reason).toContain("nonexistent-id");
   });
 
-  test("denies when credential has domain restrictions", () => {
+  test("denies when credential has domain restrictions", async () => {
     const meta = upsertCredentialMetadata("github", "oauth_token", {
       allowedTools: ["media_proxy"],
       allowedDomains: ["github.com"],
     });
-    setSecureKey(credentialKey("github", "oauth_token"), "gho_test");
+    await setSecureKeyAsync(credentialKey("github", "oauth_token"), "gho_test");
 
-    const result = broker.serverUseById({
+    const result = await broker.serverUseById({
       credentialId: meta.credentialId,
       requestingTool: "media_proxy",
     });
@@ -528,13 +558,16 @@ describe("CredentialBroker.serverUseById", () => {
     expect(result.reason).toContain("cannot be used server-side");
   });
 
-  test("returns empty injection templates when credential has none", () => {
+  test("returns empty injection templates when credential has none", async () => {
     const meta = upsertCredentialMetadata("vercel", "api_token", {
       allowedTools: ["media_proxy"],
     });
-    setSecureKey(credentialKey("vercel", "api_token"), "test-vercel-token");
+    await setSecureKeyAsync(
+      credentialKey("vercel", "api_token"),
+      "test-vercel-token",
+    );
 
-    const result = broker.serverUseById({
+    const result = await broker.serverUseById({
       credentialId: meta.credentialId,
       requestingTool: "media_proxy",
     });
@@ -544,13 +577,16 @@ describe("CredentialBroker.serverUseById", () => {
     expect(result.injectionTemplates).toEqual([]);
   });
 
-  test("denies with empty allowedTools and suggests updating credential", () => {
+  test("denies with empty allowedTools and suggests updating credential", async () => {
     const meta = upsertCredentialMetadata("stripe", "secret_key", {
       allowedTools: [],
     });
-    setSecureKey(credentialKey("stripe", "secret_key"), "sk_test_xyz");
+    await setSecureKeyAsync(
+      credentialKey("stripe", "secret_key"),
+      "sk_test_xyz",
+    );
 
-    const result = broker.serverUseById({
+    const result = await broker.serverUseById({
       credentialId: meta.credentialId,
       requestingTool: "media_proxy",
     });
@@ -561,7 +597,7 @@ describe("CredentialBroker.serverUseById", () => {
     expect(result.reason).toContain("credential_store");
   });
 
-  test("denies when metadata exists but no stored secret value", () => {
+  test("denies when metadata exists but no stored secret value", async () => {
     const meta = upsertCredentialMetadata("fal", "api_key", {
       allowedTools: ["media_proxy"],
       injectionTemplates: [
@@ -573,9 +609,9 @@ describe("CredentialBroker.serverUseById", () => {
         },
       ],
     });
-    // No setSecureKey — metadata exists but value doesn't
+    // No setSecureKeyAsync — metadata exists but value doesn't
 
-    const result = broker.serverUseById({
+    const result = await broker.serverUseById({
       credentialId: meta.credentialId,
       requestingTool: "media_proxy",
     });

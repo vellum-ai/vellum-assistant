@@ -140,7 +140,7 @@ const EXTRACTION_TOOL = {
 export async function extractPreferences(
   message: string,
 ): Promise<ExtractionResult> {
-  const provider = getConfiguredProvider();
+  const provider = await getConfiguredProvider();
   if (!provider) {
     log.debug("No provider available for preference extraction");
     return { detected: false, preferences: [] };

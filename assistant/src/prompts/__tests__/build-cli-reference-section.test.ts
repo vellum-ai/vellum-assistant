@@ -29,7 +29,7 @@ describe("buildCliReferenceSection", () => {
 
   test("mentions bash as the way to invoke the CLI", () => {
     const result = buildCliReferenceSection();
-    expect(result).toContain("available via `bash`");
+    expect(result).toContain("use the `bash` tool");
   });
 
   test("routes account and auth work through documented assistant CLI commands", () => {
@@ -38,7 +38,9 @@ describe("buildCliReferenceSection", () => {
       "prefer real `assistant` CLI workflows over any legacy account-record abstraction",
     );
     expect(result).toContain("assistant credentials");
-    expect(result).toContain("assistant oauth token <service>");
+    expect(result).toContain(
+      "assistant oauth connections token <provider-key>",
+    );
     expect(result).toContain("assistant mcp auth <name>");
     expect(result).toContain("assistant platform status");
   });

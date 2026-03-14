@@ -23,16 +23,37 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+const mockDeleteSecureKeyAsync = mock(
+  (): Promise<"deleted" | "not-found" | "error"> =>
+    Promise.resolve("deleted" as const),
+);
+const mockSetSecureKeyAsync = mock(() => Promise.resolve(true));
+/** Simulated secure key store for getSecureKeyAsync lookups. */
+const secureKeyValues = new Map<string, string>();
+mock.module("../security/secure-keys.js", () => ({
+  deleteSecureKeyAsync: mockDeleteSecureKeyAsync,
+  setSecureKeyAsync: mockSetSecureKeyAsync,
+  getSecureKeyAsync: (account: string) =>
+    Promise.resolve(secureKeyValues.get(account)),
+}));
+
+import { eq } from "drizzle-orm";
+
 import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
+import { oauthProviders } from "../memory/schema/oauth.js";
 import {
   createConnection,
   deleteApp,
   deleteConnection,
+  disconnectOAuthProvider,
   getApp,
   getAppByProviderAndClientId,
   getConnection,
   getConnectionByProvider,
+  getConnectionByProviderAndAccount,
   getProvider,
+  isProviderConnected,
+  listActiveConnectionsByProvider,
   listConnections,
   registerProvider,
   seedProviders,
@@ -56,9 +77,9 @@ function seedTestProvider(providerKey = "github"): void {
 }
 
 /** Create an app linked to the given provider. Returns the app row. */
-function createTestApp(providerKey = "github", clientId = "client-1") {
+async function createTestApp(providerKey = "github", clientId = "client-1") {
   seedTestProvider(providerKey);
-  return upsertApp(providerKey, clientId);
+  return await upsertApp(providerKey, clientId);
 }
 
 beforeEach(() => {
@@ -67,6 +88,9 @@ beforeEach(() => {
   // Explicitly clear all OAuth tables to prevent cross-test state pollution.
   // Delete in FK-dependency order: connections → apps → providers.
   resetTestTables("oauth_connections", "oauth_apps", "oauth_providers");
+  mockDeleteSecureKeyAsync.mockClear();
+  mockSetSecureKeyAsync.mockClear();
+  secureKeyValues.clear();
 });
 
 afterAll(() => {
@@ -119,7 +143,7 @@ describe("provider operations", () => {
       });
     });
 
-    test("does not overwrite existing provider rows", () => {
+    test("updates implementation fields while preserving user-customizable fields on re-seed", () => {
       seedProviders([
         {
           providerKey: "github",
@@ -127,16 +151,16 @@ describe("provider operations", () => {
           tokenUrl: "https://github.com/login/oauth/access_token",
           defaultScopes: ["repo"],
           scopePolicy: {},
+          baseUrl: "https://api.github.com",
         },
       ]);
 
-      // Manually update the provider's authUrl via raw SQL
-      const db = getDb();
-      db.run(
-        "UPDATE oauth_providers SET auth_url = 'https://custom.example.com/auth' WHERE provider_key = 'github'",
-      );
+      const original = getProvider("github");
+      expect(original).toBeDefined();
+      expect(original!.baseUrl).toBe("https://api.github.com");
+      const originalCreatedAt = original!.createdAt;
 
-      // Re-seed with different values
+      // Re-seed with corrected values (simulates a code fix deployed on upgrade)
       seedProviders([
         {
           providerKey: "github",
@@ -144,13 +168,138 @@ describe("provider operations", () => {
           tokenUrl: "https://github.com/login/oauth/access_token-v2",
           defaultScopes: ["repo", "user"],
           scopePolicy: { required: ["repo"] },
+          baseUrl: "https://api.github.com/v2",
         },
       ]);
 
-      // The manual update should persist (seed did not overwrite)
       const row = getProvider("github");
       expect(row).toBeDefined();
-      expect(row!.authUrl).toBe("https://custom.example.com/auth");
+      // Implementation fields should be overwritten by the re-seed
+      expect(row!.authUrl).toBe("https://github.com/login/oauth/authorize-v2");
+      expect(row!.tokenUrl).toBe(
+        "https://github.com/login/oauth/access_token-v2",
+      );
+      // User-customizable fields (baseUrl, defaultScopes, scopePolicy) are
+      // preserved from the original insert — not overwritten on re-seed.
+      expect(row!.baseUrl).toBe("https://api.github.com");
+      expect(JSON.parse(row!.defaultScopes)).toEqual(["repo"]);
+      expect(JSON.parse(row!.scopePolicy)).toEqual({});
+      // createdAt should be preserved from the original insert
+      expect(row!.createdAt).toBe(originalCreatedAt);
+    });
+
+    test("persists pingUrl when provided", () => {
+      seedProviders([
+        {
+          providerKey: "github",
+          authUrl: "https://github.com/authorize",
+          tokenUrl: "https://github.com/token",
+          defaultScopes: ["repo"],
+          scopePolicy: {},
+          pingUrl: "https://api.github.com/user",
+        },
+      ]);
+      const row = getProvider("github");
+      expect(row!.pingUrl).toBe("https://api.github.com/user");
+    });
+
+    test("pingUrl defaults to null when omitted", () => {
+      seedProviders([
+        {
+          providerKey: "github",
+          authUrl: "https://github.com/authorize",
+          tokenUrl: "https://github.com/token",
+          defaultScopes: ["repo"],
+          scopePolicy: {},
+        },
+      ]);
+      const row = getProvider("github");
+      expect(row!.pingUrl).toBeNull();
+    });
+
+    test("preserves user-customizable fields while overwriting implementation fields on re-seed", () => {
+      // Initial seed with all fields
+      seedProviders([
+        {
+          providerKey: "github",
+          authUrl: "https://github.com/authorize",
+          tokenUrl: "https://github.com/token",
+          tokenEndpointAuthMethod: "client_secret_post",
+          defaultScopes: ["repo"],
+          scopePolicy: { required: ["repo"] },
+          userinfoUrl: "https://api.github.com/user",
+          baseUrl: "https://api.github.com",
+          extraParams: { prompt: "consent" },
+          callbackTransport: "loopback",
+
+          pingUrl: "https://api.github.com/user",
+        },
+      ]);
+
+      // Manually update user-customizable fields to simulate user edits
+      const db = getDb();
+      db.update(oauthProviders)
+        .set({
+          defaultScopes: JSON.stringify(["repo", "user", "gist"]),
+          scopePolicy: JSON.stringify({
+            required: ["repo"],
+            allowAdditionalScopes: true,
+          }),
+          userinfoUrl: "https://api.github.com/user/custom",
+          baseUrl: "https://custom.github.com/api",
+        })
+        .where(eq(oauthProviders.providerKey, "github"))
+        .run();
+
+      // Verify the manual updates took effect
+      const beforeReseed = getProvider("github");
+      expect(JSON.parse(beforeReseed!.defaultScopes)).toEqual([
+        "repo",
+        "user",
+        "gist",
+      ]);
+      expect(beforeReseed!.userinfoUrl).toBe(
+        "https://api.github.com/user/custom",
+      );
+      expect(beforeReseed!.baseUrl).toBe("https://custom.github.com/api");
+
+      // Re-seed with updated implementation fields
+      seedProviders([
+        {
+          providerKey: "github",
+          authUrl: "https://github.com/authorize-v2",
+          tokenUrl: "https://github.com/token-v2",
+          tokenEndpointAuthMethod: "client_secret_basic",
+          defaultScopes: ["repo-only"],
+          scopePolicy: {},
+          userinfoUrl: "https://api.github.com/user-v2",
+          baseUrl: "https://api.github.com/v2",
+          extraParams: { prompt: "login" },
+          callbackTransport: "gateway",
+
+          pingUrl: "https://api.github.com/user-v2",
+        },
+      ]);
+
+      const row = getProvider("github");
+      expect(row).toBeDefined();
+
+      // User-customizable fields should retain their manual values
+      expect(JSON.parse(row!.defaultScopes)).toEqual(["repo", "user", "gist"]);
+      expect(JSON.parse(row!.scopePolicy)).toEqual({
+        required: ["repo"],
+        allowAdditionalScopes: true,
+      });
+      expect(row!.userinfoUrl).toBe("https://api.github.com/user/custom");
+      expect(row!.baseUrl).toBe("https://custom.github.com/api");
+
+      // Implementation fields should be overwritten from the seed data
+      expect(row!.authUrl).toBe("https://github.com/authorize-v2");
+      expect(row!.tokenUrl).toBe("https://github.com/token-v2");
+      expect(row!.tokenEndpointAuthMethod).toBe("client_secret_basic");
+      expect(JSON.parse(row!.extraParams!)).toEqual({ prompt: "login" });
+      expect(row!.callbackTransport).toBe("gateway");
+      expect(row!.pingUrl).toBe("https://api.github.com/user-v2");
     });
   });
 
@@ -164,7 +313,6 @@ describe("provider operations", () => {
           defaultScopes: ["repo"],
           scopePolicy: {},
           callbackTransport: "loopback",
-          loopbackPort: 8765,
         },
       ]);
 
@@ -172,7 +320,6 @@ describe("provider operations", () => {
       expect(row).toBeDefined();
       expect(row!.providerKey).toBe("github");
       expect(row!.callbackTransport).toBe("loopback");
-      expect(row!.loopbackPort).toBe(8765);
     });
 
     test("returns undefined for unknown keys", () => {
@@ -226,9 +373,9 @@ describe("provider operations", () => {
 
 describe("app operations", () => {
   describe("upsertApp", () => {
-    test("creates a new app and returns it with a UUID", () => {
+    test("creates a new app and returns it with a UUID", async () => {
       seedTestProvider("github");
-      const app = upsertApp("github", "client-abc");
+      const app = await upsertApp("github", "client-abc");
 
       expect(app.id).toBeTruthy();
       // UUID v4 format check
@@ -241,19 +388,121 @@ describe("app operations", () => {
       expect(app.updatedAt).toBeGreaterThan(0);
     });
 
-    test("returns the existing app when called again with same (providerKey, clientId)", () => {
+    test("returns the existing app when called again with same (providerKey, clientId)", async () => {
       seedTestProvider("github");
-      const first = upsertApp("github", "client-abc");
-      const second = upsertApp("github", "client-abc");
+      const first = await upsertApp("github", "client-abc");
+      const second = await upsertApp("github", "client-abc");
 
       expect(second.id).toBe(first.id);
       expect(second.createdAt).toBe(first.createdAt);
     });
+
+    test("stores clientSecret in secure storage on new app creation", async () => {
+      seedTestProvider("github");
+      const app = await upsertApp("github", "client-abc", {
+        clientSecretValue: "my-secret",
+      });
+
+      expect(mockSetSecureKeyAsync).toHaveBeenCalledTimes(1);
+      expect(mockSetSecureKeyAsync).toHaveBeenCalledWith(
+        `oauth_app/${app.id}/client_secret`,
+        "my-secret",
+      );
+      expect(app.clientSecretCredentialPath).toBe(
+        `oauth_app/${app.id}/client_secret`,
+      );
+    });
+
+    test("stores clientSecret in secure storage when upserting an existing app", async () => {
+      seedTestProvider("github");
+      const first = await upsertApp("github", "client-abc");
+      mockSetSecureKeyAsync.mockClear();
+
+      await upsertApp("github", "client-abc", {
+        clientSecretValue: "updated-secret",
+      });
+
+      expect(mockSetSecureKeyAsync).toHaveBeenCalledTimes(1);
+      expect(mockSetSecureKeyAsync).toHaveBeenCalledWith(
+        first.clientSecretCredentialPath,
+        "updated-secret",
+      );
+    });
+
+    test("throws when setSecureKeyAsync returns false", async () => {
+      seedTestProvider("github");
+      mockSetSecureKeyAsync.mockResolvedValueOnce(false);
+
+      await expect(
+        upsertApp("github", "client-abc", { clientSecretValue: "bad-secret" }),
+      ).rejects.toThrow("Failed to store client_secret in secure storage");
+    });
+
+    test("accepts clientSecretCredentialPath and verifies existence", async () => {
+      seedTestProvider("github");
+      secureKeyValues.set("custom/path", "stored-secret");
+
+      const app = await upsertApp("github", "client-abc", {
+        clientSecretCredentialPath: "custom/path",
+      });
+
+      expect(app.clientSecretCredentialPath).toBe("custom/path");
+      // Should not have called setSecureKeyAsync since we only provided a path
+      expect(mockSetSecureKeyAsync).not.toHaveBeenCalled();
+    });
+
+    test("throws when clientSecretCredentialPath points to nonexistent secret", async () => {
+      seedTestProvider("github");
+
+      await expect(
+        upsertApp("github", "client-abc", {
+          clientSecretCredentialPath: "nonexistent/path",
+        }),
+      ).rejects.toThrow("No secret found at credential path: nonexistent/path");
+    });
+
+    test("throws when both clientSecretValue and clientSecretCredentialPath are provided", async () => {
+      seedTestProvider("github");
+
+      await expect(
+        upsertApp("github", "client-abc", {
+          clientSecretValue: "my-secret",
+          clientSecretCredentialPath: "custom/path",
+        }),
+      ).rejects.toThrow(
+        "Cannot provide both clientSecretValue and clientSecretCredentialPath",
+      );
+    });
+
+    test("records default clientSecretCredentialPath when neither value nor path is provided", async () => {
+      seedTestProvider("github");
+      const app = await upsertApp("github", "client-abc");
+
+      expect(app.clientSecretCredentialPath).toBe(
+        `oauth_app/${app.id}/client_secret`,
+      );
+    });
+
+    test("updates clientSecretCredentialPath on existing row when path is provided", async () => {
+      seedTestProvider("github");
+      const first = await upsertApp("github", "client-abc");
+      expect(first.clientSecretCredentialPath).toBe(
+        `oauth_app/${first.id}/client_secret`,
+      );
+
+      secureKeyValues.set("new/custom/path", "stored-secret");
+      const updated = await upsertApp("github", "client-abc", {
+        clientSecretCredentialPath: "new/custom/path",
+      });
+
+      expect(updated.id).toBe(first.id);
+      expect(updated.clientSecretCredentialPath).toBe("new/custom/path");
+    });
   });
 
   describe("getApp", () => {
-    test("returns the correct row by id", () => {
-      const app = createTestApp("github", "client-1");
+    test("returns the correct row by id", async () => {
+      const app = await createTestApp("github", "client-1");
       const fetched = getApp(app.id);
 
       expect(fetched).toBeDefined();
@@ -268,8 +517,8 @@ describe("app operations", () => {
   });
 
   describe("getAppByProviderAndClientId", () => {
-    test("returns the correct row", () => {
-      const app = createTestApp("github", "client-1");
+    test("returns the correct row", async () => {
+      const app = await createTestApp("github", "client-1");
       const fetched = getAppByProviderAndClientId("github", "client-1");
 
       expect(fetched).toBeDefined();
@@ -284,16 +533,54 @@ describe("app operations", () => {
   });
 
   describe("deleteApp", () => {
-    test("removes the row and returns true", () => {
-      const app = createTestApp("github", "client-1");
-      const deleted = deleteApp(app.id);
+    test("removes the row and returns true", async () => {
+      const app = await createTestApp("github", "client-1");
+      const deleted = await deleteApp(app.id);
 
       expect(deleted).toBe(true);
       expect(getApp(app.id)).toBeUndefined();
     });
 
-    test("returns false for nonexistent id", () => {
-      expect(deleteApp("nonexistent-id")).toBe(false);
+    test("cleans up client_secret from secure storage using stored path", async () => {
+      const app = await createTestApp("github", "client-1");
+      mockDeleteSecureKeyAsync.mockClear();
+
+      await deleteApp(app.id);
+
+      expect(mockDeleteSecureKeyAsync).toHaveBeenCalledWith(
+        app.clientSecretCredentialPath,
+      );
+    });
+
+    test("uses custom clientSecretCredentialPath when deleting", async () => {
+      seedTestProvider("github");
+      secureKeyValues.set("custom/secret/path", "the-secret");
+      const app = await upsertApp("github", "client-1", {
+        clientSecretCredentialPath: "custom/secret/path",
+      });
+      mockDeleteSecureKeyAsync.mockClear();
+
+      await deleteApp(app.id);
+
+      expect(mockDeleteSecureKeyAsync).toHaveBeenCalledWith(
+        "custom/secret/path",
+      );
+    });
+
+    test("returns false for nonexistent id", async () => {
+      expect(await deleteApp("nonexistent-id")).toBe(false);
+    });
+
+    test("throws when deleteSecureKeyAsync returns error", async () => {
+      const app = await createTestApp("github", "client-1");
+      mockDeleteSecureKeyAsync.mockResolvedValueOnce("error");
+
+      await expect(deleteApp(app.id)).rejects.toThrow(
+        /failed to remove client_secret from secure storage/i,
+      );
+
+      // DB row should already be deleted (delete happens before secure key cleanup)
+      expect(getApp(app.id)).toBeUndefined();
     });
   });
 });
@@ -304,8 +591,8 @@ describe("app operations", () => {
 
 describe("connection operations", () => {
   describe("createConnection", () => {
-    test("creates a row with status='active'", () => {
-      const app = createTestApp("github", "client-1");
+    test("creates a row with status='active'", async () => {
+      const app = await createTestApp("github", "client-1");
       const conn = createConnection({
         oauthAppId: app.id,
         providerKey: "github",
@@ -330,8 +617,8 @@ describe("connection operations", () => {
   });
 
   describe("getConnection", () => {
-    test("returns the correct row", () => {
-      const app = createTestApp("github", "client-1");
+    test("returns the correct row", async () => {
+      const app = await createTestApp("github", "client-1");
       const conn = createConnection({
         oauthAppId: app.id,
         providerKey: "github",
@@ -351,8 +638,8 @@ describe("connection operations", () => {
   });
 
   describe("getConnectionByProvider", () => {
-    test("returns the most recent active connection", () => {
-      const app = createTestApp("github", "client-1");
+    test("returns the most recent active connection", async () => {
+      const app = await createTestApp("github", "client-1");
 
       // Create two connections with explicit timestamps so ordering is deterministic
       createConnection({
@@ -376,8 +663,8 @@ describe("connection operations", () => {
       expect(result!.id).toBe(conn2.id);
     });
 
-    test("skips connections with status='revoked'", () => {
-      const app = createTestApp("github", "client-1");
+    test("skips connections with status='revoked'", async () => {
+      const app = await createTestApp("github", "client-1");
 
       const conn1 = createConnection({
         oauthAppId: app.id,
@@ -401,8 +688,8 @@ describe("connection operations", () => {
       expect(result!.id).toBe(conn1.id);
     });
 
-    test("skips connections with status='expired'", () => {
-      const app = createTestApp("github", "client-1");
+    test("skips connections with status='expired'", async () => {
+      const app = await createTestApp("github", "client-1");
 
       const conn = createConnection({
         oauthAppId: app.id,
@@ -422,9 +709,196 @@ describe("connection operations", () => {
     });
   });
 
+  describe("getConnectionByProviderAndAccount", () => {
+    test("returns the connection matching the given account", async () => {
+      const app = await createTestApp("github", "client-1");
+
+      const conn1 = createConnection({
+        oauthAppId: app.id,
+        providerKey: "github",
+        accountInfo: "user1@example.com",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+        createdAt: 1000,
+      });
+
+      createConnection({
+        oauthAppId: app.id,
+        providerKey: "github",
+        accountInfo: "user2@example.com",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+        createdAt: 2000,
+      });
+
+      const result = getConnectionByProviderAndAccount(
+        "github",
+        "user1@example.com",
+      );
+      expect(result).toBeDefined();
+      expect(result!.id).toBe(conn1.id);
+    });
+
+    test("falls back to getConnectionByProvider when accountInfo is undefined", async () => {
+      const app = await createTestApp("github", "client-1");
+
+      const conn = createConnection({
+        oauthAppId: app.id,
+        providerKey: "github",
+        accountInfo: "user@example.com",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+      });
+
+      const result = getConnectionByProviderAndAccount("github", undefined);
+      expect(result).toBeDefined();
+      expect(result!.id).toBe(conn.id);
+    });
+
+    test("returns undefined when no connection matches the account", async () => {
+      const app = await createTestApp("github", "client-1");
+
+      createConnection({
+        oauthAppId: app.id,
+        providerKey: "github",
+        accountInfo: "user@example.com",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+      });
+
+      const result = getConnectionByProviderAndAccount(
+        "github",
+        "other@example.com",
+      );
+      expect(result).toBeUndefined();
+    });
+
+    test("skips revoked connections", async () => {
+      const app = await createTestApp("github", "client-1");
+
+      const conn = createConnection({
+        oauthAppId: app.id,
+        providerKey: "github",
+        accountInfo: "user@example.com",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+      });
+      updateConnection(conn.id, { status: "revoked" });
+
+      const result = getConnectionByProviderAndAccount(
+        "github",
+        "user@example.com",
+      );
+      expect(result).toBeUndefined();
+    });
+  });
+
+  describe("listActiveConnectionsByProvider", () => {
+    test("returns all active connections for a provider", async () => {
+      const app = await createTestApp("github", "client-1");
+
+      createConnection({
+        oauthAppId: app.id,
+        providerKey: "github",
+        accountInfo: "user1@example.com",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+      });
+
+      createConnection({
+        oauthAppId: app.id,
+        providerKey: "github",
+        accountInfo: "user2@example.com",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+      });
+
+      const results = listActiveConnectionsByProvider("github");
+      expect(results).toHaveLength(2);
+    });
+
+    test("excludes revoked connections", async () => {
+      const app = await createTestApp("github", "client-1");
+
+      createConnection({
+        oauthAppId: app.id,
+        providerKey: "github",
+        accountInfo: "user1@example.com",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+      });
+
+      const conn2 = createConnection({
+        oauthAppId: app.id,
+        providerKey: "github",
+        accountInfo: "user2@example.com",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+      });
+      updateConnection(conn2.id, { status: "revoked" });
+
+      const results = listActiveConnectionsByProvider("github");
+      expect(results).toHaveLength(1);
+      expect(results[0]!.accountInfo).toBe("user1@example.com");
+    });
+
+    test("returns empty array when no active connections exist", () => {
+      const results = listActiveConnectionsByProvider("github");
+      expect(results).toHaveLength(0);
+    });
+  });
+
+  describe("isProviderConnected", () => {
+    test("returns true when active connection has an access token in secure storage", async () => {
+      const app = await createTestApp("github", "client-1");
+      const conn = createConnection({
+        oauthAppId: app.id,
+        providerKey: "github",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+      });
+
+      secureKeyValues.set(`oauth_connection/${conn.id}/access_token`, "tok");
+
+      expect(await isProviderConnected("github")).toBe(true);
+    });
+
+    test("returns false when active connection exists but access token is missing", async () => {
+      const app = await createTestApp("github", "client-1");
+      createConnection({
+        oauthAppId: app.id,
+        providerKey: "github",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+      });
+
+      // No secure key set — simulates failed token write
+      expect(await isProviderConnected("github")).toBe(false);
+    });
+
+    test("returns false when no connection exists", async () => {
+      expect(await isProviderConnected("github")).toBe(false);
+    });
+
+    test("returns false when connection is revoked even with token in store", async () => {
+      const app = await createTestApp("github", "client-1");
+      const conn = createConnection({
+        oauthAppId: app.id,
+        providerKey: "github",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+      });
+
+      updateConnection(conn.id, { status: "revoked" });
+      secureKeyValues.set(`oauth_connection/${conn.id}/access_token`, "tok");
+
+      expect(await isProviderConnected("github")).toBe(false);
+    });
+  });
+
   describe("updateConnection", () => {
-    test("modifies specific fields", () => {
-      const app = createTestApp("github", "client-1");
+    test("modifies specific fields", async () => {
+      const app = await createTestApp("github", "client-1");
       const conn = createConnection({
         oauthAppId: app.id,
         providerKey: "github",
@@ -458,6 +932,27 @@ describe("connection operations", () => {
       expect(fetched!.updatedAt).toBeGreaterThanOrEqual(conn.createdAt);
     });
 
+    test("updates oauthAppId to a different app", async () => {
+      const app1 = await createTestApp("github", "client-1");
+      const app2 = await upsertApp("github", "client-2");
+
+      const conn = createConnection({
+        oauthAppId: app1.id,
+        providerKey: "github",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+      });
+
+      expect(getConnection(conn.id)!.oauthAppId).toBe(app1.id);
+
+      const updated = updateConnection(conn.id, { oauthAppId: app2.id });
+      expect(updated).toBe(true);
+
+      const fetched = getConnection(conn.id);
+      expect(fetched).toBeDefined();
+      expect(fetched!.oauthAppId).toBe(app2.id);
+    });
+
     test("returns false for nonexistent id", () => {
       expect(updateConnection("nonexistent-id", { status: "revoked" })).toBe(
         false,
@@ -466,10 +961,10 @@ describe("connection operations", () => {
   });
 
   describe("listConnections", () => {
-    test("returns all connections when no filter is given", () => {
-      const ghApp = createTestApp("github", "client-1");
+    test("returns all connections when no filter is given", async () => {
+      const ghApp = await createTestApp("github", "client-1");
       seedTestProvider("google");
-      const googApp = upsertApp("google", "client-2");
+      const googApp = await upsertApp("google", "client-2");
 
       createConnection({
         oauthAppId: ghApp.id,
@@ -488,10 +983,10 @@ describe("connection operations", () => {
       expect(all).toHaveLength(2);
     });
 
-    test("filters by provider key", () => {
-      const ghApp = createTestApp("github", "client-1");
+    test("filters by provider key", async () => {
+      const ghApp = await createTestApp("github", "client-1");
       seedTestProvider("google");
-      const googApp = upsertApp("google", "client-2");
+      const googApp = await upsertApp("google", "client-2");
 
       createConnection({
         oauthAppId: ghApp.id,
@@ -521,8 +1016,8 @@ describe("connection operations", () => {
   });
 
   describe("deleteConnection", () => {
-    test("removes the row and returns true", () => {
-      const app = createTestApp("github", "client-1");
+    test("removes the row and returns true", async () => {
+      const app = await createTestApp("github", "client-1");
       const conn = createConnection({
         oauthAppId: app.id,
         providerKey: "github",
@@ -542,12 +1037,51 @@ describe("connection operations", () => {
 });
 
 // ---------------------------------------------------------------------------
+// disconnectOAuthProvider
+// ---------------------------------------------------------------------------
+
+describe("disconnectOAuthProvider", () => {
+  test("returns 'not-found' when no connection exists for the provider", async () => {
+    const result = await disconnectOAuthProvider("github");
+    expect(result).toBe("not-found");
+    expect(mockDeleteSecureKeyAsync).not.toHaveBeenCalled();
+  });
+
+  test("returns 'disconnected' and deletes connection row and secure keys when connection exists", async () => {
+    const app = await createTestApp("github", "client-1");
+    const conn = createConnection({
+      oauthAppId: app.id,
+      providerKey: "github",
+      grantedScopes: ["repo"],
+      hasRefreshToken: true,
+    });
+
+    const result = await disconnectOAuthProvider("github");
+    expect(result).toBe("disconnected");
+
+    // Verify secure keys were deleted
+    expect(mockDeleteSecureKeyAsync).toHaveBeenCalledTimes(2);
+    expect(mockDeleteSecureKeyAsync).toHaveBeenCalledWith(
+      `oauth_connection/${conn.id}/access_token`,
+    );
+    expect(mockDeleteSecureKeyAsync).toHaveBeenCalledWith(
+      `oauth_connection/${conn.id}/refresh_token`,
+    );
+
+    // Verify connection row was deleted
+    expect(getConnection(conn.id)).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // FK constraint enforcement
 // ---------------------------------------------------------------------------
 
 describe("FK constraints", () => {
-  test("creating an app with a nonexistent provider_key fails", () => {
-    expect(() => upsertApp("nonexistent-provider", "client-1")).toThrow();
+  test("creating an app with a nonexistent provider_key fails", async () => {
+    await expect(
+      upsertApp("nonexistent-provider", "client-1"),
+    ).rejects.toThrow();
   });
 
   test("creating a connection with a nonexistent oauth_app_id fails", () => {

@@ -1,9 +1,11 @@
 import {
+  API_KEY_PROVIDERS,
   getConfig,
   loadRawConfig,
   saveRawConfig,
 } from "../../config/loader.js";
 import { initializeProviders } from "../../providers/registry.js";
+import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import type {
   ImageGenModelSetRequest,
   ModelSetRequest,
@@ -26,11 +28,14 @@ export interface ModelInfo {
 }
 
 /** Return current model configuration. */
-export function getModelInfo(): ModelInfo {
+export async function getModelInfo(): Promise<ModelInfo> {
   const config = getConfig();
-  const configured = Object.keys(config.apiKeys).filter(
-    (k) => !!config.apiKeys[k],
-  );
+  const configured: string[] = [];
+  for (const p of API_KEY_PROVIDERS) {
+    if (await getSecureKeyAsync(p)) {
+      configured.push(p);
+    }
+  }
   if (!configured.includes("ollama")) configured.push("ollama");
   return {
     model: config.model,
@@ -58,7 +63,10 @@ export interface ModelSetContext {
  * Set the active model. Returns the resulting ModelInfo, or throws on failure.
  * The caller is responsible for sending the response to the client.
  */
-export function setModel(modelId: string, ctx: ModelSetContext): ModelInfo {
+export async function setModel(
+  modelId: string,
+  ctx: ModelSetContext,
+): Promise<ModelInfo> {
   // If the requested model is already the current model AND the provider
   // is already aligned with what MODEL_TO_PROVIDER expects, skip expensive
   // reinitialization but still return model_info so the client confirms.
@@ -68,17 +76,16 @@ export function setModel(modelId: string, ctx: ModelSetContext): ModelInfo {
     const providerAligned =
       !expectedProvider || current.provider === expectedProvider;
     if (modelId === current.model && providerAligned) {
-      return getModelInfo();
+      return await getModelInfo();
     }
   }
 
   // Validate API key before switching
   const provider = MODEL_TO_PROVIDER[modelId];
   if (provider && provider !== "ollama") {
-    const currentConfig = getConfig();
-    if (!currentConfig.apiKeys[provider]) {
+    if (!(await getSecureKeyAsync(provider))) {
       // Return current model_info so the client resyncs its optimistic state
-      return getModelInfo();
+      return await getModelInfo();
     }
   }
 
@@ -109,7 +116,7 @@ export function setModel(modelId: string, ctx: ModelSetContext): ModelInfo {
 
   // Re-initialize provider with the new model so LLM calls use it
   const config = getConfig();
-  initializeProviders(config);
+  await initializeProviders(config);
 
   // Evict idle sessions immediately; mark busy ones as stale so they
   // get recreated with the new provider once they finish processing.
@@ -158,20 +165,20 @@ export function setImageGenModel(modelId: string, ctx: ModelSetContext): void {
 // HTTP handlers (delegate to shared logic)
 // ---------------------------------------------------------------------------
 
-export function handleModelGet(ctx: HandlerContext): void {
-  const info = getModelInfo();
+export async function handleModelGet(ctx: HandlerContext): Promise<void> {
+  const info = await getModelInfo();
   ctx.send({
     type: "model_info",
     ...info,
   });
 }
 
-export function handleModelSet(
+export async function handleModelSet(
   msg: ModelSetRequest,
   ctx: HandlerContext,
-): void {
+): Promise<void> {
   try {
-    const info = setModel(msg.model, ctx);
+    const info = await setModel(msg.model, ctx);
     ctx.send({ type: "model_info", ...info });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -193,4 +200,3 @@ export function handleImageGenModelSet(
     log.error({ err }, `Failed to set image gen model: ${message}`);
   }
 }
-

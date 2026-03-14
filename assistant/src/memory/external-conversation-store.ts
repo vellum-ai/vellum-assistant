@@ -177,16 +177,6 @@ export function getBindingByChannelChat(
 }
 
 /**
- * Remove an external binding for a conversation.
- */
-export function deleteBinding(conversationId: string): void {
-  const db = getDb();
-  db.delete(externalConversationBindings)
-    .where(eq(externalConversationBindings.conversationId, conversationId))
-    .run();
-}
-
-/**
  * Remove an external binding by channel + external chat ID.
  * Used when disconnecting a synced thread by its channel identifiers.
  */
@@ -203,26 +193,6 @@ export function deleteBindingByChannelChat(
       ),
     )
     .run();
-}
-
-/**
- * List all external bindings, optionally filtered by sourceChannel.
- */
-export function listBindings(options?: {
-  sourceChannel?: string;
-}): ExternalConversationBinding[] {
-  const db = getDb();
-  const query = db.select().from(externalConversationBindings);
-
-  if (options?.sourceChannel) {
-    return query
-      .where(
-        eq(externalConversationBindings.sourceChannel, options.sourceChannel),
-      )
-      .all();
-  }
-
-  return query.all();
 }
 
 /**

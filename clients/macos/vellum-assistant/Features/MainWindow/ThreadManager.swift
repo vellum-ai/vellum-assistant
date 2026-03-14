@@ -348,6 +348,29 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         log.info("Created private thread \(thread.id)")
     }
 
+    /// Remove a private (temporary) thread and delete its backend conversation.
+    /// Stops any active generation before cleanup.
+    func removePrivateThread(id: UUID) {
+        guard let index = threads.firstIndex(where: { $0.id == id && $0.kind == .private }) else { return }
+
+        let sessionId = threads[index].sessionId
+
+        // Stop generation and clean up local state
+        chatViewModels[id]?.stopGenerating()
+        threads.remove(at: index)
+        chatViewModels.removeValue(forKey: id)
+        unsubscribeAllForThread(id: id)
+        vmAccessOrder.removeAll { $0 == id }
+        Self.clearRenderCaches()
+
+        // Delete the conversation on the backend (fire-and-forget)
+        if let sessionId {
+            daemonClient.deleteConversation(sessionId)
+        }
+
+        log.info("Removed private thread \(id)")
+    }
+
     /// Create a visible thread bound to an existing task run conversation.
     /// Called when the daemon broadcasts `task_run_thread_created` so the user
     /// can see task execution messages streaming in real-time.
@@ -703,6 +726,77 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         if id != previousActiveId {
             markConversationSeen(threadId: id)
         }
+    }
+
+    /// Select a thread by its daemon conversation ID (sessionId).
+    /// Returns `true` if a matching thread was found and selected, `false` otherwise.
+    @discardableResult
+    func selectThreadBySessionId(_ sessionId: String) -> Bool {
+        guard let thread = threads.first(where: { $0.sessionId == sessionId }) else { return false }
+        selectThread(id: thread.id)
+        return true
+    }
+
+    /// Select a thread by session ID, fetching it on-demand from the server if not locally available.
+    /// Returns `true` if the thread was found (or fetched) and selected, `false` on failure.
+    func selectThreadBySessionIdAsync(_ sessionId: String) async -> Bool {
+        // Fast path: already loaded locally
+        if selectThreadBySessionId(sessionId) {
+            return true
+        }
+
+        // Slow path: fetch the conversation from the daemon and insert it locally
+        guard let session = await daemonClient.fetchConversationById(sessionId) else {
+            return false
+        }
+
+        // Re-check after await — another code path (e.g. SSE session-list response)
+        // may have inserted this thread while we were waiting on the network.
+        if selectThreadBySessionId(sessionId) {
+            return true
+        }
+
+        // Don't insert external-channel or private threads into the main sidebar
+        if session.threadType == "private" || session.channelBinding?.sourceChannel != nil {
+            return false
+        }
+
+        let effectiveCreatedAt = session.createdAt ?? session.updatedAt
+        let thread = ThreadModel(
+            title: session.title,
+            createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
+            sessionId: session.id,
+            isPinned: session.isPinned ?? false,
+            pinnedOrder: (session.isPinned ?? false) ? session.displayOrder.map { Int($0) } : nil,
+            displayOrder: session.displayOrder.map { Int($0) },
+            lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
+            kind: .standard,
+            source: session.source,
+            scheduleJobId: session.scheduleJobId,
+            hasUnseenLatestAssistantMessage: session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false,
+            latestAssistantMessageAt: session.assistantAttention?.latestAssistantMessageAt.map {
+                Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
+            },
+            lastSeenAssistantMessageAt: session.assistantAttention?.lastSeenAssistantMessageAt.map {
+                Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
+            }
+        )
+
+        let viewModel = makeViewModel()
+        viewModel.sessionId = session.id
+        // Leave isHistoryLoaded false so history is fetched when the thread activates
+        viewModel.startMessageLoop()
+
+        threads.insert(thread, at: 0)
+        chatViewModels[thread.id] = viewModel
+        subscribeToBusyState(for: thread.id, viewModel: viewModel)
+        subscribeToAssistantActivity(for: thread.id, viewModel: viewModel)
+        subscribeToInteractionState(for: thread.id, viewModel: viewModel)
+        touchVMAccessOrder(thread.id)
+        evictStaleCachedViewModels()
+
+        selectThread(id: thread.id)
+        return true
     }
 
     // MARK: - Render Cache Management

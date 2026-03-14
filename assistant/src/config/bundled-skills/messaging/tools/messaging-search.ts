@@ -17,8 +17,9 @@ export async function run(
   }
 
   try {
-    const provider = resolveProvider(platform);
-    const conn = getProviderConnection(provider);
+    const provider = await resolveProvider(platform);
+    const account = input.account as string | undefined;
+    const conn = await getProviderConnection(provider, account);
     const result = await provider.search(conn, query, { count: maxResults });
     return ok(JSON.stringify(result, null, 2));
   } catch (e) {

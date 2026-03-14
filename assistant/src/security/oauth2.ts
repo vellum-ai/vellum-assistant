@@ -45,7 +45,7 @@ export interface OAuth2Config {
    * How the client authenticates at the token endpoint when a clientSecret is present.
    * - `client_secret_post`: Send client_id and client_secret in the POST body (default).
    * - `client_secret_basic`: Send an HTTP Basic Auth header with base64(client_id:client_secret).
-   * Defaults to `client_secret_post` for backward compatibility.
+   * Defaults to `client_secret_post`.
    */
   tokenEndpointAuthMethod?: TokenEndpointAuthMethod;
 }
@@ -359,9 +359,9 @@ function startLoopbackServerAndWaitForCode(
       server.close();
     }
 
-    server.listen(loopbackPort ?? 0, "127.0.0.1", () => {
+    server.listen(loopbackPort ?? 0, "localhost", () => {
       const addr = server.address() as { port: number };
-      boundRedirectUri = `http://127.0.0.1:${addr.port}${LOOPBACK_CALLBACK_PATH}`;
+      boundRedirectUri = `http://localhost:${addr.port}${LOOPBACK_CALLBACK_PATH}`;
 
       const authParams = new URLSearchParams({
         ...config.extraParams,
@@ -420,18 +420,17 @@ export interface OAuth2PreparedFlow {
  * URL directly in chat and the callback arrives asynchronously via the gateway.
  *
  * Supports two transports:
- * - **gateway** (default): routes callbacks through the public ingress URL.
- *   Requires `ingress.publicBaseUrl` to be configured.
- * - **loopback**: starts a temporary localhost server to receive the callback.
- *   Used for services like Slack that require pre-registered localhost redirect
- *   URIs. The daemon is always local, so this works even in non-interactive
- *   (channel) sessions.
+ * - **loopback** (default): starts a temporary localhost server to receive the
+ *   callback. Works without any public URL or tunnel.
+ * - **gateway**: routes callbacks through the public ingress URL.
+ *   Requires `ingress.publicBaseUrl` to be configured. Used for providers that
+ *   don't support localhost redirects (e.g. Twitter, Notion).
  */
 export async function prepareOAuth2Flow(
   config: OAuth2Config,
   options?: OAuth2FlowOptions,
 ): Promise<OAuth2PreparedFlow> {
-  const transport = options?.callbackTransport ?? "gateway";
+  const transport = options?.callbackTransport ?? "loopback";
 
   if (transport === "loopback") {
     return prepareLoopbackFlow(config, options?.loopbackPort);
@@ -618,9 +617,9 @@ function startLoopbackServerForPreparedFlow(
       server.close();
     }
 
-    server.listen(loopbackPort ?? 0, "127.0.0.1", () => {
+    server.listen(loopbackPort ?? 0, "localhost", () => {
       const addr = server.address() as { port: number };
-      const redirectUri = `http://127.0.0.1:${addr.port}${LOOPBACK_CALLBACK_PATH}`;
+      const redirectUri = `http://localhost:${addr.port}${LOOPBACK_CALLBACK_PATH}`;
       listening = true;
       resolveSetup({ redirectUri, codePromise });
     });

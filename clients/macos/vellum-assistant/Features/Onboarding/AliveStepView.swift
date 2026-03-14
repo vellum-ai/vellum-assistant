@@ -24,12 +24,12 @@ struct AliveStepView: View {
             VStack(spacing: VSpacing.md) {
                 Text("\(state.assistantName.isEmpty ? "It" : state.assistantName) has hatched.")
                     .font(VFont.onboardingTitle)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .textSelection(.enabled)
 
                 Text("All set up and ready to help.")
                     .font(VFont.onboardingSubtitle)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .textSelection(.enabled)
             }
 
@@ -63,7 +63,7 @@ struct AliveStepView: View {
                 } label: {
                     Text("Open Settings first")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
@@ -73,7 +73,7 @@ struct AliveStepView: View {
             if state.anyPermissionDenied {
                 Text("Some abilities are limited \u{2014} you can enable them in Settings anytime.")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .multilineTextAlignment(.center)
                     .textSelection(.enabled)
                     .opacity(showButtons ? 1 : 0)
@@ -98,15 +98,15 @@ struct AliveStepView: View {
                 .font(VFont.captionMedium)
                 .textSelection(.enabled)
         }
-        .foregroundColor(VColor.textPrimary.opacity(0.8))
+        .foregroundColor(VColor.contentDefault.opacity(0.8))
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.sm)
         .background(
             Capsule()
-                .fill(VColor.surface.opacity(0.5))
+                .fill(VColor.surfaceBase.opacity(0.5))
                 .overlay(
                     Capsule()
-                        .stroke(VColor.surfaceBorder.opacity(0.4), lineWidth: 1)
+                        .stroke(VColor.borderBase.opacity(0.4), lineWidth: 1)
                 )
         )
     }

@@ -127,7 +127,6 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
-  isDebug: () => false,
   truncateForLog: (value: string, maxLen = 500) =>
     value.length > maxLen ? value.slice(0, maxLen) + "..." : value,
   initLogger: () => {},

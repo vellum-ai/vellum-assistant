@@ -88,6 +88,8 @@ export interface ReducerConfig {
   contextWindow: ContextWindowConfig;
   /** Target token budget — the reducer tries to get below this. */
   targetTokens: number;
+  /** Pre-computed tool token budget to include in estimations. */
+  toolTokenBudget?: number;
 }
 
 /**
@@ -143,6 +145,7 @@ export async function reduceContextOverflow(
   // All tiers exhausted
   const estimatedTokens = estimatePromptTokens(messages, config.systemPrompt, {
     providerName: config.providerName,
+    toolTokenBudget: config.toolTokenBudget,
   });
   return {
     messages,
@@ -175,6 +178,7 @@ async function applyForcedCompaction(
     ? result.estimatedInputTokens
     : estimatePromptTokens(messages, config.systemPrompt, {
         providerName: config.providerName,
+        toolTokenBudget: config.toolTokenBudget,
       });
 
   const nextApplied: ReducerTier[] = [...applied, "forced_compaction"];
@@ -205,7 +209,10 @@ function applyToolResultTruncation(
   const estimatedTokens = estimatePromptTokens(
     nextMessages,
     config.systemPrompt,
-    { providerName: config.providerName },
+    {
+      providerName: config.providerName,
+      toolTokenBudget: config.toolTokenBudget,
+    },
   );
 
   const nextApplied: ReducerTier[] = [...applied, "tool_result_truncation"];
@@ -242,7 +249,10 @@ function applyMediaStubbing(
   const estimatedTokens = estimatePromptTokens(
     nextMessages,
     config.systemPrompt,
-    { providerName: config.providerName },
+    {
+      providerName: config.providerName,
+      toolTokenBudget: config.toolTokenBudget,
+    },
   );
 
   const nextApplied: ReducerTier[] = [...applied, "media_stubbing"];
@@ -271,6 +281,7 @@ function applyInjectionDowngrade(
   // mode, which the caller applies via applyRuntimeInjections().
   const estimatedTokens = estimatePromptTokens(messages, config.systemPrompt, {
     providerName: config.providerName,
+    toolTokenBudget: config.toolTokenBudget,
   });
 
   const nextApplied: ReducerTier[] = [...applied, "injection_downgrade"];

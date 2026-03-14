@@ -80,10 +80,7 @@ export async function extractSessionFromChromeCookies(): Promise<AmazonSession> 
   // 3. Copy the Cookies DB to a temp file, then query the copy.
   //    Reading Chrome's live SQLite DB directly can interfere with Chrome's
   //    WAL journaling and cause session logouts. Copying first is safe.
-  const tmpCookiesDb = join(
-    tmpdir(),
-    `vellum-chrome-cookies-${Date.now()}.db`,
-  );
+  const tmpCookiesDb = join(tmpdir(), `vellum-chrome-cookies-${Date.now()}.db`);
   let rawOutput: string;
   try {
     copyFileSync(CHROME_COOKIES_DB, tmpCookiesDb);
@@ -140,9 +137,10 @@ export async function extractSessionFromChromeCookies(): Promise<AmazonSession> 
       path: path || "/",
       httpOnly: httpOnly === "1",
       secure: secure === "1",
-      expires: expiresUtc
-        ? Math.floor(parseInt(expiresUtc, 10) / 1000000 - 11644473600)
-        : undefined,
+      expires:
+        expiresUtc && expiresUtc !== "0"
+          ? Math.floor(parseInt(expiresUtc, 10) / 1000000 - 11644473600)
+          : undefined,
     });
   }
 

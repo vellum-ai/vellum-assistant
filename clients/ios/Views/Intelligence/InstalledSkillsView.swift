@@ -17,7 +17,7 @@ struct InstalledSkillsView: View {
                 skillsList
             }
         }
-        .navigationTitle("Installed Skills")
+        .navigationTitle("Skills")
         .refreshable {
             skillsStore.fetchSkills(force: true)
         }
@@ -89,7 +89,7 @@ struct InstalledSkillsView: View {
                 HStack(spacing: 4) {
                     Text(skill.name)
                         .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
 
                     stateBadge(skill.state)
                 }
@@ -97,7 +97,7 @@ struct InstalledSkillsView: View {
                 if !skill.description.isEmpty {
                     Text(skill.description)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .lineLimit(2)
                 }
             }
@@ -140,22 +140,22 @@ struct InstalledSkillsView: View {
     private var emptyState: some View {
         VStack(spacing: VSpacing.lg) {
             VIconView(.brain, size: 48)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .accessibilityHidden(true)
 
             Text("No Skills Installed")
                 .font(VFont.title)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
-            Text("Browse the community to discover and install skills for your assistant.")
+            Text("Ask your assistant in chat to search for and install new skills.")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("No skills installed. Browse the community to discover and install skills for your assistant.")
+        .accessibilityLabel("No skills installed. Ask your assistant in chat to search for and install new skills.")
     }
 
     private var loadingState: some View {
@@ -163,7 +163,7 @@ struct InstalledSkillsView: View {
             ProgressView()
             Text("Loading skills...")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

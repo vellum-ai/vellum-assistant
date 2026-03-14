@@ -54,7 +54,6 @@ mock.module("../config/assistant-feature-flags.js", () => ({
   },
   loadDefaultsRegistry: () => ({}),
   getAssistantFeatureFlagDefaults: () => ({}),
-  _resetDefaultsCache: () => {},
 }));
 
 mock.module("../config/skill-state.js", () => ({
@@ -210,7 +209,6 @@ mock.module("../util/logger.js", () => ({
     debug: () => {},
     error: () => {},
   }),
-  isDebug: () => false,
 }));
 
 // ---------------------------------------------------------------------------

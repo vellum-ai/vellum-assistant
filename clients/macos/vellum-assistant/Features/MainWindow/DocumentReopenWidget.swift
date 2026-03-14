@@ -14,16 +14,16 @@ struct DocumentReopenWidget: View {
         HStack(spacing: VSpacing.md) {
             // Document icon
             VIconView(.fileText, size: 16)
-                .foregroundColor(VColor.accent)
+                .foregroundColor(VColor.primaryBase)
 
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text("Document")
                     .font(VFont.captionMedium)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
 
                 Text(documentTitle)
                     .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
             }
 
@@ -33,12 +33,12 @@ struct DocumentReopenWidget: View {
             Button(action: onReopen) {
                 Text("Open")
                     .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.accent)
+                    .foregroundColor(VColor.primaryBase)
                     .padding(.horizontal, VSpacing.sm)
                     .padding(.vertical, VSpacing.xs)
                     .background(
                         RoundedRectangle(cornerRadius: VRadius.sm)
-                            .fill(VColor.accent.opacity(0.12))
+                            .fill(VColor.primaryBase.opacity(0.12))
                     )
             }
             .buttonStyle(.plain)
@@ -46,7 +46,7 @@ struct DocumentReopenWidget: View {
             // Dismiss button
             Button(action: onDismiss) {
                 VIconView(.x, size: 11)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .frame(width: 20, height: 20)
             }
             .buttonStyle(.plain)
@@ -56,12 +56,12 @@ struct DocumentReopenWidget: View {
         .padding(.vertical, VSpacing.sm)
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.surface)
-                .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 2)
+                .fill(VColor.surfaceBase)
+                .shadow(color: VColor.auxBlack.opacity(0.12), radius: 8, x: 0, y: 2)
         )
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(isHovered ? VColor.accent.opacity(0.3) : VColor.surfaceBorder, lineWidth: 1)
+                .stroke(isHovered ? VColor.primaryBase.opacity(0.3) : VColor.borderBase, lineWidth: 1)
         )
         .onHover { hovering in
             withAnimation(VAnimation.fast) {
@@ -72,17 +72,4 @@ struct DocumentReopenWidget: View {
 }
 
 #if DEBUG
-#Preview("Document Reopen Widget") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-
-        DocumentReopenWidget(
-            documentTitle: "NYC Pizza: A Love Letter",
-            onReopen: { print("Reopen tapped") },
-            onDismiss: { print("Dismiss tapped") }
-        )
-        .padding(VSpacing.xl)
-        .frame(width: 400)
-    }
-}
 #endif

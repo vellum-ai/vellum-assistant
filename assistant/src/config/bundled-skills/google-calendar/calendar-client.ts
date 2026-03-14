@@ -24,6 +24,7 @@ async function request<T>(
   connection: OAuthConnection,
   path: string,
   options?: RequestInit,
+  query?: Record<string, string | string[]>,
 ): Promise<T> {
   const method = (options?.method ?? "GET").toUpperCase();
 
@@ -66,6 +67,7 @@ async function request<T>(
   const resp = await connection.request({
     method,
     path,
+    query,
     baseUrl: GOOGLE_CALENDAR_BASE_URL,
     headers: {
       "Content-Type": "application/json",
@@ -107,29 +109,31 @@ export async function listEvents(
     syncToken?: string;
   },
 ): Promise<CalendarEventsListResponse> {
-  const params = new URLSearchParams();
+  const query: Record<string, string> = {};
 
-  if (options?.timeMin) params.set("timeMin", options.timeMin);
-  if (options?.timeMax) params.set("timeMax", options.timeMax);
-  params.set("maxResults", String(options?.maxResults ?? 25));
-  if (options?.query) params.set("q", options.query);
+  if (options?.timeMin) query.timeMin = options.timeMin;
+  if (options?.timeMax) query.timeMax = options.timeMax;
+  query.maxResults = String(options?.maxResults ?? 25);
+  if (options?.query) query.q = options.query;
 
   // Default to expanding recurring events into instances
   const singleEvents = options?.singleEvents ?? true;
-  params.set("singleEvents", String(singleEvents));
+  query.singleEvents = String(singleEvents);
 
   if (singleEvents && options?.orderBy) {
-    params.set("orderBy", options.orderBy);
+    query.orderBy = options.orderBy;
   } else if (singleEvents) {
-    params.set("orderBy", "startTime");
+    query.orderBy = "startTime";
   }
 
-  if (options?.pageToken) params.set("pageToken", options.pageToken);
-  if (options?.syncToken) params.set("syncToken", options.syncToken);
+  if (options?.pageToken) query.pageToken = options.pageToken;
+  if (options?.syncToken) query.syncToken = options.syncToken;
 
   return request<CalendarEventsListResponse>(
     connection,
-    `/calendars/${encodeURIComponent(calendarId)}/events?${params}`,
+    `/calendars/${encodeURIComponent(calendarId)}/events`,
+    undefined,
+    query,
   );
 }
 
@@ -161,14 +165,14 @@ export async function createEvent(
   calendarId = "primary",
   sendUpdates: "all" | "externalOnly" | "none" = "all",
 ): Promise<CalendarEvent> {
-  const params = new URLSearchParams({ sendUpdates });
   return request<CalendarEvent>(
     connection,
-    `/calendars/${encodeURIComponent(calendarId)}/events?${params}`,
+    `/calendars/${encodeURIComponent(calendarId)}/events`,
     {
       method: "POST",
       body: JSON.stringify(event),
     },
+    { sendUpdates },
   );
 }
 
@@ -187,16 +191,16 @@ export async function patchEvent(
   calendarId = "primary",
   sendUpdates: "all" | "externalOnly" | "none" = "all",
 ): Promise<CalendarEvent> {
-  const params = new URLSearchParams({ sendUpdates });
   return request<CalendarEvent>(
     connection,
     `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(
       eventId,
-    )}?${params}`,
+    )}`,
     {
       method: "PATCH",
       body: JSON.stringify(updates),
     },
+    { sendUpdates },
   );
 }
 

@@ -1,5 +1,8 @@
 import VellumAssistantShared
 import SwiftUI
+import os
+
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "HatchingStepView")
 
 @MainActor
 struct HatchingStepView: View {
@@ -12,7 +15,9 @@ struct HatchingStepView: View {
     @State private var showCharacter = true
     @State private var hatchStarted = false
     @State private var failureReason: String?
-    @State private var selectedPreset = PresetAvatar.random()
+    @State private var hatchBody = AvatarBodyShape.allCases.randomElement()!
+    @State private var hatchEyes = AvatarEyeStyle.allCases.randomElement()!
+    @State private var hatchColor = AvatarColor.allCases.randomElement()! // color-literal-ok
     @State private var completionTask: Task<Void, Never>?
 
     var body: some View {
@@ -61,11 +66,17 @@ struct HatchingStepView: View {
         }
     }
 
+    // MARK: - Avatar
+
+    private var hatchAvatarImage: NSImage? {
+        AvatarCompositor.render(bodyShape: hatchBody, eyeStyle: hatchEyes, color: hatchColor)
+    }
+
     // MARK: - Character Animation
 
     private var characterAnimation: some View {
         ZStack {
-            if let image = selectedPreset.image {
+            if let image = hatchAvatarImage {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
@@ -94,32 +105,41 @@ struct HatchingStepView: View {
     private var statusText: some View {
         VStack(spacing: VSpacing.sm) {
             if state.hatchFailed {
-                Text("Something went wrong")
-                    .font(.system(size: 24, weight: .regular, design: .serif))
-                    .foregroundColor(VColor.textPrimary)
-                if let reason = failureReason {
-                    Text(reason)
+                if state.hasExistingManagedAssistant {
+                    Text("You already have an assistant")
+                        .font(.system(size: 24, weight: .regular, design: .serif))
+                        .foregroundColor(VColor.contentDefault)
+                    Text("You have an assistant on the hosted platform")
                         .font(.system(size: 14))
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
+                } else {
+                    Text("Something went wrong")
+                        .font(.system(size: 24, weight: .regular, design: .serif))
+                        .foregroundColor(VColor.contentDefault)
+                    if let reason = failureReason {
+                        Text(reason)
+                            .font(.system(size: 14))
+                            .foregroundColor(VColor.contentSecondary)
+                    }
                 }
             } else if state.hatchCompleted {
                 Text(isCustomHardware ? "Your assistant is paired!" : "Your assistant is ready!")
                     .font(.system(size: 24, weight: .regular, design: .serif))
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
             } else if isCustomHardware {
                 Text("Pairing\u{2026}")
                     .font(.system(size: 24, weight: .regular, design: .serif))
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
             } else {
                 Text("Waking up...")
                     .font(.system(size: 24, weight: .regular, design: .serif))
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 Text("Getting your assistant ready\u{2026}")
                     .font(.system(size: 14))
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                 Text("Your assistant will ask a few quick questions to get started.\nThis usually takes less than a minute.")
                     .font(.system(size: 13))
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
         }
     }
@@ -128,12 +148,22 @@ struct HatchingStepView: View {
 
     private var failureButtons: some View {
         VStack(spacing: VSpacing.sm) {
-            OnboardingButton(title: "Try Again", style: .primary) {
-                retryHatch()
-            }
+            if state.hasExistingManagedAssistant {
+                OnboardingButton(title: "Meet your assistant", style: .primary) {
+                    meetExistingAssistant()
+                }
 
-            OnboardingButton(title: "Go Back", style: .tertiary) {
-                goBack()
+                OnboardingButton(title: "Go Back", style: .tertiary) {
+                    goBack()
+                }
+            } else {
+                OnboardingButton(title: "Try Again", style: .primary) {
+                    retryHatch()
+                }
+
+                OnboardingButton(title: "Go Back", style: .tertiary) {
+                    goBack()
+                }
             }
         }
         .frame(maxWidth: 280)
@@ -142,10 +172,17 @@ struct HatchingStepView: View {
 
     private func goBack() {
         state.isHatching = false
+        state.isManagedHatch = false
+        state.hasExistingManagedAssistant = false
         state.hatchFailed = false
         state.hatchLogLines = []
         hatchStarted = false
         failureReason = nil
+    }
+
+    private func meetExistingAssistant() {
+        state.hatchFailed = false
+        state.hatchCompleted = true
     }
 
     private func retryHatch() {
@@ -154,16 +191,16 @@ struct HatchingStepView: View {
         state.resetForRetry()
     }
 
-    /// Called when the CLI process finishes successfully. Saves the preset avatar
+    /// Called when the CLI process finishes successfully. Saves the random avatar
     /// (for non-pairing flows) then signals completion after a brief delay.
     private func handleHatchSuccess() {
-        // Save the randomly-assigned preset as the user's avatar, but only for
+        // Save the randomly-generated avatar as the user's avatar, but only for
         // non-pairing flows and only if one hasn't already been uploaded/generated
         // (preserves existing avatars when replaying onboarding during development).
         if !isCustomHardware,
            AvatarAppearanceManager.shared.customAvatarImage == nil,
-           let image = selectedPreset.image {
-            AvatarAppearanceManager.shared.setCustomAvatar(image)
+           let image = hatchAvatarImage {
+            AvatarAppearanceManager.shared.saveAvatar(image, bodyShape: hatchBody, eyeStyle: hatchEyes, color: hatchColor)
         }
 
         // Brief delay so the user sees the waking animation before transition.
@@ -178,6 +215,9 @@ struct HatchingStepView: View {
     // MARK: - Hatching / Pairing
 
     private func startHatching() {
+        // Managed assistants handle daemon connection in OnboardingFlowView;
+        // this view only provides the animation and failure UI.
+        if state.isManagedHatch { return }
         if isCustomHardware {
             startPairing()
         } else {
@@ -209,6 +249,7 @@ struct HatchingStepView: View {
                 }
                 handleHatchSuccess()
             } catch {
+                log.error("Remote hatch failed: \(String(describing: error), privacy: .public)")
                 state.hatchLogLines.append("Error: \(error.localizedDescription)")
                 failureReason = friendlyErrorMessage(from: error)
                 state.hatchFailed = true
@@ -226,6 +267,7 @@ struct HatchingStepView: View {
                 }
                 handleHatchSuccess()
             } catch {
+                log.error("Pairing failed: \(String(describing: error), privacy: .public)")
                 state.hatchLogLines.append("Error: \(error.localizedDescription)")
                 failureReason = friendlyErrorMessage(from: error)
                 state.hatchFailed = true
@@ -255,7 +297,7 @@ struct HatchingStepView: View {
 
 #Preview {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         HatchingStepView(state: {
             let s = OnboardingState()
             s.isHatching = true
