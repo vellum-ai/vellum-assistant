@@ -381,6 +381,7 @@ public final class HTTPTransport {
         case integrationsSlackConfig
         case integrationsVercelConfig
         case integrationsTelegramConfig
+        case integrationsIngressConfig
 
         // Surface Undo
         case surfaceUndo(surfaceId: String)
@@ -787,6 +788,8 @@ public final class HTTPTransport {
             return ("/v1/integrations/vercel/config", nil)
         case .integrationsTelegramConfig:
             return ("/v1/integrations/telegram/config", nil)
+        case .integrationsIngressConfig:
+            return ("/v1/integrations/ingress/config", nil)
         // Surface Undo
         case .surfaceUndo(let surfaceId):
             let encoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
@@ -1198,6 +1201,8 @@ public final class HTTPTransport {
             return ("\(prefix)/integrations/vercel/config/", nil)
         case .integrationsTelegramConfig:
             return ("\(prefix)/integrations/telegram/config/", nil)
+        case .integrationsIngressConfig:
+            return ("\(prefix)/integrations/ingress/config/", nil)
         // Surface Undo
         case .surfaceUndo(let surfaceId):
             let encoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId

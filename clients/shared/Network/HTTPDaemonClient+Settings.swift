@@ -151,8 +151,16 @@ extension HTTPTransport {
                 Task { await self.sendEncodablePost(.integrationsSlackConfig, body: msg, label: "slack_webhook_config") }
                 return true
             }
-            // ingress_config and platform_config do not have HTTP routes yet;
-            // they continue to use SSE message handlers and are not dispatched here.
+            if let msg = message as? IngressConfigRequestMessage {
+                if msg.action == "get" {
+                    Task { await self.sendEncodablePostAndDispatch(.integrationsIngressConfig, body: msg, method: "GET", messageType: "ingress_config_response", label: "ingress_config_get") }
+                } else {
+                    Task { await self.sendEncodablePostAndDispatch(.integrationsIngressConfig, body: msg, method: "PUT", messageType: "ingress_config_response", label: "ingress_config_set") }
+                }
+                return true
+            }
+            // platform_config does not have HTTP routes yet;
+            // it continues to use SSE message handlers and is not dispatched here.
             if let msg = message as? VercelApiConfigRequestMessage {
                 Task { await self.sendEncodablePost(.integrationsVercelConfig, body: msg, label: "vercel_api_config") }
                 return true
