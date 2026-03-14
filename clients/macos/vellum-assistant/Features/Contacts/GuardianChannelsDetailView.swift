@@ -82,11 +82,13 @@ struct GuardianChannelsDetailView: View {
             .padding(VSpacing.lg)
         }
         .onAppear {
-            currentContact = contact
             startVerificationCountdownTimer()
             for channel in Self.verificationSupportedChannels {
                 store?.refreshChannelVerificationStatus(channel: channel)
             }
+        }
+        .onChange(of: contact) { _, _ in
+            currentContact = nil
         }
         .onDisappear {
             stopVerificationCountdownTimer()
@@ -110,6 +112,8 @@ struct GuardianChannelsDetailView: View {
                 ?? existingChannels.first
             if let channel = activeChannel, channel.status == "active", channel.verifiedAt != nil {
                 VBadge(style: .label("Verified"), color: VColor.systemPositiveStrong)
+            } else if store?.channelVerificationState(for: type).verified == true {
+                VBadge(style: .label("Verified"), color: VColor.systemPositiveStrong)
             }
         } content: {
             let existingChannels = displayContact.channels.filter { $0.type == type && $0.status != "revoked" }
@@ -122,7 +126,9 @@ struct GuardianChannelsDetailView: View {
             if let channel = activeChannel, channel.status == "active", channel.verifiedAt != nil {
                 // Verified channel — show rich identity + disconnect
                 verifiedChannelContent(channel: channel, type: type)
-            } else if (!existingChannels.isEmpty && !dismissedChannels.contains(type)) || setupExpanded.contains(type) {
+            } else if store?.channelVerificationState(for: type).verified == true
+                || (!existingChannels.isEmpty && !dismissedChannels.contains(type))
+                || setupExpanded.contains(type) {
                 // Existing unverified channel or user clicked "Set Up" — show verification flow
                 verificationFlowContent(for: type)
             } else {
