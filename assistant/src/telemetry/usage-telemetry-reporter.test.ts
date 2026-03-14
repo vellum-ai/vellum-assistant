@@ -304,11 +304,15 @@ describe("UsageTelemetryReporter", () => {
 
     const reporter = new UsageTelemetryReporter();
     reporter.start();
+
+    // Wait a tick so start()'s immediate flush settles.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const callsBeforeStop = mockFetch.mock.calls.length;
+
     await reporter.stop();
 
-    // start() triggers an immediate flush, and stop() performs a final flush.
-    // At minimum fetch should have been called once.
-    expect(mockFetch.mock.calls.length).toBeGreaterThanOrEqual(1);
+    // stop() must trigger at least one additional flush beyond what start() did.
+    expect(mockFetch.mock.calls.length).toBeGreaterThan(callsBeforeStop);
   });
 
   test("payload shape is correct", async () => {
