@@ -21,7 +21,6 @@ import {
 } from "../memory/canonical-guardian-store.js";
 import {
   addMessage,
-  getConversation,
   getConversationMemoryScopeId,
   getConversationThreadType,
   provenanceFromTrustContext,
