@@ -138,13 +138,6 @@ export function _resetInflightRefreshes(): void {
   inflightRefreshes.clear();
 }
 
-/** @internal Test-only: get breaker state for a service */
-export function _getRefreshBreakerState(
-  service: string,
-): RefreshBreakerState | undefined {
-  return refreshBreakers.get(service);
-}
-
 export class TokenExpiredError extends Error {
   constructor(
     public readonly service: string,
