@@ -100,10 +100,10 @@ struct WakeUpStepView: View {
                 }
             }
 
-            OnboardingButton(title: "Self Host", style: .tertiary) {
+            OnboardingButton(title: managedSignInEnabled ? "Skip for now" : "Self Host", style: managedSignInEnabled ? .secondary : .tertiary) {
                 onStartWithAPIKey()
             }
-            .accessibilityLabel("Self Host")
+            .accessibilityLabel(managedSignInEnabled ? "Skip for now" : "Self Host")
 
             // Auth error message
             if let error = authManager?.errorMessage {

@@ -3,6 +3,7 @@ import SwiftUI
 
 enum OnboardingButtonStyle {
     case primary
+    case secondary
     case tertiary
 }
 
@@ -30,7 +31,7 @@ struct OnboardingButton: View {
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.lg)
-                        .stroke(borderColor, lineWidth: style == .tertiary ? 1 : 0)
+                        .stroke(borderColor, lineWidth: style == .primary ? 0 : 1)
                 )
         }
         .buttonStyle(.plain)
@@ -60,6 +61,8 @@ struct OnboardingButton: View {
         switch style {
         case .primary:
             return disabled ? VColor.auxWhite.opacity(0.4) : VColor.auxWhite
+        case .secondary:
+            return disabled ? VColor.primaryBase.opacity(0.3) : VColor.primaryBase
         case .tertiary:
             return disabled ? VColor.contentDefault.opacity(0.3) : VColor.contentDefault.opacity(0.85)
         }
@@ -69,13 +72,22 @@ struct OnboardingButton: View {
         switch style {
         case .primary:
             return AnyShapeStyle(disabled ? VColor.primaryBase.opacity(0.3) : VColor.primaryBase)
+        case .secondary:
+            return AnyShapeStyle(Color.clear)
         case .tertiary:
             return AnyShapeStyle(Color.clear)
         }
     }
 
     private var borderColor: Color {
-        style == .tertiary ? VColor.contentDefault.opacity(disabled ? 0.1 : 0.25) : .clear
+        switch style {
+        case .primary:
+            return .clear
+        case .secondary:
+            return VColor.primaryBase.opacity(disabled ? 0.2 : 0.5)
+        case .tertiary:
+            return VColor.contentDefault.opacity(disabled ? 0.1 : 0.25)
+        }
     }
 
     private var opacity: Double {

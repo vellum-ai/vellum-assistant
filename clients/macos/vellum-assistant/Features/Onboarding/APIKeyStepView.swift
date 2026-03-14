@@ -1,7 +1,9 @@
 import VellumAssistantShared
 import SwiftUI
+import UniformTypeIdentifiers
 
 private enum HostingMode: String, CaseIterable {
+    case vellum
     case local
     case docker
     case aws
@@ -10,16 +12,18 @@ private enum HostingMode: String, CaseIterable {
 
     var displayName: String {
         switch self {
+        case .vellum: return "Vellum"
         case .local: return "Local"
         case .docker: return "Docker"
         case .aws: return "AWS"
-        case .customHardware: return "Custom Hardware"
+        case .customHardware: return "Custom"
         case .gcp: return "GCP"
         }
     }
 
     var detail: String {
         switch self {
+        case .vellum: return "Hosted and managed by Vellum"
         case .local: return "Run on your machine"
         case .docker: return "Run in a Docker container"
         case .aws: return "Host on your AWS account"
@@ -32,6 +36,8 @@ private enum HostingMode: String, CaseIterable {
 @MainActor
 struct APIKeyStepView: View {
     @Bindable var state: OnboardingState
+    var isAuthenticated: Bool = false
+    var onHatchManaged: (() -> Void)?
 
     @State private var apiKey: String = ""
     @State private var hasExistingKey = false
@@ -41,19 +47,50 @@ struct APIKeyStepView: View {
     @State private var hostingMode: HostingMode = .local
     @FocusState private var keyFieldFocused: Bool
 
+    @State private var gcpServiceAccountFileName: String = ""
+    @State private var qrCodeImageFileName: String = ""
+    @FocusState private var arnFieldFocused: Bool
+    @FocusState private var projectIdFieldFocused: Bool
+
     private var userHostedEnabled: Bool {
         MacOSClientFeatureFlagManager.shared.isEnabled("user_hosted_enabled")
     }
 
+    private var managedSignInEnabled: Bool {
+        MacOSClientFeatureFlagManager.shared.isEnabled("managed_sign_in_enabled")
+    }
+
+    private var showHostingSelector: Bool {
+        managedSignInEnabled || userHostedEnabled
+    }
+
+    private var availableHostingModes: [HostingMode] {
+        if managedSignInEnabled && isAuthenticated {
+            return [.vellum, .local, .gcp, .aws, .docker, .customHardware]
+        }
+        return [.local, .gcp, .aws, .docker, .customHardware]
+    }
+
+    private var showApiKeyField: Bool {
+        if managedSignInEnabled {
+            return !isAuthenticated && hostingMode != .vellum
+        }
+        return true
+    }
+
+    private var showInlineCloudFields: Bool {
+        managedSignInEnabled && (hostingMode == .gcp || hostingMode == .aws || hostingMode == .customHardware)
+    }
+
     var body: some View {
-        Text(userHostedEnabled ? "Setup" : "Add your API key")
+        Text(showHostingSelector ? "Setup" : "Add your API key")
             .font(.system(size: 32, weight: .regular, design: .serif))
             .foregroundColor(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
 
-        Text(userHostedEnabled
+        Text(showHostingSelector
              ? "Choose how to run your assistant."
              : "Enter your Anthropic API key to get started.")
             .font(.system(size: 16))
@@ -63,19 +100,27 @@ struct APIKeyStepView: View {
 
         Spacer()
 
-        VStack(spacing: VSpacing.md) {
-            if userHostedEnabled {
-                hostingModeSelector
+        ScrollView {
+            VStack(spacing: VSpacing.md) {
+                if showHostingSelector {
+                    hostingModeSelector
+                }
+
+                if showApiKeyField {
+                    apiKeyField
+                }
+
+                if showInlineCloudFields {
+                    inlineCloudCredentialFields
+                }
+
+                hatchOrContinueButton
+
+                footerLinks
             }
-
-            apiKeyField
-
-            primaryButton
-
-            footerLinks
+            .padding(.horizontal, VSpacing.xxl)
+            .padding(.bottom, VSpacing.lg)
         }
-        .padding(.horizontal, VSpacing.xxl)
-        .padding(.bottom, VSpacing.lg)
         .opacity(showContent ? 1 : 0)
         .offset(y: showContent ? 0 : 12)
         .onAppear {
@@ -83,8 +128,17 @@ struct APIKeyStepView: View {
                 apiKey = existingKey
                 hasExistingKey = true
             }
-            if userHostedEnabled, let saved = loadHostingModeFromDefaults() {
+            if showHostingSelector, let saved = loadHostingModeFromDefaults() {
                 hostingMode = saved
+            }
+            if managedSignInEnabled && isAuthenticated {
+                hostingMode = .vellum
+            }
+            if !state.gcpServiceAccountKey.isEmpty {
+                gcpServiceAccountFileName = "service-account-key.json"
+            }
+            if !state.customQRCodeImageData.isEmpty {
+                qrCodeImageFileName = "qr-code.png"
             }
             withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
                 showTitle = true
@@ -92,20 +146,24 @@ struct APIKeyStepView: View {
             withAnimation(.easeOut(duration: 0.5).delay(0.3)) {
                 showContent = true
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                keyFieldFocused = true
+            if showApiKeyField {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    keyFieldFocused = true
+                }
             }
         }
 
-        OnboardingFooter(currentStep: state.currentStep, totalSteps: userHostedEnabled ? 4 : 3)
-            .padding(.bottom, VSpacing.lg)
+        if !managedSignInEnabled {
+            OnboardingFooter(currentStep: state.currentStep, totalSteps: userHostedEnabled ? 4 : 3)
+                .padding(.bottom, VSpacing.lg)
+        }
     }
 
     // MARK: - Hosting Mode Selector
 
     private var hostingModeSelector: some View {
         VStack(spacing: VSpacing.sm) {
-            ForEach(HostingMode.allCases, id: \.rawValue) { mode in
+            ForEach(availableHostingModes, id: \.rawValue) { mode in
                 hostingModeCard(mode: mode)
             }
         }
@@ -193,15 +251,328 @@ struct APIKeyStepView: View {
         }
     }
 
+    // MARK: - Inline Cloud Credential Fields
+
+    @ViewBuilder
+    private var inlineCloudCredentialFields: some View {
+        switch hostingMode {
+        case .gcp:
+            gcpInlineFields
+        case .aws:
+            awsInlineFields
+        case .customHardware:
+            customHardwareInlineFields
+        default:
+            EmptyView()
+        }
+    }
+
+    private var gcpInlineFields: some View {
+        VStack(spacing: VSpacing.sm) {
+            gcpSetupBlurb
+
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Project ID")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(VColor.contentSecondary)
+                TextField("my-gcp-project-id", text: $state.gcpProjectId)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 14, weight: .medium, design: .monospaced))
+                    .foregroundColor(VColor.contentDefault)
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.vertical, VSpacing.md)
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .stroke(VColor.borderBase, lineWidth: 1)
+                    )
+                    .focused($projectIdFieldFocused)
+            }
+
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Zone")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(VColor.contentSecondary)
+                Picker("", selection: $state.gcpZone) {
+                    ForEach(Self.gcpZones, id: \.self) { zone in
+                        Text(zone).tag(zone)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .font(.system(size: 14, weight: .medium, design: .monospaced))
+                .foregroundColor(VColor.contentDefault)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, VSpacing.sm)
+                .padding(.vertical, VSpacing.xs)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .stroke(VColor.borderBase, lineWidth: 1)
+                )
+            }
+
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Service Account Key (JSON)")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(VColor.contentSecondary)
+                filePickerButton(
+                    fileName: gcpServiceAccountFileName,
+                    prompt: "Select Service Account JSON File",
+                    onPick: { pickGCPServiceAccountFile() },
+                    onClear: {
+                        state.gcpServiceAccountKey = ""
+                        gcpServiceAccountFileName = ""
+                    }
+                )
+            }
+        }
+    }
+
+    private var awsInlineFields: some View {
+        VStack(spacing: VSpacing.sm) {
+            awsSetupBlurb
+
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("IAM Role ARN")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(VColor.contentSecondary)
+                TextField("arn:aws:iam::123456789012:role/VellumAssistantRole", text: $state.awsRoleArn)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 14, weight: .medium, design: .monospaced))
+                    .foregroundColor(VColor.contentDefault)
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.vertical, VSpacing.md)
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .stroke(VColor.borderBase, lineWidth: 1)
+                    )
+                    .focused($arnFieldFocused)
+            }
+        }
+    }
+
+    private var customHardwareInlineFields: some View {
+        VStack(spacing: VSpacing.sm) {
+            customHardwareSetupBlurb
+
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("QR Code Image")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(VColor.contentSecondary)
+                filePickerButton(
+                    fileName: qrCodeImageFileName,
+                    prompt: "Select QR Code PNG",
+                    onPick: { pickQRCodeImageFile() },
+                    onClear: {
+                        state.customQRCodeImageData = Data()
+                        qrCodeImageFileName = ""
+                    }
+                )
+            }
+        }
+    }
+
+    // MARK: - Setup Blurbs
+
+    private var gcpSetupBlurb: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Before continuing, set up the following in the Google Cloud Console:")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(VColor.contentSecondary)
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                setupStep("1. Create or select a GCP project with the Compute Engine API enabled.")
+                setupStep("2. Create a Service Account with the Compute Admin role.")
+                setupStep("3. Generate a JSON key for the service account and download it.")
+            }
+            Link(destination: URL(string: "https://console.cloud.google.com/iam-admin/serviceaccounts")!) {
+                Text("Open Google Cloud Console")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(VColor.primaryBase)
+            }
+            .pointerCursor()
+        }
+        .padding(VSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .textSelection(.enabled)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(VColor.surfaceActive)
+        )
+    }
+
+    private var awsSetupBlurb: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Before continuing, set up the following in the AWS Console:")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(VColor.contentSecondary)
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                setupStep("1. Create an IAM role with EC2 full access permissions (e.g., AmazonEC2FullAccess).")
+                setupStep("2. Configure the role's trust policy to allow Vellum to assume it.")
+                setupStep("3. Ensure your account has a default VPC in the target region.")
+            }
+            Link(destination: URL(string: "https://console.aws.amazon.com/iam/home#/roles")!) {
+                Text("Open AWS IAM Console")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(VColor.primaryBase)
+            }
+            .pointerCursor()
+        }
+        .padding(VSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .textSelection(.enabled)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(VColor.surfaceActive)
+        )
+    }
+
+    private var customHardwareSetupBlurb: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Set up your Mac mini, then upload the QR code:")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(VColor.contentSecondary)
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                setupStep("1. On your Mac mini, run: curl -fsSL https://assistant.vellum.ai/install.sh | bash")
+                setupStep("2. Upload the QR code PNG generated by the install script below.")
+            }
+        }
+        .padding(VSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .textSelection(.enabled)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(VColor.surfaceActive)
+        )
+    }
+
+    private func setupStep(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12))
+            .foregroundColor(VColor.contentTertiary)
+    }
+
+    private static let gcpZones = [
+        "us-central1-a",
+        "us-east1-b",
+        "us-east4-a",
+        "us-west1-a",
+        "us-west2-a",
+    ]
+
+    // MARK: - File Picker UI
+
+    @ViewBuilder
+    private func filePickerButton(
+        fileName: String,
+        prompt: String,
+        onPick: @escaping () -> Void,
+        onClear: @escaping () -> Void
+    ) -> some View {
+        if fileName.isEmpty {
+            Button(action: onPick) {
+                HStack(spacing: VSpacing.sm) {
+                    VIconView(.filePlus, size: 14)
+                        .foregroundColor(VColor.contentSecondary)
+                    Text(prompt)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(VColor.contentSecondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, VSpacing.lg)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .stroke(VColor.borderBase, style: StrokeStyle(lineWidth: 1, dash: [6, 3]))
+                )
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+        } else {
+            HStack(spacing: VSpacing.sm) {
+                VIconView(.file, size: 14)
+                    .foregroundColor(VColor.primaryBase)
+                Text(fileName)
+                    .font(.system(size: 14, weight: .medium, design: .monospaced))
+                    .foregroundColor(VColor.contentDefault)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                Spacer()
+                Button(action: onClear) {
+                    VIconView(.circleX, size: 14)
+                        .foregroundColor(VColor.contentTertiary)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .stroke(VColor.borderBase, lineWidth: 1)
+            )
+        }
+    }
+
+    // MARK: - File Picking
+
+    private func pickGCPServiceAccountFile() {
+        let panel = NSOpenPanel()
+        panel.title = "Select Service Account JSON File"
+        panel.allowedContentTypes = [UTType.json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                let contents = try String(contentsOf: url, encoding: .utf8)
+                state.gcpServiceAccountKey = contents
+                gcpServiceAccountFileName = url.lastPathComponent
+            } catch {
+                state.gcpServiceAccountKey = ""
+                gcpServiceAccountFileName = ""
+            }
+        }
+    }
+
+    private func pickQRCodeImageFile() {
+        let panel = NSOpenPanel()
+        panel.title = "Select QR Code PNG"
+        panel.allowedContentTypes = [UTType.png, UTType.image]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                let data = try Data(contentsOf: url)
+                state.customQRCodeImageData = data
+                qrCodeImageFileName = url.lastPathComponent
+            } catch {
+                state.customQRCodeImageData = Data()
+                qrCodeImageFileName = ""
+            }
+        }
+    }
+
     // MARK: - Primary Button
 
-    private var primaryButton: some View {
-        OnboardingButton(
-            title: "Continue",
-            style: .primary,
-            disabled: primaryButtonDisabled
-        ) {
-            saveAndContinue()
+    private var hatchOrContinueButton: some View {
+        Group {
+            if managedSignInEnabled {
+                OnboardingButton(
+                    title: "Hatch",
+                    style: .primary,
+                    disabled: hatchButtonDisabled
+                ) {
+                    saveAndHatch()
+                }
+            } else {
+                OnboardingButton(
+                    title: "Continue",
+                    style: .primary,
+                    disabled: primaryButtonDisabled
+                ) {
+                    saveAndContinue()
+                }
+            }
         }
     }
 
@@ -209,12 +580,14 @@ struct APIKeyStepView: View {
 
     private var footerLinks: some View {
         HStack(spacing: VSpacing.lg) {
-            Link(destination: URL(string: "https://console.anthropic.com/settings/keys")!) {
-                Text("Get an API key")
-                    .font(.system(size: 13))
-                    .foregroundColor(VColor.primaryBase)
+            if showApiKeyField {
+                Link(destination: URL(string: "https://console.anthropic.com/settings/keys")!) {
+                    Text("Get an API key")
+                        .font(.system(size: 13))
+                        .foregroundColor(VColor.primaryBase)
+                }
+                .pointerCursor()
             }
-            .pointerCursor()
 
             Button(action: { goBack() }) {
                 Text("Back")
@@ -233,6 +606,26 @@ struct APIKeyStepView: View {
         apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private var hatchButtonDisabled: Bool {
+        if hostingMode == .vellum {
+            return false
+        }
+        if showApiKeyField && apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return true
+        }
+        switch hostingMode {
+        case .gcp:
+            return state.gcpProjectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || state.gcpServiceAccountKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .aws:
+            return state.awsRoleArn.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .customHardware:
+            return state.customQRCodeImageData.isEmpty
+        default:
+            return false
+        }
+    }
+
     private var maskedKey: String {
         guard apiKey.count > 7 else { return String(repeating: "\u{2022}", count: apiKey.count) }
         let prefix = String(apiKey.prefix(4))
@@ -245,6 +638,24 @@ struct APIKeyStepView: View {
         withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
             state.currentStep = 0
         }
+    }
+
+    private func saveAndHatch() {
+        state.cloudProvider = hostingMode.rawValue
+
+        if hostingMode == .vellum {
+            onHatchManaged?()
+            return
+        }
+
+        let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            APIKeyManager.setKey(trimmed, for: "anthropic")
+            APIKeyManager.syncKeyToDaemon(provider: "anthropic", value: trimmed)
+        }
+
+        saveModelToConfig("claude-opus-4-6")
+        state.isHatching = true
     }
 
     private func saveAndContinue() {

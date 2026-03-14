@@ -23,8 +23,15 @@ struct OnboardingFlowView: View {
         return NSImage(contentsOfFile: path)
     }()
 
+    private var managedSignInEnabled: Bool {
+        MacOSClientFeatureFlagManager.shared.isEnabled("managed_sign_in_enabled")
+    }
+
     private var maxOnboardingStep: Int {
-        state.userHostedEnabled ? 3 : 2
+        if managedSignInEnabled {
+            return 1
+        }
+        return state.userHostedEnabled ? 3 : 2
     }
 
     var body: some View {
@@ -90,7 +97,15 @@ struct OnboardingFlowView: View {
                                     }
                                 )
                             case 1:
-                                APIKeyStepView(state: state)
+                                APIKeyStepView(
+                                    state: state,
+                                    isAuthenticated: authManager.isAuthenticated,
+                                    onHatchManaged: {
+                                        Task {
+                                            await performManagedBootstrap()
+                                        }
+                                    }
+                                )
                             case 2:
                                 if state.needsCloudCredentials {
                                     CloudCredentialsStepView(state: state)
