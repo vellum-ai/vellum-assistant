@@ -15,7 +15,7 @@ const ANSI = {
 };
 
 const FALLBACK_RUNTIME_URL = `http://127.0.0.1:${GATEWAY_PORT}`;
-const FALLBACK_ASSISTANT_ID = "default";
+const FALLBACK_ASSISTANT_ID = "self";
 
 interface ParsedArgs {
   runtimeUrl: string;

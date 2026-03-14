@@ -152,7 +152,7 @@ export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
       "share",
       "vellum",
       "assistants",
-      typeof raw.assistantId === "string" ? raw.assistantId : "default",
+      typeof raw.assistantId === "string" ? raw.assistantId : "self",
     );
     raw.resources = {
       instanceDir,
@@ -172,7 +172,7 @@ export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
         "share",
         "vellum",
         "assistants",
-        typeof raw.assistantId === "string" ? raw.assistantId : "default",
+        typeof raw.assistantId === "string" ? raw.assistantId : "self",
       );
       mutated = true;
     }
