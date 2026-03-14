@@ -102,7 +102,13 @@ extension HTTPTransport {
     // MARK: - Apps HTTP Endpoints
 
     private func fetchAppsList(isRetry: Bool = false) async {
-        guard let url = buildURL(for: .appsList) else { return }
+        guard let url = buildURL(for: .appsList) else {
+            onMessage?(.appsListResponse(AppsListResponse(
+                type: "apps_list_response",
+                apps: []
+            )))
+            return
+        }
 
         var request = URLRequest(url: url)
         applyAuth(&request)
@@ -113,11 +119,22 @@ extension HTTPTransport {
             if let http = response as? HTTPURLResponse {
                 if http.statusCode == 401 && !isRetry {
                     let result = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = result { await fetchAppsList(isRetry: true) }
+                    if case .success = result {
+                        await fetchAppsList(isRetry: true)
+                    } else {
+                        onMessage?(.appsListResponse(AppsListResponse(
+                            type: "apps_list_response",
+                            apps: []
+                        )))
+                    }
                     return
                 }
                 guard http.statusCode == 200 else {
                     log.error("Fetch apps list failed (\(http.statusCode))")
+                    onMessage?(.appsListResponse(AppsListResponse(
+                        type: "apps_list_response",
+                        apps: []
+                    )))
                     return
                 }
             }
@@ -141,6 +158,10 @@ extension HTTPTransport {
             )))
         } catch {
             log.error("Fetch apps list error: \(error.localizedDescription)")
+            onMessage?(.appsListResponse(AppsListResponse(
+                type: "apps_list_response",
+                apps: []
+            )))
         }
     }
 
@@ -527,7 +548,13 @@ extension HTTPTransport {
     }
 
     private func fetchSharedAppsList(isRetry: Bool = false) async {
-        guard let url = buildURL(for: .appsShared) else { return }
+        guard let url = buildURL(for: .appsShared) else {
+            onMessage?(.sharedAppsListResponse(SharedAppsListResponse(
+                type: "shared_apps_list_response",
+                apps: []
+            )))
+            return
+        }
 
         var request = URLRequest(url: url)
         applyAuth(&request)
@@ -538,7 +565,14 @@ extension HTTPTransport {
             if let http = response as? HTTPURLResponse {
                 if http.statusCode == 401 && !isRetry {
                     let result = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = result { await fetchSharedAppsList(isRetry: true) }
+                    if case .success = result {
+                        await fetchSharedAppsList(isRetry: true)
+                    } else {
+                        onMessage?(.sharedAppsListResponse(SharedAppsListResponse(
+                            type: "shared_apps_list_response",
+                            apps: []
+                        )))
+                    }
                     return
                 }
                 if http.statusCode == 404 {
@@ -551,6 +585,10 @@ extension HTTPTransport {
                 }
                 guard http.statusCode == 200 else {
                     log.error("Fetch shared apps list failed (\(http.statusCode))")
+                    onMessage?(.sharedAppsListResponse(SharedAppsListResponse(
+                        type: "shared_apps_list_response",
+                        apps: []
+                    )))
                     return
                 }
             }
@@ -579,6 +617,10 @@ extension HTTPTransport {
             )))
         } catch {
             log.error("Fetch shared apps list error: \(error.localizedDescription)")
+            onMessage?(.sharedAppsListResponse(SharedAppsListResponse(
+                type: "shared_apps_list_response",
+                apps: []
+            )))
         }
     }
 
