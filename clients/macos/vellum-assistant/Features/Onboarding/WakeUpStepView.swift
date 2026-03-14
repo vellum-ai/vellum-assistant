@@ -84,12 +84,13 @@ struct WakeUpStepView: View {
                 }
                 .frame(height: 36)
             } else {
+                let buttonTitle = primaryButtonTitle
                 VStack(spacing: VSpacing.xs) {
-                    OnboardingButton(title: primaryButtonTitle, style: .primary) {
+                    OnboardingButton(title: buttonTitle, style: .primary) {
                         onContinueWithVellum()
                     }
                     .disabled(!managedSignInEnabled && authManager?.isAuthenticated != true)
-                    .accessibilityLabel(primaryButtonTitle)
+                    .accessibilityLabel(buttonTitle)
 
                     if !managedSignInEnabled && authManager?.isAuthenticated != true {
                         Text("Coming Soon")
