@@ -127,7 +127,8 @@ struct APIKeyStepView: View {
                 apiKey = existingKey
                 hasExistingKey = true
             }
-            if showHostingSelector, let saved = loadHostingModeFromDefaults() {
+            if showHostingSelector, let saved = loadHostingModeFromDefaults(),
+               availableHostingModes.contains(saved) {
                 hostingMode = saved
             }
             if managedSignInEnabled && isAuthenticated {
