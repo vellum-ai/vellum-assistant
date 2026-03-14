@@ -96,10 +96,10 @@ struct WakeUpStepView: View {
                 }
             }
 
-            OnboardingButton(title: "Self-host", style: .tertiary) {
+            OnboardingButton(title: "Self Host", style: .tertiary) {
                 onStartWithAPIKey()
             }
-            .accessibilityLabel("Self-host")
+            .accessibilityLabel("Self Host")
 
             // Auth error message
             if let error = authManager?.errorMessage {
