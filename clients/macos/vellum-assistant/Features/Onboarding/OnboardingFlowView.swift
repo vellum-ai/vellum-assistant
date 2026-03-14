@@ -181,14 +181,6 @@ struct OnboardingFlowView: View {
                 onComplete()
             }
         }
-        .onChange(of: state.hatchFailed) { oldValue, newValue in
-            // When retry clears the failure for a managed hatch, reconnect.
-            if oldValue && !newValue && state.isManagedHatch && state.isHatching {
-                Task {
-                    await connectManagedDaemon()
-                }
-            }
-        }
     }
 
     // MARK: - Managed Bootstrap
@@ -283,36 +275,38 @@ struct OnboardingFlowView: View {
             state.isHatching = true
             log.info("Managed bootstrap completed for assistant \(assistant.id, privacy: .public); waiting for daemon connection")
 
-            await connectManagedDaemon()
+            await awaitManagedAssistantReady(assistantId: assistant.id)
         } catch {
             log.error("Managed bootstrap failed: \(error.localizedDescription)")
             managedBootstrapError = error.localizedDescription
         }
     }
 
-    /// Configures the daemon transport for the managed assistant, connects,
-    /// and polls for readiness. Signals success or failure via OnboardingState.
-    private func connectManagedDaemon() async {
-        let lockfileAssistant = AppDelegate.shared?.loadAssistantFromLockfile()
-        AppDelegate.shared?.configureDaemonTransport(for: lockfileAssistant)
-
-        if !daemonClient.isConnected && !daemonClient.isConnecting {
-            try? await daemonClient.connect()
-        }
-
+    /// Polls the gateway health endpoint for the managed assistant until it
+    /// responds successfully or the timeout elapses.
+    private func awaitManagedAssistantReady(assistantId: String) async {
         let timeout: TimeInterval = 15
         let start = CFAbsoluteTimeGetCurrent()
-        while !daemonClient.isConnected && CFAbsoluteTimeGetCurrent() - start < timeout {
-            try? await Task.sleep(nanoseconds: 500_000_000)
+
+        while CFAbsoluteTimeGetCurrent() - start < timeout {
+            do {
+                let response = try await GatewayHTTPClient.get(
+                    path: "assistants/\(assistantId)/healthz",
+                    timeout: 5
+                )
+                if response.isSuccess {
+                    log.info("Managed assistant \(assistantId, privacy: .public) is ready")
+                    state.hatchCompleted = true
+                    return
+                }
+            } catch {}
+
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
         }
 
-        if daemonClient.isConnected {
-            log.info("Daemon connected for managed assistant — completing hatch")
-            state.hatchCompleted = true
-        } else {
-            log.warning("Daemon connection timed out for managed assistant after \(timeout)s")
-            state.hatchFailed = true
-        }
+        log.warning("Managed assistant \(assistantId, privacy: .public) not ready after \(timeout)s")
+        state.hatchFailed = true
     }
 }
 

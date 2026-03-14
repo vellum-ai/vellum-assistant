@@ -150,7 +150,6 @@ struct HatchingStepView: View {
 
     private func goBack() {
         state.isHatching = false
-        state.isManagedHatch = false
         state.hatchFailed = false
         state.hatchLogLines = []
         hatchStarted = false
@@ -158,19 +157,9 @@ struct HatchingStepView: View {
     }
 
     private func retryHatch() {
-        if state.isManagedHatch {
-            // Reset failure state and re-show the animation.
-            // OnboardingFlowView observes hatchFailed and retries
-            // the daemon connection when it transitions to false.
-            state.hatchFailed = false
-            failureReason = nil
-            showCharacter = true
-            startPulse()
-        } else {
-            hatchStarted = false
-            failureReason = nil
-            state.resetForRetry()
-        }
+        hatchStarted = false
+        failureReason = nil
+        state.resetForRetry()
     }
 
     /// Called when the CLI process finishes successfully. Saves the random avatar
