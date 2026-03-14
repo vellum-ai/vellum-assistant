@@ -31,8 +31,10 @@ public final class MemoryItemsStore: ObservableObject {
             sort: sortField,
             order: sortOrder
         )
-        items = response?.items ?? []
-        total = response?.total ?? 0
+        if let response {
+            items = response.items
+            total = response.total
+        }
         isLoading = false
     }
 

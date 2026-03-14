@@ -2466,9 +2466,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
 
         var queryParts = ["limit=\(limit)", "offset=\(offset)"]
-        if let kind { queryParts.append("kind=\(kind.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? kind)") }
+        if let kind { queryParts.append("kind=\(kind.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? kind)") }
         if let status { queryParts.append("status=\(status)") }
-        if let search, !search.isEmpty { queryParts.append("search=\(search.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? search)") }
+        if let search, !search.isEmpty { queryParts.append("search=\(search.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? search)") }
         if let sort { queryParts.append("sort=\(sort)") }
         if let order { queryParts.append("order=\(order)") }
         let qs = queryParts.joined(separator: "&")
