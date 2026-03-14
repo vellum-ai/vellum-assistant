@@ -378,7 +378,7 @@ export class DaemonServer {
 
   async start(): Promise<void> {
     const config = getConfig();
-    initializeProviders(config);
+    await initializeProviders(config);
     this.configWatcher.initFingerprint(config);
 
     this.evictor.start();
@@ -468,8 +468,8 @@ export class DaemonServer {
     this.configWatcher.lastFingerprint = value;
   }
 
-  refreshConfigFromSources(): boolean {
-    const changed = this.configWatcher.refreshConfigFromSources();
+  async refreshConfigFromSources(): Promise<boolean> {
+    const changed = await this.configWatcher.refreshConfigFromSources();
     if (changed) this.evictSessionsForReload();
     return changed;
   }

@@ -116,7 +116,7 @@ export async function setModel(
 
   // Re-initialize provider with the new model so LLM calls use it
   const config = getConfig();
-  initializeProviders(config);
+  await initializeProviders(config);
 
   // Evict idle sessions immediately; mark busy ones as stale so they
   // get recreated with the new provider once they finish processing.

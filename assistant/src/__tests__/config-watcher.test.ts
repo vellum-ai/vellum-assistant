@@ -222,7 +222,7 @@ describe("ConfigWatcher workspace file handlers", () => {
 
   test("config.json change calls refreshConfigFromSources", async () => {
     let refreshCalled = false;
-    watcher.refreshConfigFromSources = () => {
+    watcher.refreshConfigFromSources = async () => {
       refreshCalled = true;
       return false; // no change, so onSessionEvict should NOT be called
     };
@@ -237,7 +237,7 @@ describe("ConfigWatcher workspace file handlers", () => {
   });
 
   test("config.json change triggers onSessionEvict when config actually changed", async () => {
-    watcher.refreshConfigFromSources = () => true;
+    watcher.refreshConfigFromSources = async () => true;
 
     watcher.start(onSessionEvict);
     simulateFileChange(WORKSPACE_DIR, "config.json");
@@ -248,7 +248,7 @@ describe("ConfigWatcher workspace file handlers", () => {
 
   test("config.json change is suppressed when suppressConfigReload is true", async () => {
     let refreshCalled = false;
-    watcher.refreshConfigFromSources = () => {
+    watcher.refreshConfigFromSources = async () => {
       refreshCalled = true;
       return true;
     };

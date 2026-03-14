@@ -4,7 +4,7 @@ import { describe, expect, mock, test } from "bun:test";
 const actualSecureKeys = await import("../security/secure-keys.js");
 mock.module("../security/secure-keys.js", () => ({
   ...actualSecureKeys,
-  getSecureKey: () => undefined,
+  getSecureKeyAsync: async () => undefined,
 }));
 
 import {
@@ -14,8 +14,8 @@ import {
 } from "../providers/registry.js";
 
 describe("provider registry (ollama)", () => {
-  test("registers ollama when selected provider has no API key", () => {
-    initializeProviders({
+  test("registers ollama when selected provider has no API key", async () => {
+    await initializeProviders({
       provider: "ollama",
       model: "claude-opus-4-6",
     });

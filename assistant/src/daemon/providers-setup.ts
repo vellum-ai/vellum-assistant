@@ -21,7 +21,7 @@ export async function initializeProvidersAndTools(
   config: AssistantConfig,
 ): Promise<void> {
   log.info("Daemon startup: initializing providers and tools");
-  initializeProviders(config);
+  await initializeProviders(config);
   await initializeTools();
 
   // Start MCP servers and register their tools

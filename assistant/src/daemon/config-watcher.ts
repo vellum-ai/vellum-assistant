@@ -88,7 +88,7 @@ export class ConfigWatcher {
    * when effective config values (including API keys) have changed.
    * Returns true if config actually changed.
    */
-  refreshConfigFromSources(): boolean {
+  async refreshConfigFromSources(): Promise<boolean> {
     invalidateConfigCache();
     const config = getConfig();
     const fingerprint = this.configFingerprint(config);
@@ -98,7 +98,7 @@ export class ConfigWatcher {
     clearTrustCache();
     clearEmbeddingBackendCache();
     const isFirstInit = this.lastFingerprint === "";
-    initializeProviders(config);
+    await initializeProviders(config);
     this.lastFingerprint = fingerprint;
     return !isFirstInit;
   }
@@ -113,12 +113,12 @@ export class ConfigWatcher {
     const protectedDir = join(getRootDir(), "protected");
 
     const workspaceHandlers: Record<string, () => void> = {
-      "config.json": () => {
+      "config.json": async () => {
         if (this.suppressReload) return;
         try {
           const prevConfig = getConfig();
           const prevMcpFingerprint = JSON.stringify(prevConfig.mcp ?? {});
-          const changed = this.refreshConfigFromSources();
+          const changed = await this.refreshConfigFromSources();
           if (changed) {
             onSessionEvict();
             const newConfig = getConfig();

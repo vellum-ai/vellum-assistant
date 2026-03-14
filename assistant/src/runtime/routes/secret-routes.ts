@@ -73,7 +73,7 @@ export async function handleAddSecret(req: Request): Promise<Response> {
         );
       }
       invalidateConfigCache();
-      initializeProviders(getConfig());
+      await initializeProviders(getConfig());
       log.info({ provider: name }, "API key updated via HTTP");
       return Response.json({ success: true, type, name }, { status: 201 });
     }
@@ -101,7 +101,7 @@ export async function handleAddSecret(req: Request): Promise<Response> {
       }
       upsertCredentialMetadata(service, field, {});
       if (isManagedProxyCredential(service, field)) {
-        initializeProviders(getConfig());
+        await initializeProviders(getConfig());
       }
       log.info({ service, field }, "Credential added via HTTP");
       return Response.json({ success: true, type, name }, { status: 201 });
@@ -162,7 +162,7 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
         );
       }
       invalidateConfigCache();
-      initializeProviders(getConfig());
+      await initializeProviders(getConfig());
       log.info({ provider: name }, "API key deleted via HTTP");
       return Response.json({ success: true, type, name });
     }
@@ -196,7 +196,7 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
       }
       deleteCredentialMetadata(service, field);
       if (isManagedProxyCredential(service, field)) {
-        initializeProviders(getConfig());
+        await initializeProviders(getConfig());
       }
       log.info({ service, field }, "Credential deleted via HTTP");
       return Response.json({ success: true, type, name });

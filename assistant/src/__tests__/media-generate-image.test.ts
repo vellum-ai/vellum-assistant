@@ -55,8 +55,8 @@ let mockManagedProxyContext = {
 };
 
 mock.module("../providers/managed-proxy/context.js", () => ({
-  buildManagedBaseUrl: () => mockManagedBaseUrl,
-  resolveManagedProxyContext: () => mockManagedProxyContext,
+  buildManagedBaseUrl: async () => mockManagedBaseUrl,
+  resolveManagedProxyContext: async () => mockManagedProxyContext,
 }));
 
 let mockAttachments: Array<{
