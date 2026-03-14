@@ -133,9 +133,9 @@ enum GatewayHTTPClient {
     /// Builds an authenticated `URLRequest`, automatically resolving the
     /// connected assistant, gateway base URL, and auth credentials.
     ///
-    /// For managed/remote assistants, routes through the platform proxy with
-    /// session-token auth. For local assistants, routes through the local
-    /// gateway with bearer-token auth.
+    /// - Managed (`cloud == "vellum"`): platform proxy URL with `X-Session-Token`
+    /// - Remote non-managed (GCP/AWS): `runtimeUrl` with `Authorization: Bearer`
+    /// - Local: `http://127.0.0.1:{gatewayPort}` with `Authorization: Bearer`
     private static func buildRequest(
         path: String,
         method: String,
@@ -148,7 +148,7 @@ enum GatewayHTTPClient {
         let baseURL: String
         let authHeader: (field: String, value: String)
 
-        if assistant.isRemote {
+        if assistant.isManaged {
             guard let token = SessionTokenManager.getToken(), !token.isEmpty else {
                 throw ClientError.notAuthenticated
             }
@@ -158,8 +158,15 @@ enum GatewayHTTPClient {
             guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
                 throw ClientError.notAuthenticated
             }
-            let port = assistant.gatewayPort ?? LockfilePaths.resolveGatewayPort()
-            baseURL = "http://127.0.0.1:\(port)"
+            if assistant.isRemote {
+                guard let runtimeUrl = assistant.runtimeUrl else {
+                    throw ClientError.invalidURL
+                }
+                baseURL = runtimeUrl
+            } else {
+                let port = assistant.gatewayPort ?? LockfilePaths.resolveGatewayPort()
+                baseURL = "http://127.0.0.1:\(port)"
+            }
             authHeader = ("Authorization", "Bearer \(token)")
         }
 
