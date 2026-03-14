@@ -42,6 +42,7 @@ import {
   recordConversationSeenSignal,
   type SignalType,
 } from "../memory/conversation-attention-store.js";
+import { getConversation } from "../memory/conversation-crud.js";
 import {
   countConversations,
   listConversations,
@@ -859,6 +860,85 @@ export class RuntimeHttpServer {
               };
             }),
             hasMore: offset + conversations.length < totalCount,
+          });
+        },
+      },
+      {
+        endpoint: "conversations/:id",
+        method: "GET",
+        handler: ({ params }) => {
+          const conversation = getConversation(params.id);
+          if (!conversation) {
+            return httpError(
+              "NOT_FOUND",
+              `Conversation ${params.id} not found`,
+              404,
+            );
+          }
+          const bindings =
+            externalConversationStore.getBindingsForConversations([
+              conversation.id,
+            ]);
+          const attentionStates = getAttentionStateByConversationIds([
+            conversation.id,
+          ]);
+          const binding = bindings.get(conversation.id);
+          const originChannel = parseChannelId(conversation.originChannel);
+          const attn = attentionStates.get(conversation.id);
+          const assistantAttention = attn
+            ? {
+                hasUnseenLatestAssistantMessage:
+                  attn.latestAssistantMessageAt != null &&
+                  (attn.lastSeenAssistantMessageAt == null ||
+                    attn.lastSeenAssistantMessageAt <
+                      attn.latestAssistantMessageAt),
+                ...(attn.latestAssistantMessageAt != null
+                  ? {
+                      latestAssistantMessageAt: attn.latestAssistantMessageAt,
+                    }
+                  : {}),
+                ...(attn.lastSeenAssistantMessageAt != null
+                  ? {
+                      lastSeenAssistantMessageAt:
+                        attn.lastSeenAssistantMessageAt,
+                    }
+                  : {}),
+                ...(attn.lastSeenConfidence != null
+                  ? { lastSeenConfidence: attn.lastSeenConfidence }
+                  : {}),
+                ...(attn.lastSeenSignalType != null
+                  ? { lastSeenSignalType: attn.lastSeenSignalType }
+                  : {}),
+              }
+            : undefined;
+          return Response.json({
+            session: {
+              id: conversation.id,
+              title: conversation.title ?? "Untitled",
+              createdAt: conversation.createdAt,
+              updatedAt: conversation.updatedAt,
+              threadType:
+                conversation.threadType === "private" ? "private" : "standard",
+              source: conversation.source ?? "user",
+              ...(conversation.scheduleJobId
+                ? { scheduleJobId: conversation.scheduleJobId }
+                : {}),
+              ...(binding
+                ? {
+                    channelBinding: {
+                      sourceChannel: binding.sourceChannel,
+                      externalChatId: binding.externalChatId,
+                      externalUserId: binding.externalUserId,
+                      displayName: binding.displayName,
+                      username: binding.username,
+                    },
+                  }
+                : {}),
+              ...(originChannel
+                ? { conversationOriginChannel: originChannel }
+                : {}),
+              ...(assistantAttention ? { assistantAttention } : {}),
+            },
           });
         },
       },
