@@ -496,8 +496,8 @@ enum LogExporter {
             // Drain both pipes concurrently to prevent deadlock.
             // Sequential reads can block if tar fills one pipe buffer (~64 KB)
             // while we're waiting on the other.
-            var stdoutData = Data()
-            var stderrData = Data()
+            nonisolated(unsafe) var stdoutData = Data()
+            nonisolated(unsafe) var stderrData = Data()
             let group = DispatchGroup()
 
             group.enter()
