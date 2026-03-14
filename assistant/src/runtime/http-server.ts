@@ -42,7 +42,10 @@ import {
   recordConversationSeenSignal,
   type SignalType,
 } from "../memory/conversation-attention-store.js";
-import { getConversation } from "../memory/conversation-crud.js";
+import {
+  getConversation,
+  getDisplayMetaForConversations,
+} from "../memory/conversation-crud.js";
 import {
   countConversations,
   listConversations,
@@ -796,6 +799,7 @@ export class RuntimeHttpServer {
           const conversations = listConversations(limit, false, offset);
           const totalCount = countConversations();
           const conversationIds = conversations.map((c) => c.id);
+          const displayMeta = getDisplayMetaForConversations(conversationIds);
           const bindings =
             externalConversationStore.getBindingsForConversations(
               conversationIds,
@@ -857,6 +861,16 @@ export class RuntimeHttpServer {
                   ? { conversationOriginChannel: originChannel }
                   : {}),
                 ...(assistantAttention ? { assistantAttention } : {}),
+                ...(displayMeta.get(c.id)?.isPinned
+                  ? {
+                      isPinned: true,
+                      displayOrder: displayMeta.get(c.id)!.displayOrder,
+                    }
+                  : displayMeta.get(c.id)?.displayOrder != null
+                    ? {
+                        displayOrder: displayMeta.get(c.id)!.displayOrder,
+                      }
+                    : {}),
               };
             }),
             hasMore: offset + conversations.length < totalCount,
