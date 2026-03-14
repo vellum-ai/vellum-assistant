@@ -30,6 +30,29 @@ export function computeGatewayTarget(): string {
 }
 
 /**
+ * Read the current ingress config from the raw workspace config file.
+ * Extracted so it can be called from both the daemon message handler
+ * and the HTTP route handler.
+ */
+export function getIngressConfigResult(): {
+  enabled: boolean;
+  publicBaseUrl: string;
+  localGatewayTarget: string;
+  success: boolean;
+} {
+  const raw = loadRawConfig();
+  const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
+  const publicBaseUrl = (ingress.publicBaseUrl as string) ?? "";
+  const enabled = (ingress.enabled as boolean | undefined) ?? false;
+  return {
+    enabled,
+    publicBaseUrl,
+    localGatewayTarget: computeGatewayTarget(),
+    success: true,
+  };
+}
+
+/**
  * Best-effort Twilio webhook sync helper.
  *
  * Computes the voice and status-callback webhook URLs from the current
@@ -80,16 +103,10 @@ export async function handleIngressConfig(
   const localGatewayTarget = computeGatewayTarget();
   try {
     if (msg.action === "get") {
-      const raw = loadRawConfig();
-      const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
-      const publicBaseUrl = (ingress.publicBaseUrl as string) ?? "";
-      const enabled = (ingress.enabled as boolean | undefined) ?? false;
+      const result = getIngressConfigResult();
       ctx.send({
         type: "ingress_config_response",
-        enabled,
-        publicBaseUrl,
-        localGatewayTarget,
-        success: true,
+        ...result,
       });
     } else if (msg.action === "set") {
       const value = (msg.publicBaseUrl ?? "").trim().replace(/\/+$/, "");
