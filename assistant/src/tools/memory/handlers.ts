@@ -40,18 +40,6 @@ export async function handleMemorySave(
     "constraint",
     "event",
   ]);
-  /** Maps old kind names to their new equivalents for backwards compat. */
-  const kindMigrationMap: Record<string, string> = {
-    profile: "identity",
-    fact: "identity",
-    relationship: "identity",
-    opinion: "preference",
-    todo: "project",
-    instruction: "constraint",
-    style: "preference",
-    playbook: "constraint",
-    learning: "identity",
-  };
   if (typeof rawKind !== "string") {
     return {
       content: `Error: kind is required and must be one of: ${[
@@ -60,7 +48,7 @@ export async function handleMemorySave(
       isError: true,
     };
   }
-  const kind = kindMigrationMap[rawKind] ?? rawKind;
+  const kind = rawKind;
   if (!validKinds.has(kind)) {
     return {
       content: `Error: kind is required and must be one of: ${[
