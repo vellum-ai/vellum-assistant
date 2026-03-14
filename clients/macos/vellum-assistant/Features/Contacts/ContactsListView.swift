@@ -96,10 +96,11 @@ struct ContactsListView: View {
                         .font(VFont.bodyBold)
                         .foregroundColor(VColor.contentDefault)
                         .lineLimit(1)
+                        .truncationMode(.tail)
 
-                    Spacer()
+                    Spacer(minLength: 0)
                 }
-                .padding(VSpacing.lg)
+                .padding(VSpacing.md)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(selection == .assistant ? VColor.contentEmphasized.opacity(0.08) : (isAssistantHovered ? VColor.contentEmphasized.opacity(0.04) : Color.clear))
                 .contentShape(Rectangle())
@@ -128,10 +129,11 @@ struct ContactsListView: View {
                         .font(VFont.bodyBold)
                         .foregroundColor(VColor.contentDefault)
                         .lineLimit(1)
+                        .truncationMode(.tail)
 
-                    Spacer()
+                    Spacer(minLength: 0)
                 }
-                .padding(VSpacing.lg)
+                .padding(VSpacing.md)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(selection == .contact(contact.id) ? VColor.contentEmphasized.opacity(0.08) : (hoveredContactId == contact.id ? VColor.contentEmphasized.opacity(0.04) : Color.clear))
                 .contentShape(Rectangle())
@@ -204,12 +206,14 @@ struct ContactsListView: View {
                         .font(VFont.bodyBold)
                         .foregroundColor(VColor.contentDefault)
                         .lineLimit(1)
+                        .truncationMode(.tail)
 
                     if let notes = contact.notes, !notes.isEmpty {
                         Text(notes.components(separatedBy: .newlines).first ?? notes)
                             .font(VFont.caption)
                             .foregroundColor(VColor.contentSecondary)
                             .lineLimit(1)
+                            .truncationMode(.tail)
                     }
 
                     if !contact.channels.isEmpty {
@@ -217,11 +221,11 @@ struct ContactsListView: View {
                     }
                 }
 
-                Spacer()
+                Spacer(minLength: VSpacing.sm)
 
                 statusIndicator(for: contact)
             }
-            .padding(VSpacing.lg)
+            .padding(VSpacing.md)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(selection == .contact(contact.id) ? VColor.contentEmphasized.opacity(0.08) : (hoveredContactId == contact.id ? VColor.contentEmphasized.opacity(0.04) : Color.clear))
             .contentShape(Rectangle())
