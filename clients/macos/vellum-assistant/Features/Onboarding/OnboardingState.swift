@@ -27,7 +27,7 @@ enum ActivationKey: String, CaseIterable {
 final class OnboardingState {
     /// Bump this version whenever the default-flow step order changes so that
     /// persisted step indices from a previous layout are not consumed as-is.
-    private static let currentFlowVersion = 9
+    private static let currentFlowVersion = 10
 
     var currentStep: Int = 0
     var assistantName: String = "Velly"

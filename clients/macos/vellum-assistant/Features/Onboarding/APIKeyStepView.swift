@@ -254,6 +254,7 @@ struct APIKeyStepView: View {
                             guard !hatchButtonDisabled else { return }
                             saveAndHatch()
                         } else {
+                            guard !primaryButtonDisabled else { return }
                             saveAndContinue()
                         }
                     }
