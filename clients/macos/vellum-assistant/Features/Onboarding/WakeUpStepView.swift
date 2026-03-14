@@ -89,7 +89,7 @@ struct WakeUpStepView: View {
                         onContinueWithVellum()
                     }
                     .disabled(!managedSignInEnabled && authManager?.isAuthenticated != true)
-                    .accessibilityLabel("Sign in")
+                    .accessibilityLabel(primaryButtonTitle)
 
                     if !managedSignInEnabled && authManager?.isAuthenticated != true {
                         Text("Coming Soon")
