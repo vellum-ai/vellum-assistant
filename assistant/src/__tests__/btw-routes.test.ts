@@ -66,9 +66,10 @@ mock.module("../security/secret-ingress.js", () => ({
 }));
 
 const MOCK_SYSTEM_PROMPT = "You are a helpful assistant.";
+const mockBuildSystemPrompt = mock(() => MOCK_SYSTEM_PROMPT);
 
 mock.module("../prompts/system-prompt.js", () => ({
-  buildSystemPrompt: () => MOCK_SYSTEM_PROMPT,
+  buildSystemPrompt: mockBuildSystemPrompt,
 }));
 
 // ---------------------------------------------------------------------------
@@ -339,6 +340,9 @@ describe("POST /v1/btw", () => {
 
     // System prompt built by buildSystemPrompt({ excludeBootstrap: true })
     expect(systemPrompt).toBe(MOCK_SYSTEM_PROMPT);
+    expect(mockBuildSystemPrompt).toHaveBeenCalledWith({
+      excludeBootstrap: true,
+    });
 
     // Options: tool_choice must be "none"
     expect(options!.config!.tool_choice).toEqual({ type: "none" });
