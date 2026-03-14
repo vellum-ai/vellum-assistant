@@ -102,6 +102,7 @@ export { migrateInviteContactId } from "./157-invite-contact-id.js";
 export { migrateChannelInteractionColumns } from "./158-channel-interaction-columns.js";
 export { migrateDropContactInteractionColumns } from "./159-drop-contact-interaction-columns.js";
 export { migrateDropLoopbackPortColumn } from "./160-drop-loopback-port-column.js";
+export { migrateDropOrphanedMediaTables } from "./161-drop-orphaned-media-tables.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

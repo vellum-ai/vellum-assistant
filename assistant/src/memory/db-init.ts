@@ -57,6 +57,7 @@ import {
   migrateDropLegacyMemberGuardianTables,
   migrateDropLoopbackPortColumn,
   migrateDropMemorySegmentFts,
+  migrateDropOrphanedMediaTables,
   migrateDropRemindersTable,
   migrateDropUsageCompositeIndexes,
   migrateFkCascadeRebuilds,
@@ -387,6 +388,9 @@ export function initializeDb(): void {
 
   // 63. Drop loopback_port column from oauth_providers (moved to code-side behavior registry)
   migrateDropLoopbackPortColumn(database);
+
+  // 64. Drop orphaned media tables (CREATE TABLE removed in #16739, clean up existing databases)
+  migrateDropOrphanedMediaTables(database);
 
   validateMigrationState(database);
 
