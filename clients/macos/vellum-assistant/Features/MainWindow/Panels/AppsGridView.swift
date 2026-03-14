@@ -538,7 +538,10 @@ struct AppsGridView: View {
             let stream = daemonClient.subscribe()
             do {
                 try daemonClient.sendAppsList()
-            } catch { return }
+            } catch {
+                hasFetchedLocalApps = true
+                return
+            }
             for await message in stream {
                 guard !Task.isCancelled else { return }
                 if case .appsListResponse(let response) = message {
@@ -553,6 +556,8 @@ struct AppsGridView: View {
                     return
                 }
             }
+            // Stream ended without a response (e.g. daemon disconnected)
+            hasFetchedLocalApps = true
         }
     }
 
