@@ -92,10 +92,12 @@ struct WakeUpStepView: View {
                     .accessibilityLabel(buttonTitle)
                 }
 
-                OnboardingButton(title: "Skip for now", style: .secondary) {
-                    onStartWithAPIKey()
+                if authManager?.isAuthenticated != true {
+                    OnboardingButton(title: "Skip for now", style: .secondary) {
+                        onStartWithAPIKey()
+                    }
+                    .accessibilityLabel("Skip for now")
                 }
-                .accessibilityLabel("Skip for now")
             } else {
                 OnboardingButton(title: "Get Started", style: .primary) {
                     onStartWithAPIKey()

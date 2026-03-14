@@ -165,6 +165,13 @@ struct OnboardingFlowView: View {
             log.info(
                 "Observed auth state change in onboarding: isAuthenticated=\(isAuthenticated, privacy: .public) managedBootstrapEnabled=\(self.managedBootstrapEnabled, privacy: .public) lockfileAssistantId=\(currentAssistant?.assistantId ?? "<none>", privacy: .public)"
             )
+            if !isAuthenticated && managedSignInEnabled && state.currentStep > 0 {
+                log.info("User signed out during managed onboarding — returning to welcome screen")
+                withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
+                    state.currentStep = 0
+                }
+                return
+            }
             if isAuthenticated {
                 if let assistant = currentAssistant {
                     if assistant.isManaged {

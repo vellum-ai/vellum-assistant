@@ -287,6 +287,13 @@ struct APIKeyStepView: View {
 
     // MARK: - Footer Links
 
+    private var showBackButton: Bool {
+        if managedSignInEnabled && isAuthenticated {
+            return false
+        }
+        return true
+    }
+
     private var footerLinks: some View {
         HStack(spacing: VSpacing.lg) {
             if showApiKeyField {
@@ -298,13 +305,15 @@ struct APIKeyStepView: View {
                 .pointerCursor()
             }
 
-            Button(action: { goBack() }) {
-                Text("Back")
-                    .font(.system(size: 13))
-                    .foregroundColor(VColor.contentTertiary)
+            if showBackButton {
+                Button(action: { goBack() }) {
+                    Text("Back")
+                        .font(.system(size: 13))
+                        .foregroundColor(VColor.contentTertiary)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
             }
-            .buttonStyle(.plain)
-            .pointerCursor()
         }
         .padding(.top, VSpacing.xs)
     }
