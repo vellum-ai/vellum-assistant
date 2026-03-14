@@ -93,7 +93,6 @@ const PROVIDER_SEED_DATA: Record<
         "channels:read,channels:history,groups:read,groups:history,im:read,im:history,im:write,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write",
     },
     callbackTransport: "loopback",
-
   },
 
   "integration:notion": {
@@ -111,7 +110,6 @@ const PROVIDER_SEED_DATA: Record<
     extraParams: { owner: "user" },
     tokenEndpointAuthMethod: "client_secret_basic",
     callbackTransport: "loopback",
-
   },
 
   "integration:twitter": {
@@ -169,7 +167,6 @@ const PROVIDER_SEED_DATA: Record<
     },
     extraParams: { prompt: "consent" },
     callbackTransport: "loopback",
-
   },
 
   "integration:spotify": {
@@ -194,6 +191,7 @@ const PROVIDER_SEED_DATA: Record<
       allowedOptionalScopes: [],
       forbiddenScopes: [],
     },
+    tokenEndpointAuthMethod: "client_secret_basic",
     callbackTransport: "loopback",
   },
 
@@ -210,7 +208,6 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: ["data:delete"],
     },
     callbackTransport: "loopback",
-
   },
 
   "integration:discord": {
@@ -231,7 +228,6 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     callbackTransport: "loopback",
-
   },
 
   "integration:dropbox": {
@@ -253,7 +249,6 @@ const PROVIDER_SEED_DATA: Record<
     },
     extraParams: { token_access_type: "offline" },
     callbackTransport: "loopback",
-
   },
 
   "integration:asana": {
@@ -269,7 +264,6 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     callbackTransport: "loopback",
-
   },
 
   "integration:airtable": {
@@ -288,9 +282,8 @@ const PROVIDER_SEED_DATA: Record<
       allowedOptionalScopes: [],
       forbiddenScopes: [],
     },
-    tokenEndpointAuthMethod: "client_secret_post",
+    tokenEndpointAuthMethod: "client_secret_basic",
     callbackTransport: "loopback",
-
   },
 
   "integration:hubspot": {
@@ -315,7 +308,6 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     callbackTransport: "loopback",
-
   },
 
   "integration:figma": {
@@ -330,8 +322,8 @@ const PROVIDER_SEED_DATA: Record<
       allowedOptionalScopes: [],
       forbiddenScopes: [],
     },
+    tokenEndpointAuthMethod: "client_secret_basic",
     callbackTransport: "loopback",
-
   },
 
   // Manual-token providers: these don't use OAuth2 flows but need provider

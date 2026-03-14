@@ -20,7 +20,7 @@ This skill follows the **Collaborative Guided Flow** pattern from the included `
 - **Provider key:** `integration:github`
 - **Dashboard:** `https://github.com/settings/developers`
 - **Ping URL:** `https://api.github.com/user`
-- **Callback transport:** Loopback (port 17322)
+- **Callback transport:** Loopback
 - **Requires secret:** Yes (token endpoint needs both client ID and app secret)
 
 ## GitHub-Specific Flow
@@ -58,15 +58,14 @@ After the user clicks:
 Resolve the callback URL:
 
 ```
-credential_store describe:
-  service: "integration:github"
+bash:
+  command: assistant oauth providers get integration:github --json
 ```
 
-Use the `redirectUri` from the response. If it says **"automatic"** or the callback transport is loopback with no ingress requirement, tell the user:
+Use the `redirectUri` from the JSON response:
 
-> For the **Authorization callback URL**, enter: `http://localhost:17322/oauth/callback`
-
-If `redirectUri` mentions `ingress.publicBaseUrl` or says "not currently configured", stop and help the user configure public ingress first.
+- If it is a concrete URL (e.g. `http://localhost:…/oauth/callback`), tell the user to enter that exact URL as the **Authorization callback URL**.
+- If it is `null`, stop and help the user configure public ingress first.
 
 Then:
 
