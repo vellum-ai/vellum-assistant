@@ -134,8 +134,10 @@ registerTool(mockBundledSkillTool);
 
 // Register CU tools so classifyRisk returns their declared Low risk level
 // instead of falling through to Medium (unknown tool).
-import { registerComputerUseActionTools } from "../tools/computer-use/registry.js";
-registerComputerUseActionTools();
+import { allComputerUseTools } from "../tools/computer-use/definitions.js";
+for (const tool of allComputerUseTools) {
+  registerTool(tool);
+}
 
 function writeSkill(
   skillId: string,

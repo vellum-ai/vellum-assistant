@@ -426,24 +426,3 @@ describe("skill tool reference counting", () => {
     expect(getSkillRefCount("nonexistent-skill")).toBe(0);
   });
 });
-
-describe("computer-use registration split", () => {
-  // Start each test from a completely empty registry so assertions are
-  // non-vacuous — the split functions must actually register tools.
-
-  test("registerComputerUseActionTools registers all 11 CU action tools and nothing else", async () => {
-    const { registerComputerUseActionTools } =
-      await import("../tools/computer-use/registry.js");
-
-    __clearRegistryForTesting();
-    expect(getAllTools()).toHaveLength(0);
-
-    registerComputerUseActionTools();
-
-    const registered = getAllTools();
-    expect(registered).toHaveLength(11);
-    expect(registered.every((t) => t.name.startsWith("computer_use_"))).toBe(
-      true,
-    );
-  });
-});
