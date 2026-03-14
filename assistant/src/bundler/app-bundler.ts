@@ -14,7 +14,7 @@ import { join } from "node:path";
 import archiver from "archiver";
 import JSZip from "jszip";
 
-import { getApp, getAppsDir } from "../memory/app-store.js";
+import { getApp, getAppsDir, isMultifileApp } from "../memory/app-store.js";
 import { computeContentId } from "../util/content-id.js";
 import { getLogger } from "../util/logger.js";
 import { compileApp } from "./app-compiler.js";
@@ -60,8 +60,10 @@ export async function packageApp(
   const version = app.version ?? "1.0.0";
   const contentId = computeContentId(app.name);
 
+  const multifile = isMultifileApp(app);
+
   const manifest: AppManifest = {
-    format_version: 2,
+    format_version: multifile ? 2 : 1,
     name: app.name,
     ...(app.description ? { description: app.description } : {}),
     ...(app.icon ? { icon: app.icon } : {}),
@@ -74,34 +76,48 @@ export async function packageApp(
     content_id: contentId,
   };
 
-  // Compile the app and bundle the dist/ output.
+  // Compile the app and bundle the output.
   const compiledFiles: { name: string; data: Buffer }[] = [];
 
   const appDir = join(getAppsDir(), appId);
-  const compileResult = await compileApp(appDir);
-  if (!compileResult.ok) {
-    const messages = compileResult.errors
-      .map((e) => {
-        const loc = e.location
-          ? ` (${e.location.file}:${e.location.line}:${e.location.column})`
-          : "";
-        return `${e.text}${loc}`;
-      })
-      .join("\n");
-    throw new Error(`Compilation failed for app "${app.name}":\n${messages}`);
-  }
 
-  const distDir = join(appDir, "dist");
-  const indexHtml = await readFile(join(distDir, "index.html"), "utf-8");
-  const mainJs = await readFile(join(distDir, "main.js"));
+  if (multifile) {
+    // Multi-file TSX app: compile src/ -> dist/
+    const compileResult = await compileApp(appDir);
+    if (!compileResult.ok) {
+      const messages = compileResult.errors
+        .map((e) => {
+          const loc = e.location
+            ? ` (${e.location.file}:${e.location.line}:${e.location.column})`
+            : "";
+          return `${e.text}${loc}`;
+        })
+        .join("\n");
+      throw new Error(`Compilation failed for app "${app.name}":\n${messages}`);
+    }
 
-  compiledFiles.push({ name: "index.html", data: Buffer.from(indexHtml) });
-  compiledFiles.push({ name: "main.js", data: mainJs });
+    const distDir = join(appDir, "dist");
+    const indexHtml = await readFile(join(distDir, "index.html"), "utf-8");
+    const mainJs = await readFile(join(distDir, "main.js"));
 
-  // main.css is optional — only produced when the app imports CSS
-  const cssPath = join(distDir, "main.css");
-  if (existsSync(cssPath)) {
-    compiledFiles.push({ name: "main.css", data: await readFile(cssPath) });
+    compiledFiles.push({ name: "index.html", data: Buffer.from(indexHtml) });
+    compiledFiles.push({ name: "main.js", data: mainJs });
+
+    // main.css is optional — only produced when the app imports CSS
+    const cssPath = join(distDir, "main.css");
+    if (existsSync(cssPath)) {
+      compiledFiles.push({ name: "main.css", data: await readFile(cssPath) });
+    }
+  } else {
+    // Single-file HTML app: bundle index.html directly
+    const indexHtmlPath = join(appDir, "index.html");
+    if (!existsSync(indexHtmlPath)) {
+      throw new Error(
+        `App "${app.name}" has no src/ directory and no index.html`,
+      );
+    }
+    const indexHtml = await readFile(indexHtmlPath, "utf-8");
+    compiledFiles.push({ name: "index.html", data: Buffer.from(indexHtml) });
   }
 
   // Create the zip archive
