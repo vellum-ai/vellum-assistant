@@ -2546,7 +2546,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
 
         let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-        guard var request = buildLocalRequest(target: .daemon, path: "v1/memory-items/\(encoded)", method: "DELETE") else { return false }
+        guard let request = buildLocalRequest(target: .daemon, path: "v1/memory-items/\(encoded)", method: "DELETE") else { return false }
 
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
