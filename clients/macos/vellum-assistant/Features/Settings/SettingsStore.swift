@@ -230,12 +230,12 @@ public final class SettingsStore: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private let configPath: String?
 
-    /// Whether the connected assistant is platform-managed (cloud == "vellum").
+    /// Whether the connected assistant is remote (not running locally).
     /// When true, local workspace config writes are skipped to avoid creating
     /// a `.vellum/` directory that doesn't belong to any local assistant.
-    private var isCurrentAssistantManaged: Bool {
+    private var isCurrentAssistantRemote: Bool {
         UserDefaults.standard.string(forKey: "connectedAssistantId")
-            .flatMap { LockfileAssistant.loadByName($0) }?.isManaged ?? false
+            .flatMap { LockfileAssistant.loadByName($0) }?.isRemote ?? false
     }
 
     /// Guards against stale `get` responses overwriting an optimistic
@@ -341,8 +341,8 @@ public final class SettingsStore: ObservableObject {
         // When enabledSince was defaulted to "now" (no value on disk),
         // persist it immediately so subsequent loads produce the same
         // deterministic timestamp instead of advancing each time.
-        // Skip for managed assistants to avoid creating a local .vellum/ directory.
-        if mediaSettings.didDefaultEnabledSince && !isCurrentAssistantManaged {
+        // Skip for remote assistants to avoid creating a local .vellum/ directory.
+        if mediaSettings.didDefaultEnabledSince && !isCurrentAssistantRemote {
             persistMediaEmbedState()
         }
 
@@ -1990,7 +1990,7 @@ public final class SettingsStore: ObservableObject {
         let normalized = MediaEmbedSettings.normalizeDomains(domains)
         mediaEmbedVideoAllowlistDomains = normalized
 
-        guard !isCurrentAssistantManaged else { return }
+        guard !isCurrentAssistantRemote else { return }
 
         let existingConfig = WorkspaceConfigIO.read(from: configPath)
         var existingUI = existingConfig["ui"] as? [String: Any] ?? [:]
@@ -2009,7 +2009,7 @@ public final class SettingsStore: ObservableObject {
     /// Writes the current `mediaEmbedsEnabled` and `mediaEmbedsEnabledSince` to
     /// the workspace config under `ui.mediaEmbeds`.
     private func persistMediaEmbedState() {
-        guard !isCurrentAssistantManaged else { return }
+        guard !isCurrentAssistantRemote else { return }
 
         var mediaEmbedsDict: [String: Any] = [
             "enabled": mediaEmbedsEnabled,
@@ -2111,7 +2111,7 @@ public final class SettingsStore: ObservableObject {
     // MARK: - User Timezone Loading/Persistence
 
     private func persistUserTimezone() {
-        guard !isCurrentAssistantManaged else { return }
+        guard !isCurrentAssistantRemote else { return }
 
         let existingConfig = WorkspaceConfigIO.read(from: configPath)
         var existingUI = existingConfig["ui"] as? [String: Any] ?? [:]
