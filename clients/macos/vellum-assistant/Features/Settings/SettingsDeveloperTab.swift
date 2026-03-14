@@ -416,23 +416,16 @@ struct SettingsDeveloperTab: View {
     }
 
     private func fetchHealthz() async {
-        guard let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) else { return }
-
-        if assistant.isManaged || assistant.isRemote {
-            do {
-                let response = try await GatewayHTTPClient.get(
-                    path: "\(selectedAssistantId)/healthz",
-                    timeout: 10
-                )
-                guard response.statusCode == 200 else { return }
-                let decoder = JSONDecoder()
-                decoder.keyDecodingStrategy = .convertFromSnakeCase
-                healthz = try decoder.decode(DaemonHealthz.self, from: response.data)
-            } catch {}
-        } else {
-            let port = assistant.resolvedDaemonPort()
-            healthz = await DaemonHealthzFetcher.fetchLocal(port: port, bearerToken: assistant.bearerToken)
-        }
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "\(selectedAssistantId)/healthz",
+                timeout: 10
+            )
+            guard response.statusCode == 200 else { return }
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            healthz = try decoder.decode(DaemonHealthz.self, from: response.data)
+        } catch {}
     }
 
     private func infoRow(label: String, value: String, mono: Bool = false) -> some View {
