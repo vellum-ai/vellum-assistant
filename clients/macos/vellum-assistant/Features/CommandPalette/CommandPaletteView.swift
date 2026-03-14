@@ -7,6 +7,7 @@ struct CommandPaletteView: View {
     var onDismiss: () -> Void
     var onSelectRecent: ((UUID) -> Void)?
     var onSelectConversation: ((String) -> Void)?
+    var onSelectMemory: ((String) -> Void)?
 
     @FocusState private var isSearchFocused: Bool
 
@@ -182,6 +183,10 @@ struct CommandPaletteView: View {
             sectionHeader("Memories")
             ForEach(Array(memories.enumerated()), id: \.element.id) { index, memory in
                 memoryRow(memory, isSelected: viewModel.selectedIndex == memOffset + index)
+                    .onTapGesture {
+                        onSelectMemory?(memory.id)
+                        onDismiss()
+                    }
             }
             let _ = (offset += memories.count)
         }
@@ -424,7 +429,10 @@ struct CommandPaletteView: View {
         case .conversation(let conv):
             onSelectConversation?(conv.id)
             onDismiss()
-        case .memory, .schedule, .contact:
+        case .memory(let memory):
+            onSelectMemory?(memory.id)
+            onDismiss()
+        case .schedule, .contact:
             // Non-navigable results — no action on Enter
             break
         }

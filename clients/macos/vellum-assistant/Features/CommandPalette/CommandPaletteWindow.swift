@@ -25,6 +25,9 @@ final class CommandPaletteWindow {
     /// Callback invoked when the user selects a search result conversation (by daemon session ID).
     var onSelectSearchConversation: ((String) -> Void)?
 
+    /// Callback invoked when the user selects a memory search result (by memory ID).
+    var onSelectMemory: ((String) -> Void)?
+
     /// Static actions to show in the palette.
     var actions: [CommandPaletteAction] = []
 
@@ -64,6 +67,9 @@ final class CommandPaletteWindow {
             },
             onSelectConversation: { [weak self] convId in
                 self?.onSelectSearchConversation?(convId)
+            },
+            onSelectMemory: { [weak self] memoryId in
+                self?.onSelectMemory?(memoryId)
             }
         )
 

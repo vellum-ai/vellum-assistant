@@ -359,6 +359,10 @@ extension AppDelegate {
             }
         }
 
+        window.onSelectMemory = { [weak self] memoryId in
+            self?.mainWindow?.windowState.showMemory(id: memoryId)
+        }
+
         // Wire runtime HTTP resolver for server search
         window.runtimeHTTPResolver = {
             let port = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"]
