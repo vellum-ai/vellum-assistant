@@ -288,13 +288,6 @@ struct SettingsDeveloperTab: View {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
     }
 
-    private var selectedAssistantIsUpgradable: Bool {
-        guard let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) else {
-            return false
-        }
-        return assistant.isManaged || assistant.isRemote
-    }
-
     private var assistantVersionBehind: Bool {
         guard let assistantVersion = healthz?.version, !assistantVersion.isEmpty,
               let appVersion = desktopAppVersion, !appVersion.isEmpty else {
@@ -318,7 +311,7 @@ struct SettingsDeveloperTab: View {
                         .foregroundColor(assistantVersionBehind ? VColor.systemNegativeStrong : VColor.contentDefault)
                         .textSelection(.enabled)
 
-                    if assistantVersionBehind && selectedAssistantIsUpgradable {
+                    if assistantVersionBehind {
                         if isUpgradingInline {
                             ProgressView()
                                 .controlSize(.small)
@@ -333,7 +326,7 @@ struct SettingsDeveloperTab: View {
                     Spacer()
                 }
 
-                if assistantVersionBehind && selectedAssistantIsUpgradable, let appVersion = desktopAppVersion {
+                if assistantVersionBehind, let appVersion = desktopAppVersion {
                     HStack(spacing: VSpacing.xs) {
                         Text("Desktop is on")
                             .font(VFont.caption)
