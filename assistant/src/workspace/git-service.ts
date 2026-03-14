@@ -1,5 +1,11 @@
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
@@ -252,17 +258,30 @@ export class WorkspaceGitService {
     );
   }
 
+  /** Age threshold (ms) beyond which an index.lock is considered stale. */
+  private static readonly LOCK_STALE_THRESHOLD_MS = 30_000;
+
   /**
-   * Remove stale `.git/index.lock` left by a crashed or timed-out git process.
-   * Safe to call while holding the mutex — the lock guarantees no other
-   * service-initiated git operation is running, so any existing lock file
-   * must be stale.
+   * Remove `.git/index.lock` only if it is stale — older than
+   * {@link LOCK_STALE_THRESHOLD_MS}. A recently-created lock may belong to a
+   * concurrent git process outside our mutex (e.g. a user-initiated CLI
+   * command), so we leave it alone.
    */
   private cleanStaleLockFile(): void {
+    const lockPath = join(this.workspaceDir, ".git", "index.lock");
     try {
-      unlinkSync(join(this.workspaceDir, ".git", "index.lock"));
+      const stat = statSync(lockPath);
+      const ageMs = Date.now() - stat.mtimeMs;
+      if (ageMs < GitService.LOCK_STALE_THRESHOLD_MS) {
+        log.debug(
+          `index.lock exists but is only ${Math.round(ageMs / 1000)}s old — leaving it`,
+        );
+        return;
+      }
+      unlinkSync(lockPath);
+      log.debug(`Removed stale index.lock (${Math.round(ageMs / 1000)}s old)`);
     } catch {
-      // File doesn't exist or can't be removed — either way, move on.
+      // File doesn't exist or can't be stat'd/removed — move on.
     }
   }
 
