@@ -10,10 +10,10 @@ import { isHttpHealthy } from "../../daemon/daemon-control.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import {
   getDbPath,
+  getHooksDir,
   getLogPath,
   getRootDir,
   getWorkspaceDir,
-  getWorkspaceHooksDir,
   getWorkspaceSkillsDir,
 } from "../../util/platform.js";
 import { log } from "../logger.js";
@@ -133,7 +133,7 @@ Examples:
         `${dataDir}/db`,
         `${dataDir}/logs`,
         getWorkspaceSkillsDir(),
-        getWorkspaceHooksDir(),
+        getHooksDir(),
         `${rootDir}/protected`,
       ];
       const missing = requiredDirs.filter((d) => !existsSync(d));
