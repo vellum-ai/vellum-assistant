@@ -436,7 +436,7 @@ struct ComposerView: View {
     @ViewBuilder
     private var textEntryComposer: some View {
         standardComposerShell {
-            HStack(alignment: .bottom, spacing: VSpacing.xs) {
+            HStack(alignment: isSending ? .center : .bottom, spacing: VSpacing.xs) {
                 composerTextField
                     .frame(minHeight: composerActionButtonSize)
                 composerActionButtons
