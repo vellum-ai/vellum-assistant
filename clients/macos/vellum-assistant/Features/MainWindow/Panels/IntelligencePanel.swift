@@ -8,14 +8,16 @@ struct IntelligencePanel: View {
     var onInvokeSkill: ((SkillInfo) -> Void)?
     let daemonClient: DaemonClient
     var initialTab: String? = nil
+    @Binding var pendingMemoryId: String?
 
     @State private var selectedTab: IntelligenceTab
 
-    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, daemonClient: DaemonClient, initialTab: String? = nil) {
+    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, daemonClient: DaemonClient, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil)) {
         self.onClose = onClose
         self.onInvokeSkill = onInvokeSkill
         self.daemonClient = daemonClient
         self.initialTab = initialTab
+        _pendingMemoryId = pendingMemoryId
         _selectedTab = State(initialValue: IntelligenceTab(rawValue: initialTab ?? "") ?? .identity)
     }
 
@@ -111,7 +113,7 @@ struct IntelligencePanel: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
         case .memories:
-            MemoriesPanel(daemonClient: daemonClient)
+            MemoriesPanel(daemonClient: daemonClient, focusedMemoryId: $pendingMemoryId)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
     }

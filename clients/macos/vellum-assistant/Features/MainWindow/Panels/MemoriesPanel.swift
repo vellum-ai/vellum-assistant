@@ -44,6 +44,7 @@ private enum MemoryStatusFilter: String, CaseIterable {
 
 struct MemoriesPanel: View {
     let daemonClient: DaemonClient
+    @Binding var focusedMemoryId: String?
     @StateObject private var store: MemoryItemsStore
     @State private var showCreateSheet = false
     @State private var selectedItem: MemoryItemPayload?
@@ -52,8 +53,9 @@ struct MemoriesPanel: View {
     @State private var sortOption: MemorySortOption = .newest
     @State private var searchDebounceTask: Task<Void, Never>?
 
-    init(daemonClient: DaemonClient) {
+    init(daemonClient: DaemonClient, focusedMemoryId: Binding<String?> = .constant(nil)) {
         self.daemonClient = daemonClient
+        _focusedMemoryId = focusedMemoryId
         _store = StateObject(wrappedValue: MemoryItemsStore(daemonClient: daemonClient))
     }
 
@@ -64,6 +66,13 @@ struct MemoriesPanel: View {
             contentView
         }
         .task { await store.loadItems() }
+        .task(id: focusedMemoryId) {
+            guard let memoryId = focusedMemoryId else { return }
+            if let item = await store.fetchDetail(id: memoryId) {
+                selectedItem = item
+            }
+            focusedMemoryId = nil
+        }
         .onDisappear {
             searchDebounceTask?.cancel()
             searchDebounceTask = nil
