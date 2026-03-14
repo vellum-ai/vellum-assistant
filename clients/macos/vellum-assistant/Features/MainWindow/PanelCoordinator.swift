@@ -281,7 +281,7 @@ extension MainWindowView {
             } else if panelType == .documentEditor {
                 let config = windowState.layoutConfig
                 VSplitView(
-                    panelWidth: $sidePanelWidth,
+                    panelWidth: clampedPanelWidth(geometry: geometry),
                     showPanel: documentManager.hasActiveDocument,
                     main: { slotView(for: config.center.content) },
                     panel: {
