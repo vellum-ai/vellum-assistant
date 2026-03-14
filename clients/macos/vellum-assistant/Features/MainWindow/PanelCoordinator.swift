@@ -193,6 +193,37 @@ extension MainWindowView {
         )
     }
 
+    /// Like `clampedPanelWidth` but reads/writes `sidePanelWidth` (default 400)
+    /// instead of `appPanelWidth`. Used for the document editor and default chat
+    /// side panels.
+    func clampedSidePanelWidth(geometry: GeometryProxy) -> Binding<Double> {
+        let settingsOpen: Bool = {
+            if case .panel(.settings) = windowState.selection { return true }
+            return false
+        }()
+        let sidebarWidth: CGFloat = settingsOpen ? 0 : (sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth)
+        let hstackSpacing: CGFloat = 16
+        let outerPadding: CGFloat = 32 // 16 left + 16 right
+        let windowWidth: Double = Double(geometry.size.width) / zoomManager.zoomLevel
+        let availableWidth: Double = windowWidth - Double(sidebarWidth) - Double(hstackSpacing) - Double(outerPadding)
+
+        let preferredMinPanel: Double = 300
+        let preferredMinMain: Double = 300
+        let dividerBudget: Double = Double(VSpacing.xs) + 12
+        let maxPanel: Double = availableWidth - preferredMinMain - dividerBudget
+        let effectiveMinPanel: Double = min(preferredMinPanel, max(maxPanel, 100))
+
+        return Binding<Double>(
+            get: {
+                let raw = sidePanelWidth > 0 ? sidePanelWidth : 400
+                return min(max(raw, effectiveMinPanel), max(maxPanel, effectiveMinPanel))
+            },
+            set: {
+                sidePanelWidth = min(max($0, effectiveMinPanel), max(maxPanel, effectiveMinPanel))
+            }
+        )
+    }
+
     func clampedChatDockWidth(geometry: GeometryProxy) -> Binding<Double> {
         let settingsOpen: Bool = {
             if case .panel(.settings) = windowState.selection { return true }
@@ -225,7 +256,7 @@ extension MainWindowView {
         switch windowState.selection {
         case .thread:
             // Show chat for this thread (threadManager.activeViewModel is synced)
-            defaultChatLayout
+            defaultChatLayout(geometry: geometry)
         case .app(let appId), .appEditing(let appId, _):
             if let surface = windowState.activeDynamicParsedSurface,
                case .dynamicPage(let dpData) = surface.data {
@@ -281,7 +312,7 @@ extension MainWindowView {
             } else if panelType == .documentEditor {
                 let config = windowState.layoutConfig
                 VSplitView(
-                    panelWidth: clampedPanelWidth(geometry: geometry),
+                    panelWidth: clampedSidePanelWidth(geometry: geometry),
                     showPanel: documentManager.hasActiveDocument,
                     main: { slotView(for: config.center.content) },
                     panel: {
@@ -319,19 +350,19 @@ extension MainWindowView {
             }
         case nil:
             // Default: show chat for active thread
-            defaultChatLayout
+            defaultChatLayout(geometry: geometry)
         }
     }
 
     /// The default chat layout used when showing a thread or no specific selection.
     @ViewBuilder
-    var defaultChatLayout: some View {
+    func defaultChatLayout(geometry: GeometryProxy) -> some View {
         let config = windowState.layoutConfig
         let showConfigPanel = config.right.visible && config.right.content != .empty
         let showSubagentPanel = windowState.selectedSubagentId != nil && threadManager.activeViewModel != nil
 
         VSplitView(
-            panelWidth: $sidePanelWidth,
+            panelWidth: clampedSidePanelWidth(geometry: geometry),
             showPanel: showConfigPanel || showSubagentPanel,
             mainBackground: VColor.surfaceOverlay,
             mainCornerRadius: 0,
