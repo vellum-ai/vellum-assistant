@@ -11,7 +11,15 @@ import { join, dirname } from "path";
 
 const DEFAULT_PLATFORM_URL = "https://platform.vellum.ai";
 
+function getXdgConfigHome(): string {
+  return process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
+}
+
 function getPlatformTokenPath(): string {
+  return join(getXdgConfigHome(), "vellum", "platform-token");
+}
+
+function getLegacyPlatformTokenPath(): string {
   const base = process.env.BASE_DATA_DIR || homedir();
   return join(base, ".vellum", "platform-token");
 }
@@ -23,6 +31,11 @@ export function getPlatformUrl(): string {
 export function readPlatformToken(): string | null {
   try {
     return readFileSync(getPlatformTokenPath(), "utf-8").trim();
+  } catch {
+    // Fall back to the legacy ~/.vellum/platform-token path
+  }
+  try {
+    return readFileSync(getLegacyPlatformTokenPath(), "utf-8").trim();
   } catch {
     return null;
   }
@@ -39,10 +52,12 @@ export function savePlatformToken(token: string): void {
 }
 
 export function clearPlatformToken(): void {
-  try {
-    unlinkSync(getPlatformTokenPath());
-  } catch {
-    // already doesn't exist
+  for (const path of [getPlatformTokenPath(), getLegacyPlatformTokenPath()]) {
+    try {
+      unlinkSync(path);
+    } catch {
+      // already doesn't exist
+    }
   }
 }
 
