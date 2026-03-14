@@ -26,9 +26,6 @@ mock.module("../util/logger.js", () => ({
 // Prevent ensureTelegramBotUsernameResolved() from reading real credentials
 // and calling the Telegram API.
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKey: () => undefined,
-  setSecureKey: () => {},
-  deleteSecureKey: () => {},
   getSecureKeyAsync: async () => undefined,
   setSecureKeyAsync: async () => {},
   deleteSecureKeyAsync: async () => {},

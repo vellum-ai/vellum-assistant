@@ -96,9 +96,9 @@ declare -a SAFE_LINE_PATTERNS=(
     # `clientSecret: config.clientSecret || "real_secret"`.
     "[.?]+[a-zA-Z0-9_]*[Cc]lient[Ss]ecret([^\"'/]*$|[^\"'/]*//.*)$"
     # TS/JS: secret/key variable assigned from a function call.
-    # E.g. `const clientSecret = getSecureKey(keyVault)` or
-    # `getSecureKey('credential:integration:twitter:client_secret')` or
-    # `getSecureKey(credentialKey(service, "client_secret"))`.
+    # E.g. `const clientSecret = getSecureKeyAsync(keyVault)` or
+    # `getSecureKeyAsync('credential:integration:twitter:client_secret')` or
+    # `getSecureKeyAsync(credentialKey(service, "client_secret"))`.
     # Allows: no quoted args, quoted args containing `:` (key paths), or
     # nested function calls like `credentialKey(...)` whose quoted args are
     # short identifier-like strings (field names, not real secrets).
@@ -257,16 +257,16 @@ if [ "${1:-}" = "--self-test" ]; then
     UNSAFE_TS_NULLISH_FALLBACK='clientSecret: config.clientSecret ?? "real_secret_value_1234"'
 
     # Function-call assignments (false positives to whitelist)
-    SAFE_FUNC_CALL_SECRET='const clientSecret = getSecureKey(keyVault)'
+    SAFE_FUNC_CALL_SECRET='const clientSecret = getSecureKeyAsync(keyVault)'
     SAFE_CREATE_PRIVATE_KEY='const key = createPrivateKey(keyPem)'
     # Function-call with quoted key path (colon-separated identifier) — must be whitelisted
-    SAFE_FUNC_CALL_KEY_PATH="const clientSecret = getSecureKey('credential:integration:twitter:client_secret') || undefined;"
+    SAFE_FUNC_CALL_KEY_PATH="const clientSecret = getSecureKeyAsync('credential:integration:twitter:client_secret') || undefined;"
     # Function-call with nested credentialKey() call — must be whitelisted
-    SAFE_FUNC_CALL_NESTED='const clientSecret = getSecureKey(credentialKey(service, "client_secret"));'
+    SAFE_FUNC_CALL_NESTED='const clientSecret = getSecureKeyAsync(credentialKey(service, "client_secret"));'
     # Function-call with key path followed by a hardcoded secret fallback — must NOT be whitelisted
-    UNSAFE_FUNC_CALL_KEY_PATH_FALLBACK="const clientSecret = getSecureKey('credential:integration:twitter:client_secret') || \"sk_live_12345678901234567890\""
+    UNSAFE_FUNC_CALL_KEY_PATH_FALLBACK="const clientSecret = getSecureKeyAsync('credential:integration:twitter:client_secret') || \"sk_live_12345678901234567890\""
     # Function-call with literal secret in args — must NOT be whitelisted
-    UNSAFE_FUNC_CALL_LITERAL='const clientSecret = getSecureKey("sk_live_12345678901234567890")'
+    UNSAFE_FUNC_CALL_LITERAL='const clientSecret = getSecureKeyAsync("sk_live_12345678901234567890")'
     UNSAFE_FUNC_CALL_SINGLE_QUOTE="const privateKey = loadPrivateKey('real_secret_key_value_12345')"
     # Type-annotated property (false positive to whitelist)
     SAFE_TYPED_PROP_SECRET='  requiresClientSecret: boolean;'

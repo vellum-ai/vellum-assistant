@@ -40,7 +40,6 @@ mock.module("../config/loader.js", () => ({
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (name: string) =>
     name === "anthropic" ? "fake-anthropic-key" : null,
-  getSecureKey: () => null,
 }));
 
 import { claudeCodeTool } from "../tools/claude-code/claude-code.js";

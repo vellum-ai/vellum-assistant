@@ -165,32 +165,15 @@ XPC provides stronger caller identity guarantees via audit tokens and code requi
 
 ### Async-first policy
 
-**All credential access should use the async functions** (`getSecureKeyAsync`, `setSecureKeyAsync`, `deleteSecureKeyAsync`). The async variants are the primary API: they check the encrypted store first (instant) and fall back to the keychain broker, ensuring secrets stored in the macOS Keychain are always reachable. The sync variants (`getSecureKey`, `setSecureKey`, `deleteSecureKey`) are **deprecated** and bypass the keychain broker entirely.
-
-New code must not introduce sync secure-key calls. Existing sync call sites should be converted to async when their surrounding code paths support it.
+All credential access uses `getSecureKeyAsync`, `setSecureKeyAsync`, and `deleteSecureKeyAsync`. These check the encrypted store first (instant) and fall back to the keychain broker, ensuring secrets stored in the macOS Keychain are always reachable.
 
 ### Runtime request handlers (secret-routes, etc.)
 
-All runtime HTTP handlers that write or delete secrets **must** use the async APIs (`setSecureKeyAsync`, `deleteSecureKeyAsync`). These are the primary entry points for macOS app flows and must go through the broker to reach keychain.
+All runtime HTTP handlers that write or delete secrets use the async APIs (`setSecureKeyAsync`, `deleteSecureKeyAsync`). These are the primary entry points for macOS app flows and must go through the broker to reach keychain.
 
 ### Gateway (credential-reader)
 
 The gateway reads credentials via async `readCredential()` which tries the broker first (native async UDS), falling back to the encrypted store. The gateway never writes credentials — that responsibility belongs to the assistant runtime.
-
-### Known sync exceptions
-
-The migration from sync to async secure-key functions is complete for all call sites except provider initialization paths that require synchronous access. The following call sites still use the deprecated sync variants.
-
-#### Provider initialization (must remain sync)
-
-These call sites run in synchronous initialization contexts where async I/O is not feasible:
-
-| File                                               | Sync functions used | Reason                                                                                                                                                                                               |
-| -------------------------------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `assistant/src/providers/managed-proxy/context.ts` | `getSecureKey`      | Provider context initialization is synchronous. The managed proxy context must resolve credentials before the first request can be processed, and the initialization path does not support awaiting. |
-| `assistant/src/providers/registry.ts`              | `getSecureKey`      | Provider registry initialization is synchronous. API keys must be resolved at provider construction time, and the call chain from config watcher through to provider init is fully synchronous.      |
-
-Any new sync usage requires explicit justification and should be documented here.
 
 ## Migration
 

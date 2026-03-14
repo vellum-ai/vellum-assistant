@@ -33,7 +33,6 @@ const secureKeyValues = new Map<string, string>();
 mock.module("../security/secure-keys.js", () => ({
   deleteSecureKeyAsync: mockDeleteSecureKeyAsync,
   setSecureKeyAsync: mockSetSecureKeyAsync,
-  getSecureKey: (account: string) => secureKeyValues.get(account),
   getSecureKeyAsync: (account: string) =>
     Promise.resolve(secureKeyValues.get(account)),
 }));
@@ -314,7 +313,6 @@ describe("provider operations", () => {
           defaultScopes: ["repo"],
           scopePolicy: {},
           callbackTransport: "loopback",
-
         },
       ]);
 

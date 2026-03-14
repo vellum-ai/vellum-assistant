@@ -3,14 +3,8 @@
  * available (macOS app embedded), with transparent fallback to the
  * encrypted-at-rest file store.
  *
- * **Async variants are the primary API.** They try the encrypted store first
- * and fall back to the keychain broker. All new call sites should use
- * `getSecureKeyAsync`, `setSecureKeyAsync`, and `deleteSecureKeyAsync`.
- *
- * Sync variants (`getSecureKey`, `setSecureKey`, `deleteSecureKey`) are
- * **deprecated startup-only exceptions** that bypass the keychain broker
- * entirely. They exist solely for code paths that cannot do async I/O
- * (e.g. `config/loader.ts`, `providers/managed-proxy/context.ts`).
+ * Use `getSecureKeyAsync`, `setSecureKeyAsync`, and `deleteSecureKeyAsync`
+ * for all credential access.
  */
 
 import { getLogger } from "../util/logger.js";
@@ -27,52 +21,8 @@ function getBroker(): KeychainBrokerClient {
   return _broker;
 }
 
-// ---------------------------------------------------------------------------
-// Sync variants — encrypted store only (DEPRECATED — startup-only exceptions)
-// ---------------------------------------------------------------------------
-
-/**
- * Retrieve a secret from secure storage (sync — encrypted store only).
- * Returns `undefined` if the key doesn't exist or on error.
- *
- * @deprecated Use `getSecureKeyAsync` instead. This sync variant only reads
- * from the encrypted file store, bypassing the keychain broker. Retained only
- * for sync code paths in `providers/registry.ts`, `providers/managed-proxy/context.ts`,
- * and `memory/embedding-backend.ts` that cannot do async I/O.
- */
-export function getSecureKey(account: string): string | undefined {
-  return encryptedStore.getKey(account);
-}
-
-/**
- * Store a secret in secure storage (sync — encrypted store only).
- * Returns `true` on success, `false` on failure.
- *
- * @deprecated Use `setSecureKeyAsync` instead. This sync variant only writes
- * to the encrypted file store, bypassing the keychain broker. Retained only
- * for sync code paths in `providers/registry.ts`, `providers/managed-proxy/context.ts`,
- * and `memory/embedding-backend.ts` that cannot do async I/O.
- */
-export function setSecureKey(account: string, value: string): boolean {
-  return encryptedStore.setKey(account, value);
-}
-
 /** Result of a delete operation — distinguishes success, not-found, and error. */
 export type DeleteResult = "deleted" | "not-found" | "error";
-
-/**
- * Delete a secret from secure storage (sync — encrypted store only).
- * Returns `"deleted"` on success, `"not-found"` if key doesn't exist,
- * or `"error"` on failure.
- *
- * @deprecated Use `deleteSecureKeyAsync` instead. This sync variant only
- * deletes from the encrypted file store, bypassing the keychain broker.
- * Retained only for startup code paths in `config/loader.ts` and
- * `providers/managed-proxy/context.ts` that cannot do async I/O.
- */
-export function deleteSecureKey(account: string): DeleteResult {
-  return encryptedStore.deleteKey(account);
-}
 
 /**
  * List all account names in secure storage (sync — encrypted store only).
@@ -95,11 +45,11 @@ export function getBackendType(): "broker" | "encrypted" | null {
 }
 
 // ---------------------------------------------------------------------------
-// Async variants — try encrypted store first, fall back to broker
+// Primary API — try encrypted store first, fall back to broker
 // ---------------------------------------------------------------------------
 
 /**
- * Async version of `getSecureKey`. Checks the encrypted store first
+ * Retrieve a secret from secure storage. Checks the encrypted store first
  * (instant) since `setSecureKeyAsync` always writes to both stores.
  * Falls back to the broker for keys that may exist only in the macOS
  * Keychain. Returns `undefined` if the key is not found in either store.
@@ -125,9 +75,9 @@ export async function getSecureKeyAsync(
 }
 
 /**
- * Async version of `setSecureKey`. When the broker is available the key
- * is written there **and** to the encrypted store so that sync callers
- * have a consistent view. Returns `true` only when both stores succeed.
+ * Store a secret in secure storage. When the broker is available the key
+ * is written there **and** to the encrypted store. Returns `true` only
+ * when all writes succeed.
  *
  * If the broker is available but `broker.set()` fails we return `false`
  * immediately — falling through to an encrypted-store-only write would
@@ -153,7 +103,7 @@ export async function setSecureKeyAsync(
       );
       return false;
     }
-    // Broker succeeded — also persist to encrypted store for sync callers.
+    // Broker succeeded — also persist to encrypted store.
     const encOk = encryptedStore.setKey(account, value);
     if (!encOk) {
       log.warn({ account }, "Encrypted store set failed after broker success");
@@ -168,9 +118,8 @@ export async function setSecureKeyAsync(
 }
 
 /**
- * Async version of `deleteSecureKey`. When the broker is available the
- * key is deleted there **and** from the encrypted store so that sync
- * callers have a consistent view.
+ * Delete a secret from secure storage. When the broker is available the
+ * key is deleted there **and** from the encrypted store.
  *
  * Returns `"deleted"` when the key was removed, `"not-found"` when it
  * didn't exist (idempotent), or `"error"` on a real backend failure.
@@ -186,7 +135,7 @@ export async function deleteSecureKeyAsync(
   if (broker.isAvailable()) {
     const brokerOk = await broker.del(account);
     if (!brokerOk) return "error";
-    // Broker succeeded — also remove from encrypted store for sync callers.
+    // Broker succeeded — also remove from encrypted store.
     const encResult = encryptedStore.deleteKey(account);
     // Broker deletion succeeded; encrypted-store "not-found" is fine
     // (key may only exist in the broker).

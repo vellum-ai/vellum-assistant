@@ -31,12 +31,9 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 let secureKeyValues = new Map<string, string | undefined>();
 
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKey: (account: string) => secureKeyValues.get(account),
   getSecureKeyAsync: (account: string) =>
     Promise.resolve(secureKeyValues.get(account)),
-  setSecureKey: () => true,
   setSecureKeyAsync: () => Promise.resolve(true),
-  deleteSecureKey: () => "deleted",
   deleteSecureKeyAsync: () => Promise.resolve("deleted"),
   listSecureKeys: () => [],
   getBackendType: () => "encrypted",

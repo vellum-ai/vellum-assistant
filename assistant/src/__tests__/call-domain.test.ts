@@ -114,7 +114,6 @@ mock.module("../calls/twilio-provider.js", () => ({
 }));
 
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKey: () => null,
   getSecureKeyAsync: async () => null,
 }));
 

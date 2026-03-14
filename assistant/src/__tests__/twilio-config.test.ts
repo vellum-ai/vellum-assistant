@@ -13,7 +13,6 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKey: (key: string) => mockSecureKeys[key] ?? null,
   getSecureKeyAsync: async (key: string) => mockSecureKeys[key] ?? null,
 }));
 
