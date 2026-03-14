@@ -164,6 +164,7 @@ struct MessageListView: View {
     @State private var pendingAvatarY: CGFloat?
     @State private var avatarSmoothingTask: Task<Void, Never>?
     @State private var avatarLastAppliedAt: Date?
+    @State private var hasPlayedTailEntryAnimation = false
 
     /// The subset of messages actually shown, honoring the pagination window.
     private var visibleMessages: [ChatMessage] {
@@ -226,6 +227,10 @@ struct MessageListView: View {
             anchorY: avatarTargetY,
             viewportHeight: scrollViewportHeight
         )
+    }
+
+    private var shouldPlayTailEntryAnimation: Bool {
+        !hasPlayedTailEntryAnimation && messages.count <= 2
     }
 
     private var shouldCoalesceAvatarUpdates: Bool {
@@ -315,7 +320,8 @@ struct MessageListView: View {
                let eyes = appearance.characterEyeStyle,
                let color = appearance.characterColor {
                 AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color,
-                                   size: ConversationAvatarFollower.avatarSize)
+                                   size: ConversationAvatarFollower.avatarSize,
+                                   entryAnimationEnabled: shouldPlayTailEntryAnimation)
                     .frame(width: ConversationAvatarFollower.avatarSize,
                            height: ConversationAvatarFollower.avatarSize)
                     .padding(.horizontal, VSpacing.xl)
@@ -323,6 +329,11 @@ struct MessageListView: View {
                     .frame(maxWidth: .infinity)
                     .offset(y: avatarDisplayY)
                     .accessibilityHidden(true)
+                    .onAppear {
+                        if shouldPlayTailEntryAnimation {
+                            hasPlayedTailEntryAnimation = true
+                        }
+                    }
             } else {
                 HStack {
                     VAvatarImage(image: appearance.chatAvatarImage, size: ConversationAvatarFollower.avatarSize)
