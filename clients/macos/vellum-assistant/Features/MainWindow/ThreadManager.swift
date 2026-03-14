@@ -714,6 +714,62 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         return true
     }
 
+    /// Select a thread by session ID, fetching it on-demand from the server if not locally available.
+    /// Returns `true` if the thread was found (or fetched) and selected, `false` on failure.
+    func selectThreadBySessionIdAsync(_ sessionId: String) async -> Bool {
+        // Fast path: already loaded locally
+        if selectThreadBySessionId(sessionId) {
+            return true
+        }
+
+        // Slow path: fetch the conversation from the daemon and insert it locally
+        guard let session = await daemonClient.fetchConversationById(sessionId) else {
+            return false
+        }
+
+        // Don't insert external-channel or private threads into the main sidebar
+        if session.threadType == "private" || session.channelBinding?.sourceChannel != nil {
+            return false
+        }
+
+        let effectiveCreatedAt = session.createdAt ?? session.updatedAt
+        let thread = ThreadModel(
+            title: session.title,
+            createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
+            sessionId: session.id,
+            isPinned: session.isPinned ?? false,
+            pinnedOrder: (session.isPinned ?? false) ? session.displayOrder.map { Int($0) } : nil,
+            displayOrder: session.displayOrder.map { Int($0) },
+            lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
+            kind: .standard,
+            source: session.source,
+            scheduleJobId: session.scheduleJobId,
+            hasUnseenLatestAssistantMessage: session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false,
+            latestAssistantMessageAt: session.assistantAttention?.latestAssistantMessageAt.map {
+                Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
+            },
+            lastSeenAssistantMessageAt: session.assistantAttention?.lastSeenAssistantMessageAt.map {
+                Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
+            }
+        )
+
+        let viewModel = makeViewModel()
+        viewModel.sessionId = session.id
+        // Leave isHistoryLoaded false so history is fetched when the thread activates
+        viewModel.startMessageLoop()
+
+        threads.insert(thread, at: 0)
+        chatViewModels[thread.id] = viewModel
+        subscribeToBusyState(for: thread.id, viewModel: viewModel)
+        subscribeToAssistantActivity(for: thread.id, viewModel: viewModel)
+        subscribeToInteractionState(for: thread.id, viewModel: viewModel)
+        touchVMAccessOrder(thread.id)
+        evictStaleCachedViewModels()
+
+        selectThread(id: thread.id)
+        return true
+    }
+
     // MARK: - Render Cache Management
 
     /// Clears static render caches used by chat bubble and markdown views.

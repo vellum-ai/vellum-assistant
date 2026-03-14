@@ -352,10 +352,11 @@ extension AppDelegate {
         }
 
         window.onSelectSearchConversation = { [weak self] sessionId in
-            let found = self?.mainWindow?.threadManager.selectThreadBySessionId(sessionId) ?? false
-            // Only navigate if the lookup succeeded — otherwise the user stays on their current view
-            if found, let threadId = self?.mainWindow?.threadManager.activeThreadId {
-                self?.mainWindow?.windowState.selection = .thread(threadId)
+            Task { @MainActor in
+                let found = await self?.mainWindow?.threadManager.selectThreadBySessionIdAsync(sessionId) ?? false
+                if found, let threadId = self?.mainWindow?.threadManager.activeThreadId {
+                    self?.mainWindow?.windowState.selection = .thread(threadId)
+                }
             }
         }
 

@@ -21,24 +21,24 @@ struct AssistantEvent: Decodable {
 // MARK: - Conversations List Response
 
 /// Response shape from `GET /v1/conversations`.
-struct ConversationsListResponse: Decodable {
-    struct Session: Decodable {
-        let id: String
-        let title: String
-        let createdAt: Int?
-        let updatedAt: Int
-        let threadType: String?
-        let source: String?
-        let scheduleJobId: String?
-        let channelBinding: ChannelBinding?
-        let conversationOriginChannel: String?
-        let conversationOriginInterface: String?
-        let assistantAttention: AssistantAttention?
-        let displayOrder: Double?
-        let isPinned: Bool?
+public struct ConversationsListResponse: Decodable {
+    public struct Session: Decodable {
+        public let id: String
+        public let title: String
+        public let createdAt: Int?
+        public let updatedAt: Int
+        public let threadType: String?
+        public let source: String?
+        public let scheduleJobId: String?
+        public let channelBinding: ChannelBinding?
+        public let conversationOriginChannel: String?
+        public let conversationOriginInterface: String?
+        public let assistantAttention: AssistantAttention?
+        public let displayOrder: Double?
+        public let isPinned: Bool?
     }
-    let sessions: [Session]
-    let hasMore: Bool?
+    public let sessions: [Session]
+    public let hasMore: Bool?
 }
 
 /// Response shape from `GET /v1/conversations/:id`.
