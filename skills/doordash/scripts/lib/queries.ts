@@ -3,7 +3,7 @@
  * Individual query modules are split by domain:
  *   - search-queries.ts  — search and homepage discovery
  *   - store-queries.ts   — store pages, item details, retail feeds
- *   - cart-queries.ts    — cart CRUD (add, remove, update, list, detail)
+ *   - cart-queries.ts    — cart CRUD (add, remove, list, detail)
  *   - order-queries.ts   — checkout, delivery options, payment methods
  */
 
@@ -12,7 +12,6 @@ export {
   DETAILED_CART_QUERY,
   LIST_CARTS_QUERY,
   REMOVE_CART_ITEM_QUERY,
-  UPDATE_CART_ITEM_QUERY,
 } from "./cart-queries.js";
 export {
   CREATE_ORDER_FROM_CART_QUERY,
