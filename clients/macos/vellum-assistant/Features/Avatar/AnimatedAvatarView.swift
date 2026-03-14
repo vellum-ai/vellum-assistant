@@ -243,8 +243,8 @@ class AvatarLayerView: NSView {
         CATransaction.commit()
 
         if configEntryAnimationEnabled && !hasPlayedEntry {
-            // Set initial "water drop" state — very thin and tall
-            layer?.transform = CATransform3DMakeScale(0.4, 1.6, 1.0)
+            // Set initial "water drop" state — slightly narrow and tall
+            layer?.transform = CATransform3DMakeScale(0.7, 1.3, 1.0)
             // Eyes start squeezed shut — they animate open during the bounce-back
             for (i, eyeLayer) in eyeLayers.enumerated() where i < closedEyePaths.count {
                 eyeLayer.path = closedEyePaths[i]
@@ -456,33 +456,30 @@ class AvatarLayerView: NSView {
     private func performEntryAnimation() {
         guard let rootLayer = layer else { return }
 
-        // --- Body: water-drop with multiple dampened bounces ---
-        // More extreme than poke (which is a gentle squash-spring).
-        // This feels heavy and liquid — dramatic splat on impact, then springy oscillation.
+        // --- Body: water-drop with vertical bounces ---
+        // Starts slightly tall/narrow (falling drop), squashes on impact, then
+        // bounces predominantly in Y so the motion reads as top-down, not side-to-side.
         let bodyAnim = CAKeyframeAnimation(keyPath: "transform")
-        let thin     = CATransform3DMakeScale(0.4, 1.6, 1.0)    // Very thin and tall (drop shape)
-        let splat    = CATransform3DMakeScale(1.4, 0.5, 1.0)     // Dramatic wide splat on impact
-        let bounce1  = CATransform3DMakeScale(0.85, 1.15, 1.0)   // Big rebound stretch
-        let bounce2  = CATransform3DMakeScale(1.08, 0.92, 1.0)   // Secondary squash
-        let bounce3  = CATransform3DMakeScale(0.97, 1.03, 1.0)   // Tiny stretch
+        let drop     = CATransform3DMakeScale(0.7, 1.3, 1.0)    // Slightly narrow and tall (falling)
+        let splat    = CATransform3DMakeScale(1.2, 0.75, 1.0)    // Wide + short on impact
+        let bounce1  = CATransform3DMakeScale(0.95, 1.1, 1.0)    // Rebound: mostly taller
+        let bounce2  = CATransform3DMakeScale(1.02, 0.96, 1.0)   // Settle: mostly shorter
         let identity = CATransform3DIdentity
 
         bodyAnim.values = [
-            NSValue(caTransform3D: thin),       // Start: water drop shape
-            NSValue(caTransform3D: splat),      // Impact: dramatic splat
-            NSValue(caTransform3D: bounce1),    // Rebound 1: spring up
-            NSValue(caTransform3D: bounce2),    // Rebound 2: small squash
-            NSValue(caTransform3D: bounce3),    // Rebound 3: tiny stretch
+            NSValue(caTransform3D: drop),       // Start: falling drop shape
+            NSValue(caTransform3D: splat),      // Impact: squash down
+            NSValue(caTransform3D: bounce1),    // Rebound: spring up
+            NSValue(caTransform3D: bounce2),    // Settle: slight squash
             NSValue(caTransform3D: identity),   // Rest: normal
         ]
-        bodyAnim.keyTimes = [0, 0.25, 0.48, 0.65, 0.82, 1.0]
-        bodyAnim.duration = 0.7
+        bodyAnim.keyTimes = [0, 0.28, 0.55, 0.78, 1.0]
+        bodyAnim.duration = 0.6
         bodyAnim.timingFunctions = [
-            CAMediaTimingFunction(name: .easeIn),        // thin → splat (heavy, accelerating fall)
+            CAMediaTimingFunction(name: .easeIn),        // drop → splat (accelerating fall)
             CAMediaTimingFunction(name: .easeOut),        // splat → bounce1 (springy rebound)
-            CAMediaTimingFunction(name: .easeInEaseOut),  // bounce1 → bounce2 (oscillation)
-            CAMediaTimingFunction(name: .easeInEaseOut),  // bounce2 → bounce3 (damping)
-            CAMediaTimingFunction(name: .easeOut),        // bounce3 → rest (smooth finish)
+            CAMediaTimingFunction(name: .easeInEaseOut),  // bounce1 → bounce2 (damping)
+            CAMediaTimingFunction(name: .easeOut),        // bounce2 → rest (smooth finish)
         ]
         bodyAnim.isRemovedOnCompletion = true
         rootLayer.transform = CATransform3DIdentity  // set model to final state
@@ -491,7 +488,7 @@ class AvatarLayerView: NSView {
         // --- Eyes: animate from closed to open (like eyes opening after landing) ---
         // Uses CAAnimation beginTime instead of DispatchQueue.main.asyncAfter to avoid
         // race conditions where the view is reconfigured before the callback fires.
-        let eyeOpenDelay: TimeInterval = 0.4  // During first rebound phase
+        let eyeOpenDelay: TimeInterval = 0.35  // During first rebound phase
         for (i, eyeLayer) in eyeLayers.enumerated()
             where i < openEyePaths.count && i < closedEyePaths.count {
             eyeLayer.path = openEyePaths[i]  // Model: final open state
@@ -507,7 +504,7 @@ class AvatarLayerView: NSView {
         }
 
         // --- Start other animations after a comfortable pause post-entry ---
-        let postEntryDelay: TimeInterval = 1.2  // Entry (0.7s) + breathing pause (0.5s)
+        let postEntryDelay: TimeInterval = 1.1  // Entry (0.6s) + breathing pause (0.5s)
         DispatchQueue.main.asyncAfter(deadline: .now() + postEntryDelay) { [weak self] in
             guard let self, self.animationsActive else { return }
             if self.configBlinkEnabled { self.startBlinkTimer() }
