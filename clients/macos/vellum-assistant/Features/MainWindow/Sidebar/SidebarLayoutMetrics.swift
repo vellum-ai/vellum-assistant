@@ -42,6 +42,10 @@ enum SidebarLayoutMetrics {
     /// Trailing padding reserved for the "Confirm" pill button overlay during archive flow.
     static let archiveConfirmTrailingPadding: CGFloat = 72
 
+    /// Trailing padding reserved for the archive icon overlay on hover
+    /// (20pt icon + 4pt trailing padding on the overlay + 4pt gap).
+    static let archiveIconTrailingPadding: CGFloat = 28
+
     // MARK: - Section Divider
 
     /// Vertical padding above and below a section divider line.

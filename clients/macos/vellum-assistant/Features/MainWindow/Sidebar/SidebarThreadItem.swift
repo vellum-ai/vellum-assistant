@@ -111,7 +111,7 @@ struct SidebarThreadItem: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, VSpacing.xs)
-            .padding(.trailing, isPendingDeletion ? SidebarLayoutMetrics.archiveConfirmTrailingPadding : hasTrailingIcon ? VSpacing.xs : VSpacing.sm)
+            .padding(.trailing, isPendingDeletion ? SidebarLayoutMetrics.archiveConfirmTrailingPadding : hasTrailingIcon ? SidebarLayoutMetrics.archiveIconTrailingPadding : VSpacing.sm)
             .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
             .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
             .background {
