@@ -417,7 +417,8 @@ extension AppDelegate {
     /// Check whether the local gateway is healthy by hitting its /healthz endpoint.
     /// Port resolution: env var > lockfile > default 7830.
     func isGatewayHealthy() async -> Bool {
-        let port = LockfilePaths.resolveGatewayPort()
+        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let port = LockfilePaths.resolveGatewayPort(connectedAssistantId: connectedId)
         guard let url = URL(string: "http://localhost:\(port)/healthz") else { return false }
         var request = URLRequest(url: url)
         request.timeoutInterval = 2

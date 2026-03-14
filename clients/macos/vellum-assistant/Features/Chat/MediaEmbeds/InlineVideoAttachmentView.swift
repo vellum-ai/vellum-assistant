@@ -535,7 +535,8 @@ struct InlineVideoAttachmentView: View {
 
 /// Resolve the local gateway base URL: env var > lockfile > default 7830.
 private func resolveGatewayBaseUrl() -> String {
-    "http://127.0.0.1:\(LockfilePaths.resolveGatewayPort())"
+    let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+    return "http://127.0.0.1:\(LockfilePaths.resolveGatewayPort(connectedAssistantId: connectedId))"
 }
 
 /// Fetch raw attachment bytes via the gateway's runtime proxy.

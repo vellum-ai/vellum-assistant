@@ -134,7 +134,7 @@ enum GatewayHTTPClient {
                 }
                 baseURL = runtimeUrl
             } else {
-                let port = assistant.gatewayPort ?? LockfilePaths.resolveGatewayPort()
+                let port = assistant.gatewayPort ?? LockfilePaths.resolveGatewayPort(connectedAssistantId: assistant.assistantId)
                 baseURL = "http://127.0.0.1:\(port)"
             }
             authHeader = ("Authorization", "Bearer \(token)")
