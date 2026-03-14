@@ -257,6 +257,7 @@ extension APIKeyStepView {
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
+                .accessibilityLabel("Remove file")
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.md)
