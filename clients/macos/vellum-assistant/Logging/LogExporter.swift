@@ -420,6 +420,7 @@ enum LogExporter {
 
     /// Writes tar.gz `data` to a temporary file and extracts it into
     /// `directory/<subdirectory>/` using `/usr/bin/tar`.
+    /// Validates archive member paths before extraction to prevent path traversal.
     private nonisolated static func extractTarGzResponse(
         data: Data,
         into directory: URL,
@@ -433,6 +434,9 @@ enum LogExporter {
         defer {
             try? fileManager.removeItem(at: tarPath)
         }
+
+        // Validate archive contents — reject paths with ".." components or absolute paths
+        try await validateTarContents(at: tarPath)
 
         let extractDir = directory.appendingPathComponent(subdirectory, isDirectory: true)
         try fileManager.createDirectory(at: extractDir, withIntermediateDirectories: true)
@@ -465,6 +469,54 @@ enum LogExporter {
                 try process.run()
             } catch {
                 continuation.resume(throwing: error)
+            }
+        }
+    }
+
+    /// Lists tar archive members and rejects any with path traversal (`..`) or absolute paths.
+    private nonisolated static func validateTarContents(at tarPath: URL) async throws {
+        let entries = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+            process.arguments = ["tzf", tarPath.path]
+
+            let pipe = Pipe()
+            process.standardOutput = pipe
+
+            let errPipe = Pipe()
+            process.standardError = errPipe
+
+            process.terminationHandler = { proc in
+                if proc.terminationStatus == 0 {
+                    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                    let output = String(data: data, encoding: .utf8) ?? ""
+                    continuation.resume(returning: output)
+                } else {
+                    let stderr = String(
+                        data: errPipe.fileHandleForReading.readDataToEndOfFile(),
+                        encoding: .utf8
+                    ) ?? ""
+                    continuation.resume(throwing: ExportError.tarFailed("Failed to list archive: \(stderr)"))
+                }
+            }
+
+            do {
+                try process.run()
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+
+        for entry in entries.split(separator: "\n") {
+            let path = String(entry)
+            if path.hasPrefix("/") {
+                log.warning("Rejecting archive with absolute path: \(path)")
+                throw ExportError.unsafeArchivePath(path)
+            }
+            let components = (path as NSString).pathComponents
+            if components.contains("..") {
+                log.warning("Rejecting archive with path traversal: \(path)")
+                throw ExportError.unsafeArchivePath(path)
             }
         }
     }
@@ -702,6 +754,7 @@ enum LogExporter {
     enum ExportError: LocalizedError {
         case noLogsFound
         case tarFailed(String)
+        case unsafeArchivePath(String)
 
         var errorDescription: String? {
             switch self {
@@ -709,6 +762,8 @@ enum LogExporter {
                 return "No log files were found to export."
             case .tarFailed(let detail):
                 return "Failed to create archive: \(detail)"
+            case .unsafeArchivePath(let path):
+                return "Archive contains unsafe path: \(path)"
             }
         }
     }
