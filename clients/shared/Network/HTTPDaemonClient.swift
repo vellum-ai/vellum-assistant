@@ -188,7 +188,7 @@ public final class HTTPTransport {
     private var locallyOwnedSessionIds: Set<String> = []
     /// Session IDs that belong to private (temporary) threads.
     /// Populated when a session_create with threadType "private" is handled locally.
-    private var privateSessionIds: Set<String> = []
+    var privateSessionIds: Set<String> = []
 
     let decoder = JSONDecoder()
     let encoder = JSONEncoder()
