@@ -101,6 +101,7 @@ export { migrateCallSessionInviteMetadata } from "./156-call-session-invite-meta
 export { migrateInviteContactId } from "./157-invite-contact-id.js";
 export { migrateChannelInteractionColumns } from "./158-channel-interaction-columns.js";
 export { migrateDropContactInteractionColumns } from "./159-drop-contact-interaction-columns.js";
+export { migrateDropLoopbackPortColumn } from "./160-drop-loopback-port-column.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

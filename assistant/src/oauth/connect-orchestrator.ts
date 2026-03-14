@@ -48,6 +48,7 @@ function resolveBehavior(providerKey: string): {
   setup?: OAuthProviderBehavior["setup"];
   setupSkillId?: string;
   postConnectHookId?: string;
+  loopbackPort?: number;
 } {
   const behavior = getProviderBehavior(providerKey);
   if (!behavior) return {};
@@ -56,6 +57,7 @@ function resolveBehavior(providerKey: string): {
     setup: behavior.setup,
     setupSkillId: behavior.setupSkillId,
     postConnectHookId: behavior.postConnectHookId,
+    loopbackPort: behavior.loopbackPort,
   };
 }
 
@@ -161,7 +163,7 @@ export async function orchestrateOAuthConnect(
   const callbackTransport =
     (providerRow.callbackTransport as "loopback" | "gateway" | null) ??
     "loopback";
-  const loopbackPort = providerRow.loopbackPort;
+  const loopbackPort = behavior.loopbackPort;
 
   // Resolve scopes via the scope policy engine
   const scopeProfile = {
@@ -240,7 +242,7 @@ export async function orchestrateOAuthConnect(
       const prepared = await prepareOAuth2Flow(
         oauthConfig,
         callbackTransport === "loopback"
-          ? { callbackTransport, loopbackPort: loopbackPort ?? undefined }
+          ? { callbackTransport, loopbackPort }
           : callbackTransport === "gateway"
             ? { callbackTransport }
             : undefined,
@@ -345,7 +347,7 @@ export async function orchestrateOAuthConnect(
         },
       },
       callbackTransport === "loopback"
-        ? { callbackTransport, loopbackPort: loopbackPort ?? undefined }
+        ? { callbackTransport, loopbackPort }
         : callbackTransport === "gateway"
           ? { callbackTransport }
           : undefined,

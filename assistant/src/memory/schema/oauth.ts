@@ -17,7 +17,6 @@ export const oauthProviders = sqliteTable("oauth_providers", {
   scopePolicy: text("scope_policy").notNull().default("{}"),
   extraParams: text("extra_params"),
   callbackTransport: text("callback_transport"),
-  loopbackPort: integer("loopback_port"),
   pingUrl: text("ping_url"),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),

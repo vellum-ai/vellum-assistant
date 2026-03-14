@@ -359,9 +359,9 @@ function startLoopbackServerAndWaitForCode(
       server.close();
     }
 
-    server.listen(loopbackPort ?? 0, "127.0.0.1", () => {
+    server.listen(loopbackPort ?? 0, "localhost", () => {
       const addr = server.address() as { port: number };
-      boundRedirectUri = `http://127.0.0.1:${addr.port}${LOOPBACK_CALLBACK_PATH}`;
+      boundRedirectUri = `http://localhost:${addr.port}${LOOPBACK_CALLBACK_PATH}`;
 
       const authParams = new URLSearchParams({
         ...config.extraParams,
@@ -617,9 +617,9 @@ function startLoopbackServerForPreparedFlow(
       server.close();
     }
 
-    server.listen(loopbackPort ?? 0, "127.0.0.1", () => {
+    server.listen(loopbackPort ?? 0, "localhost", () => {
       const addr = server.address() as { port: number };
-      const redirectUri = `http://127.0.0.1:${addr.port}${LOOPBACK_CALLBACK_PATH}`;
+      const redirectUri = `http://localhost:${addr.port}${LOOPBACK_CALLBACK_PATH}`;
       listening = true;
       resolveSetup({ redirectUri, codePromise });
     });

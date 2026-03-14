@@ -232,7 +232,7 @@ describe("provider operations", () => {
           baseUrl: "https://api.github.com",
           extraParams: { prompt: "consent" },
           callbackTransport: "loopback",
-          loopbackPort: 8765,
+
           pingUrl: "https://api.github.com/user",
         },
       ]);
@@ -277,7 +277,7 @@ describe("provider operations", () => {
           baseUrl: "https://api.github.com/v2",
           extraParams: { prompt: "login" },
           callbackTransport: "gateway",
-          loopbackPort: 9999,
+
           pingUrl: "https://api.github.com/user-v2",
         },
       ]);
@@ -300,7 +300,6 @@ describe("provider operations", () => {
       expect(row!.tokenEndpointAuthMethod).toBe("client_secret_basic");
       expect(JSON.parse(row!.extraParams!)).toEqual({ prompt: "login" });
       expect(row!.callbackTransport).toBe("gateway");
-      expect(row!.loopbackPort).toBe(9999);
       expect(row!.pingUrl).toBe("https://api.github.com/user-v2");
     });
   });
@@ -315,7 +314,7 @@ describe("provider operations", () => {
           defaultScopes: ["repo"],
           scopePolicy: {},
           callbackTransport: "loopback",
-          loopbackPort: 8765,
+
         },
       ]);
 
@@ -323,7 +322,6 @@ describe("provider operations", () => {
       expect(row).toBeDefined();
       expect(row!.providerKey).toBe("github");
       expect(row!.callbackTransport).toBe("loopback");
-      expect(row!.loopbackPort).toBe(8765);
     });
 
     test("returns undefined for unknown keys", () => {

@@ -55,6 +55,7 @@ import {
   migrateDropContactInteractionColumns,
   migrateDropEntityTables,
   migrateDropLegacyMemberGuardianTables,
+  migrateDropLoopbackPortColumn,
   migrateDropMemorySegmentFts,
   migrateDropRemindersTable,
   migrateDropUsageCompositeIndexes,
@@ -383,6 +384,9 @@ export function initializeDb(): void {
 
   // 62. Drop interaction_count and last_interaction columns from contacts (now derived from channels)
   migrateDropContactInteractionColumns(database);
+
+  // 63. Drop loopback_port column from oauth_providers (moved to code-side behavior registry)
+  migrateDropLoopbackPortColumn(database);
 
   validateMigrationState(database);
 

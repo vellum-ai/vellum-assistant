@@ -38,8 +38,8 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
 /**
  * Seed well-known provider profiles into the database. Uses INSERT … ON
  * CONFLICT DO UPDATE so that implementation fields (authUrl, tokenUrl,
- * tokenEndpointAuthMethod, extraParams, callbackTransport, loopbackPort,
- * pingUrl) propagate to existing installations on every startup, while
+ * tokenEndpointAuthMethod, extraParams, callbackTransport, pingUrl)
+ * propagate to existing installations on every startup, while
  * user-customizable fields (defaultScopes, scopePolicy, userinfoUrl,
  * baseUrl) are only written on the initial insert.
  */
@@ -56,7 +56,6 @@ export function seedProviders(
     scopePolicy: Record<string, unknown>;
     extraParams?: Record<string, string>;
     callbackTransport?: string;
-    loopbackPort?: number;
   }>,
 ): void {
   const db = getDb();
@@ -72,7 +71,6 @@ export function seedProviders(
     const scopePolicy = JSON.stringify(p.scopePolicy);
     const extraParams = p.extraParams ? JSON.stringify(p.extraParams) : null;
     const callbackTransport = p.callbackTransport ?? null;
-    const loopbackPort = p.loopbackPort ?? null;
 
     db.insert(oauthProviders)
       .values({
@@ -86,7 +84,6 @@ export function seedProviders(
         scopePolicy,
         extraParams,
         callbackTransport,
-        loopbackPort,
         pingUrl,
         createdAt: now,
         updatedAt: now,
@@ -99,7 +96,6 @@ export function seedProviders(
           tokenEndpointAuthMethod,
           extraParams,
           callbackTransport,
-          loopbackPort,
           pingUrl,
           updatedAt: now,
         },
@@ -140,7 +136,6 @@ export function registerProvider(params: {
   scopePolicy: Record<string, unknown>;
   extraParams?: Record<string, string>;
   callbackTransport?: string;
-  loopbackPort?: number;
 }): OAuthProviderRow {
   const db = getDb();
   const now = Date.now();
@@ -161,7 +156,6 @@ export function registerProvider(params: {
     scopePolicy: JSON.stringify(params.scopePolicy),
     extraParams: params.extraParams ? JSON.stringify(params.extraParams) : null,
     callbackTransport: params.callbackTransport ?? null,
-    loopbackPort: params.loopbackPort ?? null,
     pingUrl: params.pingUrl ?? null,
     createdAt: now,
     updatedAt: now,
