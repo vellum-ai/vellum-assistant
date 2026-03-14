@@ -246,6 +246,7 @@ struct APIKeyStepView: View {
                     .focused($keyFieldFocused)
                     .onSubmit {
                         if managedSignInEnabled {
+                            guard !hatchButtonDisabled else { return }
                             saveAndHatch()
                         } else {
                             saveAndContinue()
