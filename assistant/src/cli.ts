@@ -11,7 +11,6 @@ import {
 import { dirname, join } from "node:path";
 import * as readline from "node:readline";
 
-import { httpSend } from "./cli/http-client.js";
 import {
   type MainScreenLayout,
   renderMainScreen,
@@ -19,11 +18,8 @@ import {
   updateStatusText,
 } from "./cli/main-screen.jsx";
 import { loadRawConfig, saveRawConfig } from "./config/loader.js";
-import { shouldAutoStartDaemon } from "./daemon/connection-policy.js";
-import { isHttpHealthy } from "./daemon/daemon-control.js";
 import { getModelInfo } from "./daemon/handlers/config-model.js";
 import { renderHistoryContent } from "./daemon/handlers/shared.js";
-import { ensureDaemonRunning } from "./daemon/lifecycle.js";
 import type {
   ConfirmationRequest,
   ServerMessage,
@@ -32,9 +28,13 @@ import { MODEL_TO_PROVIDER } from "./daemon/session-slash.js";
 import { getConversation, getMessages } from "./memory/conversation-crud.js";
 import {
   getConversationByKey,
+  getOrCreateConversation,
   setConversationKeyIfAbsent,
 } from "./memory/conversation-key-store.js";
 import { listConversations } from "./memory/conversation-queries.js";
+import type { AssistantEventSubscription } from "./runtime/assistant-event-hub.js";
+import { assistantEventHub } from "./runtime/assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "./runtime/assistant-scope.js";
 import {
   copyToClipboard,
   extractLastCodeBlock,
@@ -45,9 +45,6 @@ import { getHistoryPath, getSignalsDir } from "./util/platform.js";
 import { Spinner } from "./util/spinner.js";
 import { timeAgo } from "./util/time.js";
 import { truncate } from "./util/truncate.js";
-
-const RECONNECT_BASE_DELAY_MS = 1_000;
-const RECONNECT_MAX_DELAY_MS = 30_000;
 
 /** Stable conversation key used by the built-in CLI. */
 const CLI_CONVERSATION_KEY = "builtin-cli:default";
@@ -161,9 +158,7 @@ export async function startCli(): Promise<void> {
   let pendingConfirmation = false;
   let pendingCopySession = false;
   let toolStreaming = false;
-  let reconnecting = false;
-  let reconnectDelay = RECONNECT_BASE_DELAY_MS;
-  let sseAbortController: AbortController | null = null;
+  let eventSubscription: AssistantEventSubscription | null = null;
   const spinner = new Spinner();
 
   process.stdout.write("\x1b[2J\x1b[H");
@@ -614,8 +609,7 @@ export async function startCli(): Promise<void> {
         conversationKey = `builtin-cli:${randomUUID()}`;
         sessionId = "";
         pendingSessionPick = false;
-        // Reconnect SSE with new conversation key
-        await reconnectSse();
+        reconnectEvents();
         process.stdout.write(
           `\n  New session started.\n  Type your message. Ctrl+D to detach.\n\n`,
         );
@@ -651,7 +645,7 @@ export async function startCli(): Promise<void> {
             sessionId = conversation.id;
             conversationKey = newKey;
             pendingSessionPick = false;
-            await reconnectSse();
+            reconnectEvents();
             process.stdout.write(
               `\n  Session: ${conversation.title ?? "Untitled"}\n  Type your message. Ctrl+D to detach.\n\n`,
             );
@@ -967,152 +961,36 @@ export async function startCli(): Promise<void> {
     }
   }
 
-  /** Disconnect the current SSE stream. */
-  function disconnectSse(): void {
-    if (sseAbortController) {
-      sseAbortController.abort();
-      sseAbortController = null;
+  /** Dispose the current event hub subscription. */
+  function disconnectEvents(): void {
+    if (eventSubscription) {
+      eventSubscription.dispose();
+      eventSubscription = null;
     }
   }
 
-  /** Reconnect the SSE stream (e.g., after switching conversations). */
-  async function reconnectSse(): Promise<void> {
-    disconnectSse();
-    await connectSse();
+  /** Resubscribe to the event hub (e.g., after switching conversations). */
+  function reconnectEvents(): void {
+    disconnectEvents();
+    connectEvents();
   }
 
-  /** Connect the SSE event stream for the current conversation. */
-  async function connectSse(): Promise<void> {
-    const controller = new AbortController();
-    sseAbortController = controller;
+  /** Subscribe to the in-process event hub for the current conversation. */
+  function connectEvents(): void {
+    const mapping = getOrCreateConversation(conversationKey);
 
-    const url = `/v1/events?conversationKey=${encodeURIComponent(conversationKey)}`;
-
-    try {
-      const response = await httpSend(url, {
-        method: "GET",
-        headers: { Accept: "text/event-stream" },
-        signal: controller.signal,
-      });
-
-      if (!response.ok || !response.body) {
-        throw new Error(`SSE connection failed: ${response.status}`);
-      }
-
-      // Read the SSE stream
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      const readLoop = async () => {
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-
-            // Parse SSE frames from the buffer
-            const frames = buffer.split("\n\n");
-            // Keep the last (potentially incomplete) frame in the buffer
-            buffer = frames.pop() ?? "";
-
-            for (const frame of frames) {
-              if (!frame.trim()) continue;
-              // Skip heartbeat comments
-              if (frame.startsWith(":")) continue;
-
-              // Parse event type and data
-              let data = "";
-              for (const line of frame.split("\n")) {
-                if (line.startsWith("data: ")) {
-                  data += line.slice(6);
-                }
-              }
-
-              if (!data) continue;
-
-              try {
-                const event = JSON.parse(data) as {
-                  message: ServerMessage;
-                  sessionId?: string;
-                };
-                // Extract the sessionId from the event envelope if we don't have one
-                if (!sessionId && event.sessionId) {
-                  sessionId = event.sessionId;
-                }
-                handleMessage(event.message);
-              } catch {
-                // Skip malformed events
-              }
-            }
-          }
-        } catch {
-          if (controller.signal.aborted) return; // intentional disconnect
-          // Connection lost — trigger reconnect
-        } finally {
-          reader.releaseLock();
+    eventSubscription = assistantEventHub.subscribe(
+      {
+        assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+        sessionId: mapping.conversationId,
+      },
+      (event) => {
+        if (!sessionId && event.sessionId) {
+          sessionId = event.sessionId;
         }
-
-        // If not intentionally disconnected, reconnect
-        if (!controller.signal.aborted && !reconnecting) {
-          reconnect();
-        }
-      };
-
-      // Start reading in the background (don't await — it runs for the lifetime of the connection)
-      readLoop();
-    } catch (err) {
-      if (controller.signal.aborted) return;
-      throw err;
-    }
-  }
-
-  async function reconnect(): Promise<void> {
-    if (reconnecting) return;
-    reconnecting = true;
-    disconnectSse();
-    spinner.stop();
-
-    // Reset generation state — any in-flight request is lost
-    generating = false;
-    toolStreaming = false;
-    pendingSessionPick = false;
-    pendingConfirmation = false;
-    pendingCopySession = false;
-    lastUsage = null;
-
-    // Remove stale rl.once('line') handlers from confirmation/selection prompts
-    // and re-register the main line handler
-    rl.removeAllListeners("line");
-    rl.on("line", handleLine);
-
-    // Retry with exponential backoff (1s → 2s → 4s → … → 30s cap) until connected
-    while (true) {
-      const delaySec = (reconnectDelay / 1000).toFixed(0);
-      process.stdout.write(
-        `\n  Reconnecting to assistant in ${delaySec}s...\n`,
-      );
-      await new Promise((r) => setTimeout(r, reconnectDelay));
-
-      // Increase backoff for next attempt before trying
-      reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_DELAY_MS);
-
-      try {
-        if (shouldAutoStartDaemon()) await ensureDaemonRunning();
-        // Verify the daemon is healthy before attempting SSE
-        const healthy = await isHttpHealthy();
-        if (!healthy) throw new Error("Health check failed");
-        await connectSse();
-        reconnectDelay = RECONNECT_BASE_DELAY_MS;
-        reconnecting = false;
-        updateDaemonText(mainScreenLayout, "connected");
-        updateStatusText(mainScreenLayout, "ready");
-        return;
-      } catch {
-        // Will retry with increased backoff
-      }
-    }
+        handleMessage(event.message);
+      },
+    );
   }
 
   function handleLine(line: string): void {
@@ -1120,7 +998,6 @@ export async function startCli(): Promise<void> {
     if (!content) return;
     if (pendingSessionPick) return;
     if (pendingConfirmation) return;
-    if (reconnecting) return;
 
     // Persist to history file (ensure parent directory exists)
     try {
@@ -1226,12 +1103,11 @@ export async function startCli(): Promise<void> {
       // Create a new conversation by using a unique key
       conversationKey = `builtin-cli:${randomUUID()}`;
       sessionId = "";
-      reconnectSse().then(() => {
-        process.stdout.write(
-          `\n  New session started.\n  Type your message. Ctrl+D to detach.\n\n`,
-        );
-        prompt();
-      });
+      reconnectEvents();
+      process.stdout.write(
+        `\n  New session started.\n  Type your message. Ctrl+D to detach.\n\n`,
+      );
+      prompt();
       return;
     }
 
@@ -1448,7 +1324,7 @@ export async function startCli(): Promise<void> {
   rl.on("line", handleLine);
 
   rl.on("close", () => {
-    disconnectSse();
+    disconnectEvents();
     process.stdout.write("\x1b[r\x1b[2J\x1b[H");
     process.stdout.write("\x1b[2mDetached.\x1b[0m\n");
     process.exit(0);
@@ -1479,11 +1355,9 @@ export async function startCli(): Promise<void> {
   });
 
   // Initial connection
-  await connectSse();
+  connectEvents();
   updateDaemonText(mainScreenLayout, "connected");
   updateStatusText(mainScreenLayout, "ready");
-
-  // Show initial prompt since HTTP doesn't have the session_info flow
   process.stdout.write(`\n  Type your message. Ctrl+D to detach.\n\n`);
   prompt();
 }
