@@ -34,14 +34,6 @@ enum GatewayHTTPClient {
         }
     }
 
-    /// Resolved connection details for the currently connected managed assistant.
-    struct ConnectionInfo {
-        let assistant: LockfileAssistant
-        let baseURL: String
-        let token: String
-        let organizationId: String?
-    }
-
     // MARK: - High-Level API
 
     /// Performs an authenticated GET request against the gateway.
@@ -84,40 +76,20 @@ enum GatewayHTTPClient {
         return try await execute(request)
     }
 
-    /// Builds an authenticated `URLRequest` without executing it.
-    /// Useful for streaming transports like SSE that need
-    /// `URLSession.bytes(for:)` instead of `URLSession.data(for:)`.
+    /// Performs an authenticated streaming GET request against the gateway.
+    ///
+    /// Returns an async byte stream suitable for SSE or other streaming transports
+    /// that need `URLSession.bytes(for:)` instead of `URLSession.data(for:)`.
     ///
     /// - Parameters:
     ///   - path: Path segment after `/v1/`.
-    ///   - method: HTTP method. Defaults to `"GET"`.
     ///   - timeout: Request timeout in seconds. Defaults to 30.
-    /// - Returns: A fully authenticated `URLRequest`.
-    /// - Throws: `ClientError` if the request cannot be constructed.
-    static func urlRequest(path: String, method: String = "GET", timeout: TimeInterval = 30) throws -> URLRequest {
-        try buildRequest(path: path, method: method, timeout: timeout)
-    }
-
-    /// Resolves the current connection details (assistant, base URL, token, org ID)
-    /// without performing a request. Useful for callers that need auth values for
-    /// their own connection setup (e.g. terminal sessions).
-    ///
-    /// - Throws: `ClientError` if no assistant is connected or not authenticated.
-    static func resolveConnectionInfo() throws -> ConnectionInfo {
-        guard let assistant = resolveConnectedAssistant() else {
-            throw ClientError.noConnectedAssistant
-        }
-        guard let token = SessionTokenManager.getToken(), !token.isEmpty else {
-            throw ClientError.notAuthenticated
-        }
-        let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
-        let organizationId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
-        return ConnectionInfo(
-            assistant: assistant,
-            baseURL: baseURL,
-            token: token,
-            organizationId: organizationId
-        )
+    /// - Returns: A tuple of `(URLSession.AsyncBytes, URLResponse)` for streaming consumption.
+    /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
+    static func stream(path: String, timeout: TimeInterval = 30) async throws -> (URLSession.AsyncBytes, URLResponse) {
+        var request = try buildRequest(path: path, method: "GET", timeout: timeout)
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        return try await URLSession.shared.bytes(for: request)
     }
 
     // MARK: - Internals

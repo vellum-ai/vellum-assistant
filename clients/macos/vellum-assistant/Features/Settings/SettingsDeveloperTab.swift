@@ -659,10 +659,10 @@ struct SettingsDeveloperTab: View {
     private static let terminalWindow = SSHTerminalWindow()
 
     private func openTerminalWindow() {
-        guard let info = try? GatewayHTTPClient.resolveConnectionInfo(),
-              info.assistant.isManaged else { return }
+        guard let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
+              assistant.isManaged else { return }
 
-        Self.terminalWindow.open(assistant: info.assistant)
+        Self.terminalWindow.open(assistant: assistant)
     }
 
     // MARK: - Retire Assistant
