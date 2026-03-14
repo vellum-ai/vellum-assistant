@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 import UserNotifications
 import CoreText
 import VellumAssistantShared
@@ -226,6 +227,17 @@ extension AppDelegate {
         }
     }
 
+    /// Marks notification intents as ready to post and flushes any enqueued closures.
+    func markNotificationIntentsReady() {
+        guard !notificationIntentsReady else { return }
+        notificationIntentsReady = true
+        let pending = pendingNotificationIntentClosures
+        pendingNotificationIntentClosures.removeAll()
+        for closure in pending {
+            closure()
+        }
+    }
+
     private func postNotificationIntent(
         sourceEventName: String,
         title: String,
@@ -233,6 +245,20 @@ extension AppDelegate {
         deepLinkMetadata: [String: AnyCodable]?,
         deliveryId: String? = nil
     ) {
+        guard notificationIntentsReady else {
+            // Enqueue until ready
+            pendingNotificationIntentClosures.append { [self] in
+                self.postNotificationIntent(
+                    sourceEventName: sourceEventName,
+                    title: title,
+                    body: body,
+                    deepLinkMetadata: deepLinkMetadata,
+                    deliveryId: deliveryId
+                )
+            }
+            return
+        }
+
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
@@ -254,6 +280,17 @@ extension AppDelegate {
             }
         }
         content.userInfo = userInfo
+
+        // Attach assistant avatar icon
+        let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+        if let iconURL = notificationIconProvider.notificationIconURL(for: assistantId),
+           let attachment = try? UNNotificationAttachment(
+               identifier: "assistant-avatar",
+               url: iconURL,
+               options: [UNNotificationAttachmentOptionsTypeHintKey: UTType.png.identifier]
+           ) {
+            content.attachments = [attachment]
+        }
 
         let notificationId = "notification-intent-\(UUID().uuidString)"
         let request = UNNotificationRequest(

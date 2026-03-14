@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 import UserNotifications
 import AppKit
 import VellumAssistantShared
@@ -20,9 +21,39 @@ public protocol ActivityNotificationServiceProtocol {
 @MainActor
 public final class ActivityNotificationService: ActivityNotificationServiceProtocol {
     private let settingsStore: SettingsStore
+    private let notificationIconProvider: NotificationIconProviding
 
-    public init(settingsStore: SettingsStore) {
+    // MARK: - Readiness Gate
+
+    /// Whether this service is ready to post notifications (e.g. avatar icon exported).
+    /// Callers of notification methods will transparently wait until ready.
+    private var isReady = false
+
+    /// Continuations waiting for the service to become ready.
+    private var readinessWaiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Marks the service as ready and resumes any callers waiting on readiness.
+    public func markReady() {
+        guard !isReady else { return }
+        isReady = true
+        let waiters = readinessWaiters
+        readinessWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    /// Suspends the caller until the service is ready. Returns immediately if already ready.
+    private func waitUntilReady() async {
+        guard !isReady else { return }
+        await withCheckedContinuation { continuation in
+            readinessWaiters.append(continuation)
+        }
+    }
+
+    public init(settingsStore: SettingsStore, notificationIconProvider: NotificationIconProviding) {
         self.settingsStore = settingsStore
+        self.notificationIconProvider = notificationIconProvider
     }
 
     /// Sends a notification when a session completes.
@@ -35,6 +66,7 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
         toolCalls: [ToolCallData],
         sessionId: String
     ) async {
+        await waitUntilReady()
         log.info("notifySessionComplete called for session \(sessionId, privacy: .public)")
 
         // Check if notifications enabled in settings
@@ -68,6 +100,17 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
         content.sound = .default
         content.userInfo = ["sessionId": sessionId, "type": "activity_complete"]
 
+        // Attach assistant avatar icon
+        let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+        if let iconURL = notificationIconProvider.notificationIconURL(for: assistantId),
+           let attachment = try? UNNotificationAttachment(
+               identifier: "assistant-avatar",
+               url: iconURL,
+               options: [UNNotificationAttachmentOptionsTypeHintKey: UTType.png.identifier]
+           ) {
+            content.attachments = [attachment]
+        }
+
         log.info("Sending notification: \(content.title, privacy: .public)")
 
         // Send notification
@@ -88,6 +131,8 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
     /// Sends a notification when a quick input response completes.
     /// Only sends if the app is not active and notification permissions are granted.
     public func notifyQuickInputComplete(summary: String) async {
+        await waitUntilReady()
+
         // Check if app is in background
         guard !NSApp.isActive else { return }
 
@@ -104,6 +149,17 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
         content.body = truncated.isEmpty ? "Response complete" : truncated
         content.sound = .default
         content.userInfo = ["type": "quick_input_complete"]
+
+        // Attach assistant avatar icon
+        let qiAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+        if let iconURL = notificationIconProvider.notificationIconURL(for: qiAssistantId),
+           let attachment = try? UNNotificationAttachment(
+               identifier: "assistant-avatar",
+               url: iconURL,
+               options: [UNNotificationAttachmentOptionsTypeHintKey: UTType.png.identifier]
+           ) {
+            content.attachments = [attachment]
+        }
 
         let request = UNNotificationRequest(
             identifier: UUID().uuidString,

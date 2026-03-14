@@ -48,7 +48,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var cmdNLocalMonitor: Any?
     var navLocalMonitor: Any?
     var zoomLocalMonitor: Any?
-    public let services = AppServices()
+    public lazy var services = AppServices(notificationIconProvider: notificationIconProvider)
     let assistantCli = AssistantCli()
     public let updateManager = UpdateManager()
     let debugStateWriter = DebugStateWriter()
@@ -63,7 +63,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var zoomManager: ZoomManager { services.zoomManager }
     var conversationZoomManager: ConversationZoomManager { services.conversationZoomManager }
 
-    let toolConfirmationNotificationService = ToolConfirmationNotificationService()
+    let notificationIconProvider: NotificationIconProviding = NotificationIconProvider()
+    lazy var toolConfirmationNotificationService = ToolConfirmationNotificationService(notificationIconProvider: notificationIconProvider)
     lazy var recordingManager: RecordingManager = RecordingManager(daemonClient: daemonClient)
     var recordingPickerWindow: RecordingSourcePickerWindow?
     var recordingHUDWindow: RecordingHUDWindow?
@@ -127,6 +128,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var hasRequestedNotificationAuthorizationFromThreadSignal = false
     /// Last time we surfaced the denied-notification permission toast.
     var lastNotificationPermissionToastAtMs: Double = 0
+
+    /// Whether notification intents are ready to post (e.g. avatar icon exported).
+    /// When false, intents are enqueued and flushed once `markNotificationIntentsReady()` is called.
+    private(set) var notificationIntentsReady = false
+    /// Closures captured while `notificationIntentsReady` was false.
+    var pendingNotificationIntentClosures: [() -> Void] = []
 
     /// Whether the current assistant runs remotely (cloud != "local").
     /// When true, local daemon hatching is skipped.
@@ -242,6 +249,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         applyThemePreference()
         registerBundledFonts()
         AvatarAppearanceManager.shared.start()
+        _ = AvatarAppearanceManager.shared.exportNotificationIcon()
+        toolConfirmationNotificationService.markReady()
+        services.activityNotificationService.markReady()
+        self.markNotificationIntentsReady()
 
         #if DEBUG
         let skipOnboarding = CommandLine.arguments.contains("--skip-onboarding")

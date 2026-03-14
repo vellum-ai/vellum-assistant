@@ -196,6 +196,8 @@ final class AvatarAppearanceManager {
         characterEyeStyle = eyeStyle
         characterColor = color
         saveAvatarComponents()
+
+        _ = exportNotificationIcon()
     }
 
     /// Reloads the custom avatar from disk. Called when the daemon notifies
@@ -206,6 +208,7 @@ final class AvatarAppearanceManager {
         cachedFallbackAvatar = nil
         cachedFullFallbackAvatar = nil
         loadCustomAvatar()
+        _ = exportNotificationIcon()
     }
 
     func clearCustomAvatar() {
@@ -219,6 +222,7 @@ final class AvatarAppearanceManager {
         cachedChatAvatar = nil
         cachedFallbackAvatar = nil
         cachedFullFallbackAvatar = nil
+        _ = exportNotificationIcon()
     }
 
     // MARK: - Avatar Components Persistence
@@ -281,6 +285,7 @@ final class AvatarAppearanceManager {
             let flags = source.data
             Task { @MainActor [weak self] in
                 self?.loadCustomAvatar()
+                _ = self?.exportNotificationIcon()
                 if flags.contains(.delete) || flags.contains(.rename) {
                     self?.watchAvatarFile()
                 }
@@ -312,6 +317,7 @@ final class AvatarAppearanceManager {
                 guard let self else { return }
                 if FileManager.default.fileExists(atPath: self.customAvatarURL.path) {
                     self.loadCustomAvatar()
+                    _ = self.exportNotificationIcon()
                     self.watchAvatarFile()
                 }
             }
@@ -323,6 +329,56 @@ final class AvatarAppearanceManager {
 
         fileMonitor = source
         source.resume()
+    }
+
+    // MARK: - Notification Icon Export
+
+    /// Exports the currently connected assistant's avatar as a PNG file suitable
+    /// for `UNNotificationAttachment`. Always uses `chatAvatarImage`, which
+    /// renders the *connected* assistant's avatar (custom upload or fallback).
+    /// The destination path is derived from `connectedAssistantId` in
+    /// UserDefaults, matching the same resolution used by `customAvatarURL`.
+    ///
+    /// Writes to `{avatarDir}/notification-icon-{assistantId}.png`.
+    /// Returns the file URL on success, nil on failure.
+    func exportNotificationIcon() -> URL? {
+        // 1. Resolve the destination path from the connected assistant
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+              !assistantId.isEmpty else {
+            return nil
+        }
+
+        let destURL: URL
+        if let assistant = LockfileAssistant.loadByName(assistantId),
+           let baseDataDir = assistant.baseDataDir {
+            destURL = URL(fileURLWithPath: baseDataDir)
+                .appendingPathComponent("workspace/data/avatar/notification-icon-\(assistantId).png")
+        } else {
+            // Fall back to default workspace path with assistant-scoped filename
+            destURL = Self.workspaceCustomAvatarURL()
+                .deletingLastPathComponent()
+                .appendingPathComponent("notification-icon-\(assistantId).png")
+        }
+
+        // 2. Get the current avatar image (chatAvatarImage handles all fallbacks)
+        let image = chatAvatarImage
+
+        // 3. Export to PNG
+        guard let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmap.representation(using: .png, properties: [:]) else {
+            return nil
+        }
+
+        // 4. Ensure directory exists and write
+        let dir = destURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        do {
+            try pngData.write(to: destURL)
+            return destURL
+        } catch {
+            return nil
+        }
     }
 
     // MARK: - Image Utilities

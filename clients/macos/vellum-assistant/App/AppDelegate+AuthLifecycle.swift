@@ -299,6 +299,9 @@ extension AppDelegate {
         //    UserDefaults so the daemon can initialize its LLM providers.
         syncApiKeysToAssistant(assistant)
 
+        // 7. Reload avatar for the new assistant and re-export notification icon
+        AvatarAppearanceManager.shared.reloadAvatar()
+
         showMainWindow()
     }
 
