@@ -215,8 +215,7 @@ extension AppDelegate {
             if success {
                 log.info("Initial actor token bootstrap succeeded")
                 // Push the new actor token to the HTTP transport so SSE and
-                // API requests authenticate with the full-scope JWT instead
-                // of the http-token file (which may lack required scopes).
+                // API requests authenticate with the full-scope JWT.
                 if let token = ActorTokenManager.getToken(), !token.isEmpty {
                     daemonClient.updateTransportBearerToken(token)
                 }

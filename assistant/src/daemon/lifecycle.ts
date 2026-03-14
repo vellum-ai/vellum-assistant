@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { chmodSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { config as dotenvConfig } from "dotenv";
@@ -210,21 +209,13 @@ export async function runDaemon(): Promise<void> {
       const hashedDeviceId = createHash("sha256")
         .update(cliDeviceId)
         .digest("hex");
-      const credentials = mintCredentialPair({
+      mintCredentialPair({
         platform: "cli",
         deviceId: cliDeviceId,
         guardianPrincipalId,
         hashedDeviceId,
       });
-
-      // DEPRECATED: The http-token file is deprecated. Readers will be
-      // migrated to use the credential store instead.
-      const httpTokenPath = join(getRootDir(), "http-token");
-      writeFileSync(httpTokenPath, credentials.accessToken, { mode: 0o600 });
-      chmodSync(httpTokenPath, 0o600);
-      log.info(
-        "Daemon startup: CLI edge token written to credential store and http-token",
-      );
+      log.info("Daemon startup: CLI edge token written to credential store");
     } else {
       log.warn("No guardian principal available — CLI edge token not written");
     }
@@ -477,8 +468,7 @@ export async function runDaemon(): Promise<void> {
 
     const hostname = getRuntimeHttpHost();
 
-    // Mint a JWT bearer token for the pairing flow. This replaces the
-    // old static http-token that was removed — the pairing handler
+    // Mint a JWT bearer token for the pairing flow. The pairing handler
     // and HTTP auto-approve logic both guard on a non-empty bearer token.
     const pairingBearerToken = mintPairingBearerToken();
 

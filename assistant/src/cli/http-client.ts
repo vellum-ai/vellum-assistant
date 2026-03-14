@@ -5,25 +5,35 @@
  * Patterns are adapted from `cli/src/lib/http-client.ts` (external CLI).
  */
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-
 import { getRuntimeHttpPort } from "../config/env.js";
-import { getRootDir } from "../util/platform.js";
+import { CURRENT_POLICY_EPOCH } from "../runtime/auth/policy.js";
+import {
+  initAuthSigningKey,
+  isSigningKeyInitialized,
+  loadOrCreateSigningKey,
+  mintToken,
+} from "../runtime/auth/token-service.js";
 
 // ---------------------------------------------------------------------------
 // Token
 // ---------------------------------------------------------------------------
 
 /**
- * Read the HTTP bearer token from `<rootDir>/http-token`.
- * Returns undefined if the token file doesn't exist or is empty.
+ * Mint a short-lived CLI JWT from the signing key on disk.
+ * Returns undefined if the signing key cannot be loaded.
  */
-export function readHttpToken(): string | undefined {
-  const tokenPath = join(getRootDir(), "http-token");
+export function mintCliToken(): string | undefined {
   try {
-    const token = readFileSync(tokenPath, "utf-8").trim();
-    return token || undefined;
+    if (!isSigningKeyInitialized()) {
+      initAuthSigningKey(loadOrCreateSigningKey());
+    }
+    return mintToken({
+      aud: "vellum-gateway",
+      sub: "svc:cli:local",
+      scope_profile: "actor_client_v1",
+      policy_epoch: CURRENT_POLICY_EPOCH,
+      ttlSeconds: 300,
+    });
   } catch {
     return undefined;
   }
@@ -53,7 +63,7 @@ export async function httpSend(
   path: string,
   init: RequestInit = {},
 ): Promise<Response> {
-  const token = readHttpToken();
+  const token = mintCliToken();
   const url = `${getHttpBaseUrl()}${path}`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
