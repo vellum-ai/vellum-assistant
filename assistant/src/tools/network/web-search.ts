@@ -54,19 +54,11 @@ async function getApiKey(
   provider: WebSearchProvider,
 ): Promise<string | undefined> {
   if (provider === "brave") {
-    if (process.env.BRAVE_API_KEY) return process.env.BRAVE_API_KEY;
-    const secureKey = await getSecureKeyAsync("brave");
-    if (secureKey) return secureKey;
-    const config = getConfig();
-    return config.apiKeys.brave;
+    return (await getSecureKeyAsync("brave")) ?? undefined;
   }
 
   // Perplexity
-  if (process.env.PERPLEXITY_API_KEY) return process.env.PERPLEXITY_API_KEY;
-  const secureKey = await getSecureKeyAsync("perplexity");
-  if (secureKey) return secureKey;
-  const config = getConfig();
-  return config.apiKeys.perplexity;
+  return (await getSecureKeyAsync("perplexity")) ?? undefined;
 }
 
 function formatBraveResults(
