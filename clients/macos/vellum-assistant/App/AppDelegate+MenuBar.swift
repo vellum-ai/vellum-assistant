@@ -306,17 +306,17 @@ extension AppDelegate {
         sendLogsItem.image = VIcon.upload.nsImage
         menu.addItem(sendLogsItem)
 
-        menu.addItem(NSMenuItem.separator())
+        if MacOSClientFeatureFlagManager.shared.isEnabled("developer-menu-items") {
+            menu.addItem(NSMenuItem.separator())
 
-        let onboardingItem = NSMenuItem(title: "Replay Onboarding", action: #selector(replayOnboarding), keyEquivalent: "")
-        onboardingItem.target = self
-        menu.addItem(onboardingItem)
+            let onboardingItem = NSMenuItem(title: "Replay Onboarding", action: #selector(replayOnboarding), keyEquivalent: "")
+            onboardingItem.target = self
+            menu.addItem(onboardingItem)
 
-        #if DEBUG
-        let galleryItem = NSMenuItem(title: "Component Gallery", action: #selector(showComponentGallery), keyEquivalent: "")
-        galleryItem.target = self
-        menu.addItem(galleryItem)
-        #endif
+            let galleryItem = NSMenuItem(title: "Component Gallery", action: #selector(showComponentGallery), keyEquivalent: "")
+            galleryItem.target = self
+            menu.addItem(galleryItem)
+        }
 
         menu.addItem(NSMenuItem.separator())
 
@@ -329,8 +329,6 @@ extension AppDelegate {
         restartItem.target = self
         restartItem.image = VIcon.refreshCw.nsImage
         menu.addItem(restartItem)
-
-        menu.addItem(NSMenuItem.separator())
 
         let logoutItem = NSMenuItem(title: "Sign Out", action: #selector(performLogout), keyEquivalent: "")
         logoutItem.target = self
