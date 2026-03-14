@@ -58,7 +58,10 @@ public final class DirectoryStore: ObservableObject {
                 }
                 return nil
             }
-            self.localApps = result ?? self.localApps
+            // Only replace if we got actual apps — empty response may be an error fallback
+            if let apps = result, !apps.isEmpty {
+                self.localApps = apps
+            }
             isLoadingApps = false
         }
     }
