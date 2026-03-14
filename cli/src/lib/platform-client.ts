@@ -55,6 +55,30 @@ export interface PlatformUser {
   display: string;
 }
 
+interface OrganizationListResponse {
+  results: { id: string; name: string }[];
+}
+
+export async function fetchOrganizationId(token: string): Promise<string> {
+  const url = `${getPlatformUrl()}/v1/organizations/`;
+  const response = await fetch(url, {
+    headers: { "X-Session-Token": token },
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch organizations (${response.status}). Try logging in again.`,
+    );
+  }
+
+  const body = (await response.json()) as OrganizationListResponse;
+  const orgId = body.results?.[0]?.id;
+  if (!orgId) {
+    throw new Error("No organization found for this account.");
+  }
+  return orgId;
+}
+
 interface AllauthSessionResponse {
   status: number;
   data: {

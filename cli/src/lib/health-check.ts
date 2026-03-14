@@ -10,32 +10,6 @@ export interface HealthCheckResult {
   detail: string | null;
 }
 
-interface OrgListResponse {
-  results: { id: string }[];
-}
-
-async function fetchOrganizationId(
-  platformUrl: string,
-  token: string,
-): Promise<{ orgId: string } | { error: string }> {
-  try {
-    const response = await fetch(`${platformUrl}/v1/organizations/`, {
-      headers: { "X-Session-Token": token },
-    });
-    if (!response.ok) {
-      return { error: `org lookup failed (${response.status})` };
-    }
-    const body = (await response.json()) as OrgListResponse;
-    const orgId = body.results?.[0]?.id;
-    if (!orgId) {
-      return { error: "no organization found" };
-    }
-    return { orgId };
-  } catch {
-    return { error: "org lookup unreachable" };
-  }
-}
-
 export async function checkManagedHealth(
   runtimeUrl: string,
   assistantId: string,
@@ -49,14 +23,16 @@ export async function checkManagedHealth(
     };
   }
 
-  const orgResult = await fetchOrganizationId(runtimeUrl, token);
-  if ("error" in orgResult) {
+  let orgId: string;
+  try {
+    const { fetchOrganizationId } = await import("./platform-client.js");
+    orgId = await fetchOrganizationId(token);
+  } catch (err) {
     return {
       status: "error (auth)",
-      detail: orgResult.error,
+      detail: err instanceof Error ? err.message : "org lookup failed",
     };
   }
-  const { orgId } = orgResult;
 
   try {
     const url = `${runtimeUrl}/v1/assistants/${encodeURIComponent(assistantId)}/healthz/`;
