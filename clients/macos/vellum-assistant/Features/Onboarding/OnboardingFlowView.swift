@@ -289,6 +289,8 @@ struct OnboardingFlowView: View {
     private func awaitManagedAssistantReady(assistantId: String) async {
         let timeout: TimeInterval = 15
         let start = CFAbsoluteTimeGetCurrent()
+        var lastError: Error?
+        var lastStatusCode: Int?
 
         while CFAbsoluteTimeGetCurrent() - start < timeout {
             do {
@@ -301,13 +303,27 @@ struct OnboardingFlowView: View {
                     state.hatchCompleted = true
                     return
                 }
-            } catch {}
+                lastStatusCode = response.statusCode
+                lastError = nil
+                let body = String(data: response.data, encoding: .utf8) ?? "<non-utf8>"
+                log.warning("Health check returned status \(response.statusCode) for assistant \(assistantId, privacy: .public): \(body, privacy: .public)")
+            } catch {
+                lastError = error
+                lastStatusCode = nil
+                log.warning("Health check request failed for assistant \(assistantId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
 
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             guard !Task.isCancelled else { return }
         }
 
-        log.warning("Managed assistant \(assistantId, privacy: .public) not ready after \(timeout)s")
+        if let error = lastError {
+            log.error("Managed assistant \(assistantId, privacy: .public) not ready after \(timeout)s; last error: \(error.localizedDescription, privacy: .public)")
+        } else if let statusCode = lastStatusCode {
+            log.error("Managed assistant \(assistantId, privacy: .public) not ready after \(timeout)s; last status code: \(statusCode)")
+        } else {
+            log.error("Managed assistant \(assistantId, privacy: .public) not ready after \(timeout)s; no health check attempts completed")
+        }
         state.hatchFailed = true
     }
 }

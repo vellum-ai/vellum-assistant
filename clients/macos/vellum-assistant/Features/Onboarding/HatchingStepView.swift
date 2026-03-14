@@ -1,5 +1,8 @@
 import VellumAssistantShared
 import SwiftUI
+import os
+
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "HatchingStepView")
 
 @MainActor
 struct HatchingStepView: View {
@@ -246,6 +249,7 @@ struct HatchingStepView: View {
                 }
                 handleHatchSuccess()
             } catch {
+                log.error("Remote hatch failed: \(String(describing: error), privacy: .public)")
                 state.hatchLogLines.append("Error: \(error.localizedDescription)")
                 failureReason = friendlyErrorMessage(from: error)
                 state.hatchFailed = true
@@ -263,6 +267,7 @@ struct HatchingStepView: View {
                 }
                 handleHatchSuccess()
             } catch {
+                log.error("Pairing failed: \(String(describing: error), privacy: .public)")
                 state.hatchLogLines.append("Error: \(error.localizedDescription)")
                 failureReason = friendlyErrorMessage(from: error)
                 state.hatchFailed = true
