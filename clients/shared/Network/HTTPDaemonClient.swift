@@ -2942,7 +2942,7 @@ public final class HTTPTransport {
 
     /// Fetch a single conversation by its daemon ID.
     /// Returns `nil` if the conversation doesn't exist (404) or the request fails.
-    func fetchConversationById(_ conversationId: String) async -> ConversationsListResponse.Session? {
+    func fetchConversationById(_ conversationId: String, isRetry: Bool = false) async -> ConversationsListResponse.Session? {
         guard let url = buildURL(for: .conversationById(id: conversationId)) else { return nil }
 
         var request = URLRequest(url: url)
@@ -2951,6 +2951,14 @@ public final class HTTPTransport {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+                if statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await fetchConversationById(conversationId, isRetry: true)
+                    }
+                }
+                log.error("Fetch conversation \(conversationId) failed (HTTP \(statusCode))")
                 return nil
             }
             let decoded = try decoder.decode(SingleConversationResponse.self, from: data)
