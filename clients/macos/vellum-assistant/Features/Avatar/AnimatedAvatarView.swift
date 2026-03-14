@@ -26,11 +26,6 @@ struct AnimatedAvatarView: View {
             .contentShape(Rectangle())
             .onHover { hovering in
                 isHovered = hovering
-                if hovering {
-                    NSCursor.pointingHand.push()
-                } else {
-                    NSCursor.pop()
-                }
             }
     }
 }
@@ -102,6 +97,10 @@ class AvatarLayerView: NSView {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .pointingHand)
+    }
 
     /// Called from SwiftUI's `.onHover` via the representable bridge.
     /// Animates eye paths between widened (hovered) and normal (not hovered).
