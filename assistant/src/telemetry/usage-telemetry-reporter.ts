@@ -102,8 +102,11 @@ export class UsageTelemetryReporter {
       const events = queryUnreportedUsageEvents(watermark, BATCH_SIZE);
       if (events.length === 0) return;
 
-      // Resolve auth context
+      // Resolve auth context — skip flush when neither auth mode is viable
       const proxyCtx = await resolveManagedProxyContext();
+      if (!proxyCtx.enabled && !getTelemetryAppToken()) {
+        return;
+      }
 
       let url: string;
       let authHeaders: Record<string, string>;
@@ -143,12 +146,14 @@ export class UsageTelemetryReporter {
       });
 
       if (!resp.ok) {
+        await resp.text(); // consume body to release connection
         log.warn(
           { status: resp.status, url },
           "Usage telemetry POST failed — will retry next cycle",
         );
         return;
       }
+      await resp.text(); // consume body to release connection
 
       // Advance watermark
       setMemoryCheckpoint(
