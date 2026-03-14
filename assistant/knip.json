@@ -1,17 +1,8 @@
 {
-  "entry": ["src/**/*.test.ts", "src/**/__tests__/**/*.ts", "scripts/**/*.ts"],
+  "entry": ["src/**/*.test.ts", "src/**/__tests__/**/*.ts", "scripts/**/*.ts", "src/daemon/main.ts"],
   "project": ["src/**/*.ts", "src/**/*.tsx", "scripts/**/*.ts"],
   "ignore": [
-    "src/contacts/index.ts",
-    "src/daemon/main.ts",
-    "src/daemon/tls-certs.ts",
-    "src/errors.ts",
-    "src/events/index.ts",
-    "src/followups/index.ts",
-    "src/playbooks/index.ts",
-    "src/runtime/auth/index.ts",
-    "src/tools/browser/headless-browser.ts",
-    "src/tools/tasks/index.ts"
+    "src/daemon/tls-certs.ts"
   ],
   "ignoreDependencies": [
     "@hono/node-server",
