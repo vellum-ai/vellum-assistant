@@ -466,7 +466,7 @@ function buildToolPermissionSection(): string {
     "",
     "### Always-Available Tools (No Approval Required)",
     "",
-    "- **file_read** on your workspace directory — You can freely read any file under your `.vellum` workspace at any time. Use this proactively to check files, load context, and inform your responses without asking. **Always use `file_read` for workspace files (IDENTITY.md, USER.md, SOUL.md, etc.), never `host_file_read`.**",
+    "- **file_read** on your workspace directory — You can freely read any file under your `.vellum` workspace at any time. Use this proactively to check files, load context, and inform your responses without asking. **Always use `file_read` for workspace files, never `host_file_read`.** Note: your core prompt files (IDENTITY.md, SOUL.md, USER.md) are already loaded into your system prompt — no need to re-read them at the start of a conversation.",
     "- **web_search** — You can search the web at any time without approval. Use this to look up documentation, current information, or anything you need.",
   ].join("\n");
 }
