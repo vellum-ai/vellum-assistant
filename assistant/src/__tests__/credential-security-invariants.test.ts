@@ -341,7 +341,7 @@ describe("Invariant 3: secrets never logged in plaintext", () => {
           "this is fine",
         );
       });
-    } else if (tc.component === "ipc_decode") {
+    } else if (tc.component === "message_decode") {
       // PR 24 — message decode log hygiene: the TS daemon's message parser must
       // not log raw message content that could contain secrets.
       // Logging metadata (line length, error type) is acceptable; logging

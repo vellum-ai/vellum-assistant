@@ -100,7 +100,7 @@ export const directReadCases: DirectReadCase[] = [
 export interface LogLeakageCase {
   label: string;
   /** Component where logging might leak credentials */
-  component: "daemon_handler" | "prompter" | "tool_executor" | "ipc_decode";
+  component: "daemon_handler" | "prompter" | "tool_executor" | "message_decode";
   /** Description of what log output is checked */
   logCheck: string;
 }
@@ -122,8 +122,8 @@ export const logLeakageCases: LogLeakageCase[] = [
     logCheck: "password/token/value fields masked",
   },
   {
-    label: "IPC decode failure does not dump raw line",
-    component: "ipc_decode",
+    label: "message decode failure does not dump raw line",
+    component: "message_decode",
     logCheck: "malformed line not logged verbatim",
   },
 ];
