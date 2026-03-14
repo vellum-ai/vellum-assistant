@@ -200,7 +200,7 @@ struct ContentView: View {
                 .id(ObjectIdentifier(clientProvider.client as AnyObject))
                 .tag(Tab.things)
                 .tabItem {
-                    Label { Text("Things") } icon: { VIconView(.layoutGrid, size: 12) }
+                    Label { Text("Library") } icon: { VIconView(.layoutGrid, size: 12) }
                 }
 
             IdentityView(onConnectTapped: navigateToConnectSettings)

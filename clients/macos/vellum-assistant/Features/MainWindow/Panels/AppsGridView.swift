@@ -140,7 +140,7 @@ struct AppsGridView: View {
                 .foregroundColor(VColor.contentTertiary)
 
             VStack(spacing: VSpacing.sm) {
-                Text("No things yet")
+                Text("Your library is empty")
                     .font(VFont.bodyBold)
                     .foregroundColor(VColor.contentSecondary)
 
