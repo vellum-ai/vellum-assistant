@@ -33,7 +33,7 @@ export function listConversations(
   const db = getDb();
   const where = includeBackground
     ? undefined
-    : sql`${conversations.threadType} != 'background'`;
+    : sql`${conversations.threadType} NOT IN ('background', 'private')`;
   const query = db
     .select()
     .from(conversations)
@@ -48,7 +48,7 @@ export function countConversations(includeBackground = false): number {
   const db = getDb();
   const where = includeBackground
     ? undefined
-    : sql`${conversations.threadType} != 'background'`;
+    : sql`${conversations.threadType} NOT IN ('background', 'private')`;
   const [{ total }] = db
     .select({ total: count() })
     .from(conversations)

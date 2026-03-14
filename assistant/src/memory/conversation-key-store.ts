@@ -100,11 +100,15 @@ export function setConversationKeyIfAbsent(
  * Otherwise, creates a new conversation and mapping atomically within a
  * single transaction to prevent race conditions and orphaned rows.
  */
-export function getOrCreateConversation(conversationKey: string): {
+export function getOrCreateConversation(
+  conversationKey: string,
+  opts?: { threadType?: "standard" | "private" },
+): {
   conversationId: string;
   created: boolean;
 } {
   const db = getDb();
+  const threadType = opts?.threadType ?? "standard";
 
   return db.transaction((tx) => {
     const existing = tx
@@ -140,6 +144,8 @@ export function getOrCreateConversation(conversationKey: string): {
 
     const now = Date.now();
     const conversationId = uuid();
+    const memoryScopeId =
+      threadType === "private" ? `private:${conversationId}` : "default";
 
     tx.insert(conversations)
       .values({
@@ -153,6 +159,8 @@ export function getOrCreateConversation(conversationKey: string): {
         contextSummary: null,
         contextCompactedMessageCount: 0,
         contextCompactedAt: null,
+        threadType,
+        memoryScopeId,
       })
       .run();
 
