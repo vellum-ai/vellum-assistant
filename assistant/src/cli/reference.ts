@@ -31,5 +31,6 @@ Commands:
   oauth [options]                          Manage OAuth providers, apps, connections, and tokens
   skills                                   Browse and install skills from the Vellum catalog
   browser                                  Browser automation, extension relay, and Chrome CDP management
+  usage                                    Query LLM token usage and cost data
   sequence [options]                       Manage email sequences
 `;
