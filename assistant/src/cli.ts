@@ -32,9 +32,10 @@ import {
   setConversationKeyIfAbsent,
 } from "./memory/conversation-key-store.js";
 import { listConversations } from "./memory/conversation-queries.js";
-import type { AssistantEventSubscription } from "./runtime/assistant-event-hub.js";
-import { assistantEventHub } from "./runtime/assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "./runtime/assistant-scope.js";
+import {
+  type EventStreamWatcher,
+  watchEventStream,
+} from "./signals/event-stream.js";
 import {
   copyToClipboard,
   extractLastCodeBlock,
@@ -158,7 +159,7 @@ export async function startCli(): Promise<void> {
   let pendingConfirmation = false;
   let pendingCopySession = false;
   let toolStreaming = false;
-  let eventSubscription: AssistantEventSubscription | null = null;
+  let eventSubscription: EventStreamWatcher | null = null;
   const spinner = new Spinner();
 
   process.stdout.write("\x1b[2J\x1b[H");
@@ -961,7 +962,7 @@ export async function startCli(): Promise<void> {
     }
   }
 
-  /** Dispose the current event hub subscription. */
+  /** Stop watching the current conversation's event stream file. */
   function disconnectEvents(): void {
     if (eventSubscription) {
       eventSubscription.dispose();
@@ -969,28 +970,22 @@ export async function startCli(): Promise<void> {
     }
   }
 
-  /** Resubscribe to the event hub (e.g., after switching conversations). */
+  /** Restart the file-stream watcher (e.g., after switching conversations). */
   function reconnectEvents(): void {
     disconnectEvents();
     connectEvents();
   }
 
-  /** Subscribe to the in-process event hub for the current conversation. */
+  /** Watch the file-based event stream for the current conversation. */
   function connectEvents(): void {
     const mapping = getOrCreateConversation(conversationKey);
 
-    eventSubscription = assistantEventHub.subscribe(
-      {
-        assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
-        sessionId: mapping.conversationId,
-      },
-      (event) => {
-        if (!sessionId && event.sessionId) {
-          sessionId = event.sessionId;
-        }
-        handleMessage(event.message);
-      },
-    );
+    eventSubscription = watchEventStream(mapping.conversationId, (event) => {
+      if (!sessionId && event.sessionId) {
+        sessionId = event.sessionId;
+      }
+      handleMessage(event.message);
+    });
   }
 
   function handleLine(line: string): void {
