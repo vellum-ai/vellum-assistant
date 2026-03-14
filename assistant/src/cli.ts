@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import {
   appendFileSync,
+  existsSync,
   mkdirSync,
   readFileSync,
+  watch,
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -239,30 +241,72 @@ export async function startCli(): Promise<void> {
     }
   }
 
-  /** Add a trust rule and then confirm via HTTP. */
-  async function sendTrustRuleAndConfirm(
+  /** Add a trust rule via signal file, then confirm once the daemon acknowledges. */
+  function sendTrustRuleAndConfirm(
     requestId: string,
     pattern: string,
     scope: string,
     decision: "allow" | "deny",
     confirmDecision: string,
     options?: { allowHighRisk?: boolean },
-  ): Promise<void> {
+  ): void {
     try {
-      await httpSend("/v1/trust-rules", {
-        method: "POST",
-        body: JSON.stringify({
+      const signalsDir = join(getWorkspaceDir(), "signals");
+      mkdirSync(signalsDir, { recursive: true });
+      const resultPath = join(signalsDir, "trust-rule.result");
+      writeFileSync(
+        join(signalsDir, "trust-rule"),
+        JSON.stringify({
           requestId,
           pattern,
           scope,
           decision,
           ...(options?.allowHighRisk ? { allowHighRisk: true } : {}),
         }),
+      );
+
+      let settled = false;
+
+      const onResult = (): void => {
+        try {
+          const raw = readFileSync(resultPath, "utf-8");
+          const result = JSON.parse(raw) as {
+            ok?: boolean;
+            requestId?: string;
+            error?: string;
+          };
+          if (result.requestId !== requestId) return;
+          settled = true;
+          watcher.close();
+          clearTimeout(timeoutId);
+          if (result.ok) {
+            sendConfirmation(requestId, confirmDecision);
+          } else {
+            process.stdout.write(
+              `[Failed to add trust rule: ${result.error ?? "unknown error"}]\n`,
+            );
+          }
+        } catch {
+          // Result file not yet readable; ignore.
+        }
+      };
+
+      const watcher = watch(signalsDir, (_event, filename) => {
+        if (filename === "trust-rule.result") {
+          onResult();
+        }
       });
-      await httpSend("/v1/confirm", {
-        method: "POST",
-        body: JSON.stringify({ requestId, decision: confirmDecision }),
-      });
+
+      const timeoutId = setTimeout(() => {
+        if (!settled) {
+          watcher.close();
+          process.stdout.write("[Trust rule timed out]\n");
+        }
+      }, 5_000);
+
+      if (existsSync(resultPath)) {
+        onResult();
+      }
     } catch {
       process.stdout.write("[Failed to send trust rule]\n");
     }

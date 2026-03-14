@@ -23,6 +23,7 @@ import {
 import { handleBashSignal } from "../signals/bash.js";
 import { handleConfirmationSignal } from "../signals/confirm.js";
 import { handleMcpReloadSignal } from "../signals/mcp-reload.js";
+import { handleTrustRuleSignal } from "../signals/trust-rule.js";
 import { DebouncerMap } from "../util/debounce.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -228,6 +229,7 @@ export class ConfigWatcher {
     const exactSignalHandlers: Record<string, () => void> = {
       "mcp-reload": handleMcpReloadSignal,
       confirm: handleConfirmationSignal,
+      "trust-rule": handleTrustRuleSignal,
     };
 
     const prefixSignalHandlers: Record<string, (filename: string) => void> = {
