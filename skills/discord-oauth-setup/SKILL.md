@@ -123,7 +123,10 @@ Register the OAuth app:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:discord --client-id <client-id> --client-secret-credential-path "integration:discord:oauth_secret"
+    assistant oauth apps upsert --provider integration:discord --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ) --client-secret-credential-path "integration:discord:oauth_secret"
 ```
 
 **Milestone (7 of 9):** "Credentials saved — just the authorization step left."
@@ -139,7 +142,10 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:discord --client-id <client-id> --scopes identify guilds guilds.members.read messages.read
+    assistant oauth connections connect integration:discord --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ) --scopes identify guilds guilds.members.read messages.read
 ```
 
 ---
@@ -151,7 +157,10 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:discord --client-id <client-id>)" "https://discord.com/api/v10/users/@me" | python3 -m json.tool
+    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:discord --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ))" "https://discord.com/api/v10/users/@me" | python3 -m json.tool
 ```
 
 **On success:** "Discord is connected! You can now ask me to check your Discord servers, read messages, and look up server members."

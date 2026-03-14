@@ -117,7 +117,10 @@ Register the OAuth app:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:spotify --client-id <client-id> --client-secret-credential-path "integration:spotify:oauth_secret"
+    assistant oauth apps upsert --provider integration:spotify --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ) --client-secret-credential-path "integration:spotify:oauth_secret"
 ```
 
 **Milestone (4 of 7):** "Credentials saved — just the authorization step left."
@@ -133,7 +136,10 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:spotify --client-id <client-id>
+    assistant oauth connections connect integration:spotify --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    )
 ```
 
 The scopes requested will include:
@@ -157,7 +163,10 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:spotify --client-id <client-id>)" "https://api.spotify.com/v1/me" | python3 -m json.tool
+    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:spotify --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ))" "https://api.spotify.com/v1/me" | python3 -m json.tool
 ```
 
 **On success:** "Spotify is connected! You can now ask me to control playback, manage your playlists, check what's playing, and browse your library."

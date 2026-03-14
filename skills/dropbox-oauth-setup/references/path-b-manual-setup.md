@@ -115,13 +115,19 @@ Tell the user:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:dropbox --client-id <app-key> --client-secret-credential-path "integration:dropbox:oauth_secret"
+    assistant oauth apps upsert --provider integration:dropbox --client-id $(cat <<'EOF'
+    <app-key>
+    EOF
+    ) --client-secret-credential-path "integration:dropbox:oauth_secret"
 ```
 
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:dropbox --client-id <app-key>
+    assistant oauth connections connect integration:dropbox --client-id $(cat <<'EOF'
+    <app-key>
+    EOF
+    )
 ```
 
 Send the returned auth URL to the user. Tell them to click **Allow** on the Dropbox consent page.

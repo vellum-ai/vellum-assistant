@@ -111,13 +111,19 @@ Tell the user:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:discord --client-id <client-id> --client-secret-credential-path "integration:discord:oauth_secret"
+    assistant oauth apps upsert --provider integration:discord --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ) --client-secret-credential-path "integration:discord:oauth_secret"
 ```
 
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:discord --client-id <client-id> --scopes identify guilds guilds.members.read messages.read
+    assistant oauth connections connect integration:discord --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ) --scopes identify guilds guilds.members.read messages.read
 ```
 
 Send the returned auth URL to the user. Tell them to click **Authorize** on the Discord consent page.

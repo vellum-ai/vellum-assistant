@@ -115,13 +115,19 @@ Tell the user:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:hubspot --client-id <client-id> --client-secret-credential-path "integration:hubspot:oauth_secret"
+    assistant oauth apps upsert --provider integration:hubspot --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ) --client-secret-credential-path "integration:hubspot:oauth_secret"
 ```
 
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:hubspot --client-id <client-id>
+    assistant oauth connections connect integration:hubspot --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    )
 ```
 
 Send the returned auth URL to the user. Tell them to select their HubSpot account and click **Grant access** on the consent page.
