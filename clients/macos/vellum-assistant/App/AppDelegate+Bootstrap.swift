@@ -69,9 +69,9 @@ extension AppDelegate {
     }
 
     /// Sends the wake-up greeting. If the daemon is disconnected, waits for
-    /// reconnection before proceeding. Handles both fresh window creation
-    /// (local assistants) and the case where the window already exists with
-    /// a hatching overlay (managed assistants).
+    /// reconnection before proceeding. Since `showMainWindow` always creates
+    /// the window (via `ensureMainWindowExists`), there is no need for a
+    /// retry loop — a simple guard suffices.
     func performRetriableWakeUpSend() async {
         guard !Task.isCancelled else { return }
 
@@ -80,51 +80,31 @@ extension AppDelegate {
             log.warning("Daemon disconnected during wake-up send — waiting for reconnection")
             let reconnected = await awaitDaemonReady(timeout: 15)
             if !reconnected {
-                log.warning("Daemon did not reconnect — showing connection failed screen")
+                log.warning("Daemon did not reconnect — showing timeout screen")
                 transitionBootstrap(to: .timedOut)
-                let main = ensureMainWindowExists(isFirstLaunch: true)
-                main.windowState.daemonConnectionFailed = true
-                main.show()
+                showMainWindow(isFirstLaunch: true)
                 debugStateWriter.start(appDelegate: self)
                 return
             }
         }
 
         let greeting = wakeUpGreeting()
+        showMainWindow(initialMessage: greeting, isFirstLaunch: true)
 
-        if let existing = mainWindow {
-            // Window already exists (managed assistant hatching path).
-            // The window was created before pendingWakeUpMessage was set,
-            // so onSendWakeUp was captured as nil during show(). Bypass
-            // the pendingWakeUpMessage mechanism and send the greeting
-            // directly via the active ChatViewModel.
-            existing.windowState.showManagedHatching = false
-            if let viewModel = existing.activeViewModel {
-                viewModel.inputText = greeting
-                viewModel.sendMessage(hidden: true)
-            }
-            if daemonClient.isConnected {
-                transitionBootstrap(to: .pendingFirstReply)
-                wireBootstrapFirstReplyCallback()
-            }
-            debugStateWriter.start(appDelegate: self)
-        } else {
-            // No window yet (local assistant path) — create it with the
-            // initial message so the coming-alive overlay plays first.
-            showMainWindow(initialMessage: greeting, isFirstLaunch: true)
-            guard let main = mainWindow else {
-                log.error("MainWindow not created after showMainWindow — cannot send wake-up")
-                return
-            }
-            log.info("MainWindow ready — deferring pendingFirstReply until wake-up message is dispatched")
-            main.onWakeUpSent = { [weak self] in
-                guard let self else { return }
-                log.info("Wake-up greeting actually sent — transitioning to pendingFirstReply")
-                self.transitionBootstrap(to: .pendingFirstReply)
-                self.wireBootstrapFirstReplyCallback()
-            }
-            debugStateWriter.start(appDelegate: self)
+        // showMainWindow always creates mainWindow, but guard defensively.
+        guard let main = mainWindow else {
+            log.error("MainWindow not created after showMainWindow — cannot send wake-up")
+            return
         }
+
+        log.info("MainWindow created — deferring pendingFirstReply until wake-up message is dispatched")
+        main.onWakeUpSent = { [weak self] in
+            guard let self else { return }
+            log.info("Wake-up greeting actually sent — transitioning to pendingFirstReply")
+            self.transitionBootstrap(to: .pendingFirstReply)
+            self.wireBootstrapFirstReplyCallback()
+        }
+        debugStateWriter.start(appDelegate: self)
     }
 
     /// Wires `onFirstAssistantReply` on the active ChatViewModel so bootstrap

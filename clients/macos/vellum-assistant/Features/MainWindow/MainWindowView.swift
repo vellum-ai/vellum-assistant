@@ -441,26 +441,7 @@ struct MainWindowView: View {
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
                             .animation(nil, value: sidebarExpanded)
                             .overlay {
-                                if (windowState.showManagedHatching || windowState.daemonConnectionFailed) && !isSettingsOpen {
-                                    DaemonHatchingOverlay(
-                                        failed: windowState.daemonConnectionFailed,
-                                        onRetry: {
-                                            windowState.daemonConnectionFailed = false
-                                            Task {
-                                                try? await daemonClient.connect()
-                                                let ready = await AppDelegate.shared?.awaitDaemonReady(timeout: 15) ?? false
-                                                if ready {
-                                                    AppDelegate.shared?.transitionBootstrap(to: .pendingWakeupSend)
-                                                    await AppDelegate.shared?.performRetriableWakeUpSend()
-                                                } else {
-                                                    windowState.daemonConnectionFailed = true
-                                                    AppDelegate.shared?.transitionBootstrap(to: .timedOut)
-                                                }
-                                            }
-                                        }
-                                    )
-                                    .transition(.opacity)
-                                } else if showDaemonLoading && !isSettingsOpen {
+                                if showDaemonLoading && !isSettingsOpen {
                                     DaemonLoadingChatSkeleton()
                                         .transition(.opacity)
                                 }
@@ -686,24 +667,6 @@ struct MainWindowView: View {
             guard connected, showDaemonLoading else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                 guard showDaemonLoading else { return }
-                withAnimation(VAnimation.standard) {
-                    showDaemonLoading = false
-                }
-            }
-        }
-        .onChange(of: windowState.daemonConnectionFailed) { _, failed in
-            // When the connection-failed overlay appears, dismiss the loading
-            // skeleton so only the failure view is visible.
-            if failed && showDaemonLoading {
-                withAnimation(VAnimation.standard) {
-                    showDaemonLoading = false
-                }
-            }
-        }
-        .onChange(of: windowState.showManagedHatching) { oldValue, newValue in
-            // When the hatching overlay completes successfully, also dismiss
-            // the skeleton so it doesn't briefly flash during the transition.
-            if !newValue && oldValue && showDaemonLoading {
                 withAnimation(VAnimation.standard) {
                     showDaemonLoading = false
                 }

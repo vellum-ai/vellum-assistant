@@ -359,19 +359,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             // Each transition is persisted so a restart resumes correctly.
             bootstrapStartTime = CFAbsoluteTimeGetCurrent()
             transitionBootstrap(to: .pendingDaemon)
-
-            // For managed (cloud-hosted) assistants, show the hatching
-            // animation immediately while the daemon connection is being
-            // established. We use ensureMainWindowExists (not showMainWindow)
-            // so the window is created without setting pendingWakeUpMessage
-            // — that happens later in performRetriableWakeUpSend once the
-            // daemon is actually connected.
-            if isCurrentAssistantManaged {
-                let main = ensureMainWindowExists(isFirstLaunch: true)
-                main.windowState.showManagedHatching = true
-                main.show()
-            }
-
             Task {
                 let ready = await awaitDaemonReady(timeout: 15)
 
@@ -381,13 +368,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                     transitionBootstrap(to: .pendingWakeupSend)
                     await performRetriableWakeUpSend()
                 } else {
-                    // Daemon not ready — show the connection-failed overlay
-                    // so the user knows something went wrong and can retry.
-                    log.warning("Daemon not ready after timeout — showing connection failed screen")
+                    // Daemon not ready — show the main window with a
+                    // timeout screen so the user knows something went wrong.
+                    log.warning("Daemon not ready after timeout — showing timeout screen")
                     transitionBootstrap(to: .timedOut)
-                    let main = ensureMainWindowExists(isFirstLaunch: true)
-                    main.windowState.daemonConnectionFailed = true
-                    main.show()
+                    showMainWindow(isFirstLaunch: true)
                     debugStateWriter.start(appDelegate: self)
                 }
             }
