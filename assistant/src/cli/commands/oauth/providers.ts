@@ -1,4 +1,4 @@
-import { type Command, InvalidArgumentError } from "commander";
+import { type Command } from "commander";
 
 import {
   getProvider,
@@ -162,19 +162,6 @@ Examples:
     .option("--scopes <scopes>", "Comma-separated default scopes")
     .option("--token-auth-method <method>", "Token endpoint auth method")
     .option("--callback-transport <transport>", "Callback transport")
-    .option("--loopback-port <port>", "Loopback port", (value: string) => {
-      const port = parseInt(value, 10);
-      if (isNaN(port) || port <= 0 || port > 65535) {
-        throw new InvalidArgumentError(
-          "Port must be a number between 1 and 65535",
-        );
-      }
-      return port;
-    })
-    .option(
-      "--loopback-host <host>",
-      'Hostname for the loopback redirect URI (default: "127.0.0.1"). Some providers require "localhost".',
-    )
     .option(
       "--ping-url <url>",
       "Health-check endpoint URL for token validation",
@@ -193,9 +180,6 @@ Arguments (via options):
   --token-auth-method   How the client authenticates at the token endpoint
                         (e.g. "client_secret_post", "client_secret_basic").
   --callback-transport  Transport method for the OAuth callback.
-  --loopback-port       Port number for the local loopback callback server (1-65535).
-  --loopback-host       Hostname for the loopback redirect URI (default: "127.0.0.1").
-                        Some providers (e.g. Notion) require "localhost" for HTTP.
   --ping-url            Optional URL for a lightweight health-check endpoint.
                         Used by "connections ping" to validate that a stored token
                         is still functional (e.g. "https://api.example.com/user").
@@ -231,8 +215,6 @@ Examples:
           scopes?: string;
           tokenAuthMethod?: string;
           callbackTransport?: string;
-          loopbackPort?: number;
-          loopbackHost?: string;
           pingUrl?: string;
         },
         cmd: Command,
@@ -248,8 +230,6 @@ Examples:
             scopePolicy: {},
             tokenEndpointAuthMethod: opts.tokenAuthMethod,
             callbackTransport: opts.callbackTransport,
-            loopbackPort: opts.loopbackPort,
-            loopbackHost: opts.loopbackHost,
             pingUrl: opts.pingUrl,
           });
 

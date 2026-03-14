@@ -73,7 +73,6 @@ import {
   migrateNormalizePhoneIdentities,
   migrateNotificationDeliveryThreadDecision,
   migrateOAuthAppsClientSecretPath,
-  migrateOAuthProvidersLoopbackHost,
   migrateOAuthProvidersPingUrl,
   migrateReminderRoutingIntent,
   migrateRemindersToSchedules,
@@ -376,9 +375,6 @@ export function initializeDb(): void {
 
   // 60. Add required contact_id to assistant_ingress_invites and clean up legacy rows
   migrateInviteContactId(database);
-
-  // 61. Add loopback_host column to oauth_providers
-  migrateOAuthProvidersLoopbackHost(database);
 
   validateMigrationState(database);
 

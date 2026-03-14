@@ -73,6 +73,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
 
   "integration:slack": {
     service: "integration:slack",
+    loopbackPort: 17322,
     injectionTemplates: [
       {
         hostPattern: "slack.com",
@@ -114,6 +115,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
 
   "integration:notion": {
     service: "integration:notion",
+    loopbackPort: 17323,
     injectionTemplates: [
       {
         hostPattern: "api.notion.com",
@@ -225,6 +227,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
 
   "integration:linear": {
     service: "integration:linear",
+    loopbackPort: 17324,
     injectionTemplates: [
       {
         hostPattern: "api.linear.app",
@@ -305,6 +308,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
 
   "integration:todoist": {
     service: "integration:todoist",
+    loopbackPort: 17325,
     injectionTemplates: [
       {
         hostPattern: "api.todoist.com",
@@ -347,6 +351,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
 
   "integration:discord": {
     service: "integration:discord",
+    loopbackPort: 17326,
     injectionTemplates: [
       {
         hostPattern: "discord.com",
@@ -385,6 +390,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
 
   "integration:dropbox": {
     service: "integration:dropbox",
+    loopbackPort: 17327,
     injectionTemplates: [
       {
         hostPattern: "api.dropboxapi.com",
@@ -433,6 +439,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
 
   "integration:asana": {
     service: "integration:asana",
+    loopbackPort: 17328,
     injectionTemplates: [
       {
         hostPattern: "app.asana.com",
@@ -470,6 +477,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
 
   "integration:airtable": {
     service: "integration:airtable",
+    loopbackPort: 17329,
     injectionTemplates: [
       {
         hostPattern: "api.airtable.com",
@@ -505,6 +513,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
 
   "integration:hubspot": {
     service: "integration:hubspot",
+    loopbackPort: 17330,
     injectionTemplates: [
       {
         hostPattern: "api.hubapi.com",
@@ -543,6 +552,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
 
   "integration:figma": {
     service: "integration:figma",
+    loopbackPort: 17331,
     injectionTemplates: [
       {
         hostPattern: "api.figma.com",

@@ -5,8 +5,8 @@ import { seedProviders } from "./oauth-store.js";
  *
  * These values are upserted into the `oauth_providers` SQLite table on
  * every startup. Only Vellum implementation fields (authUrl, tokenUrl,
- * tokenEndpointAuthMethod, extraParams, callbackTransport, loopbackPort,
- * loopbackHost, pingUrl) are overwritten on subsequent startups — user-customizable
+ * tokenEndpointAuthMethod, extraParams, callbackTransport, pingUrl) are
+ * overwritten on subsequent startups — user-customizable
  * fields (defaultScopes, scopePolicy, userinfoUrl, baseUrl) are only
  * written on initial insert and preserved across restarts.
  *
@@ -32,8 +32,6 @@ const PROVIDER_SEED_DATA: Record<
     };
     extraParams?: Record<string, string>;
     callbackTransport?: string;
-    loopbackPort?: number;
-    loopbackHost?: string;
   }
 > = {
   "integration:google": {
@@ -95,7 +93,7 @@ const PROVIDER_SEED_DATA: Record<
         "channels:read,channels:history,groups:read,groups:history,im:read,im:history,im:write,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write",
     },
     callbackTransport: "loopback",
-    loopbackPort: 17322,
+
   },
 
   "integration:notion": {
@@ -113,8 +111,7 @@ const PROVIDER_SEED_DATA: Record<
     extraParams: { owner: "user" },
     tokenEndpointAuthMethod: "client_secret_basic",
     callbackTransport: "loopback",
-    loopbackPort: 17323,
-    loopbackHost: "localhost",
+
   },
 
   "integration:twitter": {
@@ -172,7 +169,7 @@ const PROVIDER_SEED_DATA: Record<
     },
     extraParams: { prompt: "consent" },
     callbackTransport: "loopback",
-    loopbackPort: 17324,
+
   },
 
   "integration:spotify": {
@@ -213,7 +210,7 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: ["data:delete"],
     },
     callbackTransport: "loopback",
-    loopbackPort: 17325,
+
   },
 
   "integration:discord": {
@@ -234,7 +231,7 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     callbackTransport: "loopback",
-    loopbackPort: 17326,
+
   },
 
   "integration:dropbox": {
@@ -256,7 +253,7 @@ const PROVIDER_SEED_DATA: Record<
     },
     extraParams: { token_access_type: "offline" },
     callbackTransport: "loopback",
-    loopbackPort: 17327,
+
   },
 
   "integration:asana": {
@@ -272,7 +269,7 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     callbackTransport: "loopback",
-    loopbackPort: 17328,
+
   },
 
   "integration:airtable": {
@@ -293,7 +290,7 @@ const PROVIDER_SEED_DATA: Record<
     },
     tokenEndpointAuthMethod: "client_secret_post",
     callbackTransport: "loopback",
-    loopbackPort: 17329,
+
   },
 
   "integration:hubspot": {
@@ -318,7 +315,7 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     callbackTransport: "loopback",
-    loopbackPort: 17330,
+
   },
 
   "integration:figma": {
@@ -334,7 +331,7 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     callbackTransport: "loopback",
-    loopbackPort: 17331,
+
   },
 
   // Manual-token providers: these don't use OAuth2 flows but need provider
