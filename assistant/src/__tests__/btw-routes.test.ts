@@ -304,6 +304,8 @@ describe("POST /v1/btw", () => {
   // -- Provider receives correct args --
 
   test("provider receives session messages + btw user message, system prompt, tools, and tool_choice none", async () => {
+    mockBuildSystemPrompt.mockClear();
+
     const provider = makeMockProvider();
     const session = makeMockSession(provider);
     const deps = makeSendMessageDeps(session);
