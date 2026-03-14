@@ -37,12 +37,12 @@ swift_with_retry() {
     _stderr_log=$(mktemp)
     trap "rm -f '$_stderr_log'" RETURN
     while true; do
-        # Redirect stderr to log file, capture exit code, then replay stderr
-        # to the terminal. Avoids process substitution race where grep could
-        # read an incomplete log.
+        # Stream stderr to terminal in real time via tee, also capturing to
+        # log file.  `wait` ensures the tee process substitution has flushed
+        # before grep reads the log.
         local _cmd_exit=0
-        "$@" 2>"$_stderr_log" || _cmd_exit=$?
-        cat "$_stderr_log" >&2
+        "$@" 2> >(tee "$_stderr_log" >&2) || _cmd_exit=$?
+        wait
         if [ "$_cmd_exit" -eq 0 ]; then
             return 0
         fi
