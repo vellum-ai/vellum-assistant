@@ -58,9 +58,6 @@
   "engines": {
     "node": ">=20.12.0"
   },
-  "optionalDependencies": {
-    "@vellumai/cli": "0.4.53"
-  },
   "devDependencies": {
     "@pydantic/logfire-node": "^0.13.0",
     "@types/archiver": "^7.0.0",
