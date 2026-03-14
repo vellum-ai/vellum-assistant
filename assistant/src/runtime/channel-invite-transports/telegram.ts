@@ -18,7 +18,10 @@ import {
 } from "../../config/loader.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
-import { getTelegramBotUsername } from "../../telegram/bot-username.js";
+import {
+  getTelegramBotId,
+  getTelegramBotUsername,
+} from "../../telegram/bot-username.js";
 import { getLogger } from "../../util/logger.js";
 import type {
   ChannelInviteAdapter,
@@ -37,8 +40,8 @@ import type {
  * gap so that invite share links can be generated.
  */
 export async function ensureTelegramBotUsernameResolved(): Promise<void> {
-  if (getTelegramBotUsername()) {
-    return; // Username already cached in config
+  if (getTelegramBotUsername() && getTelegramBotId()) {
+    return; // Username and bot ID already cached in config
   }
 
   const token = await getSecureKeyAsync(credentialKey("telegram", "bot_token"));
