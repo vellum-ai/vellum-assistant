@@ -17,4 +17,4 @@ export function credentialKey(service: string, field: string): string {
  * Well-known key under which the daemon persists the bootstrapped actor
  * HTTP access token in the encrypted credential store.
  */
-export const BOOTSTRAPPED_ACTOR_HTTP_TOKEN = "internal/cli_edge_token";
+export const BOOTSTRAPPED_ACTOR_HTTP_TOKEN = "credential/bootstrapped_actor_http_token";
