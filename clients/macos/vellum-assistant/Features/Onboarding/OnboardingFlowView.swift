@@ -16,6 +16,7 @@ struct OnboardingFlowView: View {
     @State private var isAdvancingFromWakeUp = false
     @State private var isBootstrappingManaged = false
     @State private var managedBootstrapError: String?
+    @State private var didInitiateLogin = false
 
     private static let appIcon: NSImage? = {
         guard let path = ResourceBundle.bundle.path(forResource: "vellum-app-icon", ofType: "png") else { return nil }
@@ -161,9 +162,13 @@ struct OnboardingFlowView: View {
                         onComplete()
                     }
                 } else if managedBootstrapEnabled {
-                    log.info("Authenticated with no lockfile assistant; starting managed bootstrap")
-                    Task {
-                        await performManagedBootstrap()
+                    if didInitiateLogin {
+                        log.info("Authenticated with no lockfile assistant after login; starting managed bootstrap")
+                        Task {
+                            await performManagedBootstrap()
+                        }
+                    } else {
+                        log.info("Session restored with no lockfile assistant — staying on welcome screen for user-initiated hatch")
                     }
                 } else {
                     log.info("Auth completed with no lockfile assistant — proceeding to app")
@@ -183,6 +188,7 @@ struct OnboardingFlowView: View {
     private func continueWithManagedAssistant() async {
         switch onboardingManagedContinuationAction(isAuthenticated: authManager.isAuthenticated) {
         case .startLogin:
+            didInitiateLogin = true
             await authManager.startWorkOSLogin()
         case .bootstrap:
             await performManagedBootstrap()
