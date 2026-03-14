@@ -1,3 +1,10 @@
+/**
+ * Canonical internal assistant ID used as the default/fallback across the CLI
+ * and daemon. Mirrors `DAEMON_INTERNAL_ASSISTANT_ID` from
+ * `assistant/src/runtime/assistant-scope.ts`.
+ */
+export const DAEMON_INTERNAL_ASSISTANT_ID = "self" as const;
+
 export const FIREWALL_TAG = "vellum-assistant";
 export const GATEWAY_PORT = process.env.GATEWAY_PORT
   ? Number(process.env.GATEWAY_PORT)
