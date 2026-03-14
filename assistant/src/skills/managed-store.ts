@@ -47,7 +47,7 @@ function getSkillsIndexPath(): string {
 
 // ─── SKILL.md generation ─────────────────────────────────────────────────────
 
-export interface BuildSkillMarkdownInput {
+interface BuildSkillMarkdownInput {
   name: string;
   description: string;
   bodyMarkdown: string;
@@ -195,7 +195,7 @@ export function readSkillVersion(id: string): string | null {
 
 // ─── Create / Delete ─────────────────────────────────────────────────────────
 
-export interface CreateManagedSkillParams {
+interface CreateManagedSkillParams {
   id: string;
   name: string;
   description: string;
@@ -209,7 +209,7 @@ export interface CreateManagedSkillParams {
   version?: string;
 }
 
-export interface CreateManagedSkillResult {
+interface CreateManagedSkillResult {
   created: boolean;
   path: string;
   indexUpdated: boolean;
@@ -295,7 +295,7 @@ export function createManagedSkill(
   return { created: true, path: skillFilePath, indexUpdated };
 }
 
-export interface DeleteManagedSkillResult {
+interface DeleteManagedSkillResult {
   deleted: boolean;
   indexUpdated: boolean;
   error?: string;
