@@ -343,24 +343,6 @@ export async function initializeProviders(
       ),
     );
     routingSources.set("fireworks", "user-key");
-  } else {
-    const managedBaseUrl = await buildManagedBaseUrl("fireworks");
-    if (managedBaseUrl) {
-      const ctx = await resolveManagedProxyContext();
-      const model = resolveModel(config, "fireworks");
-      registerProvider(
-        "fireworks",
-        new RetryProvider(
-          wrapWithLogfire(
-            new FireworksProvider(ctx.assistantApiKey, model, {
-              baseURL: managedBaseUrl,
-              streamTimeoutMs,
-            }),
-          ),
-        ),
-      );
-      routingSources.set("fireworks", "managed-proxy");
-    }
   }
   const openrouterKey = await getSecureKeyAsync("openrouter");
   if (openrouterKey) {
@@ -376,23 +358,5 @@ export async function initializeProviders(
       ),
     );
     routingSources.set("openrouter", "user-key");
-  } else {
-    const managedBaseUrl = await buildManagedBaseUrl("openrouter");
-    if (managedBaseUrl) {
-      const ctx = await resolveManagedProxyContext();
-      const model = resolveModel(config, "openrouter");
-      registerProvider(
-        "openrouter",
-        new RetryProvider(
-          wrapWithLogfire(
-            new OpenRouterProvider(ctx.assistantApiKey, model, {
-              baseURL: managedBaseUrl,
-              streamTimeoutMs,
-            }),
-          ),
-        ),
-      );
-      routingSources.set("openrouter", "managed-proxy");
-    }
   }
 }

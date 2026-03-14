@@ -19,12 +19,16 @@ export interface ManagedProviderMeta {
  * Explicit provider metadata for all known providers.
  * Managed providers get a deterministic proxy path; non-managed providers
  * are marked accordingly and have no proxy path.
+ *
+ * This table describes managed proxy routing capability only. It does not
+ * control which providers auto-bootstrap into the text-model registry when
+ * managed credentials are present; that policy lives in the registry/context
+ * fallback allowlists.
  */
 export const MANAGED_PROVIDER_META: Record<string, ManagedProviderMeta> = {
   openai: {
     name: "openai",
-    managed: true,
-    proxyPath: "/v1/runtime-proxy/openai",
+    managed: false,
   },
   anthropic: {
     name: "anthropic",
@@ -38,13 +42,11 @@ export const MANAGED_PROVIDER_META: Record<string, ManagedProviderMeta> = {
   },
   fireworks: {
     name: "fireworks",
-    managed: true,
-    proxyPath: "/v1/runtime-proxy/fireworks",
+    managed: false,
   },
   openrouter: {
     name: "openrouter",
-    managed: true,
-    proxyPath: "/v1/runtime-proxy/openrouter",
+    managed: false,
   },
   vertex: {
     name: "vertex",
