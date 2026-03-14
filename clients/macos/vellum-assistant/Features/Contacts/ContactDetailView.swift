@@ -343,27 +343,63 @@ struct ContactDetailView: View {
                         statusBadge(for: channel)
                     }
 
-                    if let verifiedAt = channel.verifiedAt, verifiedAt > 0 {
-                        let dateStr = formatDate(epochMs: verifiedAt)
-                        let via = channel.verifiedVia ?? "unknown"
-                        Text("Verified via \(via) on \(dateStr)")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
+                    // Platform user ID with profile link
+                    if channel.type == "telegram",
+                       let externalUserId = channel.externalUserId,
+                       !externalUserId.isEmpty {
+                        HStack(spacing: 0) {
+                            Text("Telegram ID: ")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.contentTertiary)
+                            if let url = URL(string: "https://web.telegram.org/a/#\(externalUserId)") {
+                                Link(externalUserId, destination: url)
+                                    .font(VFont.caption)
+                                    .lineLimit(1)
+                                    .pointerCursor()
+                            } else {
+                                Text(externalUserId)
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.contentTertiary)
+                                    .lineLimit(1)
+                            }
+                        }
                     }
 
-                    if let lastSeenAt = channel.lastSeenAt, lastSeenAt > 0 {
-                        Text("Last seen \(relativeTime(epochMs: lastSeenAt))")
+                    if channel.type == "slack",
+                       let externalUserId = channel.externalUserId,
+                       !externalUserId.isEmpty {
+                        HStack(spacing: 0) {
+                            Text("Slack ID: ")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.contentTertiary)
+                            if let teamId = store?.slackChannelTeamId,
+                               !teamId.isEmpty,
+                               let url = URL(string: "slack://user?team=\(teamId)&id=\(externalUserId)") {
+                                Link(externalUserId, destination: url)
+                                    .font(VFont.caption)
+                                    .lineLimit(1)
+                                    .pointerCursor()
+                            } else {
+                                Text(externalUserId)
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.contentTertiary)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+
+                    if let verifiedAt = channel.verifiedAt, verifiedAt > 0 {
+                        let dateStr = formatDate(epochMs: verifiedAt)
+                        Text("Verified on \(dateStr)")
                             .font(VFont.caption)
                             .foregroundColor(VColor.contentTertiary)
                     }
 
                     if channel.policy != "allow" {
-                        HStack(spacing: VSpacing.xs) {
-                            VIconView(.shield, size: 10)
-                            Text("Policy: \(channel.policy)")
-                                .font(VFont.caption)
-                        }
-                        .foregroundColor(VColor.systemNegativeHover)
+                        VBadge(
+                            style: .label("Policy: \(channel.policy.capitalized)"),
+                            color: VColor.systemNegativeHover
+                        )
                     }
                 }
 
