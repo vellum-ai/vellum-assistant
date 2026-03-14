@@ -6,7 +6,7 @@
  * channel requester.
  */
 
-import { and, count, desc, eq, gt, lte } from "drizzle-orm";
+import { and, desc, eq, gt, lte } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "./db.js";
@@ -406,59 +406,4 @@ export function resolveApprovalRequest(
     decidedByExternalUserId: decidedByExternalUserId ?? null,
     updatedAt: now,
   });
-}
-
-/**
- * Count pending approval requests for a given conversation.
- * Used by thread state projection to compute `pending_escalation_count`.
- */
-export function countPendingByConversation(conversationId: string): number {
-  const db = getDb();
-
-  const result = db
-    .select({ count: count() })
-    .from(channelGuardianApprovalRequests)
-    .where(
-      and(
-        eq(channelGuardianApprovalRequests.conversationId, conversationId),
-        eq(channelGuardianApprovalRequests.status, "pending"),
-      ),
-    )
-    .get();
-
-  return result?.count ?? 0;
-}
-
-/**
- * @internal Test-only helper. Production code should query canonical guardian
- * requests via `listCanonicalGuardianRequests` in canonical-guardian-store.ts.
- * Retained for existing test fixtures that check legacy approval dedup.
- */
-export function findPendingAccessRequestForRequester(
-  channel: string,
-  requesterExternalUserId: string,
-  toolName: string,
-): GuardianApprovalRequest | null {
-  const db = getDb();
-  const now = Date.now();
-
-  const row = db
-    .select()
-    .from(channelGuardianApprovalRequests)
-    .where(
-      and(
-        eq(channelGuardianApprovalRequests.channel, channel),
-        eq(
-          channelGuardianApprovalRequests.requesterExternalUserId,
-          requesterExternalUserId,
-        ),
-        eq(channelGuardianApprovalRequests.toolName, toolName),
-        eq(channelGuardianApprovalRequests.status, "pending"),
-        gt(channelGuardianApprovalRequests.expiresAt, now),
-      ),
-    )
-    .orderBy(desc(channelGuardianApprovalRequests.createdAt))
-    .get();
-
-  return row ? rowToApprovalRequest(row) : null;
 }
