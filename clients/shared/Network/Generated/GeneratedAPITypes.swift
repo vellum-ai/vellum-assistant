@@ -891,10 +891,12 @@ public struct ContactChannelPayload: Codable, Sendable {
     public let verifiedAt: Int?
     public let verifiedVia: String?
     public let lastSeenAt: Int?
+    public let interactionCount: Int?
+    public let lastInteraction: Int?
     public let revokedReason: String?
     public let blockedReason: String?
 
-    public init(id: String, type: String, address: String, isPrimary: Bool, externalUserId: String? = nil, status: String, policy: String, verifiedAt: Int? = nil, verifiedVia: String? = nil, lastSeenAt: Int? = nil, revokedReason: String? = nil, blockedReason: String? = nil) {
+    public init(id: String, type: String, address: String, isPrimary: Bool, externalUserId: String? = nil, status: String, policy: String, verifiedAt: Int? = nil, verifiedVia: String? = nil, lastSeenAt: Int? = nil, interactionCount: Int? = nil, lastInteraction: Int? = nil, revokedReason: String? = nil, blockedReason: String? = nil) {
         self.id = id
         self.type = type
         self.address = address
@@ -905,6 +907,8 @@ public struct ContactChannelPayload: Codable, Sendable {
         self.verifiedAt = verifiedAt
         self.verifiedVia = verifiedVia
         self.lastSeenAt = lastSeenAt
+        self.interactionCount = interactionCount
+        self.lastInteraction = lastInteraction
         self.revokedReason = revokedReason
         self.blockedReason = blockedReason
     }

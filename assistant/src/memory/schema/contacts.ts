@@ -37,6 +37,8 @@ export const contactChannels = sqliteTable(
     revokedReason: text("revoked_reason"),
     blockedReason: text("blocked_reason"),
     lastSeenAt: integer("last_seen_at"), // epoch ms
+    interactionCount: integer("interaction_count").notNull().default(0),
+    lastInteraction: integer("last_interaction"),
     updatedAt: integer("updated_at"), // epoch ms
     createdAt: integer("created_at").notNull(),
   },
