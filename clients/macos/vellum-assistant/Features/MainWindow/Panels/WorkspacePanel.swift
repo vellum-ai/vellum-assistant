@@ -231,6 +231,7 @@ private struct WorkspaceTreeSidebar: View {
     @Bindable var state: WorkspaceBrowserState
     let daemonClient: DaemonClient
     let onToggleHiddenFiles: (Bool) -> Void
+    @State private var viewportWidth: CGFloat = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -302,12 +303,22 @@ private struct WorkspaceTreeSidebar: View {
                                     entry: entry,
                                     depth: 0,
                                     state: state,
-                                    daemonClient: daemonClient
+                                    daemonClient: daemonClient,
+                                    minRowWidth: viewportWidth
                                 )
                             }
                         }
                     }
                     .padding(.vertical, VSpacing.xs)
+                }
+                .background {
+                    GeometryReader { geo in
+                        Color.clear
+                            .onAppear { viewportWidth = geo.size.width }
+                            .onChange(of: geo.size.width) { _, newWidth in
+                                viewportWidth = newWidth
+                            }
+                    }
                 }
             }
 
@@ -418,6 +429,7 @@ private struct WorkspaceTreeRow: View {
     let depth: Int
     @Bindable var state: WorkspaceBrowserState
     let daemonClient: DaemonClient
+    var minRowWidth: CGFloat = 0
 
     private var isExpanded: Bool {
         state.expandedDirs.contains(entry.path)
@@ -448,6 +460,7 @@ private struct WorkspaceTreeRow: View {
                         TextField("Name", text: $state.renamingText)
                             .textFieldStyle(.plain)
                             .font(VFont.body)
+                            .fixedSize(horizontal: true, vertical: false)
                             .onSubmit {
                                 submitRename()
                             }
@@ -464,6 +477,7 @@ private struct WorkspaceTreeRow: View {
                 .padding(.leading, CGFloat(depth) * 16 + VSpacing.sm)
                 .padding(.trailing, VSpacing.sm)
                 .padding(.vertical, VSpacing.xs)
+                .frame(minWidth: minRowWidth, alignment: .leading)
                 .contentShape(Rectangle())
                 .background(isSelected ? VColor.surfaceActive : Color.clear)
             }
@@ -482,7 +496,8 @@ private struct WorkspaceTreeRow: View {
                             entry: child,
                             depth: depth + 1,
                             state: state,
-                            daemonClient: daemonClient
+                            daemonClient: daemonClient,
+                            minRowWidth: minRowWidth
                         )
                     }
                 }
