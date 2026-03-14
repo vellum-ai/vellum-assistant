@@ -863,6 +863,79 @@ export class RuntimeHttpServer {
           });
         },
       },
+      ...conversationAttentionRouteDefinitions(),
+
+      ...(this.sessionManagementDeps
+        ? sessionManagementRouteDefinitions(this.sessionManagementDeps)
+        : []),
+
+      {
+        endpoint: "conversations/seen",
+        method: "POST",
+        handler: async ({ req }) => {
+          const body = (await req.json()) as Record<string, unknown>;
+          const conversationId = body.conversationId as string | undefined;
+          if (!conversationId)
+            return httpError("BAD_REQUEST", "Missing conversationId", 400);
+          try {
+            recordConversationSeenSignal({
+              conversationId,
+              sourceChannel: (body.sourceChannel as string) ?? "vellum",
+              signalType: ((body.signalType as string) ??
+                "macos_conversation_opened") as SignalType,
+              confidence: ((body.confidence as string) ??
+                "explicit") as Confidence,
+              source: (body.source as string) ?? "http-api",
+              evidenceText: body.evidenceText as string | undefined,
+              metadata: body.metadata as Record<string, unknown> | undefined,
+              observedAt: body.observedAt as number | undefined,
+            });
+            return Response.json({ ok: true });
+          } catch (err) {
+            log.error(
+              { err, conversationId },
+              "POST /v1/conversations/seen: failed",
+            );
+            return httpError(
+              "INTERNAL_ERROR",
+              "Failed to record seen signal",
+              500,
+            );
+          }
+        },
+      },
+
+      {
+        endpoint: "conversations/unread",
+        method: "POST",
+        handler: async ({ req }) => {
+          const body = (await req.json()) as Record<string, unknown>;
+          const conversationId = body.conversationId as string | undefined;
+          if (!conversationId)
+            return httpError("BAD_REQUEST", "Missing conversationId", 400);
+          try {
+            markConversationUnread(conversationId);
+            return Response.json({ ok: true });
+          } catch (err) {
+            if (err instanceof UserError) {
+              return httpError("UNPROCESSABLE_ENTITY", err.message, 422);
+            }
+            log.error(
+              { err, conversationId },
+              "POST /v1/conversations/unread: failed",
+            );
+            return httpError(
+              "INTERNAL_ERROR",
+              "Failed to mark conversation unread",
+              500,
+            );
+          }
+        },
+      },
+
+      // conversations/:id must be registered AFTER all literal conversations/<word>
+      // routes above (attention, seen, unread) so the parameterized :id does not
+      // shadow them.
       {
         endpoint: "conversations/:id",
         method: "GET",
@@ -940,76 +1013,6 @@ export class RuntimeHttpServer {
               ...(assistantAttention ? { assistantAttention } : {}),
             },
           });
-        },
-      },
-
-      ...conversationAttentionRouteDefinitions(),
-
-      ...(this.sessionManagementDeps
-        ? sessionManagementRouteDefinitions(this.sessionManagementDeps)
-        : []),
-
-      {
-        endpoint: "conversations/seen",
-        method: "POST",
-        handler: async ({ req }) => {
-          const body = (await req.json()) as Record<string, unknown>;
-          const conversationId = body.conversationId as string | undefined;
-          if (!conversationId)
-            return httpError("BAD_REQUEST", "Missing conversationId", 400);
-          try {
-            recordConversationSeenSignal({
-              conversationId,
-              sourceChannel: (body.sourceChannel as string) ?? "vellum",
-              signalType: ((body.signalType as string) ??
-                "macos_conversation_opened") as SignalType,
-              confidence: ((body.confidence as string) ??
-                "explicit") as Confidence,
-              source: (body.source as string) ?? "http-api",
-              evidenceText: body.evidenceText as string | undefined,
-              metadata: body.metadata as Record<string, unknown> | undefined,
-              observedAt: body.observedAt as number | undefined,
-            });
-            return Response.json({ ok: true });
-          } catch (err) {
-            log.error(
-              { err, conversationId },
-              "POST /v1/conversations/seen: failed",
-            );
-            return httpError(
-              "INTERNAL_ERROR",
-              "Failed to record seen signal",
-              500,
-            );
-          }
-        },
-      },
-
-      {
-        endpoint: "conversations/unread",
-        method: "POST",
-        handler: async ({ req }) => {
-          const body = (await req.json()) as Record<string, unknown>;
-          const conversationId = body.conversationId as string | undefined;
-          if (!conversationId)
-            return httpError("BAD_REQUEST", "Missing conversationId", 400);
-          try {
-            markConversationUnread(conversationId);
-            return Response.json({ ok: true });
-          } catch (err) {
-            if (err instanceof UserError) {
-              return httpError("UNPROCESSABLE_ENTITY", err.message, 422);
-            }
-            log.error(
-              { err, conversationId },
-              "POST /v1/conversations/unread: failed",
-            );
-            return httpError(
-              "INTERNAL_ERROR",
-              "Failed to mark conversation unread",
-              500,
-            );
-          }
         },
       },
 
