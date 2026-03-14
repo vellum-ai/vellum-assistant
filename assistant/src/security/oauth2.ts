@@ -366,7 +366,7 @@ function startLoopbackServerAndWaitForCode(
     }
 
     const host = loopbackHost ?? "127.0.0.1";
-    server.listen(loopbackPort ?? 0, "127.0.0.1", () => {
+    server.listen(loopbackPort ?? 0, host, () => {
       const addr = server.address() as { port: number };
       boundRedirectUri = `http://${host}:${addr.port}${LOOPBACK_CALLBACK_PATH}`;
 
@@ -628,7 +628,7 @@ function startLoopbackServerForPreparedFlow(
     }
 
     const host = loopbackHost ?? "127.0.0.1";
-    server.listen(loopbackPort ?? 0, "127.0.0.1", () => {
+    server.listen(loopbackPort ?? 0, host, () => {
       const addr = server.address() as { port: number };
       const redirectUri = `http://${host}:${addr.port}${LOOPBACK_CALLBACK_PATH}`;
       listening = true;
