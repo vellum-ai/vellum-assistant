@@ -21,6 +21,7 @@ let mockConfigWriteCalls: Array<{
 
 mock.module("../telegram/bot-username.js", () => ({
   getTelegramBotUsername: () => mockBotUsername,
+  getTelegramBotId: () => (mockBotUsername ? "123456" : undefined),
 }));
 
 mock.module("../config/loader.js", () => ({

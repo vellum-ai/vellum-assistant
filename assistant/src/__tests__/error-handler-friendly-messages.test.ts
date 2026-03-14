@@ -15,8 +15,7 @@ describe("withErrorHandling – friendly error messages", () => {
     };
     expect(body.error.code).toBe("UNPROCESSABLE_ENTITY");
     expect(body.error.message).toContain("No API key configured");
-    expect(body.error.message).toContain("ANTHROPIC_API_KEY");
-    expect(body.error.message).toContain("vellum hatch");
+    expect(body.error.message).toContain("keys set anthropic");
   });
 
   test("ProviderNotConfiguredError tailors env var to requested provider", async () => {
@@ -28,8 +27,8 @@ describe("withErrorHandling – friendly error messages", () => {
     const body = (await response.json()) as {
       error: { code: string; message: string };
     };
-    expect(body.error.message).toContain("OPENAI_API_KEY");
-    expect(body.error.message).not.toContain("ANTHROPIC_API_KEY");
+    expect(body.error.message).toContain("keys set openai");
+    expect(body.error.message).not.toContain("keys set anthropic");
   });
 
   test("generic ConfigError still returns its own message", async () => {
