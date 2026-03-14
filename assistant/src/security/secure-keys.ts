@@ -12,12 +12,14 @@
  */
 
 import { getLogger } from "../util/logger.js";
-import type { CredentialBackend } from "./credential-backend.js";
+import type { CredentialBackend, DeleteResult } from "./credential-backend.js";
 import {
   createEncryptedStoreBackend,
   createKeychainBackend,
 } from "./credential-backend.js";
 import * as encryptedStore from "./encrypted-store.js";
+
+export type { DeleteResult } from "./credential-backend.js";
 
 const log = getLogger("secure-keys");
 
@@ -45,9 +47,6 @@ function resolveBackend(): CredentialBackend {
   }
   return getEncryptedStoreBackend();
 }
-
-/** Result of a delete operation — distinguishes success, not-found, and error. */
-export type DeleteResult = "deleted" | "not-found" | "error";
 
 /**
  * List all account names in secure storage (sync — encrypted store only).
