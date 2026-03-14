@@ -146,6 +146,9 @@ mock.module("../context/window-manager.js", () => ({
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     constructor() {}
+    getToolTokenBudget() {
+      return 0;
+    }
     async run(
       messages: Message[],
       onEvent: (event: AgentEvent) => void,

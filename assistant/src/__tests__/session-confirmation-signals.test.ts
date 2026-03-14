@@ -195,6 +195,9 @@ mock.module("../memory/llm-usage-store.js", () => ({
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     constructor() {}
+    getToolTokenBudget() {
+      return 0;
+    }
     async run(
       _messages: Message[],
       _onEvent: (event: AgentEvent) => void,
