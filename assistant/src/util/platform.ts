@@ -321,7 +321,7 @@ export function getHistoryPath(): string {
 }
 
 export function getHooksDir(): string {
-  return getWorkspaceHooksDir();
+  return join(getRootDir(), "hooks");
 }
 
 // --- Workspace path primitives ---
@@ -369,7 +369,7 @@ export function ensureDataDir(): void {
     join(root, "protected"),
     // Workspace dirs
     workspace,
-    join(workspace, "hooks"),
+    join(root, "hooks"),
     join(workspace, "skills"),
     join(workspace, "embedding-models"),
     // Data sub-dirs under workspace
