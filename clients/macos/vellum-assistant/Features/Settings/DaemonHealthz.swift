@@ -9,6 +9,16 @@ struct DaemonHealthz: Decodable {
     let memory: MemoryInfo?
     let cpu: CpuInfo?
 
+    /// Empty instance used when the healthz endpoint is unreachable.
+    init(status: String = "unavailable", timestamp: String? = nil, version: String? = nil, disk: DiskInfo? = nil, memory: MemoryInfo? = nil, cpu: CpuInfo? = nil) {
+        self.status = status
+        self.timestamp = timestamp
+        self.version = version
+        self.disk = disk
+        self.memory = memory
+        self.cpu = cpu
+    }
+
     struct DiskInfo: Decodable {
         let path: String
         let totalMb: Double

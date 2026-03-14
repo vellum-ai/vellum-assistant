@@ -239,8 +239,15 @@ build_binaries() {
     mkdir -p "$SCRIPT_DIR/daemon-bin/brain-graph"
     cp "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" "$SCRIPT_DIR/daemon-bin/brain-graph/"
     # Assistant CLI
+    local cli_flags=("${BUN_EXTERNAL_FLAGS[@]}")
+    if [ -n "${DISPLAY_VERSION:-}" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
+        cli_flags+=(--define "process.env.APP_VERSION='$DISPLAY_VERSION'")
+    fi
+    if [ -n "${COMMIT_SHA:-}" ]; then
+        cli_flags+=(--define "process.env.COMMIT_SHA='$COMMIT_SHA'")
+    fi
     build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/assistant-bin" "vellum-assistant" "${BUN_EXTERNAL_FLAGS[@]}"
+        "$SCRIPT_DIR/assistant-bin" "vellum-assistant" "${cli_flags[@]}"
 
     # CLI
     build_bun_binary "$CLI_SRC_DIR" "$CLI_SRC_DIR/src/index.ts" \
