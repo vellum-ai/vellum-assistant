@@ -54,9 +54,10 @@ const mockTestProvider = {
     };
   },
 };
+let mockAnthropicKey: string | undefined = "test-api-key";
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKeyAsync: async () => "test-api-key",
-  getSecureKey: () => "test-api-key",
+  getSecureKeyAsync: async () => mockAnthropicKey,
+  getSecureKey: () => mockAnthropicKey,
 }));
 
 mock.module("../providers/registry.js", () => ({
@@ -299,14 +300,26 @@ describe("swarm regression tests", () => {
   });
 
   test("worker backend reports unavailable when no API key", async () => {
-    const result = await swarmDelegateTool.execute(
-      { objective: "Task without key" },
-      makeContext(),
-    );
+    const prevKey = mockAnthropicKey;
+    const prevEnv = process.env.ANTHROPIC_API_KEY;
+    mockAnthropicKey = undefined;
+    delete process.env.ANTHROPIC_API_KEY;
+    try {
+      const result = await swarmDelegateTool.execute(
+        { objective: "Task without key" },
+        makeContext(),
+      );
 
-    // The tool should still complete — the orchestrator handles backend failures
-    // The result may show failed tasks but shouldn't throw
-    expect(result.content).toBeTruthy();
+      // The tool should still complete — the orchestrator handles backend failures
+      // Tasks should fail because no backend is available
+      expect(result.content).toBeTruthy();
+      expect(result.content).toContain("failed");
+    } finally {
+      mockAnthropicKey = prevKey;
+      if (prevEnv !== undefined) {
+        process.env.ANTHROPIC_API_KEY = prevEnv;
+      }
+    }
   });
 
   test("progress chunks stream through onOutput", async () => {

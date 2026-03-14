@@ -29,7 +29,8 @@ export function createClaudeCodeBackend(): SwarmWorkerBackend {
     name: "claude_code",
 
     async isAvailable(): Promise<boolean> {
-      const apiKey = await getSecureKeyAsync("anthropic");
+      const apiKey =
+        (await getSecureKeyAsync("anthropic")) ?? process.env.ANTHROPIC_API_KEY;
       return !!apiKey;
     },
 
@@ -38,7 +39,9 @@ export function createClaudeCodeBackend(): SwarmWorkerBackend {
       const stderrLines: string[] = [];
       try {
         const { query } = await import("@anthropic-ai/claude-agent-sdk");
-        const apiKey = await getSecureKeyAsync("anthropic");
+        const apiKey =
+          (await getSecureKeyAsync("anthropic")) ??
+          process.env.ANTHROPIC_API_KEY;
         if (!apiKey) {
           return {
             success: false,
