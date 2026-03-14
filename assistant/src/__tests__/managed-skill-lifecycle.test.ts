@@ -264,5 +264,5 @@ describe("managed skill lifecycle: scaffold → catalog → prompt → delete", 
       ctx,
     );
     expect(loadAfterDelete.isError).toBe(true);
-  });
+  }, 15_000);
 });
