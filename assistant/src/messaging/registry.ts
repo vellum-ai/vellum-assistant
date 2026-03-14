@@ -33,8 +33,3 @@ export async function getConnectedProviders(): Promise<MessagingProvider[]> {
   }
   return results;
 }
-
-/** Return all registered provider IDs. */
-export function getRegisteredProviderIds(): string[] {
-  return Array.from(providers.keys());
-}
