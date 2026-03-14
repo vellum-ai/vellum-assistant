@@ -141,7 +141,7 @@ struct AssistantChannelsDetailView: View {
         } content: {
             if status == "ready" {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    if let username = store.telegramBotUsername {
+                    if let username = store.telegramBotUsername, !username.isEmpty {
                         if let url = URL(string: "https://t.me/\(username)") {
                             Link("@\(username)", destination: url)
                                 .font(VFont.body)
@@ -154,7 +154,7 @@ struct AssistantChannelsDetailView: View {
                                 .lineLimit(1)
                         }
                     }
-                    if let botId = store.telegramBotId {
+                    if let botId = store.telegramBotId, !botId.isEmpty {
                         HStack(spacing: 0) {
                             Text("Bot ID: ")
                                 .font(VFont.caption)
@@ -238,13 +238,13 @@ struct AssistantChannelsDetailView: View {
         } content: {
             if status == "ready" {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    if let username = store.slackChannelBotUsername {
+                    if let username = store.slackChannelBotUsername, !username.isEmpty {
                         Text("@\(username)")
                             .font(VFont.body)
                             .foregroundColor(VColor.contentDefault)
                             .lineLimit(1)
                     }
-                    if let botUserId = store.slackChannelBotUserId {
+                    if let botUserId = store.slackChannelBotUserId, !botUserId.isEmpty {
                         HStack(spacing: 0) {
                             Text("Bot ID: ")
                                 .font(VFont.caption)

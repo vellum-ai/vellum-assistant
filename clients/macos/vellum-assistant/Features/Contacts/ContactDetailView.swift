@@ -799,7 +799,7 @@ struct ContactDetailView: View {
                         initiateVerification(for: channel)
                     }
                     VButton(
-                        label: "Revoke Access",
+                        label: "Revoke",
                         style: .dangerOutline,
                         isDisabled: anyActionInFlight
                     ) {
