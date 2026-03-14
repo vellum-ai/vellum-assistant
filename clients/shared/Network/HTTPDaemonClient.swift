@@ -854,10 +854,10 @@ public final class HTTPTransport {
         case .memoryItemsList(let kind, let status, let search, let sort, let order, let limit, let offset):
             var queryParts = ["limit=\(limit)", "offset=\(offset)"]
             if let kind { queryParts.append("kind=\(kind.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? kind)") }
-            if let status { queryParts.append("status=\(status)") }
+            if let status { queryParts.append("status=\(status.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? status)") }
             if let search, !search.isEmpty { queryParts.append("search=\(search.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? search)") }
-            if let sort { queryParts.append("sort=\(sort)") }
-            if let order { queryParts.append("order=\(order)") }
+            if let sort { queryParts.append("sort=\(sort.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? sort)") }
+            if let order { queryParts.append("order=\(order.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? order)") }
             return ("/v1/memory-items", queryParts.joined(separator: "&"))
         case .memoryItemGet(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
@@ -1267,10 +1267,10 @@ public final class HTTPTransport {
         case .memoryItemsList(let kind, let status, let search, let sort, let order, let limit, let offset):
             var queryParts = ["limit=\(limit)", "offset=\(offset)"]
             if let kind { queryParts.append("kind=\(kind.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? kind)") }
-            if let status { queryParts.append("status=\(status)") }
+            if let status { queryParts.append("status=\(status.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? status)") }
             if let search, !search.isEmpty { queryParts.append("search=\(search.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? search)") }
-            if let sort { queryParts.append("sort=\(sort)") }
-            if let order { queryParts.append("order=\(order)") }
+            if let sort { queryParts.append("sort=\(sort.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? sort)") }
+            if let order { queryParts.append("order=\(order.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? order)") }
             return ("\(prefix)/memory-items/", queryParts.joined(separator: "&"))
         case .memoryItemGet(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
