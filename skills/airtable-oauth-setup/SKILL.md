@@ -118,7 +118,10 @@ Register the OAuth app:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:airtable --client-id <client-id> --client-secret-credential-path "integration:airtable:oauth_secret"
+    assistant oauth apps upsert --provider integration:airtable --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ) --client-secret-credential-path "integration:airtable:oauth_secret"
 ```
 
 **Milestone (6 of 8):** "Credentials saved — just the authorization step left."
@@ -134,7 +137,10 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:airtable --client-id <client-id>
+    assistant oauth connections connect integration:airtable --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    )
 ```
 
 ---
@@ -146,7 +152,10 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:airtable --client-id <client-id>)" "https://api.airtable.com/v0/meta/whoami" | python3 -m json.tool
+    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:airtable --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ))" "https://api.airtable.com/v0/meta/whoami" | python3 -m json.tool
 ```
 
 **On success:** "Airtable is connected! You can now ask me to read and update records in your Airtable bases."

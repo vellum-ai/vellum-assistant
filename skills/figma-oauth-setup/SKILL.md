@@ -123,7 +123,10 @@ Register the OAuth app:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:figma --client-id <client-id> --client-secret-credential-path "integration:figma:oauth_secret"
+    assistant oauth apps upsert --provider integration:figma --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ) --client-secret-credential-path "integration:figma:oauth_secret"
 ```
 
 **Milestone (6 of 7):** "Credentials saved — just the authorization step left."
@@ -139,7 +142,10 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:figma --client-id <client-id>
+    assistant oauth connections connect integration:figma --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    )
 ```
 
 After authorization completes, verify the connection:
@@ -147,7 +153,10 @@ After authorization completes, verify the connection:
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:figma --client-id <client-id>)" "https://api.figma.com/v1/me" | python3 -m json.tool
+    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:figma --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ))" "https://api.figma.com/v1/me" | python3 -m json.tool
 ```
 
 **On success:** "Figma is connected! You can now ask me to browse your design files, inspect components, and post comments."

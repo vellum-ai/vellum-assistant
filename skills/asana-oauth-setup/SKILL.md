@@ -102,7 +102,10 @@ Register the OAuth app:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:asana --client-id <client-id> --client-secret-credential-path "integration:asana:oauth_secret"
+    assistant oauth apps upsert --provider integration:asana --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ) --client-secret-credential-path "integration:asana:oauth_secret"
 ```
 
 **Milestone (5 of 7):** "Credentials saved — just the authorization step left."
@@ -118,7 +121,10 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:asana --client-id <client-id>
+    assistant oauth connections connect integration:asana --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    )
 ```
 
 ---
@@ -130,7 +136,10 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:asana --client-id <client-id>)" "https://app.asana.com/api/1.0/users/me" | python3 -m json.tool
+    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:asana --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ))" "https://app.asana.com/api/1.0/users/me" | python3 -m json.tool
 ```
 
 **On success:** "Asana is connected! You can now ask me to check your Asana tasks, create projects, manage assignments, and track your work."

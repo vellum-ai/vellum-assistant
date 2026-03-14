@@ -117,13 +117,19 @@ Tell the user:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:slack --client-id <client-id> --client-secret-credential-path "credential/integration:slack/client_secret"
+    assistant oauth apps upsert --provider integration:slack --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ) --client-secret-credential-path "credential/integration:slack/client_secret"
 ```
 
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:slack --client-id <client-id>
+    assistant oauth connections connect integration:slack --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    )
 ```
 
 Send the returned auth URL to the user. Tell them to click **Allow** on the Slack consent page.

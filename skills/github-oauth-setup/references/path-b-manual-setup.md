@@ -92,13 +92,19 @@ Tell the user:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:github --client-id <client-id> --client-secret-credential-path "integration:github:<secret-field>"
+    assistant oauth apps upsert --provider integration:github --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ) --client-secret-credential-path "integration:github:<secret-field>"
 ```
 
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:github --client-id <client-id> --scopes repo read:user notifications
+    assistant oauth connections connect integration:github --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ) --scopes repo read:user notifications
 ```
 
 Send the returned auth URL to the user. Tell them to click **Authorize** on the GitHub consent page.
