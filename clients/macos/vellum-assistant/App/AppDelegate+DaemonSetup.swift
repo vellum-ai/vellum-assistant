@@ -131,6 +131,8 @@ extension AppDelegate {
         guard !hasSetupDaemon else { return }
         hasSetupDaemon = true
 
+        GatewayHTTPClient.assistantResolver = LockfileAssistantResolver()
+
         let assistant = loadAssistantFromLockfile()
         let launchEnvironment = ProcessInfo.processInfo.environment
 
