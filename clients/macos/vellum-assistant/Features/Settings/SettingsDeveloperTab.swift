@@ -87,7 +87,7 @@ struct SettingsDeveloperTab: View {
             // Upgrade (managed/remote only)
             if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
                assistant.isManaged || assistant.isRemote {
-                AssistantUpgradeSection(assistant: assistant, currentVersion: healthz?.version)
+                AssistantUpgradeSection(currentVersion: healthz?.version)
             }
             // Hatch New Assistant
             hatchNewAssistantSection
@@ -626,7 +626,7 @@ struct SettingsDeveloperTab: View {
         guard let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) else { return }
 
         if assistant.isManaged || assistant.isRemote {
-            await performManagedRestart(assistant: assistant)
+            await performManagedRestart()
         } else {
             await performLocalRestart()
         }
@@ -635,20 +635,8 @@ struct SettingsDeveloperTab: View {
         await fetchHealthz()
     }
 
-    private func performManagedRestart(assistant: LockfileAssistant) async {
-        let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
-        guard let token = SessionTokenManager.getToken(), !token.isEmpty else { return }
-        guard let url = URL(string: "\(baseURL)/v1/assistants/restart/") else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 30
-        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
-        if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
-            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
-        }
-
-        _ = try? await URLSession.shared.data(for: request)
+    private func performManagedRestart() async {
+        _ = try? await GatewayHTTPClient.post(path: "restart")
     }
 
     private func performLocalRestart() async {
