@@ -5,17 +5,11 @@
  * Uses content-hash deduplication (same pattern as attachments-store.ts).
  */
 
-import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "./db.js";
-import {
-  mediaAssets,
-  mediaEvents,
-  mediaKeyframes,
-  mediaVisionOutputs,
-  processingStages,
-} from "./schema.js";
+import { mediaAssets, mediaKeyframes, processingStages } from "./schema.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -278,26 +272,6 @@ export interface MediaKeyframe {
   createdAt: number;
 }
 
-export function insertKeyframe(params: {
-  assetId: string;
-  timestamp: number;
-  filePath: string;
-  metadata?: Record<string, unknown>;
-}): MediaKeyframe {
-  const db = getDb();
-  const now = Date.now();
-  const record = {
-    id: uuid(),
-    assetId: params.assetId,
-    timestamp: params.timestamp,
-    filePath: params.filePath,
-    metadata: params.metadata ? JSON.stringify(params.metadata) : null,
-    createdAt: now,
-  };
-  db.insert(mediaKeyframes).values(record).run();
-  return { ...record, metadata: params.metadata ?? null };
-}
-
 export function insertKeyframesBatch(
   rows: Array<{
     assetId: string;
@@ -356,181 +330,6 @@ function parseKeyframeRow(
     assetId: row.assetId,
     timestamp: row.timestamp,
     filePath: row.filePath,
-    metadata,
-    createdAt: row.createdAt,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Vision output types & CRUD
-// ---------------------------------------------------------------------------
-
-export interface MediaVisionOutput {
-  id: string;
-  assetId: string;
-  keyframeId: string;
-  analysisType: string;
-  output: Record<string, unknown>;
-  confidence: number | null;
-  createdAt: number;
-}
-
-export function insertVisionOutputsBatch(
-  rows: Array<{
-    assetId: string;
-    keyframeId: string;
-    analysisType: string;
-    output: Record<string, unknown>;
-    confidence?: number;
-  }>,
-): MediaVisionOutput[] {
-  const db = getDb();
-  const now = Date.now();
-  const records = rows.map((r) => ({
-    id: uuid(),
-    assetId: r.assetId,
-    keyframeId: r.keyframeId,
-    analysisType: r.analysisType,
-    output: JSON.stringify(r.output),
-    confidence: r.confidence ?? null,
-    createdAt: now,
-  }));
-  if (records.length > 0) {
-    db.insert(mediaVisionOutputs).values(records).run();
-  }
-  return records.map((rec, i) => ({
-    ...rec,
-    output: rows[i].output,
-  }));
-}
-
-export function getVisionOutputsForAsset(
-  assetId: string,
-  analysisType?: string,
-): MediaVisionOutput[] {
-  const db = getDb();
-  const conditions = [eq(mediaVisionOutputs.assetId, assetId)];
-  if (analysisType) {
-    conditions.push(eq(mediaVisionOutputs.analysisType, analysisType));
-  }
-  const rows = db
-    .select()
-    .from(mediaVisionOutputs)
-    .where(and(...conditions))
-    .all();
-  return rows.map(parseVisionOutputRow);
-}
-
-export function getVisionOutputsByKeyframeIds(
-  keyframeIds: string[],
-): MediaVisionOutput[] {
-  if (keyframeIds.length === 0) return [];
-  const db = getDb();
-  const rows = db
-    .select()
-    .from(mediaVisionOutputs)
-    .where(inArray(mediaVisionOutputs.keyframeId, keyframeIds))
-    .all();
-  return rows.map(parseVisionOutputRow);
-}
-
-function parseVisionOutputRow(
-  row: typeof mediaVisionOutputs.$inferSelect,
-): MediaVisionOutput {
-  let output: Record<string, unknown> = {};
-  try {
-    output = JSON.parse(row.output) as Record<string, unknown>;
-  } catch {
-    output = {};
-  }
-  return {
-    id: row.id,
-    assetId: row.assetId,
-    keyframeId: row.keyframeId,
-    analysisType: row.analysisType,
-    output,
-    confidence: row.confidence,
-    createdAt: row.createdAt,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Media event types & CRUD
-// ---------------------------------------------------------------------------
-
-export interface MediaEvent {
-  id: string;
-  assetId: string;
-  eventType: string;
-  startTime: number;
-  endTime: number;
-  confidence: number;
-  reasons: string[];
-  metadata: Record<string, unknown> | null;
-  createdAt: number;
-}
-
-export function getEventsForAsset(
-  assetId: string,
-  filters?: {
-    eventType?: string;
-    minConfidence?: number;
-    limit?: number;
-    sortBy?: "confidence" | "startTime";
-  },
-): MediaEvent[] {
-  const db = getDb();
-  const conditions = [eq(mediaEvents.assetId, assetId)];
-  if (filters?.eventType) {
-    conditions.push(eq(mediaEvents.eventType, filters.eventType));
-  }
-  if (filters?.minConfidence !== undefined) {
-    conditions.push(gte(mediaEvents.confidence, filters.minConfidence));
-  }
-
-  let query = db
-    .select()
-    .from(mediaEvents)
-    .where(and(...conditions))
-    .$dynamic();
-
-  if (filters?.sortBy === "confidence") {
-    query = query.orderBy(desc(mediaEvents.confidence));
-  } else {
-    query = query.orderBy(asc(mediaEvents.startTime));
-  }
-
-  if (filters?.limit) {
-    query = query.limit(filters.limit);
-  }
-
-  const rows = query.all();
-  return rows.map(parseEventRow);
-}
-
-function parseEventRow(row: typeof mediaEvents.$inferSelect): MediaEvent {
-  let reasons: string[] = [];
-  try {
-    reasons = JSON.parse(row.reasons) as string[];
-  } catch {
-    reasons = [];
-  }
-  let metadata: Record<string, unknown> | null = null;
-  if (row.metadata) {
-    try {
-      metadata = JSON.parse(row.metadata) as Record<string, unknown>;
-    } catch {
-      metadata = null;
-    }
-  }
-  return {
-    id: row.id,
-    assetId: row.assetId,
-    eventType: row.eventType,
-    startTime: row.startTime,
-    endTime: row.endTime,
-    confidence: row.confidence,
-    reasons,
     metadata,
     createdAt: row.createdAt,
   };
