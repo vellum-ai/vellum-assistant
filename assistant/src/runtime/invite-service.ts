@@ -34,6 +34,7 @@ import {
 } from "./channel-invite-transport.js";
 import { generateInviteInstruction } from "./invite-instruction-generator.js";
 import {
+  redeemInvite as redeemInviteTyped,
   redeemVoiceInviteCode as redeemVoiceInviteCodeTyped,
   type VoiceRedemptionOutcome,
 } from "./invite-redemption-service.js";
