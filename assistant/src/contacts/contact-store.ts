@@ -952,6 +952,23 @@ export function updateContactInteraction(contactId: string): void {
     .run();
 }
 
+/**
+ * Atomically increment interactionCount and set lastInteraction on a contact channel.
+ * Optimized for the hot path — single UPDATE with no prior SELECT.
+ */
+export function updateChannelInteraction(channelId: string): void {
+  const db = getDb();
+  const now = Date.now();
+  db.update(contactChannels)
+    .set({
+      lastInteraction: now,
+      interactionCount: sql`${contactChannels.interactionCount} + 1`,
+      updatedAt: now,
+    })
+    .where(eq(contactChannels.id, channelId))
+    .run();
+}
+
 // ── Assistant Contact Metadata ──────────────────────────────────────
 
 function parseAssistantMetadata(
