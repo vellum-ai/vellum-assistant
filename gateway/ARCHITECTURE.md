@@ -583,11 +583,11 @@ Entry points:
 
 Both paths converge at:
   → Daemon handler validates token via Telegram getMe API
-    → setSecureKey("credential/telegram/bot_token", token)
+    → setSecureKeyAsync("credential/telegram/bot_token", token)
     → upsertCredentialMetadata("telegram", "bot_token", {})
     → Stores bot username in config at telegram.botUsername
     → Auto-generates webhook secret if missing
-      → setSecureKey("credential/telegram/webhook_secret", secret)
+      → setSecureKeyAsync("credential/telegram/webhook_secret", secret)
       → upsertCredentialMetadata("telegram", "webhook_secret", {})
       → On storage failure: rolls back bot_token + metadata, returns error
     → If webhook secret already exists: upserts metadata anyway (self-heal)

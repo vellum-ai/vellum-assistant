@@ -233,7 +233,7 @@ sequenceDiagram
         UI->>HTTP: secret_response {requestId, value, delivery: "store"}
         HTTP->>Prompter: resolve(value, "store")
         Prompter->>Vault: {value, delivery: "store"}
-        Vault->>Keychain: setSecureKey("credential/svc/field", value)
+        Vault->>Keychain: setSecureKeyAsync("credential/svc/field", value)
         Vault->>Model: "Credential stored securely" (no value in output)
     else One-Time Send (if enabled)
         UI->>HTTP: secret_response {requestId, value, delivery: "transient_send"}
@@ -272,7 +272,7 @@ graph TB
     TOOL["Tool (e.g. browser_fill_credential)"] --> BROKER["CredentialBroker.use(service, field, tool, domain)"]
     BROKER --> POLICY{"Check policy:<br/>allowedTools + allowedDomains"}
     POLICY -->|denied| REJECT["PolicyDenied error"]
-    POLICY -->|allowed| FETCH["getSecureKey(credential/svc/field)"]
+    POLICY -->|allowed| FETCH["getSecureKeyAsync(credential/svc/field)"]
     FETCH --> INJECT["Inject value into tool execution<br/>(never returned to model)"]
 ```
 

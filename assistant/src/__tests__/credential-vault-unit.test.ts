@@ -1166,7 +1166,7 @@ describe("CredentialBroker — serverUseById edge cases", () => {
     const meta = upsertCredentialMetadata("fal", "api_key", {
       allowedTools: ["proxy"],
     });
-    // No setSecureKey — metadata exists but value doesn't
+    // No setSecureKeyAsync — metadata exists but value doesn't
 
     const result = await broker.serverUseById({
       credentialId: meta.credentialId,
