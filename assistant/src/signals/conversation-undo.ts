@@ -1,14 +1,16 @@
 /**
- * Handle undo signals delivered via signal files from the CLI.
+ * Handle conversation-undo signals delivered via signal files from the CLI.
  *
- * The built-in CLI writes JSON to `signals/undo` instead of making an
- * HTTP POST to `/v1/conversations/:id/undo`. The daemon's ConfigWatcher
- * detects the file change and invokes {@link handleUndoSignal}, which
- * reads the payload, performs the undo, and writes `signals/undo.result`
- * so the CLI receives feedback.
+ * The built-in CLI writes JSON to `signals/conversation-undo` instead of
+ * making an HTTP POST to `/v1/conversations/:id/undo`. The daemon's
+ * ConfigWatcher detects the file change and invokes
+ * {@link handleConversationUndoSignal}, which reads the payload, performs
+ * the undo, and writes `signals/conversation-undo.result` so the CLI
+ * receives feedback.
  *
  * Because the signal handler needs access to the daemon's session map, the
- * daemon registers a callback at startup via {@link registerUndoCallback}.
+ * daemon registers a callback at startup via
+ * {@link registerConversationUndoCallback}.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -17,7 +19,7 @@ import { join } from "node:path";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 
-const log = getLogger("signal:undo");
+const log = getLogger("signal:conversation-undo");
 
 // ── Daemon callback registry ─────────────────────────────────────────
 
@@ -31,19 +33,24 @@ let _undoLastMessage: UndoCallback | null = null;
  * Register the undo callback. Called once by the daemon server at startup
  * so the signal handler can reach the session map.
  */
-export function registerUndoCallback(cb: UndoCallback): void {
+export function registerConversationUndoCallback(cb: UndoCallback): void {
   _undoLastMessage = cb;
 }
 
 // ── Signal handler ───────────────────────────────────────────────────
 
 /**
- * Read the `signals/undo` file and undo the last message in the session.
- * Writes `signals/undo.result` with the outcome so the CLI can display
- * feedback. Called by ConfigWatcher when the signal file is written.
+ * Read the `signals/conversation-undo` file and undo the last message in
+ * the session. Writes `signals/conversation-undo.result` with the outcome
+ * so the CLI can display feedback. Called by ConfigWatcher when the signal
+ * file is written.
  */
-export async function handleUndoSignal(): Promise<void> {
-  const resultPath = join(getWorkspaceDir(), "signals", "undo.result");
+export async function handleConversationUndoSignal(): Promise<void> {
+  const resultPath = join(
+    getWorkspaceDir(),
+    "signals",
+    "conversation-undo.result",
+  );
 
   const writeResult = (
     data:
@@ -61,7 +68,7 @@ export async function handleUndoSignal(): Promise<void> {
 
   try {
     const content = readFileSync(
-      join(getWorkspaceDir(), "signals", "undo"),
+      join(getWorkspaceDir(), "signals", "conversation-undo"),
       "utf-8",
     );
     const parsed = JSON.parse(content) as {
@@ -89,7 +96,7 @@ export async function handleUndoSignal(): Promise<void> {
 
     if (!_undoLastMessage) {
       log.warn("Undo callback not registered; daemon may not be ready");
-      writeResult({ ok: false, error: "Daemon not ready", requestId });
+      writeResult({ ok: false, error: "Assistant not ready", requestId });
       return;
     }
 

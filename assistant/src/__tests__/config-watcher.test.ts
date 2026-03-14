@@ -132,8 +132,8 @@ mock.module("../signals/trust-rule.js", () => ({
   handleTrustRuleSignal: () => {},
 }));
 
-mock.module("../signals/undo.js", () => ({
-  handleUndoSignal: () => {},
+mock.module("../signals/conversation-undo.js", () => ({
+  handleConversationUndoSignal: () => {},
 }));
 
 let resetAllowlistCallCount = 0;

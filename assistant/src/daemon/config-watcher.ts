@@ -23,9 +23,9 @@ import {
 import { handleBashSignal } from "../signals/bash.js";
 import { handleCancelSignal } from "../signals/cancel.js";
 import { handleConfirmationSignal } from "../signals/confirm.js";
+import { handleConversationUndoSignal } from "../signals/conversation-undo.js";
 import { handleMcpReloadSignal } from "../signals/mcp-reload.js";
 import { handleTrustRuleSignal } from "../signals/trust-rule.js";
-import { handleUndoSignal } from "../signals/undo.js";
 import { DebouncerMap } from "../util/debounce.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -233,7 +233,7 @@ export class ConfigWatcher {
       confirm: handleConfirmationSignal,
       "mcp-reload": handleMcpReloadSignal,
       "trust-rule": handleTrustRuleSignal,
-      undo: handleUndoSignal,
+      "conversation-undo": handleConversationUndoSignal,
     };
 
     const prefixSignalHandlers: Record<string, (filename: string) => void> = {

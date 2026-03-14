@@ -1308,7 +1308,7 @@ export async function startCli(): Promise<void> {
       try {
         const signalsDir = join(getWorkspaceDir(), "signals");
         mkdirSync(signalsDir, { recursive: true });
-        const resultPath = join(signalsDir, "undo.result");
+        const resultPath = join(signalsDir, "conversation-undo.result");
         try {
           unlinkSync(resultPath);
         } catch {
@@ -1316,7 +1316,7 @@ export async function startCli(): Promise<void> {
         }
         const requestId = randomUUID();
         writeFileSync(
-          join(signalsDir, "undo"),
+          join(signalsDir, "conversation-undo"),
           JSON.stringify({ sessionId, requestId }),
         );
 
@@ -1357,7 +1357,7 @@ export async function startCli(): Promise<void> {
         };
 
         const undoWatcher = watch(signalsDir, (_event, filename) => {
-          if (filename === "undo.result") {
+          if (filename === "conversation-undo.result") {
             onResult();
           }
         });
