@@ -85,7 +85,6 @@ mock.module("../security/secure-keys.js", () => ({
   listSecureKeys: () => [],
   getBackendType: () => "encrypted",
   _resetBackend: () => {},
-  _setBackend: () => {},
 }));
 
 // Stub ensureLocalCA / certs so tests never run openssl

@@ -72,7 +72,6 @@ import {
   DEFAULT_ELEVENLABS_VOICE_ID,
 } from "../config/schema.js";
 import { _setStorePath } from "../security/encrypted-store.js";
-import { _setBackend } from "../security/secure-keys.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -989,13 +988,11 @@ describe("loadConfig with schema validation", () => {
     }
     ensureTestDir();
     _setStorePath(join(TEST_DIR, "keys.enc"));
-    _setBackend("encrypted");
     invalidateConfigCache();
   });
 
   afterEach(() => {
     _setStorePath(null);
-    _setBackend(undefined);
     invalidateConfigCache();
   });
 
@@ -1215,13 +1212,11 @@ describe("Call entrypoint gating", () => {
     }
     ensureTestDir();
     _setStorePath(join(TEST_DIR, "keys.enc"));
-    _setBackend("encrypted");
     invalidateConfigCache();
   });
 
   afterEach(() => {
     _setStorePath(null);
-    _setBackend(undefined);
     invalidateConfigCache();
   });
 

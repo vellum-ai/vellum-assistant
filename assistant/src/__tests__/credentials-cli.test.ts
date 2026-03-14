@@ -76,7 +76,6 @@ mock.module("../security/secure-keys.js", () => ({
   getBackendType: (): "broker" | "encrypted" | null => null,
   isDowngradedFromKeychain: (): boolean => false,
   _resetBackend: (): void => {},
-  _setBackend: (): void => {},
 }));
 
 // ---------------------------------------------------------------------------

@@ -212,10 +212,3 @@ export async function deleteSecureKeyAsync(
 export function _resetBackend(): void {
   _broker = undefined;
 }
-
-/** @internal Test-only: force a specific backend. Pass `undefined` to reset. */
-export function _setBackend(
-  _backend: "keychain" | "encrypted" | "broker" | null | undefined,
-): void {
-  // No-op — kept for test compatibility.
-}

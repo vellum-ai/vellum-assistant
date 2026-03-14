@@ -35,7 +35,6 @@ mock.module("../security/secure-keys.js", () => ({
   getBackendType: () => null,
   isDowngradedFromKeychain: () => false,
   _resetBackend: () => {},
-  _setBackend: () => {},
 }));
 
 mock.module("../tools/credentials/metadata-store.js", () => ({

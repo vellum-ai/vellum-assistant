@@ -70,7 +70,6 @@ mock.module("../security/keychain-broker-client.js", () => ({
 import { _setStorePath } from "../security/encrypted-store.js";
 import {
   _resetBackend,
-  _setBackend,
   deleteSecureKeyAsync,
   getBackendType,
   getSecureKeyAsync,
@@ -405,23 +404,6 @@ describe("secure-keys", () => {
       // Both stores should retain the key — no partial deletion
       expect(mockBrokerStore.has("api-key")).toBe(true);
       expect(await getSecureKeyAsync("api-key")).toBe("value");
-    });
-  });
-
-  // -----------------------------------------------------------------------
-  // _setBackend / _resetBackend (no-ops kept for test compat)
-  // -----------------------------------------------------------------------
-  describe("_setBackend", () => {
-    test("_setBackend is a no-op but does not throw", async () => {
-      _setBackend("encrypted");
-      await setSecureKeyAsync("test", "value");
-      expect(existsSync(STORE_PATH)).toBe(true);
-    });
-
-    test("_resetBackend is a no-op but does not throw", async () => {
-      _resetBackend();
-      await setSecureKeyAsync("test", "value");
-      expect(await getSecureKeyAsync("test")).toBe("value");
     });
   });
 });

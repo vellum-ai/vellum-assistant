@@ -67,7 +67,6 @@ mock.module("../security/secure-keys.js", () => ({
   listSecureKeys: () => [],
   getBackendType: () => "encrypted",
   _resetBackend: () => {},
-  _setBackend: () => {},
 }));
 
 mock.module("../tools/credentials/metadata-store.js", () => ({
