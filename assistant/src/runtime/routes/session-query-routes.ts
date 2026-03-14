@@ -52,8 +52,8 @@ export function sessionQueryRouteDefinitions(
       endpoint: "model",
       method: "GET",
       policyKey: "model",
-      handler: () => {
-        const info = getModelInfo();
+      handler: async () => {
+        const info = await getModelInfo();
         return Response.json(info);
       },
     },
@@ -74,7 +74,7 @@ export function sessionQueryRouteDefinitions(
           );
         }
         try {
-          const info = setModel(body.modelId, deps.getModelSetContext());
+          const info = await setModel(body.modelId, deps.getModelSetContext());
           return Response.json(info);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
