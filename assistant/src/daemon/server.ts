@@ -279,6 +279,7 @@ export class DaemonServer {
   constructor() {
     this.evictor = new SessionEvictor(this.sessions);
     getSubagentManager().sharedRequestTimestamps = this.sharedRequestTimestamps;
+    getSubagentManager().broadcastToAllClients = (msg) => this.broadcast(msg);
     this.evictor.onEvict = (sessionId: string) => {
       getSubagentManager().abortAllForParent(sessionId);
     };
