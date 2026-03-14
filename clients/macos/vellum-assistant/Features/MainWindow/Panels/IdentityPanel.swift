@@ -60,7 +60,8 @@ struct IdentityPanel: View {
                                 if let body = appearance.characterBodyShape,
                                    let eyes = appearance.characterEyeStyle,
                                    let color = appearance.characterColor {
-                                    AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color, size: avatarSize)
+                                    AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color, size: avatarSize,
+                                                       entryAnimationEnabled: true)
                                         .frame(width: avatarSize, height: avatarSize)
                                         .frame(maxWidth: .infinity, alignment: .center)
                                 } else {
