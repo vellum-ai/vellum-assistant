@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
@@ -253,6 +253,20 @@ export class WorkspaceGitService {
   }
 
   /**
+   * Remove stale `.git/index.lock` left by a crashed or timed-out git process.
+   * Safe to call while holding the mutex — the lock guarantees no other
+   * service-initiated git operation is running, so any existing lock file
+   * must be stale.
+   */
+  private cleanStaleLockFile(): void {
+    try {
+      unlinkSync(join(this.workspaceDir, ".git", "index.lock"));
+    } catch {
+      // File doesn't exist or can't be removed — either way, move on.
+    }
+  }
+
+  /**
    * Ensure the git repository is initialized.
    * Idempotent: safe to call multiple times.
    *
@@ -297,6 +311,11 @@ export class WorkspaceGitService {
           }
 
           const gitDir = join(this.workspaceDir, ".git");
+
+          // Clean up stale lock files before any git operations.
+          if (existsSync(gitDir)) {
+            this.cleanStaleLockFile();
+          }
 
           if (existsSync(gitDir)) {
             // Validate existing repo is not corrupted before marking as ready.
@@ -440,6 +459,8 @@ export class WorkspaceGitService {
     await this.ensureInitialized();
 
     await this.mutex.withLock(async () => {
+      this.cleanStaleLockFile();
+
       // Stage all changes
       await this.execGit(["add", "-A"]);
 
@@ -513,6 +534,8 @@ export class WorkspaceGitService {
 
     try {
       const result = await this.mutex.withLock(async () => {
+        this.cleanStaleLockFile();
+
         // Re-check breaker under lock: a queued call that started before the
         // breaker opened should not proceed with expensive git work now that
         // the breaker is open.
@@ -853,6 +876,7 @@ export class WorkspaceGitService {
   ): Promise<void> {
     await this.ensureInitialized();
     await this.mutex.withLock(async () => {
+      this.cleanStaleLockFile();
       await fn((args) => this.execGit(args));
     });
   }
