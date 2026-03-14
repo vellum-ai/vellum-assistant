@@ -50,7 +50,7 @@ struct AppsGridView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     // Header
                     HStack(alignment: .center) {
-                        Text("Things")
+                        Text("Library")
                             .font(VFont.panelTitle)
                             .foregroundColor(VColor.contentDefault)
                         Spacer()
@@ -155,7 +155,7 @@ struct AppsGridView: View {
     // MARK: - Search Bar
 
     private var searchBar: some View {
-        VSearchBar(placeholder: "Find your things", text: $searchText)
+        VSearchBar(placeholder: "Search your library", text: $searchText)
     }
 
     // MARK: - App Card

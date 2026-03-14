@@ -64,7 +64,7 @@ struct ThingsDisconnectedView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .navigationTitle("Things")
+            .navigationTitle("Library")
         }
     }
 }

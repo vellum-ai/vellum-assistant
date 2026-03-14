@@ -315,7 +315,7 @@ extension AppDelegate {
             CommandPaletteAction(id: "settings", icon: VIcon.settings.rawValue, label: "Settings", shortcutHint: "\u{2318},") { [weak self] in
                 self?.mainWindow?.windowState.showPanel(.settings)
             },
-            CommandPaletteAction(id: "app-directory", icon: VIcon.layoutGrid.rawValue, label: "Things", shortcutHint: nil) { [weak self] in
+            CommandPaletteAction(id: "app-directory", icon: VIcon.layoutGrid.rawValue, label: "Library", shortcutHint: nil) { [weak self] in
                 self?.mainWindow?.windowState.showPanel(.apps)
             },
             CommandPaletteAction(id: "intelligence", icon: VIcon.brain.rawValue, label: "Intelligence", shortcutHint: nil) { [weak self] in
