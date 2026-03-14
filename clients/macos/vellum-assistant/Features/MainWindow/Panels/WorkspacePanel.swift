@@ -71,7 +71,7 @@ struct WorkspacePanel: View {
     var body: some View {
         HSplitView {
             WorkspaceTreeSidebar(state: state, daemonClient: daemonClient, onToggleHiddenFiles: applyHiddenFilesToggle)
-                .frame(minWidth: 200, idealWidth: 250, maxWidth: 300)
+                .frame(minWidth: 200, idealWidth: 250)
             WorkspaceFileViewer(state: state, daemonClient: daemonClient)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
