@@ -69,6 +69,7 @@ struct WorkspacePanel: View {
     @State private var state = WorkspaceBrowserState()
     @State private var sidebarWidth: CGFloat = 300
     @State private var dragStartWidth: CGFloat?
+    @State private var didPushResizeCursor = false
 
     private let minSidebarWidth: CGFloat = 140
     private let maxSidebarWidth: CGFloat = 500
@@ -87,8 +88,16 @@ struct WorkspacePanel: View {
                 .onHover { hovering in
                     if hovering {
                         NSCursor.resizeLeftRight.push()
-                    } else {
+                        didPushResizeCursor = true
+                    } else if didPushResizeCursor {
                         NSCursor.pop()
+                        didPushResizeCursor = false
+                    }
+                }
+                .onDisappear {
+                    if didPushResizeCursor {
+                        NSCursor.pop()
+                        didPushResizeCursor = false
                     }
                 }
                 .gesture(
