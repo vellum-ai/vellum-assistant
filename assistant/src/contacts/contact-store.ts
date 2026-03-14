@@ -63,6 +63,8 @@ function parseChannel(
     revokedReason: row.revokedReason,
     blockedReason: row.blockedReason,
     lastSeenAt: row.lastSeenAt,
+    interactionCount: row.interactionCount,
+    lastInteraction: row.lastInteraction,
     updatedAt: row.updatedAt,
     createdAt: row.createdAt,
   };
