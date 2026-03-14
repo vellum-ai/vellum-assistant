@@ -167,6 +167,8 @@ struct OnboardingFlowView: View {
             )
             if !isAuthenticated && managedSignInEnabled && state.currentStep > 0 {
                 log.info("User signed out during managed onboarding — returning to welcome screen")
+                isBootstrappingManaged = false
+                managedBootstrapError = nil
                 withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
                     state.currentStep = 0
                 }
