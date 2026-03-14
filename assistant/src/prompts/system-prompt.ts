@@ -111,6 +111,7 @@ export function isOnboardingComplete(): boolean {
  */
 export interface BuildSystemPromptOptions {
   hasNoClient?: boolean;
+  excludeBootstrap?: boolean;
 }
 
 export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
@@ -135,7 +136,7 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   if (identity) parts.push(identity);
   if (soul) parts.push(soul);
   if (user) parts.push(user);
-  if (bootstrap) {
+  if (bootstrap && !options?.excludeBootstrap) {
     parts.push(
       "# First-Run Ritual\n\n" +
         "BOOTSTRAP.md is present — this is your first conversation. Follow its instructions.\n\n" +

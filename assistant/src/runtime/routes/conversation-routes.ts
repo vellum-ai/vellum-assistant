@@ -352,8 +352,7 @@ export function handleListMessages(
           });
         }
       } else {
-        const linked =
-          attachmentsStore.getAttachmentMetadataForMessage(m.id);
+        const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
         if (linked.length > 0) {
           msgAttachments = linked.map((a) => {
             if (a.mimeType.startsWith("image/")) {
@@ -364,9 +363,7 @@ export function handleListMessages(
                 mimeType: a.mimeType,
                 sizeBytes: a.sizeBytes,
                 kind: a.kind,
-                ...(full?.dataBase64
-                  ? { data: full.dataBase64 }
-                  : {}),
+                ...(full?.dataBase64 ? { data: full.dataBase64 } : {}),
                 ...(a.thumbnailBase64
                   ? { thumbnailData: a.thumbnailBase64 }
                   : {}),
@@ -557,6 +554,7 @@ export async function handleSendMessage(
     attachmentIds?: string[];
     sourceChannel?: string;
     interface?: string;
+    threadType?: string;
   };
 
   const { conversationKey, content, attachmentIds } = body;
@@ -655,7 +653,9 @@ export async function handleSendMessage(
     );
   }
 
-  const mapping = getOrCreateConversation(conversationKey);
+  const threadType =
+    body.threadType === "private" ? ("private" as const) : undefined;
+  const mapping = getOrCreateConversation(conversationKey, { threadType });
   const smDeps = deps.sendMessageDeps;
   const session = await smDeps.getOrCreateSession(mapping.conversationId);
 

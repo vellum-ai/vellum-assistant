@@ -141,7 +141,10 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:notion --client-id <client-id>)" "https://api.notion.com/v1/users/me" -H "Notion-Version: 2022-06-28"
+    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:notion --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ))" "https://api.notion.com/v1/users/me" -H "Notion-Version: 2022-06-28"
 ```
 
 **On success:** "Notion is connected! You can now ask me to read and write pages and databases in your Notion workspace."

@@ -90,7 +90,10 @@ Register the OAuth app:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:todoist --client-id <client-id> --client-secret-credential-path "integration:todoist:app_secret"
+    assistant oauth apps upsert --provider integration:todoist --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ) --client-secret-credential-path "integration:todoist:app_secret"
 ```
 
 **Milestone (5 of 7):** "Credentials saved — just the authorization step left."
@@ -106,7 +109,10 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:todoist --client-id <client-id>
+    assistant oauth connections connect integration:todoist --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    )
 ```
 
 ---
@@ -118,7 +124,10 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:todoist --client-id <client-id>)" "https://api.todoist.com/rest/v2/projects" | python3 -m json.tool
+    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:todoist --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ))" "https://api.todoist.com/rest/v2/projects" | python3 -m json.tool
 ```
 
 **On success:** "Todoist is connected! You can now ask me to manage your tasks, create projects, and organize your to-do lists."

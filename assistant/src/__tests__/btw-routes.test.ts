@@ -65,6 +65,12 @@ mock.module("../security/secret-ingress.js", () => ({
   checkIngressForSecrets: mockCheckIngressForSecrets,
 }));
 
+const MOCK_SYSTEM_PROMPT = "You are a helpful assistant.";
+
+mock.module("../prompts/system-prompt.js", () => ({
+  buildSystemPrompt: () => MOCK_SYSTEM_PROMPT,
+}));
+
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
@@ -331,8 +337,8 @@ describe("POST /v1/btw", () => {
     // Tools
     expect(tools).toEqual(MOCK_TOOLS);
 
-    // System prompt from session
-    expect(systemPrompt).toBe("You are a helpful assistant.");
+    // System prompt built by buildSystemPrompt({ excludeBootstrap: true })
+    expect(systemPrompt).toBe(MOCK_SYSTEM_PROMPT);
 
     // Options: tool_choice must be "none"
     expect(options!.config!.tool_choice).toEqual({ type: "none" });

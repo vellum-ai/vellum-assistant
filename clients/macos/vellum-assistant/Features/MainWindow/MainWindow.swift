@@ -454,4 +454,21 @@ public final class MainWindow {
         window?.close()
         window = nil
     }
+
+    /// Tears down internal observers and detaches the underlying NSWindow
+    /// without closing it. The caller takes ownership of the returned window.
+    func detachWindow() -> NSWindow? {
+        if let observer = layoutObserver {
+            NotificationCenter.default.removeObserver(observer)
+            layoutObserver = nil
+        }
+        defaultTrafficLightOrigin = nil
+        if let zoomable = window as? TitleBarZoomableWindow {
+            zoomable.composerRedirectHandler = nil
+            zoomable.composerContainerView = nil
+        }
+        let detached = window
+        window = nil
+        return detached
+    }
 }

@@ -101,13 +101,19 @@ Tell the user:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:asana --client-id <client-id> --client-secret-credential-path "integration:asana:oauth_secret"
+    assistant oauth apps upsert --provider integration:asana --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ) --client-secret-credential-path "integration:asana:oauth_secret"
 ```
 
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:asana --client-id <client-id>
+    assistant oauth connections connect integration:asana --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    )
 ```
 
 Send the returned auth URL to the user. Tell them to click **Allow** on the Asana consent page.

@@ -149,13 +149,19 @@ credential_store prompt:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider <provider-key> --client-id <client-id> --client-secret-credential-path "credential/<provider-key>/client_secret"
+    assistant oauth apps upsert --provider <provider-key> --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ) --client-secret-credential-path "credential/<provider-key>/client_secret"
 ```
 
 ```
 bash:
   command: |
-    assistant oauth connections connect <provider-key> --client-id <client-id>
+    assistant oauth connections connect <provider-key> --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    )
 ```
 
 If the service shows an "unverified app" or consent warning, tell the user how to proceed.
@@ -169,7 +175,10 @@ If a ping URL is available, verify:
 ```
 bash:
   command: |
-    curl -H "Authorization: Bearer $(assistant oauth connections token <provider-key> --client-id <client-id>)" "<provider-ping-url>"
+    curl -H "Authorization: Bearer $(assistant oauth connections token <provider-key> --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ))" "<provider-ping-url>"
 ```
 
 **On success:** "**{setup.displayName} is connected!** You're all set."

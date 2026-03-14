@@ -186,6 +186,9 @@ public final class HTTPTransport {
     /// Session IDs that originated from this client instance.
     /// Host tool requests are only executed for these session IDs.
     private var locallyOwnedSessionIds: Set<String> = []
+    /// Session IDs that belong to private (temporary) threads.
+    /// Populated when a session_create with threadType "private" is handled locally.
+    var privateSessionIds: Set<String> = []
 
     let decoder = JSONDecoder()
     let encoder = JSONEncoder()
@@ -1714,6 +1717,9 @@ public final class HTTPTransport {
         }
         if !attachmentIds.isEmpty {
             body["attachmentIds"] = attachmentIds
+        }
+        if privateSessionIds.contains(sessionId) {
+            body["threadType"] = "private"
         }
 
         do {

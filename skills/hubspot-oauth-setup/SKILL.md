@@ -136,7 +136,10 @@ Register the OAuth app:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:hubspot --client-id <client-id> --client-secret-credential-path "integration:hubspot:oauth_secret"
+    assistant oauth apps upsert --provider integration:hubspot --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ) --client-secret-credential-path "integration:hubspot:oauth_secret"
 ```
 
 Then authorize:
@@ -148,7 +151,10 @@ Then authorize:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:hubspot --client-id <client-id>
+    assistant oauth connections connect integration:hubspot --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    )
 ```
 
 **Milestone (9 of 10):** "Credentials saved and authorized — let's verify."
@@ -162,7 +168,10 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:hubspot --client-id <client-id>)" "https://api.hubapi.com/crm/v3/objects/contacts?limit=1" | python3 -m json.tool
+    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:hubspot --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ))" "https://api.hubapi.com/crm/v3/objects/contacts?limit=1" | python3 -m json.tool
 ```
 
 **On success:** "HubSpot is connected! You can now ask me to look up contacts, manage deals, and browse company records in your HubSpot CRM."

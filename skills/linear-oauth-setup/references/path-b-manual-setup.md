@@ -86,13 +86,19 @@ Tell the user:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:linear --client-id <client-id> --client-secret-credential-path "integration:linear:oauth_secret"
+    assistant oauth apps upsert --provider integration:linear --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ) --client-secret-credential-path "integration:linear:oauth_secret"
 ```
 
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:linear --client-id <client-id>
+    assistant oauth connections connect integration:linear --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    )
 ```
 
 Send the returned auth URL to the user. Tell them to click **Authorize** on the Linear consent page.

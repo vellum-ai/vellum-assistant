@@ -1,8 +1,10 @@
 /**
  * HTTP route handler for the POST /v1/btw SSE-streaming side-chain endpoint.
  *
- * Runs an ephemeral LLM call that reuses the session's provider, system prompt,
- * tool definitions, and message history for prompt-cache efficiency. The response
+ * Runs an ephemeral LLM call that reuses the session's provider, tool
+ * definitions, and message history for prompt-cache efficiency. Builds its own
+ * system prompt (excluding BOOTSTRAP.md) so first-run onboarding instructions
+ * don't leak into cosmetic UI calls like identity intro generation. The response
  * is streamed as SSE events (`btw_text_delta`, `btw_complete`, `btw_error`).
  *
  * No messages are persisted. `session.processing` is never set or checked.
@@ -10,6 +12,7 @@
 
 import { buildToolDefinitions } from "../../daemon/session-tool-setup.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
+import { buildSystemPrompt } from "../../prompts/system-prompt.js";
 import {
   createTimeout,
   userMessage,
@@ -102,28 +105,28 @@ async function handleBtw(
     start(controller) {
       (async () => {
         try {
-          await session.provider.sendMessage(
-            messages,
-            tools,
-            session.systemPrompt,
-            {
-              config: {
-                max_tokens: 1024,
-                tool_choice: { type: "none" },
-                modelIntent: "latency-optimized",
-              },
-              onEvent: (event) => {
-                if (event.type === "text_delta") {
-                  controller.enqueue(
-                    encoder.encode(
-                      `event: btw_text_delta\ndata: ${JSON.stringify({ text: event.text })}\n\n`,
-                    ),
-                  );
-                }
-              },
-              signal: combinedSignal,
+          // Build a system prompt without BOOTSTRAP.md so ephemeral BTW
+          // calls (e.g. identity intro generation) aren't contaminated by
+          // first-run onboarding instructions.
+          const systemPrompt = buildSystemPrompt({ excludeBootstrap: true });
+
+          await session.provider.sendMessage(messages, tools, systemPrompt, {
+            config: {
+              max_tokens: 1024,
+              tool_choice: { type: "none" },
+              modelIntent: "latency-optimized",
             },
-          );
+            onEvent: (event) => {
+              if (event.type === "text_delta") {
+                controller.enqueue(
+                  encoder.encode(
+                    `event: btw_text_delta\ndata: ${JSON.stringify({ text: event.text })}\n\n`,
+                  ),
+                );
+              }
+            },
+            signal: combinedSignal,
+          });
 
           controller.enqueue(
             encoder.encode(`event: btw_complete\ndata: {}\n\n`),

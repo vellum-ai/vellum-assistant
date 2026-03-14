@@ -26,7 +26,7 @@ extension AppDelegate {
         }
     }
 
-    func showAuthWindow() {
+    func showAuthWindow(reusingWindow existingWindow: NSWindow? = nil) {
         if let existing = authWindow {
             existing.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -48,29 +48,51 @@ extension AppDelegate {
         )
 
         let hostingController = NSHostingController(rootView: authView)
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 620),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentViewController = hostingController
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.isMovableByWindowBackground = true
-        window.backgroundColor = NSColor(VColor.surfaceOverlay)
-        window.isReleasedWhenClosed = false
-        window.contentMinSize = NSSize(width: 420, height: 580)
 
-        let startWidth: CGFloat = 460
-        let startHeight: CGFloat = 620
-        if let visibleFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame {
-            let x = visibleFrame.midX - startWidth / 2
-            let y = visibleFrame.midY - startHeight / 2
-            window.setFrame(NSRect(x: x, y: y, width: startWidth, height: startHeight), display: true)
+        let window: NSWindow
+        if let existingWindow {
+            window = existingWindow
+            window.contentViewController = hostingController
+            window.isMovableByWindowBackground = true
+            window.backgroundColor = NSColor(VColor.surfaceOverlay)
+            window.contentMinSize = NSSize(width: 420, height: 580)
+            window.setFrameAutosaveName("")
+
+            let targetWidth: CGFloat = 460
+            let targetHeight: CGFloat = 620
+            let currentFrame = window.frame
+            let newFrame = NSRect(
+                x: currentFrame.midX - targetWidth / 2,
+                y: currentFrame.midY - targetHeight / 2,
+                width: targetWidth,
+                height: targetHeight
+            )
+            window.setFrame(newFrame, display: true, animate: true)
         } else {
-            window.setContentSize(NSSize(width: startWidth, height: startHeight))
-            window.center()
+            window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 460, height: 620),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                backing: .buffered,
+                defer: false
+            )
+            window.contentViewController = hostingController
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.isMovableByWindowBackground = true
+            window.backgroundColor = NSColor(VColor.surfaceOverlay)
+            window.isReleasedWhenClosed = false
+            window.contentMinSize = NSSize(width: 420, height: 580)
+
+            let startWidth: CGFloat = 460
+            let startHeight: CGFloat = 620
+            if let visibleFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame {
+                let x = visibleFrame.midX - startWidth / 2
+                let y = visibleFrame.midY - startHeight / 2
+                window.setFrame(NSRect(x: x, y: y, width: startWidth, height: startHeight), display: true)
+            } else {
+                window.setContentSize(NSSize(width: startWidth, height: startHeight))
+                window.center()
+            }
         }
 
         NSApp.activateAsDockAppIfNeeded()
@@ -115,7 +137,7 @@ extension AppDelegate {
         Task {
             await authManager.logout()
 
-            mainWindow?.close()
+            let detachedWindow = mainWindow?.detachWindow()
             mainWindow = nil
             conversationBadgeCancellable?.cancel()
             conversationBadgeCancellable = nil
@@ -167,7 +189,7 @@ extension AppDelegate {
 
             hasSetupApp = false
             hasSetupDaemon = false
-            showAuthWindow()
+            showAuthWindow(reusingWindow: detachedWindow)
         }
     }
 

@@ -145,7 +145,10 @@ credential_store prompt:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider <provider-key> --client-id <client-id> --client-secret-credential-path "credential/<provider-key>/client_secret"
+    assistant oauth apps upsert --provider <provider-key> --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ) --client-secret-credential-path "credential/<provider-key>/client_secret"
 ```
 
 ---
@@ -155,7 +158,10 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect <provider-key> --client-id <client-id>
+    assistant oauth connections connect <provider-key> --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    )
 ```
 
 The command prints an authorization URL. Send it to the user. Wait for completion.
@@ -171,7 +177,10 @@ If a ping URL is available:
 ```
 bash:
   command: |
-    curl -H "Authorization: Bearer $(assistant oauth connections token <provider-key> --client-id <client-id>)" "<provider-ping-url>"
+    curl -H "Authorization: Bearer $(assistant oauth connections token <provider-key> --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ))" "<provider-ping-url>"
 ```
 
 ---
