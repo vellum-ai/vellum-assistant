@@ -51,17 +51,25 @@ Before making real calls, offer a quick verification. Suggest a test call to the
 
 If they agree, ask for their personal phone number and place a test call with a simple task like "Introduce yourself and confirm the call system is working."
 
-## Step 5: Guardian Verification (Optional)
+## Step 4: Guardian Verification
 
-By going through Guardian Verification, the user will be recognized any time they call the assistant and will be able to interact with the assistant with elevated privileges. You should encourage the user to go through the guardian verification process, but not force it.
+The final step is for the user to verify themselves so that they are recognized when they call you. It's also a great way for them to hear what you sound like and decide if they want you to use a different voice.
 
-Load the `guardian-verify-setup` skill with `channel: "phone"`. The skill handles the full verification flow (outbound call, code entry, confirmation).
+Load the `guardian-verify-setup` skill and follow the isntructions for guardian verification over the `phone` channel. This will require the user to provide you with their phone number and then for you to give them a call. Say something like:
 
-If the user declines, skip this step. To re-check guardian status later:
+> Want to do a quick verification call now so that you can hear what I sound like and also so that I recognize your number when you call me in the future?
+> I'll show a 6 digit code here in the chat and when you answer my call, enter it using your phone's keypad.
+
+You can check their verification status with:
 
 ```bash
 assistant channel-verification-sessions status --channel phone --json
 ```
+
+After they are verified, ask them what they think of your voice and offer to let them change it. Load up the `elevenlabs-voice` skill and follow the instructions there to see what voices are available and how to update your configured voice. Say something like:
+
+> Great, you're verified! What did you think of my voice? We can update it if you'd like.
+
 
 # Making Outbound Calls
 
