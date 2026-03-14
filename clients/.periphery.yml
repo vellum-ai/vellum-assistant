@@ -1,7 +1,6 @@
 targets:
   - VellumAssistantLib
   - VellumAssistantShared
-  - vellum-assistant
 
 retain_objc_accessible: true
 retain_public: false
