@@ -35,7 +35,7 @@ describe("PlatformOAuthConnection", () => {
     globalThis.fetch = mock(
       async (url: string | URL | Request, init?: RequestInit) => {
         expect(url).toBe(
-          "https://platform.example.com/v1/assistants/asst-abc/external-provider-proxy/gmail/",
+          "https://platform.example.com/v1/assistants/asst-abc/external-provider-proxy/google/",
         );
         expect(init?.method).toBe("POST");
         expect(init?.headers).toEqual({
@@ -159,7 +159,7 @@ describe("PlatformOAuthConnection", () => {
   test("strips trailing slash from platformBaseUrl to avoid double slashes", async () => {
     globalThis.fetch = mock(async (url: string | URL | Request) => {
       expect(String(url)).toBe(
-        "https://platform.example.com/v1/assistants/asst-abc/external-provider-proxy/gmail/",
+        "https://platform.example.com/v1/assistants/asst-abc/external-provider-proxy/google/",
       );
       return new Response(
         JSON.stringify({ status: 200, headers: {}, body: null }),

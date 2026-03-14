@@ -232,7 +232,7 @@ async function setupCredential(
 
 function createConnection(service = "integration:google"): BYOOAuthConnection {
   return new BYOOAuthConnection({
-    id: "test-cred-id",
+    id: `conn-${service}`,
     providerKey: service,
     baseUrl: "https://gmail.googleapis.com/gmail/v1/users/me",
     accountInfo: null,
