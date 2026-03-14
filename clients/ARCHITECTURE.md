@@ -166,7 +166,7 @@ sequenceDiagram
 
         par Parallel Capture
             HCE->>AX: enumerate()
-            Note over AX: AXUIElement tree walk<br/>Sets AXEnhancedUserInterface<br/>Chrome: force-renderer-accessibility<br/>Filters to interactive elements<br/>Format: [ID] role "title" at (x,y)
+            Note over AX: AXUIElement tree walk<br/>Sets AXEnhancedUserInterface<br/>Filters to interactive elements<br/>Format: [ID] role "title" at (x,y)
             AX-->>HCE: axTree + axDiff
         and
             HCE->>SC: capture()
