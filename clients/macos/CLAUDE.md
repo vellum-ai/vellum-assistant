@@ -237,7 +237,6 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 - **LSUIElement app** — no dock icon; uses `.accessory` activation policy. Must temporarily switch to `.regular` when showing Settings window.
 - **`Bundle.main.bundleIdentifier` is nil** in SPM builds. All `os.Logger` instances use hardcoded fallback `"com.vellum.vellum-assistant"`.
 - **Adding .swift files**: Auto-picked up by SPM. No manual project file edits needed. New files go in `vellum-assistant/` (library target); only `@main` entry point lives in `vellum-assistant-app/`.
-- **Chrome special handling** — `ChromeAccessibilityHelper` detects when Chrome's AX tree lacks web content and auto-restarts Chrome with `--force-renderer-accessibility`.
 - **Popover close delay** — 300ms initial delay before session starts to let the popover close and target app regain focus.
 - **SessionState enum** must stay in sync with `SessionOverlayView` pattern matching.
 - **SourceKit false positives** — SourceKit may report "Cannot find X in scope" for design system types (VColor, VFont, etc.) due to SPM module resolution. These are false positives — `swift build` succeeds. Do not "fix" these by adding imports or changing code.
