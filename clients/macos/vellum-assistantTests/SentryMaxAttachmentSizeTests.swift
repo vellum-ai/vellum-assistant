@@ -1,5 +1,5 @@
 import XCTest
-@testable import Vellum
+@testable import VellumAssistantLib
 
 final class SentryMaxAttachmentSizeTests: XCTestCase {
     func testSentryMaxAttachmentSizeIs100MB() {
