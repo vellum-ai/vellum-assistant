@@ -91,34 +91,40 @@ extension AppDelegate {
         }
 
         let greeting = wakeUpGreeting()
-        let main: MainWindow
 
         if let existing = mainWindow {
             // Window already exists (managed assistant hatching path).
-            // Set the pending wake-up message directly and dismiss the
-            // hatching overlay so the coming-alive transition can play.
-            existing.pendingWakeUpMessage = greeting
+            // The window was created before pendingWakeUpMessage was set,
+            // so onSendWakeUp was captured as nil during show(). Bypass
+            // the pendingWakeUpMessage mechanism and send the greeting
+            // directly via the active ChatViewModel.
             existing.windowState.showManagedHatching = false
-            main = existing
+            if let viewModel = existing.activeViewModel {
+                viewModel.inputText = greeting
+                viewModel.sendMessage(hidden: true)
+            }
+            if daemonClient.isConnected {
+                transitionBootstrap(to: .pendingFirstReply)
+                wireBootstrapFirstReplyCallback()
+            }
+            debugStateWriter.start(appDelegate: self)
         } else {
             // No window yet (local assistant path) — create it with the
             // initial message so the coming-alive overlay plays first.
             showMainWindow(initialMessage: greeting, isFirstLaunch: true)
-            guard let created = mainWindow else {
+            guard let main = mainWindow else {
                 log.error("MainWindow not created after showMainWindow — cannot send wake-up")
                 return
             }
-            main = created
+            log.info("MainWindow ready — deferring pendingFirstReply until wake-up message is dispatched")
+            main.onWakeUpSent = { [weak self] in
+                guard let self else { return }
+                log.info("Wake-up greeting actually sent — transitioning to pendingFirstReply")
+                self.transitionBootstrap(to: .pendingFirstReply)
+                self.wireBootstrapFirstReplyCallback()
+            }
+            debugStateWriter.start(appDelegate: self)
         }
-
-        log.info("MainWindow ready — deferring pendingFirstReply until wake-up message is dispatched")
-        main.onWakeUpSent = { [weak self] in
-            guard let self else { return }
-            log.info("Wake-up greeting actually sent — transitioning to pendingFirstReply")
-            self.transitionBootstrap(to: .pendingFirstReply)
-            self.wireBootstrapFirstReplyCallback()
-        }
-        debugStateWriter.start(appDelegate: self)
     }
 
     /// Wires `onFirstAssistantReply` on the active ChatViewModel so bootstrap
