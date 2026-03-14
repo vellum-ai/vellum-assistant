@@ -727,6 +727,12 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             return false
         }
 
+        // Re-check after await — another code path (e.g. SSE session-list response)
+        // may have inserted this thread while we were waiting on the network.
+        if selectThreadBySessionId(sessionId) {
+            return true
+        }
+
         // Don't insert external-channel or private threads into the main sidebar
         if session.threadType == "private" || session.channelBinding?.sourceChannel != nil {
             return false
