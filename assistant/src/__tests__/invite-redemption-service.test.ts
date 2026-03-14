@@ -361,6 +361,41 @@ describe("invite-redemption-service", () => {
     expect(guardian!.role).toBe("guardian");
   });
 
+  test("downgrades guardian to contact when redeeming invite targeting own contact", () => {
+    // Create a guardian contact with a revoked channel
+    const guardianContact = upsertContact({
+      displayName: "Guardian",
+      role: "guardian",
+      channels: [
+        {
+          type: "telegram",
+          address: "guardian-own-id",
+          externalUserId: "guardian-own-id",
+          status: "revoked",
+        },
+      ],
+    });
+
+    // Create invite targeting the guardian's own contact
+    const { rawToken } = createInvite({
+      sourceChannel: "telegram",
+      contactId: guardianContact.id,
+      maxUses: 5,
+    });
+
+    const outcome = redeemInvite({
+      rawToken,
+      sourceChannel: "telegram",
+      externalUserId: "guardian-own-id",
+    });
+
+    expect(outcome.ok).toBe(true);
+
+    // The guardian should now be downgraded to "contact"
+    const updated = getContact(guardianContact.id);
+    expect(updated!.role).toBe("contact");
+  });
+
   test("binds redeemer to the invite's target contact via 6-digit code, not the guardian", () => {
     // Pre-create a guardian contact with a revoked telegram channel
     const guardianContact = upsertContact({
