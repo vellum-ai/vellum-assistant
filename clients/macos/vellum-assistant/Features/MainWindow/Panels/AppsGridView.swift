@@ -44,7 +44,7 @@ struct AppsGridView: View {
 
     var body: some View {
         Group {
-            if appListManager.apps.isEmpty && sharedApps.isEmpty && hasFetchedShared {
+            if appListManager.apps.isEmpty && sharedApps.isEmpty && hasFetchedShared && hasFetchedLocalApps {
                 noAppsEmptyState
             } else {
                 VStack(alignment: .leading, spacing: 0) {
