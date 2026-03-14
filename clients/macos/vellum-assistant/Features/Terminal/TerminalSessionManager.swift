@@ -103,7 +103,7 @@ final class TerminalSessionManager: ObservableObject {
     func sendResize(cols: Int, rows: Int) {
         lastDimensions = (cols, rows)
 
-        guard status == .connected, let sessionId else { return }
+        guard status == .connected, sessionId != nil else { return }
 
         pendingResize = (cols, rows)
         resizeTimer?.invalidate()

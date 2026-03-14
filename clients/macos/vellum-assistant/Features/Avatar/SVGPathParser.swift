@@ -99,7 +99,6 @@ private func isCommandLetter(_ ch: Character) -> Bool {
 private func scanNumber(_ chars: [Character], from start: Int) -> (Double?, Int) {
     var i = start
     var hasDigits = false
-    var hasDot = false
 
     // Optional leading sign
     if i < chars.count && (chars[i] == "-" || chars[i] == "+") {
@@ -114,7 +113,6 @@ private func scanNumber(_ chars: [Character], from start: Int) -> (Double?, Int)
 
     // Fractional part
     if i < chars.count && chars[i] == "." {
-        hasDot = true
         i += 1
         while i < chars.count && chars[i].isNumber {
             hasDigits = true

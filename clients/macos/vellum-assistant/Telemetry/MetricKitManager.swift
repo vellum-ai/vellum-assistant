@@ -46,8 +46,8 @@ import os
         }
     }
 
-    /// Data for Sentry's User Feedback API, attached to the captured event.
-    /// Sent via `SentrySDK.capture(userFeedback:)` so it appears in Sentry's
+    /// Data for Sentry's Feedback API, attached to the captured event.
+    /// Sent via `SentrySDK.capture(feedback:)` so it appears in Sentry's
     /// "User Feedback" section linked to the event.
     struct UserFeedbackData: Sendable {
         let comments: String?
@@ -59,12 +59,12 @@ import os
     /// but workspace files included in log archives can exceed that. Sentry's
     /// server-side limit is 200 MB uncompressed / 40 MB compressed, so 100 MB
     /// provides sufficient headroom.
-    static let sentryMaxAttachmentSize: UInt = 100 * 1024 * 1024
+    nonisolated(unsafe) static let sentryMaxAttachmentSize: UInt = 100 * 1024 * 1024
 
     /// Default DSN for the macOS app Sentry project.
-    static let macosDSN = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
+    nonisolated(unsafe) static let macosDSN = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
     /// DSN for the assistant/brain Sentry project.
-    static let brainDSN = "https://db2d38a082e4ee35eeaea08c44b376ec@o4504590528675840.ingest.us.sentry.io/4510874712276992"
+    nonisolated(unsafe) static let brainDSN = "https://db2d38a082e4ee35eeaea08c44b376ec@o4504590528675840.ingest.us.sentry.io/4510874712276992"
 
     /// Sends a manual problem report unconditionally, even when the user has
     /// opted out of automatic crash reporting.  The SDK is temporarily started
@@ -126,11 +126,14 @@ import os
             // (message, email, category) with the event without embedding PII in
             // event tags or extras.
             if let feedbackData = userFeedback {
-                let feedback = Sentry.UserFeedback(eventId: eventId)
-                feedback.comments = feedbackData.comments ?? ""
-                feedback.email = feedbackData.email ?? ""
-                feedback.name = feedbackData.name ?? ""
-                SentrySDK.capture(userFeedback: feedback)
+                let feedback = SentryFeedback(
+                    message: feedbackData.comments ?? "",
+                    name: feedbackData.name,
+                    email: feedbackData.email,
+                    source: .custom,
+                    associatedEventId: eventId
+                )
+                SentrySDK.capture(feedback: feedback)
             }
 
             // Clean up attachments so they don't leak into subsequent events.

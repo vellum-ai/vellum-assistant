@@ -41,5 +41,5 @@ struct LogReportFormData: Sendable {
     var reason: LogReportReason
     var name: String
     var message: String
-    var email: String  // Required — used for follow-up via Sentry UserFeedback
+    var email: String  // Required — used for follow-up via Sentry Feedback
 }
