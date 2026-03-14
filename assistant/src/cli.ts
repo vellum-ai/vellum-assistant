@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  unlinkSync,
   watch,
   writeFileSync,
 } from "node:fs";
@@ -1308,9 +1309,15 @@ export async function startCli(): Promise<void> {
         const signalsDir = join(getWorkspaceDir(), "signals");
         mkdirSync(signalsDir, { recursive: true });
         const resultPath = join(signalsDir, "undo.result");
+        try {
+          unlinkSync(resultPath);
+        } catch {
+          // May not exist yet.
+        }
+        const requestId = randomUUID();
         writeFileSync(
           join(signalsDir, "undo"),
-          JSON.stringify({ sessionId }),
+          JSON.stringify({ sessionId, requestId }),
         );
 
         let settled = false;
@@ -1321,10 +1328,10 @@ export async function startCli(): Promise<void> {
             const result = JSON.parse(raw) as {
               ok?: boolean;
               removedCount?: number;
-              sessionId?: string;
+              requestId?: string;
               error?: string;
             };
-            if (result.sessionId !== sessionId) return;
+            if (result.requestId !== requestId) return;
             if (settled) return;
             settled = true;
             undoWatcher.close();

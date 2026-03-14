@@ -47,8 +47,8 @@ export async function handleUndoSignal(): Promise<void> {
 
   const writeResult = (
     data:
-      | { ok: true; removedCount: number; sessionId: string }
-      | { ok: false; error: string; sessionId: string | null },
+      | { ok: true; removedCount: number; requestId: string }
+      | { ok: false; error: string; requestId: string | null },
   ): void => {
     try {
       writeFileSync(resultPath, JSON.stringify(data));
@@ -62,25 +62,38 @@ export async function handleUndoSignal(): Promise<void> {
       join(getWorkspaceDir(), "signals", "undo"),
       "utf-8",
     );
-    const parsed = JSON.parse(content) as { sessionId?: string };
-    const { sessionId } = parsed;
+    const parsed = JSON.parse(content) as {
+      sessionId?: string;
+      requestId?: string;
+    };
+    const { sessionId, requestId } = parsed;
 
     if (!sessionId || typeof sessionId !== "string") {
       log.warn("Undo signal missing sessionId");
-      writeResult({ ok: false, error: "Missing sessionId", sessionId: null });
+      writeResult({
+        ok: false,
+        error: "Missing sessionId",
+        requestId: requestId ?? null,
+      });
+      return;
+    }
+
+    if (!requestId || typeof requestId !== "string") {
+      log.warn("Undo signal missing requestId");
+      writeResult({ ok: false, error: "Missing requestId", requestId: null });
       return;
     }
 
     if (!_undoLastMessage) {
       log.warn("Undo callback not registered; daemon may not be ready");
-      writeResult({ ok: false, error: "Daemon not ready", sessionId });
+      writeResult({ ok: false, error: "Daemon not ready", requestId });
       return;
     }
 
     const result = await _undoLastMessage(sessionId);
     if (!result) {
       log.warn({ sessionId }, "No active session for undo signal");
-      writeResult({ ok: false, error: "No active session", sessionId });
+      writeResult({ ok: false, error: "No active session", requestId });
       return;
     }
 
@@ -91,14 +104,14 @@ export async function handleUndoSignal(): Promise<void> {
     writeResult({
       ok: true,
       removedCount: result.removedCount,
-      sessionId,
+      requestId,
     });
   } catch (err) {
     log.error({ err }, "Failed to handle undo signal");
     writeResult({
       ok: false,
       error: "Internal error",
-      sessionId: null,
+      requestId: null,
     });
   }
 }
