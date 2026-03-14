@@ -30,6 +30,7 @@ const log = getLogger("usage-telemetry");
 // ---------------------------------------------------------------------------
 
 const CHECKPOINT_KEY_WATERMARK = "telemetry:usage:last_reported_at";
+const CHECKPOINT_KEY_WATERMARK_ID = "telemetry:usage:last_reported_id";
 const CHECKPOINT_KEY_INSTALL_ID = "telemetry:installation_id";
 const REPORT_INTERVAL_MS = 5 * 60 * 1000;
 const BATCH_SIZE = 500;
@@ -93,13 +94,19 @@ export class UsageTelemetryReporter {
     try {
       if (batchCount >= MAX_CONSECUTIVE_BATCHES) return;
 
-      // Read watermark
+      // Read watermark (compound cursor: createdAt + id)
       const watermark = Number(
         getMemoryCheckpoint(CHECKPOINT_KEY_WATERMARK) ?? "0",
       );
+      const watermarkId =
+        getMemoryCheckpoint(CHECKPOINT_KEY_WATERMARK_ID) ?? undefined;
 
       // Query unreported events
-      const events = queryUnreportedUsageEvents(watermark, BATCH_SIZE);
+      const events = queryUnreportedUsageEvents(
+        watermark,
+        watermarkId,
+        BATCH_SIZE,
+      );
       if (events.length === 0) return;
 
       // Resolve auth context — skip flush when neither auth mode is viable
@@ -155,11 +162,13 @@ export class UsageTelemetryReporter {
       }
       await resp.text(); // consume body to release connection
 
-      // Advance watermark
+      // Advance watermark (compound cursor)
+      const lastEvent = events[events.length - 1];
       setMemoryCheckpoint(
         CHECKPOINT_KEY_WATERMARK,
-        String(events[events.length - 1].createdAt),
+        String(lastEvent.createdAt),
       );
+      setMemoryCheckpoint(CHECKPOINT_KEY_WATERMARK_ID, lastEvent.id);
 
       // If we got a full batch, there may be more events — recurse
       if (events.length === BATCH_SIZE) {
