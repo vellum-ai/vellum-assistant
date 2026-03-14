@@ -112,6 +112,7 @@ const PROVIDER_SEED_DATA: Record<
     extraParams: { owner: "user" },
     tokenEndpointAuthMethod: "client_secret_basic",
     callbackTransport: "loopback",
+    loopbackPort: 17323,
   },
 
   "integration:twitter": {
@@ -169,6 +170,7 @@ const PROVIDER_SEED_DATA: Record<
     },
     extraParams: { prompt: "consent" },
     callbackTransport: "loopback",
+    loopbackPort: 17324,
   },
 
   "integration:spotify": {
@@ -209,6 +211,7 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: ["data:delete"],
     },
     callbackTransport: "loopback",
+    loopbackPort: 17325,
   },
 
   "integration:discord": {
@@ -229,6 +232,7 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     callbackTransport: "loopback",
+    loopbackPort: 17326,
   },
 
   "integration:dropbox": {
@@ -250,6 +254,7 @@ const PROVIDER_SEED_DATA: Record<
     },
     extraParams: { token_access_type: "offline" },
     callbackTransport: "loopback",
+    loopbackPort: 17327,
   },
 
   "integration:asana": {
@@ -265,6 +270,7 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     callbackTransport: "loopback",
+    loopbackPort: 17328,
   },
 
   "integration:airtable": {
@@ -285,6 +291,7 @@ const PROVIDER_SEED_DATA: Record<
     },
     tokenEndpointAuthMethod: "client_secret_post",
     callbackTransport: "loopback",
+    loopbackPort: 17329,
   },
 
   "integration:hubspot": {
@@ -309,6 +316,7 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     callbackTransport: "loopback",
+    loopbackPort: 17330,
   },
 
   "integration:figma": {
@@ -324,6 +332,7 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     callbackTransport: "loopback",
+    loopbackPort: 17331,
   },
 
   // Manual-token providers: these don't use OAuth2 flows but need provider

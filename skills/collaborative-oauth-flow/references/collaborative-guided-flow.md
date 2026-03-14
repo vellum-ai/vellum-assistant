@@ -67,7 +67,7 @@ The helper detects the default browser and navigates in the existing tab. Falls 
 ### Rules
 
 1. **Navigation is your job.** Open every URL for the user — they should never have to type a URL.
-2. **Screenshot after navigating.** After opening a page, take a screenshot to see what's actually on screen. Use what you see to give specific, contextual instructions rather than generic guidance. Developer consoles change frequently — never assume you know the exact layout.
+2. **Screenshot to calibrate.** Take a screenshot on the **first navigation** of the flow to see the actual page layout. Use what you see to give specific, grounded instructions. After that first calibration, use landmark-based instructions for subsequent steps and only screenshot again if the user reports something unexpected or seems stuck.
 3. **Never auto-advance.** Wait for user confirmation ("done", "ok", "next") before proceeding.
 4. **Use landmarks, not coordinates.** Say "Look for **APIs & Services**" not "click the third item in the left sidebar."
 5. **Confirm after, not before.** Describe what they _should see after_ they act, not what the page _should_ look like beforehand.
@@ -81,10 +81,10 @@ The helper detects the default browser and navigates in the existing tab. Falls 
 Every step follows this pattern:
 
 1. **Open the URL** using the navigation helper
-2. **Screenshot** to see the current state of the page
-3. **Give a specific instruction** based on what you actually see on screen — reference exact button labels, section names, and layout
+2. **On the first step**, wait a few seconds for the page to load, then screenshot to see the actual page layout and calibrate your instructions
+3. **Give a specific instruction** — on the first step, reference what you actually see; on later steps, use landmark-based guidance. If screenshotting is unavailable (e.g. permissions denied), fall back to landmark-based instructions and ask the user to describe what they see.
 4. **User acts** and confirms
-5. **If the user reports a mismatch or seems stuck** — screenshot again to see what changed, then adapt
+5. **If the user reports a mismatch or seems stuck** — screenshot to see what they're seeing, then adapt
 6. **Move on** once confirmed
 
 ---
@@ -112,6 +112,8 @@ Take note of the **provider key**, **base URL**, and (if available) the **ping U
 Before beginning, tell the user:
 
 > We're going to set up [SERVICE] OAuth together — about N steps, roughly M minutes. I'll open each page in your browser and tell you exactly what to do. You can pause anytime and pick up where you left off.
+>
+> These developer consoles change from time to time, so if something doesn't look right or you're not sure what to click, just let me know and I'll take a look at your screen to help.
 >
 > Your Mac may ask for permissions along the way — if you see an option to allow for a longer duration (like 10 minutes), that'll save you from approving every single step.
 
@@ -197,7 +199,7 @@ For non-interactive channels, provide all URLs and instructions as text messages
 
 | Situation                              | Response                                                       |
 | -------------------------------------- | -------------------------------------------------------------- |
-| User lands on unexpected page          | Offer to screenshot, identify where they are, navigate back    |
+| User lands on unexpected page          | Screenshot to see where they are, then navigate back           |
 | User not signed in                     | Tell them to sign in, wait, continue                           |
 | Feature already configured             | "Looks like this is already set up — great, let's skip ahead." |
 | Quota / billing issue                  | Explain clearly, help resolve or use a different project       |

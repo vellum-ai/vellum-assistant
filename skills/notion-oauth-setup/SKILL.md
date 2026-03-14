@@ -22,12 +22,12 @@ This skill follows the **Collaborative Guided Flow** pattern from the included `
 - **Token endpoint auth:** `client_secret_basic` (client secret always required)
 - **Scopes:** None (Notion does not use explicit OAuth scopes)
 - **Extra params:** `owner=user`
+- **Callback transport:** Loopback (port 17323)
+- **Redirect URI:** `http://localhost:17323/oauth/callback` (must be pre-registered in Notion)
 
 ## Prerequisites
 
-Before beginning the user-facing flow, check the provider's callback configuration:
-
-Run `credential_store describe service:"integration:notion"` and check the `redirectUri` field. If it says **"automatic"** or the callback transport is loopback, no redirect URL setup is needed — the assistant handles it automatically. If it mentions `ingress.publicBaseUrl`, load the `public-ingress` skill first.
+No public ingress or ngrok is needed — Notion uses a localhost callback on a fixed port.
 
 ## Notion-Specific Flow
 
@@ -45,7 +45,7 @@ If no Notion account, guide them to create one at `https://www.notion.so/signup`
 
 Open: `https://www.notion.so/profile/integrations`
 
-> I've opened the Notion integrations page. If it's asking you to sign in, go ahead and do that first. Once you're in, you should see your list of integrations (it might be empty).
+This is the first navigation — wait a few seconds for the page to load, then take a screenshot to see the actual layout. Use what you see to give the user specific guidance. If the page is asking them to sign in, tell them to do that first.
 
 ---
 
@@ -71,41 +71,26 @@ Open: `https://www.notion.so/profile/integrations`
 
 ### Step 3: Configure OAuth Redirect URI
 
-First, resolve the redirect URI:
-
-```
-credential_store describe:
-  service: "integration:notion"
-```
-
-**If the redirect URI is "automatic" or the callback transport is loopback:**
-
-> The redirect URL is handled automatically, so we can skip this part. Let's move on to grabbing your credentials.
-
-Skip to Step 4.
-
-**If the redirect URI mentions `ingress.publicBaseUrl`:**
-
-The integration settings page should load after creation. Guide the user to the **Distribution** tab or section.
-
-> Now look for the **Distribution** tab in the left sidebar (or a section called **OAuth Domain & URIs**). Click into it.
->
-> You should see a field for **Redirect URIs**. Paste this exact URL:
-> `<resolved redirect URI>`
->
-> Then scroll down and click **Save changes**.
-
-Copy the resolved redirect URI to the clipboard before navigating so the user can paste it:
+Notion requires the redirect URI to be pre-registered. Copy it to the clipboard first:
 
 ```
 host_bash:
   command: |
-    echo -n "<resolved redirect URI>" | pbcopy && /tmp/vellum-nav.sh "https://www.notion.so/profile/integrations"
+    echo -n "http://localhost:17323/oauth/callback" | pbcopy
 ```
+
+Guide the user to the **Distribution** tab or section.
+
+> Now look for the **Distribution** tab in the left sidebar (or a section called **OAuth Domain & URIs**). Click into it.
+>
+> You should see a field for **Redirect URIs**. Paste this exact URL (I've copied it to your clipboard):
+> `http://localhost:17323/oauth/callback`
+>
+> Then scroll down and click **Save changes**.
 
 **Known issues:**
 
-- Notion may require a "Website" or "Redirect URI" domain to be filled in as well — if so, use the base domain from the redirect URI
+- Notion may require a "Website" or "Redirect URI" domain to be filled in as well — if so, use `localhost` as the domain
 - If the page shows "Internal integration" with no Distribution tab, the integration was created as Internal — they'll need to recreate it as Public
 
 ---
@@ -169,5 +154,5 @@ For non-interactive channels, see [references/path-b-manual-setup.md](references
 
 Key Notion-specific differences for Path B:
 
-- Uses loopback callback by default — no public ingress needed unless on a remote channel
+- On a remote channel, the loopback callback (port 17323) is not reachable — public ingress is required instead
 - Client Secret prefix is `secret_` — use `credential_store prompt` to collect it securely; split entry is not needed since this prefix doesn't trigger channel scanners

@@ -20,7 +20,7 @@ This skill follows the **Collaborative Guided Flow** pattern from the included `
 - **Provider key:** `integration:discord`
 - **Dashboard:** `https://discord.com/developers/applications`
 - **Ping URL:** `https://discord.com/api/v10/users/@me`
-- **Callback transport:** Loopback (port 17322)
+- **Callback transport:** Loopback (port 17326)
 - **Requires secret:** Yes (token endpoint needs both client ID and app secret)
 
 ## Discord-Specific Flow
@@ -95,20 +95,9 @@ Wait for the user to provide the Client ID.
 
 ### Step 6: Add Redirect URL
 
-Before this step, resolve the redirect URI:
-
-```
-credential_store describe:
-  service: "integration:discord"
-```
-
-- If `redirectUri` says **"automatic"** or the callback transport is loopback with no ingress requirement, skip adding a redirect URL — tell the user: "The redirect URL is handled automatically for this setup, so we can skip this part."
-- If `redirectUri` mentions `ingress.publicBaseUrl` or says "not currently configured", stop and help the user configure public ingress first.
-- Otherwise, tell the user:
-
 > Still on the **OAuth2** page, scroll down to the **Redirects** section. Click **Add Redirect**, paste this URL:
 >
-> `<redirect URI from credential_store>`
+> `http://localhost:17326/oauth/callback`
 >
 > Then click **Save Changes** at the bottom.
 
