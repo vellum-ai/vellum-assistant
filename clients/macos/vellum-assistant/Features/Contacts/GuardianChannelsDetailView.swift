@@ -24,6 +24,8 @@ struct GuardianChannelsDetailView: View {
     @State private var setupExpanded: Set<String> = []
     @State private var dismissedChannels: Set<String> = []
     @State private var verificationStoreRevision: Int = 0
+    @State private var actionInProgress: String? = nil
+    @State private var errorMessage: String? = nil
 
     var displayContact: ContactPayload {
         currentContact ?? contact
@@ -156,9 +158,9 @@ struct GuardianChannelsDetailView: View {
                     .lineLimit(1)
             }
 
-            if let store {
-                VButton(label: "Disconnect", style: .danger) {
-                    store.revokeChannelVerification(channel: type)
+            if daemonClient != nil {
+                VButton(label: "Disconnect", style: .danger, isDisabled: actionInProgress != nil) {
+                    disconnectChannel(channelId: channel.id)
                 }
             }
         }
@@ -249,11 +251,70 @@ struct GuardianChannelsDetailView: View {
 
             // Secondary line: user ID
             if let identity, !identity.isEmpty {
-                Text("ID: \(identity)")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-                    .lineLimit(1)
+                HStack(spacing: 0) {
+                    Text("Slack ID: ")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                    if let teamId = store?.slackChannelTeamId,
+                       let url = URL(string: "slack://user?team=\(teamId)&id=\(identity)") {
+                        Link(identity, destination: url)
+                            .font(VFont.caption)
+                            .lineLimit(1)
+                            .pointerCursor()
+                    } else {
+                        Text(identity)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentTertiary)
+                            .lineLimit(1)
+                    }
+                }
             }
+        }
+    }
+
+    // MARK: - Disconnect Channel
+
+    private func disconnectChannel(channelId: String) {
+        guard let daemonClient else { return }
+        guard actionInProgress == nil else { return }
+        actionInProgress = channelId
+        errorMessage = nil
+
+        Task {
+            let stream = daemonClient.subscribe()
+
+            do {
+                try daemonClient.sendUpdateContactChannel(channelId: channelId, status: "revoked")
+            } catch {
+                errorMessage = "Failed to update channel: \(error.localizedDescription)"
+                actionInProgress = nil
+                return
+            }
+
+            for await message in stream {
+                if case .contactsResponse(let response) = message {
+                    if response.success {
+                        try? daemonClient.sendGetContact(contactId: displayContact.id)
+                    } else {
+                        errorMessage = response.error ?? "Failed to update channel"
+                        actionInProgress = nil
+                        return
+                    }
+                    break
+                }
+            }
+
+            for await message in stream {
+                if case .contactsResponse(let response) = message {
+                    if let updatedContact = response.contact {
+                        currentContact = updatedContact
+                    }
+                    actionInProgress = nil
+                    return
+                }
+            }
+
+            actionInProgress = nil
         }
     }
 
