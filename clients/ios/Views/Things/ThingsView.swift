@@ -37,7 +37,7 @@ struct ThingsView: View {
                     DocumentsListView(directoryStore: directoryStore)
                 }
             }
-            .navigationTitle("Things")
+            .navigationTitle("Library")
             .onAppear {
                 directoryStore.fetchApps()
                 directoryStore.fetchSharedApps()
