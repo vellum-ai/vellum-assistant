@@ -463,6 +463,10 @@ public final class MainWindow {
             layoutObserver = nil
         }
         defaultTrafficLightOrigin = nil
+        if let zoomable = window as? TitleBarZoomableWindow {
+            zoomable.composerRedirectHandler = nil
+            zoomable.composerContainerView = nil
+        }
         let detached = window
         window = nil
         return detached
