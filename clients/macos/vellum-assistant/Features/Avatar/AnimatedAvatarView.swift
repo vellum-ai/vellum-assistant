@@ -23,14 +23,13 @@ struct AnimatedAvatarView: View {
                                  isHovered: isHovered)
             .frame(width: size, height: size)
             .accessibilityHidden(true)
+            .contentShape(Rectangle())
             .onHover { hovering in
                 isHovered = hovering
-                if pokeEnabled {
-                    if hovering {
-                        NSCursor.pointingHand.push()
-                    } else {
-                        NSCursor.pop()
-                    }
+                if hovering {
+                    NSCursor.pointingHand.push()
+                } else {
+                    NSCursor.pop()
                 }
             }
     }
