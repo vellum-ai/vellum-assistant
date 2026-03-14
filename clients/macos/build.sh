@@ -39,10 +39,11 @@ swift_with_retry() {
     # not tracked by `wait` in bash < 4.4 (macOS ships 3.2), so tee could
     # still be writing when grep reads the log. A named pipe with an explicit
     # tee PID gives correct synchronization on all bash versions.
-    local _fifo
-    _fifo=$(mktemp -u)
+    local _fifo_dir
+    _fifo_dir=$(mktemp -d)
+    local _fifo="$_fifo_dir/stderr.fifo"
     mkfifo "$_fifo"
-    trap "rm -f '$_stderr_log' '$_fifo'" RETURN
+    trap "rm -rf '$_stderr_log' '$_fifo_dir'" RETURN
     while true; do
         local _cmd_exit=0
         tee "$_stderr_log" >&2 < "$_fifo" &
