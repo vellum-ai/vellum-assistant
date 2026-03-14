@@ -243,11 +243,11 @@ class AvatarLayerView: NSView {
         CATransaction.commit()
 
         if configEntryAnimationEnabled && !hasPlayedEntry {
-            // Set initial "stretched drop" state — tall and narrow
-            layer?.transform = CATransform3DMakeScale(0.6, 1.4, 1.0)
-            // Hide eyes — they pop open at the end of the bounce
-            for eyeLayer in eyeLayers {
-                eyeLayer.opacity = 0
+            // Set initial "water drop" state — very thin and tall
+            layer?.transform = CATransform3DMakeScale(0.4, 1.6, 1.0)
+            // Eyes start squeezed shut — they animate open during the bounce-back
+            for (i, eyeLayer) in eyeLayers.enumerated() where i < closedEyePaths.count {
+                eyeLayer.path = closedEyePaths[i]
             }
             // Don't start breathing/blink/twitch yet — they start after entry completes
         } else {
@@ -456,51 +456,59 @@ class AvatarLayerView: NSView {
     private func performEntryAnimation() {
         guard let rootLayer = layer else { return }
 
-        // --- Body: stretch -> squash -> bounce -> settle -> rest ---
+        // --- Body: water-drop with multiple dampened bounces ---
+        // More extreme than poke (which is a gentle squash-spring).
+        // This feels heavy and liquid — dramatic splat on impact, then springy oscillation.
         let bodyAnim = CAKeyframeAnimation(keyPath: "transform")
-        let stretched = CATransform3DMakeScale(0.6, 1.4, 1.0)
-        let squashed  = CATransform3DMakeScale(1.25, 0.65, 1.0)
-        let bounced   = CATransform3DMakeScale(0.92, 1.08, 1.0)
-        let settled   = CATransform3DMakeScale(1.03, 0.97, 1.0)
-        let identity  = CATransform3DIdentity
+        let thin     = CATransform3DMakeScale(0.4, 1.6, 1.0)    // Very thin and tall (drop shape)
+        let splat    = CATransform3DMakeScale(1.4, 0.5, 1.0)     // Dramatic wide splat on impact
+        let bounce1  = CATransform3DMakeScale(0.85, 1.15, 1.0)   // Big rebound stretch
+        let bounce2  = CATransform3DMakeScale(1.08, 0.92, 1.0)   // Secondary squash
+        let bounce3  = CATransform3DMakeScale(0.97, 1.03, 1.0)   // Tiny stretch
+        let identity = CATransform3DIdentity
 
         bodyAnim.values = [
-            NSValue(caTransform3D: stretched),  // Start: tall drop
-            NSValue(caTransform3D: squashed),   // Impact: splat wide + short
-            NSValue(caTransform3D: bounced),    // Rebound: overshoot tall
-            NSValue(caTransform3D: settled),    // Settle: slight undershoot
+            NSValue(caTransform3D: thin),       // Start: water drop shape
+            NSValue(caTransform3D: splat),      // Impact: dramatic splat
+            NSValue(caTransform3D: bounce1),    // Rebound 1: spring up
+            NSValue(caTransform3D: bounce2),    // Rebound 2: small squash
+            NSValue(caTransform3D: bounce3),    // Rebound 3: tiny stretch
             NSValue(caTransform3D: identity),   // Rest: normal
         ]
-        bodyAnim.keyTimes = [0, 0.3, 0.58, 0.80, 1.0]
-        bodyAnim.duration = 0.5
+        bodyAnim.keyTimes = [0, 0.25, 0.48, 0.65, 0.82, 1.0]
+        bodyAnim.duration = 0.7
         bodyAnim.timingFunctions = [
-            CAMediaTimingFunction(name: .easeIn),        // stretch -> squash (accelerating impact)
-            CAMediaTimingFunction(name: .easeOut),        // squash -> bounce (springy rebound)
-            CAMediaTimingFunction(name: .easeInEaseOut),  // bounce -> settle (gentle oscillation)
-            CAMediaTimingFunction(name: .easeOut),        // settle -> rest (smooth finish)
+            CAMediaTimingFunction(name: .easeIn),        // thin → splat (heavy, accelerating fall)
+            CAMediaTimingFunction(name: .easeOut),        // splat → bounce1 (springy rebound)
+            CAMediaTimingFunction(name: .easeInEaseOut),  // bounce1 → bounce2 (oscillation)
+            CAMediaTimingFunction(name: .easeInEaseOut),  // bounce2 → bounce3 (damping)
+            CAMediaTimingFunction(name: .easeOut),        // bounce3 → rest (smooth finish)
         ]
         bodyAnim.isRemovedOnCompletion = true
         rootLayer.transform = CATransform3DIdentity  // set model to final state
         rootLayer.add(bodyAnim, forKey: "entry")
 
-        // --- Eyes: pop open during the bounce-back phase ---
-        let eyeDelay: TimeInterval = 0.35
-        DispatchQueue.main.asyncAfter(deadline: .now() + eyeDelay) { [weak self] in
-            guard let self else { return }
-            for eyeLayer in self.eyeLayers {
-                let opacityAnim = CABasicAnimation(keyPath: "opacity")
-                opacityAnim.fromValue = 0
-                opacityAnim.toValue = 1
-                opacityAnim.duration = 0.08
-                opacityAnim.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                eyeLayer.opacity = 1
-                eyeLayer.add(opacityAnim, forKey: "eyeReveal")
-            }
+        // --- Eyes: animate from closed to open (like eyes opening after landing) ---
+        // Uses CAAnimation beginTime instead of DispatchQueue.main.asyncAfter to avoid
+        // race conditions where the view is reconfigured before the callback fires.
+        let eyeOpenDelay: TimeInterval = 0.4  // During first rebound phase
+        for (i, eyeLayer) in eyeLayers.enumerated()
+            where i < openEyePaths.count && i < closedEyePaths.count {
+            eyeLayer.path = openEyePaths[i]  // Model: final open state
+            let anim = CABasicAnimation(keyPath: "path")
+            anim.fromValue = closedEyePaths[i]
+            anim.toValue = openEyePaths[i]
+            anim.beginTime = CACurrentMediaTime() + eyeOpenDelay
+            anim.duration = 0.2
+            anim.fillMode = .backwards  // Show closed eyes until beginTime
+            anim.isRemovedOnCompletion = true
+            anim.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            eyeLayer.add(anim, forKey: "eyeReveal")
         }
 
-        // --- Start other animations after entry completes ---
-        let entryDuration: TimeInterval = 0.5
-        DispatchQueue.main.asyncAfter(deadline: .now() + entryDuration) { [weak self] in
+        // --- Start other animations after a comfortable pause post-entry ---
+        let postEntryDelay: TimeInterval = 1.2  // Entry (0.7s) + breathing pause (0.5s)
+        DispatchQueue.main.asyncAfter(deadline: .now() + postEntryDelay) { [weak self] in
             guard let self, self.animationsActive else { return }
             if self.configBlinkEnabled { self.startBlinkTimer() }
             if self.configBreathingEnabled { self.startBreathing() }
