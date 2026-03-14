@@ -35,7 +35,7 @@ Output symbols:
 
 Diagnostic checks performed:
   1.  Bun is installed           Verifies bun is available in PATH
-  2.  API key configured         Checks for a valid provider API key in config or env
+  2.  API key configured         Checks for a valid provider API key in secure storage
   3.  Assistant reachable         HTTP health check against the assistant server
   4.  Database exists/readable   Opens the SQLite database and runs a test query
   5.  Directory structure        Verifies required ~/.vellum/ directories exist
@@ -76,29 +76,14 @@ Examples:
       const raw = loadRawConfig();
       const provider =
         typeof raw.provider === "string" ? raw.provider : "anthropic";
-      const providerEnvVar: Record<string, string> = {
-        anthropic: "ANTHROPIC_API_KEY",
-        openai: "OPENAI_API_KEY",
-        gemini: "GEMINI_API_KEY",
-        ollama: "OLLAMA_API_KEY",
-        fireworks: "FIREWORKS_API_KEY",
-        openrouter: "OPENROUTER_API_KEY",
-      };
       const configKey = await getSecureKeyAsync(provider);
-      const envVar = providerEnvVar[provider];
-      const envKey = envVar ? process.env[envVar] : undefined;
 
       if (provider === "ollama") {
         pass("Provider configured (Ollama; API key optional)");
-      } else if (envKey || configKey) {
+      } else if (configKey) {
         pass("API key configured");
       } else {
-        fail(
-          "API key configured",
-          envVar
-            ? `set ${envVar} or run: assistant keys set ${provider} <key>`
-            : `set API key for provider "${provider}"`,
-        );
+        fail("API key configured", `run: assistant keys set ${provider} <key>`);
       }
 
       // 3. Daemon reachable (HTTP health check)
