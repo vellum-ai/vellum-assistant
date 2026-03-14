@@ -119,6 +119,9 @@ mock.module("../memory/retriever.js", () => ({
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     constructor() {}
+    getToolTokenBudget() {
+      return 0;
+    }
     async run(
       messages: Message[],
       onEvent: (event: Record<string, unknown>) => void,

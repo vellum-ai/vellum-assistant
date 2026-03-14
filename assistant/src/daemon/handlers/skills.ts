@@ -9,12 +9,7 @@ import {
   saveRawConfig,
 } from "../../config/loader.js";
 import { resolveSkillStates, skillFlagKey } from "../../config/skill-state.js";
-import {
-  ensureSkillIcon,
-  loadSkillBySelector,
-  loadSkillCatalog,
-  type SkillSummary,
-} from "../../config/skills.js";
+import { loadSkillCatalog, type SkillSummary } from "../../config/skills.js";
 import {
   createTimeout,
   extractText,
