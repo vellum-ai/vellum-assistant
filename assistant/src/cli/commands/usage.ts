@@ -37,19 +37,19 @@ type RangePreset = "today" | "week" | "month" | "all";
 function resolveTimeRange(preset: RangePreset): { from: number; to: number } {
   const now = Date.now();
   const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
+  startOfToday.setUTCHours(0, 0, 0, 0);
 
   switch (preset) {
     case "today":
       return { from: startOfToday.getTime(), to: now };
     case "week": {
       const weekAgo = new Date(startOfToday);
-      weekAgo.setDate(weekAgo.getDate() - 7);
+      weekAgo.setUTCDate(weekAgo.getUTCDate() - 7);
       return { from: weekAgo.getTime(), to: now };
     }
     case "month": {
       const monthAgo = new Date(startOfToday);
-      monthAgo.setDate(monthAgo.getDate() - 30);
+      monthAgo.setUTCDate(monthAgo.getUTCDate() - 30);
       return { from: monthAgo.getTime(), to: now };
     }
     case "all":
