@@ -42,14 +42,12 @@ public final class SettingsStore: ObservableObject {
 
     static let availableModels: [String] = [
         "claude-opus-4-6",
-        "claude-opus-4-6-fast",
         "claude-sonnet-4-6",
         "claude-haiku-4-5-20251001",
     ]
 
     static let modelDisplayNames: [String: String] = [
         "claude-opus-4-6": "Claude Opus 4.6",
-        "claude-opus-4-6-fast": "Claude Opus 4.6 Fast",
         "claude-sonnet-4-6": "Claude Sonnet 4.6",
         "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
     ]

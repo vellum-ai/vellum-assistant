@@ -23,17 +23,6 @@ describe("resolvePricing", () => {
       expect(result.estimatedCostUsd).toBe(5 + 25);
     });
 
-    test("returns priced for claude-opus-4-6-fast", () => {
-      const result = resolvePricing(
-        "anthropic",
-        "claude-opus-4-6-fast",
-        1_000_000,
-        1_000_000,
-      );
-      expect(result.pricingStatus).toBe("priced");
-      expect(result.estimatedCostUsd).toBe(30 + 150);
-    });
-
     test("returns priced for claude-opus-4", () => {
       const result = resolvePricing(
         "anthropic",

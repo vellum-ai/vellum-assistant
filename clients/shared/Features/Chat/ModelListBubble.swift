@@ -20,7 +20,6 @@ public struct ModelListBubble: View {
     /// Anthropic model shortcuts, exposed for use by ModelPickerBubble on iOS.
     public static let anthropicModels: [(cmd: String, model: String, display: String)] = [
         ("opus", "claude-opus-4-6", "Claude Opus 4.6"),
-        ("opus-fast", "claude-opus-4-6-fast", "Claude Opus 4.6 Fast"),
         ("sonnet", "claude-sonnet-4-6", "Claude Sonnet 4.6"),
         ("haiku", "claude-haiku-4-5-20251001", "Claude Haiku 4.5"),
     ]

@@ -14,7 +14,6 @@ struct ModelSelectionStepView: View {
 
     private static let models: [(id: String, name: String, detail: String)] = [
         ("claude-opus-4-6", "Opus 4.6", "Most capable"),
-        ("claude-opus-4-6-fast", "Opus 4.6 Fast", "Fastest Opus"),
         ("claude-sonnet-4-6", "Sonnet 4.6", "Balanced"),
         ("claude-haiku-4-5-20251001", "Haiku 4.5", "Fastest"),
     ]

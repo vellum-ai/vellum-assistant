@@ -20,7 +20,6 @@ const PROVIDER_PRICING: Record<string, Record<string, ModelPricing>> = {
   anthropic: {
     "claude-opus-4-6": { inputPer1M: 5, outputPer1M: 25 },
     "claude-opus-4": { inputPer1M: 15, outputPer1M: 75 },
-    "claude-opus-4-6-fast": { inputPer1M: 30, outputPer1M: 150 },
     "claude-sonnet-4": { inputPer1M: 3, outputPer1M: 15 },
     "claude-haiku-4": { inputPer1M: 0.8, outputPer1M: 4 },
   },
