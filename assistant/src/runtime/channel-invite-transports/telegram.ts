@@ -64,7 +64,7 @@ export async function ensureTelegramBotUsernameResolved(): Promise<void> {
     }
     const body = (await res.json()) as {
       ok: boolean;
-      result?: { username?: string };
+      result?: { id?: number; username?: string };
     };
     const username = body.result?.username;
     if (!username) {
@@ -75,6 +75,9 @@ export async function ensureTelegramBotUsernameResolved(): Promise<void> {
     }
     // Write to config
     const raw = loadRawConfig();
+    if (body.result?.id != null) {
+      setNestedValue(raw, "telegram.botId", String(body.result.id));
+    }
     setNestedValue(raw, "telegram.botUsername", username);
     saveRawConfig(raw);
     invalidateConfigCache();

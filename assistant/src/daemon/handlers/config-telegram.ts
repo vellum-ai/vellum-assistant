@@ -19,7 +19,10 @@ import {
   getSecureKeyAsync,
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
-import { getTelegramBotUsername } from "../../telegram/bot-username.js";
+import {
+  getTelegramBotId,
+  getTelegramBotUsername,
+} from "../../telegram/bot-username.js";
 import {
   deleteCredentialMetadata,
   upsertCredentialMetadata,
@@ -74,10 +77,12 @@ export async function getTelegramConfig(): Promise<TelegramConfigResult> {
   ));
   const conn = getConnectionByProvider("telegram");
   const connected = !!(conn && conn.status === "active");
+  const botId = getTelegramBotId();
   const botUsername = getTelegramBotUsername();
   return {
     success: true,
     hasBotToken,
+    botId,
     botUsername,
     connected: connected && hasBotToken && hasWebhookSecret,
     hasWebhookSecret,
@@ -105,6 +110,7 @@ export async function setTelegramConfig(
 
   // Validate token via Telegram getMe API
   let botUsername: string;
+  let botId: string;
   try {
     const res = await fetch(
       `https://api.telegram.org/bot${resolvedToken}/getMe`,
@@ -121,7 +127,7 @@ export async function setTelegramConfig(
     }
     const data = (await res.json()) as {
       ok: boolean;
-      result?: { username?: string };
+      result?: { id?: number; username?: string };
     };
     if (!data.ok || !data.result?.username) {
       return {
@@ -133,6 +139,7 @@ export async function setTelegramConfig(
       };
     }
     botUsername = data.result.username;
+    botId = data.result.id != null ? String(data.result.id) : "";
   } catch (err) {
     const message = summarizeTelegramError(err);
     return {
@@ -162,8 +169,9 @@ export async function setTelegramConfig(
   // Store credential metadata record for policy checks
   upsertCredentialMetadata("telegram", "bot_token", {});
 
-  // Persist bot username to config for the config-based path
+  // Persist bot username and bot ID to config for the config-based path
   const raw = loadRawConfig();
+  setNestedValue(raw, "telegram.botId", botId);
   setNestedValue(raw, "telegram.botUsername", botUsername);
   saveRawConfig(raw);
   invalidateConfigCache();
@@ -190,9 +198,10 @@ export async function setTelegramConfig(
         await deleteSecureKeyAsync(credentialKey("telegram", "bot_token"));
         deleteCredentialMetadata("telegram", "bot_token");
       }
-      // Always revert the config write — the botUsername was written
+      // Always revert the config write — the botId and botUsername were written
       // optimistically before webhook secret provisioning.
       const rawRollback = loadRawConfig();
+      setNestedValue(rawRollback, "telegram.botId", "");
       setNestedValue(rawRollback, "telegram.botUsername", "");
       saveRawConfig(rawRollback);
       invalidateConfigCache();
@@ -220,6 +229,7 @@ export async function setTelegramConfig(
   const result: TelegramConfigResult = {
     success: true,
     hasBotToken: true,
+    botId,
     botUsername,
     connected: true,
     hasWebhookSecret,
@@ -286,9 +296,10 @@ export async function clearTelegramConfig(): Promise<TelegramConfigResult> {
   // Remove the oauth_connection row so getConnectionByProvider returns undefined.
   removeManualTokenConnection("telegram");
 
-  // Clear bot username from config so getTelegramBotUsername() doesn't
-  // return a stale value after disconnect.
+  // Clear bot ID and username from config so getTelegramBotId() and
+  // getTelegramBotUsername() don't return stale values after disconnect.
   const raw = loadRawConfig();
+  setNestedValue(raw, "telegram.botId", "");
   setNestedValue(raw, "telegram.botUsername", "");
   saveRawConfig(raw);
   invalidateConfigCache();

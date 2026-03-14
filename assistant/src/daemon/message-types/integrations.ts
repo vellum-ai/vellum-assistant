@@ -120,6 +120,7 @@ export interface TelegramConfigResponse {
   type: "telegram_config_response";
   success: boolean;
   hasBotToken: boolean;
+  botId?: string;
   botUsername?: string;
   connected: boolean;
   hasWebhookSecret: boolean;
