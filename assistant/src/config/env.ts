@@ -161,7 +161,10 @@ export function getTelemetryPlatformUrl(): string {
 }
 
 export function getTelemetryAppToken(): string {
-  return str("TELEMETRY_APP_TOKEN") ?? "";
+  return (
+    str("TELEMETRY_APP_TOKEN") ??
+    "e01cf85768cc3617e986f0a7f1966b72e25316526c5db54c8b94a9c3c5c9eaed"
+  );
 }
 
 // ── Startup validation ──────────────────────────────────────────────────────
