@@ -352,16 +352,37 @@ export function handleListMessages(
           });
         }
       } else {
-        const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
+        const linked =
+          attachmentsStore.getAttachmentMetadataForMessage(m.id);
         if (linked.length > 0) {
-          msgAttachments = linked.map((a) => ({
-            id: a.id,
-            filename: a.originalFilename,
-            mimeType: a.mimeType,
-            sizeBytes: a.sizeBytes,
-            kind: a.kind,
-            ...(a.thumbnailBase64 ? { thumbnailData: a.thumbnailBase64 } : {}),
-          }));
+          msgAttachments = linked.map((a) => {
+            if (a.mimeType.startsWith("image/")) {
+              const full = attachmentsStore.getAttachmentById(a.id);
+              return {
+                id: a.id,
+                filename: a.originalFilename,
+                mimeType: a.mimeType,
+                sizeBytes: a.sizeBytes,
+                kind: a.kind,
+                ...(full?.dataBase64
+                  ? { data: full.dataBase64 }
+                  : {}),
+                ...(a.thumbnailBase64
+                  ? { thumbnailData: a.thumbnailBase64 }
+                  : {}),
+              };
+            }
+            return {
+              id: a.id,
+              filename: a.originalFilename,
+              mimeType: a.mimeType,
+              sizeBytes: a.sizeBytes,
+              kind: a.kind,
+              ...(a.thumbnailBase64
+                ? { thumbnailData: a.thumbnailBase64 }
+                : {}),
+            };
+          });
         }
       }
     }
