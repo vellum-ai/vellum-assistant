@@ -41,6 +41,11 @@ struct ConversationsListResponse: Decodable {
     let hasMore: Bool?
 }
 
+/// Response shape from `GET /v1/conversations/:id`.
+struct SingleConversationResponse: Decodable {
+    let session: ConversationsListResponse.Session
+}
+
 private struct HTTPErrorEnvelope: Decodable {
     struct ErrorBody: Decodable {
         let message: String
@@ -253,6 +258,7 @@ public final class HTTPTransport {
         case sendMessage
         case getMessages(conversationId: String?)
         case conversations(limit: Int, offset: Int)
+        case conversationById(id: String)
         case confirm
         case secret
         case guardianActionsPending(conversationId: String)
@@ -481,6 +487,9 @@ public final class HTTPTransport {
             return ("/v1/messages", nil)
         case .conversations(let limit, let offset):
             return ("/v1/conversations", "limit=\(limit)&offset=\(offset)")
+        case .conversationById(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/conversations/\(encoded)", nil)
         case .confirm:
             return ("/v1/confirm", nil)
         case .secret:
@@ -894,6 +903,9 @@ public final class HTTPTransport {
             return ("\(prefix)/messages/", nil)
         case .conversations(let limit, let offset):
             return ("\(prefix)/conversations/", "limit=\(limit)&offset=\(offset)")
+        case .conversationById(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/conversations/\(encoded)/", nil)
         case .confirm:
             return ("\(prefix)/confirm/", nil)
         case .secret:
@@ -2925,6 +2937,27 @@ public final class HTTPTransport {
         } catch {
             log.error("Fetch session list error: \(error.localizedDescription)")
             onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [], hasMore: nil)))
+        }
+    }
+
+    /// Fetch a single conversation by its daemon ID.
+    /// Returns `nil` if the conversation doesn't exist (404) or the request fails.
+    func fetchConversationById(_ conversationId: String) async -> ConversationsListResponse.Session? {
+        guard let url = buildURL(for: .conversationById(id: conversationId)) else { return nil }
+
+        var request = URLRequest(url: url)
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                return nil
+            }
+            let decoded = try decoder.decode(SingleConversationResponse.self, from: data)
+            return decoded.session
+        } catch {
+            log.error("Failed to fetch conversation \(conversationId): \(error.localizedDescription)")
+            return nil
         }
     }
 
