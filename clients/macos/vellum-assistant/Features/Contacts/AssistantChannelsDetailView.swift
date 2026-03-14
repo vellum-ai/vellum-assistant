@@ -211,12 +211,39 @@ struct AssistantChannelsDetailView: View {
             }
         } content: {
             if status == "ready" {
-                VButton(label: "Disconnect", style: .danger, isDisabled: store.slackChannelSaveInProgress) {
-                    store.clearSlackChannelConfig()
-                    slackChannelBotTokenInput = ""
-                    slackChannelAppTokenInput = ""
-                    slackChannelSetupExpanded = false
-                    store.channelSetupStatus["slack"] = "not_configured"
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    if let username = store.slackChannelBotUsername {
+                        Text("@\(username)")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentDefault)
+                            .lineLimit(1)
+                    }
+                    if let botUserId = store.slackChannelBotUserId {
+                        HStack(spacing: 0) {
+                            Text("Bot ID: ")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.contentTertiary)
+                            if let teamId = store.slackChannelTeamId,
+                               let url = URL(string: "slack://user?team=\(teamId)&id=\(botUserId)") {
+                                Link(botUserId, destination: url)
+                                    .font(VFont.caption)
+                                    .lineLimit(1)
+                                    .pointerCursor()
+                            } else {
+                                Text(botUserId)
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.contentTertiary)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                    VButton(label: "Disconnect", style: .danger, isDisabled: store.slackChannelSaveInProgress) {
+                        store.clearSlackChannelConfig()
+                        slackChannelBotTokenInput = ""
+                        slackChannelAppTokenInput = ""
+                        slackChannelSetupExpanded = false
+                        store.channelSetupStatus["slack"] = "not_configured"
+                    }
                 }
             } else if (status == "incomplete" && (store.slackChannelHasBotToken || store.slackChannelHasAppToken)) || slackChannelSetupExpanded {
                 slackChannelCredentialEntry
