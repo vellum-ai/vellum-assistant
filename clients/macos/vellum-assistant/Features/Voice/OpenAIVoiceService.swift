@@ -78,11 +78,11 @@ final class OpenAIVoiceService: ObservableObject, VoiceServiceProtocol {
     private var speakingTimer: Timer?
     private var ttsTask: Task<Void, Never>?
 
-    /// Default ElevenLabs voice — "Rachel" (calm, warm, conversational).
+    /// Default ElevenLabs voice — "Amelia" (expressive, enthusiastic, British English).
     /// Mirrored from: assistant/src/config/elevenlabs-schema.ts (DEFAULT_ELEVENLABS_VOICE_ID)
-    private static let defaultVoiceId = "21m00Tcm4TlvDq8ikWAM"
+    private static let defaultVoiceId = "ZF6FPAbjXT4488VcRRnw"
 
-    /// ElevenLabs voice ID — reads from UserDefaults (set via daemon HTTP), falls back to Rachel.
+    /// ElevenLabs voice ID — reads from UserDefaults (set via daemon HTTP), falls back to Amelia.
     private static var elevenLabsVoiceId: String {
         UserDefaults.standard.string(forKey: "ttsVoiceId").flatMap { $0.isEmpty ? nil : $0 }
             ?? Self.defaultVoiceId

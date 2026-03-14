@@ -1046,7 +1046,7 @@ Call behavior is controlled via the `calls` config block in the assistant config
 | `calls.model`                       | string   | _(unset — uses default model)_ | Optional override for the LLM model used in voice call conversations.                               |
 | `calls.voice.language`              | string   | `'en-US'`                      | Language code for TTS and transcription.                                                            |
 | `calls.voice.transcriptionProvider` | enum     | `'Deepgram'`                   | Speech-to-text provider (`Deepgram` or `Google`).                                                   |
-| `elevenlabs.voiceId`                | string   | `'21m00Tcm4TlvDq8ikWAM'`       | ElevenLabs voice ID used by both in-app TTS and phone calls. Defaults to Rachel.                    |
+| `elevenlabs.voiceId`                | string   | `'ZF6FPAbjXT4488VcRRnw'`       | ElevenLabs voice ID used by both in-app TTS and phone calls. Defaults to Amelia.                    |
 
 ### Caller Identity Resolution
 
@@ -1065,7 +1065,7 @@ Both the resolved mode and source are logged at info level on success, and rejec
 
 Voice and TTS settings are configurable via the `calls.voice` config block — they are not hardcoded. The function `resolveVoiceQualityProfile()` in `voice-quality.ts` reads the current config and resolves it into a `VoiceQualityProfile` containing the TTS provider, voice spec string, language, and transcription provider.
 
-All calls use **ElevenLabs** as the TTS provider via Twilio ConversationRelay. The voice ID is read from the shared `elevenlabs.voiceId` config key (defaulting to Rachel — `21m00Tcm4TlvDq8ikWAM`). Optional tuning parameters (`voiceModelId`, `speed`, `stability`, `similarityBoost`) are also read from the top-level `elevenlabs` config. When `voiceModelId` is set, the emitted voice spec uses the Twilio ConversationRelay extended format: `voiceId-model-speed_stability_similarity`. When `voiceModelId` is empty (the default), only the bare `voiceId` is sent.
+All calls use **ElevenLabs** as the TTS provider via Twilio ConversationRelay. The voice ID is read from the shared `elevenlabs.voiceId` config key (defaulting to Amelia — `ZF6FPAbjXT4488VcRRnw`). Optional tuning parameters (`voiceModelId`, `speed`, `stability`, `similarityBoost`) are also read from the top-level `elevenlabs` config. When `voiceModelId` is set, the emitted voice spec uses the Twilio ConversationRelay extended format: `voiceId-model-speed_stability_similarity`. When `voiceModelId` is empty (the default), only the bare `voiceId` is sent.
 
 The voice webhook in `twilio-routes.ts` calls `resolveVoiceQualityProfile()` and passes the result directly to `generateTwiML()` to produce ConversationRelay TwiML.
 

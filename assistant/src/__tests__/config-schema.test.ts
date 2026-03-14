@@ -67,7 +67,10 @@ import {
   resolveVoiceQualityProfile,
 } from "../calls/voice-quality.js";
 import { invalidateConfigCache, loadConfig } from "../config/loader.js";
-import { AssistantConfigSchema } from "../config/schema.js";
+import {
+  AssistantConfigSchema,
+  DEFAULT_ELEVENLABS_VOICE_ID,
+} from "../config/schema.js";
 import { _setStorePath } from "../security/encrypted-store.js";
 import { _setBackend } from "../security/secure-keys.js";
 
@@ -906,10 +909,10 @@ describe("resolveVoiceQualityProfile", () => {
     expect(profile.voice).toBe("test-voice-id");
   });
 
-  test("defaults to Rachel voice ID when elevenlabs.voiceId is not set", () => {
+  test("defaults to Amelia voice ID when elevenlabs.voiceId is not set", () => {
     const config = AssistantConfigSchema.parse({});
     const profile = resolveVoiceQualityProfile(config);
-    expect(profile.voice).toBe("21m00Tcm4TlvDq8ikWAM");
+    expect(profile.voice).toBe(DEFAULT_ELEVENLABS_VOICE_ID);
   });
 
   test("applies voice tuning params from elevenlabs config", () => {
