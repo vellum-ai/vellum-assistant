@@ -799,7 +799,7 @@ export class DaemonServer {
       sourceInterface,
     );
 
-    const slashResult = resolveSlash(content);
+    const slashResult = await resolveSlash(content);
 
     if (slashResult.kind === "unknown") {
       const serverTurnCtx = session.getTurnChannelContext();

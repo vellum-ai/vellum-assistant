@@ -131,10 +131,10 @@ writeFileSync(
   Buffer.from([0x48, 0x65, 0x6c, 0x00, 0x6f]), // contains null byte
 );
 
-// config.json at workspace root — should be skipped (secrets, already in configSnapshot)
+// config.json at workspace root — should be skipped (already in configSnapshot)
 writeFileSync(
   join(testWorkspaceDir, "config.json"),
-  JSON.stringify({ apiKeys: { anthropic: "sk-secret-key" } }),
+  JSON.stringify({ provider: "anthropic" }),
 );
 
 // Symlink pointing outside workspace — should be skipped

@@ -88,7 +88,6 @@ mock.module("../prompts/user-reference.js", () => ({
 const mockConfig = {
   provider: "anthropic",
   providerOrder: ["anthropic"],
-  apiKeys: { anthropic: "test-key" },
   secretDetection: { enabled: false },
   calls: {
     enabled: true,

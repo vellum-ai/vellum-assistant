@@ -18,7 +18,6 @@ mock.module("../hooks/manager.js", () => ({
 }));
 
 let swarmEnabled = true;
-let hasApiKey = true;
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
@@ -26,7 +25,6 @@ mock.module("../config/loader.js", () => ({
 
     provider: "anthropic",
     providerOrder: ["anthropic"],
-    apiKeys: { anthropic: hasApiKey ? "test-key" : "" },
     swarm: {
       enabled: swarmEnabled,
       maxWorkers: 2,
@@ -56,6 +54,11 @@ const mockTestProvider = {
     };
   },
 };
+mock.module("../security/secure-keys.js", () => ({
+  getSecureKeyAsync: async () => "test-api-key",
+  getSecureKey: () => "test-api-key",
+}));
+
 mock.module("../providers/registry.js", () => ({
   getProvider: () => mockTestProvider,
   getFailoverProvider: () => mockTestProvider,
@@ -103,7 +106,6 @@ describe("swarm through AgentLoop", () => {
   beforeEach(() => {
     _resetSwarmActive();
     swarmEnabled = true;
-    hasApiKey = true;
   });
 
   test("agent loop calls swarm_delegate and receives tool result", async () => {
@@ -253,7 +255,6 @@ describe("swarm regression tests", () => {
   beforeEach(() => {
     _resetSwarmActive();
     swarmEnabled = true;
-    hasApiKey = true;
   });
 
   test("swarm_delegate returns graceful message when disabled", async () => {
@@ -298,8 +299,6 @@ describe("swarm regression tests", () => {
   });
 
   test("worker backend reports unavailable when no API key", async () => {
-    hasApiKey = false;
-
     const result = await swarmDelegateTool.execute(
       { objective: "Task without key" },
       makeContext(),
@@ -308,7 +307,6 @@ describe("swarm regression tests", () => {
     // The tool should still complete — the orchestrator handles backend failures
     // The result may show failed tasks but shouldn't throw
     expect(result.content).toBeTruthy();
-    hasApiKey = true;
   });
 
   test("progress chunks stream through onOutput", async () => {

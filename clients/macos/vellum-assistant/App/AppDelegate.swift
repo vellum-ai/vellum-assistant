@@ -259,6 +259,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         setupMenuBar()
         setupHotKey()
 
+        // Install CLI symlinks early so they are available before the daemon
+        // starts, regardless of auth or onboarding state.
+        installCLISymlinkIfNeeded()
+
         let hasAssistants = lockfileHasAssistants()
         log.info("[appLaunch] skipOnboarding=\(skipOnboarding) hasAssistants=\(hasAssistants)")
 
@@ -335,7 +339,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         setupWindowObserver()
         setupNotifications()
         setupAutoUpdate()
-        installCLISymlinkIfNeeded()
 
         // Ensure actor credentials are present. On first launch this performs
         // initial bootstrap; on subsequent launches it schedules proactive

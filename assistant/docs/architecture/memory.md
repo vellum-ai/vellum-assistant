@@ -293,8 +293,8 @@ The embedding backend is selected based on `memory.embeddings.provider` config:
 
 - `auto` (default): Tries local → OpenAI → Gemini → Ollama, using the first available.
 - `local`: ONNX-based local model (bge-small-en-v1.5). Lazy-loaded to avoid crashing in compiled binaries where onnxruntime-node is unavailable.
-- `openai`: OpenAI text-embedding-3-small. Requires `apiKeys.openai`.
-- `gemini`: Gemini gemini-embedding-001. Requires `apiKeys.gemini`. Only backend supporting multimodal embeddings (images, audio, video).
+- `openai`: OpenAI text-embedding-3-small. Requires an OpenAI API key in secure storage.
+- `gemini`: Gemini gemini-embedding-001. Requires a Gemini API key in secure storage. Only backend supporting multimodal embeddings (images, audio, video).
 - `ollama`: Ollama nomic-embed-text. Requires Ollama to be configured.
 
 An in-memory LRU vector cache (32 MB cap, keyed by `sha256(provider + model + content)`) avoids redundant embedding calls for identical content. Sparse embeddings are generated in-process (no external calls).
@@ -570,7 +570,7 @@ graph TB
 
     **Commit message LLM fallback chain**: The generator runs a sequence of pre-flight checks before calling the LLM. Each check that fails produces a machine-readable `llmFallbackReason` in the structured log output and immediately returns a deterministic message. The checks, in order:
     1. `disabled` — `commitMessageLLM.enabled` is `false` or `useConfiguredProvider` is `false`
-    2. `missing_provider_api_key` — the configured provider's API key is not set in `config.apiKeys` (skipped for keyless providers like Ollama that run without an API key)
+    2. `missing_provider_api_key` — the configured provider's API key is not found in secure storage (skipped for keyless providers like Ollama that run without an API key)
     3. `breaker_open` — the generator's internal circuit breaker is open after consecutive LLM failures (exponential backoff)
     4. `insufficient_budget` — the remaining turn budget (`deadlineMs - Date.now()`) is below `minRemainingTurnBudgetMs`
     5. `missing_fast_model` — no fast model could be resolved for the configured provider (see below); the provider is **not** called

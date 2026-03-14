@@ -39,7 +39,6 @@ mock.module("../config/loader.js", () => ({
       },
     },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
-    apiKeys: {},
     workspaceGit: { turnCommitMaxWaitMs: 10 },
     ui: {},
   }),
@@ -180,7 +179,7 @@ mock.module("../daemon/session-memory.js", () => ({
       enabled: false,
       degraded: false,
       injectedText: "",
-  
+
       semanticHits: 0,
       recencyHits: 0,
       injectedTokens: 0,

@@ -36,7 +36,6 @@ mock.module("../config/loader.js", () => ({
       summaryBudgetRatio: 0.05,
     },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
-    apiKeys: {},
     memory: { enabled: false },
   }),
   loadRawConfig: () => ({}),
@@ -154,6 +153,9 @@ mock.module("../memory/app-store.js", () => ({
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     constructor() {}
+    getToolTokenBudget() {
+      return 0;
+    }
     async run(
       messages: Message[],
       onEvent: (event: AgentEvent) => void,

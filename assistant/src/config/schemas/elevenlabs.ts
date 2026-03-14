@@ -1,9 +1,9 @@
 import { z } from "zod";
 
-// Default ElevenLabs voice — "Rachel" (calm, warm, conversational).
+// Default ElevenLabs voice — "Amelia" (expressive, enthusiastic, British English).
 // Used by both in-app TTS and phone calls (via Twilio ConversationRelay).
 // Mirrored in: clients/macos/.../OpenAIVoiceService.swift (defaultVoiceId)
-export const DEFAULT_ELEVENLABS_VOICE_ID = "21m00Tcm4TlvDq8ikWAM";
+export const DEFAULT_ELEVENLABS_VOICE_ID = "ZF6FPAbjXT4488VcRRnw";
 
 export const ElevenLabsConfigSchema = z.object({
   voiceId: z

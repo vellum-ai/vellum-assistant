@@ -87,13 +87,10 @@ Examples:
       const configKey = await getSecureKeyAsync(provider);
       const envVar = providerEnvVar[provider];
       const envKey = envVar ? process.env[envVar] : undefined;
-      const plaintextKey = (
-        raw.apiKeys as Record<string, string> | undefined
-      )?.[provider];
 
       if (provider === "ollama") {
         pass("Provider configured (Ollama; API key optional)");
-      } else if (envKey || configKey || plaintextKey) {
+      } else if (envKey || configKey) {
         pass("API key configured");
       } else {
         fail(

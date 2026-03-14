@@ -83,6 +83,7 @@ public final class SettingsStore: ObservableObject {
     // MARK: - Telegram Integration State
 
     @Published var telegramHasBotToken: Bool = false
+    @Published var telegramBotId: String?
     @Published var telegramBotUsername: String?
     @Published var telegramConnected: Bool = false
     @Published var telegramHasWebhookSecret: Bool = false
@@ -144,6 +145,8 @@ public final class SettingsStore: ObservableObject {
     @Published var slackChannelHasAppToken: Bool = false
     @Published var slackChannelConnected: Bool = false
     @Published var slackChannelBotUsername: String?
+    @Published var slackChannelBotUserId: String?
+    @Published var slackChannelTeamId: String?
     @Published var slackChannelTeamName: String?
     @Published var slackChannelSaveInProgress: Bool = false
     @Published var slackChannelError: String?
@@ -498,6 +501,7 @@ public final class SettingsStore: ObservableObject {
             self.telegramSaveInProgress = false
             if response.success {
                 self.telegramHasBotToken = response.hasBotToken
+                self.telegramBotId = response.botId
                 self.telegramBotUsername = response.botUsername
                 self.telegramConnected = response.connected
                 self.telegramHasWebhookSecret = response.hasWebhookSecret
@@ -1061,6 +1065,8 @@ public final class SettingsStore: ObservableObject {
                         self.slackChannelHasAppToken = json["hasAppToken"] as? Bool ?? false
                         self.slackChannelConnected = json["connected"] as? Bool ?? false
                         self.slackChannelBotUsername = json["botUsername"] as? String
+                        self.slackChannelBotUserId = json["botUserId"] as? String
+                        self.slackChannelTeamId = json["teamId"] as? String
                         self.slackChannelTeamName = json["teamName"] as? String
                         self.slackChannelError = nil
                     }
@@ -1069,6 +1075,8 @@ public final class SettingsStore: ObservableObject {
                     self.slackChannelHasAppToken = false
                     self.slackChannelConnected = false
                     self.slackChannelBotUsername = nil
+                    self.slackChannelBotUserId = nil
+                    self.slackChannelTeamId = nil
                     self.slackChannelTeamName = nil
                 }
             } catch {
@@ -1102,6 +1110,8 @@ public final class SettingsStore: ObservableObject {
                         self.slackChannelHasAppToken = json["hasAppToken"] as? Bool ?? true
                         self.slackChannelConnected = json["connected"] as? Bool ?? false
                         self.slackChannelBotUsername = json["botUsername"] as? String
+                        self.slackChannelBotUserId = json["botUserId"] as? String
+                        self.slackChannelTeamId = json["teamId"] as? String
                         self.slackChannelTeamName = json["teamName"] as? String
                         self.slackChannelError = nil
                     } else {
@@ -1147,6 +1157,8 @@ public final class SettingsStore: ObservableObject {
                     self.slackChannelHasAppToken = false
                     self.slackChannelConnected = false
                     self.slackChannelBotUsername = nil
+                    self.slackChannelBotUserId = nil
+                    self.slackChannelTeamId = nil
                     self.slackChannelTeamName = nil
                     self.slackChannelError = nil
                     self.fetchChannelSetupStatus()

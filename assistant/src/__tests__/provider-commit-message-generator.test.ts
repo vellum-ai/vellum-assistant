@@ -6,12 +6,24 @@ import type { Provider, ProviderResponse } from "../providers/types.js";
 import type { CommitContext } from "../workspace/commit-message-provider.js";
 
 // ---------------------------------------------------------------------------
+// Mock secure keys — controls what getSecureKeyAsync returns per provider
+// ---------------------------------------------------------------------------
+let mockSecureKeys: Record<string, string> = {};
+mock.module("../security/secure-keys.js", () => ({
+  getSecureKey: (name: string) => mockSecureKeys[name] ?? undefined,
+  getSecureKeyAsync: async (name: string) => mockSecureKeys[name] ?? undefined,
+  setSecureKey: () => true,
+  setSecureKeyAsync: async () => true,
+  deleteSecureKey: () => "deleted",
+  deleteSecureKeyAsync: async () => "deleted" as const,
+}));
+
+// ---------------------------------------------------------------------------
 // Deep-clone a base config so each test can tweak fields independently
 // ---------------------------------------------------------------------------
 function cloneConfig(): AssistantConfig {
   const cfg = structuredClone(DEFAULT_CONFIG);
   cfg.provider = "anthropic";
-  cfg.apiKeys = { anthropic: "sk-test-key" } as Record<string, string>;
   cfg.workspaceGit.commitMessageLLM = {
     ...cfg.workspaceGit.commitMessageLLM,
     enabled: true,
@@ -116,6 +128,7 @@ describe("ProviderCommitMessageGenerator", () => {
   beforeEach(() => {
     _resetCommitMessageGenerator();
     currentConfig = cloneConfig();
+    mockSecureKeys = { anthropic: "sk-test-key" };
     mockSendMessage.mockReset();
     resolvedProvider = {
       provider: mockProvider,
@@ -149,7 +162,7 @@ describe("ProviderCommitMessageGenerator", () => {
 
   // 3. missing API key
   test('missing API key → returns deterministic, reason "missing_provider_api_key"', async () => {
-    currentConfig.apiKeys = {} as Record<string, string>;
+    mockSecureKeys = {};
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
@@ -161,7 +174,7 @@ describe("ProviderCommitMessageGenerator", () => {
 
   // 3b. No resolvable provider and no keys
   test('no resolvable provider + no keys → returns deterministic, reason "missing_provider_api_key"', async () => {
-    currentConfig.apiKeys = {} as Record<string, string>;
+    mockSecureKeys = {};
     resolvedProvider = null;
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
@@ -174,10 +187,7 @@ describe("ProviderCommitMessageGenerator", () => {
 
   // 3c. No resolvable provider despite keys
   test('no resolvable provider with keys present → returns deterministic, reason "provider_not_initialized"', async () => {
-    currentConfig.apiKeys = { anthropic: "sk-test-key" } as Record<
-      string,
-      string
-    >;
+    mockSecureKeys = { anthropic: "sk-test-key" };
     resolvedProvider = null;
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
@@ -332,7 +342,7 @@ describe("ProviderCommitMessageGenerator", () => {
   // 12. Keyless provider (Ollama) without fast model → missing_fast_model (skips API key check)
   test('Ollama without API key or fast model → returns deterministic, reason "missing_fast_model"', async () => {
     (currentConfig as Record<string, unknown>).provider = "ollama";
-    currentConfig.apiKeys = {} as Record<string, string>;
+    mockSecureKeys = {};
     resolvedProvider = {
       provider: mockProvider,
       configuredProviderName: "ollama",
@@ -352,10 +362,7 @@ describe("ProviderCommitMessageGenerator", () => {
   // 13. Unknown provider without fast model default → missing_fast_model, no provider call
   test('Unknown provider without fast model default → returns deterministic, reason "missing_fast_model"', async () => {
     (currentConfig as Record<string, unknown>).provider = "exotic-provider";
-    currentConfig.apiKeys = { "exotic-provider": "sk-exotic" } as Record<
-      string,
-      string
-    >;
+    mockSecureKeys = { "exotic-provider": "sk-exotic" };
     resolvedProvider = {
       provider: mockProvider,
       configuredProviderName: "exotic-provider",
@@ -374,7 +381,7 @@ describe("ProviderCommitMessageGenerator", () => {
   // 14. Fast-model override enables LLM path for provider without built-in default
   test("fast-model override enables LLM path for provider without built-in default", async () => {
     (currentConfig as Record<string, unknown>).provider = "ollama";
-    currentConfig.apiKeys = {} as Record<string, string>; // Ollama is keyless
+    mockSecureKeys = {}; // Ollama is keyless
     resolvedProvider = {
       provider: mockProvider,
       configuredProviderName: "ollama",
@@ -403,7 +410,7 @@ describe("ProviderCommitMessageGenerator", () => {
   test("configured provider unavailable -> selected fallback provider model mapping is used", async () => {
     currentConfig.provider = "anthropic";
     currentConfig.providerOrder = ["openai"];
-    currentConfig.apiKeys = { openai: "sk-openai" } as Record<string, string>;
+    mockSecureKeys = { openai: "sk-openai" };
     resolvedProvider = {
       provider: mockProvider,
       configuredProviderName: "anthropic",

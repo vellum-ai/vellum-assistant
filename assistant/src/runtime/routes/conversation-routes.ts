@@ -864,7 +864,7 @@ export async function handleSendMessage(
     provider: config.provider,
     estimatedCost: session.usageStats.estimatedCost,
   };
-  const slashResult = resolveSlash(rawContent, slashContext);
+  const slashResult = await resolveSlash(rawContent, slashContext);
 
   if (slashResult.kind === "unknown") {
     session.processing = true;
@@ -909,7 +909,7 @@ export async function handleSendMessage(
       // a config change from a concurrent request.
       const modelInfoEvent =
         isModelSlashCommand(rawContent) || isProviderShortcut(rawContent)
-          ? buildModelInfoEvent()
+          ? await buildModelInfoEvent()
           : null;
 
       const response = Response.json(

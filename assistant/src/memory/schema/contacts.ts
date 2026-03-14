@@ -6,8 +6,6 @@ export const contacts = sqliteTable("contacts", {
   id: text("id").primaryKey(),
   displayName: text("display_name").notNull(),
   notes: text("notes"),
-  lastInteraction: integer("last_interaction"), // epoch ms
-  interactionCount: integer("interaction_count").notNull().default(0),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
   role: text("role").notNull().default("contact"), // 'guardian' | 'contact'
@@ -37,6 +35,8 @@ export const contactChannels = sqliteTable(
     revokedReason: text("revoked_reason"),
     blockedReason: text("blocked_reason"),
     lastSeenAt: integer("last_seen_at"), // epoch ms
+    interactionCount: integer("interaction_count").notNull().default(0),
+    lastInteraction: integer("last_interaction"),
     updatedAt: integer("updated_at"), // epoch ms
     createdAt: integer("created_at").notNull(),
   },

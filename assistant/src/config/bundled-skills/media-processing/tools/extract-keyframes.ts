@@ -1,10 +1,10 @@
 import { dirname, join } from "node:path";
 
-import { getConfig } from "../../../../config/loader.js";
 import {
   getKeyframesForAsset,
   getMediaAssetById,
 } from "../../../../memory/media-store.js";
+import { getSecureKeyAsync } from "../../../../security/secure-keys.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -31,8 +31,7 @@ export async function run(
 
   let openaiApiKey: string | undefined;
   if (includeAudio && (!transcriptionMode || transcriptionMode === "api")) {
-    const config = getConfig();
-    openaiApiKey = config.apiKeys.openai;
+    openaiApiKey = (await getSecureKeyAsync("openai")) ?? undefined;
   }
 
   const options: PreprocessOptions = {

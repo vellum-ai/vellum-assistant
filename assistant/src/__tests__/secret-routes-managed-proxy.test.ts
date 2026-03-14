@@ -18,7 +18,6 @@ const MANAGED_PROVIDERS = [
 ] as const;
 
 const mockConfig = {
-  apiKeys: {},
   provider: "anthropic",
   model: "test-model",
 };

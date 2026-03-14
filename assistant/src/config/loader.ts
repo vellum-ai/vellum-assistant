@@ -7,11 +7,6 @@ import {
 } from "node:fs";
 import { dirname } from "node:path";
 
-import {
-  deleteSecureKey,
-  getSecureKey,
-  setSecureKey,
-} from "../security/secure-keys.js";
 import { ConfigError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -162,7 +157,6 @@ export function deepMergeMissing(
 /**
  * Read the existing config.json from disk, merge any missing schema-default
  * keys, and rewrite only when there is an effective change.
- * Preserves exclusions: apiKeys and dataDir are never written.
  */
 function backfillConfigDefaults(
   configPath: string,
@@ -197,9 +191,9 @@ function backfillConfigDefaults(
 export function loadConfig(): AssistantConfig {
   if (cached) return cached;
 
-  // Re-entrancy guard: log calls during loading (e.g. file-mode warning,
-  // invalid apiKeys) can trigger loadConfig again. Return defaults to
-  // break the cycle instead of recursing to stack overflow.
+  // Re-entrancy guard: log calls during loading (e.g. file-mode warning)
+  // can trigger loadConfig again. Return defaults to break the cycle
+  // instead of recursing to stack overflow.
   if (loading) return cloneDefaultConfig();
   loading = true;
 
@@ -230,67 +224,6 @@ export function loadConfig(): AssistantConfig {
       configFileExisted = false;
     }
 
-    // Pre-validate apiKeys shape before migration (must be a plain object)
-    if (
-      fileConfig.apiKeys !== undefined &&
-      (typeof fileConfig.apiKeys !== "object" ||
-        fileConfig.apiKeys == null ||
-        Array.isArray(fileConfig.apiKeys))
-    ) {
-      log.warn(
-        "Invalid apiKeys in config file: must be an object with string values. Ignoring.",
-      );
-      delete fileConfig.apiKeys;
-    }
-
-    // Auto-migrate plaintext apiKeys from config.json to secure storage
-    if (fileConfig.apiKeys && typeof fileConfig.apiKeys === "object") {
-      const apiKeysObj = fileConfig.apiKeys as Record<string, unknown>;
-      const plaintextKeys = Object.entries(apiKeysObj).filter(
-        ([, v]) => typeof v === "string" && (v as string).length > 0,
-      );
-      if (plaintextKeys.length > 0) {
-        const migratedProviders: string[] = [];
-        for (const [provider, value] of plaintextKeys) {
-          if (setSecureKey(provider, value as string)) {
-            migratedProviders.push(provider);
-          } else {
-            log.warn(
-              `Failed to migrate API key for "${provider}" to secure storage`,
-            );
-          }
-        }
-        if (migratedProviders.length > 0) {
-          // Rewrite config.json without successfully migrated apiKeys
-          try {
-            const rawJson = JSON.parse(readFileSync(configPath, "utf-8"));
-            for (const p of migratedProviders) {
-              delete rawJson.apiKeys[p];
-            }
-            if (Object.keys(rawJson.apiKeys).length === 0) {
-              delete rawJson.apiKeys;
-            }
-            writeFileSync(configPath, JSON.stringify(rawJson, null, 2) + "\n");
-            log.info(
-              `Migrated ${migratedProviders.length} API key(s) from config.json to secure storage`,
-            );
-          } catch (err) {
-            log.warn(
-              { err },
-              "Failed to remove migrated keys from config.json",
-            );
-          }
-        }
-        // Clear only migrated keys from fileConfig so failed keys still flow into config
-        for (const p of migratedProviders) {
-          delete apiKeysObj[p];
-        }
-        if (Object.keys(apiKeysObj).length === 0) {
-          delete fileConfig.apiKeys;
-        }
-      }
-    }
-
     // Validate and apply defaults via Zod schema
     const config = validateWithSchema(fileConfig);
 
@@ -303,8 +236,8 @@ export function loadConfig(): AssistantConfig {
       if (!existsSync(dir)) {
         mkdirSync(dir, { recursive: true });
       }
-      // Strip apiKeys (managed in secure storage) and dataDir (runtime-derived)
-      const { apiKeys: _, dataDir: _d, ...persistable } = config;
+      // Strip dataDir (runtime-derived) from the persisted config
+      const { dataDir: _, ...persistable } = config;
 
       if (!configFileExisted) {
         writeFileSync(configPath, JSON.stringify(persistable, null, 2) + "\n");
@@ -316,47 +249,7 @@ export function loadConfig(): AssistantConfig {
       log.warn({ err }, "Failed to write/backfill config file");
     }
 
-    // Set cached before secure-key/env overrides so re-entrant calls
-    // return the in-flight config instead of bare defaults.
     cached = config;
-
-    // Secure storage keys override plaintext config file
-    try {
-      for (const provider of API_KEY_PROVIDERS) {
-        const secureKey = getSecureKey(provider);
-        if (secureKey) {
-          config.apiKeys[provider] = secureKey;
-        }
-      }
-    } catch (err) {
-      log.debug({ err }, "Failed to load keys from secure storage");
-    }
-
-    // Environment variables override everything
-    if (process.env.ANTHROPIC_API_KEY) {
-      config.apiKeys.anthropic = process.env.ANTHROPIC_API_KEY;
-    }
-    if (process.env.OPENAI_API_KEY) {
-      config.apiKeys.openai = process.env.OPENAI_API_KEY;
-    }
-    if (process.env.GEMINI_API_KEY) {
-      config.apiKeys.gemini = process.env.GEMINI_API_KEY;
-    }
-    if (process.env.OLLAMA_API_KEY) {
-      config.apiKeys.ollama = process.env.OLLAMA_API_KEY;
-    }
-    if (process.env.FIREWORKS_API_KEY) {
-      config.apiKeys.fireworks = process.env.FIREWORKS_API_KEY;
-    }
-    if (process.env.OPENROUTER_API_KEY) {
-      config.apiKeys.openrouter = process.env.OPENROUTER_API_KEY;
-    }
-    if (process.env.BRAVE_API_KEY) {
-      config.apiKeys.brave = process.env.BRAVE_API_KEY;
-    }
-    if (process.env.PERPLEXITY_API_KEY) {
-      config.apiKeys.perplexity = process.env.PERPLEXITY_API_KEY;
-    }
 
     loading = false;
     return config;
@@ -372,25 +265,7 @@ export function saveConfig(config: AssistantConfig): void {
   ensureMigratedDataDir();
   const configPath = getConfigPath();
 
-  // Route apiKeys to secure storage, write config without them
-  for (const [provider, value] of Object.entries(config.apiKeys)) {
-    if (typeof value === "string" && value.length > 0) {
-      if (!setSecureKey(provider, value)) {
-        throw new ConfigError(
-          `Failed to save API key for "${provider}" to secure storage`,
-        );
-      }
-    }
-  }
-  // Delete secure keys for providers no longer in apiKeys or with empty values
-  for (const provider of API_KEY_PROVIDERS) {
-    const value = config.apiKeys[provider];
-    if (!value || (typeof value === "string" && value.length === 0)) {
-      deleteSecureKey(provider);
-    }
-  }
-  const { apiKeys: _, ...rest } = config;
-  writeFileSync(configPath, JSON.stringify(rest, null, 2) + "\n");
+  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
 
   cached = config;
 }
@@ -428,10 +303,7 @@ export function saveRawConfig(config: Record<string, unknown>): void {
   ensureMigratedDataDir();
   const configPath = getConfigPath();
 
-  // Strip apiKeys from plaintext config — secure storage is managed
-  // by saveConfig() and `assistant keys` commands, not here.
-  const { apiKeys: _, ...rest } = config;
-  writeFileSync(configPath, JSON.stringify(rest, null, 2) + "\n");
+  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
 
   cached = null; // invalidate cache
 }

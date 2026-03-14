@@ -10,8 +10,8 @@ import {
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 
-import { getConfig } from "../../../../config/loader.js";
 import { getAttachmentsByIds } from "../../../../memory/attachments-store.js";
+import { getSecureKeyAsync } from "../../../../security/secure-keys.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -417,10 +417,10 @@ export async function run(
   }
 
   // Validate API key for api mode
+  let openaiKey: string | undefined;
   if (mode === "api") {
-    const config = getConfig();
-    const apiKey = config.apiKeys.openai;
-    if (!apiKey) {
+    openaiKey = await getSecureKeyAsync("openai");
+    if (!openaiKey) {
       return {
         content:
           'No OpenAI API key configured. Set your OpenAI API key to use cloud transcription, or use mode "local" for on-device transcription with whisper.cpp.',
@@ -441,8 +441,7 @@ export async function run(
 
     let text: string;
     if (mode === "api") {
-      const config = getConfig();
-      text = await transcribeViaApi(wavPath, config.apiKeys.openai!, context);
+      text = await transcribeViaApi(wavPath, openaiKey!, context);
     } else {
       text = await transcribeViaLocal(wavPath, context);
     }

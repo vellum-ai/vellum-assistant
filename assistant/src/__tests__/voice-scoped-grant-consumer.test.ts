@@ -55,7 +55,6 @@ mock.module("../config/loader.js", () => ({
 
     provider: "anthropic",
     providerOrder: ["anthropic"],
-    apiKeys: { anthropic: "test-key" },
     calls: {
       enabled: true,
       provider: "twilio",

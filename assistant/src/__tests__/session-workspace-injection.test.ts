@@ -57,7 +57,6 @@ mock.module("../config/loader.js", () => ({
       },
     },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
-    apiKeys: {},
     memory: { enabled: false },
     daemon: {
       startupSocketWaitMs: 5000,
@@ -197,6 +196,9 @@ mock.module("../workspace/top-level-scanner.js", () => ({
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     constructor() {}
+    getToolTokenBudget() {
+      return 0;
+    }
     async run(
       messages: Message[],
       onEvent: (event: AgentEvent) => void,

@@ -44,11 +44,11 @@ mock.module("../util/logger.js", () => ({
 
 import { getDb, initializeDb } from "../memory/db.js";
 import { notificationEvents } from "../memory/schema.js";
+import { runDeterministicChecks } from "../notifications/deterministic-checks.js";
 import {
   createEvent,
   updateEventDedupeKey,
 } from "../notifications/events-store.js";
-import { runDeterministicChecks } from "../notifications/deterministic-checks.js";
 import type { NotificationSignal } from "../notifications/signal.js";
 import type { NotificationDecision } from "../notifications/types.js";
 

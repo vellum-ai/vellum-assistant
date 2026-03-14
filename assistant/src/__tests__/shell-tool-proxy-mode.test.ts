@@ -27,7 +27,6 @@ mock.module("node:child_process", () => ({
 const mockConfig = {
   provider: "anthropic",
   model: "test",
-  apiKeys: {},
   maxTokens: 4096,
   dataDir: "/tmp",
   timeouts: {

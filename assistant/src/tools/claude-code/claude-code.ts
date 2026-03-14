@@ -2,9 +2,9 @@ import {
   getCCCommand,
   loadCCCommandTemplate,
 } from "../../commands/cc-command-registry.js";
-import { getConfig } from "../../config/loader.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
+import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import type { WorkerProfile } from "../../swarm/worker-backend.js";
 import { getProfilePolicy } from "../../swarm/worker-backend.js";
 import { getLogger } from "../../util/logger.js";
@@ -203,8 +203,8 @@ export const claudeCodeTool: Tool = {
     const profilePolicy = getProfilePolicy(profileName);
 
     // Validate API key
-    const config = getConfig();
-    const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
+    const apiKey =
+      (await getSecureKeyAsync("anthropic")) ?? process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       return {
         content:

@@ -81,7 +81,6 @@ mock.module("../config/loader.js", () => ({
     },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     timeouts: { permissionTimeoutSec: 1 },
-    apiKeys: {},
     skills: { entries: {}, allowBundled: true },
     permissions: { mode: "workspace" },
   }),
@@ -195,6 +194,9 @@ mock.module("../memory/llm-usage-store.js", () => ({
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     constructor() {}
+    getToolTokenBudget() {
+      return 0;
+    }
     async run(
       _messages: Message[],
       _onEvent: (event: AgentEvent) => void,

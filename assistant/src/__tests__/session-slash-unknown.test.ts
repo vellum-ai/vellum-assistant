@@ -54,7 +54,6 @@ mock.module("../config/loader.js", () => ({
       },
     },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
-    apiKeys: {},
     daemon: {
       startupSocketWaitMs: 5000,
       stopTimeoutMs: 5000,
@@ -199,6 +198,9 @@ let agentLoopRunCalled = false;
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     constructor() {}
+    getToolTokenBudget() {
+      return 0;
+    }
     async run(
       messages: Message[],
       onEvent: (event: AgentEvent) => void,

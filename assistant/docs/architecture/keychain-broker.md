@@ -179,16 +179,16 @@ The gateway reads credentials via async `readCredential()` which tries the broke
 
 ### Known sync exceptions
 
-The migration from sync to async secure-key functions is complete for all call sites except two startup paths that require synchronous initialization. The following call sites still use the deprecated sync variants.
+The migration from sync to async secure-key functions is complete for all call sites except provider initialization paths that require synchronous access. The following call sites still use the deprecated sync variants.
 
-#### Startup / top-level config (must remain sync)
+#### Provider initialization (must remain sync)
 
 These call sites run in synchronous initialization contexts where async I/O is not feasible:
 
-| File                                               | Sync functions used                               | Reason                                                                                                                                                                                                                |
-| -------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `assistant/src/config/loader.ts`                   | `getSecureKey`, `setSecureKey`, `deleteSecureKey` | Config loading runs synchronously at startup before the event loop is available. The broker socket may not be ready yet, and converting to async would require rearchitecting the entire config initialization chain. |
-| `assistant/src/providers/managed-proxy/context.ts` | `getSecureKey`                                    | Provider context initialization is synchronous. The managed proxy context must resolve credentials before the first request can be processed, and the initialization path does not support awaiting.                  |
+| File                                               | Sync functions used | Reason                                                                                                                                                                                               |
+| -------------------------------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/providers/managed-proxy/context.ts` | `getSecureKey`      | Provider context initialization is synchronous. The managed proxy context must resolve credentials before the first request can be processed, and the initialization path does not support awaiting. |
+| `assistant/src/providers/registry.ts`              | `getSecureKey`      | Provider registry initialization is synchronous. API keys must be resolved at provider construction time, and the call chain from config watcher through to provider init is fully synchronous.      |
 
 Any new sync usage requires explicit justification and should be documented here.
 

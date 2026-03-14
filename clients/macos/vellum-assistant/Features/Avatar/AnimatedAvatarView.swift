@@ -12,12 +12,14 @@ struct AnimatedAvatarView: View {
     var breathingEnabled: Bool = true
     var blinkEnabled: Bool = true
     var pokeEnabled: Bool = true
+    var entryAnimationEnabled: Bool = false
 
     @State private var isHovered = false
 
     var body: some View {
         AvatarLayerRepresentable(bodyShape: bodyShape, eyeStyle: eyeStyle, color: color, size: size,
                                  breathingEnabled: breathingEnabled, blinkEnabled: blinkEnabled, pokeEnabled: pokeEnabled,
+                                 entryAnimationEnabled: entryAnimationEnabled,
                                  isHovered: isHovered)
             .frame(width: size, height: size)
             .accessibilityHidden(true)
@@ -42,19 +44,22 @@ private struct AvatarLayerRepresentable: NSViewRepresentable {
     var breathingEnabled: Bool = true
     var blinkEnabled: Bool = true
     var pokeEnabled: Bool = true
+    var entryAnimationEnabled: Bool = false
     var isHovered: Bool = false
 
     func makeNSView(context: Context) -> AvatarLayerView {
         let view = AvatarLayerView(frame: NSRect(x: 0, y: 0, width: size, height: size))
         view.configure(bodyShape: bodyShape, eyeStyle: eyeStyle, color: color, size: size,
-                       breathingEnabled: breathingEnabled, blinkEnabled: blinkEnabled, pokeEnabled: pokeEnabled)
+                       breathingEnabled: breathingEnabled, blinkEnabled: blinkEnabled, pokeEnabled: pokeEnabled,
+                       entryAnimationEnabled: entryAnimationEnabled)
         view.updateHoverState(isHovered)
         return view
     }
 
     func updateNSView(_ nsView: AvatarLayerView, context: Context) {
         nsView.configure(bodyShape: bodyShape, eyeStyle: eyeStyle, color: color, size: size,
-                         breathingEnabled: breathingEnabled, blinkEnabled: blinkEnabled, pokeEnabled: pokeEnabled)
+                         breathingEnabled: breathingEnabled, blinkEnabled: blinkEnabled, pokeEnabled: pokeEnabled,
+                         entryAnimationEnabled: entryAnimationEnabled)
         nsView.updateHoverState(isHovered)
     }
 }
@@ -85,6 +90,8 @@ class AvatarLayerView: NSView {
     private var configBreathingEnabled: Bool = true
     private var configBlinkEnabled: Bool = true
     private var configPokeEnabled: Bool = true
+    private var configEntryAnimationEnabled: Bool = false
+    private var hasPlayedEntry: Bool = false
 
     /// Notification observers for window key/resign-key events.
     private var notificationObservers: [NSObjectProtocol] = []
@@ -146,10 +153,12 @@ class AvatarLayerView: NSView {
     }
 
     func configure(bodyShape: AvatarBodyShape, eyeStyle: AvatarEyeStyle, color: AvatarColor, size: CGFloat,
-                   breathingEnabled: Bool = true, blinkEnabled: Bool = true, pokeEnabled: Bool = true) {
+                   breathingEnabled: Bool = true, blinkEnabled: Bool = true, pokeEnabled: Bool = true,
+                   entryAnimationEnabled: Bool = false) {
         configBreathingEnabled = breathingEnabled
         configBlinkEnabled = blinkEnabled
         configPokeEnabled = pokeEnabled
+        configEntryAnimationEnabled = entryAnimationEnabled
 
         let key = "\(bodyShape.rawValue)-\(eyeStyle.rawValue)-\(color.rawValue)-\(String(format: "%.1f", size))-\(breathingEnabled)-\(blinkEnabled)-\(pokeEnabled)"
         guard key != currentKey else { return }
@@ -233,10 +242,20 @@ class AvatarLayerView: NSView {
 
         CATransaction.commit()
 
-        if animationsActive {
-            if configBlinkEnabled { startBlinkTimer() }
-            if configBreathingEnabled { startBreathing() }
-            startTwitchTimer()
+        if configEntryAnimationEnabled && !hasPlayedEntry {
+            // Set initial "stretched drop" state — tall and narrow
+            layer?.transform = CATransform3DMakeScale(0.6, 1.4, 1.0)
+            // Hide eyes — they pop open at the end of the bounce
+            for eyeLayer in eyeLayers {
+                eyeLayer.opacity = 0
+            }
+            // Don't start breathing/blink/twitch yet — they start after entry completes
+        } else {
+            if animationsActive {
+                if configBlinkEnabled { startBlinkTimer() }
+                if configBreathingEnabled { startBreathing() }
+                startTwitchTimer()
+            }
         }
     }
 
@@ -317,6 +336,34 @@ class AvatarLayerView: NSView {
 
         guard let window else {
             pauseAnimations()
+            return
+        }
+
+        // Entry animation: play once when view first appears in a window
+        if configEntryAnimationEnabled && !hasPlayedEntry {
+            hasPlayedEntry = true
+            animationsActive = true
+
+            let keyObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeKeyNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                self?.resumeAnimations()
+            }
+            let resignKeyObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didResignKeyNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                self?.pauseAnimations()
+            }
+            notificationObservers = [keyObserver, resignKeyObserver]
+
+            // Trigger entry after a runloop tick so the view is laid out
+            DispatchQueue.main.async { [weak self] in
+                self?.performEntryAnimation()
+            }
             return
         }
 
@@ -404,6 +451,61 @@ class AvatarLayerView: NSView {
         ]
         animation.isRemovedOnCompletion = true
         rootLayer.add(animation, forKey: "poke")
+    }
+
+    private func performEntryAnimation() {
+        guard let rootLayer = layer else { return }
+
+        // --- Body: stretch -> squash -> bounce -> settle -> rest ---
+        let bodyAnim = CAKeyframeAnimation(keyPath: "transform")
+        let stretched = CATransform3DMakeScale(0.6, 1.4, 1.0)
+        let squashed  = CATransform3DMakeScale(1.25, 0.65, 1.0)
+        let bounced   = CATransform3DMakeScale(0.92, 1.08, 1.0)
+        let settled   = CATransform3DMakeScale(1.03, 0.97, 1.0)
+        let identity  = CATransform3DIdentity
+
+        bodyAnim.values = [
+            NSValue(caTransform3D: stretched),  // Start: tall drop
+            NSValue(caTransform3D: squashed),   // Impact: splat wide + short
+            NSValue(caTransform3D: bounced),    // Rebound: overshoot tall
+            NSValue(caTransform3D: settled),    // Settle: slight undershoot
+            NSValue(caTransform3D: identity),   // Rest: normal
+        ]
+        bodyAnim.keyTimes = [0, 0.3, 0.58, 0.80, 1.0]
+        bodyAnim.duration = 0.5
+        bodyAnim.timingFunctions = [
+            CAMediaTimingFunction(name: .easeIn),        // stretch -> squash (accelerating impact)
+            CAMediaTimingFunction(name: .easeOut),        // squash -> bounce (springy rebound)
+            CAMediaTimingFunction(name: .easeInEaseOut),  // bounce -> settle (gentle oscillation)
+            CAMediaTimingFunction(name: .easeOut),        // settle -> rest (smooth finish)
+        ]
+        bodyAnim.isRemovedOnCompletion = true
+        rootLayer.transform = CATransform3DIdentity  // set model to final state
+        rootLayer.add(bodyAnim, forKey: "entry")
+
+        // --- Eyes: pop open during the bounce-back phase ---
+        let eyeDelay: TimeInterval = 0.35
+        DispatchQueue.main.asyncAfter(deadline: .now() + eyeDelay) { [weak self] in
+            guard let self else { return }
+            for eyeLayer in self.eyeLayers {
+                let opacityAnim = CABasicAnimation(keyPath: "opacity")
+                opacityAnim.fromValue = 0
+                opacityAnim.toValue = 1
+                opacityAnim.duration = 0.08
+                opacityAnim.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                eyeLayer.opacity = 1
+                eyeLayer.add(opacityAnim, forKey: "eyeReveal")
+            }
+        }
+
+        // --- Start other animations after entry completes ---
+        let entryDuration: TimeInterval = 0.5
+        DispatchQueue.main.asyncAfter(deadline: .now() + entryDuration) { [weak self] in
+            guard let self, self.animationsActive else { return }
+            if self.configBlinkEnabled { self.startBlinkTimer() }
+            if self.configBreathingEnabled { self.startBreathing() }
+            self.startTwitchTimer()
+        }
     }
 
     private func performBlink() {

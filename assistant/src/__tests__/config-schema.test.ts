@@ -67,7 +67,10 @@ import {
   resolveVoiceQualityProfile,
 } from "../calls/voice-quality.js";
 import { invalidateConfigCache, loadConfig } from "../config/loader.js";
-import { AssistantConfigSchema } from "../config/schema.js";
+import {
+  AssistantConfigSchema,
+  DEFAULT_ELEVENLABS_VOICE_ID,
+} from "../config/schema.js";
 import { _setStorePath } from "../security/encrypted-store.js";
 import { _setBackend } from "../security/secure-keys.js";
 
@@ -89,7 +92,6 @@ describe("AssistantConfigSchema", () => {
     expect(result.provider).toBe("anthropic");
     expect(result.model).toBe("claude-opus-4-6");
     expect(result.maxTokens).toBe(16000);
-    expect(result.apiKeys).toEqual({});
     expect(result.thinking).toEqual({
       enabled: false,
       streamThinking: false,
@@ -137,7 +139,6 @@ describe("AssistantConfigSchema", () => {
       provider: "openai",
       model: "gpt-4",
       maxTokens: 4096,
-      apiKeys: { openai: "sk-test" },
       thinking: { enabled: true },
       timeouts: {
         shellDefaultTimeoutSec: 30,
@@ -354,13 +355,6 @@ describe("AssistantConfigSchema", () => {
   test("rejects negative auditLog.retentionDays", () => {
     const result = AssistantConfigSchema.safeParse({
       auditLog: { retentionDays: -7 },
-    });
-    expect(result.success).toBe(false);
-  });
-
-  test("rejects non-string apiKeys values", () => {
-    const result = AssistantConfigSchema.safeParse({
-      apiKeys: { anthropic: 123 },
     });
     expect(result.success).toBe(false);
   });
@@ -906,10 +900,10 @@ describe("resolveVoiceQualityProfile", () => {
     expect(profile.voice).toBe("test-voice-id");
   });
 
-  test("defaults to Rachel voice ID when elevenlabs.voiceId is not set", () => {
+  test("defaults to Amelia voice ID when elevenlabs.voiceId is not set", () => {
     const config = AssistantConfigSchema.parse({});
     const profile = resolveVoiceQualityProfile(config);
-    expect(profile.voice).toBe("21m00Tcm4TlvDq8ikWAM");
+    expect(profile.voice).toBe(DEFAULT_ELEVENLABS_VOICE_ID);
   });
 
   test("applies voice tuning params from elevenlabs config", () => {
@@ -1163,31 +1157,6 @@ describe("loadConfig with schema validation", () => {
     writeConfig({ permissions: { mode: "yolo" } });
     const config = loadConfig();
     expect(config.permissions.mode).toBe("workspace");
-  });
-
-  test("does not mutate default apiKeys when fallback config is overridden by env keys", () => {
-    const originalAnthropicApiKey = process.env.ANTHROPIC_API_KEY;
-    try {
-      const testKey = ["test", "in", "memory", "default", "leak"].join("-");
-      process.env.ANTHROPIC_API_KEY = testKey;
-      writeConfig("this is not a config object");
-
-      const configWithEnv = loadConfig();
-      expect(configWithEnv.apiKeys.anthropic).toBe(testKey);
-
-      invalidateConfigCache();
-      delete process.env.ANTHROPIC_API_KEY;
-      writeConfig("still not a config object");
-
-      const configWithoutEnv = loadConfig();
-      expect(configWithoutEnv.apiKeys.anthropic).toBeUndefined();
-    } finally {
-      if (originalAnthropicApiKey !== undefined) {
-        process.env.ANTHROPIC_API_KEY = originalAnthropicApiKey;
-      } else {
-        delete process.env.ANTHROPIC_API_KEY;
-      }
-    }
   });
 
   // ── Calls config (loader integration) ──────────────────────────────

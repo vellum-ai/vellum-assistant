@@ -891,10 +891,12 @@ public struct ContactChannelPayload: Codable, Sendable {
     public let verifiedAt: Int?
     public let verifiedVia: String?
     public let lastSeenAt: Int?
+    public let interactionCount: Int?
+    public let lastInteraction: Int?
     public let revokedReason: String?
     public let blockedReason: String?
 
-    public init(id: String, type: String, address: String, isPrimary: Bool, externalUserId: String? = nil, status: String, policy: String, verifiedAt: Int? = nil, verifiedVia: String? = nil, lastSeenAt: Int? = nil, revokedReason: String? = nil, blockedReason: String? = nil) {
+    public init(id: String, type: String, address: String, isPrimary: Bool, externalUserId: String? = nil, status: String, policy: String, verifiedAt: Int? = nil, verifiedVia: String? = nil, lastSeenAt: Int? = nil, interactionCount: Int? = nil, lastInteraction: Int? = nil, revokedReason: String? = nil, blockedReason: String? = nil) {
         self.id = id
         self.type = type
         self.address = address
@@ -905,6 +907,8 @@ public struct ContactChannelPayload: Codable, Sendable {
         self.verifiedAt = verifiedAt
         self.verifiedVia = verifiedVia
         self.lastSeenAt = lastSeenAt
+        self.interactionCount = interactionCount
+        self.lastInteraction = lastInteraction
         self.revokedReason = revokedReason
         self.blockedReason = blockedReason
     }
@@ -4245,6 +4249,7 @@ public struct TelegramConfigResponse: Codable, Sendable {
     public let type: String
     public let success: Bool
     public let hasBotToken: Bool
+    public let botId: String?
     public let botUsername: String?
     public let connected: Bool
     public let hasWebhookSecret: Bool
@@ -4255,10 +4260,11 @@ public struct TelegramConfigResponse: Codable, Sendable {
     /// Non-fatal warning (e.g. commands registration failed during setup but token was configured).
     public let warning: String?
 
-    public init(type: String, success: Bool, hasBotToken: Bool, botUsername: String? = nil, connected: Bool, hasWebhookSecret: Bool, lastError: String? = nil, error: String? = nil, commandsRegistered: [String]? = nil, warning: String? = nil) {
+    public init(type: String, success: Bool, hasBotToken: Bool, botId: String? = nil, botUsername: String? = nil, connected: Bool, hasWebhookSecret: Bool, lastError: String? = nil, error: String? = nil, commandsRegistered: [String]? = nil, warning: String? = nil) {
         self.type = type
         self.success = success
         self.hasBotToken = hasBotToken
+        self.botId = botId
         self.botUsername = botUsername
         self.connected = connected
         self.hasWebhookSecret = hasWebhookSecret
