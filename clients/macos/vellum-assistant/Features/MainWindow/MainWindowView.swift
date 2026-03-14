@@ -700,6 +700,15 @@ struct MainWindowView: View {
                 }
             }
         }
+        .onChange(of: windowState.showManagedHatching) { oldValue, newValue in
+            // When the hatching overlay completes successfully, also dismiss
+            // the skeleton so it doesn't briefly flash during the transition.
+            if !newValue && oldValue && showDaemonLoading {
+                withAnimation(VAnimation.standard) {
+                    showDaemonLoading = false
+                }
+            }
+        }
         .onChange(of: threadManager.threads.isEmpty) { _, isEmpty in
             // Dismiss skeleton when threads arrive from daemon
             if !isEmpty && showDaemonLoading {
