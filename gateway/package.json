@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/vellum-gateway",
-  "version": "0.4.54",
+  "version": "0.4.55",
   "type": "module",
   "exports": {
     "./twilio/verify": "./src/twilio/verify.ts",
