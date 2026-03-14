@@ -132,6 +132,10 @@ mock.module("../signals/trust-rule.js", () => ({
   handleTrustRuleSignal: () => {},
 }));
 
+mock.module("../signals/conversation-undo.js", () => ({
+  handleConversationUndoSignal: () => {},
+}));
+
 let resetAllowlistCallCount = 0;
 mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {
