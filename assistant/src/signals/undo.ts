@@ -57,6 +57,8 @@ export async function handleUndoSignal(): Promise<void> {
     }
   };
 
+  let parsedRequestId: string | undefined;
+
   try {
     const content = readFileSync(
       join(getWorkspaceDir(), "signals", "undo"),
@@ -67,6 +69,7 @@ export async function handleUndoSignal(): Promise<void> {
       requestId?: string;
     };
     const { sessionId, requestId } = parsed;
+    parsedRequestId = requestId;
 
     if (!sessionId || typeof sessionId !== "string") {
       log.warn("Undo signal missing sessionId");
@@ -111,7 +114,7 @@ export async function handleUndoSignal(): Promise<void> {
     writeResult({
       ok: false,
       error: "Internal error",
-      requestId: null,
+      requestId: parsedRequestId ?? null,
     });
   }
 }
