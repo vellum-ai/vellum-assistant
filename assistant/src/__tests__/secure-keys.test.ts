@@ -77,6 +77,7 @@ import {
   getBackendType,
   getSecureKeyAsync,
   listSecureKeys,
+  listSecureKeysAsync,
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
 
@@ -412,6 +413,98 @@ describe("secure-keys", () => {
 
       // Broker should still have original value
       expect(mockBrokerStore.get("api-key")).toBe("original-value");
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // listSecureKeysAsync — merged/deduplicated key listing
+  // -----------------------------------------------------------------------
+  describe("listSecureKeysAsync", () => {
+    test("returns merged, deduplicated keys when broker is primary and encrypted store has legacy keys", async () => {
+      mockBrokerAvailable = true;
+      _resetBackend();
+
+      // Broker has some keys
+      mockBrokerStore.set("broker-key-1", "val1");
+      mockBrokerStore.set("shared-key", "broker-val");
+
+      // Encrypted store has legacy keys (some overlapping)
+      encryptedStore.setKey("legacy-key-1", "val2");
+      encryptedStore.setKey("shared-key", "enc-val");
+
+      const keys = await listSecureKeysAsync();
+      expect(keys).toContain("broker-key-1");
+      expect(keys).toContain("legacy-key-1");
+      expect(keys).toContain("shared-key");
+      // Should be exactly 3 unique keys (no duplicates)
+      expect(keys.length).toBe(3);
+    });
+
+    test("returns only encrypted store keys when broker is unavailable", async () => {
+      // Broker unavailable (default state) — primary backend is encrypted store
+      encryptedStore.setKey("enc-key-1", "val1");
+      encryptedStore.setKey("enc-key-2", "val2");
+
+      const keys = await listSecureKeysAsync();
+      expect(keys).toContain("enc-key-1");
+      expect(keys).toContain("enc-key-2");
+      expect(keys.length).toBe(2);
+    });
+
+    test("returns only encrypted store keys when VELLUM_DEV=1 (even if broker available)", async () => {
+      process.env.VELLUM_DEV = "1";
+      mockBrokerAvailable = true;
+      _resetBackend();
+
+      // Broker has keys that should be ignored
+      mockBrokerStore.set("broker-only", "val1");
+
+      // Encrypted store has keys
+      encryptedStore.setKey("dev-key-1", "val2");
+      encryptedStore.setKey("dev-key-2", "val3");
+
+      const keys = await listSecureKeysAsync();
+      expect(keys).toContain("dev-key-1");
+      expect(keys).toContain("dev-key-2");
+      // broker-only key should NOT appear since primary backend is encrypted store
+      expect(keys).not.toContain("broker-only");
+      expect(keys.length).toBe(2);
+    });
+
+    test("returns broker-only keys when encrypted store is empty", async () => {
+      mockBrokerAvailable = true;
+      _resetBackend();
+
+      mockBrokerStore.set("broker-key-1", "val1");
+      mockBrokerStore.set("broker-key-2", "val2");
+
+      const keys = await listSecureKeysAsync();
+      expect(keys).toContain("broker-key-1");
+      expect(keys).toContain("broker-key-2");
+      expect(keys.length).toBe(2);
+    });
+
+    test("deduplicates keys that exist in both stores", async () => {
+      mockBrokerAvailable = true;
+      _resetBackend();
+
+      // Same key in both stores
+      mockBrokerStore.set("api-key", "broker-val");
+      encryptedStore.setKey("api-key", "enc-val");
+
+      const keys = await listSecureKeysAsync();
+      expect(keys).toContain("api-key");
+      // Only one copy, not two
+      expect(keys.length).toBe(1);
+      expect(keys.filter((k) => k === "api-key").length).toBe(1);
+    });
+
+    test("returns empty array when both stores are empty", async () => {
+      mockBrokerAvailable = true;
+      _resetBackend();
+
+      const keys = await listSecureKeysAsync();
+      expect(keys).toEqual([]);
     });
   });
 });
