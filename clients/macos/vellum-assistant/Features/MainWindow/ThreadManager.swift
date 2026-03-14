@@ -705,6 +705,13 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
     }
 
+    /// Select a thread by its daemon conversation ID (sessionId).
+    /// Falls back to no-op if no matching thread is found.
+    func selectThreadBySessionId(_ sessionId: String) {
+        guard let thread = threads.first(where: { $0.sessionId == sessionId }) else { return }
+        selectThread(id: thread.id)
+    }
+
     // MARK: - Render Cache Management
 
     /// Clears static render caches used by chat bubble and markdown views.

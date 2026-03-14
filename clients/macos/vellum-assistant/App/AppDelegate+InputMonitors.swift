@@ -351,6 +351,14 @@ extension AppDelegate {
             self?.mainWindow?.threadManager.selectThread(id: threadId)
         }
 
+        window.onSelectSearchConversation = { [weak self] sessionId in
+            self?.mainWindow?.threadManager.selectThreadBySessionId(sessionId)
+            // Also ensure we're showing the thread view (not a panel)
+            if let threadId = self?.mainWindow?.threadManager.activeThreadId {
+                self?.mainWindow?.windowState.selection = .thread(threadId)
+            }
+        }
+
         // Wire runtime HTTP resolver for server search
         window.runtimeHTTPResolver = {
             let port = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"]
