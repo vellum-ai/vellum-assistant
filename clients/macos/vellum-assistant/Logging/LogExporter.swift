@@ -116,7 +116,7 @@ enum LogExporter {
             event.fingerprint = ["log_report", formData.reason.rawValue, categoryComponent]
 
             // User-provided context (message, email, category) is sent via
-            // Sentry's UserFeedback API, linked to the event. This keeps PII
+            // Sentry's Feedback API, linked to the event. This keeps PII
             // out of event tags/extras and lets us use Sentry's built-in
             // feedback UI for triage.
             let feedback = MetricKitManager.UserFeedbackData(
@@ -243,7 +243,7 @@ enum LogExporter {
 
         // 9. Report metadata — reason and message from the log report form.
         // Email is excluded from the archive since it's already sent via
-        // Sentry's UserFeedback API (linked to the event).
+        // Sentry's Feedback API (linked to the event).
         if let formData {
             var metadata: [String: String] = [
                 "reason": formData.reason.rawValue,
