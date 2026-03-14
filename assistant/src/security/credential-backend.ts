@@ -7,7 +7,13 @@
 import * as encryptedStore from "./encrypted-store.js";
 import type { KeychainBrokerClient } from "./keychain-broker-client.js";
 import { createBrokerClient } from "./keychain-broker-client.js";
-import type { DeleteResult } from "./secure-keys.js";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+/** Result of a delete operation — distinguishes success, not-found, and error. */
+export type DeleteResult = "deleted" | "not-found" | "error";
 
 // ---------------------------------------------------------------------------
 // Interface
@@ -68,6 +74,8 @@ export class KeychainBackend implements CredentialBackend {
   async delete(account: string): Promise<DeleteResult> {
     try {
       const ok = await this.client.del(account);
+      // The keychain broker returns a boolean — it does not distinguish
+      // "not found" from a genuine error, so we map false → "error".
       return ok ? "deleted" : "error";
     } catch {
       return "error";
@@ -95,19 +103,35 @@ export class EncryptedStoreBackend implements CredentialBackend {
   }
 
   async get(account: string): Promise<string | undefined> {
-    return encryptedStore.getKey(account);
+    try {
+      return encryptedStore.getKey(account);
+    } catch {
+      return undefined;
+    }
   }
 
   async set(account: string, value: string): Promise<boolean> {
-    return encryptedStore.setKey(account, value);
+    try {
+      return encryptedStore.setKey(account, value);
+    } catch {
+      return false;
+    }
   }
 
   async delete(account: string): Promise<DeleteResult> {
-    return encryptedStore.deleteKey(account);
+    try {
+      return encryptedStore.deleteKey(account);
+    } catch {
+      return "error";
+    }
   }
 
   async list(): Promise<string[]> {
-    return encryptedStore.listKeys();
+    try {
+      return encryptedStore.listKeys();
+    } catch {
+      return [];
+    }
   }
 }
 
