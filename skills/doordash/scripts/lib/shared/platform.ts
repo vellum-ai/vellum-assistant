@@ -39,6 +39,9 @@ export function buildDaemonUrl(port?: number): string {
   return `http://127.0.0.1:${port ?? getHttpPort()}`;
 }
 
+/** Must stay in sync with assistant/src/runtime/auth/policy.ts. */
+const CURRENT_POLICY_EPOCH = 1;
+
 function base64urlEncode(data: Buffer | string): string {
   const buf = typeof data === "string" ? Buffer.from(data, "utf-8") : data;
   return buf.toString("base64url");
@@ -62,10 +65,10 @@ export function readHttpToken(): string | null {
     const claims = {
       iss: "vellum-auth",
       aud: "vellum-gateway",
-      sub: "svc:cli:local",
+      sub: "local:cli:cli",
       scope_profile: "actor_client_v1",
       exp: now + 300,
-      policy_epoch: 1,
+      policy_epoch: CURRENT_POLICY_EPOCH,
       iat: now,
       jti: randomBytes(16).toString("hex"),
     };
