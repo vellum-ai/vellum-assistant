@@ -105,7 +105,10 @@ mock.module("../security/oauth2.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { credentialKey } from "../security/credential-key.js";
-import { getSecureKey, setSecureKey } from "../security/secure-keys.js";
+import {
+  getSecureKeyAsync,
+  setSecureKeyAsync,
+} from "../security/secure-keys.js";
 import { CredentialBroker } from "../tools/credentials/broker.js";
 import {
   _setMetadataPath,
@@ -205,7 +208,7 @@ describe("CredentialBroker transient credentials", () => {
     upsertCredentialMetadata("github", "token", {
       allowedTools: ["browser_fill_credential"],
     });
-    setSecureKey(credentialKey("github", "token"), "stored-value");
+    await setSecureKeyAsync(credentialKey("github", "token"), "stored-value");
     broker.injectTransient("github", "token", "transient-value");
 
     // First fill uses transient
@@ -468,9 +471,9 @@ describe("credential_store tool — prompt action", () => {
     expect(result.content).not.toContain("prompt-secret-val");
 
     // Verify stored
-    expect(getSecureKey(credentialKey("test-prompt", "api_key"))).toBe(
-      "prompt-secret-val",
-    );
+    expect(
+      await getSecureKeyAsync(credentialKey("test-prompt", "api_key")),
+    ).toBe("prompt-secret-val");
   });
 
   test("prompt with policy fields persists metadata", async () => {
@@ -702,7 +705,10 @@ describe("credential_store tool — oauth2_connect error paths", () => {
       callbackTransport: "loopback",
       loopbackPort: 8756,
     }));
-    setSecureKey("oauth_app/test-app-id/client_secret", "test-secret");
+    await setSecureKeyAsync(
+      "oauth_app/test-app-id/client_secret",
+      "test-secret",
+    );
 
     const result = await credentialStoreTool.execute(
       {
@@ -756,7 +762,10 @@ describe("credential_store tool — oauth2_connect error paths", () => {
       callbackTransport: "loopback",
       loopbackPort: 8756,
     }));
-    setSecureKey("oauth_app/matched-app-id/client_secret", "matched-secret");
+    await setSecureKeyAsync(
+      "oauth_app/matched-app-id/client_secret",
+      "matched-secret",
+    );
 
     const result = await credentialStoreTool.execute(
       {
@@ -797,7 +806,10 @@ describe("credential_store tool — oauth2_connect error paths", () => {
       callbackTransport: "loopback",
       loopbackPort: 8756,
     }));
-    setSecureKey("oauth_app/recent-app-id/client_secret", "recent-secret");
+    await setSecureKeyAsync(
+      "oauth_app/recent-app-id/client_secret",
+      "recent-secret",
+    );
 
     const result = await credentialStoreTool.execute(
       {
@@ -1024,7 +1036,9 @@ describe("credential_store tool — store validation edge cases", () => {
     );
 
     // Verify stored
-    expect(getSecureKey(credentialKey("del-test", "key"))).toBe("secret");
+    expect(await getSecureKeyAsync(credentialKey("del-test", "key"))).toBe(
+      "secret",
+    );
     const { getCredentialMetadata } =
       await import("../tools/credentials/metadata-store.js");
     expect(getCredentialMetadata("del-test", "key")).toBeDefined();
@@ -1041,7 +1055,9 @@ describe("credential_store tool — store validation edge cases", () => {
     expect(result.isError).toBe(false);
 
     // Both should be gone
-    expect(getSecureKey(credentialKey("del-test", "key"))).toBeUndefined();
+    expect(
+      await getSecureKeyAsync(credentialKey("del-test", "key")),
+    ).toBeUndefined();
     expect(getCredentialMetadata("del-test", "key")).toBeUndefined();
   });
 });
@@ -1130,7 +1146,7 @@ describe("CredentialBroker — serverUseById edge cases", () => {
         },
       ],
     });
-    setSecureKey(credentialKey("multi", "api_key"), "multi-secret");
+    await setSecureKeyAsync(credentialKey("multi", "api_key"), "multi-secret");
 
     const result = await broker.serverUseById({
       credentialId: meta.credentialId,

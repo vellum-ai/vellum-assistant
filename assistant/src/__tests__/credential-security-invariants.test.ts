@@ -65,7 +65,10 @@ mock.module("../tools/registry.js", () => ({
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 import { credentialKey } from "../security/credential-key.js";
 import { redactSensitiveFields } from "../security/redaction.js";
-import { getSecureKey, setSecureKey } from "../security/secure-keys.js";
+import {
+  getSecureKeyAsync,
+  setSecureKeyAsync,
+} from "../security/secure-keys.js";
 import { CredentialBroker } from "../tools/credentials/broker.js";
 import {
   _setMetadataPath,
@@ -438,7 +441,7 @@ describe("Invariant 4: credentials only used for allowed purpose", () => {
         allowedTools: tc.allowedTools,
         allowedDomains: tc.allowedDomains,
       });
-      setSecureKey(
+      await setSecureKeyAsync(
         credentialKey(tc.credentialId, "token"),
         "test-secret-value",
       );
@@ -466,7 +469,7 @@ describe("Invariant 4: credentials only used for allowed purpose", () => {
       allowedTools: ["browser_fill_credential"],
       allowedDomains: ["github.com"],
     });
-    setSecureKey(credentialKey("github", "token"), "ghp_secret123");
+    await setSecureKeyAsync(credentialKey("github", "token"), "ghp_secret123");
 
     const result = await broker.browserFill({
       service: "github",
@@ -530,8 +533,8 @@ describe("Invariant 6: oauth2ClientSecret not in metadata, only in secure store"
     expect("oauth2ClientId" in record).toBe(false);
   });
 
-  test("client secret is read from secure store, not metadata", () => {
-    setSecureKey(
+  test("client secret is read from secure store, not metadata", async () => {
+    await setSecureKeyAsync(
       credentialKey("integration:google", "client_secret"),
       "my-secret",
     );
@@ -548,7 +551,9 @@ describe("Invariant 6: oauth2ClientSecret not in metadata, only in secure store"
 
     // Secret is in secure store
     expect(
-      getSecureKey(credentialKey("integration:google", "client_secret")),
+      await getSecureKeyAsync(
+        credentialKey("integration:google", "client_secret"),
+      ),
     ).toBe("my-secret");
   });
 

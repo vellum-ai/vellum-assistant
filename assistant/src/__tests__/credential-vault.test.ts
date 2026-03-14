@@ -132,13 +132,13 @@ mock.module("../oauth/oauth-store.js", () => {
 // Import the module under test
 // ---------------------------------------------------------------------------
 
-// getCredentialValue is no longer exported (sealed in PR 17) — use getSecureKey directly
+// getCredentialValue is no longer exported (sealed in PR 17) — use getSecureKeyAsync directly
 
 import { credentialKey } from "../security/credential-key.js";
 import {
-  deleteSecureKey,
-  getSecureKey,
-  setSecureKey,
+  deleteSecureKeyAsync,
+  getSecureKeyAsync,
+  setSecureKeyAsync,
 } from "../security/secure-keys.js";
 import {
   _resetInflightRefreshes,
@@ -210,7 +210,7 @@ async function executeVault(
       }
 
       const key = credentialKey(service, field);
-      const ok = setSecureKey(key, value);
+      const ok = await setSecureKeyAsync(key, value);
       if (!ok) {
         return { content: "Error: failed to store credential", isError: true };
       }
@@ -241,7 +241,7 @@ async function executeVault(
       }
 
       const key = credentialKey(service, field);
-      const result = deleteSecureKey(key);
+      const result = await deleteSecureKeyAsync(key);
       if (result !== "deleted") {
         return {
           content: `Error: credential ${service}/${field} not found`,
@@ -645,7 +645,7 @@ describe("credential_store tool", () => {
 
       // Delete the secret directly without going through the tool (simulates
       // a divergence where metadata write failed after secret deletion)
-      deleteSecureKey(credentialKey("svc-a", "key"));
+      await deleteSecureKeyAsync(credentialKey("svc-a", "key"));
 
       const result = await credentialStoreTool.execute(
         { action: "list" },
@@ -688,7 +688,7 @@ describe("credential_store tool", () => {
   // -----------------------------------------------------------------------
   describe("delete action", () => {
     test("deletes a stored credential", async () => {
-      setSecureKey(credentialKey("gmail", "password"), "secret");
+      await setSecureKeyAsync(credentialKey("gmail", "password"), "secret");
 
       const result = await executeVault({
         action: "delete",
@@ -699,7 +699,9 @@ describe("credential_store tool", () => {
       expect(result.content).toBe("Deleted credential for gmail/password.");
 
       // Verify it's actually gone
-      expect(getSecureKey(credentialKey("gmail", "password"))).toBeUndefined();
+      expect(
+        await getSecureKeyAsync(credentialKey("gmail", "password")),
+      ).toBeUndefined();
     });
 
     test("returns error for non-existent credential", async () => {
@@ -773,14 +775,16 @@ describe("credential_store tool", () => {
   // Credential value access (sealed — only via secure-keys internally)
   // -----------------------------------------------------------------------
   describe("credential value access", () => {
-    test("credential values are stored via secure keys", () => {
-      setSecureKey(credentialKey("github", "token"), "ghp_abc123");
-      expect(getSecureKey(credentialKey("github", "token"))).toBe("ghp_abc123");
+    test("credential values are stored via secure keys", async () => {
+      await setSecureKeyAsync(credentialKey("github", "token"), "ghp_abc123");
+      expect(await getSecureKeyAsync(credentialKey("github", "token"))).toBe(
+        "ghp_abc123",
+      );
     });
 
-    test("returns undefined for non-existent credential", () => {
+    test("returns undefined for non-existent credential", async () => {
       expect(
-        getSecureKey(credentialKey("nonexistent", "field")),
+        await getSecureKeyAsync(credentialKey("nonexistent", "field")),
       ).toBeUndefined();
     });
   });
@@ -1226,10 +1230,10 @@ describe("credential_store tool", () => {
         value: "github-pass",
       });
 
-      expect(getSecureKey(credentialKey("gmail", "password"))).toBe(
+      expect(await getSecureKeyAsync(credentialKey("gmail", "password"))).toBe(
         "gmail-pass",
       );
-      expect(getSecureKey(credentialKey("github", "password"))).toBe(
+      expect(await getSecureKeyAsync(credentialKey("github", "password"))).toBe(
         "github-pass",
       );
     });
@@ -1248,10 +1252,12 @@ describe("credential_store tool", () => {
         value: "backup@example.com",
       });
 
-      expect(getSecureKey(credentialKey("gmail", "password"))).toBe("pass123");
-      expect(getSecureKey(credentialKey("gmail", "recovery_email"))).toBe(
-        "backup@example.com",
+      expect(await getSecureKeyAsync(credentialKey("gmail", "password"))).toBe(
+        "pass123",
       );
+      expect(
+        await getSecureKeyAsync(credentialKey("gmail", "recovery_email")),
+      ).toBe("backup@example.com");
     });
   });
 });
@@ -1303,7 +1309,7 @@ describe("withValidToken refresh deduplication", () => {
    * OAuth-specific fields (tokenUrl, clientId, expiresAt) are now stored
    * in the SQLite oauth-store. The mock maps simulate the DB layer.
    */
-  function setupService(
+  async function setupService(
     service: string,
     opts?: { expired?: boolean; accessToken?: string },
   ) {
@@ -1315,7 +1321,10 @@ describe("withValidToken refresh deduplication", () => {
 
     // Store access token under the oauth_connection key path that
     // withValidToken reads (not the legacy credentialKey path).
-    setSecureKey(`oauth_connection/${connId}/access_token`, accessToken);
+    await setSecureKeyAsync(
+      `oauth_connection/${connId}/access_token`,
+      accessToken,
+    );
     mockProviders.set(service, {
       key: service,
       tokenUrl: "https://oauth.example.com/token",
@@ -1335,15 +1344,18 @@ describe("withValidToken refresh deduplication", () => {
         : Date.now() + 3600_000, // expires in 1 hour
     });
     // Store refresh token and client_secret in secure keys (token-manager reads them)
-    setSecureKey(
+    await setSecureKeyAsync(
       `oauth_connection/${connId}/refresh_token`,
       "valid-refresh-token",
     );
-    setSecureKey(`oauth_app/${appId}/client_secret`, "test-client-secret");
+    await setSecureKeyAsync(
+      `oauth_app/${appId}/client_secret`,
+      "test-client-secret",
+    );
   }
 
   test("3 concurrent 401 refreshes for the same service call doRefresh exactly once", async () => {
-    setupService("integration:google");
+    await setupService("integration:google");
 
     let resolveRefresh!: (value: {
       accessToken: string;
@@ -1391,8 +1403,8 @@ describe("withValidToken refresh deduplication", () => {
   });
 
   test("concurrent refreshes for different services proceed independently", async () => {
-    setupService("integration:google");
-    setupService("integration:slack");
+    await setupService("integration:google");
+    await setupService("integration:slack");
 
     let resolveGmail!: (value: {
       accessToken: string;
@@ -1455,7 +1467,7 @@ describe("withValidToken refresh deduplication", () => {
   });
 
   test("deduplication cleans up after refresh completes, allowing subsequent refreshes", async () => {
-    setupService("integration:google");
+    await setupService("integration:google");
 
     let refreshCount = 0;
     mockRefreshOAuth2Token.mockImplementation(() => {
@@ -1495,7 +1507,7 @@ describe("withValidToken refresh deduplication", () => {
   });
 
   test("deduplication propagates refresh errors to all waiting callers", async () => {
-    setupService("integration:google");
+    await setupService("integration:google");
 
     mockRefreshOAuth2Token.mockImplementation(() =>
       Promise.reject(

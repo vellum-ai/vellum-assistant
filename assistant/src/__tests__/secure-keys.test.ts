@@ -71,14 +71,11 @@ import { _setStorePath } from "../security/encrypted-store.js";
 import {
   _resetBackend,
   _setBackend,
-  deleteSecureKey,
   deleteSecureKeyAsync,
   getBackendType,
-  getSecureKey,
   getSecureKeyAsync,
   isDowngradedFromKeychain,
   listSecureKeys,
-  setSecureKey,
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
 
@@ -141,68 +138,35 @@ describe("secure-keys", () => {
   });
 
   // -----------------------------------------------------------------------
-  // CRUD operations (via encrypted store backend — sync)
+  // CRUD operations (via encrypted store backend — async)
   // -----------------------------------------------------------------------
-  describe("CRUD with encrypted backend (sync)", () => {
-    test("set and get a key", () => {
-      setSecureKey("openai", "sk-openai-789");
-      expect(getSecureKey("openai")).toBe("sk-openai-789");
+  describe("CRUD with encrypted backend (async)", () => {
+    test("set and get a key", async () => {
+      await setSecureKeyAsync("openai", "sk-openai-789");
+      expect(await getSecureKeyAsync("openai")).toBe("sk-openai-789");
     });
 
-    test("get returns undefined for nonexistent key", () => {
-      expect(getSecureKey("nonexistent")).toBeUndefined();
+    test("get returns undefined for nonexistent key", async () => {
+      expect(await getSecureKeyAsync("nonexistent")).toBeUndefined();
     });
 
-    test("delete removes a key", () => {
-      setSecureKey("gemini", "gem-key");
-      expect(deleteSecureKey("gemini")).toBe("deleted");
-      expect(getSecureKey("gemini")).toBeUndefined();
+    test("delete removes a key", async () => {
+      await setSecureKeyAsync("gemini", "gem-key");
+      expect(await deleteSecureKeyAsync("gemini")).toBe("deleted");
+      expect(await getSecureKeyAsync("gemini")).toBeUndefined();
     });
 
-    test("delete returns not-found for nonexistent key", () => {
-      expect(deleteSecureKey("missing")).toBe("not-found");
+    test("delete returns not-found for nonexistent key", async () => {
+      expect(await deleteSecureKeyAsync("missing")).toBe("not-found");
     });
 
-    test("listSecureKeys returns all keys", () => {
-      setSecureKey("anthropic", "val1");
-      setSecureKey("openai", "val2");
+    test("listSecureKeys returns all keys", async () => {
+      await setSecureKeyAsync("anthropic", "val1");
+      await setSecureKeyAsync("openai", "val2");
       const keys = listSecureKeys();
       expect(keys).toContain("anthropic");
       expect(keys).toContain("openai");
       expect(keys.length).toBe(2);
-    });
-  });
-
-  // -----------------------------------------------------------------------
-  // Sync variants always use encrypted store even when broker is available
-  // -----------------------------------------------------------------------
-  describe("sync variants ignore broker", () => {
-    test("getSecureKey uses encrypted store even when broker is available", () => {
-      mockBrokerAvailable = true;
-      mockBrokerStore.set("api-key", "broker-value");
-      // Sync getter should not see broker-only keys
-      expect(getSecureKey("api-key")).toBeUndefined();
-      // But encrypted store keys should work
-      setSecureKey("api-key", "encrypted-value");
-      expect(getSecureKey("api-key")).toBe("encrypted-value");
-    });
-
-    test("setSecureKey uses encrypted store even when broker is available", () => {
-      mockBrokerAvailable = true;
-      setSecureKey("api-key", "encrypted-value");
-      expect(getSecureKey("api-key")).toBe("encrypted-value");
-      // Should not have written to broker
-      expect(mockBrokerStore.has("api-key")).toBe(false);
-    });
-
-    test("deleteSecureKey uses encrypted store even when broker is available", () => {
-      mockBrokerAvailable = true;
-      mockBrokerStore.set("api-key", "broker-value");
-      setSecureKey("api-key", "encrypted-value");
-      deleteSecureKey("api-key");
-      expect(getSecureKey("api-key")).toBeUndefined();
-      // Broker value should be untouched
-      expect(mockBrokerStore.has("api-key")).toBe(true);
     });
   });
 
@@ -213,7 +177,7 @@ describe("secure-keys", () => {
     test("getSecureKeyAsync returns encrypted store value when both stores have key", async () => {
       mockBrokerAvailable = true;
       mockBrokerStore.set("api-key", "broker-value");
-      setSecureKey("api-key", "encrypted-value");
+      await setSecureKeyAsync("api-key", "encrypted-value");
       // Encrypted store is checked first — broker is never called
       expect(await getSecureKeyAsync("api-key")).toBe("encrypted-value");
       expect(mockBrokerGetCalled).toBe(false);
@@ -223,7 +187,7 @@ describe("secure-keys", () => {
       mockBrokerAvailable = true;
       // Only encrypted store has the key — broker has nothing.
       // Encrypted store is checked first, so broker.get() is never called.
-      setSecureKey("api-key", "encrypted-value");
+      await setSecureKeyAsync("api-key", "encrypted-value");
       expect(await getSecureKeyAsync("api-key")).toBe("encrypted-value");
       expect(mockBrokerGetCalled).toBe(false);
     });
@@ -239,7 +203,7 @@ describe("secure-keys", () => {
       mockBrokerGetError = true;
       // Encrypted store hit short-circuits — broker is never called, so
       // the broker error flag is irrelevant.
-      setSecureKey("api-key", "encrypted-value");
+      await setSecureKeyAsync("api-key", "encrypted-value");
       expect(await getSecureKeyAsync("api-key")).toBe("encrypted-value");
       expect(mockBrokerGetCalled).toBe(false);
     });
@@ -249,8 +213,8 @@ describe("secure-keys", () => {
       const result = await setSecureKeyAsync("api-key", "new-value");
       expect(result).toBe(true);
       expect(mockBrokerStore.get("api-key")).toBe("new-value");
-      // Also persisted to encrypted store for sync callers
-      expect(getSecureKey("api-key")).toBe("new-value");
+      // Also persisted to encrypted store
+      expect(await getSecureKeyAsync("api-key")).toBe("new-value");
     });
 
     test("setSecureKeyAsync returns false on broker set error (no silent fallback)", async () => {
@@ -262,29 +226,29 @@ describe("secure-keys", () => {
       expect(result).toBe(false);
       expect(mockBrokerStore.has("api-key")).toBe(false);
       // Encrypted store should NOT have been written either.
-      expect(getSecureKey("api-key")).toBeUndefined();
+      expect(await getSecureKeyAsync("api-key")).toBeUndefined();
     });
 
     test("deleteSecureKeyAsync deletes from broker and encrypted store", async () => {
       mockBrokerAvailable = true;
       mockBrokerStore.set("api-key", "broker-value");
-      setSecureKey("api-key", "encrypted-value");
+      await setSecureKeyAsync("api-key", "encrypted-value");
       const result = await deleteSecureKeyAsync("api-key");
       expect(result).toBe("deleted");
       expect(mockBrokerStore.has("api-key")).toBe(false);
-      expect(getSecureKey("api-key")).toBeUndefined();
+      expect(await getSecureKeyAsync("api-key")).toBeUndefined();
     });
 
     test("deleteSecureKeyAsync returns error on broker del error (no silent fallback)", async () => {
       mockBrokerAvailable = true;
       mockBrokerDelError = true;
-      setSecureKey("api-key", "encrypted-value");
+      await setSecureKeyAsync("api-key", "encrypted-value");
       const result = await deleteSecureKeyAsync("api-key");
       // Must return "error" — falling through to encrypted-only delete would
       // leave the broker with the key, and async readers would still see it.
       expect(result).toBe("error");
       // Encrypted store should NOT have been modified either.
-      expect(getSecureKey("api-key")).toBe("encrypted-value");
+      expect(await getSecureKeyAsync("api-key")).toBe("encrypted-value");
     });
   });
 
@@ -293,7 +257,7 @@ describe("secure-keys", () => {
   // -----------------------------------------------------------------------
   describe("async variants with broker unavailable", () => {
     test("getSecureKeyAsync uses encrypted store", async () => {
-      setSecureKey("api-key", "encrypted-value");
+      await setSecureKeyAsync("api-key", "encrypted-value");
       expect(await getSecureKeyAsync("api-key")).toBe("encrypted-value");
     });
 
@@ -304,14 +268,14 @@ describe("secure-keys", () => {
     test("setSecureKeyAsync uses encrypted store", async () => {
       const result = await setSecureKeyAsync("api-key", "new-value");
       expect(result).toBe(true);
-      expect(getSecureKey("api-key")).toBe("new-value");
+      expect(await getSecureKeyAsync("api-key")).toBe("new-value");
     });
 
     test("deleteSecureKeyAsync uses encrypted store", async () => {
-      setSecureKey("api-key", "value");
+      await setSecureKeyAsync("api-key", "value");
       const result = await deleteSecureKeyAsync("api-key");
       expect(result).toBe("deleted");
-      expect(getSecureKey("api-key")).toBeUndefined();
+      expect(await getSecureKeyAsync("api-key")).toBeUndefined();
     });
   });
 
@@ -321,7 +285,7 @@ describe("secure-keys", () => {
   describe("encrypted-store-first read order", () => {
     test("returns value from encrypted store without calling broker", async () => {
       mockBrokerAvailable = true;
-      setSecureKey("test-account", "test-secret");
+      await setSecureKeyAsync("test-account", "test-secret");
       mockBrokerStore.set("test-account", "broker-secret");
 
       const result = await getSecureKeyAsync("test-account");
@@ -369,7 +333,7 @@ describe("secure-keys", () => {
       mockBrokerAvailable = true;
       // Simulate broker holding an old value
       mockBrokerStore.set("api-key", "old-broker-value");
-      setSecureKey("api-key", "old-encrypted-value");
+      await setSecureKeyAsync("api-key", "old-encrypted-value");
 
       // Update via async path (writes both broker + encrypted)
       const ok = await setSecureKeyAsync("api-key", "new-value");
@@ -380,13 +344,13 @@ describe("secure-keys", () => {
       expect(value).toBe("new-value");
       // Both stores should agree
       expect(mockBrokerStore.get("api-key")).toBe("new-value");
-      expect(getSecureKey("api-key")).toBe("new-value");
+      expect(await getSecureKeyAsync("api-key")).toBe("new-value");
     });
 
     test("deleteSecureKeyAsync removes from both stores so read returns undefined", async () => {
       mockBrokerAvailable = true;
       mockBrokerStore.set("api-key", "old-broker-value");
-      setSecureKey("api-key", "old-encrypted-value");
+      await setSecureKeyAsync("api-key", "old-encrypted-value");
 
       // Delete via async path (deletes from both broker + encrypted)
       const result = await deleteSecureKeyAsync("api-key");
@@ -397,15 +361,14 @@ describe("secure-keys", () => {
       expect(value).toBeUndefined();
     });
 
-    test("sync setSecureKey updates encrypted store — encrypted-store-first read returns fresh value", async () => {
+    test("setSecureKeyAsync updates encrypted store — encrypted-store-first read returns fresh value", async () => {
       mockBrokerAvailable = true;
       mockBrokerStore.set("api-key", "old-broker-value");
 
-      // Sync write only updates encrypted store, NOT broker
-      setSecureKey("api-key", "new-encrypted-value");
+      // Async write updates both broker and encrypted store
+      await setSecureKeyAsync("api-key", "new-encrypted-value");
 
-      // Encrypted-store-first read returns the fresh encrypted value,
-      // bypassing the stale broker entirely.
+      // Encrypted-store-first read returns the fresh encrypted value
       const value = await getSecureKeyAsync("api-key");
       expect(value).toBe("new-encrypted-value");
       expect(mockBrokerGetCalled).toBe(false);
@@ -415,28 +378,33 @@ describe("secure-keys", () => {
       mockBrokerAvailable = true;
       mockBrokerSetError = true;
       mockBrokerStore.set("api-key", "original-value");
-      setSecureKey("api-key", "original-value");
+      // Pre-seed encrypted store directly via broker mock bypass:
+      // We need the encrypted store to have the value before testing failure.
+      // Temporarily disable broker error to seed, then re-enable.
+      mockBrokerSetError = false;
+      await setSecureKeyAsync("api-key", "original-value");
+      mockBrokerSetError = true;
 
       const ok = await setSecureKeyAsync("api-key", "new-value");
       expect(ok).toBe(false);
 
       // Both stores should retain original value — no partial update
       expect(mockBrokerStore.get("api-key")).toBe("original-value");
-      expect(getSecureKey("api-key")).toBe("original-value");
+      expect(await getSecureKeyAsync("api-key")).toBe("original-value");
     });
 
     test("deleteSecureKeyAsync failure leaves both stores unchanged", async () => {
       mockBrokerAvailable = true;
-      mockBrokerDelError = true;
       mockBrokerStore.set("api-key", "value");
-      setSecureKey("api-key", "value");
+      await setSecureKeyAsync("api-key", "value");
+      mockBrokerDelError = true;
 
       const result = await deleteSecureKeyAsync("api-key");
       expect(result).toBe("error");
 
       // Both stores should retain the key — no partial deletion
       expect(mockBrokerStore.has("api-key")).toBe(true);
-      expect(getSecureKey("api-key")).toBe("value");
+      expect(await getSecureKeyAsync("api-key")).toBe("value");
     });
   });
 
@@ -444,16 +412,16 @@ describe("secure-keys", () => {
   // _setBackend / _resetBackend (no-ops kept for test compat)
   // -----------------------------------------------------------------------
   describe("_setBackend", () => {
-    test("_setBackend is a no-op but does not throw", () => {
+    test("_setBackend is a no-op but does not throw", async () => {
       _setBackend("encrypted");
-      setSecureKey("test", "value");
+      await setSecureKeyAsync("test", "value");
       expect(existsSync(STORE_PATH)).toBe(true);
     });
 
-    test("_resetBackend is a no-op but does not throw", () => {
+    test("_resetBackend is a no-op but does not throw", async () => {
       _resetBackend();
-      setSecureKey("test", "value");
-      expect(getSecureKey("test")).toBe("value");
+      await setSecureKeyAsync("test", "value");
+      expect(await getSecureKeyAsync("test")).toBe("value");
     });
   });
 });

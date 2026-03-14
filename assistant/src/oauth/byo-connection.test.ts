@@ -117,7 +117,7 @@ mock.module("./oauth-store.js", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import { setSecureKey } from "../security/secure-keys.js";
+import { setSecureKeyAsync } from "../security/secure-keys.js";
 import {
   _resetInflightRefreshes,
   _resetRefreshBreakers,
@@ -183,7 +183,7 @@ afterEach(() => {
   }
 });
 
-function setupCredential(
+async function setupCredential(
   service: string,
   opts?: { expiresAt?: number; grantedScopes?: string[] },
 ) {
@@ -214,13 +214,19 @@ function setupCredential(
     accountInfo: null,
   });
   // Store access token in oauth-store key format
-  setSecureKey(`oauth_connection/${connId}/access_token`, "test-access-token");
+  await setSecureKeyAsync(
+    `oauth_connection/${connId}/access_token`,
+    "test-access-token",
+  );
   // Store refresh token and client_secret in secure keys (token-manager reads them)
-  setSecureKey(
+  await setSecureKeyAsync(
     `oauth_connection/${connId}/refresh_token`,
     "test-refresh-token",
   );
-  setSecureKey(`oauth_app/${appId}/client_secret`, "test-client-secret");
+  await setSecureKeyAsync(
+    `oauth_app/${appId}/client_secret`,
+    "test-client-secret",
+  );
   upsertCredentialMetadata(service, "access_token", {});
 }
 
@@ -242,7 +248,7 @@ function createConnection(service = "integration:google"): BYOOAuthConnection {
 describe("BYOOAuthConnection", () => {
   describe("request()", () => {
     test("makes authenticated request with Bearer token", async () => {
-      setupCredential("integration:google");
+      await setupCredential("integration:google");
       const conn = createConnection();
 
       const result = await conn.request({
@@ -266,7 +272,7 @@ describe("BYOOAuthConnection", () => {
     });
 
     test("appends query parameters", async () => {
-      setupCredential("integration:google");
+      await setupCredential("integration:google");
       const conn = createConnection();
 
       await conn.request({
@@ -282,7 +288,7 @@ describe("BYOOAuthConnection", () => {
     });
 
     test("uses per-request baseUrl override", async () => {
-      setupCredential("integration:google");
+      await setupCredential("integration:google");
       const conn = createConnection();
 
       await conn.request({
@@ -296,7 +302,7 @@ describe("BYOOAuthConnection", () => {
     });
 
     test("sends JSON body for POST requests", async () => {
-      setupCredential("integration:google");
+      await setupCredential("integration:google");
       const conn = createConnection();
 
       await conn.request({
@@ -316,7 +322,7 @@ describe("BYOOAuthConnection", () => {
     });
 
     test("retries once on 401 response", async () => {
-      setupCredential("integration:google");
+      await setupCredential("integration:google");
       const conn = createConnection();
 
       // First call returns 401, second returns 200
@@ -344,7 +350,7 @@ describe("BYOOAuthConnection", () => {
     });
 
     test("handles empty response body", async () => {
-      setupCredential("integration:google");
+      await setupCredential("integration:google");
       const conn = createConnection();
 
       globalThis.fetch = mock(() =>
@@ -361,7 +367,7 @@ describe("BYOOAuthConnection", () => {
     });
 
     test("handles non-JSON response body", async () => {
-      setupCredential("integration:google");
+      await setupCredential("integration:google");
       const conn = createConnection();
 
       globalThis.fetch = mock(() =>
@@ -378,7 +384,7 @@ describe("BYOOAuthConnection", () => {
     });
 
     test("returns response headers", async () => {
-      setupCredential("integration:google");
+      await setupCredential("integration:google");
       const conn = createConnection();
 
       globalThis.fetch = mock(() =>
@@ -402,7 +408,7 @@ describe("BYOOAuthConnection", () => {
     });
 
     test("includes custom request headers", async () => {
-      setupCredential("integration:google");
+      await setupCredential("integration:google");
       const conn = createConnection();
 
       await conn.request({
@@ -421,7 +427,7 @@ describe("BYOOAuthConnection", () => {
   describe("proactive token refresh", () => {
     test("refreshes token when near expiry (within 5-minute buffer)", async () => {
       // Set token to expire in 2 minutes (within 5-min buffer)
-      setupCredential("integration:google", {
+      await setupCredential("integration:google", {
         expiresAt: Date.now() + 2 * 60 * 1000,
       });
       const conn = createConnection();
@@ -445,7 +451,7 @@ describe("BYOOAuthConnection", () => {
 
   describe("withToken()", () => {
     test("provides valid token to callback", async () => {
-      setupCredential("integration:google");
+      await setupCredential("integration:google");
       const conn = createConnection();
 
       const result = await conn.withToken(async (token) => {
@@ -456,7 +462,7 @@ describe("BYOOAuthConnection", () => {
     });
 
     test("retries callback on 401 error", async () => {
-      setupCredential("integration:google");
+      await setupCredential("integration:google");
       const conn = createConnection();
 
       let callCount = 0;
@@ -489,7 +495,7 @@ describe("BYOOAuthConnection", () => {
 
 describe("resolveOAuthConnection", () => {
   test("returns a BYOOAuthConnection for valid credential", async () => {
-    setupCredential("integration:google");
+    await setupCredential("integration:google");
     const conn = await resolveOAuthConnection("integration:google");
 
     expect(conn).toBeInstanceOf(BYOOAuthConnection);
@@ -504,7 +510,7 @@ describe("resolveOAuthConnection", () => {
   });
 
   test("throws when no base URL configured", async () => {
-    setupCredential("integration:custom-service");
+    await setupCredential("integration:custom-service");
     await expect(
       resolveOAuthConnection("integration:custom-service"),
     ).rejects.toThrow(
@@ -541,7 +547,10 @@ describe("resolveOAuthConnection", () => {
       grantedScopes: JSON.stringify(["repo"]),
       accountInfo: null,
     });
-    setSecureKey(`oauth_connection/${connId}/access_token`, "ghp-test-token");
+    await setSecureKeyAsync(
+      `oauth_connection/${connId}/access_token`,
+      "ghp-test-token",
+    );
 
     const conn = await resolveOAuthConnection("integration:github-work");
 
