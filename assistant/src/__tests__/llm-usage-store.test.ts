@@ -642,7 +642,7 @@ describe("queryUnreportedUsageEvents", () => {
     insertEventAt(3000, { model: "model-c" });
 
     // afterCreatedAt = 1000 should exclude the event at exactly 1000
-    const events = queryUnreportedUsageEvents(1000, 100);
+    const events = queryUnreportedUsageEvents(1000, undefined, 100);
     expect(events).toHaveLength(2);
     expect(events[0].model).toBe("model-b");
     expect(events[0].createdAt).toBe(2000);
@@ -655,7 +655,7 @@ describe("queryUnreportedUsageEvents", () => {
     insertEventAt(2000, { model: "model-b" });
     insertEventAt(3000, { model: "model-c" });
 
-    const events = queryUnreportedUsageEvents(0, 2);
+    const events = queryUnreportedUsageEvents(0, undefined, 2);
     expect(events).toHaveLength(2);
     // Should return the earliest two due to ASC ordering
     expect(events[0].model).toBe("model-a");
@@ -665,12 +665,12 @@ describe("queryUnreportedUsageEvents", () => {
   test("returns empty array when no events match", () => {
     insertEventAt(1000, { model: "model-a" });
 
-    const events = queryUnreportedUsageEvents(2000, 100);
+    const events = queryUnreportedUsageEvents(2000, undefined, 100);
     expect(events).toHaveLength(0);
   });
 
   test("returns empty array when table is empty", () => {
-    const events = queryUnreportedUsageEvents(0, 100);
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
     expect(events).toHaveLength(0);
   });
 });

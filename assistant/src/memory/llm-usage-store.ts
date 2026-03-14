@@ -1,4 +1,4 @@
-import { asc, desc, gt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import type {
@@ -100,14 +100,25 @@ export function listUsageEvents(options?: { limit?: number }): UsageEvent[] {
 
 export function queryUnreportedUsageEvents(
   afterCreatedAt: number,
+  afterId: string | undefined,
   limit: number,
 ): UsageEvent[] {
   const db = getDb();
   const rows = db
     .select()
     .from(llmUsageEvents)
-    .where(gt(llmUsageEvents.createdAt, afterCreatedAt))
-    .orderBy(asc(llmUsageEvents.createdAt))
+    .where(
+      afterId
+        ? or(
+            gt(llmUsageEvents.createdAt, afterCreatedAt),
+            and(
+              eq(llmUsageEvents.createdAt, afterCreatedAt),
+              gt(llmUsageEvents.id, afterId),
+            ),
+          )
+        : gt(llmUsageEvents.createdAt, afterCreatedAt),
+    )
+    .orderBy(asc(llmUsageEvents.createdAt), asc(llmUsageEvents.id))
     .limit(limit)
     .all();
   return rows.map(rowToUsageEvent);

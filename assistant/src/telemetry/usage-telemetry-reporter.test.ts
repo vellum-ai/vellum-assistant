@@ -192,8 +192,8 @@ describe("UsageTelemetryReporter", () => {
 
   test("watermark advances on successful upload", async () => {
     const events = [
-      makeUsageEvent({ createdAt: 1700000001000 }),
-      makeUsageEvent({ createdAt: 1700000002000 }),
+      makeUsageEvent({ id: "evt-w1", createdAt: 1700000001000 }),
+      makeUsageEvent({ id: "evt-w2", createdAt: 1700000002000 }),
     ];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
     mockFetch.mockImplementation(() =>
@@ -211,6 +211,13 @@ describe("UsageTelemetryReporter", () => {
     expect(watermarkCalls[watermarkCalls.length - 1][1]).toBe(
       String(1700000002000),
     );
+
+    // The compound cursor ID should also be set to the last event's id
+    const idCalls = mockSetMemoryCheckpoint.mock.calls.filter(
+      (c) => c[0] === "telemetry:usage:last_reported_id",
+    );
+    expect(idCalls.length).toBeGreaterThanOrEqual(1);
+    expect(idCalls[idCalls.length - 1][1]).toBe("evt-w2");
   });
 
   test("watermark stays on failed upload", async () => {
