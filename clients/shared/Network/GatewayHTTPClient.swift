@@ -10,9 +10,6 @@ import Foundation
 @MainActor
 public enum GatewayHTTPClient {
 
-    /// Resolver injected at app startup to provide connected assistant info.
-    public static var assistantResolver: ConnectedAssistantResolver?
-
     /// Response from a gateway HTTP request.
     public struct Response {
         public let data: Data
@@ -96,18 +93,27 @@ public enum GatewayHTTPClient {
 
     // MARK: - Internals
 
+    #if os(macOS)
+    /// Resolves the currently connected assistant from the lockfile.
+    private static func resolveConnectedAssistant() -> LockfileAssistant? {
+        guard let id = UserDefaults.standard.string(forKey: "connectedAssistantId"), !id.isEmpty else { return nil }
+        return LockfileAssistant.loadByName(id)
+    }
+    #endif
+
     /// Builds an authenticated `URLRequest`, automatically resolving the
     /// connected assistant, gateway base URL, and auth credentials.
     ///
-    /// - Managed (`isManaged`): platform proxy URL with `X-Session-Token`
-    /// - Remote non-managed: `runtimeUrl` with `Authorization: Bearer`
+    /// - Managed (`cloud == "vellum"`): platform proxy URL with `X-Session-Token`
+    /// - Remote non-managed (GCP/AWS): `runtimeUrl` with `Authorization: Bearer`
     /// - Local: `http://127.0.0.1:{gatewayPort}` with `Authorization: Bearer`
     private static func buildRequest(
         path: String,
         method: String,
         timeout: TimeInterval
     ) throws -> URLRequest {
-        guard let assistant = assistantResolver?.resolve() else {
+        #if os(macOS)
+        guard let assistant = resolveConnectedAssistant() else {
             throw ClientError.noConnectedAssistant
         }
 
@@ -152,6 +158,9 @@ public enum GatewayHTTPClient {
         }
 
         return request
+        #else
+        throw ClientError.noConnectedAssistant
+        #endif
     }
 
     /// Executes a `URLRequest` and wraps the result in a `Response`.

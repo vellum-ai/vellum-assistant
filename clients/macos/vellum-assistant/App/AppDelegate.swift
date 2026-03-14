@@ -263,11 +263,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // starts, regardless of auth or onboarding state.
         installCLISymlinkIfNeeded()
 
-        // Set the gateway resolver early so GatewayHTTPClient is usable from
-        // any code path, including managed-assistant onboarding health checks
-        // that run before setupDaemonClient().
-        GatewayHTTPClient.assistantResolver = LockfileAssistantResolver()
-
         let hasAssistants = lockfileHasAssistants()
         log.info("[appLaunch] skipOnboarding=\(skipOnboarding) hasAssistants=\(hasAssistants)")
 
