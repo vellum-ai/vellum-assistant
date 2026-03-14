@@ -1,5 +1,5 @@
 import { wrapWithLogfire } from "../logfire.js";
-import { getSecureKey } from "../security/secure-keys.js";
+import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { ConfigError, ProviderNotConfiguredError } from "../util/errors.js";
 import { AnthropicProvider } from "./anthropic/client.js";
 import { FailoverProvider, type ProviderHealthStatus } from "./failover.js";
@@ -202,7 +202,9 @@ export function getProviderDebugStatus(
   };
 }
 
-export function initializeProviders(config: ProvidersConfig): void {
+export async function initializeProviders(
+  config: ProvidersConfig,
+): Promise<void> {
   providers.clear();
   routingSources.clear();
   cachedFailoverProvider = null;
@@ -211,7 +213,7 @@ export function initializeProviders(config: ProvidersConfig): void {
   const streamTimeoutMs =
     (config.timeouts?.providerStreamTimeoutSec ?? 300) * 1000;
 
-  const anthropicKey = getSecureKey("anthropic");
+  const anthropicKey = await getSecureKeyAsync("anthropic");
   if (anthropicKey) {
     const model = resolveModel(config, "anthropic");
     registerProvider(
@@ -228,9 +230,9 @@ export function initializeProviders(config: ProvidersConfig): void {
     routingSources.set("anthropic", "user-key");
   } else {
     // No user Anthropic key — route through managed proxy
-    const managedBaseUrl = buildManagedBaseUrl("anthropic");
+    const managedBaseUrl = await buildManagedBaseUrl("anthropic");
     if (managedBaseUrl) {
-      const ctx = resolveManagedProxyContext();
+      const ctx = await resolveManagedProxyContext();
       const model = resolveModel(config, "anthropic");
       registerProvider(
         "anthropic",
@@ -248,7 +250,7 @@ export function initializeProviders(config: ProvidersConfig): void {
       routingSources.set("anthropic", "managed-proxy");
     }
   }
-  const openaiKey = getSecureKey("openai");
+  const openaiKey = await getSecureKeyAsync("openai");
   if (openaiKey) {
     const model = resolveModel(config, "openai");
     registerProvider(
@@ -261,9 +263,9 @@ export function initializeProviders(config: ProvidersConfig): void {
     );
     routingSources.set("openai", "user-key");
   } else {
-    const managedBaseUrl = buildManagedBaseUrl("openai");
+    const managedBaseUrl = await buildManagedBaseUrl("openai");
     if (managedBaseUrl) {
-      const ctx = resolveManagedProxyContext();
+      const ctx = await resolveManagedProxyContext();
       const model = resolveModel(config, "openai");
       registerProvider(
         "openai",
@@ -279,7 +281,7 @@ export function initializeProviders(config: ProvidersConfig): void {
       routingSources.set("openai", "managed-proxy");
     }
   }
-  const geminiKey = getSecureKey("gemini");
+  const geminiKey = await getSecureKeyAsync("gemini");
   if (geminiKey) {
     const model = resolveModel(config, "gemini");
     registerProvider(
@@ -293,9 +295,9 @@ export function initializeProviders(config: ProvidersConfig): void {
     routingSources.set("gemini", "user-key");
   } else {
     // No user Gemini key — route through Vertex managed proxy
-    const managedBaseUrl = buildManagedBaseUrl("vertex");
+    const managedBaseUrl = await buildManagedBaseUrl("vertex");
     if (managedBaseUrl) {
-      const ctx = resolveManagedProxyContext();
+      const ctx = await resolveManagedProxyContext();
       const model = resolveModel(config, "gemini");
       registerProvider(
         "gemini",
@@ -311,7 +313,7 @@ export function initializeProviders(config: ProvidersConfig): void {
       routingSources.set("gemini", "managed-proxy");
     }
   }
-  const ollamaKey = getSecureKey("ollama");
+  const ollamaKey = await getSecureKeyAsync("ollama");
   if (config.provider === "ollama" || ollamaKey) {
     const model = resolveModel(config, "ollama");
     registerProvider(
@@ -327,7 +329,7 @@ export function initializeProviders(config: ProvidersConfig): void {
     );
     routingSources.set("ollama", "user-key");
   }
-  const fireworksKey = getSecureKey("fireworks");
+  const fireworksKey = await getSecureKeyAsync("fireworks");
   if (fireworksKey) {
     const model = resolveModel(config, "fireworks");
     registerProvider(
@@ -342,9 +344,9 @@ export function initializeProviders(config: ProvidersConfig): void {
     );
     routingSources.set("fireworks", "user-key");
   } else {
-    const managedBaseUrl = buildManagedBaseUrl("fireworks");
+    const managedBaseUrl = await buildManagedBaseUrl("fireworks");
     if (managedBaseUrl) {
-      const ctx = resolveManagedProxyContext();
+      const ctx = await resolveManagedProxyContext();
       const model = resolveModel(config, "fireworks");
       registerProvider(
         "fireworks",
@@ -360,7 +362,7 @@ export function initializeProviders(config: ProvidersConfig): void {
       routingSources.set("fireworks", "managed-proxy");
     }
   }
-  const openrouterKey = getSecureKey("openrouter");
+  const openrouterKey = await getSecureKeyAsync("openrouter");
   if (openrouterKey) {
     const model = resolveModel(config, "openrouter");
     registerProvider(
@@ -375,9 +377,9 @@ export function initializeProviders(config: ProvidersConfig): void {
     );
     routingSources.set("openrouter", "user-key");
   } else {
-    const managedBaseUrl = buildManagedBaseUrl("openrouter");
+    const managedBaseUrl = await buildManagedBaseUrl("openrouter");
     if (managedBaseUrl) {
-      const ctx = resolveManagedProxyContext();
+      const ctx = await resolveManagedProxyContext();
       const model = resolveModel(config, "openrouter");
       registerProvider(
         "openrouter",

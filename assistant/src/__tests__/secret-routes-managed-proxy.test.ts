@@ -129,12 +129,12 @@ function makeDeleteCredentialRequest(name: string): Request {
 }
 
 describe("secret routes managed proxy registry sync", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     secureKeyStore = {};
     metadataUpserts.length = 0;
     metadataDeletes.length = 0;
     lastGeminiConstructorOpts = null;
-    initializeProviders(mockConfig);
+    await initializeProviders(mockConfig);
   });
 
   test("adding vellum:assistant_api_key bootstraps managed providers immediately", async () => {
@@ -161,7 +161,7 @@ describe("secret routes managed proxy registry sync", () => {
 
   test("deleting vellum:assistant_api_key clears managed providers immediately", async () => {
     secureKeyStore[ASSISTANT_API_KEY_PATH] = "ast-managed-key";
-    initializeProviders(mockConfig);
+    await initializeProviders(mockConfig);
 
     for (const provider of MANAGED_PROVIDERS) {
       expect(listProviders()).toContain(provider);

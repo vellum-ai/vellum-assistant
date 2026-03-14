@@ -59,9 +59,9 @@ export async function run(
   if (apiKey) {
     credentials = { type: "direct", apiKey };
   } else {
-    const managedBaseUrl = buildManagedBaseUrl("vertex");
+    const managedBaseUrl = await buildManagedBaseUrl("vertex");
     if (managedBaseUrl) {
-      const ctx = resolveManagedProxyContext();
+      const ctx = await resolveManagedProxyContext();
       credentials = {
         type: "managed-proxy",
         assistantApiKey: ctx.assistantApiKey,

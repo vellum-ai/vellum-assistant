@@ -190,7 +190,7 @@ async function resolveProviderModelCommand(
 
   // Re-initialize providers with new config
   const newConfig = getConfig();
-  initializeProviders(newConfig);
+  await initializeProviders(newConfig);
 
   const switchedMsg = name
     ? `Switched ${name} to **${displayName}**. New conversations will use this model.`
@@ -306,7 +306,7 @@ async function resolveModelCommand(
   raw.model = matched;
   saveRawConfig(raw);
   const config = getConfig();
-  initializeProviders(config);
+  await initializeProviders(config);
 
   const displayName = MODEL_DISPLAY_NAMES[matched] ?? matched;
   const switchedMsg = name

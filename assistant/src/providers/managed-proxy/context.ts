@@ -11,7 +11,7 @@
 
 import { getPlatformBaseUrl } from "../../config/env.js";
 import { credentialKey } from "../../security/credential-key.js";
-import { getSecureKey } from "../../security/secure-keys.js";
+import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { MANAGED_PROVIDER_META } from "./constants.js";
 
 /** Storage key for the assistant API key credential. */
@@ -35,9 +35,10 @@ export interface ManagedProxyContext {
  * Returns an enabled context only when both the platform base URL and
  * the assistant API key are present. Otherwise returns a disabled context.
  */
-export function resolveManagedProxyContext(): ManagedProxyContext {
+export async function resolveManagedProxyContext(): Promise<ManagedProxyContext> {
   const platformBaseUrl = getPlatformBaseUrl().replace(/\/+$/, "");
-  const assistantApiKey = getSecureKey(ASSISTANT_API_KEY_STORAGE_KEY) ?? "";
+  const assistantApiKey =
+    (await getSecureKeyAsync(ASSISTANT_API_KEY_STORAGE_KEY)) ?? "";
 
   const enabled = !!platformBaseUrl && !!assistantApiKey;
 
@@ -48,8 +49,8 @@ export function resolveManagedProxyContext(): ManagedProxyContext {
  * Check whether managed proxy prerequisites are available.
  * Shorthand for checking that both platform URL and assistant API key exist.
  */
-export function hasManagedProxyPrereqs(): boolean {
-  return resolveManagedProxyContext().enabled;
+export async function hasManagedProxyPrereqs(): Promise<boolean> {
+  return (await resolveManagedProxyContext()).enabled;
 }
 
 /**
@@ -58,11 +59,13 @@ export function hasManagedProxyPrereqs(): boolean {
  * Combines the platform base URL with the provider's deterministic proxy path.
  * Returns undefined if the provider is not managed or prerequisites are missing.
  */
-export function buildManagedBaseUrl(provider: string): string | undefined {
+export async function buildManagedBaseUrl(
+  provider: string,
+): Promise<string | undefined> {
   const meta = MANAGED_PROVIDER_META[provider];
   if (!meta?.managed || !meta.proxyPath) return undefined;
 
-  const ctx = resolveManagedProxyContext();
+  const ctx = await resolveManagedProxyContext();
   if (!ctx.enabled) return undefined;
 
   return `${ctx.platformBaseUrl}${meta.proxyPath}`;
@@ -74,8 +77,10 @@ export function buildManagedBaseUrl(provider: string): string | undefined {
  * Returns true when the provider supports managed proxy routing and
  * all prerequisites (platform URL + assistant API key) are satisfied.
  */
-export function managedFallbackEnabledFor(provider: string): boolean {
+export async function managedFallbackEnabledFor(
+  provider: string,
+): Promise<boolean> {
   const meta = MANAGED_PROVIDER_META[provider];
   if (!meta?.managed) return false;
-  return hasManagedProxyPrereqs();
+  return await hasManagedProxyPrereqs();
 }
