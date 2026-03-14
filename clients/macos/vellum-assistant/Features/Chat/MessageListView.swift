@@ -990,6 +990,7 @@ struct MessageListView: View {
                 avatarDisplayY = .infinity
                 pendingAvatarY = nil
                 avatarLastAppliedAt = nil
+                hasPlayedTailEntryAnimation = false
                 restoreScrollToBottom(proxy: proxy)
             }
             .onChange(of: anchorMessageId) {
