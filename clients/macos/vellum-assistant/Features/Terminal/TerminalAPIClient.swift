@@ -85,34 +85,16 @@ final class TerminalAPIClient {
     func subscribeEvents(
         sessionId: String
     ) -> (stream: AsyncThrowingStream<TerminalOutputEvent, Error>, cancel: () -> Void) {
-        let sseRequest: URLRequest?
-        do {
-            var req = try GatewayHTTPClient.urlRequest(
-                path: "assistants/\(assistantId)/terminal/sessions/\(sessionId)/events",
-                timeout: .infinity
-            )
-            req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-            sseRequest = req
-        } catch {
-            sseRequest = nil
-        }
-
         let task = UncheckedSendableBox<Task<Void, Never>?>(nil)
 
+        let assistantId = self.assistantId
         let stream = AsyncThrowingStream<TerminalOutputEvent, Error> { continuation in
-            guard let request = sseRequest else {
-                continuation.finish(throwing: TerminalAPIError.invalidURL)
-                return
-            }
-
-            let sseTask = Task { @MainActor [weak self] in
-                guard self != nil else {
-                    continuation.finish()
-                    return
-                }
-
+            let sseTask = Task { @MainActor in
                 do {
-                    let (bytes, urlResponse) = try await URLSession.shared.bytes(for: request)
+                    let (bytes, urlResponse) = try await GatewayHTTPClient.stream(
+                        path: "assistants/\(assistantId)/terminal/sessions/\(sessionId)/events",
+                        timeout: .infinity
+                    )
 
                     guard let http = urlResponse as? HTTPURLResponse, http.statusCode == 200 else {
                         let statusCode = (urlResponse as? HTTPURLResponse)?.statusCode ?? -1
