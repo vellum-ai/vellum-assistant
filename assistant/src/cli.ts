@@ -271,9 +271,15 @@ export async function startCli(): Promise<void> {
           const result = JSON.parse(raw) as {
             ok?: boolean;
             requestId?: string;
+            error?: string;
           };
-          if (result.ok && result.requestId === requestId) {
+          if (result.requestId !== requestId) return;
+          if (result.ok) {
             sendConfirmation(requestId, confirmDecision);
+          } else {
+            process.stdout.write(
+              `[Failed to add trust rule: ${result.error ?? "unknown error"}]\n`,
+            );
           }
         } catch {
           // Result file not yet readable; ignore.

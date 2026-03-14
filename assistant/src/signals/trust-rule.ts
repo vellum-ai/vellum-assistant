@@ -27,6 +27,15 @@ const VALID_TRUST_DECISIONS: ReadonlySet<string> = new Set(["allow", "deny"]);
  * Called by ConfigWatcher when the signal file is written or modified.
  */
 export function handleTrustRuleSignal(): void {
+  const resultPath = join(getWorkspaceDir(), "signals", "trust-rule.result");
+
+  const writeError = (requestId: string | undefined, error: string): void => {
+    writeFileSync(
+      resultPath,
+      JSON.stringify({ ok: false, requestId: requestId ?? null, error }),
+    );
+  };
+
   try {
     const content = readFileSync(
       join(getWorkspaceDir(), "signals", "trust-rule"),
@@ -43,14 +52,17 @@ export function handleTrustRuleSignal(): void {
 
     if (!requestId || typeof requestId !== "string") {
       log.warn("Trust-rule signal missing requestId");
+      writeError(undefined, "Missing requestId");
       return;
     }
     if (!pattern || typeof pattern !== "string") {
       log.warn({ requestId }, "Trust-rule signal missing pattern");
+      writeError(requestId, "Missing pattern");
       return;
     }
     if (!scope || typeof scope !== "string") {
       log.warn({ requestId }, "Trust-rule signal missing scope");
+      writeError(requestId, "Missing scope");
       return;
     }
     if (!decision || !VALID_TRUST_DECISIONS.has(decision)) {
@@ -58,6 +70,7 @@ export function handleTrustRuleSignal(): void {
         { requestId, decision },
         "Trust-rule signal has invalid decision",
       );
+      writeError(requestId, "Invalid decision");
       return;
     }
 
@@ -65,11 +78,13 @@ export function handleTrustRuleSignal(): void {
     const interaction = pendingInteractions.get(requestId);
     if (!interaction) {
       log.warn({ requestId }, "No pending interaction for trust-rule signal");
+      writeError(requestId, "No pending interaction");
       return;
     }
 
     if (!interaction.confirmationDetails) {
       log.warn({ requestId }, "No confirmation details for trust-rule signal");
+      writeError(requestId, "No confirmation details");
       return;
     }
 
@@ -80,6 +95,7 @@ export function handleTrustRuleSignal(): void {
         { requestId },
         "Persistent trust rules not allowed for this tool invocation",
       );
+      writeError(requestId, "Persistent trust rules not allowed");
       return;
     }
 
@@ -92,6 +108,7 @@ export function handleTrustRuleSignal(): void {
         { requestId, pattern },
         "Pattern does not match any server-provided allowlist option",
       );
+      writeError(requestId, "Invalid pattern");
       return;
     }
 
@@ -103,6 +120,7 @@ export function handleTrustRuleSignal(): void {
           { requestId, scope },
           "Non-scoped tools only accept scope 'everywhere'",
         );
+        writeError(requestId, "Invalid scope");
         return;
       }
     } else if (!validScopes.includes(scope)) {
@@ -110,6 +128,7 @@ export function handleTrustRuleSignal(): void {
         { requestId, scope },
         "Scope does not match any server-provided scope option",
       );
+      writeError(requestId, "Invalid scope");
       return;
     }
 
@@ -133,10 +152,7 @@ export function handleTrustRuleSignal(): void {
       "Trust rule added via signal file",
     );
 
-    writeFileSync(
-      join(getWorkspaceDir(), "signals", "trust-rule.result"),
-      JSON.stringify({ ok: true, requestId }),
-    );
+    writeFileSync(resultPath, JSON.stringify({ ok: true, requestId }));
   } catch (err) {
     log.error({ err }, "Failed to handle trust-rule signal");
   }
