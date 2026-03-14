@@ -6,11 +6,5 @@
     "src/daemon/main.ts"
   ],
   "project": ["src/**/*.ts", "src/**/*.tsx", "scripts/**/*.ts"],
-  "ignore": ["src/daemon/tls-certs.ts"],
-  "ignoreDependencies": [
-    "@vellumai/cli",
-    "esbuild",
-    "preact",
-    "tree-sitter-bash"
-  ]
+  "ignoreDependencies": ["@vellumai/cli"]
 }
