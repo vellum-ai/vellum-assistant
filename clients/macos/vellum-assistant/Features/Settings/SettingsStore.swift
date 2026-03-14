@@ -860,7 +860,7 @@ public final class SettingsStore: ObservableObject {
         let body: [String: String] = ["type": "api_key", "name": provider, "value": value]
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return }
         Task {
-            _ = try? await GatewayHTTPClient.post(path: "\(assistantId)/secrets", body: bodyData)
+            _ = try? await GatewayHTTPClient.post(path: "assistants/\(assistantId)/secrets", body: bodyData)
         }
     }
 
@@ -921,7 +921,7 @@ public final class SettingsStore: ObservableObject {
         let body: [String: String] = ["type": "api_key", "name": provider]
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return false }
         Task {
-            _ = try? await GatewayHTTPClient.delete(path: "\(assistantId)/secrets", body: bodyData)
+            _ = try? await GatewayHTTPClient.delete(path: "assistants/\(assistantId)/secrets", body: bodyData)
         }
         return true
     }
@@ -932,7 +932,7 @@ public final class SettingsStore: ObservableObject {
         let body: [String: String] = ["type": "credential", "name": name, "value": value]
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return }
         Task {
-            _ = try? await GatewayHTTPClient.post(path: "\(assistantId)/secrets", body: bodyData)
+            _ = try? await GatewayHTTPClient.post(path: "assistants/\(assistantId)/secrets", body: bodyData)
         }
     }
 
@@ -944,7 +944,7 @@ public final class SettingsStore: ObservableObject {
         let body: [String: String] = ["type": "credential", "name": name]
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return false }
         Task {
-            _ = try? await GatewayHTTPClient.delete(path: "\(assistantId)/secrets", body: bodyData)
+            _ = try? await GatewayHTTPClient.delete(path: "assistants/\(assistantId)/secrets", body: bodyData)
         }
         return true
     }
@@ -986,7 +986,7 @@ public final class SettingsStore: ObservableObject {
         Task {
             do {
                 let response = try await GatewayHTTPClient.get(
-                    path: "\(assistantId)/integrations/slack/channel/config",
+                    path: "assistants/\(assistantId)/integrations/slack/channel/config",
                     timeout: 10
                 )
                 if response.statusCode == 200 {
@@ -1033,7 +1033,7 @@ public final class SettingsStore: ObservableObject {
         Task {
             do {
                 let response = try await GatewayHTTPClient.post(
-                    path: "\(assistantId)/integrations/slack/channel/config",
+                    path: "assistants/\(assistantId)/integrations/slack/channel/config",
                     body: bodyData,
                     timeout: 10
                 )
@@ -1080,7 +1080,7 @@ public final class SettingsStore: ObservableObject {
         Task {
             do {
                 let response = try await GatewayHTTPClient.delete(
-                    path: "\(assistantId)/integrations/slack/channel/config",
+                    path: "assistants/\(assistantId)/integrations/slack/channel/config",
                     timeout: 10
                 )
                 if response.isSuccess {
@@ -1122,7 +1122,7 @@ public final class SettingsStore: ObservableObject {
             return
         }
 
-        let gatewayPath = "\(assistantId)/\(path)"
+        let gatewayPath = "assistants/\(assistantId)/\(path)"
         let bodyData: Data?
         if let body {
             bodyData = try? JSONSerialization.data(withJSONObject: body)

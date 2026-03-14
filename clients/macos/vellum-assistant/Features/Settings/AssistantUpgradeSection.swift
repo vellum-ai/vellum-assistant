@@ -135,7 +135,7 @@ struct AssistantUpgradeSection: View {
         defer { isLoadingReleases = false }
 
         do {
-            let response = try await GatewayHTTPClient.get(path: "releases")
+            let response = try await GatewayHTTPClient.get(path: "assistants/releases")
             guard response.statusCode == 200 else {
                 errorMessage = "Failed to check for updates"
                 return
@@ -163,7 +163,7 @@ struct AssistantUpgradeSection: View {
         defer { isUpgrading = false }
 
         do {
-            let response = try await GatewayHTTPClient.post(path: "upgrade")
+            let response = try await GatewayHTTPClient.post(path: "assistants/upgrade")
             if response.isSuccess {
                 successMessage = "Upgrade initiated. The assistant may be briefly unavailable."
                 // Refresh releases to update UI without clearing success message
