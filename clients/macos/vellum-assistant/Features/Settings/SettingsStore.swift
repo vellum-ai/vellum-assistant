@@ -860,7 +860,7 @@ public final class SettingsStore: ObservableObject {
         let body: [String: String] = ["type": "api_key", "name": provider, "value": value]
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return }
         Task {
-            _ = try? await GatewayHTTPClient.post(path: "\(assistantId)/secrets", body: bodyData)
+            _ = try? await GatewayHTTPClient.post(path: "assistants/\(assistantId)/secrets", body: bodyData)
         }
     }
 
@@ -921,7 +921,7 @@ public final class SettingsStore: ObservableObject {
         let body: [String: String] = ["type": "api_key", "name": provider]
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return false }
         Task {
-            _ = try? await GatewayHTTPClient.delete(path: "\(assistantId)/secrets", body: bodyData)
+            _ = try? await GatewayHTTPClient.delete(path: "assistants/\(assistantId)/secrets", body: bodyData)
         }
         return true
     }
@@ -932,7 +932,7 @@ public final class SettingsStore: ObservableObject {
         let body: [String: String] = ["type": "credential", "name": name, "value": value]
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return }
         Task {
-            _ = try? await GatewayHTTPClient.post(path: "\(assistantId)/secrets", body: bodyData)
+            _ = try? await GatewayHTTPClient.post(path: "assistants/\(assistantId)/secrets", body: bodyData)
         }
     }
 
@@ -944,7 +944,7 @@ public final class SettingsStore: ObservableObject {
         let body: [String: String] = ["type": "credential", "name": name]
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return false }
         Task {
-            _ = try? await GatewayHTTPClient.delete(path: "\(assistantId)/secrets", body: bodyData)
+            _ = try? await GatewayHTTPClient.delete(path: "assistants/\(assistantId)/secrets", body: bodyData)
         }
         return true
     }
@@ -986,7 +986,7 @@ public final class SettingsStore: ObservableObject {
         Task {
             do {
                 let response = try await GatewayHTTPClient.get(
-                    path: "\(assistantId)/integrations/slack/channel/config",
+                    path: "assistants/\(assistantId)/integrations/slack/channel/config",
                     timeout: 10
                 )
                 if response.statusCode == 200 {
@@ -1033,7 +1033,7 @@ public final class SettingsStore: ObservableObject {
         Task {
             do {
                 let response = try await GatewayHTTPClient.post(
-                    path: "\(assistantId)/integrations/slack/channel/config",
+                    path: "assistants/\(assistantId)/integrations/slack/channel/config",
                     body: bodyData,
                     timeout: 10
                 )
@@ -1080,7 +1080,7 @@ public final class SettingsStore: ObservableObject {
         Task {
             do {
                 let response = try await GatewayHTTPClient.delete(
-                    path: "\(assistantId)/integrations/slack/channel/config",
+                    path: "assistants/\(assistantId)/integrations/slack/channel/config",
                     timeout: 10
                 )
                 if response.isSuccess {
@@ -1108,21 +1108,8 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Twilio Actions (HTTP)
 
-    /// Resolve the gateway base URL and bearer token for Twilio HTTP calls.
-    /// Uses httpTransport for remote connections, otherwise defaults to local gateway.
-    private func resolveTwilioHTTPEndpoint() -> (baseURL: String, bearerToken: String?)? {
-        if let httpTransport = daemonClient?.httpTransport {
-            return (httpTransport.baseURL, httpTransport.bearerToken)
-        }
-        // Local mode: call the gateway directly.
-        let gatewayPort = LockfilePaths.resolveGatewayPort()
-        let baseURL = "http://127.0.0.1:\(gatewayPort)"
-        let bearerToken = ActorTokenManager.getToken()
-        return (baseURL, bearerToken)
-    }
-
-    /// Shared helper: perform a Twilio HTTP request, decode the JSON response,
-    /// and apply the result to @Published properties on the main actor.
+    /// Shared helper: perform a Twilio HTTP request via GatewayHTTPClient,
+    /// decode the JSON response, and apply the result to @Published properties.
     private func performTwilioHTTPRequest(
         method: String,
         path: String,
@@ -1130,41 +1117,40 @@ public final class SettingsStore: ObservableObject {
         applyPhoneNumber: Bool = false,
         applyNumbers: Bool = false
     ) async {
-        guard let endpoint = resolveTwilioHTTPEndpoint(),
-              let url = URL(string: "\(endpoint.baseURL)\(path)") else {
-            twilioError = "No HTTP endpoint available"
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else {
+            twilioError = "No connected assistant"
             return
         }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.timeoutInterval = 30
-        // Use the JWT access token as the sole Authorization bearer.
-        // Falls back to the legacy runtime bearer token if no JWT is available.
-        if let accessToken = ActorTokenManager.getToken(), !accessToken.isEmpty {
-            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        } else if let token = endpoint.bearerToken, !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
+        let gatewayPath = "assistants/\(assistantId)/\(path)"
+        let bodyData: Data?
         if let body {
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+            bodyData = try? JSONSerialization.data(withJSONObject: body)
+        } else {
+            bodyData = nil
         }
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse else {
-                twilioError = "Invalid response"
+            let response: GatewayHTTPClient.Response
+            switch method {
+            case "GET":
+                response = try await GatewayHTTPClient.get(path: gatewayPath)
+            case "POST":
+                response = try await GatewayHTTPClient.post(path: gatewayPath, body: bodyData)
+            case "DELETE":
+                response = try await GatewayHTTPClient.delete(path: gatewayPath, body: bodyData)
+            default:
+                twilioError = "Unsupported HTTP method"
                 return
             }
-            guard (200..<300).contains(http.statusCode) else {
-                let errorBody = String(data: data, encoding: .utf8) ?? "HTTP \(http.statusCode)"
+
+            guard response.isSuccess else {
+                let errorBody = String(data: response.data, encoding: .utf8) ?? "HTTP \(response.statusCode)"
                 twilioError = "Request failed: \(errorBody)"
                 return
             }
 
-            // Decode the response JSON
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            guard let json = try JSONSerialization.jsonObject(with: response.data) as? [String: Any] else {
                 twilioError = "Invalid JSON response"
                 return
             }
@@ -1220,7 +1206,7 @@ public final class SettingsStore: ObservableObject {
         Task {
             await performTwilioHTTPRequest(
                 method: "GET",
-                path: "/v1/integrations/twilio/config",
+                path: "integrations/twilio/config",
                 applyPhoneNumber: true
             )
             twilioSaveInProgress = false
@@ -1237,7 +1223,7 @@ public final class SettingsStore: ObservableObject {
         Task {
             await performTwilioHTTPRequest(
                 method: "POST",
-                path: "/v1/integrations/twilio/credentials",
+                path: "integrations/twilio/credentials",
                 body: ["accountSid": trimmedSid, "authToken": trimmedToken]
             )
             twilioSaveInProgress = false
@@ -1252,7 +1238,7 @@ public final class SettingsStore: ObservableObject {
         Task {
             await performTwilioHTTPRequest(
                 method: "DELETE",
-                path: "/v1/integrations/twilio/credentials"
+                path: "integrations/twilio/credentials"
             )
             twilioSaveInProgress = false
             self.fetchChannelSetupStatus()
@@ -1268,7 +1254,7 @@ public final class SettingsStore: ObservableObject {
         Task {
             await performTwilioHTTPRequest(
                 method: "POST",
-                path: "/v1/integrations/twilio/numbers/assign",
+                path: "integrations/twilio/numbers/assign",
                 body: ["phoneNumber": trimmed],
                 applyPhoneNumber: true
             )
@@ -1294,7 +1280,7 @@ public final class SettingsStore: ObservableObject {
             if let c = trimmedCountry, !c.isEmpty { body["country"] = c.uppercased() }
             await performTwilioHTTPRequest(
                 method: "POST",
-                path: "/v1/integrations/twilio/numbers/provision",
+                path: "integrations/twilio/numbers/provision",
                 body: body.isEmpty ? nil : body,
                 applyPhoneNumber: true
             )
@@ -1308,7 +1294,7 @@ public final class SettingsStore: ObservableObject {
         Task {
             await performTwilioHTTPRequest(
                 method: "GET",
-                path: "/v1/integrations/twilio/numbers",
+                path: "integrations/twilio/numbers",
                 applyNumbers: true
             )
             twilioListInProgress = false

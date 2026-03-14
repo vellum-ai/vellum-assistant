@@ -1,15 +1,13 @@
 import Foundation
 import VellumAssistantShared
 
-/// Authenticated HTTP client for platform assistant proxy requests.
+/// Authenticated HTTP client for gateway and platform proxy requests.
 ///
-/// All managed/remote assistant operations route through the platform at
-/// `{baseURL}/v1/assistants/...` with session-token authentication.
-/// This client consolidates URL construction, auth headers, org-id
-/// injection, and request execution so callers can simply write:
+/// Consolidates URL construction, auth headers, org-id injection, and
+/// request execution so callers can simply write:
 ///
-///     let response = try await GatewayHTTPClient.get(path: "\(id)/healthz")
-///     let response = try await GatewayHTTPClient.post(path: "upgrade")
+///     let response = try await GatewayHTTPClient.get(path: "assistants/\(id)/healthz")
+///     let response = try await GatewayHTTPClient.post(path: "assistants/upgrade")
 @MainActor
 enum GatewayHTTPClient {
 
@@ -49,7 +47,7 @@ enum GatewayHTTPClient {
     /// Performs an authenticated GET request against the gateway.
     ///
     /// - Parameters:
-    ///   - path: Path segment after `/v1/assistants/` (e.g. `"{id}/healthz"` or `"releases"`).
+    ///   - path: Path segment after `/v1/` (e.g. `"assistants/{id}/healthz"`).
     ///   - timeout: Request timeout in seconds. Defaults to 30.
     /// - Returns: A `Response` with the raw data and HTTP status code.
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
@@ -61,7 +59,7 @@ enum GatewayHTTPClient {
     /// Performs an authenticated POST request against the gateway.
     ///
     /// - Parameters:
-    ///   - path: Path segment after `/v1/assistants/` (e.g. `"upgrade"` or `"backups"`).
+    ///   - path: Path segment after `/v1/` (e.g. `"assistants/upgrade"`).
     ///   - body: Optional HTTP body data.
     ///   - timeout: Request timeout in seconds. Defaults to 30.
     /// - Returns: A `Response` with the raw data and HTTP status code.
@@ -75,7 +73,7 @@ enum GatewayHTTPClient {
     /// Performs an authenticated DELETE request against the gateway.
     ///
     /// - Parameters:
-    ///   - path: Path segment after `/v1/assistants/` (e.g. `"{id}/secrets"`).
+    ///   - path: Path segment after `/v1/` (e.g. `"assistants/{id}/secrets"`).
     ///   - body: Optional HTTP body data.
     ///   - timeout: Request timeout in seconds. Defaults to 30.
     /// - Returns: A `Response` with the raw data and HTTP status code.
@@ -91,7 +89,7 @@ enum GatewayHTTPClient {
     /// `URLSession.bytes(for:)` instead of `URLSession.data(for:)`.
     ///
     /// - Parameters:
-    ///   - path: Path segment after `/v1/assistants/`.
+    ///   - path: Path segment after `/v1/`.
     ///   - method: HTTP method. Defaults to `"GET"`.
     ///   - timeout: Request timeout in seconds. Defaults to 30.
     /// - Returns: A fully authenticated `URLRequest`.
@@ -171,7 +169,7 @@ enum GatewayHTTPClient {
         }
 
         let trailingSlash = path.hasSuffix("/") ? "" : "/"
-        guard let url = URL(string: "\(baseURL)/v1/assistants/\(path)\(trailingSlash)") else {
+        guard let url = URL(string: "\(baseURL)/v1/\(path)\(trailingSlash)") else {
             throw ClientError.invalidURL
         }
 

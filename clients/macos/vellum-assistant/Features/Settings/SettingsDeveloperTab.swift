@@ -400,7 +400,7 @@ struct SettingsDeveloperTab: View {
         defer { isUpgradingInline = false }
 
         do {
-            let response = try await GatewayHTTPClient.post(path: "upgrade")
+            let response = try await GatewayHTTPClient.post(path: "assistants/upgrade")
             if response.isSuccess {
                 inlineUpgradeSuccess = "Upgrade initiated. The assistant may be briefly unavailable."
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
@@ -418,7 +418,7 @@ struct SettingsDeveloperTab: View {
     private func fetchHealthz() async {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "\(selectedAssistantId)/healthz",
+                path: "assistants/\(selectedAssistantId)/healthz",
                 timeout: 10
             )
             guard response.statusCode == 200 else { return }
@@ -630,7 +630,7 @@ struct SettingsDeveloperTab: View {
     }
 
     private func performManagedRestart() async {
-        _ = try? await GatewayHTTPClient.post(path: "restart")
+        _ = try? await GatewayHTTPClient.post(path: "assistants/restart")
     }
 
     private func performLocalRestart() async {
