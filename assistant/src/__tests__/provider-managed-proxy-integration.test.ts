@@ -200,8 +200,7 @@ describe("managed proxy integration — credential precedence", () => {
 
       expect(anthropicClient).toBeDefined();
       const baseURL: string = anthropicClient.baseURL;
-      expect(baseURL).toContain("/v1/runtime-proxy/vertex");
-      expect(baseURL).not.toContain("/v1/runtime-proxy/anthropic");
+      expect(baseURL).toContain("/v1/runtime-proxy/anthropic");
     });
 
     test("managed gemini uses vertex proxy path instead of gemini proxy path", () => {
@@ -335,10 +334,13 @@ describe("managed proxy integration — constants integrity", () => {
     }
   });
 
-  test("anthropic and gemini route through vertex proxy path", () => {
+  test("anthropic routes through anthropic proxy path", () => {
     expect(MANAGED_PROVIDER_META.anthropic.proxyPath).toBe(
-      "/v1/runtime-proxy/vertex",
+      "/v1/runtime-proxy/anthropic",
     );
+  });
+
+  test("gemini routes through vertex proxy path", () => {
     expect(MANAGED_PROVIDER_META.gemini.proxyPath).toBe(
       "/v1/runtime-proxy/vertex",
     );
