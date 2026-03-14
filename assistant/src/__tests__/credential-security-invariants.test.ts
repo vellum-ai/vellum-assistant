@@ -194,7 +194,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
   test("browser_fill_credential does not import getCredentialValue", () => {
     const thisDir = dirname(fileURLToPath(import.meta.url));
     const browserSrc = readFileSync(
-      resolve(thisDir, "../tools/browser/headless-browser.ts"),
+      resolve(thisDir, "../tools/browser/browser-execution.ts"),
       "utf-8",
     );
     expect(browserSrc).not.toContain("getCredentialValue");
