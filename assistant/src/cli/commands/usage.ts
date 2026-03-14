@@ -176,7 +176,7 @@ export function registerUsageCommand(program: Command): void {
     `
 Reads from the local LLM usage event ledger (llm_usage_events table) to
 display token consumption and cost data. Operates on the local SQLite
-database directly — does not require the assistant daemon to be running.
+database directly — does not require the assistant to be running.
 
 Subcommands:
   totals       Aggregate totals for a time range (default when no subcommand given)
