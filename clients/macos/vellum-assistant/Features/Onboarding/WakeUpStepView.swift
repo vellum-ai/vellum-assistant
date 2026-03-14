@@ -35,7 +35,10 @@ struct WakeUpStepView: View {
     }
 
     private var primaryButtonTitle: String {
-        onboardingPrimaryButtonTitle(isAuthenticated: authManager?.isAuthenticated == true)
+        onboardingPrimaryButtonTitle(
+            isAuthenticated: authManager?.isAuthenticated == true,
+            hasAssistant: LockfileAssistant.loadLatest() != nil
+        )
     }
 
     // MARK: - Body

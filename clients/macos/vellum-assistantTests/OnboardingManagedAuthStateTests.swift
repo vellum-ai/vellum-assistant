@@ -6,8 +6,12 @@ final class OnboardingManagedAuthStateTests: XCTestCase {
         XCTAssertEqual(onboardingPrimaryButtonTitle(isAuthenticated: false), "Sign in")
     }
 
-    func testPrimaryButtonTitleShowsContinueLabelWhenAuthenticated() {
-        XCTAssertEqual(onboardingPrimaryButtonTitle(isAuthenticated: true), "Talk to your assistant")
+    func testPrimaryButtonTitleShowsContinueLabelWhenAuthenticatedWithAssistant() {
+        XCTAssertEqual(onboardingPrimaryButtonTitle(isAuthenticated: true, hasAssistant: true), "Talk to your assistant")
+    }
+
+    func testPrimaryButtonTitleShowsHatchLabelWhenAuthenticatedWithoutAssistant() {
+        XCTAssertEqual(onboardingPrimaryButtonTitle(isAuthenticated: true, hasAssistant: false), "Hatch your assistant")
     }
 
     func testContinuationActionStartsLoginWhenUnauthenticated() {
