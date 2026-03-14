@@ -17,7 +17,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
+import { getSignalsDir } from "../util/platform.js";
 
 const log = getLogger("signal:conversation-undo");
 
@@ -46,11 +46,7 @@ export function registerConversationUndoCallback(cb: UndoCallback): void {
  * file is written.
  */
 export async function handleConversationUndoSignal(): Promise<void> {
-  const resultPath = join(
-    getWorkspaceDir(),
-    "signals",
-    "conversation-undo.result",
-  );
+  const resultPath = join(getSignalsDir(), "conversation-undo.result");
 
   const writeResult = (
     data:
@@ -68,7 +64,7 @@ export async function handleConversationUndoSignal(): Promise<void> {
 
   try {
     const content = readFileSync(
-      join(getWorkspaceDir(), "signals", "conversation-undo"),
+      join(getSignalsDir(), "conversation-undo"),
       "utf-8",
     );
     const parsed = JSON.parse(content) as {

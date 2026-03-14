@@ -21,7 +21,7 @@ import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
+import { getSignalsDir, getWorkspaceDir } from "../util/platform.js";
 
 const log = getLogger("signal:bash");
 
@@ -51,7 +51,7 @@ interface BashSignalResult {
 function writeResult(requestId: string, result: BashSignalResult): void {
   try {
     writeFileSync(
-      join(getWorkspaceDir(), "signals", `bash.${requestId}.result`),
+      join(getSignalsDir(), `bash.${requestId}.result`),
       JSON.stringify(result),
     );
   } catch (err) {
@@ -86,7 +86,7 @@ export function handleBashSignal(filename: string): void {
     return;
   }
 
-  const signalPath = join(getWorkspaceDir(), "signals", filename);
+  const signalPath = join(getSignalsDir(), filename);
   let raw: string;
   try {
     raw = readFileSync(signalPath, "utf-8");

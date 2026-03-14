@@ -30,6 +30,7 @@ import { DebouncerMap } from "../util/debounce.js";
 import { getLogger } from "../util/logger.js";
 import {
   getRootDir,
+  getSignalsDir,
   getWorkspaceDir,
   getWorkspaceSkillsDir,
 } from "../util/platform.js";
@@ -219,7 +220,7 @@ export class ConfigWatcher {
   }
 
   private startSignalsWatcher(): void {
-    const signalsDir = join(getWorkspaceDir(), "signals");
+    const signalsDir = getSignalsDir();
     try {
       if (!existsSync(signalsDir)) {
         mkdirSync(signalsDir, { recursive: true });

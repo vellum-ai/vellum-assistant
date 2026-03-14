@@ -41,7 +41,7 @@ import {
   formatSessionForExport,
 } from "./util/clipboard.js";
 import { formatDiff, formatNewFileDiff } from "./util/diff.js";
-import { getHistoryPath, getWorkspaceDir } from "./util/platform.js";
+import { getHistoryPath, getSignalsDir } from "./util/platform.js";
 import { Spinner } from "./util/spinner.js";
 import { timeAgo } from "./util/time.js";
 import { truncate } from "./util/truncate.js";
@@ -241,7 +241,7 @@ export async function startCli(): Promise<void> {
   /** Send a confirmation decision via signal file (read by the daemon). */
   function sendConfirmation(requestId: string, decision: string): void {
     try {
-      const signalsDir = join(getWorkspaceDir(), "signals");
+      const signalsDir = getSignalsDir();
       mkdirSync(signalsDir, { recursive: true });
       writeFileSync(
         join(signalsDir, "confirm"),
@@ -262,7 +262,7 @@ export async function startCli(): Promise<void> {
     options?: { allowHighRisk?: boolean },
   ): void {
     try {
-      const signalsDir = join(getWorkspaceDir(), "signals");
+      const signalsDir = getSignalsDir();
       mkdirSync(signalsDir, { recursive: true });
       const resultPath = join(signalsDir, "trust-rule.result");
       writeFileSync(
@@ -1276,7 +1276,7 @@ export async function startCli(): Promise<void> {
         return;
       }
       try {
-        const signalsDir = join(getWorkspaceDir(), "signals");
+        const signalsDir = getSignalsDir();
         mkdirSync(signalsDir, { recursive: true });
         const resultPath = join(signalsDir, "conversation-undo.result");
         try {
@@ -1412,7 +1412,7 @@ export async function startCli(): Promise<void> {
     spinner.stop();
     if (generating && sessionId) {
       try {
-        const signalsDir = join(getWorkspaceDir(), "signals");
+        const signalsDir = getSignalsDir();
         mkdirSync(signalsDir, { recursive: true });
         writeFileSync(
           join(signalsDir, "cancel"),

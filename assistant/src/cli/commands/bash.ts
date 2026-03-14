@@ -10,7 +10,7 @@ import { join } from "node:path";
 
 import type { Command } from "commander";
 
-import { getWorkspaceDir } from "../../util/platform.js";
+import { getSignalsDir } from "../../util/platform.js";
 import { log } from "../logger.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -73,7 +73,7 @@ Examples:
       }
 
       const requestId = randomUUID();
-      const signalsDir = join(getWorkspaceDir(), "signals");
+      const signalsDir = getSignalsDir();
 
       try {
         mkdirSync(signalsDir, { recursive: true });
