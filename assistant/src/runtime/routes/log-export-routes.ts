@@ -40,6 +40,9 @@ const log = getLogger("log-export-routes");
 /** Maximum total payload size for log file contents (10 MB). */
 const MAX_LOG_PAYLOAD_BYTES = 10 * 1024 * 1024;
 
+/** Maximum compressed archive size before pruning workspace directories (50 MB). */
+const MAX_ARCHIVE_BYTES = 50 * 1024 * 1024;
+
 interface ExportRequestBody {
   auditLimit?: number;
 }
@@ -148,29 +151,46 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
       "Export collected, creating tar.gz archive",
     );
 
-    // --- Create tar.gz archive ---
-    const proc = spawnSync("tar", ["czf", "-", "-C", staging, "."], {
-      maxBuffer: 50 * 1024 * 1024,
-      timeout: 30_000,
-    });
+    // --- Create tar.gz archive, pruning workspace dirs if too large ---
+    const excludedDirs: string[] = [];
+    let archiveBytes = createTarGz(staging);
 
-    if (proc.status !== 0) {
-      const stderr = proc.stderr
-        ? Buffer.isBuffer(proc.stderr)
-          ? proc.stderr.toString("utf-8")
-          : String(proc.stderr)
-        : "";
-      log.error({ stderr }, "tar command failed");
-      return httpError(
-        "INTERNAL_ERROR",
-        `Failed to create archive: ${stderr}`,
-        500,
+    while (!archiveBytes) {
+      // Find the largest top-level directory under workspace/ and remove it
+      const wsDir = join(staging, "workspace");
+      const largest = findLargestSubdirectory(wsDir);
+      if (!largest) {
+        log.error("tar command failed and no workspace dirs to prune");
+        return httpError("INTERNAL_ERROR", "Failed to create archive", 500);
+      }
+
+      log.warn(
+        { dir: largest.name, bytes: largest.bytes },
+        "Archive exceeds size limit, removing largest workspace directory",
       );
+      excludedDirs.push(
+        `workspace/${largest.name} (${formatBytes(largest.bytes)})`,
+      );
+      rmSync(join(wsDir, largest.name), { recursive: true, force: true });
+      archiveBytes = createTarGz(staging);
     }
 
-    const archiveBytes = Buffer.isBuffer(proc.stdout)
-      ? proc.stdout
-      : Buffer.from(proc.stdout);
+    if (excludedDirs.length > 0) {
+      const errorLines = [
+        "The following workspace directories were excluded because the archive exceeded the size limit:",
+        "",
+        ...excludedDirs.map((d) => `  - ${d}`),
+        "",
+        "Use the streaming export endpoint for full workspace exports.",
+      ];
+      writeFileSync(join(staging, "error.log"), errorLines.join("\n"), "utf-8");
+
+      // Re-create the archive now that error.log is included
+      const withErrorLog = createTarGz(staging);
+      if (withErrorLog) {
+        archiveBytes = withErrorLog;
+      }
+    }
 
     return new Response(archiveBytes, {
       status: 200,
@@ -191,6 +211,80 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
       // Best-effort cleanup
     }
   }
+}
+
+/**
+ * Attempts to create a tar.gz archive of `staging` into a Buffer.
+ * Returns the Buffer on success, or `undefined` if the archive exceeds
+ * the size limit or tar otherwise fails.
+ */
+function createTarGz(staging: string): ArrayBuffer | undefined {
+  const proc = spawnSync("tar", ["czf", "-", "-C", staging, "."], {
+    maxBuffer: MAX_ARCHIVE_BYTES,
+    timeout: 30_000,
+  });
+  if (proc.status !== 0) return undefined;
+  const buf = Buffer.isBuffer(proc.stdout)
+    ? proc.stdout
+    : Buffer.from(proc.stdout);
+  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+}
+
+/**
+ * Returns the name and total byte size of the largest top-level subdirectory
+ * inside `dir`, or `undefined` if `dir` has no subdirectories.
+ */
+function findLargestSubdirectory(
+  dir: string,
+): { name: string; bytes: number } | undefined {
+  if (!existsSync(dir)) return undefined;
+
+  let largest: { name: string; bytes: number } | undefined;
+
+  for (const entry of readdirSync(dir)) {
+    const fullPath = join(dir, entry);
+    try {
+      if (!statSync(fullPath).isDirectory()) continue;
+    } catch {
+      continue;
+    }
+    const bytes = directorySize(fullPath);
+    if (!largest || bytes > largest.bytes) {
+      largest = { name: entry, bytes };
+    }
+  }
+
+  return largest;
+}
+
+/** Recursively sums the byte size of all files in `dir`. */
+function directorySize(dir: string): number {
+  let total = 0;
+  try {
+    for (const entry of readdirSync(dir)) {
+      const fullPath = join(dir, entry);
+      try {
+        const stat = statSync(fullPath);
+        if (stat.isDirectory()) {
+          total += directorySize(fullPath);
+        } else if (stat.isFile()) {
+          total += stat.size;
+        }
+      } catch {
+        // skip
+      }
+    }
+  } catch {
+    // skip
+  }
+  return total;
+}
+
+/** Formats a byte count as a human-readable string (e.g. "12.3 MB"). */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 /** Directory prefixes to skip when collecting workspace files. */
