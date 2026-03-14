@@ -46,7 +46,7 @@ Do NOT delegate when:
 
 Claude Code supports scoped worker profiles that restrict tool access:
 
-- **general** (default) — Full access to all tools. Backward-compatible with existing behavior.
+- **general** (default) — Full access to all tools.
 - **researcher** — Read-only access. Can search, read files, and browse the web but cannot write or execute commands.
 - **coder** — Full read/write/execute access optimized for implementation tasks.
 - **reviewer** — Read-only access tailored for code review, with emphasis on analysis and feedback.

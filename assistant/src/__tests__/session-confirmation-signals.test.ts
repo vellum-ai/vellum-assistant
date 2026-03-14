@@ -56,7 +56,6 @@ mock.module("../util/platform.js", () => ({
 }));
 
 mock.module("../memory/guardian-action-store.js", () => ({
-  getPendingDeliveryByConversation: () => null,
   getGuardianActionRequest: () => null,
   resolveGuardianActionRequest: () => {},
 }));

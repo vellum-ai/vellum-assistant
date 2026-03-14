@@ -26,14 +26,6 @@
       "defaultEnabled": true
     },
     {
-      "id": "messaging",
-      "scope": "assistant",
-      "key": "feature_flags.messaging.enabled",
-      "label": "Messaging",
-      "description": "Enable messaging skill section in the system prompt",
-      "defaultEnabled": true
-    },
-    {
       "id": "collect-usage-data",
       "scope": "assistant",
       "key": "feature_flags.collect-usage-data.enabled",
@@ -50,14 +42,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "command-palette",
-      "scope": "assistant",
-      "key": "feature_flags.command-palette.enabled",
-      "label": "Command Palette",
-      "description": "Enable the CMD+K command palette for unified search across conversations, memories, schedules, and contacts",
-      "defaultEnabled": false
-    },
-    {
       "id": "contacts",
       "scope": "assistant",
       "key": "feature_flags.contacts.enabled",
@@ -71,14 +55,6 @@
       "key": "feature_flags.email-channel.enabled",
       "label": "Email Channel",
       "description": "Show the Email channel card on the Contacts page and enable the email-setup skill",
-      "defaultEnabled": false
-    },
-    {
-      "id": "outbound-proxy-sidecar",
-      "scope": "assistant",
-      "key": "feature_flags.outbound-proxy-sidecar.enabled",
-      "label": "Outbound Proxy Sidecar",
-      "description": "Route proxy session management through the sidecar process instead of running in-process",
       "defaultEnabled": false
     },
     {
@@ -104,22 +80,6 @@
       "label": "Mobile Pairing",
       "description": "Show the Mobile (iOS) pairing card in Settings > Account",
       "defaultEnabled": false
-    },
-    {
-      "id": "gmail",
-      "scope": "assistant",
-      "key": "feature_flags.gmail.enabled",
-      "label": "Gmail",
-      "description": "Enable Gmail management skill (archive, label, declutter)",
-      "defaultEnabled": true
-    },
-    {
-      "id": "sequences",
-      "scope": "assistant",
-      "key": "feature_flags.sequences.enabled",
-      "label": "Email Sequences",
-      "description": "Enable email sequence management skill",
-      "defaultEnabled": true
     },
     {
       "id": "settings-developer-nav",

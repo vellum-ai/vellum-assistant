@@ -3,6 +3,7 @@
  * Subset of assistant/src/util/platform.ts — kept minimal.
  */
 
+import { createHmac, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -38,17 +39,41 @@ export function buildDaemonUrl(port?: number): string {
   return `http://127.0.0.1:${port ?? getHttpPort()}`;
 }
 
+function base64urlEncode(data: Buffer | string): string {
+  const buf = typeof data === "string" ? Buffer.from(data, "utf-8") : data;
+  return buf.toString("base64url");
+}
+
+const JWT_HEADER = base64urlEncode(
+  JSON.stringify({ alg: "HS256", typ: "JWT" }),
+);
+
 /**
- * Read the HTTP bearer token from `<rootDir>/http-token`.
- * Returns null if the token file doesn't exist or is empty.
+ * Mint a short-lived JWT bearer token from the signing key on disk.
+ * Returns null if the signing key doesn't exist.
  */
 export function readHttpToken(): string | null {
   try {
-    const token = readFileSync(
-      join(getRootDir(), "http-token"),
-      "utf-8",
-    ).trim();
-    return token || null;
+    const keyPath = join(getRootDir(), "protected", "actor-token-signing-key");
+    const key = readFileSync(keyPath);
+    if (key.length !== 32) return null;
+
+    const now = Math.floor(Date.now() / 1000);
+    const claims = {
+      iss: "vellum-auth",
+      aud: "vellum-gateway",
+      sub: "svc:cli:local",
+      scope_profile: "actor_client_v1",
+      exp: now + 300,
+      policy_epoch: 1,
+      iat: now,
+      jti: randomBytes(16).toString("hex"),
+    };
+
+    const payload = base64urlEncode(JSON.stringify(claims));
+    const sigInput = JWT_HEADER + "." + payload;
+    const sig = createHmac("sha256", key).update(sigInput).digest();
+    return sigInput + "." + base64urlEncode(sig);
   } catch {
     return null;
   }

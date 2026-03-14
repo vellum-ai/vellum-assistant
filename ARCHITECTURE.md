@@ -47,7 +47,6 @@ Each named instance gets its own directory tree under `~/.vellum/instances/<name
 │   │       ├── vellum.pid        # Daemon PID
 │   │       ├── gateway.pid       # Gateway PID
 │   │       ├── outbound-proxy.pid
-│   │       ├── http-token        # Bearer token for gateway auth
 │   │       ├── session-token
 │   │       └── workspace/
 │   │           ├── config.json

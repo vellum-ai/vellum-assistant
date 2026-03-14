@@ -68,7 +68,6 @@ const mockProvider = {
 };
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async () => "test-api-key",
-  getSecureKey: () => "test-api-key",
 }));
 
 mock.module("../providers/registry.js", () => ({

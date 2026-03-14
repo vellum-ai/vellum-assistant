@@ -3,8 +3,8 @@ import type { DrizzleDb } from "../db-connection.js";
 /**
  * Add index on guardian_action_deliveries.destination_conversation_id.
  *
- * Several lookup paths (getPendingDeliveryByConversation,
- * getExpiredDeliveryByConversation, getFollowupDeliveryByConversation)
+ * Several lookup paths (getPendingDeliveriesByConversation,
+ * getExpiredDeliveriesByConversation, getFollowupDeliveriesByConversation)
  * filter deliveries by destination_conversation_id. Without an index
  * these degrade to full table scans as delivery history grows.
  */

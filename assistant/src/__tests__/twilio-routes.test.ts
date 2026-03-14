@@ -143,7 +143,6 @@ mock.module("../config/loader.js", () => ({
 }));
 
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKey: (key: string) => mockSecureKeyStore[key],
   setSecureKeyAsync: async (key: string, value: string) => {
     mockSecureKeyStore[key] = value;
     return true;

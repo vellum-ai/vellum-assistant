@@ -169,7 +169,7 @@ XPC provides stronger caller identity guarantees via audit tokens and code requi
 
 ### Runtime request handlers (secret-routes, etc.)
 
-All runtime HTTP handlers that write or delete secrets **must** use the async APIs (`setSecureKeyAsync`, `deleteSecureKeyAsync`). These are the primary entry points for macOS app flows and must go through the broker to reach keychain.
+All runtime HTTP handlers that write or delete secrets use the async APIs (`setSecureKeyAsync`, `deleteSecureKeyAsync`). These are the primary entry points for macOS app flows and must go through the broker to reach keychain.
 
 ### Gateway (credential-reader)
 

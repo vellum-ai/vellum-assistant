@@ -100,11 +100,8 @@ mock.module("../security/secure-keys.js", () => {
     return "not-found" as const;
   };
   return {
-    getSecureKey: (account: string) => secureKeyStore[account] ?? undefined,
     getSecureKeyAsync: async (account: string) =>
       secureKeyStore[account] ?? undefined,
-    setSecureKey: syncSet,
-    deleteSecureKey: syncDelete,
     setSecureKeyAsync: async (account: string, value: string) =>
       syncSet(account, value),
     deleteSecureKeyAsync: async (account: string) => syncDelete(account),

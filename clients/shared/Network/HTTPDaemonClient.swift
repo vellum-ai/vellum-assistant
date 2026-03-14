@@ -1448,10 +1448,10 @@ public final class HTTPTransport {
                         }
                     }
                     if statusCode == 403 {
-                        // 403 during assistant switch: the http-token (gateway_service_v1
-                        // profile) may lack chat.read scope needed for SSE. The actor
-                        // token is still bootstrapping. Use a short retry delay so SSE
-                        // reconnects quickly once the actor token is available.
+                        // 403 during assistant switch: the bearer token may lack
+                        // chat.read scope needed for SSE. The actor token is still
+                        // bootstrapping. Use a short retry delay so SSE reconnects
+                        // quickly once the actor token is available.
                         self.sseReconnectDelay = 1.0
                     }
                     self.handleSSEDisconnect()
@@ -2899,8 +2899,8 @@ public final class HTTPTransport {
                     }
                 }
                 // 403 during assistant switch: the actor token hasn't been
-                // bootstrapped yet (http-token lacks chat.read scope). Retry
-                // a few times with a delay to let ensureActorCredentials() finish.
+                // bootstrapped yet. Retry a few times with a delay to let
+                // ensureActorCredentials() finish.
                 if statusCode == 403 && authRetryCount < 6 {
                     log.info("Session list fetch got 403 — waiting for actor token (attempt \(authRetryCount + 1)/6)")
                     try? await Task.sleep(nanoseconds: 2_000_000_000)

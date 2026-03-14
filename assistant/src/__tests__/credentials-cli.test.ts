@@ -31,15 +31,6 @@ let _getMetadataByIdCalls = 0;
 // ---------------------------------------------------------------------------
 
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKey: (account: string): string | undefined => {
-    _getSecureKeyCalls += 1;
-    return secureKeyStore.get(account);
-  },
-  setSecureKey: (account: string, value: string): boolean => {
-    _setSecureKeyCalls += 1;
-    secureKeyStore.set(account, value);
-    return true;
-  },
   setSecureKeyAsync: async (
     account: string,
     value: string,
@@ -47,14 +38,6 @@ mock.module("../security/secure-keys.js", () => ({
     _setSecureKeyCalls += 1;
     secureKeyStore.set(account, value);
     return true;
-  },
-  deleteSecureKey: (account: string): "deleted" | "not-found" | "error" => {
-    _deleteSecureKeyCalls += 1;
-    if (secureKeyStore.has(account)) {
-      secureKeyStore.delete(account);
-      return "deleted";
-    }
-    return "not-found";
   },
   deleteSecureKeyAsync: async (
     account: string,

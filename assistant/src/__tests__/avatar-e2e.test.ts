@@ -34,7 +34,6 @@ mock.module("../config/loader.js", () => ({
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (name: string) =>
     name === "gemini" ? mockGeminiKey : null,
-  getSecureKey: () => null,
 }));
 
 mock.module("../util/platform.js", () => ({

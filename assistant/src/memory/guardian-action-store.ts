@@ -723,16 +723,6 @@ export function getPendingDeliveriesByDestination(
 }
 
 /**
- * Look up a pending delivery by destination conversation ID (for mac channel routing).
- */
-export function getPendingDeliveryByConversation(
-  conversationId: string,
-): GuardianActionDelivery | null {
-  const all = getPendingDeliveriesByConversation(conversationId);
-  return all.length > 0 ? all[0] : null;
-}
-
-/**
  * Look up all pending deliveries by destination conversation ID.
  * Used for disambiguation when a reused vellum thread has multiple active
  * guardian requests.
@@ -809,16 +799,6 @@ export function getExpiredDeliveriesByDestination(
     }
     throw err;
   }
-}
-
-/**
- * Look up an expired delivery by destination conversation ID (for mac channel routing).
- */
-export function getExpiredDeliveryByConversation(
-  conversationId: string,
-): GuardianActionDelivery | null {
-  const all = getExpiredDeliveriesByConversation(conversationId);
-  return all.length > 0 ? all[0] : null;
 }
 
 /**
@@ -900,17 +880,6 @@ export function getFollowupDeliveriesByDestination(
     }
     throw err;
   }
-}
-
-/**
- * Look up a delivery for a request in `awaiting_guardian_choice` follow-up
- * state by destination conversation ID (for mac channel routing).
- */
-export function getFollowupDeliveryByConversation(
-  conversationId: string,
-): GuardianActionDelivery | null {
-  const all = getFollowupDeliveriesByConversation(conversationId);
-  return all.length > 0 ? all[0] : null;
 }
 
 /**

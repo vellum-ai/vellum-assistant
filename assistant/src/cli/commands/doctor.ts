@@ -42,11 +42,10 @@ Diagnostic checks performed:
   6.  Disk space                 Ensures at least 100MB free on the data partition
   7.  Log file size              Warns if the log file exceeds 50MB
   8.  Database integrity         Runs SQLite PRAGMA integrity_check
-  9.  HTTP token permissions     Verifies the http-token file has 0600 or 0700 mode
-  10. Trust rule syntax          Validates trust.json structure and rule fields
-  11. WASM files                 Checks that tree-sitter WASM binaries are present
-  12. Browser runtime            Verifies Playwright and Chromium availability
-  13. Sandbox diagnostics        Reports sandbox backend status and configuration
+  9.  Trust rule syntax          Validates trust.json structure and rule fields
+  10. WASM files                 Checks that tree-sitter WASM binaries are present
+  11. Browser runtime            Verifies Playwright and Chromium availability
+  12. Sandbox diagnostics        Reports sandbox backend status and configuration
 
 Examples:
   $ assistant doctor`,
@@ -216,30 +215,7 @@ Examples:
         fail("Database integrity check", "database file not found");
       }
 
-      // 9. HTTP token
-      const tokenPath = `${rootDir}/http-token`;
-      if (existsSync(tokenPath)) {
-        try {
-          const tokenStat = statSync(tokenPath);
-          const mode = tokenStat.mode & 0o777;
-          if (mode === 0o600 || mode === 0o700) {
-            pass(
-              `HTTP token permissions (${mode.toString(8).padStart(4, "0")})`,
-            );
-          } else {
-            fail(
-              "HTTP token permissions",
-              `expected 0600 or 0700, got 0${mode.toString(8)}`,
-            );
-          }
-        } catch {
-          fail("HTTP token permissions", "could not stat http-token file");
-        }
-      } else {
-        pass("HTTP token (not present — assistant not running)");
-      }
-
-      // 10. Trust rule syntax
+      // 9. Trust rule syntax
       const trustPath = `${rootDir}/protected/trust.json`;
       if (existsSync(trustPath)) {
         try {
@@ -279,7 +255,7 @@ Examples:
         pass("Trust rule syntax (no trust.json yet)");
       }
 
-      // 11. WASM files
+      // 10. WASM files
       const wasmFiles = [
         { pkg: "web-tree-sitter", file: "web-tree-sitter.wasm" },
         { pkg: "tree-sitter-bash", file: "tree-sitter-bash.wasm" },
@@ -321,7 +297,7 @@ Examples:
         fail("WASM files", missingWasm.join(", "));
       }
 
-      // 12. Browser runtime (Playwright + Chromium)
+      // 11. Browser runtime (Playwright + Chromium)
       const { checkBrowserRuntime } =
         await import("../../tools/browser/runtime-check.js");
       const browserStatus = await checkBrowserRuntime();
@@ -339,7 +315,7 @@ Examples:
         );
       }
 
-      // 13. Sandbox backend diagnostics
+      // 12. Sandbox backend diagnostics
       const { runSandboxDiagnostics } =
         await import("../../tools/terminal/sandbox-diagnostics.js");
       const sandbox = runSandboxDiagnostics();

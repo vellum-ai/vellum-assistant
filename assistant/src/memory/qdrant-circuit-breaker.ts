@@ -108,11 +108,3 @@ export function _resetQdrantBreaker(): void {
   openedAt = 0;
   halfOpenProbeInFlight = false;
 }
-
-/** @internal Test-only: get breaker state */
-export function _getQdrantBreakerState(): {
-  state: BreakerState;
-  consecutiveFailures: number;
-} {
-  return { state: breakerState, consecutiveFailures };
-}

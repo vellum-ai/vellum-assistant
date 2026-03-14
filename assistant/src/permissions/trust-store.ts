@@ -230,47 +230,10 @@ function backfillDefaults(rules: TrustRule[]): boolean {
   return changed;
 }
 
-function getLegacyTrustPath(): string {
-  return join(getRootDir(), "trust.json");
-}
-
 function loadFromDisk(): TrustRule[] {
   const path = getTrustPath();
   let rules: TrustRule[] = [];
   let needsSave = false;
-
-  // Migrate legacy trust file from root dir to protected subdir.
-  // Only migrate when the protected path does not yet exist.
-  if (!existsSync(path)) {
-    const legacyPath = getLegacyTrustPath();
-    if (existsSync(legacyPath)) {
-      try {
-        mkdirSync(dirname(path), { recursive: true });
-        renameSync(legacyPath, path);
-        chmodSync(path, 0o600);
-        log.info(
-          { from: legacyPath, to: path },
-          "Migrated legacy trust file to protected path",
-        );
-      } catch (err) {
-        log.warn(
-          { err },
-          "Failed to migrate legacy trust file; reading from legacy path",
-        );
-        // Fall back: copy content so the normal read path picks it up.
-        try {
-          const content = readFileSync(legacyPath, "utf-8");
-          mkdirSync(dirname(path), { recursive: true });
-          writeFileSync(path, content, { mode: 0o600 });
-        } catch (copyErr) {
-          log.warn(
-            { copyErr },
-            "Failed to copy legacy trust file to protected path",
-          );
-        }
-      }
-    }
-  }
 
   if (existsSync(path)) {
     try {

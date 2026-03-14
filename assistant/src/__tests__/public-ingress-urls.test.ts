@@ -98,7 +98,7 @@ describe("getPublicBaseUrl", () => {
     ).toThrow(/Public ingress is disabled/);
   });
 
-  test("returns URL when enabled is undefined (backward compat)", () => {
+  test("returns URL when enabled is undefined", () => {
     const result = getPublicBaseUrl({
       ingress: { enabled: undefined, publicBaseUrl: "https://example.com" },
     });
