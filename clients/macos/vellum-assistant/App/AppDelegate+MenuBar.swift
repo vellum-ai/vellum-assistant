@@ -313,9 +313,11 @@ extension AppDelegate {
             onboardingItem.target = self
             menu.addItem(onboardingItem)
 
+            #if DEBUG
             let galleryItem = NSMenuItem(title: "Component Gallery", action: #selector(showComponentGallery), keyEquivalent: "")
             galleryItem.target = self
             menu.addItem(galleryItem)
+            #endif
         }
 
         menu.addItem(NSMenuItem.separator())
