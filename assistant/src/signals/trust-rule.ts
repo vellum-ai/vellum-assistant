@@ -36,6 +36,8 @@ export function handleTrustRuleSignal(): void {
     );
   };
 
+  let parsedRequestId: string | undefined;
+
   try {
     const content = readFileSync(
       join(getWorkspaceDir(), "signals", "trust-rule"),
@@ -49,6 +51,7 @@ export function handleTrustRuleSignal(): void {
       allowHighRisk?: boolean;
     };
     const { requestId, pattern, scope, decision, allowHighRisk } = parsed;
+    parsedRequestId = requestId;
 
     if (!requestId || typeof requestId !== "string") {
       log.warn("Trust-rule signal missing requestId");
@@ -158,7 +161,11 @@ export function handleTrustRuleSignal(): void {
     try {
       writeFileSync(
         resultPath,
-        JSON.stringify({ ok: false, requestId: null, error: "Internal error" }),
+        JSON.stringify({
+          ok: false,
+          requestId: parsedRequestId ?? null,
+          error: "Internal error",
+        }),
       );
     } catch {
       // Best-effort — filesystem may be broken.
