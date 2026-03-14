@@ -261,9 +261,12 @@ enum LogExporter {
             }
         }
 
-        // 10. Sanitized workspace config — client-side fallback if daemon export didn't include it
+        // 10. Sanitized workspace config — client-side fallback if daemon export didn't include it.
+        //     The daemon archive extracts into daemon-exports/, so check both locations.
         let configSnapshotPath = tempDir.appendingPathComponent("config-snapshot.json")
-        if !fileManager.fileExists(atPath: configSnapshotPath.path) {
+        let daemonConfigPath = tempDir.appendingPathComponent("daemon-exports/config-snapshot.json")
+        if !fileManager.fileExists(atPath: configSnapshotPath.path)
+            && !fileManager.fileExists(atPath: daemonConfigPath.path) {
             writeSanitizedWorkspaceConfig(to: configSnapshotPath)
         }
 
@@ -365,7 +368,7 @@ enum LogExporter {
                 return
             }
 
-            try extractTarGzResponse(data: data, into: directory, subdirectory: "daemon-exports")
+            try await extractTarGzResponse(data: data, into: directory, subdirectory: "daemon-exports")
         } catch {
             log.warning("Export API request failed: \(error.localizedDescription)")
         }
@@ -408,7 +411,7 @@ enum LogExporter {
                 return
             }
 
-            try extractTarGzResponse(data: data, into: directory, subdirectory: "platform-logs")
+            try await extractTarGzResponse(data: data, into: directory, subdirectory: "platform-logs")
         } catch {
             log.warning("Platform log export request failed: \(error.localizedDescription)")
         }
@@ -420,7 +423,7 @@ enum LogExporter {
         data: Data,
         into directory: URL,
         subdirectory: String
-    ) throws {
+    ) async throws {
         let fileManager = FileManager.default
         let tarPath = fileManager.temporaryDirectory
             .appendingPathComponent("\(subdirectory)-\(UUID().uuidString).tar.gz")
@@ -433,26 +436,35 @@ enum LogExporter {
         let extractDir = directory.appendingPathComponent(subdirectory, isDirectory: true)
         try fileManager.createDirectory(at: extractDir, withIntermediateDirectories: true)
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
-        process.arguments = [
-            "xzf",
-            tarPath.path,
-            "-C", extractDir.path,
-        ]
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+            process.arguments = [
+                "xzf",
+                tarPath.path,
+                "-C", extractDir.path,
+            ]
 
-        let pipe = Pipe()
-        process.standardError = pipe
+            let pipe = Pipe()
+            process.standardError = pipe
 
-        try process.run()
-        process.waitUntilExit()
+            process.terminationHandler = { proc in
+                if proc.terminationStatus == 0 {
+                    continuation.resume()
+                } else {
+                    let stderr = String(
+                        data: pipe.fileHandleForReading.readDataToEndOfFile(),
+                        encoding: .utf8
+                    ) ?? ""
+                    continuation.resume(throwing: ExportError.tarFailed(stderr))
+                }
+            }
 
-        if process.terminationStatus != 0 {
-            let stderr = String(
-                data: pipe.fileHandleForReading.readDataToEndOfFile(),
-                encoding: .utf8
-            ) ?? ""
-            throw ExportError.tarFailed(stderr)
+            do {
+                try process.run()
+            } catch {
+                continuation.resume(throwing: error)
+            }
         }
     }
 
