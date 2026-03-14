@@ -15,7 +15,6 @@ import { fileWriteTool } from "./filesystem/write.js";
 import { memoryManageTool, memoryRecallTool } from "./memory/register.js";
 import { webFetchTool } from "./network/web-fetch.js";
 import { webSearchTool } from "./network/web-search.js";
-import type { LazyToolDescriptor } from "./registry.js";
 import { skillExecuteTool } from "./skills/execute.js";
 import { skillLoadTool } from "./skills/load.js";
 import { requestSystemPermissionTool } from "./system/request-permission.js";
@@ -85,12 +84,3 @@ export const explicitTools: Tool[] = [
   memoryRecallTool,
   credentialStoreTool,
 ];
-
-// ── Lazy tool descriptors ───────────────────────────────────────────
-// Tools that defer module loading until first invocation.
-// bash was previously lazy but is now eagerly registered via side-effect
-// imports above, preserving its full definition (including the `reason` field)
-// and fixing bun --compile module-not-found crashes.
-// swarm_delegate has been moved to the orchestration bundled skill.
-
-export const lazyTools: LazyToolDescriptor[] = [];

@@ -2,8 +2,6 @@ import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
 import { RiskLevel } from "../permissions/types.js";
 import type { ToolDefinition } from "../providers/types.js";
-// We cannot import the private LazyTool class directly, so we test through
-// registerLazyTool + getTool which exercise the same code path.
 import {
   __clearRegistryForTesting,
   __resetRegistryForTesting,
@@ -13,16 +11,11 @@ import {
   getSkillToolNames,
   getTool,
   initializeTools,
-  registerLazyTool,
   registerSkillTools,
   registerTool,
   unregisterSkillTools,
 } from "../tools/registry.js";
-import {
-  eagerModuleToolNames,
-  explicitTools,
-  lazyTools,
-} from "../tools/tool-manifest.js";
+import { eagerModuleToolNames, explicitTools } from "../tools/tool-manifest.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 
 // Clean up global registry after this file completes to prevent
@@ -60,48 +53,6 @@ function makeSkillTool(name: string, ownerSkillId: string): Tool {
     ownerSkillId,
   };
 }
-
-describe("LazyTool", () => {
-  test("clears cached promise on load failure so subsequent call can retry", async () => {
-    let callCount = 0;
-
-    registerLazyTool({
-      name: "test-retry-tool",
-      description: "A tool that fails on first load then succeeds",
-      category: "test",
-      defaultRiskLevel: RiskLevel.Low,
-      definition: {
-        name: "test-retry-tool",
-        description: "A tool that fails on first load then succeeds",
-        input_schema: { type: "object", properties: {}, required: [] },
-      },
-      loader: async () => {
-        callCount++;
-        if (callCount === 1) {
-          throw new Error("transient load failure");
-        }
-        return makeFakeTool("test-retry-tool");
-      },
-    });
-
-    const tool = getTool("test-retry-tool")!;
-    expect(tool).toBeDefined();
-
-    const dummyContext = {} as ToolContext;
-
-    // First call should throw the transient error
-    await expect(tool.execute({}, dummyContext)).rejects.toThrow(
-      "transient load failure",
-    );
-    expect(callCount).toBe(1);
-
-    // Second call should retry the loader and succeed
-    const result = await tool.execute({}, dummyContext);
-    expect(result.content).toBe("ok");
-    expect(result.isError).toBe(false);
-    expect(callCount).toBe(2);
-  });
-});
 
 describe("tool registry host tools", () => {
   test("registers host tools and exposes them in tool definitions", async () => {
@@ -157,29 +108,6 @@ describe("tool registry dynamic-tools tools", () => {
 });
 
 describe("tool manifest", () => {
-  test("all manifest lazy tools are registered after init", async () => {
-    await initializeTools();
-    const registered = new Set(getAllTools().map((t) => t.name));
-
-    for (const descriptor of lazyTools) {
-      expect(registered.has(descriptor.name)).toBe(true);
-    }
-  });
-
-  test("manifest declares expected core lazy tools", () => {
-    // bash moved from lazy to eager registration
-    // swarm_delegate moved to the orchestration bundled skill
-    const lazyNames = new Set(lazyTools.map((t) => t.name));
-    expect(lazyNames.has("bash")).toBe(false);
-    expect(lazyNames.has("evaluate_typescript_code")).toBe(false);
-    expect(lazyNames.has("claude_code")).toBe(false);
-    expect(lazyNames.has("swarm_delegate")).toBe(false);
-    // bash is in eager tools; swarm_delegate is now a bundled skill tool
-    expect(eagerModuleToolNames).toContain("bash");
-    expect(eagerModuleToolNames).not.toContain("swarm_delegate");
-    expect(eagerModuleToolNames).not.toContain("version");
-  });
-
   test("eager module tool names list contains expected count", () => {
     expect(eagerModuleToolNames.length).toBe(11);
   });
@@ -193,12 +121,10 @@ describe("tool manifest", () => {
     expect(names).not.toContain("start_screen_watch");
   });
 
-  test("registered tool count is at least eager + lazy + host", async () => {
+  test("registered tool count is at least eager + host", async () => {
     await initializeTools();
     const tools = getAllTools();
-    expect(tools.length).toBeGreaterThanOrEqual(
-      eagerModuleToolNames.length + lazyTools.length,
-    );
+    expect(tools.length).toBeGreaterThanOrEqual(eagerModuleToolNames.length);
   });
 });
 
@@ -252,11 +178,6 @@ describe("baseline characterization: hardcoded tool loading", () => {
     await initializeTools();
     const tool = getTool("claude_code");
     expect(tool).toBeUndefined();
-  });
-
-  test("claude_code is NOT in lazyTools manifest", () => {
-    const lazyNames = lazyTools.map((t) => t.name);
-    expect(lazyNames).not.toContain("claude_code");
   });
 });
 

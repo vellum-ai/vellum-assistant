@@ -1,4 +1,3 @@
-import { RiskLevel } from "../permissions/types.js";
 import type { ToolDefinition } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import { coreAppProxyTools } from "./apps/definitions.js";
@@ -8,7 +7,7 @@ import { hostFileEditTool } from "./host-filesystem/edit.js";
 import { hostFileReadTool } from "./host-filesystem/read.js";
 import { hostFileWriteTool } from "./host-filesystem/write.js";
 import { hostShellTool } from "./host-terminal/host-shell.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "./types.js";
+import type { Tool } from "./types.js";
 import { allUiSurfaceTools } from "./ui-surface/definitions.js";
 import { registerUiSurfaceTools } from "./ui-surface/registry.js";
 
@@ -26,68 +25,6 @@ let coreToolsSnapshot: Map<string, Tool> | null = null;
 // Tools are only removed from the global registry when this drops to 0.
 const skillRefCount = new Map<string, number>();
 
-export interface LazyToolDescriptor {
-  name: string;
-  description: string;
-  category: string;
-  defaultRiskLevel: RiskLevel;
-  definition: ToolDefinition;
-  loader: () => Promise<Tool>;
-}
-
-/**
- * A tool wrapper that exposes metadata eagerly but defers module loading
- * and execute() initialization until the tool is first invoked.
- */
-class LazyTool implements Tool {
-  name: string;
-  description: string;
-  category: string;
-  defaultRiskLevel: RiskLevel;
-  private definition: ToolDefinition;
-  private loader: () => Promise<Tool>;
-  private resolvedTool: Tool | null = null;
-  private loadPromise: Promise<Tool> | null = null;
-
-  constructor(descriptor: LazyToolDescriptor) {
-    this.name = descriptor.name;
-    this.description = descriptor.description;
-    this.category = descriptor.category;
-    this.defaultRiskLevel = descriptor.defaultRiskLevel;
-    this.definition = descriptor.definition;
-    this.loader = descriptor.loader;
-  }
-
-  getDefinition(): ToolDefinition {
-    return this.definition;
-  }
-
-  async execute(
-    input: Record<string, unknown>,
-    context: ToolContext,
-  ): Promise<ToolExecutionResult> {
-    if (!this.resolvedTool) {
-      if (!this.loadPromise) {
-        // Assign loadPromise synchronously before the async loader begins,
-        // so concurrent callers see the guard immediately.
-        const promise = this.loader()
-          .then((tool) => {
-            this.resolvedTool = tool;
-            log.info({ name: this.name }, "Lazy tool loaded");
-            return tool;
-          })
-          .catch((err) => {
-            this.loadPromise = null;
-            throw err;
-          });
-        this.loadPromise = promise;
-      }
-      await this.loadPromise;
-    }
-    return this.resolvedTool!.execute(input, context);
-  }
-}
-
 export function registerTool(tool: Tool): void {
   const existing = tools.get(tool.name);
   if (existing) {
@@ -96,11 +33,6 @@ export function registerTool(tool: Tool): void {
   }
   tools.set(tool.name, tool);
   log.info({ name: tool.name, category: tool.category }, "Tool registered");
-}
-
-export function registerLazyTool(descriptor: LazyToolDescriptor): void {
-  const lazy = new LazyTool(descriptor);
-  registerTool(lazy);
 }
 
 export function getTool(name: string): Tool | undefined {
@@ -312,7 +244,7 @@ export function getAllToolDefinitions(): ToolDefinition[] {
 }
 
 export async function initializeTools(): Promise<void> {
-  const { loadEagerModules, eagerModuleToolNames, explicitTools, lazyTools } =
+  const { loadEagerModules, eagerModuleToolNames, explicitTools } =
     await import("./tool-manifest.js");
 
   // Capture tool names already in the registry before any manifest
@@ -343,24 +275,18 @@ export async function initializeTools(): Promise<void> {
   registerUiSurfaceTools();
   registerAppTools();
 
-  // Lazy tools — defer module loading until first invocation.
-  for (const descriptor of lazyTools) {
-    registerLazyTool(descriptor);
-  }
-
   // Snapshot core tools for __resetRegistryForTesting().  We include every
   // non-skill tool that was registered by the manifest, while excluding
   // arbitrary test tools that were registered before init.
   //
   // A pre-existing tool is included only if it is a known manifest tool
-  // (declared in eagerModuleToolNames, explicitTools, lazyTools, or
-  // hostTools).  This handles ESM cache hits where eager-module tools
-  // are already in the registry before init ran.
+  // (declared in eagerModuleToolNames, explicitTools, or hostTools).
+  // This handles ESM cache hits where eager-module tools are already in
+  // the registry before init ran.
   if (!coreToolsSnapshot) {
     const manifestToolNames = new Set<string>([
       ...eagerModuleToolNames,
       ...explicitTools.map((t: Tool) => t.name),
-      ...lazyTools.map((t: LazyToolDescriptor) => t.name),
       ...hostTools.map((t: Tool) => t.name),
       ...allComputerUseTools.map((t: Tool) => t.name),
       ...allUiSurfaceTools.map((t: Tool) => t.name),
