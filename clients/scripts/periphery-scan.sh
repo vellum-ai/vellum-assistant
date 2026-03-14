@@ -36,7 +36,6 @@ if [ "$UPDATE_BASELINE" = true ]; then
   echo "Updating baseline..."
   periphery scan \
     --config "$CONFIG_FILE" \
-    --exclude-tests \
     --write-baseline "$BASELINE_FILE" \
     --quiet
   echo "Baseline updated at $BASELINE_FILE"
@@ -53,6 +52,5 @@ fi
 echo "Scanning for unused code (against baseline)..."
 periphery scan \
   --config "$CONFIG_FILE" \
-  --exclude-tests \
   --baseline "$BASELINE_FILE" \
   --strict
