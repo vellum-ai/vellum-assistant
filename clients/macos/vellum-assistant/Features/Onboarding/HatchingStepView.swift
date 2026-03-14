@@ -150,6 +150,7 @@ struct HatchingStepView: View {
 
     private func goBack() {
         state.isHatching = false
+        state.isManagedHatch = false
         state.hatchFailed = false
         state.hatchLogLines = []
         hatchStarted = false
