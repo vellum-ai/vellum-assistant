@@ -85,16 +85,17 @@ struct ContactDetailView: View {
         } message: {
             Text("This will permanently delete this contact and all their channels. This action cannot be undone.")
         }
-        .onAppear {
-            currentContact = contact
-        }
         .onChange(of: contact.id) { _, _ in
+            currentContact = nil
             inviteCodeRevealed = false
             inviteHandleInput = ""
             inviteExpanded = []
             inviteResult = nil
             inviteError = nil
             inviteErrorChannel = nil
+        }
+        .onChange(of: contact) { _, _ in
+            currentContact = nil
         }
         .onDisappear {
             verificationTimeoutTask?.cancel()
