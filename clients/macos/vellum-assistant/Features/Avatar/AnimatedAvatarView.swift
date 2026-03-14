@@ -87,6 +87,10 @@ class AvatarLayerView: NSView {
     private var configEntryAnimationEnabled: Bool = false
     private var hasPlayedEntry: Bool = false
 
+    /// Whether configure() has set up entry animation state (closed eyes, drop transform)
+    /// that needs to be cleaned up if the entry animation never fires.
+    private var entrySetupPending: Bool = false
+
     /// Notification observers for window key/resign-key events.
     private var notificationObservers: [NSObjectProtocol] = []
 
@@ -157,6 +161,25 @@ class AvatarLayerView: NSView {
         configBlinkEnabled = blinkEnabled
         configPokeEnabled = pokeEnabled
         configEntryAnimationEnabled = entryAnimationEnabled
+
+        // Recovery: if entry was set up but entryAnimationEnabled was turned off
+        // (e.g. SwiftUI re-rendered with entryAnimationEnabled=false before
+        // viewDidMoveToWindow fired), reset the avatar to its normal state.
+        if entrySetupPending && !configEntryAnimationEnabled {
+            entrySetupPending = false
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer?.transform = CATransform3DIdentity
+            for (i, eyeLayer) in eyeLayers.enumerated() where i < openEyePaths.count {
+                eyeLayer.path = openEyePaths[i]
+            }
+            CATransaction.commit()
+            if animationsActive {
+                if configBlinkEnabled { startBlinkTimer() }
+                if configBreathingEnabled { startBreathing() }
+                startTwitchTimer()
+            }
+        }
 
         let key = "\(bodyShape.rawValue)-\(eyeStyle.rawValue)-\(color.rawValue)-\(String(format: "%.1f", size))-\(breathingEnabled)-\(blinkEnabled)-\(pokeEnabled)"
         guard key != currentKey else { return }
@@ -241,6 +264,7 @@ class AvatarLayerView: NSView {
         CATransaction.commit()
 
         if configEntryAnimationEnabled && !hasPlayedEntry {
+            entrySetupPending = true
             // Set initial "water drop" state — slightly narrow and tall
             layer?.transform = CATransform3DMakeScale(0.7, 1.3, 1.0)
             // Eyes start squeezed shut — they animate open during the bounce-back
@@ -365,6 +389,20 @@ class AvatarLayerView: NSView {
             return
         }
 
+        // Safety: if entry state was set up but we're now taking the normal path
+        // (e.g. configEntryAnimationEnabled was cleared), ensure the avatar is
+        // in its normal visual state.
+        if entrySetupPending {
+            entrySetupPending = false
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer?.transform = CATransform3DIdentity
+            for (i, eyeLayer) in eyeLayers.enumerated() where i < openEyePaths.count {
+                eyeLayer.path = openEyePaths[i]
+            }
+            CATransaction.commit()
+        }
+
         let keyObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
             object: window,
@@ -453,6 +491,7 @@ class AvatarLayerView: NSView {
 
     private func performEntryAnimation() {
         guard let rootLayer = layer else { return }
+        entrySetupPending = false
 
         // --- Body: water-drop with vertical bounces ---
         // Starts slightly tall/narrow (falling drop), squashes on impact, then
