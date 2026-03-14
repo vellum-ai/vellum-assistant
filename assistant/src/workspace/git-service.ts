@@ -456,7 +456,9 @@ export class WorkspaceGitService {
             ? "Initial commit: migrated existing workspace"
             : "Initial commit: new workspace";
 
-          await this.execGit(["commit", "-m", message, "--allow-empty"]);
+          await this.execGit(
+            this.buildSafeCommitArgs(["-m", message, "--allow-empty"]),
+          );
 
           this.initialized = true;
           this.recordInitSuccess();
@@ -494,7 +496,9 @@ export class WorkspaceGitService {
       }
 
       // Commit (will succeed even if no changes)
-      await this.execGit(["commit", "-m", fullMessage, "--allow-empty"]);
+      await this.execGit(
+        this.buildSafeCommitArgs(["-m", fullMessage, "--allow-empty"]),
+      );
     });
   }
 
@@ -634,7 +638,7 @@ export class WorkspaceGitService {
               .join("\n");
         }
 
-        await this.execGit(["commit", "-m", fullMessage]);
+        await this.execGit(this.buildSafeCommitArgs(["-m", fullMessage]));
         return { committed: true, status, didRunGit: true as const };
       });
       if (result.didRunGit) {
@@ -868,6 +872,16 @@ export class WorkspaceGitService {
       (enhanced as ExecError).code = gitErr.code;
       throw enhanced;
     }
+  }
+
+  /**
+   * Build commit args that disable all git hook execution.
+   *
+   * Workspace contents are model-writable, so hooks in `.git/hooks` (or via
+   * `core.hooksPath`) are untrusted. Auto-commit paths must not execute them.
+   */
+  private buildSafeCommitArgs(args: string[]): string[] {
+    return ["-c", "core.hooksPath=/dev/null", "commit", "--no-verify", ...args];
   }
 
   /**
