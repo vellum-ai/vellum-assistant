@@ -7,8 +7,10 @@
  * POST   /v1/conversations/:id/cancel     — cancel generation
  * POST   /v1/conversations/:id/undo       — undo last message
  * POST   /v1/conversations/:id/regenerate — regenerate last assistant response
+ * POST   /v1/sessions/reorder             — reorder / pin sessions
  */
 
+import { batchSetDisplayOrders } from "../../memory/conversation-crud.js";
 import { setConversationKeyIfAbsent } from "../../memory/conversation-key-store.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
@@ -157,6 +159,31 @@ export function sessionManagementRouteDefinitions(
             500,
           );
         }
+      },
+    },
+    {
+      endpoint: "sessions/reorder",
+      method: "POST",
+      policyKey: "sessions/reorder",
+      handler: async ({ req }) => {
+        const body = (await req.json()) as {
+          updates?: Array<{
+            sessionId: string;
+            displayOrder?: number;
+            isPinned?: boolean;
+          }>;
+        };
+        if (!Array.isArray(body.updates)) {
+          return httpError("BAD_REQUEST", "Missing updates array", 400);
+        }
+        batchSetDisplayOrders(
+          body.updates.map((u) => ({
+            id: u.sessionId,
+            displayOrder: u.displayOrder ?? null,
+            isPinned: u.isPinned ?? false,
+          })),
+        );
+        return Response.json({ ok: true });
       },
     },
   ];

@@ -341,6 +341,7 @@ public final class HTTPTransport {
         case conversationSearch(query: String, limit: Int?, maxMessagesPerConversation: Int?)
         case messageContent(id: String, sessionId: String?)
         case deleteQueuedMessage(id: String, sessionId: String)
+        case sessionsReorder
         // Skill management
         case skillsList
         case skillEnable(id: String)
@@ -716,6 +717,8 @@ public final class HTTPTransport {
             let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             let sEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? sessionId
             return ("/v1/messages/queued/\(idEncoded)", "sessionId=\(sEncoded)")
+        case .sessionsReorder:
+            return ("/v1/sessions/reorder", nil)
         // Skill management
         case .skillsList:
             return ("/v1/skills", nil)
@@ -1132,6 +1135,8 @@ public final class HTTPTransport {
             let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             let sEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? sessionId
             return ("\(prefix)/messages/queued/\(idEncoded)/", "sessionId=\(sEncoded)")
+        case .sessionsReorder:
+            return ("\(prefix)/sessions/reorder/", nil)
         // Skill management
         case .skillsList:
             return ("\(prefix)/skills/", nil)
@@ -3857,6 +3862,48 @@ public final class HTTPTransport {
             }
         } catch {
             log.error("Delete queued message error: \(error.localizedDescription)")
+        }
+    }
+
+    func reorderThreads(updates: [ReorderThreadsRequestUpdate], isRetry: Bool = false) async {
+        guard let url = buildURL(for: .sessionsReorder) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        let body: [String: Any] = [
+            "updates": updates.map { u in
+                var entry: [String: Any] = [
+                    "sessionId": u.sessionId,
+                    "isPinned": u.isPinned
+                ]
+                if let order = u.displayOrder {
+                    entry["displayOrder"] = order
+                }
+                return entry
+            }
+        ]
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if http.statusCode == 200 {
+                // Success — no response event needed
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await reorderThreads(updates: updates, isRetry: true)
+                }
+            } else {
+                log.error("Reorder threads failed (HTTP \(http.statusCode))")
+            }
+        } catch {
+            log.error("Reorder threads error: \(error.localizedDescription)")
         }
     }
 
