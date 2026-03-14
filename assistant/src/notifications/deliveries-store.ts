@@ -159,45 +159,6 @@ export function updateDeliveryStatus(
   return rawChanges() > 0;
 }
 
-/**
- * Update a delivery record with the client-side outcome of posting the
- * notification via UNUserNotificationCenter.add().
- *
- * Returns true if a row was updated, false otherwise (e.g. unknown deliveryId).
- */
-export function updateDeliveryClientOutcome(
-  deliveryId: string,
-  success: boolean,
-  error?: { code?: string; message?: string },
-): boolean {
-  const db = getDb();
-  const now = Date.now();
-
-  const updates: Record<string, unknown> = {
-    clientDeliveryStatus: success ? "delivered" : "client_failed",
-    clientDeliveryAt: now,
-    updatedAt: now,
-  };
-
-  if (success) {
-    // Clear any stale error from previous failed attempts
-    updates.clientDeliveryError = null;
-  } else if (error?.message) {
-    updates.clientDeliveryError = error.code
-      ? `[${error.code}] ${error.message}`
-      : error.message;
-  } else if (error?.code) {
-    updates.clientDeliveryError = error.code;
-  }
-
-  db.update(notificationDeliveries)
-    .set(updates)
-    .where(eq(notificationDeliveries.id, deliveryId))
-    .run();
-
-  return rawChanges() > 0;
-}
-
 /** Check whether a delivery already exists for a given decision+channel pair. */
 export function findDeliveryByDecisionAndChannel(
   decisionId: string,
