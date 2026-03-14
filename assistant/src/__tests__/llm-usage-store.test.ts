@@ -29,6 +29,7 @@ import {
   getUsageGroupBreakdown,
   getUsageTotals,
   listUsageEvents,
+  queryUnreportedUsageEvents,
   recordUsageEvent,
 } from "../memory/llm-usage-store.js";
 import type { PricingResult, UsageEventInput } from "../usage/types.js";
@@ -622,5 +623,54 @@ describe("getUsageGroupBreakdown", () => {
     expect(groups[0].group).toBe("title_generator");
     expect(groups[1].group).toBe("context_compactor");
     expect(groups[2].group).toBe("main_agent");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// queryUnreportedUsageEvents tests
+// ---------------------------------------------------------------------------
+
+describe("queryUnreportedUsageEvents", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM llm_usage_events`);
+  });
+
+  test("returns events with createdAt strictly greater than afterCreatedAt in ascending order", () => {
+    insertEventAt(1000, { model: "model-a" });
+    insertEventAt(2000, { model: "model-b" });
+    insertEventAt(3000, { model: "model-c" });
+
+    // afterCreatedAt = 1000 should exclude the event at exactly 1000
+    const events = queryUnreportedUsageEvents(1000, 100);
+    expect(events).toHaveLength(2);
+    expect(events[0].model).toBe("model-b");
+    expect(events[0].createdAt).toBe(2000);
+    expect(events[1].model).toBe("model-c");
+    expect(events[1].createdAt).toBe(3000);
+  });
+
+  test("respects the limit parameter", () => {
+    insertEventAt(1000, { model: "model-a" });
+    insertEventAt(2000, { model: "model-b" });
+    insertEventAt(3000, { model: "model-c" });
+
+    const events = queryUnreportedUsageEvents(0, 2);
+    expect(events).toHaveLength(2);
+    // Should return the earliest two due to ASC ordering
+    expect(events[0].model).toBe("model-a");
+    expect(events[1].model).toBe("model-b");
+  });
+
+  test("returns empty array when no events match", () => {
+    insertEventAt(1000, { model: "model-a" });
+
+    const events = queryUnreportedUsageEvents(2000, 100);
+    expect(events).toHaveLength(0);
+  });
+
+  test("returns empty array when table is empty", () => {
+    const events = queryUnreportedUsageEvents(0, 100);
+    expect(events).toHaveLength(0);
   });
 });
