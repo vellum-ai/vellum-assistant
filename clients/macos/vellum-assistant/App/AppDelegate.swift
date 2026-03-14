@@ -360,11 +360,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             bootstrapStartTime = CFAbsoluteTimeGetCurrent()
             transitionBootstrap(to: .pendingDaemon)
 
-            // For managed (cloud-hosted) assistants, show the main window
-            // immediately so the loading skeleton is visible while the
-            // daemon connection is being established.
+            // For managed (cloud-hosted) assistants, show the hatching
+            // animation immediately while the daemon connection is being
+            // established. We use ensureMainWindowExists (not showMainWindow)
+            // so the window is created without setting pendingWakeUpMessage
+            // — that happens later in performRetriableWakeUpSend once the
+            // daemon is actually connected.
             if isCurrentAssistantManaged {
-                showMainWindow(isFirstLaunch: true)
+                let main = ensureMainWindowExists(isFirstLaunch: true)
+                main.windowState.showManagedHatching = true
+                main.show()
             }
 
             Task {

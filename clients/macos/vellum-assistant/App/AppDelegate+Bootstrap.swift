@@ -69,9 +69,9 @@ extension AppDelegate {
     }
 
     /// Sends the wake-up greeting. If the daemon is disconnected, waits for
-    /// reconnection before proceeding. Since `showMainWindow` always creates
-    /// the window (via `ensureMainWindowExists`), there is no need for a
-    /// retry loop — a simple guard suffices.
+    /// reconnection before proceeding. Handles both fresh window creation
+    /// (local assistants) and the case where the window already exists with
+    /// a hatching overlay (managed assistants).
     func performRetriableWakeUpSend() async {
         guard !Task.isCancelled else { return }
 
@@ -91,15 +91,27 @@ extension AppDelegate {
         }
 
         let greeting = wakeUpGreeting()
-        showMainWindow(initialMessage: greeting, isFirstLaunch: true)
+        let main: MainWindow
 
-        // showMainWindow always creates mainWindow, but guard defensively.
-        guard let main = mainWindow else {
-            log.error("MainWindow not created after showMainWindow — cannot send wake-up")
-            return
+        if let existing = mainWindow {
+            // Window already exists (managed assistant hatching path).
+            // Set the pending wake-up message directly and dismiss the
+            // hatching overlay so the coming-alive transition can play.
+            existing.pendingWakeUpMessage = greeting
+            existing.windowState.showManagedHatching = false
+            main = existing
+        } else {
+            // No window yet (local assistant path) — create it with the
+            // initial message so the coming-alive overlay plays first.
+            showMainWindow(initialMessage: greeting, isFirstLaunch: true)
+            guard let created = mainWindow else {
+                log.error("MainWindow not created after showMainWindow — cannot send wake-up")
+                return
+            }
+            main = created
         }
 
-        log.info("MainWindow created — deferring pendingFirstReply until wake-up message is dispatched")
+        log.info("MainWindow ready — deferring pendingFirstReply until wake-up message is dispatched")
         main.onWakeUpSent = { [weak self] in
             guard let self else { return }
             log.info("Wake-up greeting actually sent — transitioning to pendingFirstReply")

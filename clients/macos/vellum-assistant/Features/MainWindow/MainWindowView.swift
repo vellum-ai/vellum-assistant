@@ -441,14 +441,24 @@ struct MainWindowView: View {
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
                             .animation(nil, value: sidebarExpanded)
                             .overlay {
-                                if windowState.daemonConnectionFailed && !isSettingsOpen {
-                                    DaemonConnectionFailedView(onRetry: {
-                                        windowState.daemonConnectionFailed = false
-                                        showDaemonLoading = true
-                                        Task {
-                                            try? await daemonClient.connect()
+                                if (windowState.showManagedHatching || windowState.daemonConnectionFailed) && !isSettingsOpen {
+                                    DaemonHatchingOverlay(
+                                        failed: windowState.daemonConnectionFailed,
+                                        onRetry: {
+                                            windowState.daemonConnectionFailed = false
+                                            Task {
+                                                try? await daemonClient.connect()
+                                                let ready = await AppDelegate.shared?.awaitDaemonReady(timeout: 15) ?? false
+                                                if ready {
+                                                    AppDelegate.shared?.transitionBootstrap(to: .pendingWakeupSend)
+                                                    await AppDelegate.shared?.performRetriableWakeUpSend()
+                                                } else {
+                                                    windowState.daemonConnectionFailed = true
+                                                    AppDelegate.shared?.transitionBootstrap(to: .timedOut)
+                                                }
+                                            }
                                         }
-                                    })
+                                    )
                                     .transition(.opacity)
                                 } else if showDaemonLoading && !isSettingsOpen {
                                     DaemonLoadingChatSkeleton()

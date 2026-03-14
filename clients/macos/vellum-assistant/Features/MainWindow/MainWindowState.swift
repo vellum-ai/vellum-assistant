@@ -68,6 +68,11 @@ public final class MainWindowState: ObservableObject {
     @Published var layoutConfig: LayoutConfig
     @Published var toastInfo: ToastInfo?
 
+    /// Whether the managed-assistant hatching overlay is active during
+    /// first-launch bootstrap. Set by AppDelegate when the daemon
+    /// connection is being established for a cloud-hosted assistant.
+    @Published var showManagedHatching = false
+
     /// Set to `true` when the daemon connection fails during first-launch
     /// bootstrap (e.g. remote assistant unreachable). The main window shows
     /// a failure overlay instead of the normal chat UI.
