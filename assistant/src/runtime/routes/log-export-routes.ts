@@ -444,6 +444,14 @@ function readSanitizedConfig(): Record<string, unknown> | undefined {
       }
     }
 
+    // Strip legacy top-level apiKeys values
+    if (config.apiKeys && typeof config.apiKeys === "object") {
+      const apiKeys = config.apiKeys as Record<string, unknown>;
+      config.apiKeys = Object.fromEntries(
+        Object.keys(apiKeys).map((k) => [k, redactStringValue(apiKeys[k])]),
+      );
+    }
+
     // Strip Twilio accountSid
     if (config.twilio && typeof config.twilio === "object") {
       const twilio = config.twilio as Record<string, unknown>;

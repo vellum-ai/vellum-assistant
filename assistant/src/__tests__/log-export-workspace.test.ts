@@ -171,7 +171,13 @@ writeFileSync(
 // config.json at workspace root — should be skipped (already in configSnapshot)
 writeFileSync(
   join(testWorkspaceDir, "config.json"),
-  JSON.stringify({ provider: "anthropic" }),
+  JSON.stringify({
+    provider: "anthropic",
+    apiKeys: {
+      anthropic: "anthropic-secret",
+      openai: "",
+    },
+  }),
 );
 
 // Symlink pointing outside workspace — should be skipped
@@ -284,6 +290,24 @@ describe("POST /v1/export — tar.gz archive", () => {
     try {
       const files = listFiles(join(dir, "workspace"));
       expect(files).not.toContain("sneaky-link.txt");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("redacts legacy top-level apiKeys in config-snapshot.json", async () => {
+    const res = await callExport();
+    const dir = await extractArchive(res);
+    try {
+      const configContent = readFileSync(
+        join(dir, "config-snapshot.json"),
+        "utf-8",
+      );
+      const parsed = JSON.parse(configContent) as Record<string, unknown>;
+      const apiKeys = parsed.apiKeys as Record<string, unknown> | undefined;
+      expect(apiKeys).toBeDefined();
+      expect(apiKeys?.anthropic).toBe("(set)");
+      expect(apiKeys?.openai).toBe("(empty)");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
