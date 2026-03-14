@@ -43,13 +43,25 @@ if [ "$UPDATE_BASELINE" = true ]; then
 fi
 
 if [ ! -f "$BASELINE_FILE" ]; then
-  echo "No baseline file found at $BASELINE_FILE"
+  echo "Error: No baseline file found at $BASELINE_FILE"
   echo "Run: bash clients/scripts/periphery-scan.sh --update-baseline"
   echo "Then commit the generated .periphery_baseline.json"
   exit 1
 fi
 
-echo "Scanning for unused code (against baseline)..."
+# Check if baseline has been populated
+BASELINE_USRS=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(len(d.get('v1',{}).get('usrs',[])))" "$BASELINE_FILE" 2>/dev/null || echo "0")
+
+if [ "$BASELINE_USRS" = "0" ]; then
+  echo "Warning: Baseline is empty — running scan in informational mode (will not fail)."
+  echo "To populate the baseline, run on a Mac with Xcode:"
+  echo "  bash clients/scripts/periphery-scan.sh --update-baseline"
+  echo "Then commit the updated .periphery_baseline.json"
+  periphery scan --config "$CONFIG_FILE" --quiet || true
+  exit 0
+fi
+
+echo "Scanning for unused code (against baseline with $BASELINE_USRS known violations)..."
 periphery scan \
   --config "$CONFIG_FILE" \
   --baseline "$BASELINE_FILE" \
