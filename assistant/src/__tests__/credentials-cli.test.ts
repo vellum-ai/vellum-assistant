@@ -49,9 +49,6 @@ mock.module("../security/secure-keys.js", () => ({
     }
     return "not-found";
   },
-  listSecureKeys: (): string[] => {
-    return [...secureKeyStore.keys()];
-  },
   listSecureKeysAsync: async (): Promise<string[]> => {
     return [...secureKeyStore.keys()];
   },

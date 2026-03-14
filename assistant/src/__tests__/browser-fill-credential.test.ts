@@ -61,7 +61,7 @@ mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (...args: unknown[]) => mockGetSecureKey(...args),
   setSecureKeyAsync: async () => true,
   deleteSecureKeyAsync: async () => "deleted",
-  listSecureKeys: () => [],
+  listSecureKeysAsync: async () => [],
   _resetBackend: () => {},
 }));
 

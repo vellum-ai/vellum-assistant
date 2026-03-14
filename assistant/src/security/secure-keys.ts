@@ -17,7 +17,6 @@ import {
   createEncryptedStoreBackend,
   createKeychainBackend,
 } from "./credential-backend.js";
-import * as encryptedStore from "./encrypted-store.js";
 
 export type { DeleteResult } from "./credential-backend.js";
 
@@ -54,17 +53,6 @@ function resolveBackend(): CredentialBackend {
     }
   }
   return _resolvedBackend;
-}
-
-/**
- * List all account names in secure storage (sync — encrypted store only).
- * Throws if the store file exists but cannot be read.
- *
- * @deprecated Use {@link listSecureKeysAsync} instead, which merges keys from
- * both the primary backend and the encrypted store for completeness.
- */
-export function listSecureKeys(): string[] {
-  return encryptedStore.listKeys();
 }
 
 /**

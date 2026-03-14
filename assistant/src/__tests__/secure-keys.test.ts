@@ -75,7 +75,6 @@ import {
   _resetBackend,
   deleteSecureKeyAsync,
   getSecureKeyAsync,
-  listSecureKeys,
   listSecureKeysAsync,
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
@@ -146,15 +145,6 @@ describe("secure-keys", () => {
 
     test("delete returns not-found for nonexistent key", async () => {
       expect(await deleteSecureKeyAsync("missing")).toBe("not-found");
-    });
-
-    test("listSecureKeys returns all keys", async () => {
-      await setSecureKeyAsync("anthropic", "val1");
-      await setSecureKeyAsync("openai", "val2");
-      const keys = listSecureKeys();
-      expect(keys).toContain("anthropic");
-      expect(keys).toContain("openai");
-      expect(keys.length).toBe(2);
     });
   });
 

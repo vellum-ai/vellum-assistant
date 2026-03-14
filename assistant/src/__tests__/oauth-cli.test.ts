@@ -163,7 +163,7 @@ mock.module("../security/secure-keys.js", () => ({
     }
     return "not-found" as const;
   },
-  listSecureKeys: () => [...secureKeyStore.keys()],
+  listSecureKeysAsync: async () => [...secureKeyStore.keys()],
   _resetBackend: () => {},
 }));
 
