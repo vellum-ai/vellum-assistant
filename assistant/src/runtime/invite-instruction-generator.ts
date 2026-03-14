@@ -96,7 +96,7 @@ export async function generateInviteInstruction(params: {
     shareUrl: params.shareUrl,
   });
 
-  const resolved = resolveConfiguredProvider();
+  const resolved = await resolveConfiguredProvider();
   if (!resolved) {
     log.debug(
       "No provider available for invite instruction generation, using fallback",

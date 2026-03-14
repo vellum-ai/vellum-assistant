@@ -711,7 +711,7 @@ export async function evaluateSignal(
     );
   }
 
-  const provider = getConfiguredProvider();
+  const provider = await getConfiguredProvider();
   if (!provider) {
     log.warn(
       "Configured provider unavailable for notification decision, using fallback",
@@ -767,7 +767,7 @@ async function classifyWithLLM(
   modelIntent: ModelIntent,
   candidateSet?: ThreadCandidateSet,
 ): Promise<NotificationDecision> {
-  const provider = getConfiguredProvider()!;
+  const provider = (await getConfiguredProvider())!;
   const { signal: abortSignal, cleanup } = createTimeout(DECISION_TIMEOUT_MS);
 
   const candidateContext = candidateSet

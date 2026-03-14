@@ -40,12 +40,12 @@ let fallbackWarningLogged = false;
  *
  * Returns `null` when no providers are available at all.
  */
-export function resolveConfiguredProvider(): ConfiguredProviderResult | null {
+export async function resolveConfiguredProvider(): Promise<ConfiguredProviderResult | null> {
   const config = getConfig();
 
   if (listProviders().length === 0) {
     try {
-      initializeProviders(config);
+      await initializeProviders(config);
     } catch {
       return null;
     }
@@ -89,8 +89,8 @@ export function resolveConfiguredProvider(): ConfiguredProviderResult | null {
  *
  * Returns `null` when no providers are available.
  */
-export function getConfiguredProvider(): Provider | null {
-  const result = resolveConfiguredProvider();
+export async function getConfiguredProvider(): Promise<Provider | null> {
+  const result = await resolveConfiguredProvider();
   return result?.provider ?? null;
 }
 

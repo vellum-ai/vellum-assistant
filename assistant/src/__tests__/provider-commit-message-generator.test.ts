@@ -82,7 +82,7 @@ let resolvedProvider: {
 };
 
 mock.module("../providers/provider-send-message.js", () => ({
-  resolveConfiguredProvider: () => resolvedProvider,
+  resolveConfiguredProvider: async () => resolvedProvider,
 }));
 
 // ---------------------------------------------------------------------------

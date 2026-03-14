@@ -1116,7 +1116,7 @@ export async function handleGetSuggestion(
     }
 
     // Try LLM suggestion using the configured provider
-    const provider = getConfiguredProvider();
+    const provider = await getConfiguredProvider();
     if (provider) {
       try {
         // Deduplicate concurrent requests

@@ -1294,7 +1294,7 @@ async function generateSkillIcon(
   name: string,
   description: string,
 ): Promise<string> {
-  const provider = getConfiguredProvider();
+  const provider = await getConfiguredProvider();
   if (!provider) {
     throw new Error("Configured provider unavailable for icon generation");
   }

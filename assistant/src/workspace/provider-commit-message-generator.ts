@@ -141,7 +141,7 @@ export class ProviderCommitMessageGenerator {
     // Step 2: Resolve configured provider using fail-open semantics.
     // If nothing is resolvable, differentiate likely missing-key cases from
     // true registry/init failures.
-    const resolved = resolveConfiguredProvider();
+    const resolved = await resolveConfiguredProvider();
     if (!resolved) {
       const candidates = getProviderCandidates(config);
       const hasAnyKeylessCandidate = candidates.some((name) =>

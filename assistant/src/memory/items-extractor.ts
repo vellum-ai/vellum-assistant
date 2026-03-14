@@ -269,7 +269,7 @@ async function extractItemsWithLLM(
   extractionConfig: MemoryExtractionConfig,
   scopeId: string,
 ): Promise<ExtractedItem[]> {
-  const provider = getConfiguredProvider();
+  const provider = await getConfiguredProvider();
   if (!provider) {
     log.debug(
       "Configured provider unavailable for LLM extraction, falling back to pattern-based",

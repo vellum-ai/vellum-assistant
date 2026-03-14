@@ -140,7 +140,7 @@ async function summarizeWithLLM(
     return buildFallbackSummary(existingSummary, newContent, label);
   }
 
-  const provider = getConfiguredProvider();
+  const provider = await getConfiguredProvider();
   if (!provider) {
     log.debug(
       { label },
