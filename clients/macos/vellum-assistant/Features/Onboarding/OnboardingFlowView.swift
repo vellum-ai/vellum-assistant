@@ -16,15 +16,21 @@ struct OnboardingFlowView: View {
     @State private var isAdvancingFromWakeUp = false
     @State private var isBootstrappingManaged = false
     @State private var managedBootstrapError: String?
-    @State private var didInitiateLogin = false
 
     private static let appIcon: NSImage? = {
         guard let path = ResourceBundle.bundle.path(forResource: "vellum-app-icon", ofType: "png") else { return nil }
         return NSImage(contentsOfFile: path)
     }()
 
+    private var managedSignInEnabled: Bool {
+        MacOSClientFeatureFlagManager.shared.isEnabled("managed_sign_in_enabled")
+    }
+
     private var maxOnboardingStep: Int {
-        state.userHostedEnabled ? 3 : 2
+        if managedSignInEnabled {
+            return 1
+        }
+        return state.userHostedEnabled ? 3 : 2
     }
 
     var body: some View {
@@ -90,7 +96,15 @@ struct OnboardingFlowView: View {
                                     }
                                 )
                             case 1:
-                                APIKeyStepView(state: state)
+                                APIKeyStepView(
+                                    state: state,
+                                    isAuthenticated: authManager.isAuthenticated,
+                                    onHatchManaged: {
+                                        Task {
+                                            await performManagedBootstrap()
+                                        }
+                                    }
+                                )
                             case 2:
                                 if state.needsCloudCredentials {
                                     CloudCredentialsStepView(state: state)
@@ -133,6 +147,9 @@ struct OnboardingFlowView: View {
             if !authManager.isAuthenticated {
                 await authManager.checkSession()
             }
+            if managedSignInEnabled && authManager.isAuthenticated && state.currentStep == 0 {
+                state.advance()
+            }
         }
         .onChange(of: state.currentStep) { _, newStep in
             if newStep == 0 {
@@ -147,9 +164,21 @@ struct OnboardingFlowView: View {
             log.info(
                 "Observed auth state change in onboarding: isAuthenticated=\(isAuthenticated, privacy: .public) managedBootstrapEnabled=\(self.managedBootstrapEnabled, privacy: .public) lockfileAssistantId=\(currentAssistant?.assistantId ?? "<none>", privacy: .public)"
             )
+            if !isAuthenticated && managedSignInEnabled && state.currentStep > 0 {
+                log.info("User signed out during managed onboarding — returning to welcome screen")
+                isBootstrappingManaged = false
+                managedBootstrapError = nil
+                withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
+                    state.currentStep = 0
+                }
+                return
+            }
             if isAuthenticated {
                 if let assistant = currentAssistant {
-                    if assistant.isManaged {
+                    if assistant.isManaged && managedSignInEnabled && state.currentStep == 0 {
+                        log.info("Authenticated with managed assistant \(assistant.assistantId, privacy: .public); advancing to hosting selector")
+                        state.advance()
+                    } else if assistant.isManaged {
                         log.info("Authenticated with managed assistant \(assistant.assistantId, privacy: .public); starting managed bootstrap")
                         Task {
                             await performManagedBootstrap()
@@ -162,11 +191,9 @@ struct OnboardingFlowView: View {
                         onComplete()
                     }
                 } else if managedBootstrapEnabled {
-                    if didInitiateLogin {
-                        log.info("Authenticated with no lockfile assistant after login; starting managed bootstrap")
-                        Task {
-                            await performManagedBootstrap()
-                        }
+                    if managedSignInEnabled && state.currentStep == 0 {
+                        log.info("Authenticated with no lockfile assistant; advancing to hosting selector")
+                        state.advance()
                     } else {
                         log.info("Session restored with no lockfile assistant — staying on welcome screen for user-initiated hatch")
                     }
@@ -188,10 +215,9 @@ struct OnboardingFlowView: View {
     private func continueWithManagedAssistant() async {
         switch onboardingManagedContinuationAction(isAuthenticated: authManager.isAuthenticated) {
         case .startLogin:
-            didInitiateLogin = true
             await authManager.startWorkOSLogin()
         case .bootstrap:
-            await performManagedBootstrap()
+            state.advance()
         }
     }
 

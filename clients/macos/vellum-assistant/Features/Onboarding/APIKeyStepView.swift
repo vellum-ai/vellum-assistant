@@ -1,7 +1,8 @@
 import VellumAssistantShared
 import SwiftUI
 
-private enum HostingMode: String, CaseIterable {
+enum HostingMode: String, CaseIterable {
+    case vellum
     case local
     case docker
     case aws
@@ -10,16 +11,18 @@ private enum HostingMode: String, CaseIterable {
 
     var displayName: String {
         switch self {
+        case .vellum: return "Vellum"
         case .local: return "Local"
         case .docker: return "Docker"
         case .aws: return "AWS"
-        case .customHardware: return "Custom Hardware"
+        case .customHardware: return "Custom"
         case .gcp: return "GCP"
         }
     }
 
     var detail: String {
         switch self {
+        case .vellum: return "Hosted and managed by Vellum"
         case .local: return "Run on your machine"
         case .docker: return "Run in a Docker container"
         case .aws: return "Host on your AWS account"
@@ -32,28 +35,66 @@ private enum HostingMode: String, CaseIterable {
 @MainActor
 struct APIKeyStepView: View {
     @Bindable var state: OnboardingState
+    var isAuthenticated: Bool = false
+    var onHatchManaged: (() -> Void)?
 
     @State private var apiKey: String = ""
     @State private var hasExistingKey = false
     @State private var isEditing = false
     @State private var showTitle = false
     @State private var showContent = false
-    @State private var hostingMode: HostingMode = .local
+    @State var hostingMode: HostingMode = .local
     @FocusState private var keyFieldFocused: Bool
+
+    @State var gcpServiceAccountFileName: String = ""
+    @State var qrCodeImageFileName: String = ""
+    @FocusState var arnFieldFocused: Bool
+    @FocusState var projectIdFieldFocused: Bool
 
     private var userHostedEnabled: Bool {
         MacOSClientFeatureFlagManager.shared.isEnabled("user_hosted_enabled")
     }
 
+    private var managedSignInEnabled: Bool {
+        MacOSClientFeatureFlagManager.shared.isEnabled("managed_sign_in_enabled")
+    }
+
+    private var showHostingSelector: Bool {
+        managedSignInEnabled || userHostedEnabled
+    }
+
+    private var availableHostingModes: [HostingMode] {
+        var modes: [HostingMode] = []
+        if managedSignInEnabled && isAuthenticated {
+            modes.append(.vellum)
+        }
+        modes.append(.local)
+        if userHostedEnabled {
+            modes.append(contentsOf: [.gcp, .aws, .docker, .customHardware])
+        }
+        return modes
+    }
+
+    private var showApiKeyField: Bool {
+        if managedSignInEnabled {
+            return !isAuthenticated && hostingMode != .vellum
+        }
+        return true
+    }
+
+    private var showInlineCloudFields: Bool {
+        managedSignInEnabled && (hostingMode == .gcp || hostingMode == .aws || hostingMode == .customHardware)
+    }
+
     var body: some View {
-        Text(userHostedEnabled ? "Setup" : "Add your API key")
+        Text(showHostingSelector ? "Setup" : "Add your API key")
             .font(.system(size: 32, weight: .regular, design: .serif))
             .foregroundColor(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
 
-        Text(userHostedEnabled
+        Text(showHostingSelector
              ? "Choose how to run your assistant."
              : "Enter your Anthropic API key to get started.")
             .font(.system(size: 16))
@@ -63,19 +104,27 @@ struct APIKeyStepView: View {
 
         Spacer()
 
-        VStack(spacing: VSpacing.md) {
-            if userHostedEnabled {
-                hostingModeSelector
+        ScrollView {
+            VStack(spacing: VSpacing.md) {
+                if showHostingSelector {
+                    hostingModeSelector
+                }
+
+                if showApiKeyField {
+                    apiKeyField
+                }
+
+                if showInlineCloudFields {
+                    inlineCloudCredentialFields
+                }
+
+                hatchOrContinueButton
+
+                footerLinks
             }
-
-            apiKeyField
-
-            primaryButton
-
-            footerLinks
+            .padding(.horizontal, VSpacing.xxl)
+            .padding(.bottom, VSpacing.lg)
         }
-        .padding(.horizontal, VSpacing.xxl)
-        .padding(.bottom, VSpacing.lg)
         .opacity(showContent ? 1 : 0)
         .offset(y: showContent ? 0 : 12)
         .onAppear {
@@ -83,8 +132,18 @@ struct APIKeyStepView: View {
                 apiKey = existingKey
                 hasExistingKey = true
             }
-            if userHostedEnabled, let saved = loadHostingModeFromDefaults() {
+            if showHostingSelector, let saved = loadHostingModeFromDefaults(),
+               availableHostingModes.contains(saved) {
                 hostingMode = saved
+            }
+            if managedSignInEnabled && isAuthenticated {
+                hostingMode = .vellum
+            }
+            if !state.gcpServiceAccountKey.isEmpty {
+                gcpServiceAccountFileName = "service-account-key.json"
+            }
+            if !state.customQRCodeImageData.isEmpty {
+                qrCodeImageFileName = "qr-code.png"
             }
             withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
                 showTitle = true
@@ -92,20 +151,24 @@ struct APIKeyStepView: View {
             withAnimation(.easeOut(duration: 0.5).delay(0.3)) {
                 showContent = true
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                keyFieldFocused = true
+            if showApiKeyField {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    keyFieldFocused = true
+                }
             }
         }
 
-        OnboardingFooter(currentStep: state.currentStep, totalSteps: userHostedEnabled ? 4 : 3)
-            .padding(.bottom, VSpacing.lg)
+        if !managedSignInEnabled {
+            OnboardingFooter(currentStep: state.currentStep, totalSteps: userHostedEnabled ? 4 : 3)
+                .padding(.bottom, VSpacing.lg)
+        }
     }
 
     // MARK: - Hosting Mode Selector
 
     private var hostingModeSelector: some View {
         VStack(spacing: VSpacing.sm) {
-            ForEach(HostingMode.allCases, id: \.rawValue) { mode in
+            ForEach(availableHostingModes, id: \.rawValue) { mode in
                 hostingModeCard(mode: mode)
             }
         }
@@ -187,7 +250,12 @@ struct APIKeyStepView: View {
                     )
                     .focused($keyFieldFocused)
                     .onSubmit {
-                        saveAndContinue()
+                        if managedSignInEnabled {
+                            guard !hatchButtonDisabled else { return }
+                            saveAndHatch()
+                        } else {
+                            saveAndContinue()
+                        }
                     }
             }
         }
@@ -195,34 +263,57 @@ struct APIKeyStepView: View {
 
     // MARK: - Primary Button
 
-    private var primaryButton: some View {
-        OnboardingButton(
-            title: "Continue",
-            style: .primary,
-            disabled: primaryButtonDisabled
-        ) {
-            saveAndContinue()
+    private var hatchOrContinueButton: some View {
+        Group {
+            if managedSignInEnabled {
+                OnboardingButton(
+                    title: "Hatch",
+                    style: .primary,
+                    disabled: hatchButtonDisabled
+                ) {
+                    saveAndHatch()
+                }
+            } else {
+                OnboardingButton(
+                    title: "Continue",
+                    style: .primary,
+                    disabled: primaryButtonDisabled
+                ) {
+                    saveAndContinue()
+                }
+            }
         }
     }
 
     // MARK: - Footer Links
 
+    private var showBackButton: Bool {
+        if managedSignInEnabled && isAuthenticated {
+            return false
+        }
+        return true
+    }
+
     private var footerLinks: some View {
         HStack(spacing: VSpacing.lg) {
-            Link(destination: URL(string: "https://console.anthropic.com/settings/keys")!) {
-                Text("Get an API key")
-                    .font(.system(size: 13))
-                    .foregroundColor(VColor.primaryBase)
+            if showApiKeyField {
+                Link(destination: URL(string: "https://console.anthropic.com/settings/keys")!) {
+                    Text("Get an API key")
+                        .font(.system(size: 13))
+                        .foregroundColor(VColor.primaryBase)
+                }
+                .pointerCursor()
             }
-            .pointerCursor()
 
-            Button(action: { goBack() }) {
-                Text("Back")
-                    .font(.system(size: 13))
-                    .foregroundColor(VColor.contentTertiary)
+            if showBackButton {
+                Button(action: { goBack() }) {
+                    Text("Back")
+                        .font(.system(size: 13))
+                        .foregroundColor(VColor.contentTertiary)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
             }
-            .buttonStyle(.plain)
-            .pointerCursor()
         }
         .padding(.top, VSpacing.xs)
     }
@@ -231,6 +322,26 @@ struct APIKeyStepView: View {
 
     private var primaryButtonDisabled: Bool {
         apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var hatchButtonDisabled: Bool {
+        if hostingMode == .vellum {
+            return false
+        }
+        if showApiKeyField && apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return true
+        }
+        switch hostingMode {
+        case .gcp:
+            return state.gcpProjectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || state.gcpServiceAccountKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .aws:
+            return state.awsRoleArn.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .customHardware:
+            return state.customQRCodeImageData.isEmpty
+        default:
+            return false
+        }
     }
 
     private var maskedKey: String {
@@ -245,6 +356,24 @@ struct APIKeyStepView: View {
         withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
             state.currentStep = 0
         }
+    }
+
+    private func saveAndHatch() {
+        state.cloudProvider = hostingMode.rawValue
+
+        if hostingMode == .vellum {
+            onHatchManaged?()
+            return
+        }
+
+        let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            APIKeyManager.setKey(trimmed, for: "anthropic")
+            APIKeyManager.syncKeyToDaemon(provider: "anthropic", value: trimmed)
+        }
+
+        saveModelToConfig("claude-opus-4-6")
+        state.isHatching = true
     }
 
     private func saveAndContinue() {
