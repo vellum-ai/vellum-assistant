@@ -61,6 +61,7 @@ final class OnboardingState {
     var customQRCodeImageData: Data = Data()
     var selectedModel: String = "claude-opus-4-6"
     var isHatching: Bool = false
+    var isManagedHatch: Bool = false
     var hatchLogLines: [String] = []
     var hatchCompleted: Bool = false
     var hatchFailed: Bool = false
@@ -175,6 +176,7 @@ final class OnboardingState {
     func resetForRetry() {
         // Reset hatch flags
         isHatching = false
+        isManagedHatch = false
         hatchFailed = false
         hatchCompleted = false
         hatchLogLines = []

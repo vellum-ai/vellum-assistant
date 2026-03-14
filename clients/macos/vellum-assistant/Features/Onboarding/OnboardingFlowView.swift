@@ -181,6 +181,14 @@ struct OnboardingFlowView: View {
                 onComplete()
             }
         }
+        .onChange(of: state.hatchFailed) { oldValue, newValue in
+            // When retry clears the failure for a managed hatch, reconnect.
+            if oldValue && !newValue && state.isManagedHatch && state.isHatching {
+                Task {
+                    await connectManagedDaemon()
+                }
+            }
+        }
     }
 
     // MARK: - Managed Bootstrap
@@ -271,11 +279,39 @@ struct OnboardingFlowView: View {
             SentryDeviceInfo.updateAssistantTag(assistant.id)
 
             isBootstrappingManaged = false
-            log.info("Managed bootstrap completed for assistant \(assistant.id, privacy: .public); proceeding to app")
-            onComplete()
+            state.isManagedHatch = true
+            state.isHatching = true
+            log.info("Managed bootstrap completed for assistant \(assistant.id, privacy: .public); waiting for daemon connection")
+
+            await connectManagedDaemon()
         } catch {
             log.error("Managed bootstrap failed: \(error.localizedDescription)")
             managedBootstrapError = error.localizedDescription
+        }
+    }
+
+    /// Configures the daemon transport for the managed assistant, connects,
+    /// and polls for readiness. Signals success or failure via OnboardingState.
+    private func connectManagedDaemon() async {
+        let lockfileAssistant = AppDelegate.shared?.loadAssistantFromLockfile()
+        AppDelegate.shared?.configureDaemonTransport(for: lockfileAssistant)
+
+        if !daemonClient.isConnected && !daemonClient.isConnecting {
+            try? await daemonClient.connect()
+        }
+
+        let timeout: TimeInterval = 15
+        let start = CFAbsoluteTimeGetCurrent()
+        while !daemonClient.isConnected && CFAbsoluteTimeGetCurrent() - start < timeout {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+        }
+
+        if daemonClient.isConnected {
+            log.info("Daemon connected for managed assistant — completing hatch")
+            state.hatchCompleted = true
+        } else {
+            log.warning("Daemon connection timed out for managed assistant after \(timeout)s")
+            state.hatchFailed = true
         }
     }
 }
