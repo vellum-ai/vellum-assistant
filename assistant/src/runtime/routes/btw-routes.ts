@@ -111,8 +111,7 @@ async function handleBtw(
           // side-chain responses match the active session contract.  Only
           // fall back to a fresh prompt (excluding BOOTSTRAP.md) for
           // default sessions where no override was provided.
-          const hasOverride = session.systemPrompt !== buildSystemPrompt();
-          const systemPrompt = hasOverride
+          const systemPrompt = session.hasSystemPromptOverride
             ? session.systemPrompt
             : buildSystemPrompt({ excludeBootstrap: true });
 

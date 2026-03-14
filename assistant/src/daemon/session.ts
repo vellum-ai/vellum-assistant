@@ -206,6 +206,7 @@ export class Session {
   /** @internal */ workspaceTopLevelContext: string | null = null;
   /** @internal */ workspaceTopLevelDirty = true;
   public readonly traceEmitter: TraceEmitter;
+  public readonly hasSystemPromptOverride: boolean;
   public memoryPolicy: SessionMemoryPolicy;
   /** @internal */ streamThinking: boolean;
   /** @internal */ turnCount = 0;
@@ -317,6 +318,7 @@ export class Session {
     // When a systemPromptOverride was provided, use it as-is; otherwise
     // rebuild the full prompt each turn (picks up any workspace file changes).
     const hasSystemPromptOverride = systemPrompt !== buildSystemPrompt();
+    this.hasSystemPromptOverride = hasSystemPromptOverride;
 
     const resolveSystemPromptCallback = (
       _history: import("../providers/types.js").Message[],
