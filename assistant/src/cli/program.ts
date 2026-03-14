@@ -24,6 +24,7 @@ import { registerSequenceCommand } from "./commands/sequence.js";
 import { registerSessionsCommand } from "./commands/sessions.js";
 import { registerSkillsCommand } from "./commands/skills.js";
 import { registerTrustCommand } from "./commands/trust.js";
+import { registerUsageCommand } from "./commands/usage.js";
 
 export function buildCliProgram(): Command {
   const program = new Command();
@@ -55,6 +56,7 @@ export function buildCliProgram(): Command {
   registerOAuthCommand(program);
   registerSkillsCommand(program);
   registerBrowserRelayCommand(program);
+  registerUsageCommand(program);
 
   registerSequenceCommand(program);
 
