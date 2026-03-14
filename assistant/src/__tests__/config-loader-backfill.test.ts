@@ -278,13 +278,12 @@ describe("config loader backfill", () => {
     expect(contentAfter).toBe(contentBefore);
   });
 
-  test("does not write apiKeys or dataDir during backfill", () => {
+  test("does not write dataDir during backfill", () => {
     writeConfig({ provider: "anthropic" });
 
     loadConfig();
 
     const raw = readConfig();
-    expect(raw.apiKeys).toBeUndefined();
     expect(raw.dataDir).toBeUndefined();
   });
 

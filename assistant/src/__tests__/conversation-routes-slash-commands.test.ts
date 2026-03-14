@@ -30,7 +30,6 @@ mock.module("../config/loader.js", () => ({
     ui: {},
     model: "claude-opus-4-6",
     provider: "anthropic",
-    apiKeys: { anthropic: "test-key" },
     memory: { enabled: false },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     secretDetection: { enabled: false },

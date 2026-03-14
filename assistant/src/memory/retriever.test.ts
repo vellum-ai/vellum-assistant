@@ -374,7 +374,14 @@ describe("Memory Retriever Pipeline", () => {
     const convId = "conv-superseded";
 
     insertConversation(db, convId, now - 60_000);
-    insertMessage(db, "msg-s1", convId, "user", "test superseded", now - 50_000);
+    insertMessage(
+      db,
+      "msg-s1",
+      convId,
+      "user",
+      "test superseded",
+      now - 50_000,
+    );
 
     insertSegment(
       db,
@@ -535,12 +542,6 @@ describe("Memory Retriever Pipeline", () => {
 
     const requiredEmbedConfig: AssistantConfig = {
       ...TEST_CONFIG,
-      apiKeys: {
-        ...TEST_CONFIG.apiKeys,
-        openai: "",
-        gemini: "",
-        ollama: "",
-      },
       memory: {
         ...TEST_CONFIG.memory,
         embeddings: {
@@ -595,7 +596,8 @@ describe("Memory Retriever Pipeline", () => {
       role: "user" | "assistant";
       content: Array<{ type: string; text?: string }>;
     };
-    const recallText = "<memory_context>\n\n<relevant_context>\nsome context\n</relevant_context>\n\n</memory_context>";
+    const recallText =
+      "<memory_context>\n\n<relevant_context>\nsome context\n</relevant_context>\n\n</memory_context>";
 
     const msgs: Msg[] = [
       {
@@ -615,7 +617,9 @@ describe("Memory Retriever Pipeline", () => {
     const cleaned = stripMemoryRecallMessages(msgs, recallText);
     expect(cleaned).toHaveLength(1);
     expect(cleaned[0].role).toBe("user");
-    expect(cleaned[0].content[0].text).toBe("Hello, what do you know about me?");
+    expect(cleaned[0].content[0].text).toBe(
+      "Hello, what do you know about me?",
+    );
   });
 
   test("stripMemoryRecallMessages: handles <memory_context> with slightly different content", () => {
@@ -623,8 +627,10 @@ describe("Memory Retriever Pipeline", () => {
       role: "user" | "assistant";
       content: Array<{ type: string; text?: string }>;
     };
-    const originalRecall = "<memory_context>\n\n<relevant_context>\noriginal\n</relevant_context>\n\n</memory_context>";
-    const actualRecall = "<memory_context>\n\n<relevant_context>\nslightly different\n</relevant_context>\n\n</memory_context>";
+    const originalRecall =
+      "<memory_context>\n\n<relevant_context>\noriginal\n</relevant_context>\n\n</memory_context>";
+    const actualRecall =
+      "<memory_context>\n\n<relevant_context>\nslightly different\n</relevant_context>\n\n</memory_context>";
 
     const msgs: Msg[] = [
       {
@@ -663,7 +669,8 @@ describe("Memory Retriever Pipeline", () => {
       },
     ];
 
-    const recallText = "<memory_context>\n\n<relevant_context>\ntest\n</relevant_context>\n\n</memory_context>";
+    const recallText =
+      "<memory_context>\n\n<relevant_context>\ntest\n</relevant_context>\n\n</memory_context>";
     const result = injectMemoryRecallAsSeparateMessage(msgs, recallText);
 
     expect(result).toHaveLength(3);

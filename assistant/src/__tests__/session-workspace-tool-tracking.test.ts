@@ -55,7 +55,6 @@ mock.module("../config/loader.js", () => ({
       },
     },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
-    apiKeys: {},
     memory: { enabled: false },
     daemon: {
       startupSocketWaitMs: 5000,

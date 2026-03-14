@@ -10,6 +10,7 @@ import { credentialKey } from "../security/credential-key.js";
 // ---------------------------------------------------------------------------
 let mockPlatformBaseUrl = "";
 let mockAssistantApiKey = "";
+let mockProviderKeys: Record<string, string> = {};
 
 const actualEnv = await import("../config/env.js");
 mock.module("../config/env.js", () => ({
@@ -24,7 +25,7 @@ mock.module("../security/secure-keys.js", () => ({
     if (key === credentialKey("vellum", "assistant_api_key")) {
       return mockAssistantApiKey || null;
     }
-    return null;
+    return mockProviderKeys[key] ?? null;
   },
 }));
 
@@ -44,8 +45,8 @@ import { ProviderNotConfiguredError } from "../util/errors.js";
 
 /** Initialize registry with anthropic + openai for most tests. */
 function setupTwoProviders() {
+  mockProviderKeys = { anthropic: "test-key", openai: "test-key" };
   initializeProviders({
-    apiKeys: { anthropic: "test-key", openai: "test-key" },
     provider: "anthropic",
     model: "test-model",
   });
@@ -53,8 +54,8 @@ function setupTwoProviders() {
 
 /** Initialize registry with no providers (empty keys, non-registerable primary). */
 function setupNoProviders() {
+  mockProviderKeys = {};
   initializeProviders({
-    apiKeys: {},
     provider: "gemini",
     model: "test-model",
   });
@@ -183,8 +184,8 @@ describe("managed proxy fallback", () => {
   test("openai registered via managed fallback when no user key but proxy context is valid", () => {
     enableManagedProxy();
     try {
+      mockProviderKeys = { anthropic: "test-key" };
       initializeProviders({
-        apiKeys: { anthropic: "test-key" },
         provider: "anthropic",
         model: "test-model",
       });
@@ -200,8 +201,8 @@ describe("managed proxy fallback", () => {
   test("user key takes precedence over managed fallback", () => {
     enableManagedProxy();
     try {
+      mockProviderKeys = { anthropic: "test-key", openai: "user-openai-key" };
       initializeProviders({
-        apiKeys: { anthropic: "test-key", openai: "user-openai-key" },
         provider: "anthropic",
         model: "test-model",
       });
@@ -218,8 +219,8 @@ describe("managed proxy fallback", () => {
 
   test("managed fallback not activated when proxy context is disabled", () => {
     disableManagedProxy();
+    mockProviderKeys = { anthropic: "test-key" };
     initializeProviders({
-      apiKeys: { anthropic: "test-key" },
       provider: "anthropic",
       model: "test-model",
     });
@@ -232,8 +233,8 @@ describe("managed proxy fallback", () => {
   test("managed providers participate in failover selection", () => {
     enableManagedProxy();
     try {
+      mockProviderKeys = { anthropic: "test-key" };
       initializeProviders({
-        apiKeys: { anthropic: "test-key" },
         provider: "anthropic",
         model: "test-model",
       });
@@ -257,8 +258,8 @@ describe("managed proxy fallback", () => {
     enableManagedProxy();
     try {
       // No anthropic key, no gemini key — only managed providers available
+      mockProviderKeys = {};
       initializeProviders({
-        apiKeys: {},
         provider: "openai",
         model: "test-model",
       });

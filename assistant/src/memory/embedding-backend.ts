@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { getOllamaBaseUrlEnv } from "../config/env.js";
 import type { AssistantConfig } from "../config/types.js";
+import { getSecureKey } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { GeminiEmbeddingBackend } from "./embedding-gemini.js";
 import { OllamaEmbeddingBackend } from "./embedding-ollama.js";
@@ -255,7 +256,7 @@ export function selectEmbeddingBackend(
         config.memory.embeddings.ollamaModel,
         () =>
           new OllamaEmbeddingBackend(config.memory.embeddings.ollamaModel, {
-            apiKey: config.apiKeys.ollama,
+            apiKey: getSecureKey("ollama") ?? undefined,
           }),
       ),
       reason: null,
@@ -283,29 +284,32 @@ export function selectEmbeddingBackend(
           ),
           reason: null,
         };
-      case "openai":
-        if (!config.apiKeys.openai) continue;
+      case "openai": {
+        const openaiKey = getSecureKey("openai");
+        if (!openaiKey) continue;
         return {
           backend: getCachedOrCreate(
             "openai",
             config.memory.embeddings.openaiModel,
             () =>
               new OpenAIEmbeddingBackend(
-                config.apiKeys.openai,
+                openaiKey,
                 config.memory.embeddings.openaiModel,
               ),
           ),
           reason: null,
         };
-      case "gemini":
-        if (!config.apiKeys.gemini) continue;
+      }
+      case "gemini": {
+        const geminiKey = getSecureKey("gemini");
+        if (!geminiKey) continue;
         return {
           backend: getCachedOrCreate(
             "gemini",
             config.memory.embeddings.geminiModel,
             () =>
               new GeminiEmbeddingBackend(
-                config.apiKeys.gemini,
+                geminiKey,
                 config.memory.embeddings.geminiModel,
                 {
                   taskType: config.memory.embeddings.geminiTaskType,
@@ -316,6 +320,7 @@ export function selectEmbeddingBackend(
           ),
           reason: null,
         };
+      }
       case "ollama":
         if (!isOllamaConfigured(config)) continue;
         return {
@@ -324,7 +329,7 @@ export function selectEmbeddingBackend(
             config.memory.embeddings.ollamaModel,
             () =>
               new OllamaEmbeddingBackend(config.memory.embeddings.ollamaModel, {
-                apiKey: config.apiKeys.ollama,
+                apiKey: getSecureKey("ollama") ?? undefined,
               }),
           ),
           reason: null,
@@ -530,30 +535,33 @@ function selectFallbackBackends(
   for (const provider of order) {
     if (provider === exclude) continue;
     switch (provider) {
-      case "openai":
-        if (config.apiKeys.openai) {
+      case "openai": {
+        const openaiKey = getSecureKey("openai");
+        if (openaiKey) {
           backends.push(
             getCachedOrCreate(
               "openai",
               config.memory.embeddings.openaiModel,
               () =>
                 new OpenAIEmbeddingBackend(
-                  config.apiKeys.openai,
+                  openaiKey,
                   config.memory.embeddings.openaiModel,
                 ),
             ),
           );
         }
         break;
-      case "gemini":
-        if (config.apiKeys.gemini) {
+      }
+      case "gemini": {
+        const geminiKey = getSecureKey("gemini");
+        if (geminiKey) {
           backends.push(
             getCachedOrCreate(
               "gemini",
               config.memory.embeddings.geminiModel,
               () =>
                 new GeminiEmbeddingBackend(
-                  config.apiKeys.gemini,
+                  geminiKey,
                   config.memory.embeddings.geminiModel,
                   {
                     taskType: config.memory.embeddings.geminiTaskType,
@@ -565,6 +573,7 @@ function selectFallbackBackends(
           );
         }
         break;
+      }
       case "ollama":
         if (isOllamaConfigured(config)) {
           backends.push(
@@ -575,7 +584,7 @@ function selectFallbackBackends(
                 new OllamaEmbeddingBackend(
                   config.memory.embeddings.ollamaModel,
                   {
-                    apiKey: config.apiKeys.ollama,
+                    apiKey: getSecureKey("ollama") ?? undefined,
                   },
                 ),
             ),
@@ -614,7 +623,7 @@ export function selectedBackendSupportsMultimodal(
 function isOllamaConfigured(config: AssistantConfig): boolean {
   return (
     config.provider === "ollama" ||
-    Boolean(config.apiKeys.ollama) ||
+    Boolean(getSecureKey("ollama")) ||
     Boolean(getOllamaBaseUrlEnv())
   );
 }

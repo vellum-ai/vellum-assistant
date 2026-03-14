@@ -25,7 +25,6 @@ mock.module("../config/loader.js", () => ({
 
     provider: "anthropic",
     model: "test",
-    apiKeys: {},
     maxTokens: 4096,
     dataDir: "/tmp",
     timeouts: {

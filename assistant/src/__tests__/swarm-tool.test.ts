@@ -17,7 +17,6 @@ mock.module("../config/loader.js", () => ({
 
     provider: "anthropic",
     providerOrder: ["anthropic"],
-    apiKeys: { anthropic: "test-key" },
     swarm: {
       enabled: true,
       maxWorkers: 3,
@@ -32,7 +31,6 @@ mock.module("../config/loader.js", () => ({
   getSwarmDisabledConfig: () => ({
     provider: "anthropic",
     providerOrder: ["anthropic"],
-    apiKeys: { anthropic: "test-key" },
     swarm: {
       enabled: false,
       maxWorkers: 3,

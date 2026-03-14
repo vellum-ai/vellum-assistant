@@ -9,7 +9,6 @@ import {
 describe("provider registry (ollama)", () => {
   test("registers ollama when selected provider has no API key", () => {
     initializeProviders({
-      apiKeys: {},
       provider: "ollama",
       model: "claude-opus-4-6",
     });

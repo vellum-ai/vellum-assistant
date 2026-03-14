@@ -1,4 +1,5 @@
 import { wrapWithLogfire } from "../logfire.js";
+import { getSecureKey } from "../security/secure-keys.js";
 import { ConfigError, ProviderNotConfiguredError } from "../util/errors.js";
 import { AnthropicProvider } from "./anthropic/client.js";
 import { FailoverProvider, type ProviderHealthStatus } from "./failover.js";
@@ -135,7 +136,6 @@ export function getDefaultModel(providerName: string): string {
 }
 
 export interface ProvidersConfig {
-  apiKeys: Record<string, string>;
   provider: string;
   model: string;
   webSearchProvider?: string;
@@ -211,13 +211,14 @@ export function initializeProviders(config: ProvidersConfig): void {
   const streamTimeoutMs =
     (config.timeouts?.providerStreamTimeoutSec ?? 300) * 1000;
 
-  if (config.apiKeys.anthropic) {
+  const anthropicKey = getSecureKey("anthropic");
+  if (anthropicKey) {
     const model = resolveModel(config, "anthropic");
     registerProvider(
       "anthropic",
       new RetryProvider(
         wrapWithLogfire(
-          new AnthropicProvider(config.apiKeys.anthropic, model, {
+          new AnthropicProvider(anthropicKey, model, {
             useNativeWebSearch: config.webSearchProvider === "anthropic-native",
             streamTimeoutMs,
           }),
@@ -247,13 +248,14 @@ export function initializeProviders(config: ProvidersConfig): void {
       routingSources.set("anthropic", "managed-proxy");
     }
   }
-  if (config.apiKeys.openai) {
+  const openaiKey = getSecureKey("openai");
+  if (openaiKey) {
     const model = resolveModel(config, "openai");
     registerProvider(
       "openai",
       new RetryProvider(
         wrapWithLogfire(
-          new OpenAIProvider(config.apiKeys.openai, model, { streamTimeoutMs }),
+          new OpenAIProvider(openaiKey, model, { streamTimeoutMs }),
         ),
       ),
     );
@@ -277,13 +279,14 @@ export function initializeProviders(config: ProvidersConfig): void {
       routingSources.set("openai", "managed-proxy");
     }
   }
-  if (config.apiKeys.gemini) {
+  const geminiKey = getSecureKey("gemini");
+  if (geminiKey) {
     const model = resolveModel(config, "gemini");
     registerProvider(
       "gemini",
       new RetryProvider(
         wrapWithLogfire(
-          new GeminiProvider(config.apiKeys.gemini, model, { streamTimeoutMs }),
+          new GeminiProvider(geminiKey, model, { streamTimeoutMs }),
         ),
       ),
     );
@@ -308,14 +311,15 @@ export function initializeProviders(config: ProvidersConfig): void {
       routingSources.set("gemini", "managed-proxy");
     }
   }
-  if (config.provider === "ollama" || config.apiKeys.ollama) {
+  const ollamaKey = getSecureKey("ollama");
+  if (config.provider === "ollama" || ollamaKey) {
     const model = resolveModel(config, "ollama");
     registerProvider(
       "ollama",
       new RetryProvider(
         wrapWithLogfire(
           new OllamaProvider(model, {
-            apiKey: config.apiKeys.ollama,
+            apiKey: ollamaKey ?? undefined,
             streamTimeoutMs,
           }),
         ),
@@ -323,13 +327,14 @@ export function initializeProviders(config: ProvidersConfig): void {
     );
     routingSources.set("ollama", "user-key");
   }
-  if (config.apiKeys.fireworks) {
+  const fireworksKey = getSecureKey("fireworks");
+  if (fireworksKey) {
     const model = resolveModel(config, "fireworks");
     registerProvider(
       "fireworks",
       new RetryProvider(
         wrapWithLogfire(
-          new FireworksProvider(config.apiKeys.fireworks, model, {
+          new FireworksProvider(fireworksKey, model, {
             streamTimeoutMs,
           }),
         ),
@@ -355,13 +360,14 @@ export function initializeProviders(config: ProvidersConfig): void {
       routingSources.set("fireworks", "managed-proxy");
     }
   }
-  if (config.apiKeys.openrouter) {
+  const openrouterKey = getSecureKey("openrouter");
+  if (openrouterKey) {
     const model = resolveModel(config, "openrouter");
     registerProvider(
       "openrouter",
       new RetryProvider(
         wrapWithLogfire(
-          new OpenRouterProvider(config.apiKeys.openrouter, model, {
+          new OpenRouterProvider(openrouterKey, model, {
             streamTimeoutMs,
           }),
         ),

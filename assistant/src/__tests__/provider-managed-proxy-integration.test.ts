@@ -39,6 +39,7 @@ mock.module("@google/genai", () => ({
 // ---------------------------------------------------------------------------
 let mockPlatformBaseUrl = "";
 let mockAssistantApiKey: string | null = null;
+let mockProviderKeys: Record<string, string> = {};
 
 mock.module("../config/env.js", () => ({
   getPlatformBaseUrl: () => mockPlatformBaseUrl,
@@ -49,7 +50,7 @@ mock.module("../security/secure-keys.js", () => ({
     if (key === credentialKey("vellum", "assistant_api_key")) {
       return mockAssistantApiKey;
     }
-    return null;
+    return mockProviderKeys[key] ?? null;
   },
 }));
 
@@ -86,14 +87,13 @@ function disableManagedProxy() {
 }
 
 /**
- * Build an apiKeys record with a user key for every provider in `names`.
+ * Set mock secure keys with a user key for every provider in `names`.
  */
-function userKeysFor(...names: string[]): Record<string, string> {
-  const keys: Record<string, string> = {};
+function setUserKeysFor(...names: string[]): void {
+  mockProviderKeys = {};
   for (const n of names) {
-    keys[n] = `user-key-${n}`;
+    mockProviderKeys[n] = `user-key-${n}`;
   }
-  return keys;
 }
 
 // ---------------------------------------------------------------------------
@@ -102,6 +102,7 @@ function userKeysFor(...names: string[]): Record<string, string> {
 
 beforeEach(() => {
   disableManagedProxy();
+  mockProviderKeys = {};
   lastGeminiConstructorOpts = null;
 });
 
@@ -111,8 +112,8 @@ describe("managed proxy integration — credential precedence", () => {
       "%s routes via user-key when user key is provided regardless of managed context",
       (provider: string) => {
         enableManagedProxy();
+        setUserKeysFor(provider);
         initializeProviders({
-          apiKeys: userKeysFor(provider),
           provider,
           model: "test-model",
         });
@@ -123,8 +124,8 @@ describe("managed proxy integration — credential precedence", () => {
 
     test("all five managed providers route via user-key with user keys", () => {
       enableManagedProxy();
+      setUserKeysFor(...MANAGED_PROVIDERS);
       initializeProviders({
-        apiKeys: userKeysFor(...MANAGED_PROVIDERS),
         provider: "anthropic",
         model: "test-model",
       });
@@ -137,8 +138,8 @@ describe("managed proxy integration — credential precedence", () => {
 
     test("user keys still route via user-key when managed context is disabled", () => {
       disableManagedProxy();
+      setUserKeysFor(...MANAGED_PROVIDERS);
       initializeProviders({
-        apiKeys: userKeysFor(...MANAGED_PROVIDERS),
         provider: "anthropic",
         model: "test-model",
       });
@@ -155,8 +156,8 @@ describe("managed proxy integration — credential precedence", () => {
       "%s routes via managed-proxy when no user key",
       (provider: string) => {
         enableManagedProxy();
+        mockProviderKeys = {};
         initializeProviders({
-          apiKeys: {},
           // For ollama, provider selection does not trigger managed proxy
           provider: provider === "openai" ? "openai" : "anthropic",
           model: "test-model",
@@ -168,8 +169,8 @@ describe("managed proxy integration — credential precedence", () => {
 
     test("all five managed providers route via managed-proxy simultaneously", () => {
       enableManagedProxy();
+      mockProviderKeys = {};
       initializeProviders({
-        apiKeys: {},
         provider: "anthropic",
         model: "test-model",
       });
@@ -182,8 +183,8 @@ describe("managed proxy integration — credential precedence", () => {
 
     test("managed anthropic uses vertex proxy path instead of anthropic proxy path", () => {
       enableManagedProxy();
+      mockProviderKeys = {};
       initializeProviders({
-        apiKeys: {},
         provider: "anthropic",
         model: "claude-opus-4-6",
       });
@@ -206,8 +207,8 @@ describe("managed proxy integration — credential precedence", () => {
 
     test("managed gemini uses vertex proxy path instead of gemini proxy path", () => {
       enableManagedProxy();
+      mockProviderKeys = {};
       initializeProviders({
-        apiKeys: {},
         provider: "anthropic",
         model: "test-model",
       });
@@ -229,8 +230,8 @@ describe("managed proxy integration — credential precedence", () => {
       "%s is NOT registered when no user key and no managed context",
       (provider: string) => {
         disableManagedProxy();
+        mockProviderKeys = {};
         initializeProviders({
-          apiKeys: {},
           provider: "anthropic",
           model: "test-model",
         });
@@ -241,8 +242,8 @@ describe("managed proxy integration — credential precedence", () => {
 
     test("registry is empty when no keys and no managed context (non-ollama primary)", () => {
       disableManagedProxy();
+      mockProviderKeys = {};
       initializeProviders({
-        apiKeys: {},
         provider: "anthropic",
         model: "test-model",
       });
@@ -253,8 +254,8 @@ describe("managed proxy integration — credential precedence", () => {
   describe("mixed: some user keys + managed fallback fills gaps", () => {
     test("user key for anthropic routes direct, managed fallback fills remaining four via proxy", () => {
       enableManagedProxy();
+      setUserKeysFor("anthropic");
       initializeProviders({
-        apiKeys: userKeysFor("anthropic"),
         provider: "anthropic",
         model: "test-model",
       });
@@ -269,8 +270,8 @@ describe("managed proxy integration — credential precedence", () => {
 
     test("user key for openai routes direct, managed fallback fills remaining four via proxy", () => {
       enableManagedProxy();
+      setUserKeysFor("openai");
       initializeProviders({
-        apiKeys: userKeysFor("openai"),
         provider: "openai",
         model: "test-model",
       });
@@ -288,8 +289,8 @@ describe("managed proxy integration — credential precedence", () => {
 describe("managed proxy integration — ollama exclusion", () => {
   test("ollama is never registered via managed proxy fallback", () => {
     enableManagedProxy();
+    mockProviderKeys = {};
     initializeProviders({
-      apiKeys: {},
       provider: "anthropic",
       model: "test-model",
     });
@@ -298,8 +299,8 @@ describe("managed proxy integration — ollama exclusion", () => {
 
   test("ollama registers only when explicitly configured as provider", () => {
     enableManagedProxy();
+    mockProviderKeys = {};
     initializeProviders({
-      apiKeys: {},
       provider: "ollama",
       model: "test-model",
     });
@@ -308,8 +309,8 @@ describe("managed proxy integration — ollama exclusion", () => {
 
   test("ollama registers with explicit API key", () => {
     enableManagedProxy();
+    mockProviderKeys = { ollama: "ollama-key" };
     initializeProviders({
-      apiKeys: { ollama: "ollama-key" },
       provider: "anthropic",
       model: "test-model",
     });

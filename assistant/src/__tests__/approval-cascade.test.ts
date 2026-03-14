@@ -79,7 +79,6 @@ mock.module("../config/loader.js", () => ({
     },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     timeouts: { permissionTimeoutSec: 300 },
-    apiKeys: {},
     skills: { entries: {}, allowBundled: true },
     permissions: { mode: "workspace" },
   }),

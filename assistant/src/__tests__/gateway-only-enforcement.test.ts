@@ -57,7 +57,6 @@ mock.module("../config/loader.js", () => ({
   loadConfig: () => ({
     model: "test",
     provider: "test",
-    apiKeys: {},
     memory: { enabled: false },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     secretDetection: { enabled: false },
@@ -80,7 +79,6 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     model: "test",
     provider: "test",
-    apiKeys: {},
     memory: { enabled: false },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     secretDetection: { enabled: false },

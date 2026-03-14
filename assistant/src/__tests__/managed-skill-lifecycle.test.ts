@@ -9,7 +9,6 @@ let TEST_DIR = "";
 const mockConfig = {
   provider: "anthropic",
   model: "test",
-  apiKeys: {},
   maxTokens: 4096,
   dataDir: "/tmp",
   timeouts: {

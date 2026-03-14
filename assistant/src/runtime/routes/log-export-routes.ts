@@ -254,14 +254,6 @@ function readSanitizedConfig(): Record<string, unknown> | undefined {
     const raw = readFileSync(configPath, "utf-8");
     const config = JSON.parse(raw) as Record<string, unknown>;
 
-    // Strip API key values — preserve which providers have keys configured
-    if (config.apiKeys && typeof config.apiKeys === "object") {
-      const keys = config.apiKeys as Record<string, unknown>;
-      config.apiKeys = Object.fromEntries(
-        Object.keys(keys).map((k) => [k, redactStringValue(keys[k])]),
-      );
-    }
-
     // Strip ingress webhook secret
     if (config.ingress && typeof config.ingress === "object") {
       const ingress = config.ingress as Record<string, unknown>;

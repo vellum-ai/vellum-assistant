@@ -120,7 +120,6 @@ mock.module("../util/logger.js", () => ({
 const mockConfigObj = {
   model: "test",
   provider: "test",
-  apiKeys: {},
   memory: { enabled: false },
   rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
   secretDetection: { enabled: false },

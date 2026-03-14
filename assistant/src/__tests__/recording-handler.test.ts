@@ -24,7 +24,6 @@ mock.module("../config/loader.js", () => ({
     daemon: { standaloneRecording: true },
     provider: "mock-provider",
     permissions: { mode: "workspace" },
-    apiKeys: {},
     sandbox: { enabled: false },
     timeouts: { toolExecutionTimeoutSec: 30, permissionTimeoutSec: 5 },
     skills: { load: { extraDirs: [] } },

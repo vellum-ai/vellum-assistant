@@ -935,7 +935,6 @@ describe("Memory regressions", () => {
     const config = {
       ...DEFAULT_CONFIG,
       provider: "anthropic" as const,
-      apiKeys: {},
       memory: {
         ...DEFAULT_CONFIG.memory,
         embeddings: {
