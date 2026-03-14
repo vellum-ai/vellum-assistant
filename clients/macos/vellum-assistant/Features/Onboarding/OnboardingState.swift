@@ -62,6 +62,7 @@ final class OnboardingState {
     var selectedModel: String = "claude-opus-4-6"
     var isHatching: Bool = false
     var isManagedHatch: Bool = false
+    var hasExistingManagedAssistant: Bool = false
     var hatchLogLines: [String] = []
     var hatchCompleted: Bool = false
     var hatchFailed: Bool = false
@@ -177,6 +178,7 @@ final class OnboardingState {
         // Reset hatch flags
         isHatching = false
         isManagedHatch = false
+        hasExistingManagedAssistant = false
         hatchFailed = false
         hatchCompleted = false
         hatchLogLines = []

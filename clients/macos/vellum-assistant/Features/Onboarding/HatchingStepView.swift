@@ -102,13 +102,22 @@ struct HatchingStepView: View {
     private var statusText: some View {
         VStack(spacing: VSpacing.sm) {
             if state.hatchFailed {
-                Text("Something went wrong")
-                    .font(.system(size: 24, weight: .regular, design: .serif))
-                    .foregroundColor(VColor.contentDefault)
-                if let reason = failureReason {
-                    Text(reason)
+                if state.hasExistingManagedAssistant {
+                    Text("You already have an assistant")
+                        .font(.system(size: 24, weight: .regular, design: .serif))
+                        .foregroundColor(VColor.contentDefault)
+                    Text("You have an assistant on the hosted platform")
                         .font(.system(size: 14))
                         .foregroundColor(VColor.contentSecondary)
+                } else {
+                    Text("Something went wrong")
+                        .font(.system(size: 24, weight: .regular, design: .serif))
+                        .foregroundColor(VColor.contentDefault)
+                    if let reason = failureReason {
+                        Text(reason)
+                            .font(.system(size: 14))
+                            .foregroundColor(VColor.contentSecondary)
+                    }
                 }
             } else if state.hatchCompleted {
                 Text(isCustomHardware ? "Your assistant is paired!" : "Your assistant is ready!")
@@ -136,12 +145,22 @@ struct HatchingStepView: View {
 
     private var failureButtons: some View {
         VStack(spacing: VSpacing.sm) {
-            OnboardingButton(title: "Try Again", style: .primary) {
-                retryHatch()
-            }
+            if state.hasExistingManagedAssistant {
+                OnboardingButton(title: "Meet your assistant", style: .primary) {
+                    meetExistingAssistant()
+                }
 
-            OnboardingButton(title: "Go Back", style: .tertiary) {
-                goBack()
+                OnboardingButton(title: "Go Back", style: .tertiary) {
+                    goBack()
+                }
+            } else {
+                OnboardingButton(title: "Try Again", style: .primary) {
+                    retryHatch()
+                }
+
+                OnboardingButton(title: "Go Back", style: .tertiary) {
+                    goBack()
+                }
             }
         }
         .frame(maxWidth: 280)
@@ -151,10 +170,16 @@ struct HatchingStepView: View {
     private func goBack() {
         state.isHatching = false
         state.isManagedHatch = false
+        state.hasExistingManagedAssistant = false
         state.hatchFailed = false
         state.hatchLogLines = []
         hatchStarted = false
         failureReason = nil
+    }
+
+    private func meetExistingAssistant() {
+        state.hatchFailed = false
+        state.hatchCompleted = true
     }
 
     private func retryHatch() {
