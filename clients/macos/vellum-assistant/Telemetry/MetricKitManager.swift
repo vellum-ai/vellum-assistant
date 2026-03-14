@@ -59,12 +59,12 @@ import os
     /// but workspace files included in log archives can exceed that. Sentry's
     /// server-side limit is 200 MB uncompressed / 40 MB compressed, so 100 MB
     /// provides sufficient headroom.
-    static let sentryMaxAttachmentSize: UInt = 100 * 1024 * 1024
+    nonisolated static let sentryMaxAttachmentSize: UInt = 100 * 1024 * 1024
 
     /// Default DSN for the macOS app Sentry project.
-    static let macosDSN = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
+    nonisolated static let macosDSN = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
     /// DSN for the assistant/brain Sentry project.
-    static let brainDSN = "https://db2d38a082e4ee35eeaea08c44b376ec@o4504590528675840.ingest.us.sentry.io/4510874712276992"
+    nonisolated static let brainDSN = "https://db2d38a082e4ee35eeaea08c44b376ec@o4504590528675840.ingest.us.sentry.io/4510874712276992"
 
     /// Sends a manual problem report unconditionally, even when the user has
     /// opted out of automatic crash reporting.  The SDK is temporarily started
