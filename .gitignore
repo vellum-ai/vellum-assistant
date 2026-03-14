@@ -99,4 +99,7 @@ next-env.d.ts
 *.bun-build
 vellum-assistant-safe-do-permissions
 
+# macOS binary
+clients/macos/assistant-bin/vellum-assistant
+
 .agents/
