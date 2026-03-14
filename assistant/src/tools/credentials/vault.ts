@@ -21,7 +21,7 @@ import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
   getSecureKeyAsync,
-  listSecureKeys,
+  listSecureKeysAsync,
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
@@ -368,9 +368,11 @@ class CredentialStoreTool implements Tool {
         const allMetadata = listCredentialMetadata();
         // Verify secrets still exist by reading all key names once (instead of
         // per-entry getSecureKeyAsync calls that each re-read/re-derive the store).
+        // Uses the async variant to include keys from both the primary backend
+        // (e.g. keychain) and the encrypted store (legacy keys).
         let secureKeySet: Set<string> | undefined;
         try {
-          secureKeySet = new Set(listSecureKeys());
+          secureKeySet = new Set(await listSecureKeysAsync());
         } catch (err) {
           log.error(
             { err },

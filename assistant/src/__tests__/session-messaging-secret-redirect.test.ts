@@ -29,7 +29,8 @@ mock.module("../security/secure-keys.js", () => ({
     setSecureKeyMock(key, value),
   deleteSecureKeyAsync: async () => "deleted" as const,
   listSecureKeys: () => [],
-  getBackendType: () => null,
+  listSecureKeysAsync: async () => [],
+  getBackendType: (): "broker" | "encrypted" => "encrypted",
   _resetBackend: () => {},
 }));
 

@@ -23,6 +23,7 @@ const log = getLogger("secure-keys");
 
 let _keychain: CredentialBackend | undefined;
 let _encryptedStore: CredentialBackend | undefined;
+let _resolvedBackend: CredentialBackend | undefined;
 
 function getKeychainBackend(): CredentialBackend {
   if (!_keychain) _keychain = createKeychainBackend();
@@ -38,12 +39,19 @@ function getEncryptedStoreBackend(): CredentialBackend {
  * Resolve the primary credential backend for this process.
  * Production (VELLUM_DEV unset or "0") uses keychain when available.
  * Dev mode (VELLUM_DEV=1) always uses the encrypted file store.
+ *
+ * Once resolved, the backend does not change during the process lifetime.
+ * Call `_resetBackend()` in tests to clear the cached resolution.
  */
 function resolveBackend(): CredentialBackend {
-  if (process.env.VELLUM_DEV !== "1" && getKeychainBackend().isAvailable()) {
-    return getKeychainBackend();
+  if (!_resolvedBackend) {
+    if (process.env.VELLUM_DEV !== "1" && getKeychainBackend().isAvailable()) {
+      _resolvedBackend = getKeychainBackend();
+    } else {
+      _resolvedBackend = getEncryptedStoreBackend();
+    }
   }
-  return getEncryptedStoreBackend();
+  return _resolvedBackend;
 }
 
 /** Result of a delete operation — distinguishes success, not-found, and error. */
@@ -52,9 +60,35 @@ export type DeleteResult = "deleted" | "not-found" | "error";
 /**
  * List all account names in secure storage (sync — encrypted store only).
  * Throws if the store file exists but cannot be read.
+ *
+ * @deprecated Use {@link listSecureKeysAsync} instead, which merges keys from
+ * both the primary backend and the encrypted store for completeness.
  */
 export function listSecureKeys(): string[] {
   return encryptedStore.listKeys();
+}
+
+/**
+ * List all account names across both backends (async).
+ *
+ * When the primary backend is the keychain, this merges keys from the keychain
+ * and the encrypted store (for legacy keys that haven't been migrated). The
+ * result is deduplicated. When the primary backend is already the encrypted
+ * store, only that store is queried.
+ */
+export async function listSecureKeysAsync(): Promise<string[]> {
+  const backend = resolveBackend();
+  const primaryKeys = await backend.list();
+
+  // If primary backend is NOT the encrypted store, also check
+  // the encrypted store for legacy keys that haven't been migrated.
+  if (backend !== getEncryptedStoreBackend()) {
+    const encKeys = await getEncryptedStoreBackend().list();
+    const merged = new Set([...primaryKeys, ...encKeys]);
+    return Array.from(merged);
+  }
+
+  return primaryKeys;
 }
 
 // ---------------------------------------------------------------------------
@@ -66,7 +100,7 @@ export function listSecureKeys(): string[] {
  * Returns `"broker"` when VELLUM_DEV !== "1" and keychain backend is available,
  * `"encrypted"` otherwise.
  */
-export function getBackendType(): "broker" | "encrypted" | null {
+export function getBackendType(): "broker" | "encrypted" {
   const backend = resolveBackend();
   return backend.name === "keychain" ? "broker" : "encrypted";
 }
@@ -148,4 +182,5 @@ export async function deleteSecureKeyAsync(
 export function _resetBackend(): void {
   _keychain = undefined;
   _encryptedStore = undefined;
+  _resolvedBackend = undefined;
 }

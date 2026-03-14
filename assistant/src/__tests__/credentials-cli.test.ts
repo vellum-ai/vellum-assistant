@@ -52,11 +52,14 @@ mock.module("../security/secure-keys.js", () => ({
   listSecureKeys: (): string[] => {
     return [...secureKeyStore.keys()];
   },
+  listSecureKeysAsync: async (): Promise<string[]> => {
+    return [...secureKeyStore.keys()];
+  },
   getSecureKeyAsync: async (account: string): Promise<string | undefined> => {
     _getSecureKeyCalls += 1;
     return secureKeyStore.get(account);
   },
-  getBackendType: (): "broker" | "encrypted" | null => null,
+  getBackendType: (): "broker" | "encrypted" => "encrypted",
   _resetBackend: (): void => {},
 }));
 
