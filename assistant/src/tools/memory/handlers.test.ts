@@ -487,32 +487,7 @@ describe("handleMemoryRecall", () => {
     expect(typeof parsed.resultCount).toBe("number");
   });
 
-  // ── Error handling ────────────────────────────────────────────────
-
-  test("retrieval failure returns error message, does not throw", async () => {
-    // Mock buildMemoryRecall to throw, simulating an internal retrieval failure
-    const retrieverModule = await import("../../memory/retriever.js");
-    const original = retrieverModule.buildMemoryRecall;
-    (retrieverModule as Record<string, unknown>).buildMemoryRecall =
-      async () => {
-        throw new Error("Simulated retrieval failure");
-      };
-
-    try {
-      const result = await handleMemoryRecall(
-        { query: "test query" },
-        TEST_CONFIG,
-      );
-
-      // The handler should catch the error and return an error result,
-      // never throw
-      expect(result.isError).toBe(true);
-      expect(result.content).toContain("Simulated retrieval failure");
-    } finally {
-      // Restore original implementation
-      (retrieverModule as Record<string, unknown>).buildMemoryRecall = original;
-    }
-  });
+  // ── Result shape ─────────────────────────────────────────────────
 
   test("result shape matches MemoryRecallToolResult when successful", async () => {
     seedMemory();
@@ -548,5 +523,28 @@ describe("handleMemoryRecall", () => {
     expect(typeof parsed.degraded).toBe("boolean");
     expect(parsed.sources.semantic).toBe(0);
     expect(parsed.sources.recency).toBe(0);
+  });
+
+  // ── Error handling ────────────────────────────────────────────────
+  // This test must be last: mock.module replaces the retriever for all
+  // subsequent imports and cannot be cleanly reverted within the same
+  // test file.
+
+  test("retrieval failure returns error message, does not throw", async () => {
+    mock.module("../../memory/retriever.js", () => ({
+      buildMemoryRecall: async () => {
+        throw new Error("Simulated retrieval failure");
+      },
+    }));
+
+    const { handleMemoryRecall: recallWithMock } =
+      await import("./handlers.js");
+
+    const result = await recallWithMock({ query: "test query" }, TEST_CONFIG);
+
+    // The handler should catch the error and return an error result,
+    // never throw
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Simulated retrieval failure");
   });
 });
