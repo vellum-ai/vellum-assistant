@@ -176,7 +176,7 @@ struct OnboardingFlowView: View {
             }
             if isAuthenticated {
                 if let assistant = currentAssistant {
-                    if assistant.isManaged && managedSignInEnabled {
+                    if assistant.isManaged && managedSignInEnabled && state.currentStep == 0 {
                         log.info("Authenticated with managed assistant \(assistant.assistantId, privacy: .public); advancing to hosting selector")
                         state.advance()
                     } else if assistant.isManaged {
@@ -191,9 +191,9 @@ struct OnboardingFlowView: View {
                         log.info("Auth completed for remote assistant \(assistant.assistantId, privacy: .public) — proceeding to app")
                         onComplete()
                     }
-                } else if managedBootstrapEnabled {
-                    if didInitiateLogin {
-                        log.info("Authenticated with no lockfile assistant after login; advancing to hosting selector")
+                } else if managedBootstrapEnabled && managedSignInEnabled {
+                    if state.currentStep == 0 {
+                        log.info("Authenticated with no lockfile assistant; advancing to hosting selector")
                         state.advance()
                     } else {
                         log.info("Session restored with no lockfile assistant — staying on welcome screen for user-initiated hatch")
