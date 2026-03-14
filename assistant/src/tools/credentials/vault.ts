@@ -901,7 +901,7 @@ class CredentialStoreTool implements Tool {
             | "gateway"
             | null) ?? "gateway";
         if (transport === "loopback" && descProviderRow.loopbackPort) {
-          redirectUri = `http://127.0.0.1:${descProviderRow.loopbackPort}/oauth/callback`;
+          redirectUri = `http://localhost:${descProviderRow.loopbackPort}/oauth/callback`;
         } else if (transport === "loopback") {
           redirectUri =
             "(automatic — no redirect URI needed, uses random localhost port)";

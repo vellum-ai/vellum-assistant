@@ -361,7 +361,7 @@ function startLoopbackServerAndWaitForCode(
 
     server.listen(loopbackPort ?? 0, "127.0.0.1", () => {
       const addr = server.address() as { port: number };
-      boundRedirectUri = `http://127.0.0.1:${addr.port}${LOOPBACK_CALLBACK_PATH}`;
+      boundRedirectUri = `http://localhost:${addr.port}${LOOPBACK_CALLBACK_PATH}`;
 
       const authParams = new URLSearchParams({
         ...config.extraParams,
