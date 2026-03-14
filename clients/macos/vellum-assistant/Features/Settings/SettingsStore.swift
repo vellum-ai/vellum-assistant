@@ -852,62 +852,14 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Slack Channel Actions (HTTP-first)
 
-    /// Builds an authenticated URLRequest for the daemon's runtime HTTP server (local mode)
-    /// or the platform assistant proxy (managed mode).
-    ///
-    /// - Local: `http://localhost:{port}/{path}` with `Authorization: Bearer {jwt}`
-    /// - Managed: delegates to `GatewayHTTPClient` for URL/auth resolution, stripping
-    ///   the `v1/` prefix since the platform proxy namespaces under `/v1/assistants/{id}/`.
-    private func buildDaemonRequest(path: String, method: String) -> URLRequest? {
-        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        let assistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
-
-        if let assistant, assistant.isManaged {
-            guard let info = try? GatewayHTTPClient.resolveConnectionInfo() else { return nil }
-            // Strip "v1/" prefix — the platform proxy already namespaces under /v1/assistants/{id}/
-            let proxyPath = path.hasPrefix("v1/") ? String(path.dropFirst(3)) : path
-            let trailingSlash = proxyPath.hasSuffix("/") ? "" : "/"
-            guard let url = URL(string: "\(info.baseURL)/v1/assistants/\(info.assistant.assistantId)/\(proxyPath)\(trailingSlash)") else { return nil }
-            var request = URLRequest(url: url)
-            request.httpMethod = method
-            request.timeoutInterval = 5
-            request.setValue(info.token, forHTTPHeaderField: "X-Session-Token")
-            if let orgId = info.organizationId, !orgId.isEmpty {
-                request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
-            }
-            return request
-        }
-
-        // Local mode: direct to daemon runtime HTTP server.
-        // Use the lockfile assistant's daemon port so multi-instance switching
-        // targets the correct daemon (not always the default 7821).
-        let port = assistant?.daemonPort
-            ?? Int(ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "")
-            ?? 7821
-        guard let token = ActorTokenManager.getToken(), !token.isEmpty else { return nil }
-        guard let url = URL(string: "http://localhost:\(port)/\(path)") else { return nil }
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.timeoutInterval = 5
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        return request
-    }
-
-    /// Whether the daemon HTTP endpoint is reachable (for tombstone replay gating).
-    private func isDaemonHTTPAvailable() -> Bool {
-        return buildDaemonRequest(path: "v1/secrets", method: "GET") != nil
-    }
-
     // MARK: - Daemon Key Sync (HTTP)
 
     /// Notify the daemon that an API key was set, so it updates its encrypted store.
     private func syncKeyToDaemon(provider: String, value: String) {
-        guard var request = buildDaemonRequest(path: "v1/secrets", method: "POST") else { return }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let body: [String: String] = ["type": "api_key", "name": provider, "value": value]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        Task.detached {
-            _ = try? await URLSession.shared.data(for: request)
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return }
+        Task {
+            _ = try? await GatewayHTTPClient.daemonPost(path: "v1/secrets", body: bodyData)
         }
     }
 
@@ -939,7 +891,7 @@ public final class SettingsStore: ObservableObject {
         guard !tombstones.isEmpty else { return }
         // Bail out early if the HTTP endpoint is unavailable — preserve all tombstones
         // for the next reconnect attempt.
-        guard isDaemonHTTPAvailable() else { return }
+        guard GatewayHTTPClient.isDaemonReachable() else { return }
         var remaining: [[String: String]] = []
         for entry in tombstones {
             guard let type = entry["type"], let name = entry["name"] else { continue }
@@ -964,24 +916,21 @@ public final class SettingsStore: ObservableObject {
     /// Returns true if the HTTP endpoint was available and the request was dispatched.
     @discardableResult
     private func deleteKeyFromDaemon(provider: String) -> Bool {
-        guard var request = buildDaemonRequest(path: "v1/secrets", method: "DELETE") else { return false }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let body: [String: String] = ["type": "api_key", "name": provider]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        Task.detached {
-            _ = try? await URLSession.shared.data(for: request)
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return false }
+        guard GatewayHTTPClient.isDaemonReachable() else { return false }
+        Task {
+            _ = try? await GatewayHTTPClient.daemonDelete(path: "v1/secrets", body: bodyData)
         }
         return true
     }
 
     /// Notify the daemon that a credential was set (type: "credential", name: "service:field").
     private func syncCredentialToDaemon(name: String, value: String) {
-        guard var request = buildDaemonRequest(path: "v1/secrets", method: "POST") else { return }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let body: [String: String] = ["type": "credential", "name": name, "value": value]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        Task.detached {
-            _ = try? await URLSession.shared.data(for: request)
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return }
+        Task {
+            _ = try? await GatewayHTTPClient.daemonPost(path: "v1/secrets", body: bodyData)
         }
     }
 
@@ -989,12 +938,11 @@ public final class SettingsStore: ObservableObject {
     /// Returns true if the HTTP endpoint was available and the request was dispatched.
     @discardableResult
     private func deleteCredentialFromDaemon(name: String) -> Bool {
-        guard var request = buildDaemonRequest(path: "v1/secrets", method: "DELETE") else { return false }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let body: [String: String] = ["type": "credential", "name": name]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        Task.detached {
-            _ = try? await URLSession.shared.data(for: request)
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return false }
+        guard GatewayHTTPClient.isDaemonReachable() else { return false }
+        Task {
+            _ = try? await GatewayHTTPClient.daemonDelete(path: "v1/secrets", body: bodyData)
         }
         return true
     }
@@ -1032,14 +980,14 @@ public final class SettingsStore: ObservableObject {
     }
 
     func fetchSlackChannelConfig() {
-        guard var request = buildDaemonRequest(path: "v1/integrations/slack/channel/config", method: "GET") else { return }
-        request.timeoutInterval = 10
         Task {
             do {
-                let (data, response) = try await URLSession.shared.data(for: request)
-                guard let httpResp = response as? HTTPURLResponse else { return }
-                if httpResp.statusCode == 200 {
-                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                let response = try await GatewayHTTPClient.daemonGet(
+                    path: "v1/integrations/slack/channel/config",
+                    timeout: 10
+                )
+                if response.statusCode == 200 {
+                    if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any] {
                         self.slackChannelHasBotToken = json["hasBotToken"] as? Bool ?? false
                         self.slackChannelHasAppToken = json["hasAppToken"] as? Bool ?? false
                         self.slackChannelConnected = json["connected"] as? Bool ?? false
@@ -1049,7 +997,7 @@ public final class SettingsStore: ObservableObject {
                         self.slackChannelTeamName = json["teamName"] as? String
                         self.slackChannelError = nil
                     }
-                } else if httpResp.statusCode == 404 {
+                } else if response.statusCode == 404 {
                     self.slackChannelHasBotToken = false
                     self.slackChannelHasAppToken = false
                     self.slackChannelConnected = false
@@ -1070,21 +1018,21 @@ public final class SettingsStore: ObservableObject {
         guard !trimmedBot.isEmpty, !trimmedApp.isEmpty else { return }
         slackChannelSaveInProgress = true
         slackChannelError = nil
-        guard var request = buildDaemonRequest(path: "v1/integrations/slack/channel/config", method: "POST") else {
+        let body: [String: String] = ["botToken": trimmedBot, "appToken": trimmedApp]
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else {
             slackChannelSaveInProgress = false
             return
         }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 10
-        let body: [String: String] = ["botToken": trimmedBot, "appToken": trimmedApp]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         Task {
             do {
-                let (data, response) = try await URLSession.shared.data(for: request)
+                let response = try await GatewayHTTPClient.daemonPost(
+                    path: "v1/integrations/slack/channel/config",
+                    body: bodyData,
+                    timeout: 10
+                )
                 self.slackChannelSaveInProgress = false
-                guard let httpResp = response as? HTTPURLResponse else { return }
-                if (200..<300).contains(httpResp.statusCode) {
-                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                if response.isSuccess {
+                    if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any] {
                         self.slackChannelHasBotToken = json["hasBotToken"] as? Bool ?? true
                         self.slackChannelHasAppToken = json["hasAppToken"] as? Bool ?? true
                         self.slackChannelConnected = json["connected"] as? Bool ?? false
@@ -1100,11 +1048,11 @@ public final class SettingsStore: ObservableObject {
                     self.fetchChannelSetupStatus()
                 } else {
                     let errorMsg: String
-                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                    if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
                        let msg = json["error"] as? String {
                         errorMsg = msg
                     } else {
-                        errorMsg = "HTTP \(httpResp.statusCode)"
+                        errorMsg = "HTTP \(response.statusCode)"
                     }
                     self.slackChannelError = "Failed to save: \(errorMsg)"
                 }
@@ -1118,20 +1066,13 @@ public final class SettingsStore: ObservableObject {
     func clearSlackChannelConfig() {
         slackChannelSaveInProgress = true
         slackChannelError = nil
-        guard var request = buildDaemonRequest(path: "v1/integrations/slack/channel/config", method: "DELETE") else {
-            slackChannelSaveInProgress = false
-            return
-        }
-        request.timeoutInterval = 10
         Task {
             do {
-                let (_, response) = try await URLSession.shared.data(for: request)
-                guard let httpResp = response as? HTTPURLResponse else {
-                    self.slackChannelSaveInProgress = false
-                    self.fetchChannelSetupStatus()
-                    return
-                }
-                if (200..<300).contains(httpResp.statusCode) {
+                let response = try await GatewayHTTPClient.daemonDelete(
+                    path: "v1/integrations/slack/channel/config",
+                    timeout: 10
+                )
+                if response.isSuccess {
                     self.slackChannelHasBotToken = false
                     self.slackChannelHasAppToken = false
                     self.slackChannelConnected = false
@@ -1140,12 +1081,11 @@ public final class SettingsStore: ObservableObject {
                     self.slackChannelTeamId = nil
                     self.slackChannelTeamName = nil
                     self.slackChannelError = nil
-                    self.fetchChannelSetupStatus()
                 } else {
-                    self.slackChannelError = "Failed to disconnect: HTTP \(httpResp.statusCode)"
-                    self.fetchChannelSetupStatus()
+                    self.slackChannelError = "Failed to disconnect: HTTP \(response.statusCode)"
                 }
                 self.slackChannelSaveInProgress = false
+                self.fetchChannelSetupStatus()
             } catch {
                 self.slackChannelSaveInProgress = false
                 self.slackChannelError = error.localizedDescription

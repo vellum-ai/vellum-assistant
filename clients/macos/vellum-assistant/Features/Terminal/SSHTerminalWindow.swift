@@ -15,17 +15,8 @@ final class SSHTerminalWindow {
 
     /// Opens a new terminal window for the given managed assistant.
     ///
-    /// - Parameters:
-    ///   - assistant: The managed assistant to connect to.
-    ///   - baseURL: Platform base URL for terminal API requests.
-    ///   - token: Session token for authentication.
-    ///   - organizationId: Organization ID header value (optional).
-    func open(
-        assistant: LockfileAssistant,
-        baseURL: String,
-        token: String,
-        organizationId: String?
-    ) {
+    /// - Parameter assistant: The managed assistant to connect to.
+    func open(assistant: LockfileAssistant) {
         // If a window is already open, bring it to front.
         if let existing = window, existing.isVisible {
             existing.makeKeyAndOrderFront(nil)
@@ -33,15 +24,8 @@ final class SSHTerminalWindow {
             return
         }
 
-        let apiClient = TerminalAPIClient(
-            baseURL: baseURL,
-            token: token,
-            organizationId: organizationId
-        )
-        let manager = TerminalSessionManager(
-            assistantId: assistant.assistantId,
-            apiClient: apiClient
-        )
+        let apiClient = TerminalAPIClient(assistantId: assistant.assistantId)
+        let manager = TerminalSessionManager(apiClient: apiClient)
         self.sessionManager = manager
 
         let contentView = SSHTerminalContentView(sessionManager: manager)

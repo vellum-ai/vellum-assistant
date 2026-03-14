@@ -662,12 +662,7 @@ struct SettingsDeveloperTab: View {
         guard let info = try? GatewayHTTPClient.resolveConnectionInfo(),
               info.assistant.isManaged else { return }
 
-        Self.terminalWindow.open(
-            assistant: info.assistant,
-            baseURL: info.baseURL,
-            token: info.token,
-            organizationId: info.organizationId
-        )
+        Self.terminalWindow.open(assistant: info.assistant)
     }
 
     // MARK: - Retire Assistant
