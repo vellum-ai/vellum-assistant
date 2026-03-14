@@ -2844,6 +2844,38 @@ extension ContactPayload: Identifiable {}
 
 extension ContactChannelPayload: Identifiable {}
 
+extension ContactChannelPayload: Equatable {
+    public static func == (lhs: ContactChannelPayload, rhs: ContactChannelPayload) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.type == rhs.type &&
+        lhs.address == rhs.address &&
+        lhs.isPrimary == rhs.isPrimary &&
+        lhs.externalUserId == rhs.externalUserId &&
+        lhs.status == rhs.status &&
+        lhs.policy == rhs.policy &&
+        lhs.verifiedAt == rhs.verifiedAt &&
+        lhs.verifiedVia == rhs.verifiedVia &&
+        lhs.lastSeenAt == rhs.lastSeenAt &&
+        lhs.interactionCount == rhs.interactionCount &&
+        lhs.lastInteraction == rhs.lastInteraction &&
+        lhs.revokedReason == rhs.revokedReason &&
+        lhs.blockedReason == rhs.blockedReason
+    }
+}
+
+extension ContactPayload: Equatable {
+    public static func == (lhs: ContactPayload, rhs: ContactPayload) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.displayName == rhs.displayName &&
+        lhs.role == rhs.role &&
+        lhs.notes == rhs.notes &&
+        lhs.contactType == rhs.contactType &&
+        lhs.lastInteraction == rhs.lastInteraction &&
+        lhs.interactionCount == rhs.interactionCount &&
+        lhs.channels == rhs.channels
+    }
+}
+
 // MARK: - Work Item Helpers
 
 extension WorkItemsListResponseItem {
