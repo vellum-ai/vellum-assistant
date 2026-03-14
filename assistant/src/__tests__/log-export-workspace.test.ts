@@ -1,14 +1,20 @@
 /**
- * Tests for workspace file collection in the log export route handler.
+ * Tests for the log export route handler.
  *
- * Validates that `POST /v1/export` includes workspace files with correct
- * filtering: text files included, SQLite DB files dumped as SQL, excluded
- * directories (embedding-models/, data/qdrant/) absent, binary files skipped.
+ * Validates that `POST /v1/export` returns a tar.gz archive containing:
+ * - audit-data.json with tool invocation records
+ * - daemon-logs/ with log file contents
+ * - config-snapshot.json with sanitized config
+ * - workspace/ with text files, SQL dumps for .db files, and proper
+ *   filtering (excluded directories, binary files, symlinks).
  */
 
+import { spawnSync } from "node:child_process";
 import {
   mkdirSync,
   mkdtempSync,
+  readdirSync,
+  readFileSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -92,6 +98,37 @@ async function callExport(): Promise<Response> {
   });
 }
 
+/** Extracts a tar.gz response into a temp directory and returns the path. */
+async function extractArchive(res: Response): Promise<string> {
+  const extractDir = mkdtempSync(join(tmpdir(), "log-export-extract-"));
+  const archiveBytes = Buffer.from(await res.arrayBuffer());
+  const archivePath = join(extractDir, "archive.tar.gz");
+  writeFileSync(archivePath, archiveBytes);
+
+  const proc = spawnSync("tar", ["xzf", archivePath, "-C", extractDir]);
+  if (proc.status !== 0) {
+    throw new Error(
+      `tar extraction failed: ${proc.stderr?.toString() ?? "unknown error"}`,
+    );
+  }
+
+  return extractDir;
+}
+
+/** Recursively lists all files under a directory as relative paths. */
+function listFiles(dir: string, base = dir): string[] {
+  const result: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      result.push(...listFiles(full, base));
+    } else {
+      result.push(full.slice(base.length + 1));
+    }
+  }
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // Seed workspace files
 // ---------------------------------------------------------------------------
@@ -150,84 +187,120 @@ try {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("POST /v1/export — workspace files", () => {
-  test("includes text files in workspaceFiles", async () => {
+describe("POST /v1/export — tar.gz archive", () => {
+  test("returns a valid tar.gz archive with correct headers", async () => {
     const res = await callExport();
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      workspaceFiles: Record<string, string>;
-    };
-    expect(body.workspaceFiles["IDENTITY.md"]).toBe("# My Identity\nHello");
-    expect(body.workspaceFiles["notes/daily.txt"]).toBe("Some daily notes");
-  });
-
-  test("dumps SQLite DB files as .sql text", async () => {
-    const res = await callExport();
-    const body = (await res.json()) as {
-      workspaceFiles: Record<string, string>;
-    };
-    const sqlKey = "data/db/assistant.db.sql";
-    expect(body.workspaceFiles[sqlKey]).toBeDefined();
-    expect(body.workspaceFiles[sqlKey]).toContain("CREATE TABLE");
-    expect(body.workspaceFiles[sqlKey]).toContain("test_table");
-    // The raw .db file should NOT be present
-    expect(body.workspaceFiles["data/db/assistant.db"]).toBeUndefined();
-  });
-
-  test("excludes embedding-models/ directory", async () => {
-    const res = await callExport();
-    const body = (await res.json()) as {
-      workspaceFiles: Record<string, string>;
-    };
-    const embeddingKeys = Object.keys(body.workspaceFiles).filter((k) =>
-      k.startsWith("embedding-models/"),
+    expect(res.headers.get("Content-Type")).toBe("application/gzip");
+    expect(res.headers.get("Content-Disposition")).toBe(
+      'attachment; filename="logs.tar.gz"',
     );
-    expect(embeddingKeys).toHaveLength(0);
+
+    // Verify the response body is valid gzip (starts with gzip magic bytes)
+    const bytes = new Uint8Array(await res.clone().arrayBuffer());
+    expect(bytes[0]).toBe(0x1f);
+    expect(bytes[1]).toBe(0x8b);
   });
 
-  test("excludes data/qdrant/ directory", async () => {
+  test("archive contains audit-data.json", async () => {
     const res = await callExport();
-    const body = (await res.json()) as {
-      workspaceFiles: Record<string, string>;
-    };
-    const qdrantKeys = Object.keys(body.workspaceFiles).filter((k) =>
-      k.startsWith("data/qdrant/"),
-    );
-    expect(qdrantKeys).toHaveLength(0);
+    const dir = await extractArchive(res);
+    try {
+      const auditPath = join(dir, "audit-data.json");
+      const content = readFileSync(auditPath, "utf-8");
+      const parsed = JSON.parse(content);
+      expect(Array.isArray(parsed)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
-  test("skips binary files containing null bytes", async () => {
+  test("archive contains workspace text files", async () => {
     const res = await callExport();
-    const body = (await res.json()) as {
-      workspaceFiles: Record<string, string>;
-    };
-    expect(body.workspaceFiles["binary-file.dat"]).toBeUndefined();
+    const dir = await extractArchive(res);
+    try {
+      const identity = readFileSync(
+        join(dir, "workspace", "IDENTITY.md"),
+        "utf-8",
+      );
+      expect(identity).toBe("# My Identity\nHello");
+
+      const daily = readFileSync(
+        join(dir, "workspace", "notes", "daily.txt"),
+        "utf-8",
+      );
+      expect(daily).toBe("Some daily notes");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
-  test("excludes config.json at workspace root", async () => {
+  test("archive contains SQLite DB dumps as .sql files", async () => {
     const res = await callExport();
-    const body = (await res.json()) as {
-      workspaceFiles: Record<string, string>;
-    };
-    expect(body.workspaceFiles["config.json"]).toBeUndefined();
+    const dir = await extractArchive(res);
+    try {
+      const sqlContent = readFileSync(
+        join(dir, "workspace", "data", "db", "assistant.db.sql"),
+        "utf-8",
+      );
+      expect(sqlContent).toContain("CREATE TABLE");
+      expect(sqlContent).toContain("test_table");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
-  test("skips symlinks", async () => {
+  test("archive excludes embedding-models/ and data/qdrant/", async () => {
     const res = await callExport();
-    const body = (await res.json()) as {
-      workspaceFiles: Record<string, string>;
-    };
-    expect(body.workspaceFiles["sneaky-link.txt"]).toBeUndefined();
+    const dir = await extractArchive(res);
+    try {
+      const files = listFiles(join(dir, "workspace"));
+      const embeddingFiles = files.filter((f) =>
+        f.startsWith("embedding-models/"),
+      );
+      const qdrantFiles = files.filter((f) => f.startsWith("data/qdrant/"));
+      expect(embeddingFiles).toHaveLength(0);
+      expect(qdrantFiles).toHaveLength(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
-  test("response includes workspaceFiles field", async () => {
+  test("archive excludes binary files and config.json at workspace root", async () => {
     const res = await callExport();
-    const body = (await res.json()) as {
-      success: boolean;
-      workspaceFiles: Record<string, string>;
-    };
-    expect(body.success).toBe(true);
-    expect(body.workspaceFiles).toBeDefined();
-    expect(typeof body.workspaceFiles).toBe("object");
+    const dir = await extractArchive(res);
+    try {
+      const files = listFiles(join(dir, "workspace"));
+      expect(files).not.toContain("binary-file.dat");
+      expect(files).not.toContain("config.json");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("archive excludes symlinks", async () => {
+    const res = await callExport();
+    const dir = await extractArchive(res);
+    try {
+      const files = listFiles(join(dir, "workspace"));
+      expect(files).not.toContain("sneaky-link.txt");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("archive contains config-snapshot.json when config exists", async () => {
+    const res = await callExport();
+    const dir = await extractArchive(res);
+    try {
+      const configContent = readFileSync(
+        join(dir, "config-snapshot.json"),
+        "utf-8",
+      );
+      const parsed = JSON.parse(configContent);
+      expect(parsed.provider).toBe("anthropic");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

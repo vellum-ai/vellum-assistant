@@ -2,18 +2,23 @@
  * HTTP route handler for exporting audit data and daemon log files.
  *
  * A single POST /v1/export endpoint allows clients (e.g. macOS Export Logs)
- * to retrieve audit database records and daemon log files via HTTP instead
- * of requiring direct filesystem access.
+ * to retrieve audit database records, daemon log files, workspace contents,
+ * and a sanitized config snapshot as a tar.gz archive.
  */
 
 import { spawnSync } from "node:child_process";
 import {
   existsSync,
   lstatSync,
+  mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
+  rmSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
 import { desc } from "drizzle-orm";
@@ -39,20 +44,19 @@ interface ExportRequestBody {
   auditLimit?: number;
 }
 
-interface ExportResponse {
-  success: true;
-  auditRows: Array<Record<string, unknown>>;
-  logFiles: Record<string, string>;
-  configSnapshot?: Record<string, unknown>;
-  workspaceFiles: Record<string, string>;
-}
-
 /**
- * Collect audit data rows and daemon log file contents into a single
- * response payload. Returns both `auditRows` (tool invocation records)
- * and `logFiles` (filename → text content mapping).
+ * Collect audit data, daemon log files, workspace contents, and a sanitized
+ * config snapshot, then package everything into a tar.gz archive.
+ *
+ * Archive layout:
+ *   audit-data.json          — tool invocation records
+ *   config-snapshot.json     — sanitized workspace config
+ *   daemon-logs/<name>       — daemon log files
+ *   workspace/<relpath>      — workspace file tree
  */
 async function handleExport(body: ExportRequestBody): Promise<Response> {
+  const staging = mkdtempSync(join(tmpdir(), "vellum-export-"));
+
   try {
     // --- Audit data ---
     const limit = body.auditLimit ?? 1000;
@@ -64,9 +68,17 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
       .limit(limit)
       .all();
 
+    writeFileSync(
+      join(staging, "audit-data.json"),
+      JSON.stringify(auditRows, null, 2),
+      "utf-8",
+    );
+
     // --- Daemon log files ---
-    const logFiles: Record<string, string> = {};
+    const daemonLogsDir = join(staging, "daemon-logs");
+    mkdirSync(daemonLogsDir, { recursive: true });
     let totalBytes = 0;
+    let logFileCount = 0;
 
     const logsDir = join(getDataDir(), "logs");
     if (existsSync(logsDir)) {
@@ -77,8 +89,10 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
           const stat = statSync(filePath);
           if (!stat.isFile()) continue;
           if (totalBytes + stat.size > MAX_LOG_PAYLOAD_BYTES) continue;
-          logFiles[entry] = readFileSync(filePath, "utf-8");
+          const content = readFileSync(filePath, "utf-8");
+          writeFileSync(join(daemonLogsDir, entry), content, "utf-8");
           totalBytes += stat.size;
+          logFileCount++;
         } catch {
           // Skip unreadable files
         }
@@ -90,7 +104,13 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
       try {
         const stat = statSync(stderrPath);
         if (totalBytes + stat.size <= MAX_LOG_PAYLOAD_BYTES) {
-          logFiles["daemon-stderr.log"] = readFileSync(stderrPath, "utf-8");
+          const content = readFileSync(stderrPath, "utf-8");
+          writeFileSync(
+            join(daemonLogsDir, "daemon-stderr.log"),
+            content,
+            "utf-8",
+          );
+          logFileCount++;
         }
       } catch {
         // Skip if unreadable
@@ -99,33 +119,77 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
 
     // --- Sanitized config snapshot ---
     const configSnapshot = readSanitizedConfig();
+    if (configSnapshot) {
+      writeFileSync(
+        join(staging, "config-snapshot.json"),
+        JSON.stringify(configSnapshot, null, 2),
+        "utf-8",
+      );
+    }
 
     // --- Workspace files ---
     const workspaceFiles = collectWorkspaceFiles();
+    const workspaceDir = join(staging, "workspace");
+    mkdirSync(workspaceDir, { recursive: true });
+    for (const [relPath, content] of Object.entries(workspaceFiles)) {
+      const dest = join(workspaceDir, relPath);
+      mkdirSync(join(dest, ".."), { recursive: true });
+      writeFileSync(dest, content, "utf-8");
+    }
 
     log.info(
       {
         auditCount: auditRows.length,
-        logFileCount: Object.keys(logFiles).length,
+        logFileCount,
         totalBytes,
         hasConfig: configSnapshot !== undefined,
         workspaceFileCount: Object.keys(workspaceFiles).length,
       },
-      "Export completed",
+      "Export collected, creating tar.gz archive",
     );
 
-    const payload: ExportResponse = {
-      success: true,
-      auditRows,
-      logFiles,
-      configSnapshot,
-      workspaceFiles,
-    };
-    return Response.json(payload);
+    // --- Create tar.gz archive ---
+    const proc = spawnSync("tar", ["czf", "-", "-C", staging, "."], {
+      maxBuffer: 50 * 1024 * 1024,
+      timeout: 30_000,
+    });
+
+    if (proc.status !== 0) {
+      const stderr = proc.stderr
+        ? Buffer.isBuffer(proc.stderr)
+          ? proc.stderr.toString("utf-8")
+          : String(proc.stderr)
+        : "";
+      log.error({ stderr }, "tar command failed");
+      return httpError(
+        "INTERNAL_ERROR",
+        `Failed to create archive: ${stderr}`,
+        500,
+      );
+    }
+
+    const archiveBytes = Buffer.isBuffer(proc.stdout)
+      ? proc.stdout
+      : Buffer.from(proc.stdout);
+
+    return new Response(archiveBytes, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/gzip",
+        "Content-Disposition": 'attachment; filename="logs.tar.gz"',
+        "Content-Length": String(archiveBytes.byteLength),
+      },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Failed to export");
     return httpError("INTERNAL_ERROR", `Failed to export: ${message}`, 500);
+  } finally {
+    try {
+      rmSync(staging, { recursive: true, force: true });
+    } catch {
+      // Best-effort cleanup
+    }
   }
 }
 

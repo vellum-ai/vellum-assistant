@@ -336,9 +336,10 @@ enum LogExporter {
 
     // MARK: - Daemon HTTP Helpers
 
-    /// Calls POST /v1/export on the gateway to fetch audit data and daemon
-    /// log files, then writes them into `directory`. Silently skips if the
-    /// gateway is unreachable or returns an error.
+    /// Calls POST /v1/export on the gateway to download a tar.gz archive of
+    /// audit data, daemon logs, workspace files, and config snapshot.
+    /// Extracts the archive into `directory/daemon-exports/`.
+    /// Silently skips if the gateway is unreachable or returns an error.
     private nonisolated static func fetchDaemonExports(into directory: URL) async {
         let baseURL = LockfilePaths.resolveGatewayUrl()
 
@@ -364,63 +365,7 @@ enum LogExporter {
                 return
             }
 
-            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                log.warning("Export API returned unexpected format")
-                return
-            }
-
-            // Write audit rows as a standalone JSON file
-            if let auditRows = json["auditRows"] {
-                if let auditData = try? JSONSerialization.data(
-                    withJSONObject: auditRows,
-                    options: [.prettyPrinted]
-                ) {
-                    try? auditData.write(to: directory.appendingPathComponent("audit-data.json"))
-                }
-            }
-
-            // Write each daemon log file into a daemon-logs/ subdirectory
-            if let logFiles = json["logFiles"] as? [String: String] {
-                let logsDir = directory.appendingPathComponent("daemon-logs", isDirectory: true)
-                try? FileManager.default.createDirectory(at: logsDir, withIntermediateDirectories: true)
-                for (filename, content) in logFiles {
-                    let sanitized = (filename as NSString).lastPathComponent
-                    try? content.write(
-                        to: logsDir.appendingPathComponent(sanitized),
-                        atomically: true,
-                        encoding: .utf8
-                    )
-                }
-            }
-
-            // Write sanitized config snapshot from the daemon
-            if let configSnapshot = json["configSnapshot"] {
-                if let configData = try? JSONSerialization.data(
-                    withJSONObject: configSnapshot,
-                    options: [.prettyPrinted, .sortedKeys]
-                ) {
-                    try? configData.write(to: directory.appendingPathComponent("config-snapshot.json"))
-                }
-            }
-
-            // Write workspace files into a workspace/ subdirectory
-            if let workspaceFiles = json["workspaceFiles"] as? [String: String] {
-                let workspaceDir = directory.appendingPathComponent("workspace", isDirectory: true)
-                try? FileManager.default.createDirectory(at: workspaceDir, withIntermediateDirectories: true)
-                for (relativePath, content) in workspaceFiles {
-                    // Prevent directory traversal — reject paths containing ".."
-                    let components = (relativePath as NSString).pathComponents
-                    guard !components.contains("..") else {
-                        log.warning("Skipping workspace file with path traversal: \(relativePath)")
-                        continue
-                    }
-                    let fileURL = workspaceDir.appendingPathComponent(relativePath)
-                    // Create intermediate directories for nested paths
-                    let parentDir = fileURL.deletingLastPathComponent()
-                    try? FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
-                    try? content.write(to: fileURL, atomically: true, encoding: .utf8)
-                }
-            }
+            try extractTarGzResponse(data: data, into: directory, subdirectory: "daemon-exports")
         } catch {
             log.warning("Export API request failed: \(error.localizedDescription)")
         }
@@ -430,7 +375,7 @@ enum LogExporter {
 
     /// Fetches logs from the platform API for managed assistants, downloads
     /// the tar.gz response, extracts it into `directory/platform-logs/`.
-    /// Silently skips on any failure (non-fatal, mirrors `fetchDaemonExports`).
+    /// Silently skips on any failure.
     private nonisolated static func fetchPlatformLogs(
         into directory: URL,
         assistantId: String,
@@ -463,50 +408,51 @@ enum LogExporter {
                 return
             }
 
-            let fileManager = FileManager.default
-            let tarPath = fileManager.temporaryDirectory
-                .appendingPathComponent("platform-logs-\(UUID().uuidString).tar.gz")
-            try data.write(to: tarPath)
-
-            defer {
-                try? fileManager.removeItem(at: tarPath)
-            }
-
-            let extractDir = directory.appendingPathComponent("platform-logs", isDirectory: true)
-            try fileManager.createDirectory(at: extractDir, withIntermediateDirectories: true)
-
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
-                process.arguments = [
-                    "xzf",
-                    tarPath.path,
-                    "-C", extractDir.path,
-                ]
-
-                let pipe = Pipe()
-                process.standardError = pipe
-
-                process.terminationHandler = { proc in
-                    if proc.terminationStatus == 0 {
-                        continuation.resume()
-                    } else {
-                        let stderr = String(
-                            data: pipe.fileHandleForReading.readDataToEndOfFile(),
-                            encoding: .utf8
-                        ) ?? ""
-                        continuation.resume(throwing: ExportError.tarFailed(stderr))
-                    }
-                }
-
-                do {
-                    try process.run()
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+            try extractTarGzResponse(data: data, into: directory, subdirectory: "platform-logs")
         } catch {
             log.warning("Platform log export request failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Writes tar.gz `data` to a temporary file and extracts it into
+    /// `directory/<subdirectory>/` using `/usr/bin/tar`.
+    private nonisolated static func extractTarGzResponse(
+        data: Data,
+        into directory: URL,
+        subdirectory: String
+    ) throws {
+        let fileManager = FileManager.default
+        let tarPath = fileManager.temporaryDirectory
+            .appendingPathComponent("\(subdirectory)-\(UUID().uuidString).tar.gz")
+        try data.write(to: tarPath)
+
+        defer {
+            try? fileManager.removeItem(at: tarPath)
+        }
+
+        let extractDir = directory.appendingPathComponent(subdirectory, isDirectory: true)
+        try fileManager.createDirectory(at: extractDir, withIntermediateDirectories: true)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+        process.arguments = [
+            "xzf",
+            tarPath.path,
+            "-C", extractDir.path,
+        ]
+
+        let pipe = Pipe()
+        process.standardError = pipe
+
+        try process.run()
+        process.waitUntilExit()
+
+        if process.terminationStatus != 0 {
+            let stderr = String(
+                data: pipe.fileHandleForReading.readDataToEndOfFile(),
+                encoding: .utf8
+            ) ?? ""
+            throw ExportError.tarFailed(stderr)
         }
     }
 
