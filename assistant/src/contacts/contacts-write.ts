@@ -16,6 +16,7 @@ import {
   findGuardianForChannel,
   getChannelById,
   getContactInternal,
+  updateChannelInteraction,
   updateChannelLastSeenById,
   updateChannelStatus,
   updateContactInteraction,
@@ -287,13 +288,20 @@ export function touchChannelLastSeen(channelId: string): void {
 }
 
 /**
- * Increment the interaction count and update lastInteraction on a contact.
- * Expects a plain contact UUID (Contact.id).
+ * Track an interaction on the specific channel that received it.
+ * Swallows errors to avoid disrupting the inbound message hot path.
  */
-export function touchContactInteraction(contactId: string): void {
+export function touchContactInteraction(
+  contactId: string,
+  channelId?: string,
+): void {
   try {
-    updateContactInteraction(contactId);
+    if (channelId) {
+      updateChannelInteraction(channelId);
+    } else {
+      updateContactInteraction(contactId);
+    }
   } catch (err) {
-    log.warn({ err }, "Failed to update contact interaction stats");
+    log.warn({ err }, "Failed to update interaction stats");
   }
 }
