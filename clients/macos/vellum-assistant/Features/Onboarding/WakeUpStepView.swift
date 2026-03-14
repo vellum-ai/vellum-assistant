@@ -35,7 +35,7 @@ struct WakeUpStepView: View {
     }
 
     private var primaryButtonTitle: String {
-        onboardingPrimaryButtonTitle(isAuthenticated: authManager?.isAuthenticated == true, managedSignInEnabled: managedSignInEnabled)
+        onboardingPrimaryButtonTitle(isAuthenticated: authManager?.isAuthenticated == true)
     }
 
     // MARK: - Body
@@ -81,11 +81,19 @@ struct WakeUpStepView: View {
                 }
                 .frame(height: 36)
             } else {
-                OnboardingButton(title: primaryButtonTitle, style: .primary) {
-                    onContinueWithVellum()
+                VStack(spacing: VSpacing.xs) {
+                    OnboardingButton(title: primaryButtonTitle, style: .primary) {
+                        onContinueWithVellum()
+                    }
+                    .disabled(!managedSignInEnabled && authManager?.isAuthenticated != true)
+                    .accessibilityLabel("Sign in")
+
+                    if !managedSignInEnabled && authManager?.isAuthenticated != true {
+                        Text("Coming Soon")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentTertiary)
+                    }
                 }
-                .disabled(!managedSignInEnabled && authManager?.isAuthenticated != true)
-                .accessibilityLabel("Sign in")
             }
 
             OnboardingButton(title: "Self-host", style: .tertiary) {

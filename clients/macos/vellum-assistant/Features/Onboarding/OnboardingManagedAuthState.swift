@@ -5,9 +5,8 @@ enum OnboardingManagedContinuationAction: Equatable {
     case bootstrap
 }
 
-func onboardingPrimaryButtonTitle(isAuthenticated: Bool, managedSignInEnabled: Bool) -> String {
-    if isAuthenticated { return "Talk to your assistant" }
-    return managedSignInEnabled ? "Sign in" : "Coming Soon"
+func onboardingPrimaryButtonTitle(isAuthenticated: Bool) -> String {
+    isAuthenticated ? "Talk to your assistant" : "Sign in"
 }
 
 func onboardingManagedContinuationAction(isAuthenticated: Bool) -> OnboardingManagedContinuationAction {
