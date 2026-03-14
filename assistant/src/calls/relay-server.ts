@@ -992,14 +992,10 @@ export class RelayConnection {
       }
 
       if (isOutbound) {
-        this.connectionState = "disconnecting";
+        // Send short verification confirmation TTS
         this.sendTextToken(result.ttsMessage!, true);
 
-        updateCallSession(this.callSessionId, {
-          status: "completed",
-          endedAt: Date.now(),
-        });
-
+        // Keep the pointer message back to the initiating conversation
         const successSession = getCallSession(this.callSessionId);
         if (successSession?.initiatedFromConversationId) {
           addPointerMessage(
@@ -1018,9 +1014,24 @@ export class RelayConnection {
           });
         }
 
-        setTimeout(() => {
-          this.endSession("Verified — guardian challenge passed");
-        }, getTtsPlaybackDelayMs());
+        // Update trust context on the controller so the LLM knows this is the guardian
+        if (this.controller) {
+          const verifiedActorTrust = resolveActorTrust({
+            assistantId,
+            sourceChannel: "phone",
+            conversationExternalId: fromNumber,
+            actorExternalId: fromNumber,
+          });
+          this.controller.setTrustContext(
+            toTrustContext(verifiedActorTrust, fromNumber),
+          );
+        }
+
+        // Mark session as in-progress and transition to normal call flow
+        updateCallSession(this.callSessionId, { status: "in_progress" });
+        if (this.controller) {
+          this.startNormalCallFlow(this.controller, false);
+        }
       } else if (result.verificationType === "trusted_contact") {
         this.continueCallAfterTrustedContactActivation({
           assistantId,
