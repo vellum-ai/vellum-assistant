@@ -7,7 +7,6 @@ metadata:
   vellum:
     display-name: "Gmail"
     user-invocable: true
-    feature-flag: "gmail"
 ---
 
 This skill provides Gmail-specific tools. For cross-platform messaging (send, read, search, reply), use the **messaging** skill. Gmail tools depend on the messaging skill's provider infrastructure — load messaging first if Gmail is not yet connected.
