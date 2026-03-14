@@ -66,6 +66,20 @@ mock.module("../config/loader.js", () => ({
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
   invalidateConfigCache: () => {},
+  API_KEY_PROVIDERS: [
+    "anthropic",
+    "openai",
+    "gemini",
+    "ollama",
+    "fireworks",
+    "openrouter",
+    "brave",
+    "perplexity",
+  ],
+}));
+
+mock.module("../security/secure-keys.js", () => ({
+  getSecureKeyAsync: async () => undefined,
 }));
 
 mock.module("../prompts/system-prompt.js", () => ({
@@ -401,8 +415,8 @@ describe("Session slash command — known", () => {
 // ---------------------------------------------------------------------------
 
 describe("resolveSlash — direct characterization", () => {
-  test('known slash returns {kind: "rewritten"} with model-facing content and skillId', () => {
-    const result = resolveSlash("/start-the-day");
+  test('known slash returns {kind: "rewritten"} with model-facing content and skillId', async () => {
+    const result = await resolveSlash("/start-the-day");
     expect(result.kind).toBe("rewritten");
     if (result.kind !== "rewritten") throw new Error("unreachable");
     expect(result.content).toContain("slash command");
@@ -416,8 +430,10 @@ describe("resolveSlash — direct characterization", () => {
     expect(result.skillId).toBe("start-the-day");
   });
 
-  test("known slash with trailing args includes args in rewritten content and skillId", () => {
-    const result = resolveSlash("/start-the-day check emails and calendar");
+  test("known slash with trailing args includes args in rewritten content and skillId", async () => {
+    const result = await resolveSlash(
+      "/start-the-day check emails and calendar",
+    );
     expect(result.kind).toBe("rewritten");
     if (result.kind !== "rewritten") throw new Error("unreachable");
     expect(result.content).toContain(
@@ -426,23 +442,23 @@ describe("resolveSlash — direct characterization", () => {
     expect(result.skillId).toBe("start-the-day");
   });
 
-  test('normal text returns {kind: "passthrough"} with content unchanged and no skillId', () => {
-    const result = resolveSlash("hello world");
+  test('normal text returns {kind: "passthrough"} with content unchanged and no skillId', async () => {
+    const result = await resolveSlash("hello world");
     expect(result.kind).toBe("passthrough");
     if (result.kind !== "passthrough") throw new Error("unreachable");
     expect(result.content).toBe("hello world");
     expect("skillId" in result).toBe(false);
   });
 
-  test("path-like input returns passthrough (not treated as slash)", () => {
-    const result = resolveSlash("/tmp/some-file.txt");
+  test("path-like input returns passthrough (not treated as slash)", async () => {
+    const result = await resolveSlash("/tmp/some-file.txt");
     expect(result.kind).toBe("passthrough");
     if (result.kind !== "passthrough") throw new Error("unreachable");
     expect(result.content).toBe("/tmp/some-file.txt");
   });
 
-  test('unknown slash returns {kind: "unknown"} with message and no skillId', () => {
-    const result = resolveSlash("/does-not-exist");
+  test('unknown slash returns {kind: "unknown"} with message and no skillId', async () => {
+    const result = await resolveSlash("/does-not-exist");
     expect(result.kind).toBe("unknown");
     if (result.kind !== "unknown") throw new Error("unreachable");
     expect(result.message).toContain("Unknown command `/does-not-exist`");
@@ -450,8 +466,8 @@ describe("resolveSlash — direct characterization", () => {
     expect("skillId" in result).toBe(false);
   });
 
-  test("empty input returns passthrough with no skillId", () => {
-    const result = resolveSlash("");
+  test("empty input returns passthrough with no skillId", async () => {
+    const result = await resolveSlash("");
     expect(result.kind).toBe("passthrough");
     if (result.kind !== "passthrough") throw new Error("unreachable");
     expect(result.content).toBe("");
