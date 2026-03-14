@@ -1646,7 +1646,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     private enum LocalHTTPTarget {
         /// The daemon runtime HTTP server (port from httpPort, default 7821).
         case daemon
-        /// The gateway server (port from GATEWAY_PORT env, default 7830).
+        /// The gateway server (port resolved via LockfilePaths: env > lockfile > 7830).
         case gateway
     }
 
@@ -1673,8 +1673,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             guard let port = httpPort else { return nil }
             baseURL = "http://localhost:\(port)"
         case .gateway:
-            let port = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
-                .flatMap(Int.init) ?? 7830
+            let port = LockfilePaths.resolveGatewayPort()
             baseURL = "http://127.0.0.1:\(port)"
         }
 
