@@ -34,8 +34,6 @@ import {
 } from "./channel-invite-transport.js";
 import { generateInviteInstruction } from "./invite-instruction-generator.js";
 import {
-  type InviteRedemptionOutcome,
-  redeemInvite as redeemInviteTyped,
   redeemVoiceInviteCode as redeemVoiceInviteCodeTyped,
   type VoiceRedemptionOutcome,
 } from "./invite-redemption-service.js";
@@ -370,25 +368,6 @@ export function redeemIngressInvite(params: {
     return { ok: false, error: "Invite not found after redemption" };
   }
   return { ok: true, data: inviteToResponse(inv) };
-}
-
-// ---------------------------------------------------------------------------
-// Typed invite redemption — preferred entry point for new callers
-// ---------------------------------------------------------------------------
-
-export { type InviteRedemptionOutcome } from "./invite-redemption-service.js";
-export { type VoiceRedemptionOutcome } from "./invite-redemption-service.js";
-
-export function redeemIngressInviteTyped(params: {
-  rawToken: string;
-  sourceChannel: string;
-  externalUserId?: string;
-  externalChatId?: string;
-  displayName?: string;
-  username?: string;
-  assistantId?: string;
-}): InviteRedemptionOutcome {
-  return redeemInviteTyped(params);
 }
 
 export function redeemVoiceInviteCode(params: {
