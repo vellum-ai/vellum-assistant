@@ -110,7 +110,7 @@ describe("buildManagedBaseUrl", () => {
       "https://platform.example.com/v1/runtime-proxy/openai",
     );
     expect(buildManagedBaseUrl("anthropic")).toBe(
-      "https://platform.example.com/v1/runtime-proxy/vertex",
+      "https://platform.example.com/v1/runtime-proxy/anthropic",
     );
     expect(buildManagedBaseUrl("gemini")).toBe(
       "https://platform.example.com/v1/runtime-proxy/vertex",
