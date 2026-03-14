@@ -92,7 +92,8 @@ extension MainWindowView {
                     }
                     windowState.selection = nil
                 },
-                daemonClient: daemonClient
+                daemonClient: daemonClient,
+                initialTab: windowState.pendingMemoryId != nil ? "Memories" : nil
             )
         case .usageDashboard:
             UsageDashboardPanel(
@@ -462,7 +463,8 @@ extension MainWindowView {
                     }
                     windowState.dismissOverlay()
                 },
-                daemonClient: daemonClient
+                daemonClient: daemonClient,
+                initialTab: windowState.pendingMemoryId != nil ? "Memories" : nil
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }
             .background(VColor.surfaceOverlay)

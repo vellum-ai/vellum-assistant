@@ -7,8 +7,17 @@ struct IntelligencePanel: View {
     var onClose: () -> Void
     var onInvokeSkill: ((SkillInfo) -> Void)?
     let daemonClient: DaemonClient
+    var initialTab: String? = nil
 
-    @State private var selectedTab: IntelligenceTab = .identity
+    @State private var selectedTab: IntelligenceTab
+
+    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, daemonClient: DaemonClient, initialTab: String? = nil) {
+        self.onClose = onClose
+        self.onInvokeSkill = onInvokeSkill
+        self.daemonClient = daemonClient
+        self.initialTab = initialTab
+        _selectedTab = State(initialValue: IntelligenceTab(rawValue: initialTab ?? "") ?? .identity)
+    }
 
     private enum IntelligenceTab: String, CaseIterable {
         case identity = "Identity"
