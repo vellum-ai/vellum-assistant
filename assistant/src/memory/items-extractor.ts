@@ -140,6 +140,7 @@ function buildExtractionSystemPrompt(
     subject: string;
     statement: string;
   }>,
+  messageRole: string,
 ): string {
   let prompt = `You are a memory extraction system. Given a message from a conversation, extract structured memory items that would be valuable to remember for future interactions.
 
@@ -173,6 +174,12 @@ Rules:
 - Do NOT extract claims about actions the assistant performed, outcomes it achieved, or progress it reported (e.g., "I booked an appointment", "I sent the email"). Only extract facts stated by the user or from external sources — the assistant's self-reports are not reliable memory material.
 - Prefer fewer high-quality items over many low-quality ones.
 - If the message contains no memorable information, return an empty array.`;
+
+  if (messageRole === "assistant") {
+    prompt += `
+
+IMPORTANT: The message below is from the ASSISTANT, not the user. Do NOT attribute the assistant's own statements, feelings, self-descriptions, or introspection to the user. Only extract facts about the user, the world, or the project that the assistant is referencing or relaying — NOT the assistant's own identity, uncertainty, or behavior. If the assistant is simply talking about itself (e.g., introducing itself, expressing uncertainty about its own purpose), extract nothing.`;
+  }
 
   if (existingItems.length > 0) {
     prompt += `\n\nExisting memory items (use these to identify supersession targets — set \`supersedes\` to the item ID if the new information replaces one of these):\n`;
@@ -268,6 +275,7 @@ async function extractItemsWithLLM(
   text: string,
   extractionConfig: MemoryExtractionConfig,
   scopeId: string,
+  messageRole: string,
 ): Promise<ExtractedItem[]> {
   const provider = await getConfiguredProvider();
   if (!provider) {
@@ -283,10 +291,17 @@ async function extractItemsWithLLM(
     try {
       // Query existing items to give the LLM supersession context
       const existingItems = queryExistingItemsForContext(scopeId, text);
-      const systemPrompt = buildExtractionSystemPrompt(existingItems);
+      const systemPrompt = buildExtractionSystemPrompt(
+        existingItems,
+        messageRole,
+      );
 
+      const messagePrefix =
+        messageRole === "assistant"
+          ? "[This message is from the assistant]\n\n"
+          : "";
       const response = await provider.sendMessage(
-        [userMessage(text)],
+        [userMessage(`${messagePrefix}${text}`)],
         [
           {
             name: "store_memory_items",
@@ -478,7 +493,12 @@ export async function extractAndUpsertMemoryItemsForMessage(
   const extractionConfig = config.memory.extraction;
   const effectiveScopeId = scopeId ?? "default";
   const extracted = extractionConfig.useLLM
-    ? await extractItemsWithLLM(text, extractionConfig, effectiveScopeId)
+    ? await extractItemsWithLLM(
+        text,
+        extractionConfig,
+        effectiveScopeId,
+        message.role,
+      )
     : extractItemsPatternBased(text, effectiveScopeId);
 
   if (extracted.length === 0) return 0;
