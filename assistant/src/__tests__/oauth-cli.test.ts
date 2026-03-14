@@ -165,7 +165,6 @@ mock.module("../security/secure-keys.js", () => ({
   },
   listSecureKeys: () => [...secureKeyStore.keys()],
   getBackendType: () => "encrypted",
-  isDowngradedFromKeychain: () => false,
   _resetBackend: () => {},
   _setBackend: () => {},
 }));

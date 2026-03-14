@@ -33,7 +33,6 @@ mock.module("../security/secure-keys.js", () => ({
   deleteSecureKeyAsync: async () => "deleted" as const,
   listSecureKeys: () => [],
   getBackendType: () => null,
-  isDowngradedFromKeychain: () => false,
   _resetBackend: () => {},
   _setBackend: () => {},
 }));
