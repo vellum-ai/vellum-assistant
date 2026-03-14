@@ -61,6 +61,7 @@ import {
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { startScheduler } from "../schedule/scheduler.js";
+import { UsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { getLogger, initLogger } from "../util/logger.js";
 import {
   ensureDataDir,
@@ -284,6 +285,13 @@ export async function runDaemon(): Promise<void> {
     );
     if (!collectUsageData) {
       await closeSentry();
+    }
+
+    let telemetryReporter: UsageTelemetryReporter | null = null;
+    if (collectUsageData) {
+      telemetryReporter = new UsageTelemetryReporter();
+      telemetryReporter.start();
+      log.info("Usage telemetry reporter started");
     }
 
     // If Logfire observability is not explicitly enabled, disable it so
@@ -827,6 +835,7 @@ export async function runDaemon(): Promise<void> {
       memoryWorker,
       qdrantManager,
       mcpManager,
+      telemetryReporter,
       cleanupPidFile,
     });
   } catch (err) {
