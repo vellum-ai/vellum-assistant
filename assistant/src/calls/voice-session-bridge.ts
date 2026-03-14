@@ -195,20 +195,15 @@ function buildVoiceCallControlPrompt(opts: {
       "8. If the latest user turn includes [CALL_OPENING_ACK], treat it as the caller acknowledging your greeting and continue the conversation naturally.",
     );
   } else {
-    if (opts.isCallerGuardian) {
-      lines.push(
-        '7. If the latest user turn is "(guardian verification completed — transitioning into conversation)", your guardian just completed a phone verification code challenge on this call. Greet them naturally and ask if there is anything you can help with. Keep it casual and brief — they already know who you are.',
-      );
-    } else {
-      const disclosureReminder =
-        disclosureEnabled && disclosureText
-          ? " However, the disclosure text from rule 0 is separate from self-introduction and must always be included in your opening greeting, even if the Task does not mention introducing yourself."
-          : "";
-      lines.push(
-        `7. If the latest user turn is "(call connected — deliver opening greeting)", deliver your opening greeting based solely on the Task context above. The Task already describes how to open the call — follow it directly without adding any extra introduction on top. If the Task says to introduce yourself, do so once. If the Task does not mention introducing yourself, skip the introduction.${disclosureReminder} Vary the wording naturally; do not use a fixed template.`,
-        "8. If the latest user turn includes [CALL_OPENING_ACK], treat it as the callee acknowledging your opener and continue the conversation naturally without re-introducing yourself or repeating the initial check-in question.",
-      );
-    }
+    const disclosureReminder =
+      disclosureEnabled && disclosureText
+        ? " However, the disclosure text from rule 0 is separate from self-introduction and must always be included in your opening greeting, even if the Task does not mention introducing yourself."
+        : "";
+    lines.push(
+      '7. If the latest user turn is "(verification completed — transitioning into conversation)", the caller just completed a phone verification code challenge on this call. Greet them naturally and ask if there is anything you can help with. Keep it casual and brief.',
+      `If the latest user turn is "(call connected — deliver opening greeting)", deliver your opening greeting based solely on the Task context above. The Task already describes how to open the call — follow it directly without adding any extra introduction on top. If the Task says to introduce yourself, do so once. If the Task does not mention introducing yourself, skip the introduction.${disclosureReminder} Vary the wording naturally; do not use a fixed template.`,
+      "8. If the latest user turn includes [CALL_OPENING_ACK], treat it as the callee acknowledging your opener and continue the conversation naturally without re-introducing yourself or repeating the initial check-in question.",
+    );
   }
 
   lines.push(
@@ -279,7 +274,7 @@ export async function startVoiceTurn(
     opts.content === CALL_OPENING_MARKER
       ? "(call connected — deliver opening greeting)"
       : opts.content === CALL_VERIFICATION_COMPLETE_MARKER
-        ? "(guardian verification completed — transitioning into conversation)"
+        ? "(verification completed — transitioning into conversation)"
         : opts.content;
 
   // Build the call-control protocol prompt so the model knows how to emit
