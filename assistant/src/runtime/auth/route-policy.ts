@@ -146,6 +146,8 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "secret", scopes: ["approval.write"] },
   { endpoint: "trust-rules", scopes: ["approval.write"] },
   { endpoint: "host-bash-result", scopes: ["approval.write"] },
+  { endpoint: "host-cu-result", scopes: ["approval.write"] },
+  { endpoint: "host-file-result", scopes: ["approval.write"] },
   { endpoint: "pending-interactions", scopes: ["approval.read"] },
 
   // Guardian actions
@@ -282,6 +284,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "apps/gallery/install", scopes: ["settings.write"] },
   { endpoint: "apps/sign-bundle", scopes: ["settings.write"] },
   { endpoint: "apps/signing-identity", scopes: ["settings.read"] },
+  { endpoint: "apps/dist", scopes: ["settings.read"] },
 
   // Usage / cost telemetry
   { endpoint: "usage/totals", scopes: ["settings.read"] },
@@ -324,6 +327,9 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "model:GET", scopes: ["settings.read"] },
   { endpoint: "model:PUT", scopes: ["settings.write"] },
   { endpoint: "model/image-gen", scopes: ["settings.write"] },
+
+  // Session management
+  { endpoint: "sessions/reorder", scopes: ["chat.write"] },
 
   // Conversation search
   { endpoint: "conversations/search", scopes: ["chat.read"] },
@@ -377,6 +383,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Surface actions
   { endpoint: "surface-actions", scopes: ["chat.write"] },
   { endpoint: "surfaces/undo", scopes: ["chat.write"] },
+  { endpoint: "surfaces", scopes: ["chat.read"] },
 
   // Conversation deletion (channel-facing)
   { endpoint: "channels/conversation:DELETE", scopes: ["chat.write"] },
