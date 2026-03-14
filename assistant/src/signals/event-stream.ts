@@ -1,25 +1,23 @@
 /**
  * File-based event stream for cross-process assistant event delivery.
  *
- * Subscribers (e.g. the built-in CLI) create a file under
- * `signals/events/<conversationId>` via {@link watchEventStream}.
- * The daemon appends JSON-line events to every existing subscriber
- * file via {@link appendEventToStream}. When a subscriber disposes
- * its watcher the file is removed, so the daemon stops writing.
+ * Subscribers (e.g. the built-in CLI) create a directory under
+ * `signals/events/<conversationId>.<pid>/` via {@link watchEventStream}.
+ * The daemon writes each event as an individual file named by timestamp
+ * inside every matching subscriber directory via {@link appendEventToStream}.
+ * When a subscriber disposes its watcher the directory is removed, so the
+ * daemon stops writing.
  *
  * Write side: {@link appendEventToStream} (called by DaemonServer.broadcast)
  * Read side: {@link watchEventStream} (called by the CLI)
  */
 
 import {
-  appendFileSync,
-  closeSync,
   existsSync,
   mkdirSync,
-  openSync,
   readdirSync,
-  readSync,
-  statSync,
+  readFileSync,
+  rmSync,
   unlinkSync,
   watch,
   writeFileSync,
@@ -35,35 +33,79 @@ function eventsDir(): string {
   return join(getSignalsDir(), "events");
 }
 
+/** Cached subscriber directories per conversation, with TTL. */
+const subscriberCache = new Map<string, { dirs: string[]; expiry: number }>();
+
+const CACHE_TTL_MS = 10_000;
+
+function getSubscriberDirs(conversationId: string): string[] {
+  const now = Date.now();
+  const cached = subscriberCache.get(conversationId);
+  if (cached && now < cached.expiry) return cached.dirs;
+
+  const dir = eventsDir();
+  if (!existsSync(dir)) {
+    subscriberCache.set(conversationId, {
+      dirs: [],
+      expiry: now + CACHE_TTL_MS,
+    });
+    return [];
+  }
+
+  const prefix = `${conversationId}.`;
+  let entries: string[];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true })
+      .filter((d) => d.isDirectory() && d.name.startsWith(prefix))
+      .map((d) => d.name);
+  } catch {
+    subscriberCache.set(conversationId, {
+      dirs: [],
+      expiry: now + CACHE_TTL_MS,
+    });
+    return [];
+  }
+
+  const dirs = entries.map((e) => join(dir, e));
+  subscriberCache.set(conversationId, {
+    dirs,
+    expiry: now + CACHE_TTL_MS,
+  });
+  return dirs;
+}
+
+/** Monotonic counter to guarantee unique filenames within a process. */
+let sequence = 0;
+
 /**
- * Append a serialized event to every active subscriber file for the
- * given conversation. If no subscriber files exist the call is a no-op,
- * so the daemon never writes events that nobody is listening to.
+ * Write an event file into every active subscriber directory for the
+ * given conversation. If no subscriber directories exist the call is a
+ * no-op, so the daemon never writes events that nobody is listening to.
  */
 export function appendEventToStream(
   conversationId: string,
   event: AssistantEvent,
 ): void {
-  const dir = eventsDir();
-  if (!existsSync(dir)) return;
+  const dirs = getSubscriberDirs(conversationId);
+  if (dirs.length === 0) return;
 
-  const prefix = `${conversationId}.`;
-  let files: string[];
-  try {
-    files = readdirSync(dir).filter((f) => f.startsWith(prefix));
-  } catch {
-    return;
-  }
-  if (files.length === 0) return;
-
-  const line = JSON.stringify(event) + "\n";
-  for (const file of files) {
+  const timestamp = `${Date.now()}-${String(sequence++).padStart(6, "0")}`;
+  const payload = JSON.stringify(event);
+  for (const subDir of dirs) {
     try {
-      appendFileSync(join(dir, file), line);
+      writeFileSync(join(subDir, timestamp), payload);
     } catch {
       // Best-effort per subscriber.
     }
   }
+}
+
+/**
+ * Invalidate the subscriber cache for a conversation so that the next
+ * call to {@link appendEventToStream} re-scans the directory.
+ */
+export function invalidateSubscriberCache(conversationId: string): void {
+  subscriberCache.delete(conversationId);
 }
 
 // ── Read side (CLI) ──────────────────────────────────────────────────
@@ -75,55 +117,57 @@ export interface EventStreamWatcher {
 
 /**
  * Register as a subscriber for a conversation's event stream and
- * invoke `callback` for each new {@link AssistantEvent} appended.
+ * invoke `callback` for each new {@link AssistantEvent} written.
  *
- * Creates a subscriber file under `signals/events/<conversationId>.<pid>`.
- * The daemon writes events to all such files. On {@link dispose} the
- * file is removed so the daemon stops writing.
+ * Creates a subscriber directory at
+ * `signals/events/<conversationId>.<pid>/`. The daemon writes each
+ * event as an individual file named by timestamp. The subscriber
+ * watches the directory via `fs.watch` and reads new files in sorted
+ * order. On {@link dispose} the directory is removed so the daemon
+ * stops writing.
  */
 export function watchEventStream(
   conversationId: string,
   callback: (event: AssistantEvent) => void,
 ): EventStreamWatcher {
-  const dir = eventsDir();
-  mkdirSync(dir, { recursive: true });
-  const filePath = join(dir, `${conversationId}.${process.pid}`);
+  const parentDir = eventsDir();
+  mkdirSync(parentDir, { recursive: true });
+  const subDir = join(parentDir, `${conversationId}.${process.pid}`);
+  mkdirSync(subDir, { recursive: true });
 
-  // Create the subscriber file (empty). The daemon will append to it.
-  writeFileSync(filePath, "");
-  let offset = 0;
+  invalidateSubscriberCache(conversationId);
 
+  const processedFiles = new Set<string>();
   let disposed = false;
 
-  const readNewLines = (): void => {
+  const readNewEvents = (): void => {
     if (disposed) return;
-    let fd: number | undefined;
+    let files: string[];
     try {
-      fd = openSync(filePath, "r");
-      const size = statSync(filePath).size;
-      if (size <= offset) return;
-      const buf = Buffer.alloc(size - offset);
-      readSync(fd, buf, 0, buf.length, offset);
-      offset = size;
-
-      const lines = buf.toString("utf-8").split("\n").filter(Boolean);
-      for (const line of lines) {
-        try {
-          const event = JSON.parse(line) as AssistantEvent;
-          callback(event);
-        } catch {
-          // Skip malformed lines.
-        }
-      }
+      files = readdirSync(subDir).sort();
     } catch {
-      // File may have been removed or is not yet readable.
-    } finally {
-      if (fd !== undefined) closeSync(fd);
+      return;
+    }
+    for (const file of files) {
+      if (processedFiles.has(file)) continue;
+      processedFiles.add(file);
+      try {
+        const data = readFileSync(join(subDir, file), "utf-8");
+        const event = JSON.parse(data) as AssistantEvent;
+        callback(event);
+      } catch {
+        // Skip unreadable or malformed event files.
+      }
+      try {
+        unlinkSync(join(subDir, file));
+      } catch {
+        // Best-effort cleanup.
+      }
     }
   };
 
-  const watcher = watch(filePath, () => {
-    readNewLines();
+  const watcher = watch(subDir, () => {
+    readNewEvents();
   });
 
   return {
@@ -132,10 +176,11 @@ export function watchEventStream(
         disposed = true;
         watcher.close();
         try {
-          unlinkSync(filePath);
+          rmSync(subDir, { recursive: true, force: true });
         } catch {
           // Already removed.
         }
+        invalidateSubscriberCache(conversationId);
       }
     },
   };
