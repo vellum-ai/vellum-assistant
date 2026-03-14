@@ -27,7 +27,7 @@ type DocumentListRow = Omit<DocumentRow, "content">;
 // Shared business logic (used by both message handlers and HTTP routes)
 // ---------------------------------------------------------------------------
 
-export function saveDocument(params: {
+function saveDocument(params: {
   surfaceId: string;
   conversationId: string;
   title: string;
@@ -66,7 +66,7 @@ export function saveDocument(params: {
   }
 }
 
-export function loadDocument(surfaceId: string):
+function loadDocument(surfaceId: string):
   | {
       success: true;
       surfaceId: string;
@@ -112,7 +112,7 @@ export function loadDocument(surfaceId: string):
   }
 }
 
-export function listDocuments(conversationId?: string): Array<{
+function listDocuments(conversationId?: string): Array<{
   surfaceId: string;
   conversationId: string;
   title: string;

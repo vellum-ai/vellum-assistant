@@ -19,7 +19,6 @@ import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { mintCredentialPair } from "../auth/credential-service.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
 
 /** Bun server shape needed for requestIP -- avoids importing the full Bun type. */
 type ServerWithRequestIP = {
@@ -153,23 +152,4 @@ export async function handleGuardianBootstrap(
     log.error({ err }, "Guardian bootstrap failed");
     return httpError("INTERNAL_ERROR", "Internal server error", 500);
   }
-}
-
-// ---------------------------------------------------------------------------
-// Route definitions
-// ---------------------------------------------------------------------------
-
-/**
- * Guardian bootstrap is a pre-auth endpoint (handled before JWT auth in
- * http-server.ts), so these definitions are exported for completeness but
- * are not added to the authenticated route table.
- */
-export function guardianBootstrapRouteDefinitions(): RouteDefinition[] {
-  return [
-    {
-      endpoint: "guardian/init",
-      method: "POST",
-      handler: async ({ req, server }) => handleGuardianBootstrap(req, server),
-    },
-  ];
 }

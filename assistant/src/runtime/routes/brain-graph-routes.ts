@@ -34,7 +34,7 @@ function getMemoryKindColor(kind: string): string {
   }
 }
 
-export function handleGetBrainGraph(): Response {
+function handleGetBrainGraph(): Response {
   try {
     const db = getDb();
 

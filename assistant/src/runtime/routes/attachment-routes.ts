@@ -101,7 +101,7 @@ export async function handleDeleteAttachment(req: Request): Promise<Response> {
   return new Response(null, { status: 204 });
 }
 
-export function handleGetAttachment(attachmentId: string): Response {
+function handleGetAttachment(attachmentId: string): Response {
   const attachment = attachmentsStore.getAttachmentById(attachmentId);
   if (!attachment) {
     return httpError("NOT_FOUND", "Attachment not found", 404);

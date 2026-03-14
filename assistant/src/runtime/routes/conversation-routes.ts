@@ -1169,7 +1169,7 @@ export async function handleGetSuggestion(
  * Full-text search across all conversation threads (message content + titles).
  * Returns ranked results grouped by conversation, each with matching message excerpts.
  */
-export function handleSearchConversations(url: URL): Response {
+function handleSearchConversations(url: URL): Response {
   const query = url.searchParams.get("q") ?? "";
   if (!query.trim()) {
     return httpError("BAD_REQUEST", "q query parameter is required", 400);

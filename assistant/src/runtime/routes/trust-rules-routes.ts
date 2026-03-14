@@ -20,7 +20,7 @@ const log = getLogger("trust-rules-routes");
 /**
  * GET /v1/trust-rules/manage — list all trust rules.
  */
-export function handleListTrustRules(): Response {
+function handleListTrustRules(): Response {
   const rules = getAllRules();
   return Response.json({ type: "trust_rules_list_response", rules });
 }
