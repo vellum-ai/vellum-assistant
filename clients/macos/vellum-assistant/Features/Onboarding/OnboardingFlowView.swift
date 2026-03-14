@@ -235,6 +235,7 @@ struct OnboardingFlowView: View {
     private func performManagedBootstrap() async {
         isBootstrappingManaged = true
         managedBootstrapError = nil
+        state.hasExistingManagedAssistant = false
         log.info("Beginning managed assistant bootstrap")
 
         do {
