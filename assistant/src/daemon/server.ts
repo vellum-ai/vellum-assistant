@@ -21,6 +21,7 @@ import {
 } from "../memory/canonical-guardian-store.js";
 import {
   addMessage,
+  getConversation,
   getConversationMemoryScopeId,
   getConversationThreadType,
   provenanceFromTrustContext,
@@ -41,6 +42,7 @@ import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-req
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { checkIngressForSecrets } from "../security/secret-ingress.js";
 import { registerCancelCallback } from "../signals/cancel.js";
+import { registerUndoCallback } from "../signals/undo.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { IngressBlockedError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
@@ -397,6 +399,14 @@ export class DaemonServer {
       session.abort();
       getSubagentManager().abortAllForParent(sessionId);
       return true;
+    });
+
+    registerUndoCallback(async (sessionId) => {
+      if (!getConversation(sessionId)) return null;
+      const session = await this.getOrCreateSession(sessionId);
+      this.evictor.touch(sessionId);
+      const removedCount = session.undo();
+      return { removedCount };
     });
 
     this.configWatcher.start(

@@ -1304,29 +1304,73 @@ export async function startCli(): Promise<void> {
         prompt();
         return;
       }
-      httpSend(`/v1/conversations/${encodeURIComponent(sessionId)}/undo`, {
-        method: "POST",
-      })
-        .then(async (resp) => {
-          if (resp.ok) {
-            const data = (await resp.json()) as { removedCount: number };
-            if (data.removedCount === 0) {
-              process.stdout.write("\n  Nothing to undo.\n\n");
+      try {
+        const signalsDir = join(getWorkspaceDir(), "signals");
+        mkdirSync(signalsDir, { recursive: true });
+        const resultPath = join(signalsDir, "undo.result");
+        writeFileSync(
+          join(signalsDir, "undo"),
+          JSON.stringify({ sessionId }),
+        );
+
+        let settled = false;
+
+        const onResult = (): void => {
+          try {
+            const raw = readFileSync(resultPath, "utf-8");
+            const result = JSON.parse(raw) as {
+              ok?: boolean;
+              removedCount?: number;
+              sessionId?: string;
+              error?: string;
+            };
+            if (result.sessionId !== sessionId) return;
+            if (settled) return;
+            settled = true;
+            undoWatcher.close();
+            clearTimeout(undoTimeoutId);
+            if (result.ok && result.removedCount !== undefined) {
+              if (result.removedCount === 0) {
+                process.stdout.write("\n  Nothing to undo.\n\n");
+              } else {
+                lastResponse = "";
+                process.stdout.write(
+                  `\n  Removed last exchange (${result.removedCount} messages).\n\n`,
+                );
+              }
             } else {
-              lastResponse = "";
               process.stdout.write(
-                `\n  Removed last exchange (${data.removedCount} messages).\n\n`,
+                `[Failed to undo: ${result.error ?? "unknown error"}]\n`,
               );
             }
-          } else {
-            process.stdout.write("[Failed to undo]\n");
+            prompt();
+          } catch {
+            // Result file not yet readable; ignore.
           }
-          prompt();
-        })
-        .catch(() => {
-          process.stdout.write("[Failed to undo]\n");
-          prompt();
+        };
+
+        const undoWatcher = watch(signalsDir, (_event, filename) => {
+          if (filename === "undo.result") {
+            onResult();
+          }
         });
+
+        const undoTimeoutId = setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            undoWatcher.close();
+            process.stdout.write("[Undo timed out]\n");
+            prompt();
+          }
+        }, 5_000);
+
+        if (existsSync(resultPath)) {
+          onResult();
+        }
+      } catch {
+        process.stdout.write("[Failed to undo]\n");
+        prompt();
+      }
       return;
     }
 

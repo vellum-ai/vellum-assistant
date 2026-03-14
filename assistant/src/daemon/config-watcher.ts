@@ -25,6 +25,7 @@ import { handleCancelSignal } from "../signals/cancel.js";
 import { handleConfirmationSignal } from "../signals/confirm.js";
 import { handleMcpReloadSignal } from "../signals/mcp-reload.js";
 import { handleTrustRuleSignal } from "../signals/trust-rule.js";
+import { handleUndoSignal } from "../signals/undo.js";
 import { DebouncerMap } from "../util/debounce.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -227,11 +228,12 @@ export class ConfigWatcher {
       // If we can't create it, watching will also fail — handled below.
     }
 
-    const exactSignalHandlers: Record<string, () => void> = {
+    const exactSignalHandlers: Record<string, () => void | Promise<void>> = {
       cancel: handleCancelSignal,
       confirm: handleConfirmationSignal,
       "mcp-reload": handleMcpReloadSignal,
       "trust-rule": handleTrustRuleSignal,
+      undo: handleUndoSignal,
     };
 
     const prefixSignalHandlers: Record<string, (filename: string) => void> = {
