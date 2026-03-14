@@ -486,24 +486,27 @@ enum LogExporter {
             let errPipe = Pipe()
             process.standardError = errPipe
 
-            process.terminationHandler = { proc in
-                if proc.terminationStatus == 0 {
-                    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                    let output = String(data: data, encoding: .utf8) ?? ""
-                    continuation.resume(returning: output)
-                } else {
-                    let stderr = String(
-                        data: errPipe.fileHandleForReading.readDataToEndOfFile(),
-                        encoding: .utf8
-                    ) ?? ""
-                    continuation.resume(throwing: ExportError.tarFailed("Failed to list archive: \(stderr)"))
-                }
-            }
-
             do {
                 try process.run()
             } catch {
                 continuation.resume(throwing: error)
+                return
+            }
+
+            // Read pipe data eagerly BEFORE waiting for process exit.
+            // If reads happen inside terminationHandler, tar blocks on a full
+            // pipe buffer (~64 KB) and never exits — deadlocking the export.
+            let stdoutData = pipe.fileHandleForReading.readDataToEndOfFile()
+            let stderrData = errPipe.fileHandleForReading.readDataToEndOfFile()
+
+            process.waitUntilExit()
+
+            if process.terminationStatus == 0 {
+                let output = String(data: stdoutData, encoding: .utf8) ?? ""
+                continuation.resume(returning: output)
+            } else {
+                let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+                continuation.resume(throwing: ExportError.tarFailed("Failed to list archive: \(stderr)"))
             }
         }
 
