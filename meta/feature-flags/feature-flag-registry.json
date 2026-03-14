@@ -90,6 +90,14 @@
       "defaultEnabled": true
     },
     {
+      "id": "developer-menu-items",
+      "scope": "macos",
+      "key": "developer_menu_items_enabled",
+      "label": "Developer Menu Items",
+      "description": "Show Component Gallery and Replay Onboarding in the menu bar",
+      "defaultEnabled": false
+    },
+    {
       "id": "logfire",
       "scope": "assistant",
       "key": "feature_flags.logfire.enabled",
