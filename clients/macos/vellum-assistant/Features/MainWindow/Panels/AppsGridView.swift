@@ -179,6 +179,16 @@ struct AppsGridView: View {
                                     .aspectRatio(contentMode: .fill)
                             )
                             .clipped()
+                    } else if let icon = app.icon, !icon.isEmpty,
+                              let nsImage = MainWindowView.buildAppIcon(iconBase64: nil, emojiIcon: icon, appName: app.name) {
+                        Color.clear
+                            .aspectRatio(16.0 / 10.0, contentMode: .fit)
+                            .overlay(
+                                Image(nsImage: nsImage)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                            )
+                            .clipped()
                     } else {
                         ZStack {
                             VColor.surfaceBase
