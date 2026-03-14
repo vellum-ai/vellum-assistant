@@ -1,19 +1,21 @@
 /**
  * Handle user-message signals delivered via signal files from the CLI.
  *
- * The built-in CLI writes JSON to `signals/user-message` instead of making
- * an HTTP POST to `/v1/messages`. The daemon's ConfigWatcher detects the
- * file change and invokes {@link handleUserMessageSignal}, which reads the
- * payload, dispatches the message through the daemon's send pipeline, and
- * writes `signals/user-message.result` so the CLI knows whether the message
- * was accepted.
+ * Each invocation writes JSON to a unique `signals/user-message.<requestId>`
+ * file. ConfigWatcher detects the new file and invokes
+ * {@link handleUserMessageSignal}, which reads the payload, dispatches
+ * the message through the daemon's send pipeline, and writes the result
+ * to `signals/user-message.<requestId>.result` for the CLI to pick up.
+ *
+ * Per-request filenames avoid dropped messages when overlapping invocations
+ * race on the same signal file.
  *
  * Because the signal handler needs access to the daemon's session map and
  * event hub, the daemon registers a callback at startup via
  * {@link registerUserMessageCallback}.
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
@@ -43,13 +45,16 @@ export function registerUserMessageCallback(cb: UserMessageCallback): void {
 // ── Signal handler ───────────────────────────────────────────────────
 
 /**
- * Read the `signals/user-message` file and dispatch the message through
- * the daemon's send pipeline. Writes `signals/user-message.result` with
- * the outcome so the CLI can display feedback. Called by ConfigWatcher
- * when the signal file is written.
+ * Read a `signals/user-message.<requestId>` file and dispatch the message
+ * through the daemon's send pipeline. Writes
+ * `signals/user-message.<requestId>.result` with the outcome so the CLI
+ * can display feedback. Called by ConfigWatcher when a matching signal
+ * file is created or modified.
  */
-export async function handleUserMessageSignal(): Promise<void> {
-  const resultPath = join(getWorkspaceDir(), "signals", "user-message.result");
+export async function handleUserMessageSignal(filename: string): Promise<void> {
+  const signalsDir = join(getWorkspaceDir(), "signals");
+  const signalPath = join(signalsDir, filename);
+  const resultPath = join(signalsDir, `${filename}.result`);
 
   const writeResult = (
     data:
@@ -63,14 +68,24 @@ export async function handleUserMessageSignal(): Promise<void> {
     }
   };
 
+  let raw: string;
+  try {
+    raw = readFileSync(signalPath, "utf-8");
+  } catch {
+    // File may already be deleted (e.g. re-trigger from our own unlinkSync).
+    return;
+  }
+
+  try {
+    unlinkSync(signalPath);
+  } catch {
+    // Best-effort cleanup; the file may already be gone.
+  }
+
   let parsedRequestId: string | undefined;
 
   try {
-    const content = readFileSync(
-      join(getWorkspaceDir(), "signals", "user-message"),
-      "utf-8",
-    );
-    const parsed = JSON.parse(content) as {
+    const parsed = JSON.parse(raw) as {
       conversationKey?: string;
       content?: string;
       sourceChannel?: string;

@@ -236,11 +236,14 @@ export class ConfigWatcher {
       "mcp-reload": handleMcpReloadSignal,
       "trust-rule": handleTrustRuleSignal,
       "conversation-undo": handleConversationUndoSignal,
-      "user-message": handleUserMessageSignal,
     };
 
-    const prefixSignalHandlers: Record<string, (filename: string) => void> = {
+    const prefixSignalHandlers: Record<
+      string,
+      (filename: string) => void | Promise<void>
+    > = {
       "bash.": handleBashSignal,
+      "user-message.": handleUserMessageSignal,
     };
 
     try {

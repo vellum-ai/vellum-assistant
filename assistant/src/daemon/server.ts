@@ -27,6 +27,7 @@ import {
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
 } from "../memory/conversation-crud.js";
+import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import {
@@ -36,12 +37,9 @@ import {
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { CURRENT_POLICY_EPOCH } from "../runtime/auth/policy.js";
-import { resolveScopeProfile } from "../runtime/auth/scopes.js";
 import { getSigningKeyFingerprint } from "../runtime/auth/token-service.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
-import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
 import { checkIngressForSecrets } from "../security/secret-ingress.js";
 import { registerCancelCallback } from "../signals/cancel.js";
 import { registerConversationUndoCallback } from "../signals/conversation-undo.js";
@@ -411,42 +409,18 @@ export class DaemonServer {
     );
 
     registerUserMessageCallback(async (params) => {
-      const response = await handleSendMessage(
-        new Request("http://localhost/v1/messages", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            conversationKey: params.conversationKey,
-            content: params.content,
-            sourceChannel: params.sourceChannel,
-            interface: params.sourceInterface,
-          }),
-        }),
-        {
-          sendMessageDeps: {
-            getOrCreateSession: (conversationId) =>
-              this.getOrCreateSession(conversationId),
-            assistantEventHub,
-            resolveAttachments: (attachmentIds) =>
-              attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
-                id: a.id,
-                filename: a.originalFilename,
-                mimeType: a.mimeType,
-                data: a.dataBase64,
-              })),
-          },
-        },
-        {
-          subject: "local:cli:cli",
-          principalType: "local",
-          assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
-          sessionId: "cli",
-          scopeProfile: "actor_client_v1",
-          scopes: resolveScopeProfile("actor_client_v1"),
-          policyEpoch: CURRENT_POLICY_EPOCH,
-        },
+      const { conversationId } = getOrCreateConversation(
+        params.conversationKey,
       );
-      return { accepted: response.ok || response.status === 202 };
+      await this.persistAndProcessMessage(
+        conversationId,
+        params.content,
+        undefined,
+        undefined,
+        params.sourceChannel,
+        params.sourceInterface,
+      );
+      return { accepted: true };
     });
 
     this.configWatcher.start(

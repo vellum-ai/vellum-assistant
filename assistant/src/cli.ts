@@ -328,15 +328,12 @@ export async function startCli(): Promise<void> {
     try {
       const signalsDir = join(getWorkspaceDir(), "signals");
       mkdirSync(signalsDir, { recursive: true });
-      const resultPath = join(signalsDir, "user-message.result");
-      try {
-        unlinkSync(resultPath);
-      } catch {
-        // May not exist yet.
-      }
       const requestId = randomUUID();
+      const signalFile = `user-message.${requestId}`;
+      const resultFile = `${signalFile}.result`;
+      const resultPath = join(signalsDir, resultFile);
       writeFileSync(
-        join(signalsDir, "user-message"),
+        join(signalsDir, signalFile),
         JSON.stringify({
           conversationKey,
           content,
@@ -373,7 +370,7 @@ export async function startCli(): Promise<void> {
         };
 
         const watcher = watch(signalsDir, (_event, filename) => {
-          if (filename === "user-message.result") {
+          if (filename === resultFile) {
             checkResult();
           }
         });
