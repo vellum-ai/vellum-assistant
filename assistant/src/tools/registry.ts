@@ -183,27 +183,6 @@ export function unregisterAllMcpTools(): void {
 }
 
 /**
- * Unregister all tools belonging to a specific MCP server.
- */
-export function unregisterMcpTools(serverId: string): void {
-  for (const [name, tool] of tools) {
-    if (tool.origin === "mcp" && tool.ownerMcpServerId === serverId) {
-      tools.delete(name);
-      log.info({ name, serverId }, "MCP tool unregistered");
-    }
-  }
-}
-
-/**
- * Return the names of all currently registered MCP-origin tools.
- */
-export function getMcpToolNames(): string[] {
-  return Array.from(tools.values())
-    .filter((t) => t.origin === "mcp")
-    .map((t) => t.name);
-}
-
-/**
  * Return tool definitions for all currently registered MCP-origin tools.
  * Used by the session resolver to dynamically pick up MCP tools that
  * were registered after session creation (e.g. via `vellum mcp reload`).
