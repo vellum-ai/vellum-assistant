@@ -31,6 +31,7 @@ import type {
 import { MODEL_TO_PROVIDER } from "./daemon/session-slash.js";
 import { getMessages } from "./memory/conversation-crud.js";
 import { getConversationByKey } from "./memory/conversation-key-store.js";
+import { listConversations } from "./memory/conversation-queries.js";
 import {
   copyToClipboard,
   extractLastCodeBlock,
@@ -1105,34 +1106,19 @@ export async function startCli(): Promise<void> {
 
     if (content === "/sessions") {
       pendingSessionPick = true;
-      // Fetch session list via HTTP
-      httpSend("/v1/conversations/search?q=*&limit=20", { method: "GET" })
-        .then(async (resp) => {
-          if (resp.ok) {
-            const data = (await resp.json()) as {
-              results: Array<{
-                conversationId: string;
-                title: string;
-                updatedAt: string;
-              }>;
-            };
-            const sessions = data.results.map((r) => ({
-              id: r.conversationId,
-              title: r.title || "Untitled",
-              updatedAt: new Date(r.updatedAt).getTime(),
-            }));
-            renderSessionPicker(sessions);
-          } else {
-            pendingSessionPick = false;
-            process.stdout.write("[Failed to fetch sessions]\n");
-            prompt();
-          }
-        })
-        .catch(() => {
-          pendingSessionPick = false;
-          process.stdout.write("[Failed to fetch sessions]\n");
-          prompt();
-        });
+      try {
+        const rows = listConversations(20);
+        const sessions = rows.map((r) => ({
+          id: r.id,
+          title: r.title || "Untitled",
+          updatedAt: r.updatedAt,
+        }));
+        renderSessionPicker(sessions);
+      } catch {
+        pendingSessionPick = false;
+        process.stdout.write("[Failed to fetch sessions]\n");
+        prompt();
+      }
       return;
     }
 
