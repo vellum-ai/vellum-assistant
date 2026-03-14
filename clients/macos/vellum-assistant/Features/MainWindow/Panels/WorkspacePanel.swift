@@ -33,7 +33,7 @@ final class WorkspaceBrowserState {
     var pendingSwitchPath: String?
     var pendingHiddenFilesToggle: Bool?
     var showingDirtyAlert: Bool = false
-    var showHiddenFiles: Bool = false
+    var showHiddenFiles: Bool = UserDefaults.standard.bool(forKey: "showHiddenFiles")
 
     func refreshDirectory(_ dirPath: String, using daemonClient: DaemonClient) async {
         if let response = await daemonClient.fetchWorkspaceTree(path: dirPath, showHidden: showHiddenFiles) {
@@ -149,6 +149,7 @@ struct WorkspacePanel: View {
 
     private func applyHiddenFilesToggle(_ newValue: Bool) {
         state.showHiddenFiles = newValue
+        UserDefaults.standard.set(newValue, forKey: "showHiddenFiles")
         state.directoryCache.removeAll()
         state.expandedDirs.removeAll()
         state.selectedFilePath = nil

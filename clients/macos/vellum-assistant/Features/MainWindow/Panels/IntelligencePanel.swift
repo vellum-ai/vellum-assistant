@@ -59,6 +59,11 @@ struct IntelligencePanel: View {
             tabContent
         }
         .padding(VSpacing.xl)
+        .onChange(of: pendingMemoryId) {
+            if pendingMemoryId != nil {
+                withAnimation(VAnimation.fast) { selectedTab = .memories }
+            }
+        }
     }
 
     // MARK: - Tab Button

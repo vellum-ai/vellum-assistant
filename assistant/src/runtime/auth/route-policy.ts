@@ -413,6 +413,10 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // OAuth / integrations
   { endpoint: "integrations/oauth/start", scopes: ["settings.write"] },
 
+  // Ingress config
+  { endpoint: "integrations/ingress/config:GET", scopes: ["settings.read"] },
+  { endpoint: "integrations/ingress/config", scopes: ["settings.write"] },
+
   // Workspace files
   { endpoint: "workspace-files", scopes: ["settings.read"] },
   { endpoint: "workspace-files/read", scopes: ["settings.read"] },
