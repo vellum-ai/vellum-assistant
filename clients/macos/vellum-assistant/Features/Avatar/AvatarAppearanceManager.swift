@@ -339,20 +339,25 @@ final class AvatarAppearanceManager {
     /// The destination path is derived from `connectedAssistantId` in
     /// UserDefaults, matching the same resolution used by `customAvatarURL`.
     ///
-    /// Writes to `{baseDataDir}/workspace/data/avatar/notification-icon.png`.
+    /// Writes to `{avatarDir}/notification-icon-{assistantId}.png`.
     /// Returns the file URL on success, nil on failure.
     func exportNotificationIcon() -> URL? {
         // 1. Resolve the destination path from the connected assistant
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+              !assistantId.isEmpty else {
+            return nil
+        }
+
         let destURL: URL
-        if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
-           let assistant = LockfileAssistant.loadByName(assistantId),
+        if let assistant = LockfileAssistant.loadByName(assistantId),
            let baseDataDir = assistant.baseDataDir {
             destURL = URL(fileURLWithPath: baseDataDir)
-                .appendingPathComponent("workspace/data/avatar/notification-icon.png")
+                .appendingPathComponent("workspace/data/avatar/notification-icon-\(assistantId).png")
         } else {
-            // No assistant-scoped path available — return nil to avoid
-            // writing to a shared location that could serve the wrong avatar.
-            return nil
+            // Fall back to default workspace path with assistant-scoped filename
+            destURL = Self.workspaceCustomAvatarURL()
+                .deletingLastPathComponent()
+                .appendingPathComponent("notification-icon-\(assistantId).png")
         }
 
         // 2. Get the current avatar image (chatAvatarImage handles all fallbacks)

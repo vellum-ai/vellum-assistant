@@ -11,15 +11,18 @@ protocol NotificationIconProviding {
 @MainActor
 final class NotificationIconProvider: NotificationIconProviding {
     func notificationIconURL(for assistantId: String) -> URL? {
+        guard !assistantId.isEmpty else { return nil }
+
         let iconURL: URL
         if let assistant = LockfileAssistant.loadByName(assistantId),
            let baseDataDir = assistant.baseDataDir {
             iconURL = URL(fileURLWithPath: baseDataDir)
-                .appendingPathComponent("workspace/data/avatar/notification-icon.png")
+                .appendingPathComponent("workspace/data/avatar/notification-icon-\(assistantId).png")
         } else {
-            // No assistant-scoped path available — return nil to avoid
-            // serving another assistant's notification icon.
-            return nil
+            // Fall back to default workspace path with assistant-scoped filename
+            iconURL = AvatarAppearanceManager.workspaceCustomAvatarURL()
+                .deletingLastPathComponent()
+                .appendingPathComponent("notification-icon-\(assistantId).png")
         }
 
         guard FileManager.default.fileExists(atPath: iconURL.path) else {
