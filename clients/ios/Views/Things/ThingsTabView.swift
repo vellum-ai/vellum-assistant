@@ -46,7 +46,7 @@ struct ThingsDisconnectedView: View {
                 VIconView(.layoutGrid, size: 48)
                     .foregroundColor(VColor.contentTertiary)
                     .accessibilityHidden(true)
-                Text("Things Require Connection")
+                Text("Library Requires Connection")
                     .font(VFont.title)
                     .foregroundColor(VColor.contentDefault)
                 Text("Connect to your Assistant to browse apps, shared apps, and documents.")
