@@ -441,7 +441,16 @@ struct MainWindowView: View {
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
                             .animation(nil, value: sidebarExpanded)
                             .overlay {
-                                if showDaemonLoading && !isSettingsOpen {
+                                if windowState.daemonConnectionFailed && !isSettingsOpen {
+                                    DaemonConnectionFailedView(onRetry: {
+                                        windowState.daemonConnectionFailed = false
+                                        showDaemonLoading = true
+                                        Task {
+                                            try? await daemonClient.connect()
+                                        }
+                                    })
+                                    .transition(.opacity)
+                                } else if showDaemonLoading && !isSettingsOpen {
                                     DaemonLoadingChatSkeleton()
                                         .transition(.opacity)
                                 }
@@ -667,6 +676,15 @@ struct MainWindowView: View {
             guard connected, showDaemonLoading else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                 guard showDaemonLoading else { return }
+                withAnimation(VAnimation.standard) {
+                    showDaemonLoading = false
+                }
+            }
+        }
+        .onChange(of: windowState.daemonConnectionFailed) { _, failed in
+            // When the connection-failed overlay appears, dismiss the loading
+            // skeleton so only the failure view is visible.
+            if failed && showDaemonLoading {
                 withAnimation(VAnimation.standard) {
                     showDaemonLoading = false
                 }

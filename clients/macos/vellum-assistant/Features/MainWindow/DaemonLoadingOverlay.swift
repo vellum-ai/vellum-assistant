@@ -33,6 +33,46 @@ struct DaemonLoadingThreadsSkeleton: View {
     }
 }
 
+/// Full-screen overlay shown when the daemon connection fails during
+/// first-launch bootstrap (e.g. remote assistant unreachable after timeout).
+/// Provides a retry button so the user can attempt reconnection.
+struct DaemonConnectionFailedView: View {
+    let onRetry: () -> Void
+
+    var body: some View {
+        ZStack {
+            VColor.surfaceBase
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+
+            VStack(spacing: VSpacing.lg) {
+                Spacer()
+
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 40))
+                    .foregroundColor(VColor.systemNegativeStrong)
+                    .padding(.bottom, VSpacing.sm)
+
+                Text("Something went wrong")
+                    .font(.system(size: 24, weight: .regular, design: .serif))
+                    .foregroundColor(VColor.contentDefault)
+
+                Text("Could not connect to your assistant.")
+                    .font(.system(size: 14))
+                    .foregroundColor(VColor.contentSecondary)
+
+                VButton(label: "Try Again", style: .primary) {
+                    onRetry()
+                }
+                .frame(maxWidth: 200)
+                .padding(.top, VSpacing.sm)
+
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+}
+
 #if DEBUG
 
 #endif

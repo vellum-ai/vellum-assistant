@@ -68,6 +68,11 @@ public final class MainWindowState: ObservableObject {
     @Published var layoutConfig: LayoutConfig
     @Published var toastInfo: ToastInfo?
 
+    /// Set to `true` when the daemon connection fails during first-launch
+    /// bootstrap (e.g. remote assistant unreachable). The main window shows
+    /// a failure overlay instead of the normal chat UI.
+    @Published var daemonConnectionFailed = false
+
     /// Whether the main content area is showing a plain, full-window chat
     /// (either an explicit `.thread` selection or `nil` which defaults to chat).
     ///

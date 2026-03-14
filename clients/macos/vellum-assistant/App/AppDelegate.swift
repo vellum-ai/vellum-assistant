@@ -359,6 +359,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             // Each transition is persisted so a restart resumes correctly.
             bootstrapStartTime = CFAbsoluteTimeGetCurrent()
             transitionBootstrap(to: .pendingDaemon)
+
+            // For managed (cloud-hosted) assistants, show the main window
+            // immediately so the loading skeleton is visible while the
+            // daemon connection is being established.
+            if isCurrentAssistantManaged {
+                showMainWindow(isFirstLaunch: true)
+            }
+
             Task {
                 let ready = await awaitDaemonReady(timeout: 15)
 
@@ -368,11 +376,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                     transitionBootstrap(to: .pendingWakeupSend)
                     await performRetriableWakeUpSend()
                 } else {
-                    // Daemon not ready — show the main window with a
-                    // timeout screen so the user knows something went wrong.
-                    log.warning("Daemon not ready after timeout — showing timeout screen")
+                    // Daemon not ready — show the connection-failed overlay
+                    // so the user knows something went wrong and can retry.
+                    log.warning("Daemon not ready after timeout — showing connection failed screen")
                     transitionBootstrap(to: .timedOut)
-                    showMainWindow(isFirstLaunch: true)
+                    let main = ensureMainWindowExists(isFirstLaunch: true)
+                    main.windowState.daemonConnectionFailed = true
+                    main.show()
                     debugStateWriter.start(appDelegate: self)
                 }
             }

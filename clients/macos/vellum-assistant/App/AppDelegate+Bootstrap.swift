@@ -80,9 +80,11 @@ extension AppDelegate {
             log.warning("Daemon disconnected during wake-up send — waiting for reconnection")
             let reconnected = await awaitDaemonReady(timeout: 15)
             if !reconnected {
-                log.warning("Daemon did not reconnect — showing timeout screen")
+                log.warning("Daemon did not reconnect — showing connection failed screen")
                 transitionBootstrap(to: .timedOut)
-                showMainWindow(isFirstLaunch: true)
+                let main = ensureMainWindowExists(isFirstLaunch: true)
+                main.windowState.daemonConnectionFailed = true
+                main.show()
                 debugStateWriter.start(appDelegate: self)
                 return
             }
