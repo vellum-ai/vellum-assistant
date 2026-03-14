@@ -156,7 +156,6 @@ export function registerProvider(params: {
     scopePolicy: JSON.stringify(params.scopePolicy),
     extraParams: params.extraParams ? JSON.stringify(params.extraParams) : null,
     callbackTransport: params.callbackTransport ?? null,
-    loopbackPort: null,
     pingUrl: params.pingUrl ?? null,
     createdAt: now,
     updatedAt: now,

@@ -51,6 +51,7 @@ import {
   migrateDropAccountsTable,
   migrateDropAssistantIdColumns,
   migrateDropConflicts,
+  migrateDropLoopbackPortColumn,
   migrateDropEntityTables,
   migrateDropLegacyMemberGuardianTables,
   migrateDropMemorySegmentFts,
@@ -375,6 +376,9 @@ export function initializeDb(): void {
 
   // 60. Add required contact_id to assistant_ingress_invites and clean up legacy rows
   migrateInviteContactId(database);
+
+  // 61. Drop loopback_port column from oauth_providers (moved to code-side behavior registry)
+  migrateDropLoopbackPortColumn(database);
 
   validateMigrationState(database);
 
