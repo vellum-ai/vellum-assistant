@@ -1,8 +1,7 @@
 import VellumAssistantShared
 import SwiftUI
-import UniformTypeIdentifiers
 
-private enum HostingMode: String, CaseIterable {
+enum HostingMode: String, CaseIterable {
     case vellum
     case local
     case docker
@@ -44,13 +43,13 @@ struct APIKeyStepView: View {
     @State private var isEditing = false
     @State private var showTitle = false
     @State private var showContent = false
-    @State private var hostingMode: HostingMode = .local
+    @State var hostingMode: HostingMode = .local
     @FocusState private var keyFieldFocused: Bool
 
-    @State private var gcpServiceAccountFileName: String = ""
-    @State private var qrCodeImageFileName: String = ""
-    @FocusState private var arnFieldFocused: Bool
-    @FocusState private var projectIdFieldFocused: Bool
+    @State var gcpServiceAccountFileName: String = ""
+    @State var qrCodeImageFileName: String = ""
+    @FocusState var arnFieldFocused: Bool
+    @FocusState var projectIdFieldFocused: Bool
 
     private var userHostedEnabled: Bool {
         MacOSClientFeatureFlagManager.shared.isEnabled("user_hosted_enabled")
@@ -245,309 +244,12 @@ struct APIKeyStepView: View {
                     )
                     .focused($keyFieldFocused)
                     .onSubmit {
-                        saveAndContinue()
+                        if managedSignInEnabled {
+                            saveAndHatch()
+                        } else {
+                            saveAndContinue()
+                        }
                     }
-            }
-        }
-    }
-
-    // MARK: - Inline Cloud Credential Fields
-
-    @ViewBuilder
-    private var inlineCloudCredentialFields: some View {
-        switch hostingMode {
-        case .gcp:
-            gcpInlineFields
-        case .aws:
-            awsInlineFields
-        case .customHardware:
-            customHardwareInlineFields
-        default:
-            EmptyView()
-        }
-    }
-
-    private var gcpInlineFields: some View {
-        VStack(spacing: VSpacing.sm) {
-            gcpSetupBlurb
-
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Project ID")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(VColor.contentSecondary)
-                TextField("my-gcp-project-id", text: $state.gcpProjectId)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 14, weight: .medium, design: .monospaced))
-                    .foregroundColor(VColor.contentDefault)
-                    .padding(.horizontal, VSpacing.lg)
-                    .padding(.vertical, VSpacing.md)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(VColor.borderBase, lineWidth: 1)
-                    )
-                    .focused($projectIdFieldFocused)
-            }
-
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Zone")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(VColor.contentSecondary)
-                Picker("", selection: $state.gcpZone) {
-                    ForEach(Self.gcpZones, id: \.self) { zone in
-                        Text(zone).tag(zone)
-                    }
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .font(.system(size: 14, weight: .medium, design: .monospaced))
-                .foregroundColor(VColor.contentDefault)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, VSpacing.sm)
-                .padding(.vertical, VSpacing.xs)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.lg)
-                        .stroke(VColor.borderBase, lineWidth: 1)
-                )
-            }
-
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Service Account Key (JSON)")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(VColor.contentSecondary)
-                filePickerButton(
-                    fileName: gcpServiceAccountFileName,
-                    prompt: "Select Service Account JSON File",
-                    onPick: { pickGCPServiceAccountFile() },
-                    onClear: {
-                        state.gcpServiceAccountKey = ""
-                        gcpServiceAccountFileName = ""
-                    }
-                )
-            }
-        }
-    }
-
-    private var awsInlineFields: some View {
-        VStack(spacing: VSpacing.sm) {
-            awsSetupBlurb
-
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("IAM Role ARN")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(VColor.contentSecondary)
-                TextField("arn:aws:iam::123456789012:role/VellumAssistantRole", text: $state.awsRoleArn)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 14, weight: .medium, design: .monospaced))
-                    .foregroundColor(VColor.contentDefault)
-                    .padding(.horizontal, VSpacing.lg)
-                    .padding(.vertical, VSpacing.md)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(VColor.borderBase, lineWidth: 1)
-                    )
-                    .focused($arnFieldFocused)
-            }
-        }
-    }
-
-    private var customHardwareInlineFields: some View {
-        VStack(spacing: VSpacing.sm) {
-            customHardwareSetupBlurb
-
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("QR Code Image")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(VColor.contentSecondary)
-                filePickerButton(
-                    fileName: qrCodeImageFileName,
-                    prompt: "Select QR Code PNG",
-                    onPick: { pickQRCodeImageFile() },
-                    onClear: {
-                        state.customQRCodeImageData = Data()
-                        qrCodeImageFileName = ""
-                    }
-                )
-            }
-        }
-    }
-
-    // MARK: - Setup Blurbs
-
-    private var gcpSetupBlurb: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Before continuing, set up the following in the Google Cloud Console:")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(VColor.contentSecondary)
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                setupStep("1. Create or select a GCP project with the Compute Engine API enabled.")
-                setupStep("2. Create a Service Account with the Compute Admin role.")
-                setupStep("3. Generate a JSON key for the service account and download it.")
-            }
-            Link(destination: URL(string: "https://console.cloud.google.com/iam-admin/serviceaccounts")!) {
-                Text("Open Google Cloud Console")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(VColor.primaryBase)
-            }
-            .pointerCursor()
-        }
-        .padding(VSpacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .textSelection(.enabled)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surfaceActive)
-        )
-    }
-
-    private var awsSetupBlurb: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Before continuing, set up the following in the AWS Console:")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(VColor.contentSecondary)
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                setupStep("1. Create an IAM role with EC2 full access permissions (e.g., AmazonEC2FullAccess).")
-                setupStep("2. Configure the role's trust policy to allow Vellum to assume it.")
-                setupStep("3. Ensure your account has a default VPC in the target region.")
-            }
-            Link(destination: URL(string: "https://console.aws.amazon.com/iam/home#/roles")!) {
-                Text("Open AWS IAM Console")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(VColor.primaryBase)
-            }
-            .pointerCursor()
-        }
-        .padding(VSpacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .textSelection(.enabled)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surfaceActive)
-        )
-    }
-
-    private var customHardwareSetupBlurb: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Set up your Mac mini, then upload the QR code:")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(VColor.contentSecondary)
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                setupStep("1. On your Mac mini, run: curl -fsSL https://assistant.vellum.ai/install.sh | bash")
-                setupStep("2. Upload the QR code PNG generated by the install script below.")
-            }
-        }
-        .padding(VSpacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .textSelection(.enabled)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surfaceActive)
-        )
-    }
-
-    private func setupStep(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 12))
-            .foregroundColor(VColor.contentTertiary)
-    }
-
-    private static let gcpZones = [
-        "us-central1-a",
-        "us-east1-b",
-        "us-east4-a",
-        "us-west1-a",
-        "us-west2-a",
-    ]
-
-    // MARK: - File Picker UI
-
-    @ViewBuilder
-    private func filePickerButton(
-        fileName: String,
-        prompt: String,
-        onPick: @escaping () -> Void,
-        onClear: @escaping () -> Void
-    ) -> some View {
-        if fileName.isEmpty {
-            Button(action: onPick) {
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(.filePlus, size: 14)
-                        .foregroundColor(VColor.contentSecondary)
-                    Text(prompt)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(VColor.contentSecondary)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, VSpacing.lg)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.lg)
-                        .stroke(VColor.borderBase, style: StrokeStyle(lineWidth: 1, dash: [6, 3]))
-                )
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
-        } else {
-            HStack(spacing: VSpacing.sm) {
-                VIconView(.file, size: 14)
-                    .foregroundColor(VColor.primaryBase)
-                Text(fileName)
-                    .font(.system(size: 14, weight: .medium, design: .monospaced))
-                    .foregroundColor(VColor.contentDefault)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
-                Spacer()
-                Button(action: onClear) {
-                    VIconView(.circleX, size: 14)
-                        .foregroundColor(VColor.contentTertiary)
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
-            }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.md)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.lg)
-                    .stroke(VColor.borderBase, lineWidth: 1)
-            )
-        }
-    }
-
-    // MARK: - File Picking
-
-    private func pickGCPServiceAccountFile() {
-        let panel = NSOpenPanel()
-        panel.title = "Select Service Account JSON File"
-        panel.allowedContentTypes = [UTType.json]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-
-        if panel.runModal() == .OK, let url = panel.url {
-            do {
-                let contents = try String(contentsOf: url, encoding: .utf8)
-                state.gcpServiceAccountKey = contents
-                gcpServiceAccountFileName = url.lastPathComponent
-            } catch {
-                state.gcpServiceAccountKey = ""
-                gcpServiceAccountFileName = ""
-            }
-        }
-    }
-
-    private func pickQRCodeImageFile() {
-        let panel = NSOpenPanel()
-        panel.title = "Select QR Code PNG"
-        panel.allowedContentTypes = [UTType.png, UTType.image]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-
-        if panel.runModal() == .OK, let url = panel.url {
-            do {
-                let data = try Data(contentsOf: url)
-                state.customQRCodeImageData = data
-                qrCodeImageFileName = url.lastPathComponent
-            } catch {
-                state.customQRCodeImageData = Data()
-                qrCodeImageFileName = ""
             }
         }
     }
