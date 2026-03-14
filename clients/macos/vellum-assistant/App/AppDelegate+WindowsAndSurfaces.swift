@@ -441,19 +441,14 @@ extension AppDelegate {
             return
         }
         let filtered = assistants.filter { ($0["assistantId"] as? String) != assistantId }
-        if filtered.isEmpty {
-            try? FileManager.default.removeItem(at: LockfilePaths.primary)
-            log.info("Removed lockfile (no entries remain after force-removing '\(assistantId, privacy: .private)')")
-        } else {
-            var updated = json
-            updated["assistants"] = filtered
-            do {
-                let data = try JSONSerialization.data(withJSONObject: updated, options: [.prettyPrinted, .sortedKeys])
-                try data.write(to: LockfilePaths.primary)
-                log.info("Removed stale entry '\(assistantId, privacy: .private)' from lockfile")
-            } catch {
-                log.error("Failed to update lockfile after removing '\(assistantId, privacy: .private)': \(error)")
-            }
+        var updated = json
+        updated["assistants"] = filtered
+        do {
+            let data = try JSONSerialization.data(withJSONObject: updated, options: [.prettyPrinted, .sortedKeys])
+            try data.write(to: LockfilePaths.primary)
+            log.info("Removed stale entry '\(assistantId, privacy: .private)' from lockfile")
+        } catch {
+            log.error("Failed to update lockfile after removing '\(assistantId, privacy: .private)': \(error)")
         }
     }
 
