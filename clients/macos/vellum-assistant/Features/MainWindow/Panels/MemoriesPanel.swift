@@ -87,23 +87,9 @@ struct MemoriesPanel: View {
 
     @ViewBuilder
     private var filterBar: some View {
-        VStack(spacing: VSpacing.sm) {
-            // Row 1: Kind filter chips
-            kindChips
-
-            // Row 2: Status, Search, Sort, New button
+        VStack(spacing: VSpacing.lg) {
+            // Row 1: Search, Status, Sort, New
             HStack(spacing: VSpacing.sm) {
-                VDropdown(
-                    placeholder: "Status",
-                    selection: $statusFilter,
-                    options: MemoryStatusFilter.allCases.map { ($0.rawValue, $0) }
-                )
-                .frame(width: 100)
-                .onChange(of: statusFilter) {
-                    store.statusFilter = statusFilter.apiValue
-                    Task { await store.loadItems() }
-                }
-
                 VSearchBar(placeholder: "Search memories...", text: $store.searchText)
                     .onChange(of: store.searchText) {
                         searchDebounceTask?.cancel()
@@ -113,6 +99,17 @@ struct MemoriesPanel: View {
                             await store.loadItems()
                         }
                     }
+
+                VDropdown(
+                    placeholder: "Status",
+                    selection: $statusFilter,
+                    options: MemoryStatusFilter.allCases.map { ($0.rawValue, $0) }
+                )
+                .frame(width: 110)
+                .onChange(of: statusFilter) {
+                    store.statusFilter = statusFilter.apiValue
+                    Task { await store.loadItems() }
+                }
 
                 VDropdown(
                     placeholder: "Sort",
@@ -126,46 +123,52 @@ struct MemoriesPanel: View {
                     Task { await store.loadItems() }
                 }
 
-                VButton(label: "New", icon: VIcon.plus.rawValue, style: .outlined) {
+                VButton(label: "New", icon: VIcon.plus.rawValue, style: .primary) {
                     showCreateSheet = true
                 }
                 .accessibilityLabel("Create new memory")
             }
-        }
-        .padding(VSpacing.md)
-    }
 
-    @ViewBuilder
-    private var kindChips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: VSpacing.xs) {
-                kindChip(label: "All", kind: nil)
-                ForEach(MemoryKind.allCases) { kind in
-                    kindChip(label: kind.label, kind: kind)
+            // Row 2: Topic chips
+            HStack(spacing: VSpacing.sm) {
+                Text("Topic:")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentTertiary)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: VSpacing.xs) {
+                        VButton(
+                            label: "All",
+                            style: selectedKind == nil ? .primary : .outlined,
+                            size: .pill
+                        ) {
+                            selectedKind = nil
+                            store.kindFilter = nil
+                            Task { await store.loadItems() }
+                        }
+                        .accessibilityLabel("All filter")
+                        .accessibilityAddTraits(selectedKind == nil ? .isSelected : [])
+
+                        ForEach(MemoryKind.allCases) { kind in
+                            VButton(
+                                label: kind.label,
+                                style: selectedKind == kind ? .primary : .outlined,
+                                size: .pill
+                            ) {
+                                selectedKind = kind
+                                store.kindFilter = kind.rawValue
+                                Task { await store.loadItems() }
+                            }
+                            .accessibilityLabel("\(kind.label) filter")
+                            .accessibilityAddTraits(selectedKind == kind ? .isSelected : [])
+                        }
+                    }
                 }
             }
         }
-    }
-
-    @ViewBuilder
-    private func kindChip(label: String, kind: MemoryKind?) -> some View {
-        let isSelected = selectedKind == kind
-        Button {
-            selectedKind = kind
-            store.kindFilter = kind?.rawValue
-            Task { await store.loadItems() }
-        } label: {
-            Text(label)
-                .font(VFont.caption)
-                .foregroundColor(isSelected ? VColor.auxWhite : VColor.contentDefault)
-                .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.xxs)
-                .background(isSelected ? VColor.primaryBase : VColor.surfaceActive)
-                .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(label) filter")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .padding(.horizontal, VSpacing.md)
+        .padding(.top, VSpacing.sm)
+        .padding(.bottom, VSpacing.md)
     }
 
     // MARK: - Content View
@@ -199,7 +202,10 @@ struct MemoriesPanel: View {
                     }
                 }
                 .padding(VSpacing.md)
+                .background { OverlayScrollerStyle() }
             }
+            .scrollContentBackground(.hidden)
         }
     }
 }
+

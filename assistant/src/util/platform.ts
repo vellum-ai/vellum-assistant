@@ -328,7 +328,13 @@ export function getHooksDir(): string {
 // These will become the canonical paths after workspace migration.
 // Currently not used by call-sites; wired in later PRs.
 
-/** Returns ~/.vellum/workspace — the workspace root for user-facing state. */
+/**
+ * Returns ~/.vellum/workspace — the workspace root for user-facing state.
+ *
+ * WARNING: The entire workspace directory is included in diagnostic log exports
+ * ("Send logs to Vellum"). Do not store secrets, API keys, or sensitive
+ * credentials here — use the credential store or ~/.vellum/protected/ instead.
+ */
 export function getWorkspaceDir(): string {
   return join(getRootDir(), "workspace");
 }

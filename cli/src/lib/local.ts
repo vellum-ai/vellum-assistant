@@ -715,6 +715,20 @@ export function getLocalLanIPv4(): string | undefined {
   return undefined;
 }
 
+/**
+ * Check whether watch-mode startup is possible. Watch mode requires source
+ * files (bun --watch only works with .ts sources, not compiled binaries).
+ * Returns true when assistant source can be resolved, false otherwise.
+ *
+ * Use this before stopping a running assistant for a watch-mode restart — if
+ * watch mode isn't available (e.g. packaged desktop app without source), the
+ * caller should keep the existing process alive rather than killing it and
+ * failing.
+ */
+export function isWatchModeAvailable(): boolean {
+  return resolveAssistantIndexPath() !== undefined;
+}
+
 // NOTE: startLocalDaemon() is the CLI-side daemon lifecycle manager.
 // It should eventually converge with
 // assistant/src/daemon/daemon-control.ts::startDaemon which is the

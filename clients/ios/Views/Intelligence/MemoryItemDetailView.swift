@@ -8,6 +8,7 @@ struct MemoryItemDetailView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var isEditing = false
+    @State private var isSaving = false
     @State private var editSubject: String
     @State private var editStatement: String
     @State private var editKind: String
@@ -52,6 +53,7 @@ struct MemoryItemDetailView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { saveEdits() }
+                        .disabled(isSaving)
                 }
             } else {
                 ToolbarItem(placement: .primaryAction) {
@@ -229,15 +231,19 @@ struct MemoryItemDetailView: View {
     // MARK: - Actions
 
     private func saveEdits() {
+        guard !isSaving else { return }
+        isSaving = true
         Task {
+            let current = liveItem
             let result = await store.updateItem(
-                id: item.id,
-                subject: editSubject != item.subject ? editSubject : nil,
-                statement: editStatement != item.statement ? editStatement : nil,
-                kind: editKind != item.kind ? editKind : nil,
-                status: editStatus != item.status ? editStatus : nil,
-                importance: editImportance != (item.importance ?? 0.5) ? editImportance : nil
+                id: current.id,
+                subject: editSubject != current.subject ? editSubject : nil,
+                statement: editStatement != current.statement ? editStatement : nil,
+                kind: editKind != current.kind ? editKind : nil,
+                status: editStatus != current.status ? editStatus : nil,
+                importance: editImportance != (current.importance ?? 0.5) ? editImportance : nil
             )
+            isSaving = false
             if result != nil {
                 isEditing = false
             } else {

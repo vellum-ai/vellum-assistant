@@ -105,7 +105,7 @@ public struct GuardianDecisionBubble: View {
         .padding(VSpacing.md)
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.surfaceBase)
+                .fill(VColor.surfaceOverlay)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
                         .stroke(config.accent.opacity(0.3), lineWidth: 1)

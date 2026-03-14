@@ -95,16 +95,6 @@ public struct ToolConfirmationBubble: View {
         }
     }
 
-    /// Color for the risk level badge.
-    private var riskColor: Color {
-        switch confirmation.riskLevel.lowercased() {
-        case "low":    return VColor.contentTertiary
-        case "medium": return VColor.systemNegativeHover
-        case "high":   return VColor.systemNegativeStrong
-        default:       return VColor.contentTertiary
-        }
-    }
-
     public var body: some View {
         if confirmation.isSystemPermissionRequest {
             if isDecided {
@@ -160,11 +150,11 @@ public struct ToolConfirmationBubble: View {
         .padding(VSpacing.lg)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surfaceBase)
+                .fill(VColor.surfaceOverlay)
         )
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.borderBase, lineWidth: 1)
+                .stroke(VColor.borderBase, lineWidth: 0.5)
         )
     }
 
@@ -267,46 +257,15 @@ public struct ToolConfirmationBubble: View {
         .padding(VSpacing.md)
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.surfaceBase)
+                .fill(VColor.surfaceOverlay)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.borderBase, lineWidth: 1)
+                        .stroke(VColor.borderBase, lineWidth: 0.5)
                 )
         )
     }
 
-    // MARK: - Header Row
 
-    @ViewBuilder
-    private var headerRow: some View {
-        HStack(spacing: VSpacing.sm) {
-            VIconView(confirmation.toolCategoryIcon, size: 12)
-                .foregroundColor(VColor.contentSecondary)
-
-            Text(confirmation.toolCategory)
-                .font(VFont.captionMedium)
-                .foregroundColor(VColor.contentDefault)
-
-            VBadge(
-                style: .label(confirmation.riskLevel.capitalized),
-                color: riskColor
-            )
-
-            if let target = confirmation.normalizedExecutionTarget {
-                Text(target)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentTertiary)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xxs)
-                    .background(
-                        Capsule()
-                            .fill(VColor.surfaceBase)
-                    )
-            }
-
-            Spacer()
-        }
-    }
 
     // MARK: - Inline Preview
 
@@ -329,7 +288,7 @@ public struct ToolConfirmationBubble: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: VRadius.sm)
-                .fill(VColor.surfaceBase)
+                .fill(VColor.surfaceOverlay)
         )
     }
 

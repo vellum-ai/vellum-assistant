@@ -1,5 +1,4 @@
 {
   "entry": ["src/**/*.test.ts", "src/**/__tests__/**/*.ts"],
-  "project": ["src/**/*.ts"],
-  "ignoreDependencies": ["zod"]
+  "project": ["src/**/*.ts"]
 }

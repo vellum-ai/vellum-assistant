@@ -14,7 +14,10 @@ struct SettingsGeneralTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             accountSection
-            SettingsAppearanceTab(store: store, afterTimezone: AnyView(mobilePairingCard))
+            if MacOSClientFeatureFlagManager.shared.isEnabled("mobile_pairing_enabled") {
+                mobilePairingCard
+            }
+            SettingsAppearanceTab(store: store)
         }
         .onAppear {
             Task { await authManager.checkSession() }

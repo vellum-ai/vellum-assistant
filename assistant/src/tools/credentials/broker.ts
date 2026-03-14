@@ -1,7 +1,7 @@
 import { v4 as uuid } from "uuid";
 
 import { credentialKey } from "../../security/credential-key.js";
-import { getSecureKey } from "../../security/secure-keys.js";
+import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import type {
   AuthorizeRequest,
@@ -217,7 +217,7 @@ export class CredentialBroker {
     // Deletion is deferred until after a successful fill so the value survives
     // transient failures (e.g. stale element, page navigation, Playwright timeout).
     const transient = this.transientValues.get(storageKey);
-    const value = transient?.value ?? getSecureKey(storageKey);
+    const value = transient?.value ?? (await getSecureKeyAsync(storageKey));
     if (!value) {
       return {
         success: false,
@@ -302,7 +302,7 @@ export class CredentialBroker {
 
     const storageKey = credentialKey(request.service, request.field);
     const transient = this.transientValues.get(storageKey);
-    const value = transient?.value ?? getSecureKey(storageKey);
+    const value = transient?.value ?? (await getSecureKeyAsync(storageKey));
     if (!value) {
       return {
         success: false,
@@ -344,7 +344,9 @@ export class CredentialBroker {
    * never included in the result — the proxy reads it separately via
    * the secure key backend at injection time.
    */
-  serverUseById(request: ServerUseByIdRequest): ServerUseByIdResult {
+  async serverUseById(
+    request: ServerUseByIdRequest,
+  ): Promise<ServerUseByIdResult> {
     const resolved = resolveById(request.credentialId);
     if (!resolved) {
       return {
@@ -383,7 +385,7 @@ export class CredentialBroker {
 
     // Fail-closed: verify the secret value actually exists in secure storage.
     // Without this, downstream proxy code would attempt unauthenticated requests.
-    const value = getSecureKey(resolved.storageKey);
+    const value = await getSecureKeyAsync(resolved.storageKey);
     if (!value) {
       return {
         success: false,

@@ -14,6 +14,7 @@ import {
   createTimeout,
   userMessage,
 } from "../../providers/provider-send-message.js";
+import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { getLogger } from "../../util/logger.js";
 import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
@@ -53,6 +54,24 @@ async function handleBtw(
     );
   }
 
+  const trimmedContent = content.trim();
+  const ingressCheck = checkIngressForSecrets(trimmedContent);
+  if (ingressCheck.blocked) {
+    log.warn(
+      { detectedTypes: ingressCheck.detectedTypes },
+      "Blocked /v1/btw message containing secrets",
+    );
+    return Response.json(
+      {
+        accepted: false,
+        error: "secret_blocked",
+        message: ingressCheck.userNotice,
+        detectedTypes: ingressCheck.detectedTypes,
+      },
+      { status: 422 },
+    );
+  }
+
   // Look up an existing conversation — never create one.  BTW is ephemeral
   // (the file header promises "No messages are persisted"), so we must not
   // call getOrCreateConversation which would insert a DB row.  When no
@@ -63,7 +82,7 @@ async function handleBtw(
   const sessionId = mapping?.conversationId ?? conversationKey;
   const session = await deps.sendMessageDeps.getOrCreateSession(sessionId);
 
-  const messages = [...session.getMessages(), userMessage(content.trim())];
+  const messages = [...session.getMessages(), userMessage(trimmedContent)];
   const tools = buildToolDefinitions();
   const { signal: timeoutSignal, cleanup: cleanupTimeout } =
     createTimeout(30_000);

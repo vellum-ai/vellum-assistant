@@ -538,6 +538,22 @@ export class DaemonServer {
         );
         newSession.updateClient(sendToClient, true);
         await newSession.loadFromDb();
+        // Restore trust/auth context and assistant ID from stored options so
+        // that evicted sessions rehydrated by undo/regenerate don't run with
+        // unscoped history.  Without this, an untrusted actor could operate
+        // on the full conversation after eviction.
+        if (storedOptions?.assistantId) {
+          newSession.setAssistantId(storedOptions.assistantId);
+        }
+        if (storedOptions?.trustContext) {
+          newSession.setTrustContext(storedOptions.trustContext);
+        }
+        if (storedOptions?.authContext) {
+          newSession.setAuthContext(storedOptions.authContext);
+        }
+        if (storedOptions?.trustContext || storedOptions?.authContext) {
+          await newSession.ensureActorScopedHistory();
+        }
         this.applyTransportMetadata(newSession, storedOptions);
         this.sessions.set(conversationId, newSession);
         return newSession;
@@ -639,7 +655,12 @@ export class DaemonServer {
     session.setAuthContext(options?.authContext ?? null);
     await session.ensureActorScopedHistory();
     session.setChannelCapabilities(
-      resolveChannelCapabilities(sourceChannel, sourceInterface),
+      resolveChannelCapabilities(
+        sourceChannel,
+        sourceInterface,
+        null,
+        options?.transport?.chatType,
+      ),
     );
     // Only create the host bash proxy for desktop client interfaces that can
     // execute commands on the user's machine. Non-desktop sessions (CLI,

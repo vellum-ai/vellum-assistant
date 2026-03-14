@@ -390,6 +390,13 @@ export async function handleChannelInbound(
       ? (rawCommandIntent as Record<string, unknown>)
       : undefined;
 
+  // Extract chat type (e.g. "private", "group", "supergroup") for group chat gating
+  const sourceChatType =
+    typeof sourceMetadata?.chatType === "string" &&
+    sourceMetadata.chatType.trim().length > 0
+      ? sourceMetadata.chatType.trim()
+      : undefined;
+
   // Preserve locale from sourceMetadata so the model can greet in the user's language
   const sourceLanguageCode =
     typeof sourceMetadata?.languageCode === "string" &&
@@ -620,6 +627,7 @@ export async function handleChannelInbound(
       assistantId: canonicalAssistantId,
       approvalCopyGenerator,
       externalMessageId: sourceMessageId ?? externalMessageId,
+      chatType: sourceChatType,
     });
   }
 

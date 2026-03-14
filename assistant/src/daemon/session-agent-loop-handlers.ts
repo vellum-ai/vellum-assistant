@@ -865,7 +865,7 @@ export async function dispatchAgentEvent(
         type: "tool_result",
         toolName: "",
         result: "",
-        isError: false,
+        isError: event.isError,
         sessionId: deps.ctx.conversationId,
         toolUseId: event.toolUseId,
       });

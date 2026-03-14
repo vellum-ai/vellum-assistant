@@ -133,7 +133,7 @@ const log = getLogger("session-agent-loop");
  *
  * Returns the actual token count or null if it cannot be parsed.
  */
-function parseActualTokensFromError(
+export function parseActualTokensFromError(
   errorMessage: string | null,
 ): number | null {
   if (!errorMessage) return null;
@@ -710,10 +710,11 @@ export async function runAgentLoopImpl(
     const preflightBudget = Math.floor(providerMaxTokens * (1 - safetyMargin));
     let reducerState: ReducerState | undefined;
 
+    const toolTokenBudget = ctx.agentLoop.getToolTokenBudget(runMessages);
     const preflightTokens = estimatePromptTokens(
       runMessages,
       ctx.systemPrompt,
-      { providerName: ctx.provider.name },
+      { providerName: ctx.provider.name, toolTokenBudget },
     );
 
     if (overflowRecovery.enabled && preflightTokens > preflightBudget) {
@@ -747,6 +748,7 @@ export async function runAgentLoopImpl(
             systemPrompt: ctx.systemPrompt,
             contextWindow: config.contextWindow,
             targetTokens: preflightBudget,
+            toolTokenBudget,
           },
           reducerState,
           (msgs, signal, opts) =>
@@ -863,7 +865,7 @@ export async function runAgentLoopImpl(
         const estimated = estimatePromptTokens(
           checkpoint.history,
           ctx.systemPrompt,
-          { providerName: ctx.provider.name },
+          { providerName: ctx.provider.name, toolTokenBudget },
         );
         if (estimated > midLoopThreshold) {
           rlog.warn(
@@ -993,6 +995,23 @@ export async function runAgentLoopImpl(
       );
     }
 
+    // If mid-loop compaction exhausted all attempts but the agent loop
+    // still yielded (yieldedForBudget is true), the turn is incomplete.
+    // Escalate to the convergence loop's more aggressive reducer tiers
+    // (tool-result truncation, media stubbing, injection downgrade)
+    // instead of silently treating an incomplete turn as done.
+    if (yieldedForBudget && !abortController.signal.aborted) {
+      rlog.warn(
+        {
+          phase: "mid-loop-compact",
+          midLoopCompactAttempts,
+          maxAttempts: overflowRecovery.maxAttempts,
+        },
+        "Mid-loop compaction exhausted all attempts — escalating to convergence loop",
+      );
+      state.contextTooLargeDetected = true;
+    }
+
     // One-shot ordering error retry
     if (
       state.orderingErrorDetected &&
@@ -1045,6 +1064,7 @@ export async function runAgentLoopImpl(
             ),
         });
         preRepairMessages = updatedHistory;
+        preRunHistoryLength = updatedHistory.length;
       }
       if (!reducerState) {
         reducerState = createInitialReducerState();
@@ -1061,7 +1081,7 @@ export async function runAgentLoopImpl(
       const estimatedTokensAtOverflow = estimatePromptTokens(
         ctx.messages,
         ctx.systemPrompt,
-        { providerName: ctx.provider.name },
+        { providerName: ctx.provider.name, toolTokenBudget },
       );
       let correctedTarget = preflightBudget;
       if (actualTokens && estimatedTokensAtOverflow > 0) {
@@ -1113,6 +1133,7 @@ export async function runAgentLoopImpl(
             systemPrompt: ctx.systemPrompt,
             contextWindow: config.contextWindow,
             targetTokens: correctedTarget,
+            toolTokenBudget,
           },
           reducerState,
           (msgs, signal, opts) =>
@@ -1123,12 +1144,6 @@ export async function runAgentLoopImpl(
         reducerState = step.state;
         ctx.messages = step.messages;
         currentInjectionMode = step.state.injectionMode;
-
-        // If the reducer is now exhausted without compacting, break out
-        // so the overflow policy path can attempt emergency compaction.
-        if (reducerState.exhausted && !step.compactionResult?.compacted) {
-          break;
-        }
 
         if (step.compactionResult?.compacted) {
           ctx.contextCompactedMessageCount +=
@@ -1183,77 +1198,10 @@ export async function runAgentLoopImpl(
         );
       }
 
-      // When all reducer tiers are exhausted but the context is still too
-      // large, attempt one last emergency compaction before consulting the
-      // overflow policy. This covers the case where progress was made
-      // (messages grew) and the normal tiers couldn't compact enough.
-      if (state.contextTooLargeDetected && reducerState.exhausted) {
-        const emergencyCompact = await ctx.contextWindowManager.maybeCompact(
-          ctx.messages,
-          abortController.signal,
-          {
-            lastCompactedAt: ctx.contextCompactedAt ?? undefined,
-            force: true,
-            minKeepRecentUserTurns: 0,
-            targetInputTokensOverride: correctedTarget,
-          },
-        );
-        if (emergencyCompact.compacted) {
-          ctx.messages = emergencyCompact.messages;
-          ctx.contextCompactedMessageCount +=
-            emergencyCompact.compactedPersistedMessages;
-          ctx.contextCompactedAt = Date.now();
-          updateConversationContextWindow(
-            ctx.conversationId,
-            emergencyCompact.summaryText,
-            ctx.contextCompactedMessageCount,
-          );
-          onEvent({
-            type: "context_compacted",
-            previousEstimatedInputTokens:
-              emergencyCompact.previousEstimatedInputTokens,
-            estimatedInputTokens: emergencyCompact.estimatedInputTokens,
-            maxInputTokens: emergencyCompact.maxInputTokens,
-            thresholdTokens: emergencyCompact.thresholdTokens,
-            compactedMessages: emergencyCompact.compactedMessages,
-            summaryCalls: emergencyCompact.summaryCalls,
-            summaryInputTokens: emergencyCompact.summaryInputTokens,
-            summaryOutputTokens: emergencyCompact.summaryOutputTokens,
-            summaryModel: emergencyCompact.summaryModel,
-          });
-          emitUsage(
-            ctx,
-            emergencyCompact.summaryInputTokens,
-            emergencyCompact.summaryOutputTokens,
-            emergencyCompact.summaryModel,
-            onEvent,
-            "context_compactor",
-            reqId,
-            emergencyCompact.summaryCacheCreationInputTokens ?? 0,
-            emergencyCompact.summaryCacheReadInputTokens ?? 0,
-            collapseRawResponses(emergencyCompact.summaryRawResponses),
-          );
-
-          runMessages = applyRuntimeInjections(ctx.messages, {
-            ...injectionOpts,
-            mode: currentInjectionMode,
-          });
-          preRepairMessages = runMessages;
-          preRunHistoryLength = runMessages.length;
-          state.contextTooLargeDetected = false;
-
-          updatedHistory = await ctx.agentLoop.run(
-            runMessages,
-            eventHandler,
-            abortController.signal,
-            reqId,
-            onCheckpoint,
-          );
-        }
-      }
-
       // All reducer tiers exhausted but provider still rejects —
       // consult the overflow policy for latest-turn compression.
+      // Emergency compaction is deferred to the policy-gated paths below
+      // so that `request_user_approval` sessions collect consent first.
       if (state.contextTooLargeDetected) {
         const action = resolveOverflowAction({
           overflowRecovery,

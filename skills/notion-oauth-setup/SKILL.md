@@ -25,9 +25,9 @@ This skill follows the **Collaborative Guided Flow** pattern from the included `
 
 ## Prerequisites
 
-Before beginning the user-facing flow, ensure **public ingress** is configured. Notion OAuth requires a publicly reachable redirect URI — there is no loopback/desktop-app alternative.
+Before beginning the user-facing flow, check the provider's callback configuration:
 
-Read the configured public gateway URL from `ingress.publicBaseUrl`. If it is missing, load and run the `public-ingress` skill first (`skill_load` with `skill: "public-ingress"`). Build the redirect URI as `<publicBaseUrl>/webhooks/oauth/callback`.
+Run `credential_store describe service:"integration:notion"` and check the `redirectUri` field. If it says **"automatic"** or the callback transport is loopback, no redirect URL setup is needed — the assistant handles it automatically. If it mentions `ingress.publicBaseUrl`, load the `public-ingress` skill first.
 
 ## Notion-Specific Flow
 
@@ -65,34 +65,47 @@ Open: `https://www.notion.so/profile/integrations`
 - If "Public" is not available as a type, the user may need to check their workspace settings or plan level
 - If they already have an integration named "Vellum Assistant", ask if they'd like to reuse it — skip ahead to Step 3
 
-**Milestone (2 of 6):** "Integration created — now we'll configure the OAuth redirect."
+**Milestone (2 of 6):** "Integration created — now let's get it configured."
 
 ---
 
 ### Step 3: Configure OAuth Redirect URI
+
+First, resolve the redirect URI:
+
+```
+credential_store describe:
+  service: "integration:notion"
+```
+
+**If the redirect URI is "automatic" or the callback transport is loopback:**
+
+> The redirect URL is handled automatically, so we can skip this part. Let's move on to grabbing your credentials.
+
+Skip to Step 4.
+
+**If the redirect URI mentions `ingress.publicBaseUrl`:**
 
 The integration settings page should load after creation. Guide the user to the **Distribution** tab or section.
 
 > Now look for the **Distribution** tab in the left sidebar (or a section called **OAuth Domain & URIs**). Click into it.
 >
 > You should see a field for **Redirect URIs**. Paste this exact URL:
-> `OAUTH_CALLBACK_URL`
+> `<resolved redirect URI>`
 >
 > Then scroll down and click **Save changes**.
 
-Replace `OAUTH_CALLBACK_URL` with the concrete redirect URI built from `ingress.publicBaseUrl`. Never send the placeholder literally.
-
-Copy the redirect URI to the clipboard before navigating so the user can paste it:
+Copy the resolved redirect URI to the clipboard before navigating so the user can paste it:
 
 ```
 host_bash:
   command: |
-    echo -n "OAUTH_CALLBACK_URL" | pbcopy && /tmp/vellum-nav.sh "https://www.notion.so/profile/integrations"
+    echo -n "<resolved redirect URI>" | pbcopy && /tmp/vellum-nav.sh "https://www.notion.so/profile/integrations"
 ```
 
 **Known issues:**
 
-- Notion may require a "Website" or "Redirect URI" domain to be filled in as well — if so, use the base domain from `ingress.publicBaseUrl`
+- Notion may require a "Website" or "Redirect URI" domain to be filled in as well — if so, use the base domain from the redirect URI
 - If the page shows "Internal integration" with no Distribution tab, the integration was created as Internal — they'll need to recreate it as Public
 
 ---
@@ -156,5 +169,5 @@ For non-interactive channels, see [references/path-b-manual-setup.md](references
 
 Key Notion-specific differences for Path B:
 
-- Still requires public ingress for the redirect URI (no loopback alternative)
+- Uses loopback callback by default — no public ingress needed unless on a remote channel
 - Client Secret prefix is `secret_` — use `credential_store prompt` to collect it securely; split entry is not needed since this prefix doesn't trigger channel scanners

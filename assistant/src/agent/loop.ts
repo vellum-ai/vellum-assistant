@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/node";
 
+import { estimateToolsTokens } from "../context/token-estimator.js";
 import { truncateOversizedToolResults } from "../context/tool-result-truncation.js";
 import { getHookManager } from "../hooks/manager.js";
 import type {
@@ -78,7 +79,7 @@ export type AgentEvent =
       toolUseId: string;
       input: Record<string, unknown>;
     }
-  | { type: "server_tool_complete"; toolUseId: string }
+  | { type: "server_tool_complete"; toolUseId: string; isError: boolean }
   | { type: "error"; error: Error }
   | {
       type: "usage";
@@ -173,6 +174,20 @@ export class AgentLoop {
     this.resolveTools = resolveTools ?? null;
     this.resolveSystemPrompt = resolveSystemPrompt ?? null;
     this.toolExecutor = toolExecutor ?? null;
+  }
+
+  /**
+   * Estimate token cost of the tool definitions sent to the provider.
+   *
+   * When `history` is provided and a dynamic `resolveTools` callback
+   * exists, the budget is derived from the resolved tool list for that
+   * turn — matching what `run()` actually sends. Without `history` (or
+   * without a resolver), falls back to the static `this.tools`.
+   */
+  getToolTokenBudget(history?: Message[]): number {
+    const tools =
+      history && this.resolveTools ? this.resolveTools(history) : this.tools;
+    return estimateToolsTokens(tools);
   }
 
   async run(
@@ -318,6 +333,7 @@ export class AgentLoop {
                 onEvent({
                   type: "server_tool_complete",
                   toolUseId: event.toolUseId,
+                  isError: event.isError,
                 });
               }
             },

@@ -116,6 +116,7 @@ export interface RuntimeMessageSessionOptions {
     channelId: ChannelId;
     hints?: string[];
     uxBrief?: string;
+    chatType?: string;
   };
   assistantId?: string;
   trustContext?: TrustContext;

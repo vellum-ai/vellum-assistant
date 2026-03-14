@@ -59,7 +59,6 @@ struct MemoryItemDetailSheet: View {
                 .padding(.bottom, VSpacing.sm)
             }
 
-            Divider().background(VColor.borderBase)
             footer
         }
         .frame(width: 480, height: 520)
@@ -69,8 +68,12 @@ struct MemoryItemDetailSheet: View {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {
                 Task {
-                    _ = await store.deleteItem(id: item.id)
-                    onDismiss()
+                    let success = await store.deleteItem(id: item.id)
+                    if success {
+                        onDismiss()
+                    } else {
+                        errorMessage = "Failed to delete memory. Please try again."
+                    }
                 }
             }
         } message: {
@@ -84,45 +87,53 @@ struct MemoryItemDetailSheet: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(spacing: VSpacing.sm) {
-            kindBadge
+        HStack(alignment: .center, spacing: VSpacing.sm) {
             Text(displayItem.subject)
-                .font(VFont.headline)
+                .font(VFont.cardTitle)
                 .foregroundColor(VColor.contentDefault)
                 .lineLimit(1)
+
             Spacer()
 
             if !isEditing {
+                HStack(spacing: VSpacing.xs) {
+                    VButton(
+                        label: "Edit",
+                        iconOnly: VIcon.pencil.rawValue,
+                        style: .ghost,
+                        tooltip: "Edit memory"
+                    ) {
+                        isEditing = true
+                    }
+
+                    VButton(
+                        label: "Delete",
+                        iconOnly: VIcon.trash.rawValue,
+                        style: .ghost,
+                        tooltip: "Delete memory"
+                    ) {
+                        showDeleteConfirm = true
+                    }
+
+                    VButton(
+                        label: "Close",
+                        iconOnly: VIcon.x.rawValue,
+                        style: .ghost,
+                        tooltip: "Close"
+                    ) {
+                        onDismiss()
+                    }
+                }
+            } else {
                 VButton(
-                    label: "Edit",
-                    iconOnly: VIcon.pencil.rawValue,
+                    label: "Close",
+                    iconOnly: VIcon.x.rawValue,
                     style: .ghost,
-                    tooltip: "Edit memory"
+                    tooltip: "Close"
                 ) {
-                    isEditing = true
-                }
-
-                VButton(
-                    label: "Delete",
-                    iconOnly: VIcon.trash.rawValue,
-                    style: .danger,
-                    tooltip: "Delete memory"
-                ) {
-                    showDeleteConfirm = true
+                    onDismiss()
                 }
             }
-
-            Button {
-                onDismiss()
-            } label: {
-                VIconView(.x, size: 11)
-                    .foregroundColor(VColor.contentTertiary)
-                    .frame(width: 24, height: 24)
-                    .background(VColor.surfaceBase)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close")
         }
         .padding(.horizontal, VSpacing.xl)
         .padding(.vertical, VSpacing.lg)
@@ -135,7 +146,7 @@ struct MemoryItemDetailSheet: View {
         // Statement
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text("Statement")
-                .font(VFont.caption)
+                .font(VFont.bodyMedium)
                 .foregroundColor(VColor.contentTertiary)
             Text(displayItem.statement)
                 .font(VFont.body)
@@ -146,10 +157,16 @@ struct MemoryItemDetailSheet: View {
         // Metadata
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Details")
-                .font(VFont.caption)
+                .font(VFont.bodyMedium)
                 .foregroundColor(VColor.contentTertiary)
 
-            metadataRow(label: "Kind", value: memoryKind?.label ?? displayItem.kind.capitalized)
+            HStack(spacing: VSpacing.xs) {
+                Text("Kind")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentTertiary)
+                    .frame(width: 110, alignment: .leading)
+                kindBadge
+            }
             metadataRow(label: "Status", value: displayItem.status.capitalized)
             metadataRow(label: "Confidence", value: "\(Int(displayItem.confidence * 100))%")
             if let importance = displayItem.importance {
@@ -159,20 +176,26 @@ struct MemoryItemDetailSheet: View {
             // Verification state
             HStack(spacing: VSpacing.xs) {
                 Text("Verification")
-                    .font(VFont.caption)
+                    .font(VFont.body)
                     .foregroundColor(VColor.contentTertiary)
-                    .frame(width: 100, alignment: .leading)
+                    .frame(width: 110, alignment: .leading)
                 if displayItem.isUserConfirmed {
-                    VIconView(.circleCheck, size: 12)
+                    VIconView(.circleCheck, size: 13)
                         .foregroundColor(VColor.systemPositiveStrong)
                     Text("Confirmed by you")
+                        .font(VFont.bodyMedium)
+                        .foregroundColor(VColor.contentSecondary)
+                } else if displayItem.isUserReported {
+                    VIconView(.user, size: 12)
+                        .foregroundColor(VColor.contentSecondary)
+                    Text("Reported by you")
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentSecondary)
                 } else {
-                    VIconView(.sparkles, size: 12)
+                    VIconView(.sparkles, size: 13)
                         .foregroundColor(VColor.contentTertiary)
                     Text("Inferred by assistant")
-                        .font(VFont.caption)
+                        .font(VFont.bodyMedium)
                         .foregroundColor(VColor.contentSecondary)
                 }
             }
@@ -261,8 +284,7 @@ struct MemoryItemDetailSheet: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentSecondary)
                 }
-                Slider(value: $editImportance, in: 0...1, step: 0.1)
-                    .tint(VColor.primaryBase)
+                VSlider(value: $editImportance, range: 0...1, step: 0.1)
             }
         }
     }
@@ -293,7 +315,7 @@ struct MemoryItemDetailSheet: View {
                 VButton(
                     label: isSaving ? "Saving..." : "Save",
                     style: .primary,
-                    isDisabled: isSaving
+                    isDisabled: !isEditFormValid || isSaving
                 ) {
                     save()
                 }
@@ -303,6 +325,13 @@ struct MemoryItemDetailSheet: View {
         }
         .padding(.horizontal, VSpacing.xl)
         .padding(.vertical, VSpacing.lg)
+    }
+
+    // MARK: - Validation
+
+    private var isEditFormValid: Bool {
+        !editSubject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !editStatement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     // MARK: - Actions
@@ -352,11 +381,11 @@ struct MemoryItemDetailSheet: View {
     private func metadataRow(label: String, value: String) -> some View {
         HStack(spacing: VSpacing.xs) {
             Text(label)
-                .font(VFont.caption)
+                .font(VFont.body)
                 .foregroundColor(VColor.contentTertiary)
-                .frame(width: 100, alignment: .leading)
+                .frame(width: 110, alignment: .leading)
             Text(value)
-                .font(VFont.caption)
+                .font(VFont.bodyMedium)
                 .foregroundColor(VColor.contentSecondary)
         }
     }

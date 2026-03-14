@@ -16,6 +16,7 @@ private let log = Logger(
 /// - `~/Library/Application Support/vellum-assistant/logs/`  — per-session JSON logs
 /// - `~/Library/Application Support/vellum-assistant/debug-state.json` — live debug snapshot (includes session error debug details)
 /// - Daemon logs, audit data, and sanitized config via `POST /v1/export` gateway HTTP API
+/// - Workspace files via `POST /v1/export` — full workspace contents (config, skills, prompts, hooks, DB dump, logs)
 /// - `~/.config/vellum/logs/` — CLI XDG logs (hatch.log, retire.log, etc.)
 /// - `~/.vellum.lock.json` — sanitized lockfile with assistant entries and resource ports (credentials stripped)
 /// - `user-defaults.json` — snapshot of app-relevant UserDefaults keys
@@ -399,6 +400,25 @@ enum LogExporter {
                     options: [.prettyPrinted, .sortedKeys]
                 ) {
                     try? configData.write(to: directory.appendingPathComponent("config-snapshot.json"))
+                }
+            }
+
+            // Write workspace files into a workspace/ subdirectory
+            if let workspaceFiles = json["workspaceFiles"] as? [String: String] {
+                let workspaceDir = directory.appendingPathComponent("workspace", isDirectory: true)
+                try? FileManager.default.createDirectory(at: workspaceDir, withIntermediateDirectories: true)
+                for (relativePath, content) in workspaceFiles {
+                    // Prevent directory traversal — reject paths containing ".."
+                    let components = (relativePath as NSString).pathComponents
+                    guard !components.contains("..") else {
+                        log.warning("Skipping workspace file with path traversal: \(relativePath)")
+                        continue
+                    }
+                    let fileURL = workspaceDir.appendingPathComponent(relativePath)
+                    // Create intermediate directories for nested paths
+                    let parentDir = fileURL.deletingLastPathComponent()
+                    try? FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
+                    try? content.write(to: fileURL, atomically: true, encoding: .utf8)
                 }
             }
         } catch {

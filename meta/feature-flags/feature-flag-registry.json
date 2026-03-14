@@ -98,6 +98,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "mobile-pairing",
+      "scope": "macos",
+      "key": "mobile_pairing_enabled",
+      "label": "Mobile Pairing",
+      "description": "Show the Mobile (iOS) pairing card in Settings > Account",
+      "defaultEnabled": false
+    },
+    {
       "id": "gmail",
       "scope": "assistant",
       "key": "feature_flags.gmail.enabled",

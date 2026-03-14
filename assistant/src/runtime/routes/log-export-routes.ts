@@ -6,8 +6,15 @@
  * of requiring direct filesystem access.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { spawnSync } from "node:child_process";
+import {
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
+import { join, relative } from "node:path";
 
 import { desc } from "drizzle-orm";
 
@@ -18,6 +25,7 @@ import {
   getDataDir,
   getRootDir,
   getWorkspaceConfigPath,
+  getWorkspaceDir,
 } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
@@ -36,6 +44,7 @@ interface ExportResponse {
   auditRows: Array<Record<string, unknown>>;
   logFiles: Record<string, string>;
   configSnapshot?: Record<string, unknown>;
+  workspaceFiles: Record<string, string>;
 }
 
 /**
@@ -91,12 +100,16 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
     // --- Sanitized config snapshot ---
     const configSnapshot = readSanitizedConfig();
 
+    // --- Workspace files ---
+    const workspaceFiles = collectWorkspaceFiles();
+
     log.info(
       {
         auditCount: auditRows.length,
         logFileCount: Object.keys(logFiles).length,
         totalBytes,
         hasConfig: configSnapshot !== undefined,
+        workspaceFileCount: Object.keys(workspaceFiles).length,
       },
       "Export completed",
     );
@@ -106,6 +119,7 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
       auditRows,
       logFiles,
       configSnapshot,
+      workspaceFiles,
     };
     return Response.json(payload);
   } catch (err) {
@@ -113,6 +127,112 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
     log.error({ err }, "Failed to export");
     return httpError("INTERNAL_ERROR", `Failed to export: ${message}`, 500);
   }
+}
+
+/** Directory prefixes to skip when collecting workspace files. */
+const WORKSPACE_SKIP_DIRS = new Set(["embedding-models", "data/qdrant"]);
+
+/** Files at the workspace root to skip (already covered by sanitized fields). */
+const WORKSPACE_SKIP_ROOT_FILES = new Set(["config.json"]);
+
+/** Maximum cumulative size for workspace file contents (10 MB). */
+const MAX_WORKSPACE_PAYLOAD_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Recursively collects files from the workspace directory into a
+ * `Record<string, string>` map of relative path to content.
+ *
+ * - Skips `config.json` at the workspace root (already exported as a
+ *   sanitized `configSnapshot`; the raw file contains secrets).
+ * - Skips symlinks to prevent reading files outside the workspace.
+ * - Skips directories in `WORKSPACE_SKIP_DIRS`.
+ * - For `.db` files, shells out to `sqlite3 <path> .dump` and stores the
+ *   SQL text output with a `.sql` suffix appended to the key.
+ * - Skips binary files (detected via null-byte heuristic).
+ * - Stops collecting once `MAX_WORKSPACE_PAYLOAD_BYTES` is reached.
+ */
+function collectWorkspaceFiles(): Record<string, string> {
+  const wsDir = getWorkspaceDir();
+  if (!existsSync(wsDir)) return {};
+
+  const result: Record<string, string> = {};
+  let totalBytes = 0;
+
+  function walk(dir: string): void {
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const fullPath = join(dir, entry);
+      const relPath = relative(wsDir, fullPath);
+
+      // Check if this path falls under a skipped directory prefix
+      if (
+        [...WORKSPACE_SKIP_DIRS].some(
+          (prefix) => relPath === prefix || relPath.startsWith(prefix + "/"),
+        )
+      ) {
+        continue;
+      }
+
+      // Skip root-level files that are already exported separately
+      if (dir === wsDir && WORKSPACE_SKIP_ROOT_FILES.has(entry)) {
+        continue;
+      }
+
+      try {
+        // Use lstatSync to avoid following symlinks
+        const stat = lstatSync(fullPath);
+
+        // Skip symlinks — they could point outside the workspace
+        if (stat.isSymbolicLink()) continue;
+
+        if (stat.isDirectory()) {
+          walk(fullPath);
+          continue;
+        }
+        if (!stat.isFile()) continue;
+
+        // Enforce cumulative size cap
+        if (totalBytes + stat.size > MAX_WORKSPACE_PAYLOAD_BYTES) continue;
+
+        // SQLite DB handling: dump as SQL text
+        if (entry.endsWith(".db")) {
+          try {
+            const proc = spawnSync("sqlite3", [fullPath, ".dump"], {
+              timeout: 10_000,
+            });
+            if (proc.status === 0 && proc.stdout) {
+              const output =
+                proc.stdout instanceof Buffer
+                  ? proc.stdout.toString("utf-8")
+                  : String(proc.stdout);
+              result[relPath + ".sql"] = output;
+              totalBytes += Buffer.byteLength(output, "utf-8");
+            }
+          } catch {
+            // Skip if dump fails
+          }
+          continue;
+        }
+
+        // Read as UTF-8 and skip binary files (null-byte heuristic)
+        const content = readFileSync(fullPath, "utf-8");
+        if (content.includes("\0")) continue;
+        result[relPath] = content;
+        totalBytes += stat.size;
+      } catch {
+        // Skip unreadable files
+      }
+    }
+  }
+
+  walk(wsDir);
+  return result;
 }
 
 /**

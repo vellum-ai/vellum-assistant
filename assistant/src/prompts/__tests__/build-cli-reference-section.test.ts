@@ -29,7 +29,7 @@ describe("buildCliReferenceSection", () => {
 
   test("mentions bash as the way to invoke the CLI", () => {
     const result = buildCliReferenceSection();
-    expect(result).toContain("available via `bash`");
+    expect(result).toContain("use the `bash` tool");
   });
 
   test("routes account and auth work through documented assistant CLI commands", () => {

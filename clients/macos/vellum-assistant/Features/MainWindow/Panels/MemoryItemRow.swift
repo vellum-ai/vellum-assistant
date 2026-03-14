@@ -9,34 +9,32 @@ struct MemoryItemRow: View {
 
     var body: some View {
         Button(action: onSelect) {
-            HStack(alignment: .top, spacing: VSpacing.md) {
-                kindBadge
+            VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                HStack(spacing: VSpacing.sm) {
+                    Text(item.subject)
+                        .font(VFont.bodyBold)
+                        .foregroundColor(VColor.contentDefault)
 
-                VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                    HStack {
-                        Text(item.subject)
-                            .font(VFont.bodyBold)
-                            .foregroundColor(VColor.contentDefault)
+                    kindBadge
 
-                        Spacer()
+                    Spacer()
 
-                        if item.isUserConfirmed {
-                            VIconView(.circleCheck, size: 12)
-                                .foregroundColor(VColor.systemPositiveStrong)
-                                .accessibilityLabel("User confirmed")
-                        }
-
-                        Text(item.relativeLastSeen)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
+                    if item.isUserConfirmed {
+                        VIconView(.circleCheck, size: 12)
+                            .foregroundColor(VColor.systemPositiveStrong)
+                            .accessibilityLabel("User confirmed")
                     }
 
-                    Text(item.statement)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.contentSecondary)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
+                    Text(item.relativeLastSeen)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
                 }
+
+                Text(item.statement)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.contentSecondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
             }
             .padding(VSpacing.md)
             .background(isHovered ? VColor.surfaceActive : Color.clear)

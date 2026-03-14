@@ -59,8 +59,11 @@ let mockGetCredentialMetadata: ReturnType<typeof mock>;
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (...args: unknown[]) => mockGetSecureKey(...args),
+  getSecureKeyAsync: async (...args: unknown[]) => mockGetSecureKey(...args),
   setSecureKey: () => true,
+  setSecureKeyAsync: async () => true,
   deleteSecureKey: () => "deleted",
+  deleteSecureKeyAsync: async () => "deleted",
   listSecureKeys: () => [],
   getBackendType: () => "encrypted",
   _resetBackend: () => {},

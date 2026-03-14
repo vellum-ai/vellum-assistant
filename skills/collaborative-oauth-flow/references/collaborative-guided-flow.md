@@ -67,7 +67,7 @@ The helper detects the default browser and navigates in the existing tab. Falls 
 ### Rules
 
 1. **Navigation is your job.** Open every URL for the user — they should never have to type a URL.
-2. **Screenshots are a tool, not a routine.** Give clear landmark-based instructions and let the user report. If they're stuck, offer to screenshot: "Want me to take a look? I can screenshot your screen to see what you're seeing."
+2. **Screenshot after navigating.** After opening a page, take a screenshot to see what's actually on screen. Use what you see to give specific, contextual instructions rather than generic guidance. Developer consoles change frequently — never assume you know the exact layout.
 3. **Never auto-advance.** Wait for user confirmation ("done", "ok", "next") before proceeding.
 4. **Use landmarks, not coordinates.** Say "Look for **APIs & Services**" not "click the third item in the left sidebar."
 5. **Confirm after, not before.** Describe what they _should see after_ they act, not what the page _should_ look like beforehand.
@@ -81,10 +81,11 @@ The helper detects the default browser and navigates in the existing tab. Falls 
 Every step follows this pattern:
 
 1. **Open the URL** using the navigation helper
-2. **Give a landmark-based instruction** — tell the user what to look for
-3. **User acts** and confirms
-4. **If the user reports a mismatch** — offer to screenshot, then adapt
-5. **Move on** once confirmed
+2. **Screenshot** to see the current state of the page
+3. **Give a specific instruction** based on what you actually see on screen — reference exact button labels, section names, and layout
+4. **User acts** and confirms
+5. **If the user reports a mismatch or seems stuck** — screenshot again to see what changed, then adapt
+6. **Move on** once confirmed
 
 ---
 
@@ -178,9 +179,9 @@ bash:
 For non-interactive channels, provide all URLs and instructions as text messages. Key differences from Path A:
 
 - The user navigates on their own — give them the URLs to open
-- Use **Web application** credentials (not Desktop app) because the OAuth callback goes through the public gateway URL
+- For providers with `callbackTransport: "gateway"`, use **Web application** credentials and resolve the redirect URI from `ingress.publicBaseUrl`; if not configured, load the `public-ingress` skill first
+- For providers with `callbackTransport: "loopback"`, the redirect URI is handled automatically in Path A; in Path B (remote channel), public ingress is still required since the loopback port is not reachable
 - Collect the Client Secret via split entry if the secret prefix could trigger channel scanners (e.g., Slack's `xoxp-`, Google's `GOCSPX-`)
-- Resolve the redirect URI from `ingress.publicBaseUrl` before sending instructions; if not configured, load the `public-ingress` skill first
 
 ---
 
@@ -188,22 +189,22 @@ For non-interactive channels, provide all URLs and instructions as text messages
 
 ### When Things Don't Match
 
-1. **Don't panic or apologize excessively** — "Okay, this looks a bit different than expected. Let me take a look..."
-2. **Describe what you see and reorient** — "It looks like you're on the project selector page. Let's pick the project we just created..."
+1. **Don't panic or apologize excessively** — "Okay, that looks a bit different than expected. Let me take a look..."
+2. **Screenshot first, then reorient** — take a screenshot to see the actual state, then describe what you see: "It looks like you're on the project selector page. Let's pick the project we just created..."
 3. **Never blame the user** — the UI is the variable, not them.
 
 ### Recovery Patterns
 
-| Situation                              | Response                                                                  |
-| -------------------------------------- | ------------------------------------------------------------------------- |
-| User lands on unexpected page          | Offer to screenshot, identify where they are, navigate back               |
-| User not signed in                     | Tell them to sign in, wait, continue                                      |
-| Feature already configured             | "Looks like this is already set up — great, let's skip ahead."            |
-| Quota / billing issue                  | Explain clearly, help resolve or use a different project                  |
-| Secret not shown after creation        | Guide to credential detail page as fallback                               |
-| Auth URL returned instead of auto-open | Send URL to user to open manually                                         |
-| User is confused or frustrated         | Pause, acknowledge, simplify: "Let's take a step back..."                 |
-| `open` command fails                   | Fall back to Path B (give URLs manually)                                  |
+| Situation                              | Response                                                       |
+| -------------------------------------- | -------------------------------------------------------------- |
+| User lands on unexpected page          | Offer to screenshot, identify where they are, navigate back    |
+| User not signed in                     | Tell them to sign in, wait, continue                           |
+| Feature already configured             | "Looks like this is already set up — great, let's skip ahead." |
+| Quota / billing issue                  | Explain clearly, help resolve or use a different project       |
+| Secret not shown after creation        | Guide to credential detail page as fallback                    |
+| Auth URL returned instead of auto-open | Send URL to user to open manually                              |
+| User is confused or frustrated         | Pause, acknowledge, simplify: "Let's take a step back..."      |
+| `open` command fails                   | Fall back to Path B (give URLs manually)                       |
 
 ## Tone & Voice
 

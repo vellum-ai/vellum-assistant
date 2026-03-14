@@ -226,7 +226,7 @@ describe("classifySessionError", () => {
         expect(result.code).toBe("PROVIDER_ORDERING");
         expect(result.retryable).toBe(true);
         expect(result.userMessage).toBe(
-          "An internal error occurred. Retrying...",
+          "An internal error occurred. Please try again.",
         );
         expect(result.errorCategory).toBe("tool_ordering");
       });
@@ -257,7 +257,7 @@ describe("classifySessionError", () => {
         expect(result.code).toBe("PROVIDER_WEB_SEARCH");
         expect(result.retryable).toBe(true);
         expect(result.userMessage).toBe(
-          "An internal error occurred with web search. Retrying...",
+          "An internal error occurred with web search. Please try again.",
         );
         expect(result.errorCategory).toBe("web_search_ordering");
       });
@@ -513,7 +513,7 @@ describe("buildSessionErrorMessage", () => {
   it("includes errorCategory for ordering errors", () => {
     const msg = buildSessionErrorMessage("session-789", {
       code: "PROVIDER_ORDERING",
-      userMessage: "An internal error occurred. Retrying...",
+      userMessage: "An internal error occurred. Please try again.",
       retryable: true,
       errorCategory: "tool_ordering",
     });
@@ -525,7 +525,8 @@ describe("buildSessionErrorMessage", () => {
   it("includes errorCategory for web search errors", () => {
     const msg = buildSessionErrorMessage("session-abc", {
       code: "PROVIDER_WEB_SEARCH",
-      userMessage: "An internal error occurred with web search. Retrying...",
+      userMessage:
+        "An internal error occurred with web search. Please try again.",
       retryable: true,
       errorCategory: "web_search_ordering",
     });

@@ -44,8 +44,8 @@ struct GeneratedPanel: View {
     @State private var showShareSheet = false
     @State private var pendingDeleteId: String?
 
-    // Track how many list responses we're waiting for
-    @State private var pendingResponses = 0
+    @State private var fetchAppsTask: Task<Void, Never>?
+    @State private var fetchAppsGeneration = 0
 
     /// Cache of lazily-loaded preview screenshots keyed by local app ID.
     /// Empty string is used as a sentinel for "fetched but no preview available".
@@ -206,6 +206,8 @@ struct GeneratedPanel: View {
             fetchApps()
         }
         .onDisappear {
+            fetchAppsTask?.cancel()
+            fetchAppsTask = nil
             for task in previewTasks.values { task.cancel() }
             previewTasks.removeAll()
         }
@@ -473,62 +475,44 @@ struct GeneratedPanel: View {
     @State private var sharedApps: [SharedAppItem] = []
 
     private func fetchApps() {
+        fetchAppsTask?.cancel()
+
         isLoading = true
-        pendingResponses = 2
+        fetchAppsGeneration += 1
+        let generation = fetchAppsGeneration
 
-        Task { @MainActor in
-            daemonClient.onAppsListResponse = { response in
-                self.localApps = response.apps
-                self.pendingResponses -= 1
-                if self.pendingResponses <= 0 {
-                    self.buildDisplayItems()
-                    self.isLoading = false
+        let task = Task { @MainActor in
+            defer {
+                if fetchAppsGeneration == generation {
+                    fetchAppsTask = nil
                 }
             }
 
-            daemonClient.onSharedAppsListResponse = { response in
-                self.sharedApps = response.apps
-                self.pendingResponses -= 1
-                if self.pendingResponses <= 0 {
-                    self.buildDisplayItems()
-                    self.isLoading = false
+            async let localResult: [AppItem] = {
+                do {
+                    return try await AppsLoader.load(using: daemonClient)
+                } catch {
+                    return []
                 }
-            }
+            }()
 
-            // Handle daemon-side errors that arrive as generic `error` messages
-            // instead of typed responses — reset loading/bundling state so the UI
-            // never gets permanently stuck.
-            daemonClient.onError = { _ in
-                if self.isLoading {
-                    self.pendingResponses -= 1
-                    if self.pendingResponses <= 0 {
-                        self.buildDisplayItems()
-                        self.isLoading = false
-                    }
+            async let sharedResult: [SharedAppItem] = {
+                do {
+                    return try await SharedAppsLoader.load(using: daemonClient)
+                } catch {
+                    return []
                 }
-                if self.isBundling {
-                    self.isBundling = false
-                    self.sharingAppId = nil
-                }
-            }
+            }()
 
-            do {
-                try daemonClient.sendAppsList()
-            } catch {
-                pendingResponses -= 1
-            }
+            let (fetchedLocal, fetchedShared) = await (localResult, sharedResult)
+            guard fetchAppsGeneration == generation else { return }
 
-            do {
-                try daemonClient.sendSharedAppsList()
-            } catch {
-                pendingResponses -= 1
-            }
-
-            if pendingResponses <= 0 {
-                buildDisplayItems()
-                isLoading = false
-            }
+            localApps = fetchedLocal
+            sharedApps = fetchedShared
+            buildDisplayItems()
+            isLoading = false
         }
+        fetchAppsTask = task
     }
 
     /// Fetch preview for a local app when its row appears on screen.

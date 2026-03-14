@@ -1,4 +1,8 @@
-import type { ContentBlock, Message } from "../providers/types.js";
+import type {
+  ContentBlock,
+  Message,
+  ToolDefinition,
+} from "../providers/types.js";
 import { parseImageDimensions } from "./image-dimensions.js";
 
 const CHARS_PER_TOKEN = 4;
@@ -29,8 +33,17 @@ const ANTHROPIC_IMAGE_MAX_TOKENS = Math.ceil(
 const ANTHROPIC_PDF_TOKENS_PER_BYTE = 0.016;
 const ANTHROPIC_PDF_MIN_TOKENS = 1600; // At least one page
 
+// Anthropic wraps each tool definition in XML internally, adding overhead
+// beyond the raw JSON schema. Empirically measured at ~132 tokens/tool via
+// the countTokens API, but the overhead varies by schema complexity.
+// We use per-tool estimation (JSON schema size) plus a fixed XML-wrapping
+// overhead to approximate the actual cost.
+const TOOL_DEFINITION_OVERHEAD_TOKENS = 28;
+
 export interface TokenEstimatorOptions {
   providerName?: string;
+  /** Pre-computed tool token budget. When provided, added to the prompt total. */
+  toolTokenBudget?: number;
 }
 
 export function estimateTextTokens(text: string): number {
@@ -185,6 +198,25 @@ export function estimateMessagesTokens(
   return total;
 }
 
+/** Estimate token cost for a single tool definition. */
+export function estimateToolDefinitionTokens(tool: ToolDefinition): number {
+  return (
+    TOOL_DEFINITION_OVERHEAD_TOKENS +
+    estimateTextTokens(tool.name) +
+    estimateTextTokens(tool.description) +
+    estimateTextTokens(stableJson(tool.input_schema))
+  );
+}
+
+/** Estimate total token cost for an array of tool definitions. */
+export function estimateToolsTokens(tools: ToolDefinition[]): number {
+  let total = 0;
+  for (const tool of tools) {
+    total += estimateToolDefinitionTokens(tool);
+  }
+  return total;
+}
+
 export function estimatePromptTokens(
   messages: Message[],
   systemPrompt?: string,
@@ -193,7 +225,8 @@ export function estimatePromptTokens(
   const systemTokens = systemPrompt
     ? SYSTEM_PROMPT_OVERHEAD_TOKENS + estimateTextTokens(systemPrompt)
     : 0;
-  return systemTokens + estimateMessagesTokens(messages, options);
+  const toolTokens = options?.toolTokenBudget ?? 0;
+  return systemTokens + toolTokens + estimateMessagesTokens(messages, options);
 }
 
 function stableJson(value: unknown): string {

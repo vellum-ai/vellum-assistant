@@ -18,7 +18,8 @@ struct AppDirectoryView: View {
 
     @State private var localApps: [AppItem] = []
     @State private var sharedApps: [SharedAppItem] = []
-    @State private var pendingResponses = 0
+    @State private var fetchAppsTask: Task<Void, Never>?
+    @State private var fetchAppsGeneration = 0
 
     /// Cache of lazily-loaded preview screenshots keyed by local app ID.
     /// Empty string is used as a sentinel for "fetched but no preview available".
@@ -126,6 +127,8 @@ struct AppDirectoryView: View {
         .background(VColor.surfaceBase)
         .onAppear { fetchApps() }
         .onDisappear {
+            fetchAppsTask?.cancel()
+            fetchAppsTask = nil
             for task in previewTasks.values { task.cancel() }
             previewTasks.removeAll()
         }
@@ -261,65 +264,44 @@ struct AppDirectoryView: View {
     // MARK: - Data Fetching
 
     private func fetchApps() {
+        fetchAppsTask?.cancel()
+
         isLoading = true
-        pendingResponses = 2
+        fetchAppsGeneration += 1
+        let generation = fetchAppsGeneration
 
-        Task { @MainActor in
-            // Save the previous onError handler so we can restore it once our
-            // requests complete, avoiding swallowing unrelated daemon errors.
-            let previousOnError = daemonClient.onError
-
-            daemonClient.onAppsListResponse = { response in
-                self.localApps = response.apps
-                self.pendingResponses -= 1
-                if self.pendingResponses <= 0 {
-                    daemonClient.onError = previousOnError
-                    self.buildDisplayItems()
-                    self.isLoading = false
+        let task = Task { @MainActor in
+            defer {
+                if fetchAppsGeneration == generation {
+                    fetchAppsTask = nil
                 }
             }
 
-            daemonClient.onSharedAppsListResponse = { response in
-                self.sharedApps = response.apps
-                self.pendingResponses -= 1
-                if self.pendingResponses <= 0 {
-                    daemonClient.onError = previousOnError
-                    self.buildDisplayItems()
-                    self.isLoading = false
+            async let localResult: [AppItem] = {
+                do {
+                    return try await AppsLoader.load(using: daemonClient)
+                } catch {
+                    return []
                 }
-            }
+            }()
 
-            daemonClient.onError = { error in
-                if self.isLoading {
-                    self.pendingResponses -= 1
-                    if self.pendingResponses <= 0 {
-                        daemonClient.onError = previousOnError
-                        self.buildDisplayItems()
-                        self.isLoading = false
-                    }
-                } else {
-                    previousOnError?(error)
+            async let sharedResult: [SharedAppItem] = {
+                do {
+                    return try await SharedAppsLoader.load(using: daemonClient)
+                } catch {
+                    return []
                 }
-            }
+            }()
 
-            do {
-                try daemonClient.sendAppsList()
-            } catch {
-                pendingResponses -= 1
-            }
+            let (fetchedLocal, fetchedShared) = await (localResult, sharedResult)
+            guard fetchAppsGeneration == generation else { return }
 
-            do {
-                try daemonClient.sendSharedAppsList()
-            } catch {
-                pendingResponses -= 1
-            }
-
-            if pendingResponses <= 0 {
-                daemonClient.onError = previousOnError
-                buildDisplayItems()
-                isLoading = false
-            }
+            localApps = fetchedLocal
+            sharedApps = fetchedShared
+            buildDisplayItems()
+            isLoading = false
         }
+        fetchAppsTask = task
     }
 
     /// Fetch preview for a local app when its card appears on screen.

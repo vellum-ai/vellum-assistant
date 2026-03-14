@@ -79,8 +79,7 @@ struct MemoryItemCreateSheet: View {
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.contentSecondary)
                         }
-                        Slider(value: $importance, in: 0...1, step: 0.1)
-                            .tint(VColor.primaryBase)
+                        VSlider(value: $importance, range: 0...1, step: 0.1)
                     }
 
                     if let errorMessage {

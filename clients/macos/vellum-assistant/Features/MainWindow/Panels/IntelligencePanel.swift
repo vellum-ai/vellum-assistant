@@ -46,7 +46,6 @@ struct IntelligencePanel: View {
 
             // Tab content
             tabContent
-                .padding(.top, VSpacing.sm)
         }
         .padding(VSpacing.xl)
     }
@@ -85,6 +84,7 @@ struct IntelligencePanel: View {
                 onClose: onClose,
                 daemonClient: daemonClient
             )
+            .padding(.top, VSpacing.sm)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .clipped()
 
@@ -93,10 +93,12 @@ struct IntelligencePanel: View {
                 onInvokeSkill: onInvokeSkill,
                 daemonClient: daemonClient
             )
+            .padding(.top, VSpacing.sm)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
         case .workspace:
             WorkspacePanel(daemonClient: daemonClient)
+                .padding(.top, VSpacing.sm)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
         case .memories:

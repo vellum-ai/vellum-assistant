@@ -37,6 +37,8 @@ export interface ChannelCapabilities {
   pttActivationKey?: string;
   /** Whether the client has been granted microphone permission by the OS. */
   microphonePermissionGranted?: boolean;
+  /** Chat type from the gateway (e.g. "private", "group", "supergroup", "channel", "im", "mpim"). */
+  chatType?: string;
 }
 
 /**
@@ -296,6 +298,7 @@ export function resolveChannelCapabilities(
   sourceChannel?: string | null,
   sourceInterface?: string | null,
   pttMetadata?: PttMetadata | null,
+  chatType?: string | null,
 ): ChannelCapabilities {
   // Normalise legacy pseudo-channel IDs to canonical ChannelId values.
   let channel: string;
@@ -330,6 +333,8 @@ export function resolveChannelCapabilities(
     }
   }
 
+  const resolvedChatType = chatType ?? undefined;
+
   switch (channel) {
     case "vellum": {
       const supportsDesktopUi = iface === "macos";
@@ -342,6 +347,7 @@ export function resolveChannelCapabilities(
           pttMetadata?.pttActivationKey,
         ),
         microphonePermissionGranted: pttMetadata?.microphonePermissionGranted,
+        chatType: resolvedChatType,
       };
     }
     case "telegram":
@@ -354,6 +360,7 @@ export function resolveChannelCapabilities(
         dashboardCapable: false,
         supportsDynamicUi: false,
         supportsVoiceInput: false,
+        chatType: resolvedChatType,
       };
     default:
       return {
@@ -361,7 +368,25 @@ export function resolveChannelCapabilities(
         dashboardCapable: false,
         supportsDynamicUi: false,
         supportsVoiceInput: false,
+        chatType: resolvedChatType,
       };
+  }
+}
+
+/**
+ * Returns true when the chat type indicates a group/multi-party conversation
+ * (Telegram group/supergroup, Slack channel/group/mpim, etc.).
+ */
+export function isGroupChatType(chatType?: string): boolean {
+  if (!chatType) return false;
+  switch (chatType) {
+    case "group":
+    case "supergroup":
+    case "channel":
+    case "mpim":
+      return true;
+    default:
+      return false;
   }
 }
 
@@ -628,6 +653,31 @@ export function injectChannelCapabilityContext(
     if (caps.microphonePermissionGranted !== undefined) {
       lines.push(
         `microphone_permission_granted: ${caps.microphonePermissionGranted}`,
+      );
+    }
+  }
+
+  // Inject group chat etiquette only when the chat type indicates a multi-party
+  // conversation, avoiding misconditioned "stay silent" guidance in 1:1 DMs.
+  if (isGroupChatType(caps.chatType)) {
+    lines.push(`chat_type: ${caps.chatType}`);
+    lines.push("");
+    lines.push("GROUP CHAT ETIQUETTE:");
+    lines.push(
+      "- You are a **participant**, not the user's proxy. Think before you speak.",
+    );
+    lines.push(
+      "- **Respond when:** directly mentioned, you can add genuine value, something witty fits naturally, or correcting important misinformation.",
+    );
+    lines.push(
+      '- **Stay silent when:** casual banter between humans, someone already answered, your response would just be "yeah" or "nice", or the conversation flows fine without you.',
+    );
+    lines.push(
+      "- **The human rule:** humans don't respond to every message in a group chat. Neither should you. Quality over quantity.",
+    );
+    if (caps.channel === "slack") {
+      lines.push(
+        "- Use emoji reactions naturally to acknowledge without cluttering.",
       );
     }
   }

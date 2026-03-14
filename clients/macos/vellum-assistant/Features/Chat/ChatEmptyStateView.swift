@@ -68,8 +68,7 @@ struct ChatEmptyStateView: View {
                     if let body = appearance.characterBodyShape,
                        let eyes = appearance.characterEyeStyle,
                        let color = appearance.characterColor {
-                        AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color, size: 32,
-                                           breathingEnabled: false)
+                        AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color, size: 32)
                             .frame(width: 32, height: 32)
                     } else {
                         VAvatarImage(image: appearance.chatAvatarImage, size: 32)

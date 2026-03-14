@@ -3,7 +3,11 @@ import { join } from "path";
 
 import { resolveTargetAssistant } from "../lib/assistant-config.js";
 import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
-import { startLocalDaemon, startGateway } from "../lib/local";
+import {
+  isWatchModeAvailable,
+  startLocalDaemon,
+  startGateway,
+} from "../lib/local";
 import { maybeStartNgrokTunnel } from "../lib/ngrok";
 
 export async function wake(): Promise<void> {
@@ -56,12 +60,21 @@ export async function wake(): Promise<void> {
         process.kill(pid, 0);
         daemonRunning = true;
         if (watch) {
-          // Restart in watch mode
-          console.log(
-            `Assistant running (pid ${pid}) — restarting in watch mode...`,
-          );
-          await stopProcessByPidFile(pidFile, "assistant");
-          daemonRunning = false;
+          // Restart in watch mode — but only if source files are available.
+          // Watch mode requires bun --watch with .ts sources; packaged desktop
+          // builds only have a compiled binary. Stopping the daemon without a
+          // viable watch-mode path would leave the user with no running assistant.
+          if (!isWatchModeAvailable()) {
+            console.log(
+              `Assistant running (pid ${pid}) — watch mode not available (no source files). Keeping existing process.`,
+            );
+          } else {
+            console.log(
+              `Assistant running (pid ${pid}) — restarting in watch mode...`,
+            );
+            await stopProcessByPidFile(pidFile, "assistant");
+            daemonRunning = false;
+          }
         } else {
           console.log(`Assistant already running (pid ${pid}).`);
         }
@@ -82,12 +95,18 @@ export async function wake(): Promise<void> {
     const { alive, pid } = isProcessAlive(gatewayPidFile);
     if (alive) {
       if (watch) {
-        // Restart in watch mode
-        console.log(
-          `Gateway running (pid ${pid}) — restarting in watch mode...`,
-        );
-        await stopProcessByPidFile(gatewayPidFile, "gateway");
-        await startGateway(watch, resources);
+        // Same guard as the daemon: only restart if watch mode is viable.
+        if (!isWatchModeAvailable()) {
+          console.log(
+            `Gateway running (pid ${pid}) — watch mode not available (no source files). Keeping existing process.`,
+          );
+        } else {
+          console.log(
+            `Gateway running (pid ${pid}) — restarting in watch mode...`,
+          );
+          await stopProcessByPidFile(gatewayPidFile, "gateway");
+          await startGateway(watch, resources);
+        }
       } else {
         console.log(`Gateway already running (pid ${pid}).`);
       }
