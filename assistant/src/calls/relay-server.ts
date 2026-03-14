@@ -992,9 +992,6 @@ export class RelayConnection {
       }
 
       if (isOutbound) {
-        // Send short verification confirmation TTS
-        this.sendTextToken(result.ttsMessage!, true);
-
         // Keep the pointer message back to the initiating conversation
         const successSession = getCallSession(this.callSessionId);
         if (successSession?.initiatedFromConversationId) {
@@ -1027,10 +1024,18 @@ export class RelayConnection {
           );
         }
 
-        // Mark session as in-progress and transition to normal call flow
+        // Mark session as in-progress and transition to guardian conversation
+        // with verification context so the LLM greets naturally.
         updateCallSession(this.callSessionId, { status: "in_progress" });
         if (this.controller) {
-          this.startNormalCallFlow(this.controller, false);
+          this.controller
+            .startPostVerificationGreeting()
+            .catch((err) =>
+              log.error(
+                { err, callSessionId: this.callSessionId },
+                "Failed to start post-verification greeting",
+              ),
+            );
         }
       } else if (result.verificationType === "trusted_contact") {
         this.continueCallAfterTrustedContactActivation({

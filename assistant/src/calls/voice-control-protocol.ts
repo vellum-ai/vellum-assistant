@@ -11,6 +11,7 @@
 
 export const CALL_OPENING_MARKER = "[CALL_OPENING]";
 export const CALL_OPENING_ACK_MARKER = "[CALL_OPENING_ACK]";
+export const CALL_VERIFICATION_COMPLETE_MARKER = "[CALL_VERIFICATION_COMPLETE]";
 export const END_CALL_MARKER = "[END_CALL]";
 
 // ---------------------------------------------------------------------------
