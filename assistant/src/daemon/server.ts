@@ -40,6 +40,7 @@ import { getSigningKeyFingerprint } from "../runtime/auth/token-service.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { checkIngressForSecrets } from "../security/secret-ingress.js";
+import { registerCancelCallback } from "../signals/cancel.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { IngressBlockedError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
@@ -387,6 +388,15 @@ export class DaemonServer {
       getOrCreateSession: (conversationId) =>
         this.getOrCreateSession(conversationId),
       broadcast: (msg) => this.broadcast(msg),
+    });
+
+    registerCancelCallback((sessionId) => {
+      const session = this.sessions.get(sessionId);
+      if (!session) return false;
+      this.evictor.touch(sessionId);
+      session.abort();
+      getSubagentManager().abortAllForParent(sessionId);
+      return true;
     });
 
     this.configWatcher.start(
