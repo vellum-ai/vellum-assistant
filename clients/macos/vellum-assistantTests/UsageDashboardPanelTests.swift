@@ -15,8 +15,8 @@ struct UsageDashboardPanelEmptyTests {
 
     @Test @MainActor
     func storeStartsInIdleState() {
-        let client = MockPanelClient()
-        let store = UsageDashboardStore(client: client)
+        let client = MockPanelFetcher()
+        let store = UsageDashboardStore(fetcher: client)
 
         #expect(store.totalsState == .idle)
         #expect(store.dailyState == .idle)
@@ -27,7 +27,7 @@ struct UsageDashboardPanelEmptyTests {
 
     @Test @MainActor
     func emptyResponsesProduceLoadedWithEmptyData() async {
-        let client = MockPanelClient()
+        let client = MockPanelFetcher()
         client.stubbedTotals = UsageTotalsResponse(
             totalInputTokens: 0, totalOutputTokens: 0,
             totalCacheCreationTokens: 0, totalCacheReadTokens: 0,
@@ -37,7 +37,7 @@ struct UsageDashboardPanelEmptyTests {
         client.stubbedDaily = UsageDailyResponse(buckets: [])
         client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [])
 
-        let store = UsageDashboardStore(client: client)
+        let store = UsageDashboardStore(fetcher: client)
         await store.refresh()
 
         if case .loaded(let totals) = store.totalsState {
@@ -66,10 +66,10 @@ struct UsageDashboardPanelLoadingTests {
 
     @Test @MainActor
     func failedFetchesShowErrorMessages() async {
-        let client = MockPanelClient()
+        let client = MockPanelFetcher()
         // All stubs nil — simulates fetch failure.
 
-        let store = UsageDashboardStore(client: client)
+        let store = UsageDashboardStore(fetcher: client)
         await store.refresh()
 
         if case .failed(let msg) = store.totalsState {
@@ -97,7 +97,7 @@ struct UsageDashboardPanelPopulatedTests {
 
     @Test @MainActor
     func populatedStoreHasCorrectTotals() async {
-        let client = MockPanelClient()
+        let client = MockPanelFetcher()
         let breakdownEntries = [
             UsageGroupBreakdownEntry(
                 group: "claude-sonnet-4-20250514",
@@ -130,7 +130,7 @@ struct UsageDashboardPanelPopulatedTests {
         ])
         client.stubbedBreakdown = UsageBreakdownResponse(breakdown: breakdownEntries)
 
-        let store = UsageDashboardStore(client: client)
+        let store = UsageDashboardStore(fetcher: client)
         await store.refresh()
 
         if case .loaded(let totals) = store.totalsState {
@@ -165,7 +165,7 @@ struct UsageDashboardPanelPopulatedTests {
 
     @Test @MainActor
     func groupByDimensionAffectsBreakdownHeadings() async {
-        let client = MockPanelClient()
+        let client = MockPanelFetcher()
         client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [
             UsageGroupBreakdownEntry(
                 group: "anthropic",
@@ -178,7 +178,7 @@ struct UsageDashboardPanelPopulatedTests {
             )
         ])
 
-        let store = UsageDashboardStore(client: client)
+        let store = UsageDashboardStore(fetcher: client)
 
         // Default is .model
         #expect(store.selectedGroupBy == .model)
@@ -194,7 +194,7 @@ struct UsageDashboardPanelPopulatedTests {
 
     @Test @MainActor
     func timeRangeSelectionRefreshesAllData() async {
-        let client = MockPanelClient()
+        let client = MockPanelFetcher()
         client.stubbedTotals = UsageTotalsResponse(
             totalInputTokens: 0, totalOutputTokens: 0,
             totalCacheCreationTokens: 0, totalCacheReadTokens: 0,
@@ -204,7 +204,7 @@ struct UsageDashboardPanelPopulatedTests {
         client.stubbedDaily = UsageDailyResponse(buckets: [])
         client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [])
 
-        let store = UsageDashboardStore(client: client)
+        let store = UsageDashboardStore(fetcher: client)
         await store.selectRange(.last30Days)
 
         #expect(store.selectedRange == .last30Days)
@@ -229,7 +229,7 @@ private func collectPanelContent(store: UsageDashboardStore) -> String {
 
 @MainActor
 private func collectBreakdownRow(entry: UsageGroupBreakdownEntry) -> String {
-    let panel = UsageDashboardPanel(store: UsageDashboardStore(client: MockPanelClient()), onClose: {})
+    let panel = UsageDashboardPanel(store: UsageDashboardStore(fetcher: MockPanelFetcher()), onClose: {})
     let row = panel.breakdownRow(entry)
     var output = ""
     dump(row, to: &output)
@@ -247,8 +247,8 @@ struct UsageDashboardPanelViewIdleTests {
 
     @Test @MainActor
     func panelCanBeInstantiatedWithIdleStore() {
-        let client = MockPanelClient()
-        let store = UsageDashboardStore(client: client)
+        let client = MockPanelFetcher()
+        let store = UsageDashboardStore(fetcher: client)
         let joined = collectPanelContent(store: store)
 
         // Idle state shows loading indicators for all sections
@@ -261,7 +261,7 @@ struct UsageDashboardPanelViewEmptyTests {
 
     @Test @MainActor
     func panelRendersWithEmptyLoadedData() async {
-        let client = MockPanelClient()
+        let client = MockPanelFetcher()
         client.stubbedTotals = UsageTotalsResponse(
             totalInputTokens: 0, totalOutputTokens: 0,
             totalCacheCreationTokens: 0, totalCacheReadTokens: 0,
@@ -271,7 +271,7 @@ struct UsageDashboardPanelViewEmptyTests {
         client.stubbedDaily = UsageDailyResponse(buckets: [])
         client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [])
 
-        let store = UsageDashboardStore(client: client)
+        let store = UsageDashboardStore(fetcher: client)
         await store.refresh()
 
         let joined = collectPanelContent(store: store)
@@ -299,7 +299,7 @@ struct UsageDashboardPanelViewPopulatedTests {
 
     @Test @MainActor
     func panelRendersWithPopulatedData() async {
-        let client = MockPanelClient()
+        let client = MockPanelFetcher()
         let breakdownEntries = [
             UsageGroupBreakdownEntry(
                 group: "claude-sonnet-4-20250514",
@@ -332,7 +332,7 @@ struct UsageDashboardPanelViewPopulatedTests {
         ])
         client.stubbedBreakdown = UsageBreakdownResponse(breakdown: breakdownEntries)
 
-        let store = UsageDashboardStore(client: client)
+        let store = UsageDashboardStore(fetcher: client)
         await store.refresh()
 
         let joined = collectPanelContent(store: store)
@@ -372,7 +372,7 @@ struct UsageDashboardPanelViewPopulatedTests {
 
     @Test @MainActor
     func panelRendersWithDifferentGroupByDimensions() async {
-        let client = MockPanelClient()
+        let client = MockPanelFetcher()
         client.stubbedTotals = UsageTotalsResponse(
             totalInputTokens: 100, totalOutputTokens: 50,
             totalCacheCreationTokens: 0, totalCacheReadTokens: 0,
@@ -392,7 +392,7 @@ struct UsageDashboardPanelViewPopulatedTests {
             )
         ])
 
-        let store = UsageDashboardStore(client: client)
+        let store = UsageDashboardStore(fetcher: client)
         await store.selectGroupBy(.provider)
 
         let joined = collectPanelContent(store: store)
@@ -407,10 +407,10 @@ struct UsageDashboardPanelViewFailedTests {
 
     @Test @MainActor
     func panelRendersWithFailedState() async {
-        let client = MockPanelClient()
+        let client = MockPanelFetcher()
         // All stubs nil — triggers failure states.
 
-        let store = UsageDashboardStore(client: client)
+        let store = UsageDashboardStore(fetcher: client)
         await store.refresh()
 
         let joined = collectPanelContent(store: store)
@@ -430,8 +430,8 @@ struct UsageDashboardPanelViewCloseTests {
 
     @Test @MainActor
     func onCloseCallbackIsStored() {
-        let client = MockPanelClient()
-        let store = UsageDashboardStore(client: client)
+        let client = MockPanelFetcher()
+        let store = UsageDashboardStore(fetcher: client)
         var closeCalled = false
         let panel = UsageDashboardPanel(store: store, onClose: { closeCalled = true })
 
@@ -447,16 +447,7 @@ struct UsageDashboardPanelViewCloseTests {
 // MARK: - Mock Client
 
 @MainActor
-private final class MockPanelClient: DaemonClientProtocol {
-    var isConnected: Bool = true
-
-    func subscribe() -> AsyncStream<ServerMessage> { AsyncStream { $0.finish() } }
-    func send<T: Encodable>(_ message: T) throws {}
-    func connect() async throws {}
-    func disconnect() {}
-    func startSSE() {}
-    func stopSSE() {}
-
+private final class MockPanelFetcher: UsageFetching {
     var stubbedTotals: UsageTotalsResponse?
     var stubbedDaily: UsageDailyResponse?
     var stubbedBreakdown: UsageBreakdownResponse?

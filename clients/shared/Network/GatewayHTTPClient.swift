@@ -91,6 +91,24 @@ public enum GatewayHTTPClient {
         return try await URLSession.shared.bytes(for: request)
     }
 
+    // MARK: - Typed JSON API
+
+    /// Performs an authenticated GET request and decodes the JSON response body.
+    ///
+    /// - Parameters:
+    ///   - path: Path segment after `/v1/` (e.g. `"usage/totals?from=0&to=1000"`).
+    ///   - timeout: Request timeout in seconds. Defaults to 30.
+    /// - Returns: The decoded value, or `nil` on non-success status or decode failure.
+    public static func getJSON<T: Decodable>(path: String, timeout: TimeInterval = 30) async -> T? {
+        do {
+            let response = try await get(path: path, timeout: timeout)
+            guard response.isSuccess else { return nil }
+            return try JSONDecoder().decode(T.self, from: response.data)
+        } catch {
+            return nil
+        }
+    }
+
     // MARK: - Internals
 
     #if os(macOS)
@@ -142,8 +160,17 @@ public enum GatewayHTTPClient {
             authHeader = ("Authorization", "Bearer \(token)")
         }
 
-        let trailingSlash = path.hasSuffix("/") ? "" : "/"
-        guard let url = URL(string: "\(baseURL)/v1/\(path)\(trailingSlash)") else {
+        let pathComponent: String
+        let queryComponent: String
+        if let queryIndex = path.firstIndex(of: "?") {
+            pathComponent = String(path[..<queryIndex])
+            queryComponent = String(path[queryIndex...])
+        } else {
+            pathComponent = path
+            queryComponent = ""
+        }
+        let trailingSlash = pathComponent.hasSuffix("/") ? "" : "/"
+        guard let url = URL(string: "\(baseURL)/v1/\(pathComponent)\(trailingSlash)\(queryComponent)") else {
             throw ClientError.invalidURL
         }
 

@@ -264,7 +264,7 @@ public final class MainWindow {
             activityNotificationService: services.activityNotificationService,
             isFirstLaunch: isFirstLaunch
         )
-        self.usageDashboardStore = UsageDashboardStore(client: services.daemonClient)
+        self.usageDashboardStore = UsageDashboardStore()
         self.threadManager.ambientAgent = services.ambientAgent
         documentManager.daemonClient = daemonClient
         services.daemonClient.onTraceEvent = { [weak self] msg in

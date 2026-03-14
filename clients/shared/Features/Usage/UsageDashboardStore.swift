@@ -1,5 +1,34 @@
 import Foundation
 
+// MARK: - Usage Fetching Protocol
+
+/// Abstraction for fetching usage data, decoupled from the full DaemonClientProtocol.
+@MainActor
+public protocol UsageFetching {
+    func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse?
+    func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse?
+    func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse?
+}
+
+/// Fetches usage data via GatewayHTTPClient.
+@MainActor
+public struct GatewayUsageFetcher: UsageFetching {
+    public init() {}
+
+    public func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? {
+        await GatewayHTTPClient.getJSON(path: "usage/totals?from=\(from)&to=\(to)", timeout: 10)
+    }
+
+    public func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse? {
+        await GatewayHTTPClient.getJSON(path: "usage/daily?from=\(from)&to=\(to)", timeout: 10)
+    }
+
+    public func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? {
+        let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? groupBy
+        return await GatewayHTTPClient.getJSON(path: "usage/breakdown?from=\(from)&to=\(to)&groupBy=\(encoded)", timeout: 10)
+    }
+}
+
 // MARK: - Time Range Selection
 
 /// Predefined time ranges for the usage dashboard.
@@ -118,21 +147,19 @@ public final class UsageDashboardStore {
 
     // MARK: - Dependencies
 
-    private var client: any DaemonClientProtocol
+    private var fetcher: any UsageFetching
 
     /// Generation counters to discard results from stale in-flight requests
     /// when the user changes filters faster than fetches complete.
     private var refreshGeneration: UInt = 0
     private var breakdownGeneration: UInt = 0
 
-    public init(client: any DaemonClientProtocol) {
-        self.client = client
+    public init(fetcher: any UsageFetching = GatewayUsageFetcher()) {
+        self.fetcher = fetcher
     }
 
-    /// Replace the underlying client and reset all loaded data so the next
-    /// `refresh()` fetches from the new client.
-    public func updateClient(_ newClient: any DaemonClientProtocol) {
-        client = newClient
+    /// Reset all loaded data so the next `refresh()` re-fetches.
+    public func reset() {
         refreshGeneration &+= 1
         breakdownGeneration &+= 1
         totalsState = .idle
@@ -163,9 +190,9 @@ public final class UsageDashboardStore {
         dailyState = .loading
         breakdownState = .loading
 
-        async let totalsResult = client.fetchUsageTotals(from: range.from, to: range.to)
-        async let dailyResult = client.fetchUsageDaily(from: range.from, to: range.to)
-        async let breakdownResult = client.fetchUsageBreakdown(
+        async let totalsResult = fetcher.fetchUsageTotals(from: range.from, to: range.to)
+        async let dailyResult = fetcher.fetchUsageDaily(from: range.from, to: range.to)
+        async let breakdownResult = fetcher.fetchUsageBreakdown(
             from: range.from, to: range.to, groupBy: selectedGroupBy.rawValue
         )
 
@@ -211,7 +238,7 @@ public final class UsageDashboardStore {
         let range = selectedRange.epochMillisRange()
         breakdownState = .loading
 
-        let result = await client.fetchUsageBreakdown(
+        let result = await fetcher.fetchUsageBreakdown(
             from: range.from, to: range.to, groupBy: dimension.rawValue
         )
 

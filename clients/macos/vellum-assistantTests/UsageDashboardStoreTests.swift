@@ -5,16 +5,7 @@ import Testing
 // MARK: - Mock Client
 
 @MainActor
-private final class MockUsageClient: DaemonClientProtocol {
-    var isConnected: Bool = true
-
-    func subscribe() -> AsyncStream<ServerMessage> { AsyncStream { $0.finish() } }
-    func send<T: Encodable>(_ message: T) throws {}
-    func connect() async throws {}
-    func disconnect() {}
-    func startSSE() {}
-    func stopSSE() {}
-
+private final class MockUsageFetcher: UsageFetching {
     var stubbedTotals: UsageTotalsResponse?
     var stubbedDaily: UsageDailyResponse?
     var stubbedBreakdown: UsageBreakdownResponse?
@@ -173,7 +164,7 @@ struct UsageDashboardStoreLoadingTests {
 
     @Test @MainActor
     func refreshTransitionsToLoadedOnSuccess() async {
-        let client = MockUsageClient()
+        let client = MockUsageFetcher()
         client.stubbedTotals = UsageTotalsResponse(
             totalInputTokens: 100, totalOutputTokens: 50,
             totalCacheCreationTokens: 10, totalCacheReadTokens: 5,
@@ -195,7 +186,7 @@ struct UsageDashboardStoreLoadingTests {
             )
         ])
 
-        let store = UsageDashboardStore(client: client)
+        let store = UsageDashboardStore(fetcher: client)
         #expect(store.totalsState == .idle)
         #expect(store.dailyState == .idle)
         #expect(store.breakdownState == .idle)
@@ -228,10 +219,10 @@ struct UsageDashboardStoreLoadingTests {
 
     @Test @MainActor
     func refreshTransitionsToFailedOnNilResponse() async {
-        let client = MockUsageClient()
+        let client = MockUsageFetcher()
         // All stubs nil by default — simulates network failure.
 
-        let store = UsageDashboardStore(client: client)
+        let store = UsageDashboardStore(fetcher: client)
         await store.refresh()
 
         if case .failed(let msg) = store.totalsState {
@@ -255,7 +246,7 @@ struct UsageDashboardStoreLoadingTests {
 
     @Test @MainActor
     func selectRangeChangesRangeAndRefreshes() async {
-        let client = MockUsageClient()
+        let client = MockUsageFetcher()
         client.stubbedTotals = UsageTotalsResponse(
             totalInputTokens: 0, totalOutputTokens: 0,
             totalCacheCreationTokens: 0, totalCacheReadTokens: 0,
@@ -265,7 +256,7 @@ struct UsageDashboardStoreLoadingTests {
         client.stubbedDaily = UsageDailyResponse(buckets: [])
         client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [])
 
-        let store = UsageDashboardStore(client: client)
+        let store = UsageDashboardStore(fetcher: client)
         #expect(store.selectedRange == .last7Days)
 
         await store.selectRange(.last30Days)
@@ -284,7 +275,7 @@ struct UsageDashboardStoreGroupTests {
 
     @Test @MainActor
     func selectGroupByRefreshesBreakdownOnly() async {
-        let client = MockUsageClient()
+        let client = MockUsageFetcher()
         client.stubbedTotals = UsageTotalsResponse(
             totalInputTokens: 100, totalOutputTokens: 50,
             totalCacheCreationTokens: 0, totalCacheReadTokens: 0,
@@ -304,7 +295,7 @@ struct UsageDashboardStoreGroupTests {
             )
         ])
 
-        let store = UsageDashboardStore(client: client)
+        let store = UsageDashboardStore(fetcher: client)
 
         // Initial refresh to populate all states
         await store.refresh()
@@ -338,10 +329,10 @@ struct UsageDashboardStoreGroupTests {
 
     @Test @MainActor
     func breakdownGroupedByActorPassesCorrectParam() async {
-        let client = MockUsageClient()
+        let client = MockUsageFetcher()
         client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [])
 
-        let store = UsageDashboardStore(client: client)
+        let store = UsageDashboardStore(fetcher: client)
         await store.selectGroupBy(.actor)
 
         #expect(client.lastBreakdownGroupBy == "actor")
@@ -350,19 +341,10 @@ struct UsageDashboardStoreGroupTests {
 
 // MARK: - Delayed Mock Client (for race-condition tests)
 
-/// A mock client where each fetch method blocks on a continuation until the
+/// A mock fetcher where each fetch method blocks on a continuation until the
 /// test explicitly resumes it — giving full control over completion order.
 @MainActor
-private final class DelayedMockUsageClient: DaemonClientProtocol {
-    var isConnected: Bool = true
-
-    func subscribe() -> AsyncStream<ServerMessage> { AsyncStream { $0.finish() } }
-    func send<T: Encodable>(_ message: T) throws {}
-    func connect() async throws {}
-    func disconnect() {}
-    func startSSE() {}
-    func stopSSE() {}
-
+private final class DelayedMockUsageFetcher: UsageFetching {
     /// Each call to a fetch method appends a continuation here.
     /// Tests pop and resume them in whatever order they want.
     var totalsContinuations: [CheckedContinuation<UsageTotalsResponse?, Never>] = []
@@ -430,8 +412,8 @@ struct UsageDashboardStoreRaceTests {
 
     @Test @MainActor
     func staleRefreshResultsAreDiscarded() async {
-        let client = DelayedMockUsageClient()
-        let store = UsageDashboardStore(client: client)
+        let client = DelayedMockUsageFetcher()
+        let store = UsageDashboardStore(fetcher: client)
 
         // Launch first refresh (simulates selecting "Last 7 Days")
         let firstRefresh = Task { @MainActor in await store.selectRange(.last7Days) }
@@ -483,8 +465,8 @@ struct UsageDashboardStoreRaceTests {
 
     @Test @MainActor
     func refreshDoesNotOverwriteBreakdownFromConcurrentSelectGroupBy() async {
-        let client = DelayedMockUsageClient()
-        let store = UsageDashboardStore(client: client)
+        let client = DelayedMockUsageFetcher()
+        let store = UsageDashboardStore(fetcher: client)
 
         // Launch refresh() — it fetches totals, daily, and breakdown
         let refreshTask = Task { @MainActor in await store.refresh() }
@@ -533,8 +515,8 @@ struct UsageDashboardStoreRaceTests {
 
     @Test @MainActor
     func staleSelectGroupByResultsAreDiscarded() async {
-        let client = DelayedMockUsageClient()
-        let store = UsageDashboardStore(client: client)
+        let client = DelayedMockUsageFetcher()
+        let store = UsageDashboardStore(fetcher: client)
 
         // Launch first selectGroupBy
         let first = Task { @MainActor in await store.selectGroupBy(.model) }

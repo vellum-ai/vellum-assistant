@@ -173,7 +173,7 @@ struct UsageDashboardView: View {
 #if DEBUG
 #Preview {
     UsageDashboardView(
-        store: UsageDashboardStore(client: MockDaemonClient())
+        store: UsageDashboardStore()
     )
 }
 #endif

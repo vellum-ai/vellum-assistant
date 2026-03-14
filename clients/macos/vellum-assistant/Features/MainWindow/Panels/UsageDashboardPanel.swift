@@ -330,7 +330,7 @@ struct UsageDashboardPanel: View {
 #Preview {
     ZStack {
         VColor.surfaceOverlay.ignoresSafeArea()
-        UsageDashboardPanel(store: UsageDashboardStore(client: DaemonClient()), onClose: {})
+        UsageDashboardPanel(store: UsageDashboardStore(), onClose: {})
     }
     .frame(width: 400, height: 600)
 }
