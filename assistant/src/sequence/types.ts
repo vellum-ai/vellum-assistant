@@ -1,9 +1,5 @@
 /**
- * Email sequencing types and store interface.
- *
- * The SequenceStore interface is the contract that the engine, tools, and CLI
- * program against. The SQLite implementation is the first backend; a hosted
- * backend can be added later without touching any consumers.
+ * Email sequencing domain types and input shapes.
  */
 
 // ── Domain Types ────────────────────────────────────────────────────
@@ -92,34 +88,3 @@ export type EnrollmentExitReason =
   | "replied"
   | "cancelled"
   | "failed";
-
-// ── Store Interface ─────────────────────────────────────────────────
-
-export interface SequenceStore {
-  // Sequence CRUD
-  createSequence(input: CreateSequenceInput): Sequence;
-  getSequence(id: string): Sequence | undefined;
-  listSequences(filter?: ListSequencesFilter): Sequence[];
-  updateSequence(id: string, patch: UpdateSequenceInput): Sequence | undefined;
-  deleteSequence(id: string): void;
-
-  // Enrollment CRUD
-  enrollContact(input: EnrollContactInput): SequenceEnrollment;
-  getEnrollment(id: string): SequenceEnrollment | undefined;
-  listEnrollments(filter?: ListEnrollmentsFilter): SequenceEnrollment[];
-  /**
-   * Atomically claim enrollments that are due for processing.
-   * Uses optimistic locking to prevent double-sends in concurrent environments.
-   */
-  claimDueEnrollments(now: number, limit?: number): SequenceEnrollment[];
-  advanceEnrollment(
-    id: string,
-    threadId?: string,
-    nextStepAt?: number | null,
-  ): SequenceEnrollment | undefined;
-  exitEnrollment(id: string, reason: EnrollmentExitReason): void;
-
-  // Query helpers
-  findActiveEnrollmentsByEmail(email: string): SequenceEnrollment[];
-  countActiveEnrollments(sequenceId: string): number;
-}

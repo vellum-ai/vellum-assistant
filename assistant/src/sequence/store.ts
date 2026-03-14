@@ -1,5 +1,5 @@
 /**
- * SQLite-backed implementation of the SequenceStore interface.
+ * SQLite-backed sequence store.
  *
  * Follows the same patterns as schedule-store.ts:
  * - Flat exported functions (no class)
