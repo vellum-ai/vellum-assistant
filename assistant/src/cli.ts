@@ -323,19 +323,69 @@ export async function startCli(): Promise<void> {
     }
   }
 
-  /** Send a user message via HTTP POST. */
+  /** Send a user message via signal file to the daemon. */
   async function sendUserMessage(content: string): Promise<boolean> {
     try {
-      const response = await httpSend("/v1/messages", {
-        method: "POST",
-        body: JSON.stringify({
+      const signalsDir = join(getWorkspaceDir(), "signals");
+      mkdirSync(signalsDir, { recursive: true });
+      const resultPath = join(signalsDir, "user-message.result");
+      try {
+        unlinkSync(resultPath);
+      } catch {
+        // May not exist yet.
+      }
+      const requestId = randomUUID();
+      writeFileSync(
+        join(signalsDir, "user-message"),
+        JSON.stringify({
           conversationKey,
           content,
           sourceChannel: "vellum",
           interface: "cli",
+          requestId,
         }),
+      );
+
+      const accepted = await new Promise<boolean>((resolve) => {
+        let settled = false;
+        const settle = (value: boolean): void => {
+          if (settled) return;
+          settled = true;
+          watcher.close();
+          clearTimeout(timeoutId);
+          resolve(value);
+        };
+
+        const checkResult = (): void => {
+          try {
+            const raw = readFileSync(resultPath, "utf-8");
+            const result = JSON.parse(raw) as {
+              ok?: boolean;
+              accepted?: boolean;
+              requestId?: string;
+            };
+            if (result.requestId === requestId) {
+              settle(result.ok === true && result.accepted !== false);
+            }
+          } catch {
+            // Result file not yet readable; ignore.
+          }
+        };
+
+        const watcher = watch(signalsDir, (_event, filename) => {
+          if (filename === "user-message.result") {
+            checkResult();
+          }
+        });
+
+        const timeoutId = setTimeout(() => settle(false), 10_000);
+
+        if (existsSync(resultPath)) {
+          checkResult();
+        }
       });
-      return response.ok || response.status === 202;
+
+      return accepted;
     } catch {
       return false;
     }

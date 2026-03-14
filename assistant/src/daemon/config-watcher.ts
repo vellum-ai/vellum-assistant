@@ -26,6 +26,7 @@ import { handleConfirmationSignal } from "../signals/confirm.js";
 import { handleConversationUndoSignal } from "../signals/conversation-undo.js";
 import { handleMcpReloadSignal } from "../signals/mcp-reload.js";
 import { handleTrustRuleSignal } from "../signals/trust-rule.js";
+import { handleUserMessageSignal } from "../signals/user-message.js";
 import { DebouncerMap } from "../util/debounce.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -235,6 +236,7 @@ export class ConfigWatcher {
       "mcp-reload": handleMcpReloadSignal,
       "trust-rule": handleTrustRuleSignal,
       "conversation-undo": handleConversationUndoSignal,
+      "user-message": handleUserMessageSignal,
     };
 
     const prefixSignalHandlers: Record<string, (filename: string) => void> = {
