@@ -94,14 +94,6 @@ export function getBackendType(): "broker" | "encrypted" | null {
   return getBroker().isAvailable() ? "broker" : "encrypted";
 }
 
-/**
- * Whether the backend was downgraded from keychain to encrypted at runtime.
- * Always returns false now that keychain CLI is removed.
- */
-export function isDowngradedFromKeychain(): boolean {
-  return false;
-}
-
 // ---------------------------------------------------------------------------
 // Async variants — try encrypted store first, fall back to broker
 // ---------------------------------------------------------------------------

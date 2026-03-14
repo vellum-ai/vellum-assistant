@@ -74,7 +74,6 @@ import {
   deleteSecureKeyAsync,
   getBackendType,
   getSecureKeyAsync,
-  isDowngradedFromKeychain,
   listSecureKeys,
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
@@ -130,10 +129,6 @@ describe("secure-keys", () => {
     test("returns broker when broker is available", () => {
       mockBrokerAvailable = true;
       expect(getBackendType()).toBe("broker");
-    });
-
-    test("isDowngradedFromKeychain always returns false", () => {
-      expect(isDowngradedFromKeychain()).toBe(false);
     });
   });
 

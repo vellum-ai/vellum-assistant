@@ -110,7 +110,6 @@ mock.module("../security/secure-keys.js", () => {
     deleteSecureKeyAsync: async (account: string) => syncDelete(account),
     listSecureKeys: () => Object.keys(secureKeyStore),
     getBackendType: () => "encrypted",
-    isDowngradedFromKeychain: () => false,
     _resetBackend: () => {},
     _setBackend: () => {},
   };
