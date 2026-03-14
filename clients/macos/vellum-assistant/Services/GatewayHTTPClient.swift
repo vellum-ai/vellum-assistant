@@ -36,6 +36,14 @@ enum GatewayHTTPClient {
         }
     }
 
+    /// Resolved connection details for the currently connected managed assistant.
+    struct ConnectionInfo {
+        let assistant: LockfileAssistant
+        let baseURL: String
+        let token: String
+        let organizationId: String?
+    }
+
     // MARK: - High-Level API
 
     /// Performs an authenticated GET request against the platform assistant proxy.
@@ -62,6 +70,42 @@ enum GatewayHTTPClient {
         var request = try buildRequest(path: path, method: "POST", timeout: timeout)
         request.httpBody = body
         return try await execute(request)
+    }
+
+    /// Performs an authenticated DELETE request against the platform assistant proxy.
+    ///
+    /// - Parameters:
+    ///   - path: Path segment after `/v1/assistants/` (e.g. `"{id}/secrets"`).
+    ///   - body: Optional HTTP body data.
+    ///   - timeout: Request timeout in seconds. Defaults to 30.
+    /// - Returns: A `Response` with the raw data and HTTP status code.
+    /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
+    static func delete(path: String, body: Data? = nil, timeout: TimeInterval = 30) async throws -> Response {
+        var request = try buildRequest(path: path, method: "DELETE", timeout: timeout)
+        request.httpBody = body
+        return try await execute(request)
+    }
+
+    /// Resolves the current connection details (assistant, base URL, token, org ID)
+    /// without performing a request. Useful for callers that need auth values for
+    /// their own connection setup (e.g. terminal sessions).
+    ///
+    /// - Throws: `ClientError` if no assistant is connected or not authenticated.
+    static func resolveConnectionInfo() throws -> ConnectionInfo {
+        guard let assistant = resolveConnectedAssistant() else {
+            throw ClientError.noConnectedAssistant
+        }
+        guard let token = SessionTokenManager.getToken(), !token.isEmpty else {
+            throw ClientError.notAuthenticated
+        }
+        let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
+        let organizationId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
+        return ConnectionInfo(
+            assistant: assistant,
+            baseURL: baseURL,
+            token: token,
+            organizationId: organizationId
+        )
     }
 
     // MARK: - Internals

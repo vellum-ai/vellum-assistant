@@ -856,19 +856,26 @@ public final class SettingsStore: ObservableObject {
     /// or the platform assistant proxy (managed mode).
     ///
     /// - Local: `http://localhost:{port}/{path}` with `Authorization: Bearer {jwt}`
-    /// - Managed: `{platformBaseURL}/v1/assistants/{id}/{path}/` with `X-Session-Token` + `Vellum-Organization-Id`
+    /// - Managed: delegates to `GatewayHTTPClient` for URL/auth resolution, stripping
+    ///   the `v1/` prefix since the platform proxy namespaces under `/v1/assistants/{id}/`.
     private func buildDaemonRequest(path: String, method: String) -> URLRequest? {
         let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
         let assistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
+
         if let assistant, assistant.isManaged {
-            return Self.buildManagedAssistantProxyRequest(
-                baseURL: assistant.runtimeUrl ?? AuthService.shared.baseURL,
-                assistantId: assistant.assistantId,
-                path: path,
-                method: method,
-                sessionToken: SessionTokenManager.getToken(),
-                organizationId: UserDefaults.standard.string(forKey: "connectedOrganizationId")
-            )
+            guard let info = try? GatewayHTTPClient.resolveConnectionInfo() else { return nil }
+            // Strip "v1/" prefix — the platform proxy already namespaces under /v1/assistants/{id}/
+            let proxyPath = path.hasPrefix("v1/") ? String(path.dropFirst(3)) : path
+            let trailingSlash = proxyPath.hasSuffix("/") ? "" : "/"
+            guard let url = URL(string: "\(info.baseURL)/v1/assistants/\(info.assistant.assistantId)/\(proxyPath)\(trailingSlash)") else { return nil }
+            var request = URLRequest(url: url)
+            request.httpMethod = method
+            request.timeoutInterval = 5
+            request.setValue(info.token, forHTTPHeaderField: "X-Session-Token")
+            if let orgId = info.organizationId, !orgId.isEmpty {
+                request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
+            }
+            return request
         }
 
         // Local mode: direct to daemon runtime HTTP server.
@@ -883,32 +890,6 @@ public final class SettingsStore: ObservableObject {
         request.httpMethod = method
         request.timeoutInterval = 5
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        return request
-    }
-
-    /// Managed requests must fail closed without a session token so callers
-    /// preserve work for later retry instead of sending unauthenticated writes.
-    nonisolated static func buildManagedAssistantProxyRequest(
-        baseURL: String,
-        assistantId: String,
-        path: String,
-        method: String,
-        sessionToken: String?,
-        organizationId: String?
-    ) -> URLRequest? {
-        guard let token = sessionToken, !token.isEmpty else { return nil }
-        // Strip "v1/" prefix — the platform proxy already namespaces under /v1/assistants/{id}/
-        let proxyPath = path.hasPrefix("v1/") ? String(path.dropFirst(3)) : path
-        // Django URL convention: trailing slash
-        let trailingSlash = proxyPath.hasSuffix("/") ? "" : "/"
-        guard let url = URL(string: "\(baseURL)/v1/assistants/\(assistantId)/\(proxyPath)\(trailingSlash)") else { return nil }
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.timeoutInterval = 5
-        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
-        if let orgId = organizationId, !orgId.isEmpty {
-            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
-        }
         return request
     }
 
