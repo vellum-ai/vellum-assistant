@@ -155,5 +155,13 @@ export function handleTrustRuleSignal(): void {
     writeFileSync(resultPath, JSON.stringify({ ok: true, requestId }));
   } catch (err) {
     log.error({ err }, "Failed to handle trust-rule signal");
+    try {
+      writeFileSync(
+        resultPath,
+        JSON.stringify({ ok: false, requestId: null, error: "Internal error" }),
+      );
+    } catch {
+      // Best-effort — filesystem may be broken.
+    }
   }
 }

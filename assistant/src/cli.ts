@@ -295,6 +295,7 @@ export async function startCli(): Promise<void> {
 
       setTimeout(() => {
         watcher.close();
+        process.stdout.write("[Trust rule timed out]\n");
       }, 5_000);
 
       if (existsSync(resultPath)) {
