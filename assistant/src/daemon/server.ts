@@ -246,7 +246,7 @@ export class DaemonServer {
   /**
    * Logical assistant identifier used when publishing to the assistant-events hub.
    */
-  assistantId: string = "default";
+  assistantId: string = DAEMON_INTERNAL_ASSISTANT_ID;
 
   /** Optional heartbeat service reference for "Run Now" from the UI. */
   private _heartbeatService?: HeartbeatService;
@@ -344,7 +344,7 @@ export class DaemonServer {
    * always observe events in send order.
    */
   private publishAssistantEvent(msg: ServerMessage, sessionId?: string): void {
-    const id = this.assistantId ?? "default";
+    const id = this.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
     const event = buildAssistantEvent(id, msg, sessionId);
     this._hubChain = this._hubChain
       .then(() => assistantEventHub.publish(event))
