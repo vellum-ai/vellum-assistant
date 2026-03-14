@@ -1,4 +1,4 @@
-import { desc } from "drizzle-orm";
+import { asc, desc, gt } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import type {
@@ -52,15 +52,24 @@ export function recordUsageEvent(
 // Read — single-event listing
 // ---------------------------------------------------------------------------
 
-export function listUsageEvents(options?: { limit?: number }): UsageEvent[] {
-  const db = getDb();
-  const rows = db
-    .select()
-    .from(llmUsageEvents)
-    .orderBy(desc(llmUsageEvents.createdAt))
-    .limit(options?.limit ?? 100)
-    .all();
-  return rows.map((row) => ({
+/** Map a raw DB row to a typed UsageEvent. */
+function rowToUsageEvent(row: {
+  id: string;
+  createdAt: number;
+  conversationId: string | null;
+  runId: string | null;
+  requestId: string | null;
+  actor: string;
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens: number | null;
+  cacheReadInputTokens: number | null;
+  estimatedCostUsd: number | null;
+  pricingStatus: string;
+}): UsageEvent {
+  return {
     id: row.id,
     createdAt: row.createdAt,
     conversationId: row.conversationId,
@@ -75,7 +84,33 @@ export function listUsageEvents(options?: { limit?: number }): UsageEvent[] {
     cacheReadInputTokens: row.cacheReadInputTokens,
     estimatedCostUsd: row.estimatedCostUsd,
     pricingStatus: row.pricingStatus as "priced" | "unpriced",
-  }));
+  };
+}
+
+export function listUsageEvents(options?: { limit?: number }): UsageEvent[] {
+  const db = getDb();
+  const rows = db
+    .select()
+    .from(llmUsageEvents)
+    .orderBy(desc(llmUsageEvents.createdAt))
+    .limit(options?.limit ?? 100)
+    .all();
+  return rows.map(rowToUsageEvent);
+}
+
+export function queryUnreportedUsageEvents(
+  afterCreatedAt: number,
+  limit: number,
+): UsageEvent[] {
+  const db = getDb();
+  const rows = db
+    .select()
+    .from(llmUsageEvents)
+    .where(gt(llmUsageEvents.createdAt, afterCreatedAt))
+    .orderBy(asc(llmUsageEvents.createdAt))
+    .limit(limit)
+    .all();
+  return rows.map(rowToUsageEvent);
 }
 
 // ---------------------------------------------------------------------------
