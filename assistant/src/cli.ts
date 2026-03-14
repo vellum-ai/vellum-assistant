@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import {
   appendFileSync,
+  existsSync,
   mkdirSync,
   readFileSync,
+  watch,
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -239,7 +241,7 @@ export async function startCli(): Promise<void> {
     }
   }
 
-  /** Add a trust rule via signal file, then confirm after a short delay. */
+  /** Add a trust rule via signal file, then confirm once the daemon acknowledges. */
   function sendTrustRuleAndConfirm(
     requestId: string,
     pattern: string,
@@ -251,6 +253,7 @@ export async function startCli(): Promise<void> {
     try {
       const signalsDir = join(getWorkspaceDir(), "signals");
       mkdirSync(signalsDir, { recursive: true });
+      const resultPath = join(signalsDir, "trust-rule.result");
       writeFileSync(
         join(signalsDir, "trust-rule"),
         JSON.stringify({
@@ -261,9 +264,36 @@ export async function startCli(): Promise<void> {
           ...(options?.allowHighRisk ? { allowHighRisk: true } : {}),
         }),
       );
+
+      const onResult = (): void => {
+        try {
+          const raw = readFileSync(resultPath, "utf-8");
+          const result = JSON.parse(raw) as {
+            ok?: boolean;
+            requestId?: string;
+          };
+          if (result.ok && result.requestId === requestId) {
+            sendConfirmation(requestId, confirmDecision);
+          }
+        } catch {
+          // Result file not yet readable; ignore.
+        }
+      };
+
+      const watcher = watch(signalsDir, (_event, filename) => {
+        if (filename === "trust-rule.result") {
+          watcher.close();
+          onResult();
+        }
+      });
+
       setTimeout(() => {
-        sendConfirmation(requestId, confirmDecision);
-      }, 300);
+        watcher.close();
+      }, 5_000);
+
+      if (existsSync(resultPath)) {
+        onResult();
+      }
     } catch {
       process.stdout.write("[Failed to send trust rule]\n");
     }

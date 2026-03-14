@@ -4,13 +4,12 @@
  * When the user chooses to allowlist/denylist a tool pattern from a
  * confirmation prompt, the CLI writes JSON to `signals/trust-rule`.
  * The daemon's ConfigWatcher detects the file change and invokes
- * {@link handleTrustRuleSignal}, which adds the trust rule.
- *
- * The CLI writes a separate `signals/confirm` file (after a short delay)
- * to resolve the pending confirmation via the existing confirm handler.
+ * {@link handleTrustRuleSignal}, which adds the trust rule and writes
+ * `signals/trust-rule.result` so the CLI knows the rule was persisted
+ * before it sends the follow-up `signals/confirm`.
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { addRule } from "../permissions/trust-store.js";
@@ -70,10 +69,7 @@ export function handleTrustRuleSignal(): void {
     }
 
     if (!interaction.confirmationDetails) {
-      log.warn(
-        { requestId },
-        "No confirmation details for trust-rule signal",
-      );
+      log.warn({ requestId }, "No confirmation details for trust-rule signal");
       return;
     }
 
@@ -135,6 +131,11 @@ export function handleTrustRuleSignal(): void {
     log.info(
       { tool: confirmation.toolName, pattern, scope, decision, requestId },
       "Trust rule added via signal file",
+    );
+
+    writeFileSync(
+      join(getWorkspaceDir(), "signals", "trust-rule.result"),
+      JSON.stringify({ ok: true, requestId }),
     );
   } catch (err) {
     log.error({ err }, "Failed to handle trust-rule signal");
