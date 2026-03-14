@@ -20,7 +20,7 @@ This skill follows the **Collaborative Guided Flow** pattern from the included `
 - **Provider key:** `integration:spotify`
 - **Dashboard:** `https://developer.spotify.com/dashboard`
 - **Ping URL:** `https://api.spotify.com/v1/me`
-- **Callback transport:** Loopback (port 17322)
+- **Callback transport:** Loopback
 - **Requires secret:** Yes (token endpoint needs both client ID and app secret)
 
 ## Spotify-Specific Flow
@@ -58,13 +58,12 @@ After the user clicks:
 Before providing the redirect URI, resolve it:
 
 ```
-credential_store describe:
-  service: "integration:spotify"
+bash:
+  command: assistant oauth providers get integration:spotify --json
 ```
 
-- If the redirect URI is **"automatic"** or the callback transport is loopback with no ingress requirement, tell the user to enter `http://localhost:17322/callback` as the redirect URI.
-- If the redirect URI mentions `ingress.publicBaseUrl` or says "not currently configured", stop and help the user configure public ingress first.
-- Otherwise, provide the concrete redirect URI from the credential store.
+- If the `redirectUri` is a concrete URL (e.g. `http://localhost:…/oauth/callback`), tell the user to enter that exact URL as the redirect URI.
+- If it is `null`, stop and help the user configure public ingress first.
 
 Then:
 

@@ -1,14 +1,39 @@
 import { type Command } from "commander";
 
+import { loadConfig } from "../../../config/loader.js";
+import { getOAuthCallbackUrl } from "../../../inbound/public-ingress-urls.js";
 import {
   getProvider,
   listProviders,
   registerProvider,
 } from "../../../oauth/oauth-store.js";
+import { getProviderBehavior } from "../../../oauth/provider-behaviors.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 
 const log = getCliLogger("cli");
+
+const LOOPBACK_CALLBACK_PATH = "/oauth/callback";
+
+/** Resolve the redirect URI for a provider based on its callback transport. */
+function resolveRedirectUri(
+  providerKey: string,
+  callbackTransport: string | null,
+): string | null {
+  const transport = callbackTransport ?? "loopback";
+  if (transport === "loopback") {
+    const behavior = getProviderBehavior(providerKey);
+    const port = behavior?.loopbackPort;
+    if (!port) return null;
+    return `http://localhost:${port}${LOOPBACK_CALLBACK_PATH}`;
+  }
+  // Gateway transport — resolve from public ingress config
+  try {
+    return getOAuthCallbackUrl(loadConfig());
+  } catch {
+    return null;
+  }
+}
 
 /** Parse stored JSON string fields into their native types. */
 function parseProviderRow(row: ReturnType<typeof getProvider>) {
@@ -18,6 +43,7 @@ function parseProviderRow(row: ReturnType<typeof getProvider>) {
     defaultScopes: row.defaultScopes ? JSON.parse(row.defaultScopes) : [],
     scopePolicy: row.scopePolicy ? JSON.parse(row.scopePolicy) : {},
     extraParams: row.extraParams ? JSON.parse(row.extraParams) : null,
+    redirectUri: resolveRedirectUri(row.providerKey, row.callbackTransport),
     createdAt: new Date(row.createdAt).toISOString(),
     updatedAt: new Date(row.updatedAt).toISOString(),
   };
