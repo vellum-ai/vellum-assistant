@@ -298,7 +298,7 @@ describe("startOutbound", () => {
     expect(voiceCallInitCalls[0].phoneNumber).toBe("+15559876543");
   });
 
-  test("voice: succeeds without originConversationId (backward compat)", async () => {
+  test("voice: succeeds without originConversationId", async () => {
     voiceCallInitCalls.length = 0;
     const result = await startOutbound({
       channel: "phone",

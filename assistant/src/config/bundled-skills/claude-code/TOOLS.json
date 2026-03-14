@@ -36,7 +36,7 @@
           "profile": {
             "type": "string",
             "enum": ["general", "researcher", "coder", "reviewer"],
-            "description": "Worker profile that scopes tool access. Defaults to general (backward compatible)."
+            "description": "Worker profile that scopes tool access. Defaults to general."
           }
         }
       },

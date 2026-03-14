@@ -2324,7 +2324,7 @@ describe("Memory regressions", () => {
       })
       .run();
 
-    // Call without scopeId — backward compat: should work exactly as before
+    // Call without scopeId — optional parameter omitted
     const withoutScope =
       await extractAndUpsertMemoryItemsForMessage("msg-scope-pass");
     expect(withoutScope).toBeGreaterThan(0);
@@ -3308,14 +3308,14 @@ describe("Memory regressions", () => {
           { type: "text", text: "Legacy message with no provenance info." },
         ]),
         createdAt: now,
-        // provenanceTrustClass is intentionally omitted (undefined) for backwards compat
+        // provenanceTrustClass is intentionally omitted (undefined) to test default behavior
       },
       DEFAULT_CONFIG.memory,
     );
 
     expect(result.indexedSegments).toBeGreaterThan(0);
 
-    // extract_items job should still be enqueued for legacy messages (backwards compat)
+    // extract_items job should still be enqueued for messages without provenance
     const extractJobs = db
       .select()
       .from(memoryJobs)

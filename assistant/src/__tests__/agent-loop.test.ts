@@ -1206,7 +1206,7 @@ describe("AgentLoop", () => {
   // Dynamic tool resolver (resolveTools) tests
   // ---------------------------------------------------------------------------
 
-  // 25. Without resolveTools, static tools are used (backward compatible)
+  // 25. Without resolveTools, static tools are used
   test("without resolveTools, static tools are passed to provider", async () => {
     const { provider, calls } = createMockProvider([textResponse("Hi")]);
     const loop = new AgentLoop(provider, "system", {}, dummyTools);

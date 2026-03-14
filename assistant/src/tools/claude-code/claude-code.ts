@@ -121,7 +121,7 @@ export const claudeCodeTool: Tool = {
             type: "string",
             enum: ["general", "researcher", "coder", "reviewer"],
             description:
-              "Worker profile that scopes tool access. Defaults to general (backward compatible).",
+              "Worker profile that scopes tool access. Defaults to general.",
           },
         },
       },
@@ -261,7 +261,7 @@ export const claudeCodeTool: Tool = {
           return { behavior: "allow" as const };
         }
 
-        // Auto-approve safe read-only tools (backward compat for general profile)
+        // Auto-approve safe read-only tools (general profile default)
         if (AUTO_APPROVE_TOOLS.has(toolName)) {
           return { behavior: "allow" as const };
         }

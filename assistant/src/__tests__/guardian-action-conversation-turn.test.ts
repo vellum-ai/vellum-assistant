@@ -34,8 +34,8 @@ import {
   createGuardianActionDelivery,
   createGuardianActionRequest,
   finalizeFollowup,
+  getFollowupDeliveriesByConversation,
   getFollowupDeliveriesByDestination,
-  getFollowupDeliveryByConversation,
   getGuardianActionRequest,
   markTimedOutWithReason,
   progressFollowupState,
@@ -391,7 +391,7 @@ describe("guardian-action-conversation-turn", () => {
     expect(deliveries).toHaveLength(0);
   });
 
-  test("getFollowupDeliveryByConversation returns delivery in awaiting_guardian_choice", () => {
+  test("getFollowupDeliveriesByConversation returns delivery in awaiting_guardian_choice", () => {
     const { delivery, deliveryConvId } = createAwaitingChoiceRequest(
       "conv-turn-4",
       {
@@ -399,18 +399,18 @@ describe("guardian-action-conversation-turn", () => {
       },
     );
 
-    const found = getFollowupDeliveryByConversation(deliveryConvId);
-    expect(found).not.toBeNull();
-    expect(found!.id).toBe(delivery.id);
+    const found = getFollowupDeliveriesByConversation(deliveryConvId);
+    expect(found).toHaveLength(1);
+    expect(found[0].id).toBe(delivery.id);
   });
 
-  test("getFollowupDeliveryByConversation returns null for non-matching conversation", () => {
+  test("getFollowupDeliveriesByConversation returns empty for non-matching conversation", () => {
     createAwaitingChoiceRequest("conv-turn-5", {
       conversationId: "mac-conv-2",
     });
 
-    const found = getFollowupDeliveryByConversation("nonexistent-conv");
-    expect(found).toBeNull();
+    const found = getFollowupDeliveriesByConversation("nonexistent-conv");
+    expect(found).toHaveLength(0);
   });
 
   // ── State transitions from conversation engine results ──────────────

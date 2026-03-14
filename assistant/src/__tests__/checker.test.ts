@@ -1947,7 +1947,7 @@ describe("Permission Checker", () => {
       ).toHaveLength(0);
     });
 
-    test("returns directory options when toolName is omitted (backward compat)", () => {
+    test("returns directory options when toolName is omitted", () => {
       const options = generateScopeOptions("/home/user/project");
       expect(options).toHaveLength(3);
       expect(options[0].scope).toBe("/home/user/project");
@@ -2121,11 +2121,11 @@ describe("Permission Checker", () => {
     });
   });
 
-  // ── backward compat: addRule basics (PR 2/40) ──
+  // ── addRule basics ──
   // These tests verify that addRule() creates standard rules that
   // match by tool name, pattern glob, and scope prefix.
 
-  describe("backward compat: addRule basics (PR 2/40)", () => {
+  describe("addRule basics", () => {
     test("rule matches by tool/pattern/scope", async () => {
       addRule("skill_test_tool", "skill_test_tool:*", "/tmp", "allow", 2000);
       const result = await check("skill_test_tool", {}, "/tmp");
@@ -2174,7 +2174,7 @@ describe("Permission Checker", () => {
       expect(v2Result.matchedRule?.id).toBe(v1Result.matchedRule?.id);
     });
 
-    test("findHighestPriorityRule works without policy context (backward compat)", () => {
+    test("findHighestPriorityRule works without policy context", () => {
       // Calling findHighestPriorityRule without the optional 4th ctx
       // parameter still works — wildcard rules match any caller.
       addRule("skill_test_tool", "skill_test_tool:*", "/tmp", "allow", 2000);
@@ -2199,14 +2199,14 @@ describe("Permission Checker", () => {
     });
   });
 
-  // ── checker policy context backward compat (PR 17) ─────────────
+  // ── optional policyContext parameter ─────────────
 
-  describe("checker policy context backward compat (PR 17)", () => {
-    test("check() without policyContext still works (backward compatible)", async () => {
-      addRule("bash", "echo backward-compat", "/tmp", "allow", 2000);
+  describe("optional policyContext parameter", () => {
+    test("check() without policyContext still works", async () => {
+      addRule("bash", "echo test-optional-ctx", "/tmp", "allow", 2000);
       const result = await check(
         "bash",
-        { command: "echo backward-compat" },
+        { command: "echo test-optional-ctx" },
         "/tmp",
       );
       expect(result.decision).toBe("allow");

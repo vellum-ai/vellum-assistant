@@ -88,7 +88,7 @@ describe("claude_code tool profile support", () => {
     }
   });
 
-  test("omitted profile defaults to general (backward compat)", async () => {
+  test("omitted profile defaults to general", async () => {
     const result = await claudeCodeTool.execute(
       { prompt: "test" },
       makeContext(),

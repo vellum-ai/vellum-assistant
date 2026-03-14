@@ -846,9 +846,8 @@ describe("AssistantConfigSchema", () => {
     expect(result.calls.callerIdentity.userNumber).toBe("+14155559999");
   });
 
-  test("legacy defaultMode field is silently stripped by schema", () => {
-    // Backward compatibility: existing configs with defaultMode should parse
-    // without error — Zod strips unrecognized keys by default.
+  test("unknown defaultMode field is silently stripped by schema", () => {
+    // Zod strips unrecognized keys by default.
     const result = AssistantConfigSchema.parse({
       calls: {
         callerIdentity: {
@@ -1101,7 +1100,7 @@ describe("loadConfig with schema validation", () => {
     expect(config.sandbox.enabled).toBe(true);
   });
 
-  test("loads sandbox with only enabled (backward compatibility)", () => {
+  test("loads sandbox with only enabled field", () => {
     writeConfig({ sandbox: { enabled: false } });
     const config = loadConfig();
     expect(config.sandbox.enabled).toBe(false);

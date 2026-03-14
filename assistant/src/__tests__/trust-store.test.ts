@@ -1461,10 +1461,10 @@ describe("Trust Store", () => {
       });
     });
 
-    // ── backward compatibility ────────────────────────────────────
+    // ── optional ctx parameter ────────────────────────────────────
 
-    describe("backward compatibility", () => {
-      test("existing callers without ctx parameter still work", () => {
+    describe("optional ctx parameter", () => {
+      test("callers without ctx parameter still work", () => {
         addRule("bash", "git *", "/tmp", "allow", 200);
         // Calling without the 4th argument — must still match
         const match = findHighestPriorityRule("bash", ["git status"], "/tmp");

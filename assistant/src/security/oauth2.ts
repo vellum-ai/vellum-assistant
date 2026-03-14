@@ -45,7 +45,7 @@ export interface OAuth2Config {
    * How the client authenticates at the token endpoint when a clientSecret is present.
    * - `client_secret_post`: Send client_id and client_secret in the POST body (default).
    * - `client_secret_basic`: Send an HTTP Basic Auth header with base64(client_id:client_secret).
-   * Defaults to `client_secret_post` for backward compatibility.
+   * Defaults to `client_secret_post`.
    */
   tokenEndpointAuthMethod?: TokenEndpointAuthMethod;
 }

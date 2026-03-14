@@ -39,7 +39,6 @@ mock.module("../util/platform.js", () => ({
 }));
 
 mock.module("../memory/guardian-action-store.js", () => ({
-  getPendingDeliveryByConversation: () => null,
   getGuardianActionRequest: () => null,
   resolveGuardianActionRequest: () => {},
 }));
@@ -621,8 +620,7 @@ describe("Session message queue", () => {
     const sessionErr = events.find((e) => e.type === "session_error");
     expect(sessionErr).toBeDefined();
 
-    // Should also emit generic error for backward compatibility
-    // (callers rely on error events to detect failures)
+    // Should also emit generic error (callers rely on error events to detect failures)
     const genericErr = events.find((e) => e.type === "error");
     expect(genericErr).toBeDefined();
   });
@@ -1674,7 +1672,7 @@ describe("Regression: cancel semantics and error channel split", () => {
     const sessionErr = allEvents.find((e) => e.type === "session_error");
     expect(sessionErr).toBeDefined();
 
-    // Should also get generic error for backward compatibility
+    // Should also get generic error
     const genericErr = allEvents.find((e) => e.type === "error");
     expect(genericErr).toBeDefined();
   });
