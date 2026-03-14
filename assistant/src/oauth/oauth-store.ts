@@ -39,7 +39,7 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
  * Seed well-known provider profiles into the database. Uses INSERT … ON
  * CONFLICT DO UPDATE so that implementation fields (authUrl, tokenUrl,
  * tokenEndpointAuthMethod, extraParams, callbackTransport, loopbackPort,
- * pingUrl) propagate to existing installations on every startup, while
+ * loopbackHost, pingUrl) propagate to existing installations on every startup, while
  * user-customizable fields (defaultScopes, scopePolicy, userinfoUrl,
  * baseUrl) are only written on the initial insert.
  */
@@ -57,6 +57,7 @@ export function seedProviders(
     extraParams?: Record<string, string>;
     callbackTransport?: string;
     loopbackPort?: number;
+    loopbackHost?: string;
   }>,
 ): void {
   const db = getDb();
@@ -73,6 +74,7 @@ export function seedProviders(
     const extraParams = p.extraParams ? JSON.stringify(p.extraParams) : null;
     const callbackTransport = p.callbackTransport ?? null;
     const loopbackPort = p.loopbackPort ?? null;
+    const loopbackHost = p.loopbackHost ?? null;
 
     db.insert(oauthProviders)
       .values({
@@ -87,6 +89,7 @@ export function seedProviders(
         extraParams,
         callbackTransport,
         loopbackPort,
+        loopbackHost,
         pingUrl,
         createdAt: now,
         updatedAt: now,
@@ -100,6 +103,7 @@ export function seedProviders(
           extraParams,
           callbackTransport,
           loopbackPort,
+          loopbackHost,
           pingUrl,
           updatedAt: now,
         },
@@ -141,6 +145,7 @@ export function registerProvider(params: {
   extraParams?: Record<string, string>;
   callbackTransport?: string;
   loopbackPort?: number;
+  loopbackHost?: string;
 }): OAuthProviderRow {
   const db = getDb();
   const now = Date.now();
@@ -162,6 +167,7 @@ export function registerProvider(params: {
     extraParams: params.extraParams ? JSON.stringify(params.extraParams) : null,
     callbackTransport: params.callbackTransport ?? null,
     loopbackPort: params.loopbackPort ?? null,
+    loopbackHost: params.loopbackHost ?? null,
     pingUrl: params.pingUrl ?? null,
     createdAt: now,
     updatedAt: now,

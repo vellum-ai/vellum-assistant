@@ -70,6 +70,9 @@ export interface OAuth2FlowOptions {
    *  instead of an OS-assigned random port. Required for providers like Slack that
    *  need pre-registered redirect URIs. */
   loopbackPort?: number;
+  /** Hostname for the loopback redirect URI. Defaults to "127.0.0.1".
+   *  Some providers (e.g. Notion) require "localhost" for HTTP redirect URIs. */
+  loopbackHost?: string;
 }
 
 export interface OAuth2FlowResult {
@@ -259,6 +262,7 @@ async function runLoopbackFlow(
   codeChallenge: string,
   state: string,
   loopbackPort?: number,
+  loopbackHost?: string,
 ): Promise<OAuth2FlowResult> {
   const { code, redirectUri } = await startLoopbackServerAndWaitForCode(
     config,
@@ -266,6 +270,7 @@ async function runLoopbackFlow(
     codeChallenge,
     state,
     loopbackPort,
+    loopbackHost,
   );
 
   return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier);
@@ -283,6 +288,7 @@ function startLoopbackServerAndWaitForCode(
   codeChallenge: string,
   state: string,
   loopbackPort?: number,
+  loopbackHost?: string,
 ): Promise<{ code: string; redirectUri: string }> {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -359,9 +365,10 @@ function startLoopbackServerAndWaitForCode(
       server.close();
     }
 
+    const host = loopbackHost ?? "127.0.0.1";
     server.listen(loopbackPort ?? 0, "127.0.0.1", () => {
       const addr = server.address() as { port: number };
-      boundRedirectUri = `http://localhost:${addr.port}${LOOPBACK_CALLBACK_PATH}`;
+      boundRedirectUri = `http://${host}:${addr.port}${LOOPBACK_CALLBACK_PATH}`;
 
       const authParams = new URLSearchParams({
         ...config.extraParams,
@@ -433,7 +440,7 @@ export async function prepareOAuth2Flow(
   const transport = options?.callbackTransport ?? "loopback";
 
   if (transport === "loopback") {
-    return prepareLoopbackFlow(config, options?.loopbackPort);
+    return prepareLoopbackFlow(config, options?.loopbackPort, options?.loopbackHost);
   }
 
   // Dynamic imports required here to avoid circular dependencies with
@@ -491,6 +498,7 @@ export async function prepareOAuth2Flow(
 async function prepareLoopbackFlow(
   config: OAuth2Config,
   loopbackPort?: number,
+  loopbackHost?: string,
 ): Promise<OAuth2PreparedFlow> {
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = generateCodeChallenge(codeVerifier);
@@ -499,6 +507,7 @@ async function prepareLoopbackFlow(
   const { redirectUri, codePromise } = await startLoopbackServerForPreparedFlow(
     state,
     loopbackPort,
+    loopbackHost,
   );
 
   const authParams = new URLSearchParams({
@@ -535,6 +544,7 @@ async function prepareLoopbackFlow(
 function startLoopbackServerForPreparedFlow(
   state: string,
   loopbackPort?: number,
+  loopbackHost?: string,
 ): Promise<{ redirectUri: string; codePromise: Promise<string> }> {
   return new Promise((resolveSetup, rejectSetup) => {
     let settled = false;
@@ -617,9 +627,10 @@ function startLoopbackServerForPreparedFlow(
       server.close();
     }
 
+    const host = loopbackHost ?? "127.0.0.1";
     server.listen(loopbackPort ?? 0, "127.0.0.1", () => {
       const addr = server.address() as { port: number };
-      const redirectUri = `http://127.0.0.1:${addr.port}${LOOPBACK_CALLBACK_PATH}`;
+      const redirectUri = `http://${host}:${addr.port}${LOOPBACK_CALLBACK_PATH}`;
       listening = true;
       resolveSetup({ redirectUri, codePromise });
     });
@@ -704,7 +715,7 @@ export async function startOAuth2Flow(
   }
 
   log.debug(
-    { transport: "loopback", loopbackPort: options?.loopbackPort },
+    { transport: "loopback", loopbackPort: options?.loopbackPort, loopbackHost: options?.loopbackHost },
     "OAuth2 flow starting",
   );
   return runLoopbackFlow(
@@ -714,6 +725,7 @@ export async function startOAuth2Flow(
     codeChallenge,
     state,
     options?.loopbackPort,
+    options?.loopbackHost,
   );
 }
 

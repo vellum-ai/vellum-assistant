@@ -172,6 +172,10 @@ Examples:
       return port;
     })
     .option(
+      "--loopback-host <host>",
+      'Hostname for the loopback redirect URI (default: "127.0.0.1"). Some providers require "localhost".',
+    )
+    .option(
       "--ping-url <url>",
       "Health-check endpoint URL for token validation",
     )
@@ -190,6 +194,8 @@ Arguments (via options):
                         (e.g. "client_secret_post", "client_secret_basic").
   --callback-transport  Transport method for the OAuth callback.
   --loopback-port       Port number for the local loopback callback server (1-65535).
+  --loopback-host       Hostname for the loopback redirect URI (default: "127.0.0.1").
+                        Some providers (e.g. Notion) require "localhost" for HTTP.
   --ping-url            Optional URL for a lightweight health-check endpoint.
                         Used by "connections ping" to validate that a stored token
                         is still functional (e.g. "https://api.example.com/user").
@@ -226,6 +232,7 @@ Examples:
           tokenAuthMethod?: string;
           callbackTransport?: string;
           loopbackPort?: number;
+          loopbackHost?: string;
           pingUrl?: string;
         },
         cmd: Command,
@@ -242,6 +249,7 @@ Examples:
             tokenEndpointAuthMethod: opts.tokenAuthMethod,
             callbackTransport: opts.callbackTransport,
             loopbackPort: opts.loopbackPort,
+            loopbackHost: opts.loopbackHost,
             pingUrl: opts.pingUrl,
           });
 

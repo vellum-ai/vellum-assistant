@@ -162,6 +162,7 @@ export async function orchestrateOAuthConnect(
     (providerRow.callbackTransport as "loopback" | "gateway" | null) ??
     "loopback";
   const loopbackPort = providerRow.loopbackPort;
+  const loopbackHost = providerRow.loopbackHost ?? undefined;
 
   // Resolve scopes via the scope policy engine
   const scopeProfile = {
@@ -240,7 +241,7 @@ export async function orchestrateOAuthConnect(
       const prepared = await prepareOAuth2Flow(
         oauthConfig,
         callbackTransport === "loopback"
-          ? { callbackTransport, loopbackPort: loopbackPort ?? undefined }
+          ? { callbackTransport, loopbackPort: loopbackPort ?? undefined, loopbackHost }
           : callbackTransport === "gateway"
             ? { callbackTransport }
             : undefined,
@@ -345,7 +346,7 @@ export async function orchestrateOAuthConnect(
         },
       },
       callbackTransport === "loopback"
-        ? { callbackTransport, loopbackPort: loopbackPort ?? undefined }
+        ? { callbackTransport, loopbackPort: loopbackPort ?? undefined, loopbackHost }
         : callbackTransport === "gateway"
           ? { callbackTransport }
           : undefined,
