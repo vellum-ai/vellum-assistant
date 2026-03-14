@@ -340,7 +340,8 @@ enum LogExporter {
     /// log files, then writes them into `directory`. Silently skips if the
     /// gateway is unreachable or returns an error.
     private nonisolated static func fetchDaemonExports(into directory: URL) async {
-        let baseURL = LockfilePaths.resolveGatewayUrl()
+        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let baseURL = LockfilePaths.resolveGatewayUrl(connectedAssistantId: connectedId)
 
         guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
             log.warning("No actor token available — skipping daemon exports")

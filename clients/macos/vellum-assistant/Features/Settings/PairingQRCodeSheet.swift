@@ -179,7 +179,8 @@ struct PairingQRCodeSheet: View {
 
     /// Resolve the local gateway base URL: env var > lockfile > default 7830.
     private var resolvedGatewayBaseUrl: String {
-        "http://127.0.0.1:\(LockfilePaths.resolveGatewayPort())"
+        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        return "http://127.0.0.1:\(LockfilePaths.resolveGatewayPort(connectedAssistantId: connectedId))"
     }
 
     private func registerWithDaemon() {
@@ -276,7 +277,8 @@ struct PairingQRCodeSheet: View {
 
     private func computeLocalLanUrl() -> String? {
         guard let lanIP = LANIPHelper.currentLANAddress() else { return nil }
-        return "http://\(lanIP):\(LockfilePaths.resolveGatewayPort())"
+        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        return "http://\(lanIP):\(LockfilePaths.resolveGatewayPort(connectedAssistantId: connectedId))"
     }
 
     /// LAN pairing uses plaintext HTTP and can expose bearer tokens on a local

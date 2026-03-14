@@ -1913,7 +1913,8 @@ public final class SettingsStore: ObservableObject {
     /// LAN pairing URL for the gateway, or nil if no LAN IP available.
     var lanPairingUrl: String? {
         guard let ip = LANIPHelper.currentLANAddress() else { return nil }
-        return "http://\(ip):\(LockfilePaths.resolveGatewayPort())"
+        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        return "http://\(ip):\(LockfilePaths.resolveGatewayPort(connectedAssistantId: connectedId))"
     }
 
     // MARK: - Dev Mode Actions

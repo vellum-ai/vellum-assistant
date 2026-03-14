@@ -1673,7 +1673,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             guard let port = httpPort else { return nil }
             baseURL = "http://localhost:\(port)"
         case .gateway:
-            let port = LockfilePaths.resolveGatewayPort()
+            let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+            let port = LockfilePaths.resolveGatewayPort(connectedAssistantId: connectedId)
             baseURL = "http://127.0.0.1:\(port)"
         }
 
