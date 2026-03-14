@@ -18,6 +18,37 @@ import { openLogFile, pipeToLogFile } from "./xdg-log.js";
 
 const _require = createRequire(import.meta.url);
 
+/**
+ * Resolve the user's login shell PATH on macOS. GUI-launched apps inherit a
+ * minimal PATH (typically just /usr/bin:/bin:/usr/sbin:/sbin) that lacks
+ * user-configured directories from shell profiles. This runs the user's
+ * login shell to capture their actual PATH.
+ *
+ * Returns undefined on non-macOS platforms or if resolution fails.
+ */
+function resolveUserLoginPath(): string | undefined {
+  if (platform() !== "darwin") return undefined;
+
+  const shell = process.env.SHELL || "/bin/zsh";
+  try {
+    const output = execFileSync(
+      shell,
+      ["-l", "-c", 'echo "__VELLUM_PATH_START__${PATH}__VELLUM_PATH_END__"'],
+      {
+        encoding: "utf-8",
+        timeout: 5000,
+        stdio: ["ignore", "pipe", "ignore"],
+      },
+    );
+    const match = output.match(
+      /__VELLUM_PATH_START__(.+)__VELLUM_PATH_END__/,
+    );
+    return match?.[1] || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function isAssistantSourceDir(dir: string): boolean {
   const pkgPath = join(dir, "package.json");
   if (!existsSync(pkgPath) || !existsSync(join(dir, "src", "index.ts")))
@@ -805,7 +836,9 @@ export async function startLocalDaemon(
       // the daemon to take 50+ seconds to start instead of ~1s.
       const bunBinDir = join(homedir(), ".bun", "bin");
       const basePath =
-        process.env.PATH || "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+        resolveUserLoginPath() ||
+        process.env.PATH ||
+        "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
       const daemonEnv: Record<string, string> = {
         HOME: process.env.HOME || homedir(),
         PATH: `${bunBinDir}:${basePath}`,
