@@ -272,6 +272,28 @@ export function deleteConversation(id: string): void {
   });
 }
 
+/**
+ * Delete all private (temporary) conversations and their associated data.
+ * Called at daemon startup to clean up ephemeral threads from previous sessions.
+ * Returns the number of conversations purged.
+ */
+export function purgePrivateConversations(): number {
+  const db = getDb();
+  const privateConvs = db
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(eq(conversations.threadType, "private"))
+    .all();
+
+  if (privateConvs.length === 0) return 0;
+
+  for (const conv of privateConvs) {
+    deleteConversation(conv.id);
+  }
+
+  return privateConvs.length;
+}
+
 export async function addMessage(
   conversationId: string,
   role: string,

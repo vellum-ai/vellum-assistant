@@ -348,6 +348,29 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         log.info("Created private thread \(thread.id)")
     }
 
+    /// Remove a private (temporary) thread and delete its backend conversation.
+    /// Stops any active generation before cleanup.
+    func removePrivateThread(id: UUID) {
+        guard let index = threads.firstIndex(where: { $0.id == id && $0.kind == .private }) else { return }
+
+        let sessionId = threads[index].sessionId
+
+        // Stop generation and clean up local state
+        chatViewModels[id]?.stopGenerating()
+        threads.remove(at: index)
+        chatViewModels.removeValue(forKey: id)
+        unsubscribeAllForThread(id: id)
+        vmAccessOrder.removeAll { $0 == id }
+        Self.clearRenderCaches()
+
+        // Delete the conversation on the backend (fire-and-forget)
+        if let sessionId {
+            daemonClient.deleteConversation(sessionId)
+        }
+
+        log.info("Removed private thread \(id)")
+    }
+
     /// Create a visible thread bound to an existing task run conversation.
     /// Called when the daemon broadcasts `task_run_thread_created` so the user
     /// can see task execution messages streaming in real-time.

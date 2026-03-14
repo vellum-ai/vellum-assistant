@@ -4,13 +4,18 @@
  * POST   /v1/conversations/switch         — switch to an existing conversation
  * PATCH  /v1/conversations/:id/name       — rename a conversation
  * DELETE /v1/conversations                 — clear all conversations
+ * DELETE /v1/conversations/:id            — delete a single conversation
  * POST   /v1/conversations/:id/cancel     — cancel generation
  * POST   /v1/conversations/:id/undo       — undo last message
  * POST   /v1/conversations/:id/regenerate — regenerate last assistant response
  * POST   /v1/sessions/reorder             — reorder / pin sessions
  */
 
-import { batchSetDisplayOrders } from "../../memory/conversation-crud.js";
+import {
+  batchSetDisplayOrders,
+  deleteConversation,
+  getConversation,
+} from "../../memory/conversation-crud.js";
 import { setConversationKeyIfAbsent } from "../../memory/conversation-key-store.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
@@ -31,7 +36,9 @@ export interface SessionManagementDeps {
   renameSession: (sessionId: string, name: string) => boolean;
   clearAllSessions: () => number;
   cancelGeneration: (sessionId: string) => boolean;
-  undoLastMessage: (sessionId: string) => Promise<{ removedCount: number } | null>;
+  undoLastMessage: (
+    sessionId: string,
+  ) => Promise<{ removedCount: number } | null>;
   regenerateResponse: (
     sessionId: string,
   ) => Promise<{ requestId: string } | null>;
@@ -101,6 +108,24 @@ export function sessionManagementRouteDefinitions(
       policyKey: "conversations",
       handler: () => {
         deps.clearAllSessions();
+        return new Response(null, { status: 204 });
+      },
+    },
+    {
+      endpoint: "conversations/:id",
+      method: "DELETE",
+      policyKey: "conversations",
+      handler: ({ params }) => {
+        const conversation = getConversation(params.id);
+        if (!conversation) {
+          return httpError(
+            "NOT_FOUND",
+            `Conversation ${params.id} not found`,
+            404,
+          );
+        }
+        deleteConversation(params.id);
+        log.info({ conversationId: params.id }, "Deleted conversation");
         return new Response(null, { status: 204 });
       },
     },

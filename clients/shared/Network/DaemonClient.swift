@@ -1441,6 +1441,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Sessions
 
+    /// Delete a single conversation on the backend (fire-and-forget).
+    public func deleteConversation(_ conversationId: String) {
+        guard let httpTransport else { return }
+        Task { await httpTransport.deleteConversation(conversationId) }
+    }
+
     /// Request the list of past sessions from the daemon.
     public func sendSessionList(offset: Int? = nil, limit: Int? = nil) throws {
         try send(SessionListRequestMessage(offset: offset, limit: limit))

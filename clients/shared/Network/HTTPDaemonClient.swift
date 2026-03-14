@@ -2980,6 +2980,32 @@ public final class HTTPTransport {
         }
     }
 
+    /// Delete a single conversation on the backend (fire-and-forget).
+    func deleteConversation(_ conversationId: String, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .conversationById(id: conversationId)) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            if statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await deleteConversation(conversationId, isRetry: true)
+                    return
+                }
+            }
+            if statusCode != 204 && statusCode != 200 {
+                log.error("Delete conversation \(conversationId) failed (HTTP \(statusCode))")
+            }
+        } catch {
+            log.error("Delete conversation \(conversationId) error: \(error.localizedDescription)")
+        }
+    }
+
     func fetchHistory(sessionId: String, isRetry: Bool = false) async {
         guard let url = buildURL(for: .getMessages(conversationId: sessionId)) else { return }
 

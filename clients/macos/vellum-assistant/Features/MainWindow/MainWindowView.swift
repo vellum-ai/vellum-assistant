@@ -110,7 +110,9 @@ struct MainWindowView: View {
 
     private func toggleTemporaryChat() {
         withAnimation(VAnimation.standard) {
-            if threadManager.activeThread?.kind == .private {
+            if let privateThread = threadManager.activeThread, privateThread.kind == .private {
+                let privateId = privateThread.id
+
                 // Restore the thread the user was on before entering temporary chat.
                 // Fall back to visibleThreads.first only if the stored thread no longer exists.
                 if let savedId = preTemporaryChatThreadId,
@@ -122,6 +124,9 @@ struct MainWindowView: View {
                     threadManager.enterDraftMode()
                 }
                 preTemporaryChatThreadId = nil
+
+                // Delete the private thread and its backend conversation.
+                threadManager.removePrivateThread(id: privateId)
             } else {
                 preTemporaryChatThreadId = threadManager.activeThreadId
                 threadManager.createPrivateThread()

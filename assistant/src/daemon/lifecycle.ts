@@ -30,6 +30,7 @@ import {
   deleteMessageById,
   getConversationThreadType,
   getMessages,
+  purgePrivateConversations,
 } from "../memory/conversation-crud.js";
 import { initializeDb } from "../memory/db.js";
 import {
@@ -176,6 +177,16 @@ export async function runDaemon(): Promise<void> {
       );
     }
     log.info("Daemon startup: DB initialized");
+
+    // Purge private (temporary) conversations from the previous session.
+    // These are ephemeral by design and should not survive daemon restarts.
+    const purgedCount = purgePrivateConversations();
+    if (purgedCount > 0) {
+      log.info(
+        { purgedCount },
+        `Purged ${purgedCount} private conversation(s) from previous session`,
+      );
+    }
 
     // Expire pending interaction-bound canonical guardian requests left over
     // from before this process started.  Their in-memory pending-interaction
