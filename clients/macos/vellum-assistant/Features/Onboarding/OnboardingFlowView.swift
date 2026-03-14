@@ -148,6 +148,9 @@ struct OnboardingFlowView: View {
             if !authManager.isAuthenticated {
                 await authManager.checkSession()
             }
+            if managedSignInEnabled && authManager.isAuthenticated && state.currentStep == 0 {
+                state.advance()
+            }
         }
         .onChange(of: state.currentStep) { _, newStep in
             if newStep == 0 {

@@ -64,10 +64,15 @@ struct APIKeyStepView: View {
     }
 
     private var availableHostingModes: [HostingMode] {
+        var modes: [HostingMode] = []
         if managedSignInEnabled && isAuthenticated {
-            return [.vellum, .local, .gcp, .aws, .docker, .customHardware]
+            modes.append(.vellum)
         }
-        return [.local, .gcp, .aws, .docker, .customHardware]
+        modes.append(.local)
+        if userHostedEnabled {
+            modes.append(contentsOf: [.gcp, .aws, .docker, .customHardware])
+        }
+        return modes
     }
 
     private var showApiKeyField: Bool {

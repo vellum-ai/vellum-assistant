@@ -83,27 +83,25 @@ struct WakeUpStepView: View {
                         .foregroundColor(VColor.contentSecondary)
                 }
                 .frame(height: 36)
-            } else {
+            } else if managedSignInEnabled {
                 let buttonTitle = primaryButtonTitle
                 VStack(spacing: VSpacing.xs) {
                     OnboardingButton(title: buttonTitle, style: .primary) {
                         onContinueWithVellum()
                     }
-                    .disabled(!managedSignInEnabled && authManager?.isAuthenticated != true)
                     .accessibilityLabel(buttonTitle)
-
-                    if !managedSignInEnabled && authManager?.isAuthenticated != true {
-                        Text("Coming Soon")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.contentTertiary)
-                    }
                 }
-            }
 
-            OnboardingButton(title: managedSignInEnabled ? "Skip for now" : "Self Host", style: managedSignInEnabled ? .secondary : .tertiary) {
-                onStartWithAPIKey()
+                OnboardingButton(title: "Skip for now", style: .secondary) {
+                    onStartWithAPIKey()
+                }
+                .accessibilityLabel("Skip for now")
+            } else {
+                OnboardingButton(title: "Get Started", style: .primary) {
+                    onStartWithAPIKey()
+                }
+                .accessibilityLabel("Get Started")
             }
-            .accessibilityLabel(managedSignInEnabled ? "Skip for now" : "Self Host")
 
             // Auth error message
             if let error = authManager?.errorMessage {
