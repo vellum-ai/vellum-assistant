@@ -202,7 +202,6 @@ struct TerminalOutputEvent: Sendable {
 
 enum TerminalAPIError: LocalizedError {
     case invalidURL
-    case invalidResponse
     case httpError(Int)
     case missingSessionId
     case streamEnded
@@ -210,7 +209,6 @@ enum TerminalAPIError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidURL: return "Invalid terminal API URL"
-        case .invalidResponse: return "Invalid response from terminal API"
         case .httpError(let code): return "Terminal API error (HTTP \(code))"
         case .missingSessionId: return "Backend did not return a session ID"
         case .streamEnded: return "Terminal stream ended unexpectedly"
