@@ -23,7 +23,7 @@ struct ChannelVerificationState {
 
     /// The most user-friendly display name for the verified identity.
     /// For telegram/slack: prefers @username, falls back to display name, then raw identity.
-    /// For voice: prefers display name, falls back to identity.
+    /// For phone: shows the phone number directly (identity), not the display name.
     var primaryIdentity: String? {
         if channel == "telegram" || channel == "slack" {
             if let username = username?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -34,17 +34,12 @@ struct ChannelVerificationState {
                !displayName.isEmpty {
                 return displayName
             }
-        } else if channel == "phone" {
-            if let displayName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !displayName.isEmpty {
-                return displayName
-            }
         }
         return identity
     }
 
     /// A secondary identifier shown when it differs from the primary.
-    /// Returns "ID: <identity>" when the raw identity is distinct from primaryIdentity.
+    /// Uses a channel-contextual label (e.g. "Telegram ID:", "Slack ID:", "Phone Number:").
     func secondaryIdentity(primary: String?) -> String? {
         guard let identity = identity?.trimmingCharacters(in: .whitespacesAndNewlines),
               !identity.isEmpty else {
@@ -56,7 +51,14 @@ struct ChannelVerificationState {
                 return nil
             }
         }
-        return "ID: \(identity)"
+        let label: String
+        switch channel {
+        case "telegram": label = "Telegram ID"
+        case "slack": label = "Slack ID"
+        case "phone": label = "Phone Number"
+        default: label = "ID"
+        }
+        return "\(label): \(identity)"
     }
 }
 
