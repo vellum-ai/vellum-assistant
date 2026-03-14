@@ -910,7 +910,13 @@ export class WorkspaceGitService {
     await this.ensureInitialized();
     await this.mutex.withLock(async () => {
       this.cleanStaleLockFile();
-      await fn((args) => this.execGit(args));
+      await fn((args) => {
+        // Intercept commit commands to enforce hook hardening.
+        if (args[0] === "commit") {
+          return this.execGit(this.buildSafeCommitArgs(args.slice(1)));
+        }
+        return this.execGit(args);
+      });
     });
   }
 
