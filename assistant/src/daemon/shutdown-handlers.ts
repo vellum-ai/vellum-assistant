@@ -24,6 +24,7 @@ export interface ShutdownDeps {
   memoryWorker: { stop(): void };
   qdrantManager: QdrantManager;
   mcpManager: McpServerManager | null;
+  telemetryReporter: { stop(): Promise<void> } | null;
   cleanupPidFile: () => void;
 }
 
@@ -85,6 +86,14 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
       await getEnrichmentService().shutdown();
     } catch (err) {
       log.warn({ err }, "Enrichment service shutdown failed (non-fatal)");
+    }
+
+    if (deps.telemetryReporter) {
+      try {
+        await deps.telemetryReporter.stop();
+      } catch (err) {
+        log.warn({ err }, "Telemetry reporter shutdown failed (non-fatal)");
+      }
     }
 
     if (deps.runtimeHttp) await deps.runtimeHttp.stop();
