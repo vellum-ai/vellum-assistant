@@ -34,8 +34,8 @@ function parseContact(row: typeof contacts.$inferSelect): Contact {
     id: row.id,
     displayName: row.displayName,
     notes: row.notes,
-    lastInteraction: row.lastInteraction,
-    interactionCount: row.interactionCount,
+    lastInteraction: null,
+    interactionCount: 0,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     role: row.role as Contact["role"],
@@ -82,7 +82,15 @@ function getChannelsForContact(contactId: string): ContactChannel[] {
 }
 
 function withChannels(contact: Contact): ContactWithChannels {
-  return { ...contact, channels: getChannelsForContact(contact.id) };
+  const channels = getChannelsForContact(contact.id);
+  const interactionCount = channels.reduce(
+    (sum, ch) => sum + ch.interactionCount,
+    0,
+  );
+  const lastInteraction =
+    channels.reduce((max, ch) => Math.max(max, ch.lastInteraction ?? 0), 0) ||
+    null;
+  return { ...contact, interactionCount, lastInteraction, channels };
 }
 
 // ── Channel data type for syncChannels ───────────────────────────────
@@ -237,8 +245,6 @@ export function upsertContact(params: {
       id: contactId,
       displayName: params.displayName,
       notes: params.notes ?? null,
-      lastInteraction: null,
-      interactionCount: 0,
       role: params.role ?? "contact",
       contactType: params.contactType ?? "human",
       principalId: params.principalId ?? null,
@@ -490,7 +496,7 @@ export function searchContacts(params: {
       .from(contacts)
       .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
       .where(whereClause)
-      .orderBy(desc(contacts.updatedAt), desc(contacts.lastInteraction))
+      .orderBy(desc(contacts.updatedAt))
       .all();
 
     const contactIds = [...new Set(rows.map((r) => r.contactId))];
@@ -511,7 +517,7 @@ export function searchContacts(params: {
     .select()
     .from(contacts)
     .where(whereClause)
-    .orderBy(desc(contacts.updatedAt), desc(contacts.lastInteraction))
+    .orderBy(desc(contacts.updatedAt))
     .limit(limit)
     .all();
 
@@ -533,11 +539,7 @@ export function listContacts(
     .select()
     .from(contacts)
     .where(conditions.length === 1 ? conditions[0] : and(...conditions))
-    .orderBy(
-      sql`${contacts.role} = 'guardian' DESC`,
-      desc(contacts.updatedAt),
-      desc(contacts.lastInteraction),
-    )
+    .orderBy(sql`${contacts.role} = 'guardian' DESC`, desc(contacts.updatedAt))
     .limit(effectiveLimit)
     .all();
   return rows.map((r) => withChannels(parseContact(r)));
@@ -573,16 +575,8 @@ export function mergeContacts(
       .get();
     if (!merge) throw new Error(`Contact "${mergeId}" not found`);
 
-    // Resolve merged field values — pick the better/more recent value
-    const mergedInteractionCount =
-      keep.interactionCount + merge.interactionCount;
-    const mergedLastInteraction =
-      Math.max(keep.lastInteraction ?? 0, merge.lastInteraction ?? 0) || null;
-
     tx.update(contacts)
       .set({
-        interactionCount: mergedInteractionCount,
-        lastInteraction: mergedLastInteraction,
         notes: [keep.notes, merge.notes].filter(Boolean).join("\n") || null,
         updatedAt: now,
       })
@@ -932,23 +926,6 @@ export function updateChannelLastSeenById(channelId: string): void {
   db.update(contactChannels)
     .set({ lastSeenAt: now, updatedAt: now })
     .where(eq(contactChannels.id, channelId))
-    .run();
-}
-
-/**
- * Atomically increment interactionCount and set lastInteraction on a contact.
- * Optimized for the hot path — single UPDATE with no prior SELECT.
- */
-export function updateContactInteraction(contactId: string): void {
-  const db = getDb();
-  const now = Date.now();
-  db.update(contacts)
-    .set({
-      lastInteraction: now,
-      interactionCount: sql`${contacts.interactionCount} + 1`,
-      updatedAt: now,
-    })
-    .where(eq(contacts.id, contactId))
     .run();
 }
 

@@ -100,6 +100,7 @@ export { migrateDropConflicts } from "./155-drop-conflicts.js";
 export { migrateCallSessionInviteMetadata } from "./156-call-session-invite-metadata.js";
 export { migrateInviteContactId } from "./157-invite-contact-id.js";
 export { migrateChannelInteractionColumns } from "./158-channel-interaction-columns.js";
+export { migrateDropContactInteractionColumns } from "./159-drop-contact-interaction-columns.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

@@ -30,8 +30,6 @@ export interface EditInterceptParams {
   canonicalAssistantId: string;
   assistantId: string;
   content: string | undefined;
-  /** Contact ID for interaction tracking; omitted when the sender has no resolved member. */
-  contactId?: string;
   /** Channel ID for channel-level interaction tracking. */
   channelId?: string;
 }
@@ -54,7 +52,6 @@ export async function handleEditIntercept(
     canonicalAssistantId,
     assistantId,
     content,
-    contactId,
     channelId,
   } = params;
 
@@ -76,8 +73,8 @@ export async function handleEditIntercept(
 
   // Track contact interaction only for genuinely new edit events (not webhook
   // retries), matching the pattern used for the normal message path.
-  if (contactId) {
-    touchContactInteraction(contactId, channelId);
+  if (channelId) {
+    touchContactInteraction(channelId);
   }
 
   // Retry lookup a few times -- the original message may still be processing

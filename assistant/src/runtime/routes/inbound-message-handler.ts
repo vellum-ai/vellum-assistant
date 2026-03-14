@@ -250,7 +250,6 @@ export async function handleChannelInbound(
       canonicalAssistantId,
       assistantId,
       content,
-      contactId: resolvedMember?.contact.id,
       channelId: resolvedMember?.channel.id,
     });
   }
@@ -307,10 +306,7 @@ export async function handleChannelInbound(
   // retries). This was previously in ACL enforcement which runs before dedup,
   // causing retries to inflate interaction counts.
   if (!result.duplicate && resolvedMember) {
-    touchContactInteraction(
-      resolvedMember.contact.id,
-      resolvedMember.channel.id,
-    );
+    touchContactInteraction(resolvedMember.channel.id);
   }
 
   // external_conversation_bindings is assistant-agnostic. Restrict writes to

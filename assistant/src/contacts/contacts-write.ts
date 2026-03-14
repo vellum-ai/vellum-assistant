@@ -19,7 +19,6 @@ import {
   updateChannelInteraction,
   updateChannelLastSeenById,
   updateChannelStatus,
-  updateContactInteraction,
   upsertContact,
 } from "./contact-store.js";
 import type {
@@ -291,17 +290,10 @@ export function touchChannelLastSeen(channelId: string): void {
  * Track an interaction on the specific channel that received it.
  * Swallows errors to avoid disrupting the inbound message hot path.
  */
-export function touchContactInteraction(
-  contactId: string,
-  channelId?: string,
-): void {
+export function touchContactInteraction(channelId: string): void {
   try {
-    if (channelId) {
-      updateChannelInteraction(channelId);
-    } else {
-      updateContactInteraction(contactId);
-    }
+    updateChannelInteraction(channelId);
   } catch (err) {
-    log.warn({ err }, "Failed to update interaction stats");
+    log.warn({ err }, "Failed to update channel interaction stats");
   }
 }

@@ -42,6 +42,7 @@ import {
   migrateCanonicalGuardianDeliveriesDestinationIndex,
   migrateCanonicalGuardianRequesterChatId,
   migrateChannelInboundDeliveredSegments,
+  migrateChannelInteractionColumns,
   migrateContactChannelsAccessFields,
   migrateContactChannelsTypeChatIdIndex,
   migrateContactsAssistantId,
@@ -51,6 +52,7 @@ import {
   migrateDropAccountsTable,
   migrateDropAssistantIdColumns,
   migrateDropConflicts,
+  migrateDropContactInteractionColumns,
   migrateDropEntityTables,
   migrateDropLegacyMemberGuardianTables,
   migrateDropMemorySegmentFts,
@@ -375,6 +377,12 @@ export function initializeDb(): void {
 
   // 60. Add required contact_id to assistant_ingress_invites and clean up legacy rows
   migrateInviteContactId(database);
+
+  // 61. Add interaction_count and last_interaction columns to contact_channels
+  migrateChannelInteractionColumns(database);
+
+  // 62. Drop interaction_count and last_interaction columns from contacts (now derived from channels)
+  migrateDropContactInteractionColumns(database);
 
   validateMigrationState(database);
 
