@@ -288,6 +288,7 @@ private struct WorkspaceTreeSidebar: View {
             return true
         }
         .background(VColor.surfaceBase)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .alert("New File", isPresented: $state.showingNewFileAlert) {
             TextField("Filename", text: $state.newItemName)
             Button("Cancel", role: .cancel) {}
