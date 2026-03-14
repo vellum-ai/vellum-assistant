@@ -178,7 +178,7 @@ describe("Memory regressions", () => {
   }
 
   // Baseline: indexMessageNow without explicit scopeId defaults to 'default'
-  test('baseline: memory segments default to scope "default" when no scopeId given', () => {
+  test('baseline: memory segments default to scope "default" when no scopeId given', async () => {
     const db = getDb();
     const now = Date.now();
     db.insert(conversations)
@@ -208,7 +208,7 @@ describe("Memory regressions", () => {
       .run();
 
     // Index without explicit scopeId — should use 'default'
-    indexMessageNow(
+    await indexMessageNow(
       {
         messageId: "msg-baseline-scope",
         conversationId: "conv-baseline-scope",
@@ -931,7 +931,7 @@ describe("Memory regressions", () => {
     expect(recent[1]?.id).toBe("seg-recent-2");
   });
 
-  test("explicit ollama memory embedding provider is honored without extra ollama config", () => {
+  test("explicit ollama memory embedding provider is honored without extra ollama config", async () => {
     const config = {
       ...DEFAULT_CONFIG,
       provider: "anthropic" as const,
@@ -944,7 +944,7 @@ describe("Memory regressions", () => {
       },
     };
 
-    const selection = selectEmbeddingBackend(config);
+    const selection = await selectEmbeddingBackend(config);
     expect(selection.backend?.provider).toBe("ollama");
     expect(selection.reason).toBeNull();
   });
@@ -1106,7 +1106,7 @@ describe("Memory regressions", () => {
     expect(recentEmbedding).toBeDefined();
   });
 
-  test("memory admin status reports cleanup backlog and 24h throughput metrics", () => {
+  test("memory admin status reports cleanup backlog and 24h throughput metrics", async () => {
     const db = getDb();
     const now = Date.now();
     const yesterday = now - 20 * 60 * 60 * 1000;
@@ -1153,7 +1153,7 @@ describe("Memory regressions", () => {
       ])
       .run();
 
-    const status = getMemorySystemStatus();
+    const status = await getMemorySystemStatus();
     expect(status.cleanup.supersededBacklog).toBe(1);
     expect(status.cleanup.supersededCompleted24h).toBe(1);
   });
@@ -1582,7 +1582,7 @@ describe("Memory regressions", () => {
     expect(item!.scopeId).toBe("project-abc");
   });
 
-  test("scope columns: segments get scopeId from indexer input", () => {
+  test("scope columns: segments get scopeId from indexer input", async () => {
     const db = getDb();
     const now = Date.now();
 
@@ -1612,7 +1612,7 @@ describe("Memory regressions", () => {
       })
       .run();
 
-    indexMessageNow(
+    await indexMessageNow(
       {
         messageId: "msg-scope-test",
         conversationId: "conv-scope-test",
@@ -2947,7 +2947,7 @@ describe("Memory regressions", () => {
   });
 
   // Backfill preserves private conversation scope on memory segments
-  test("backfillJob preserves private conversation scope during reindex", () => {
+  test("backfillJob preserves private conversation scope during reindex", async () => {
     const db = getDb();
 
     // Create a private conversation with a message
@@ -2984,7 +2984,7 @@ describe("Memory regressions", () => {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    backfillJob(fakeJob, TEST_CONFIG);
+    await backfillJob(fakeJob, TEST_CONFIG);
 
     // Verify the segments were indexed with the private scope
     const segments = db
@@ -2999,7 +2999,7 @@ describe("Memory regressions", () => {
     }
   });
 
-  test("backfillJob preserves provenance trust gating during reindex", () => {
+  test("backfillJob preserves provenance trust gating during reindex", async () => {
     const db = getDb();
 
     const conv = createConversation("Backfill provenance trust gate");
@@ -3032,7 +3032,7 @@ describe("Memory regressions", () => {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    backfillJob(fakeJob, TEST_CONFIG);
+    await backfillJob(fakeJob, TEST_CONFIG);
 
     const segments = db
       .select()
@@ -3152,7 +3152,7 @@ describe("Memory regressions", () => {
 
   // ── Trust-aware extraction gating tests (M3) ───────────────────────
 
-  test("untrusted actor messages do not enqueue extract_items", () => {
+  test("untrusted actor messages do not enqueue extract_items", async () => {
     const db = getDb();
     const now = Date.now();
     db.insert(conversations)
@@ -3181,7 +3181,7 @@ describe("Memory regressions", () => {
       })
       .run();
 
-    const result = indexMessageNow(
+    const result = await indexMessageNow(
       {
         messageId: "msg-untrusted-gate",
         conversationId: "conv-untrusted-gate",
@@ -3211,7 +3211,7 @@ describe("Memory regressions", () => {
     expect(result.enqueuedJobs).toBe(expectedJobs);
   });
 
-  test("trusted guardian messages still enqueue extraction", () => {
+  test("trusted guardian messages still enqueue extraction", async () => {
     const db = getDb();
     const now = Date.now();
     db.insert(conversations)
@@ -3240,7 +3240,7 @@ describe("Memory regressions", () => {
       })
       .run();
 
-    const result = indexMessageNow(
+    const result = await indexMessageNow(
       {
         messageId: "msg-trusted-gate",
         conversationId: "conv-trusted-gate",
@@ -3270,7 +3270,7 @@ describe("Memory regressions", () => {
     expect(result.enqueuedJobs).toBeGreaterThan(result.indexedSegments + 1);
   });
 
-  test("legacy messages without provenance still enqueue extraction", () => {
+  test("legacy messages without provenance still enqueue extraction", async () => {
     const db = getDb();
     const now = Date.now();
     db.insert(conversations)
@@ -3299,7 +3299,7 @@ describe("Memory regressions", () => {
       })
       .run();
 
-    const result = indexMessageNow(
+    const result = await indexMessageNow(
       {
         messageId: "msg-legacy-gate",
         conversationId: "conv-legacy-gate",
@@ -3328,7 +3328,7 @@ describe("Memory regressions", () => {
     expect(result.enqueuedJobs).toBeGreaterThan(result.indexedSegments + 1);
   });
 
-  test("unverified_channel messages do not enqueue extract_items", () => {
+  test("unverified_channel messages do not enqueue extract_items", async () => {
     const db = getDb();
     const now = Date.now();
     db.insert(conversations)
@@ -3360,7 +3360,7 @@ describe("Memory regressions", () => {
       })
       .run();
 
-    const result = indexMessageNow(
+    const result = await indexMessageNow(
       {
         messageId: "msg-unverified-gate",
         conversationId: "conv-unverified-gate",

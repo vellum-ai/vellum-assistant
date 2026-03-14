@@ -227,7 +227,7 @@ Examples:
 
       const config = getConfig();
       const qdrantUrl = getQdrantUrlEnv() || config.memory.qdrant.url;
-      const embeddingSelection = selectEmbeddingBackend(config);
+      const embeddingSelection = await selectEmbeddingBackend(config);
       const embeddingModel = embeddingSelection.backend
         ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}:sparse-v${SPARSE_EMBEDDING_VERSION}`
         : undefined;

@@ -369,7 +369,7 @@ export async function addMessage(
       const provenanceTrustClass = parsed?.success
         ? parsed.data.provenanceTrustClass
         : undefined;
-      indexMessageNow(
+      await indexMessageNow(
         {
           messageId: message.id,
           conversationId: message.conversationId,

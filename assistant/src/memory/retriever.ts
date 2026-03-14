@@ -166,7 +166,7 @@ async function generateQueryEmbedding(
   signal: AbortSignal | undefined,
   start: number,
 ): Promise<EmbeddingResult | { earlyExit: MemoryRecallResult }> {
-  const backendStatus = getMemoryBackendStatus(config);
+  const backendStatus = await getMemoryBackendStatus(config);
   let queryVector: number[] | null = null;
   let provider: string | undefined;
   let model: string | undefined;

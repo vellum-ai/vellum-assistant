@@ -35,9 +35,9 @@ interface CleanupStatsRow {
   superseded_completed_24h: number | null;
 }
 
-export function getMemorySystemStatus(): MemorySystemStatus {
+export async function getMemorySystemStatus(): Promise<MemorySystemStatus> {
   const config = getConfig();
-  const backend = getMemoryBackendStatus(config);
+  const backend = await getMemoryBackendStatus(config);
   const counts = {
     segments: countTable("memory_segments"),
     items: countTable("memory_items"),

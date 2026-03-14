@@ -329,7 +329,7 @@ export async function runDaemon(): Promise<void> {
     const qdrantManager = new QdrantManager({ url: qdrantUrl });
     try {
       await qdrantManager.start();
-      const embeddingSelection = selectEmbeddingBackend(config);
+      const embeddingSelection = await selectEmbeddingBackend(config);
       const embeddingModel = embeddingSelection.backend
         ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}:sparse-v${SPARSE_EMBEDDING_VERSION}`
         : undefined;

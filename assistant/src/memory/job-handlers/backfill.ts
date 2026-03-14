@@ -32,7 +32,10 @@ function parseProvenanceTrustClass(
   }
 }
 
-export function backfillJob(job: MemoryJob, config: AssistantConfig): void {
+export async function backfillJob(
+  job: MemoryJob,
+  config: AssistantConfig,
+): Promise<void> {
   const db = getDb();
   const force = job.payload.force === true;
   if (force) {
@@ -73,7 +76,7 @@ export function backfillJob(job: MemoryJob, config: AssistantConfig): void {
       const provenanceTrustClass = parseProvenanceTrustClass(
         message.metadata ?? null,
       );
-      indexMessageNow(
+      await indexMessageNow(
         {
           messageId: message.id,
           conversationId: message.conversationId,

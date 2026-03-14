@@ -20,7 +20,7 @@ import {
 
 const log = getLogger("memory-jobs-worker");
 
-export function rebuildIndexJob(): void {
+export async function rebuildIndexJob(): Promise<void> {
   const db = getDb();
   db.delete(memoryEmbeddings).run();
 
@@ -52,7 +52,7 @@ export function rebuildIndexJob(): void {
   // Re-enqueue multimodal embedding jobs only when the resolved embedding
   // backend supports multimodal inputs. Without this gate, embed_media and
   // embed_attachment jobs would all fail for text-only backends.
-  if (selectedBackendSupportsMultimodal(getConfig())) {
+  if (await selectedBackendSupportsMultimodal(getConfig())) {
     const assets = db
       .select({ id: mediaAssets.id })
       .from(mediaAssets)

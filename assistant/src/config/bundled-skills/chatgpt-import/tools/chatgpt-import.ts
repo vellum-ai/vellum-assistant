@@ -164,7 +164,7 @@ export async function run(
       // Index with the original ChatGPT timestamp so memory segments
       // reflect actual message age, not import time
       try {
-        indexMessageNow(
+        await indexMessageNow(
           {
             messageId: dbMessages[i].id,
             conversationId: conversation.id,

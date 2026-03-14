@@ -32,7 +32,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 mock.module("./indexer.js", () => ({
-  indexMessageNow: () => {},
+  indexMessageNow: async () => ({ indexedSegments: 0, enqueuedJobs: 0 }),
 }));
 
 import type { Database } from "bun:sqlite";

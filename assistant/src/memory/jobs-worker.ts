@@ -282,7 +282,7 @@ async function processJob(
       await buildConversationSummaryJob(job, config);
       return;
     case "backfill":
-      backfillJob(job, config);
+      await backfillJob(job, config);
       return;
     case "backfill_entity_relations":
       // Entity relation backfill has been removed — silently drop legacy jobs
@@ -292,7 +292,7 @@ async function processJob(
       // Global summary rollups have been removed — silently drop legacy jobs
       return;
     case "rebuild_index":
-      rebuildIndexJob();
+      await rebuildIndexJob();
       return;
     case "delete_qdrant_vectors":
       await deleteQdrantVectorsJob(job);

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { getOllamaBaseUrlEnv } from "../config/env.js";
 import type { AssistantConfig } from "../config/types.js";
-import { getSecureKey } from "../security/secure-keys.js";
+import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { GeminiEmbeddingBackend } from "./embedding-gemini.js";
 import { OllamaEmbeddingBackend } from "./embedding-ollama.js";
@@ -234,9 +234,9 @@ export interface EmbeddingBackendSelection {
   reason: string | null;
 }
 
-export function selectEmbeddingBackend(
+export async function selectEmbeddingBackend(
   config: AssistantConfig,
-): EmbeddingBackendSelection {
+): Promise<EmbeddingBackendSelection> {
   const requested = config.memory.embeddings.provider;
   if (requested === "local") {
     return {
@@ -250,13 +250,14 @@ export function selectEmbeddingBackend(
     };
   }
   if (requested === "ollama") {
+    const ollamaKey = (await getSecureKeyAsync("ollama")) ?? undefined;
     return {
       backend: getCachedOrCreate(
         "ollama",
         config.memory.embeddings.ollamaModel,
         () =>
           new OllamaEmbeddingBackend(config.memory.embeddings.ollamaModel, {
-            apiKey: getSecureKey("ollama") ?? undefined,
+            apiKey: ollamaKey,
           }),
       ),
       reason: null,
@@ -285,7 +286,7 @@ export function selectEmbeddingBackend(
           reason: null,
         };
       case "openai": {
-        const openaiKey = getSecureKey("openai");
+        const openaiKey = await getSecureKeyAsync("openai");
         if (!openaiKey) continue;
         return {
           backend: getCachedOrCreate(
@@ -301,7 +302,7 @@ export function selectEmbeddingBackend(
         };
       }
       case "gemini": {
-        const geminiKey = getSecureKey("gemini");
+        const geminiKey = await getSecureKeyAsync("gemini");
         if (!geminiKey) continue;
         return {
           backend: getCachedOrCreate(
@@ -321,19 +322,21 @@ export function selectEmbeddingBackend(
           reason: null,
         };
       }
-      case "ollama":
-        if (!isOllamaConfigured(config)) continue;
+      case "ollama": {
+        if (!(await isOllamaConfigured(config))) continue;
+        const ollamaKey = (await getSecureKeyAsync("ollama")) ?? undefined;
         return {
           backend: getCachedOrCreate(
             "ollama",
             config.memory.embeddings.ollamaModel,
             () =>
               new OllamaEmbeddingBackend(config.memory.embeddings.ollamaModel, {
-                apiKey: getSecureKey("ollama") ?? undefined,
+                apiKey: ollamaKey,
               }),
           ),
           reason: null,
         };
+      }
     }
   }
 
@@ -344,13 +347,13 @@ export function selectEmbeddingBackend(
   return { backend: null, reason };
 }
 
-export function getMemoryBackendStatus(config: AssistantConfig): {
+export async function getMemoryBackendStatus(config: AssistantConfig): Promise<{
   enabled: boolean;
   degraded: boolean;
   provider: EmbeddingProviderName | null;
   model: string | null;
   reason: string | null;
-} {
+}> {
   if (!config.memory.enabled) {
     return {
       enabled: false,
@@ -360,7 +363,7 @@ export function getMemoryBackendStatus(config: AssistantConfig): {
       reason: "memory.disabled",
     };
   }
-  const selection = selectEmbeddingBackend(config);
+  const selection = await selectEmbeddingBackend(config);
   if (!selection.backend) {
     return {
       enabled: true,
@@ -388,7 +391,7 @@ export async function embedWithBackend(
   model: string;
   vectors: number[][];
 }> {
-  const selection = selectEmbeddingBackend(config);
+  const selection = await selectEmbeddingBackend(config);
   if (!selection.backend) {
     throw new Error(
       selection.reason ?? "No memory embedding backend configured",
@@ -405,7 +408,7 @@ export async function embedWithBackend(
   const fallbacks: EmbeddingBackend[] =
     config.memory.embeddings.provider === "auto" &&
     selection.backend.provider !== "gemini"
-      ? selectFallbackBackends(config, selection.backend.provider)
+      ? await selectFallbackBackends(config, selection.backend.provider)
       : [];
 
   // ── Compute provider-specific vector cache extras ───────────────
@@ -526,17 +529,17 @@ export function logMemoryEmbeddingWarning(err: unknown, context: string): void {
   log.warn({ err }, `Memory embeddings failed (${context})`);
 }
 
-function selectFallbackBackends(
+async function selectFallbackBackends(
   config: AssistantConfig,
   exclude: EmbeddingProviderName,
-): EmbeddingBackend[] {
+): Promise<EmbeddingBackend[]> {
   const backends: EmbeddingBackend[] = [];
   const order: EmbeddingProviderName[] = ["openai", "gemini", "ollama"];
   for (const provider of order) {
     if (provider === exclude) continue;
     switch (provider) {
       case "openai": {
-        const openaiKey = getSecureKey("openai");
+        const openaiKey = await getSecureKeyAsync("openai");
         if (openaiKey) {
           backends.push(
             getCachedOrCreate(
@@ -553,7 +556,7 @@ function selectFallbackBackends(
         break;
       }
       case "gemini": {
-        const geminiKey = getSecureKey("gemini");
+        const geminiKey = await getSecureKeyAsync("gemini");
         if (geminiKey) {
           backends.push(
             getCachedOrCreate(
@@ -575,7 +578,8 @@ function selectFallbackBackends(
         break;
       }
       case "ollama":
-        if (isOllamaConfigured(config)) {
+        if (await isOllamaConfigured(config)) {
+          const ollamaKey = (await getSecureKeyAsync("ollama")) ?? undefined;
           backends.push(
             getCachedOrCreate(
               "ollama",
@@ -584,7 +588,7 @@ function selectFallbackBackends(
                 new OllamaEmbeddingBackend(
                   config.memory.embeddings.ollamaModel,
                   {
-                    apiKey: getSecureKey("ollama") ?? undefined,
+                    apiKey: ollamaKey,
                   },
                 ),
             ),
@@ -605,25 +609,25 @@ function selectFallbackBackends(
  * available. We check both the primary and fallback backends so that
  * multimodal jobs are still enqueued when Gemini is reachable via fallback.
  */
-export function selectedBackendSupportsMultimodal(
+export async function selectedBackendSupportsMultimodal(
   config: AssistantConfig,
-): boolean {
-  const { backend } = selectEmbeddingBackend(config);
+): Promise<boolean> {
+  const { backend } = await selectEmbeddingBackend(config);
   if (!backend) return false;
   if (backend.provider === "gemini") return true;
 
   // In auto mode, check if Gemini is available as a fallback backend.
   if (config.memory.embeddings.provider === "auto") {
-    const fallbacks = selectFallbackBackends(config, backend.provider);
+    const fallbacks = await selectFallbackBackends(config, backend.provider);
     return fallbacks.some((fb) => fb.provider === "gemini");
   }
   return false;
 }
 
-function isOllamaConfigured(config: AssistantConfig): boolean {
+async function isOllamaConfigured(config: AssistantConfig): Promise<boolean> {
   return (
     config.provider === "ollama" ||
-    Boolean(getSecureKey("ollama")) ||
+    Boolean(await getSecureKeyAsync("ollama")) ||
     Boolean(getOllamaBaseUrlEnv())
   );
 }

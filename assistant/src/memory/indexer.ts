@@ -38,10 +38,10 @@ export interface IndexMessageResult {
   enqueuedJobs: number;
 }
 
-export function indexMessageNow(
+export async function indexMessageNow(
   input: IndexMessageInput,
   config: MemoryConfig,
-): IndexMessageResult {
+): Promise<IndexMessageResult> {
   if (!config.enabled) return { indexedSegments: 0, enqueuedJobs: 0 };
 
   // Provenance-based trust gating: only guardian and legacy (undefined) actors
@@ -70,7 +70,8 @@ export function indexMessageNow(
     (input.role === "assistant" && config.extraction.extractFromAssistant);
   // Check if the resolved embedding backend supports multimodal input.
   // Only enqueue embed_attachment jobs when it does (currently Gemini only).
-  const supportsMultimodal = selectedBackendSupportsMultimodal(getConfig());
+  const supportsMultimodal =
+    await selectedBackendSupportsMultimodal(getConfig());
   const mediaBlocks = supportsMultimodal
     ? extractMediaBlocks(input.content).filter((b) => b.type === "image")
     : [];

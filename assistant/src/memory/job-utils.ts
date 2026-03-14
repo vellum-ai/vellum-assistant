@@ -147,7 +147,7 @@ export async function embedAndUpsert(
   input: EmbeddingInput,
   extraPayload?: Record<string, unknown>,
 ): Promise<void> {
-  const status = getMemoryBackendStatus(config);
+  const status = await getMemoryBackendStatus(config);
   if (!status.provider) {
     throw new BackendUnavailableError(
       `Embedding backend unavailable (${status.reason ?? "no provider"})`,
@@ -279,4 +279,3 @@ export async function embedAndUpsert(
     throw err;
   }
 }
-

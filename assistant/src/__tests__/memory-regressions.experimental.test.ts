@@ -483,7 +483,7 @@ describe("Memory regressions (experimental)", () => {
     );
   });
 
-  test("indexing enqueues embed_segment, extract_items, and build_conversation_summary for user messages", () => {
+  test("indexing enqueues embed_segment, extract_items, and build_conversation_summary for user messages", async () => {
     const db = getDb();
     const createdAt = 2_000;
     db.insert(conversations)
@@ -512,7 +512,7 @@ describe("Memory regressions (experimental)", () => {
       })
       .run();
 
-    const result = indexMessageNow(
+    const result = await indexMessageNow(
       {
         messageId: "msg-index",
         conversationId: "conv-index",
@@ -535,7 +535,7 @@ describe("Memory regressions (experimental)", () => {
     expect(embedSegmentJobs).toHaveLength(1);
   });
 
-  test("indexing skips durable item extraction for assistant messages when extractFromAssistant is false", () => {
+  test("indexing skips durable item extraction for assistant messages when extractFromAssistant is false", async () => {
     const db = getDb();
     const createdAt = 2_100;
     db.insert(conversations)
@@ -572,7 +572,7 @@ describe("Memory regressions (experimental)", () => {
       },
     };
 
-    const result = indexMessageNow(
+    const result = await indexMessageNow(
       {
         messageId: "msg-assistant-index",
         conversationId: "conv-assistant-index",

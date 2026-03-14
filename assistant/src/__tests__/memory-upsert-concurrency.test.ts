@@ -295,7 +295,7 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
     }
   });
 
-  test("re-indexing with identical content does not change the stored segment", () => {
+  test("re-indexing with identical content does not change the stored segment", async () => {
     // When an indexer re-processes an already-indexed segment (same id + same
     // content hash), the ON CONFLICT DO UPDATE path must run but the row must
     // remain semantically equivalent to the original.
@@ -308,7 +308,7 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
 
     const config = TEST_CONFIG.memory;
 
-    const firstResult = indexMessageNow(
+    const firstResult = await indexMessageNow(
       {
         messageId,
         conversationId,
@@ -327,7 +327,7 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
       .all();
 
     // Re-index twice more with the same payload.
-    indexMessageNow(
+    await indexMessageNow(
       {
         messageId,
         conversationId,
@@ -337,7 +337,7 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
       },
       config,
     );
-    indexMessageNow(
+    await indexMessageNow(
       {
         messageId,
         conversationId,

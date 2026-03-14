@@ -57,7 +57,7 @@ mock.module("../memory/search/semantic.js", () => ({
 }));
 
 mock.module("../memory/embedding-backend.js", () => ({
-  getMemoryBackendStatus: (config: { memory: { enabled: boolean } }) => ({
+  getMemoryBackendStatus: async (config: { memory: { enabled: boolean } }) => ({
     enabled: config.memory.enabled,
     degraded: false,
     provider: "local",

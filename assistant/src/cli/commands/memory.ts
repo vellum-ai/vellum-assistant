@@ -58,9 +58,9 @@ Fields shown:
 Examples:
   $ assistant memory status`,
     )
-    .action(() => {
+    .action(async () => {
       initializeDb();
-      const status = getMemorySystemStatus();
+      const status = await getMemorySystemStatus();
       log.info(`Memory enabled: ${status.enabled ? "yes" : "no"}`);
       log.info(`Memory degraded: ${status.degraded ? "yes" : "no"}`);
       if (status.reason) log.info(`Reason: ${status.reason}`);
@@ -112,9 +112,7 @@ Examples:
 
   memory
     .command("cleanup")
-    .description(
-      "Queue cleanup jobs for stale superseded items",
-    )
+    .description("Queue cleanup jobs for stale superseded items")
     .option(
       "--retention-ms <ms>",
       "Optional retention threshold in milliseconds",
