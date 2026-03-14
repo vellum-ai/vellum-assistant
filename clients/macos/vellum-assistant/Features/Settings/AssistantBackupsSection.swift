@@ -271,21 +271,16 @@ struct AssistantBackupsSection: View {
         isLoadingBackups = true
         defer { isLoadingBackups = false }
 
-        guard let request = buildManagedRequest(path: "backups", method: "GET") else {
-            errorMessage = "Unable to build platform request"
-            return
-        }
-
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200 else {
+            let response = try await GatewayHTTPClient.get(path: "\(assistant.assistantId)/backups")
+            guard response.isSuccess else {
                 errorMessage = "Failed to load backups"
                 return
             }
-
-            let decoded = try JSONDecoder().decode(ManagedBackupsResponse.self, from: data)
+            let decoded = try JSONDecoder().decode(ManagedBackupsResponse.self, from: response.data)
             managedBackups = decoded.backups
+        } catch let error as GatewayHTTPClient.ClientError {
+            errorMessage = error.localizedDescription
         } catch {
             errorMessage = "Failed to load backups: \(error.localizedDescription)"
         }
@@ -296,26 +291,18 @@ struct AssistantBackupsSection: View {
         isCreatingBackup = true
         defer { isCreatingBackup = false }
 
-        guard var request = buildManagedRequest(path: "backups", method: "POST") else {
-            errorMessage = "Unable to build platform request"
-            return
-        }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                errorMessage = "Invalid response"
-                return
-            }
-            if httpResponse.statusCode >= 200 && httpResponse.statusCode < 300 {
-                    successMessage = "Backup created successfully"
-                    await loadManagedBackupsQuietly()
-                    // Clear any error from the backups fetch so it doesn't appear alongside the success
-                    if successMessage != nil { errorMessage = nil }
+            let response = try await GatewayHTTPClient.post(path: "\(assistant.assistantId)/backups")
+            if response.isSuccess {
+                successMessage = "Backup created successfully"
+                await loadManagedBackupsQuietly()
+                // Clear any error from the backups fetch so it doesn't appear alongside the success
+                if successMessage != nil { errorMessage = nil }
             } else {
-                errorMessage = "Failed to create backup (HTTP \(httpResponse.statusCode))"
+                errorMessage = "Failed to create backup (HTTP \(response.statusCode))"
             }
+        } catch let error as GatewayHTTPClient.ClientError {
+            errorMessage = error.localizedDescription
         } catch {
             errorMessage = "Failed to create backup: \(error.localizedDescription)"
         }
@@ -329,26 +316,17 @@ struct AssistantBackupsSection: View {
             pendingManagedRestore = nil
         }
 
-        guard var request = buildManagedRequest(
-            path: "backups/\(backup.snapshotName)/restore",
-            method: "POST"
-        ) else {
-            errorMessage = "Unable to build platform request"
-            return
-        }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                errorMessage = "Invalid response"
-                return
-            }
-            if httpResponse.statusCode >= 200 && httpResponse.statusCode < 300 {
+            let response = try await GatewayHTTPClient.post(
+                path: "\(assistant.assistantId)/backups/\(backup.snapshotName)/restore"
+            )
+            if response.isSuccess {
                 successMessage = "Restore initiated. The assistant may be briefly unavailable."
             } else {
-                errorMessage = "Restore failed (HTTP \(httpResponse.statusCode))"
+                errorMessage = "Restore failed (HTTP \(response.statusCode))"
             }
+        } catch let error as GatewayHTTPClient.ClientError {
+            errorMessage = error.localizedDescription
         } catch {
             errorMessage = "Restore failed: \(error.localizedDescription)"
         }
@@ -359,21 +337,6 @@ struct AssistantBackupsSection: View {
     private func clearMessages() {
         errorMessage = nil
         successMessage = nil
-    }
-
-    private func buildManagedRequest(path: String, method: String) -> URLRequest? {
-        let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
-        guard let token = SessionTokenManager.getToken(), !token.isEmpty else { return nil }
-        let trailingSlash = path.hasSuffix("/") ? "" : "/"
-        guard let url = URL(string: "\(baseURL)/v1/assistants/\(assistant.assistantId)/\(path)\(trailingSlash)") else { return nil }
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.timeoutInterval = 30
-        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
-        if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
-            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
-        }
-        return request
     }
 }
 

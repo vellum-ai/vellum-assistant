@@ -665,18 +665,14 @@ struct SettingsDeveloperTab: View {
     private static let terminalWindow = SSHTerminalWindow()
 
     private func openTerminalWindow() {
-        guard let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
-              assistant.isManaged else { return }
-        guard let token = SessionTokenManager.getToken(), !token.isEmpty else { return }
-
-        let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
-        let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
+        guard let info = try? GatewayHTTPClient.resolveConnectionInfo(),
+              info.assistant.isManaged else { return }
 
         Self.terminalWindow.open(
-            assistant: assistant,
-            baseURL: baseURL,
-            token: token,
-            organizationId: orgId
+            assistant: info.assistant,
+            baseURL: info.baseURL,
+            token: info.token,
+            organizationId: info.organizationId
         )
     }
 
