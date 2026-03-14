@@ -3,6 +3,7 @@ import {
   buildManagedBaseUrl,
   resolveManagedProxyContext,
 } from "../providers/managed-proxy/context.js";
+import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { ConfigError, ProviderError } from "../util/errors.js";
 import {
   generateImage,
@@ -13,7 +14,7 @@ export async function generateAvatar(
   prompt: string,
 ): Promise<{ imageBase64: string; mimeType: string }> {
   const config = getConfig();
-  const geminiKey = config.apiKeys.gemini ?? process.env.GEMINI_API_KEY;
+  const geminiKey = await getSecureKeyAsync("gemini");
 
   let credentials: ImageGenCredentials | undefined;
   if (geminiKey) {
@@ -32,7 +33,7 @@ export async function generateAvatar(
 
   if (!credentials) {
     throw new ConfigError(
-      "Gemini API key is not configured. Set it via `keys set gemini <key>` or the GEMINI_API_KEY environment variable.",
+      "Gemini API key is not configured. Set it via `keys set gemini <key>`.",
     );
   }
 

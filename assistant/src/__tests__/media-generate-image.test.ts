@@ -22,9 +22,14 @@ let lastGenerateCredentials: unknown = null;
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
-
-    apiKeys: { gemini: mockApiKey },
   }),
+}));
+
+mock.module("../security/secure-keys.js", () => ({
+  getSecureKeyAsync: async (account: string) => {
+    if (account === "gemini") return mockApiKey;
+    return undefined;
+  },
 }));
 
 mock.module("../media/gemini-image-service.js", () => ({
