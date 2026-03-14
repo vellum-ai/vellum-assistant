@@ -22,7 +22,7 @@ import {
  * Mint a short-lived CLI JWT from the signing key on disk.
  * Returns undefined if the signing key cannot be loaded.
  */
-export function mintCliToken(): string | undefined {
+function mintCliToken(): string | undefined {
   try {
     if (!isSigningKeyInitialized()) {
       initAuthSigningKey(loadOrCreateSigningKey());
@@ -44,7 +44,7 @@ export function mintCliToken(): string | undefined {
 // ---------------------------------------------------------------------------
 
 /** Build the base URL for the daemon HTTP server. */
-export function getHttpBaseUrl(): string {
+function getHttpBaseUrl(): string {
   return `http://127.0.0.1:${getRuntimeHttpPort()}`;
 }
 

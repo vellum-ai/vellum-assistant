@@ -402,7 +402,7 @@ function getStateCache(watcherKey: string): Map<string, string> {
  * disabled. Prevents unbounded growth of `knownIssueStateIdsByWatcher` in
  * environments that create and delete watchers frequently (watcher churn).
  */
-export function clearLinearStateCache(watcherKey: string): void {
+function clearLinearStateCache(watcherKey: string): void {
   knownIssueStateIdsByWatcher.delete(watcherKey);
   lastSeenAssignedIdsByWatcher.delete(watcherKey);
 }

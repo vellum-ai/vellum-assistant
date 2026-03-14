@@ -64,7 +64,7 @@ function riskCacheKey(
 }
 
 /** Clear the risk classification cache. Called when trust rules change. */
-export function clearRiskCache(): void {
+function clearRiskCache(): void {
   riskCache.clear();
 }
 
