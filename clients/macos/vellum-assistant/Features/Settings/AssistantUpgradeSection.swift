@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import VellumAssistantShared
 
 /// Upgrade section for managed/remote assistants.
 ///
