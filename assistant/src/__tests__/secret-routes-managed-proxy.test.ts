@@ -9,13 +9,7 @@ const metadataDeletes: Array<{ service: string; field: string }> = [];
 
 const PLATFORM_BASE_URL = "https://platform.example.com";
 const ASSISTANT_API_KEY_PATH = credentialKey("vellum", "assistant_api_key");
-const MANAGED_PROVIDERS = [
-  "anthropic",
-  "openai",
-  "gemini",
-  "fireworks",
-  "openrouter",
-] as const;
+const MANAGED_PROVIDERS = ["anthropic", "gemini"] as const;
 
 const mockConfig = {
   provider: "anthropic",
@@ -136,7 +130,7 @@ describe("secret routes managed proxy registry sync", () => {
     await initializeProviders(mockConfig);
   });
 
-  test("adding vellum:assistant_api_key bootstraps managed providers immediately", async () => {
+  test("adding vellum:assistant_api_key bootstraps managed fallback providers immediately", async () => {
     expect(listProviders()).toEqual([]);
 
     const res = await handleAddSecret(
@@ -158,7 +152,7 @@ describe("secret routes managed proxy registry sync", () => {
     expect(lastGeminiConstructorOpts).toBeDefined();
   });
 
-  test("deleting vellum:assistant_api_key clears managed providers immediately", async () => {
+  test("deleting vellum:assistant_api_key clears managed fallback providers immediately", async () => {
     secureKeyStore[ASSISTANT_API_KEY_PATH] = "ast-managed-key";
     await initializeProviders(mockConfig);
 

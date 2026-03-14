@@ -56,7 +56,3 @@ export const MANAGED_PROVIDER_META: Record<string, ManagedProviderMeta> = {
   ollama: { name: "ollama", managed: false },
 };
 
-/** Provider names that support managed proxy routing. */
-export const MANAGED_PROVIDER_NAMES = Object.entries(MANAGED_PROVIDER_META)
-  .filter(([, meta]) => meta.managed)
-  .map(([name]) => name);
