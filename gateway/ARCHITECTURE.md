@@ -641,7 +641,7 @@ The Slack channel enables inbound and outbound messaging via Slack's Socket Mode
 3. Events are deduplicated by `event_id` using an in-memory `Map<string, number>` with a 24-hour TTL. A periodic cleanup sweep runs every hour to evict expired entries.
 4. The `normalizeSlackAppMention()` function strips leading bot-mention tokens (`<@U...>`) from the message text and produces a `GatewayInboundEvent` with `sourceChannel: "slack"`, using the Slack channel ID as `conversationExternalId` and the sender's user ID as `actorExternalId`.
 5. Routing uses the standard `resolveAssistant()` chain (conversation_id -> actor_id -> default/reject). Events that cannot be routed are dropped.
-6. The normalized event is forwarded to the runtime via `POST /v1/channels/inbound` with Slack-specific transport hints and a `replyCallbackUrl` pointing to `/deliver/slack`.
+6. The normalized event is forwarded to the runtime via `POST /v1/channels/inbound` with a `replyCallbackUrl` pointing to `/deliver/slack`.
 
 **Egress** (`POST /deliver/slack`):
 

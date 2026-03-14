@@ -10,6 +10,8 @@ import { createHmac, randomBytes } from "crypto";
 import { readFileSync } from "fs";
 import { join } from "path";
 
+import { CURRENT_POLICY_EPOCH } from "./policy.js";
+
 function base64urlEncode(data: Buffer | string): string {
   const buf = typeof data === "string" ? Buffer.from(data, "utf-8") : data;
   return buf.toString("base64url");
@@ -23,7 +25,7 @@ const JWT_HEADER = base64urlEncode(
  * Mint a short-lived JWT bearer token for the given instance directory.
  *
  * Reads the signing key from `<instanceDir>/.vellum/protected/actor-token-signing-key`
- * and mints a 5-minute JWT with `aud=vellum-gateway`.
+ * and mints a 30-day JWT with `aud=vellum-gateway`.
  *
  * Returns undefined if the signing key doesn't exist yet (daemon not started).
  */
@@ -42,10 +44,10 @@ export function mintLocalBearerToken(instanceDir: string): string | undefined {
     const claims = {
       iss: "vellum-auth",
       aud: "vellum-gateway",
-      sub: "svc:cli:local",
+      sub: "local:cli:cli",
       scope_profile: "actor_client_v1",
-      exp: now + 300,
-      policy_epoch: 1,
+      exp: now + 30 * 24 * 60 * 60,
+      policy_epoch: CURRENT_POLICY_EPOCH,
       iat: now,
       jti: randomBytes(16).toString("hex"),
     };

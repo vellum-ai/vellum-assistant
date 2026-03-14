@@ -29,7 +29,7 @@ function mintCliToken(): string | undefined {
     }
     return mintToken({
       aud: "vellum-gateway",
-      sub: "svc:cli:local",
+      sub: "local:cli:cli",
       scope_profile: "actor_client_v1",
       policy_epoch: CURRENT_POLICY_EPOCH,
       ttlSeconds: 300,

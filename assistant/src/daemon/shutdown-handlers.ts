@@ -90,7 +90,13 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
 
     if (deps.telemetryReporter) {
       try {
-        await deps.telemetryReporter.stop();
+        const timeout = new Promise<void>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("Telemetry flush timed out")),
+            3_000,
+          ),
+        );
+        await Promise.race([deps.telemetryReporter.stop(), timeout]);
       } catch (err) {
         log.warn({ err }, "Telemetry reporter shutdown failed (non-fatal)");
       }
