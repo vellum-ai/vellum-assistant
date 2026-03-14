@@ -27,6 +27,10 @@ struct AppsGridView: View {
     @State private var sharedAppsTask: Task<Void, Never>?
     @State private var sharedAppsTaskGeneration = 0
 
+    // Local apps fetched from daemon
+    @State private var hasFetchedLocalApps = false
+    @State private var localAppsTask: Task<Void, Never>?
+
     /// Cache of lazily-loaded preview screenshots keyed by app ID.
     /// Empty string is used as a sentinel for "fetched but no preview available".
     @State private var previewCache: [String: String] = [:]
@@ -40,7 +44,7 @@ struct AppsGridView: View {
 
     var body: some View {
         Group {
-            if appListManager.apps.isEmpty && sharedApps.isEmpty && hasFetchedShared {
+            if appListManager.apps.isEmpty && sharedApps.isEmpty && hasFetchedShared && hasFetchedLocalApps {
                 noAppsEmptyState
             } else {
                 VStack(alignment: .leading, spacing: 0) {
@@ -63,10 +67,13 @@ struct AppsGridView: View {
         .background(VColor.surfaceBase)
         .onAppear {
             if !hasFetchedShared { fetchSharedApps() }
+            if !hasFetchedLocalApps { refreshLocalAppsFromDaemon() }
         }
         .onDisappear {
             sharedAppsTask?.cancel()
             sharedAppsTask = nil
+            localAppsTask?.cancel()
+            localAppsTask = nil
             for task in previewTasks.values { task.cancel() }
             previewTasks.removeAll()
         }
@@ -523,6 +530,35 @@ struct AppsGridView: View {
             }
         }
         sharedAppsTask = task
+    }
+
+    private func refreshLocalAppsFromDaemon() {
+        localAppsTask?.cancel()
+        localAppsTask = Task { @MainActor in
+            let stream = daemonClient.subscribe()
+            do {
+                try daemonClient.sendAppsList()
+            } catch {
+                hasFetchedLocalApps = true
+                return
+            }
+            for await message in stream {
+                guard !Task.isCancelled else { return }
+                if case .appsListResponse(let response) = message {
+                    let daemonItems = response.apps.map {
+                        AppListManager.AppItem_Daemon(
+                            id: $0.id, name: $0.name, description: $0.description,
+                            icon: $0.icon, appType: nil, createdAt: $0.createdAt
+                        )
+                    }
+                    appListManager.syncFromDaemon(daemonItems)
+                    hasFetchedLocalApps = true
+                    return
+                }
+            }
+            // Stream ended without a response (e.g. daemon disconnected)
+            hasFetchedLocalApps = true
+        }
     }
 
     // MARK: - Sections
