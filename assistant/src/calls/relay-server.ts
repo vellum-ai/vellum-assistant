@@ -612,7 +612,6 @@ export class RelayConnection {
               resolved.actorTrust.trustClass === "trusted_contact")
           ) {
             touchContactInteraction(
-              resolved.actorTrust.memberRecord.contact.id,
               resolved.actorTrust.memberRecord.channel.id,
             );
           }
