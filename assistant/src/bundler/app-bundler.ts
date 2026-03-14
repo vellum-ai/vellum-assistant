@@ -14,7 +14,7 @@ import { join } from "node:path";
 import archiver from "archiver";
 import JSZip from "jszip";
 
-import { getApp, getAppsDir } from "../memory/app-store.js";
+import { getApp, getAppsDir, isMultifileApp } from "../memory/app-store.js";
 import { computeContentId } from "../util/content-id.js";
 import { getLogger } from "../util/logger.js";
 import { compileApp } from "./app-compiler.js";
@@ -60,8 +60,10 @@ export async function packageApp(
   const version = app.version ?? "1.0.0";
   const contentId = computeContentId(app.name);
 
+  const multifile = isMultifileApp(app);
+
   const manifest: AppManifest = {
-    format_version: 2,
+    format_version: multifile ? 2 : 1,
     name: app.name,
     ...(app.description ? { description: app.description } : {}),
     ...(app.icon ? { icon: app.icon } : {}),
@@ -78,10 +80,8 @@ export async function packageApp(
   const compiledFiles: { name: string; data: Buffer }[] = [];
 
   const appDir = join(getAppsDir(), appId);
-  const srcDir = join(appDir, "src");
-  const hasSrc = existsSync(srcDir);
 
-  if (hasSrc) {
+  if (multifile) {
     // Multi-file TSX app: compile src/ -> dist/
     const compileResult = await compileApp(appDir);
     if (!compileResult.ok) {
@@ -118,7 +118,6 @@ export async function packageApp(
     }
     const indexHtml = await readFile(indexHtmlPath, "utf-8");
     compiledFiles.push({ name: "index.html", data: Buffer.from(indexHtml) });
-    manifest.entry = "index.html";
   }
 
   // Create the zip archive
