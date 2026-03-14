@@ -2,7 +2,6 @@ import { and, asc, desc, eq, like, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../memory/db.js";
-import { rawChanges } from "../memory/raw-query.js";
 import {
   assistantContactMetadata,
   contactChannels,
@@ -789,46 +788,6 @@ export function findGuardianForChannel(
 }
 
 /**
- * Revoke the guardian's active channel of the given type by setting its
- * status to 'revoked'. This ensures findGuardianForChannel() no longer
- * returns stale data after a binding is revoked.
- *
- * Returns true if a channel was found and revoked, false otherwise.
- */
-export function revokeGuardianChannel(channelType: string): boolean {
-  const db = getDb();
-  const conditions = [
-    eq(contacts.role, "guardian"),
-    eq(contactChannels.type, channelType),
-    eq(contactChannels.status, "active"),
-  ];
-  const rows = db
-    .select({
-      channelId: contactChannels.id,
-    })
-    .from(contacts)
-    .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
-    .where(and(...conditions))
-    .all();
-
-  if (rows.length === 0) return false;
-
-  const now = Date.now();
-  for (const row of rows) {
-    db.update(contactChannels)
-      .set({
-        status: "revoked",
-        revokedReason: "guardian_binding_revoked",
-        updatedAt: now,
-      })
-      .where(eq(contactChannels.id, row.channelId))
-      .run();
-  }
-
-  return true;
-}
-
-/**
  * List all active channels for guardian contacts.
  * This is the contacts-based equivalent of listActiveBindingsByAssistant(assistantId).
  * Joins contacts+channels with status='active' in a single query so we never
@@ -1032,13 +991,4 @@ export function getAssistantContactMetadata(
 
   if (!row) return null;
   return parseAssistantMetadata(row);
-}
-
-export function deleteAssistantContactMetadata(contactId: string): boolean {
-  const db = getDb();
-  db.delete(assistantContactMetadata)
-    .where(eq(assistantContactMetadata.contactId, contactId))
-    .run();
-
-  return rawChanges() > 0;
 }
