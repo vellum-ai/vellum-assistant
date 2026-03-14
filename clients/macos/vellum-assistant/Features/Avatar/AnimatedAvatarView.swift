@@ -295,7 +295,9 @@ class AvatarLayerView: NSView {
         rootLayer.removeAnimation(forKey: "twitch")
 
         let animation = CAKeyframeAnimation(keyPath: "transform.rotation.z")
-        let angle: CGFloat = .pi / 60  // ~3 degrees
+        let baseAngle: CGFloat = .random(in: (.pi / 150)...(.pi / 90))  // ~1.2° to ~2°
+        let sign: CGFloat = Bool.random() ? 1.0 : -1.0  // Random CW or CCW start
+        let angle = baseAngle * sign
         animation.values = [0, angle, -angle * 0.6, angle * 0.3, 0]
         animation.keyTimes = [0, 0.2, 0.5, 0.75, 1.0]
         animation.duration = 0.4
