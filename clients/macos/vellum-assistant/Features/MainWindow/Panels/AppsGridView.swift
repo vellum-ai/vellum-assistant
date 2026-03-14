@@ -557,7 +557,7 @@ struct AppsGridView: View {
                 }
             }
             // Stream ended without a response (e.g. daemon disconnected)
-            hasFetchedLocalApps = true
+            if !Task.isCancelled { hasFetchedLocalApps = true }
         }
     }
 
