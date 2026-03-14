@@ -19,7 +19,7 @@ import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
+import { getSignalsDir } from "../util/platform.js";
 
 const log = getLogger("signal:user-message");
 
@@ -52,7 +52,7 @@ export function registerUserMessageCallback(cb: UserMessageCallback): void {
  * file is created or modified.
  */
 export async function handleUserMessageSignal(filename: string): Promise<void> {
-  const signalsDir = join(getWorkspaceDir(), "signals");
+  const signalsDir = getSignalsDir();
   const signalPath = join(signalsDir, filename);
   const resultPath = join(signalsDir, `${filename}.result`);
 

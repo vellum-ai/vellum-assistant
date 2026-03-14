@@ -351,7 +351,6 @@ export function getHooksDir(): string {
 export function getSignalsDir(): string {
   return join(getRootDir(), "signals");
 }
-
 // --- Workspace path primitives ---
 // These will become the canonical paths after workspace migration.
 // Currently not used by call-sites; wired in later PRs.

@@ -326,7 +326,7 @@ export async function startCli(): Promise<void> {
   /** Send a user message via signal file to the daemon. */
   async function sendUserMessage(content: string): Promise<boolean> {
     try {
-      const signalsDir = join(getWorkspaceDir(), "signals");
+      const signalsDir = getSignalsDir();
       mkdirSync(signalsDir, { recursive: true });
       const requestId = randomUUID();
       const signalFile = `user-message.${requestId}`;

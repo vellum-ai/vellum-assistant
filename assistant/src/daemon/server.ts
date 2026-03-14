@@ -412,6 +412,27 @@ export class DaemonServer {
       const { conversationId } = getOrCreateConversation(
         params.conversationKey,
       );
+      const session = await this.getOrCreateSession(conversationId);
+      if (session.isProcessing()) {
+        const requestId = crypto.randomUUID();
+        const resolvedChannel = resolveTurnChannel(params.sourceChannel);
+        const resolvedInterface = resolveTurnInterface(params.sourceInterface);
+        const result = session.enqueueMessage(
+          params.content,
+          [],
+          () => {},
+          requestId,
+          undefined,
+          undefined,
+          {
+            userMessageChannel: resolvedChannel,
+            assistantMessageChannel: resolvedChannel,
+            userMessageInterface: resolvedInterface,
+            assistantMessageInterface: resolvedInterface,
+          },
+        );
+        return { accepted: !result.rejected };
+      }
       await this.persistAndProcessMessage(
         conversationId,
         params.content,
