@@ -38,9 +38,11 @@ struct VellumAssistantApp: App {
                 Button("Uninstall Vellum...") {
                     appDelegate.performUninstall()
                 }
-                Divider()
-                Button("Sign Out") {
-                    appDelegate.performLogout()
+                if appDelegate.authManager.isAuthenticated {
+                    Divider()
+                    Button("Sign Out") {
+                        appDelegate.performLogout()
+                    }
                 }
             }
             // Replace the default Settings menu item (which opens the SwiftUI
