@@ -501,6 +501,20 @@ export class DaemonServer {
     return count;
   }
 
+  /**
+   * Abort and dispose a single in-memory session, removing it from the session
+   * map. No-op if no session exists for the given ID.
+   */
+  destroySession(sessionId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    this.evictor.remove(sessionId);
+    getSubagentManager().abortAllForParent(sessionId);
+    session.dispose();
+    this.sessions.delete(sessionId);
+    this.sessionOptions.delete(sessionId);
+  }
+
   private evictSessionsForReload(): void {
     const subagentManager = getSubagentManager();
     for (const [id, session] of this.sessions) {

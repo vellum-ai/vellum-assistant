@@ -11,6 +11,7 @@
  * POST   /v1/sessions/reorder             — reorder / pin sessions
  */
 
+import { cleanupQdrantVectors } from "../../daemon/session-history.js";
 import {
   batchSetDisplayOrders,
   deleteConversation,
@@ -36,6 +37,8 @@ export interface SessionManagementDeps {
   renameSession: (sessionId: string, name: string) => boolean;
   clearAllSessions: () => number;
   cancelGeneration: (sessionId: string) => boolean;
+  /** Abort and dispose an active in-memory session (if any) before deletion. */
+  destroySession: (sessionId: string) => void;
   undoLastMessage: (
     sessionId: string,
   ) => Promise<{ removedCount: number } | null>;
@@ -115,7 +118,7 @@ export function sessionManagementRouteDefinitions(
       endpoint: "conversations/:id",
       method: "DELETE",
       policyKey: "conversations",
-      handler: ({ params }) => {
+      handler: async ({ params }) => {
         const conversation = getConversation(params.id);
         if (!conversation) {
           return httpError(
@@ -124,7 +127,27 @@ export function sessionManagementRouteDefinitions(
             404,
           );
         }
-        deleteConversation(params.id);
+        // Tear down the in-memory session (abort + dispose) before removing
+        // persistence so that a running agent loop doesn't write to a deleted
+        // conversation row, tripping FK constraints.
+        deps.destroySession(params.id);
+        const deleted = deleteConversation(params.id);
+        // Clean up Qdrant vectors for orphaned memory data (fire-and-forget).
+        if (
+          deleted.segmentIds.length > 0 ||
+          deleted.orphanedItemIds.length > 0
+        ) {
+          cleanupQdrantVectors(
+            params.id,
+            deleted.segmentIds,
+            deleted.orphanedItemIds,
+          ).catch((err) => {
+            log.warn(
+              { err, conversationId: params.id },
+              "Qdrant cleanup after conversation delete failed (non-fatal)",
+            );
+          });
+        }
         log.info({ conversationId: params.id }, "Deleted conversation");
         return new Response(null, { status: 204 });
       },

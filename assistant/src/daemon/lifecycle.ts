@@ -180,12 +180,38 @@ export async function runDaemon(): Promise<void> {
 
     // Purge private (temporary) conversations from the previous session.
     // These are ephemeral by design and should not survive daemon restarts.
-    const purgedCount = purgePrivateConversations();
+    const { count: purgedCount, deletedMemory } = purgePrivateConversations();
     if (purgedCount > 0) {
       log.info(
         { purgedCount },
         `Purged ${purgedCount} private conversation(s) from previous session`,
       );
+      // Qdrant may not be ready at startup, so enqueue vector cleanup jobs
+      // rather than attempting direct deletion.
+      for (const segId of deletedMemory.segmentIds) {
+        enqueueMemoryJob("delete_qdrant_vectors", {
+          targetType: "segment",
+          targetId: segId,
+        });
+      }
+      for (const itemId of deletedMemory.orphanedItemIds) {
+        enqueueMemoryJob("delete_qdrant_vectors", {
+          targetType: "item",
+          targetId: itemId,
+        });
+      }
+      if (
+        deletedMemory.segmentIds.length > 0 ||
+        deletedMemory.orphanedItemIds.length > 0
+      ) {
+        log.info(
+          {
+            segments: deletedMemory.segmentIds.length,
+            orphanedItems: deletedMemory.orphanedItemIds.length,
+          },
+          "Enqueued Qdrant vector cleanup jobs for purged private conversations",
+        );
+      }
     }
 
     // Expire pending interaction-bound canonical guardian requests left over
@@ -541,6 +567,7 @@ export async function runDaemon(): Promise<void> {
         clearAllSessions: () => clearAllSessions(server.getHandlerContext()),
         cancelGeneration: (sessionId) =>
           cancelGeneration(sessionId, server.getHandlerContext()),
+        destroySession: (sessionId) => server.destroySession(sessionId),
         undoLastMessage: (sessionId) =>
           undoLastMessage(sessionId, server.getHandlerContext()),
         regenerateResponse: (sessionId) => {
