@@ -861,7 +861,11 @@ public final class SettingsStore: ObservableObject {
     /// - Managed: delegates to `GatewayHTTPClient` for URL/auth resolution, stripping
     ///   the `v1/` prefix since the platform proxy namespaces under `/v1/assistants/{id}/`.
     private func buildDaemonRequest(path: String, method: String) -> URLRequest? {
-        if let info = try? GatewayHTTPClient.resolveConnectionInfo(), info.assistant.isManaged {
+        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let assistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
+
+        if let assistant, assistant.isManaged {
+            guard let info = try? GatewayHTTPClient.resolveConnectionInfo() else { return nil }
             // Strip "v1/" prefix — the platform proxy already namespaces under /v1/assistants/{id}/
             let proxyPath = path.hasPrefix("v1/") ? String(path.dropFirst(3)) : path
             let trailingSlash = proxyPath.hasSuffix("/") ? "" : "/"
@@ -879,8 +883,6 @@ public final class SettingsStore: ObservableObject {
         // Local mode: direct to daemon runtime HTTP server.
         // Use the lockfile assistant's daemon port so multi-instance switching
         // targets the correct daemon (not always the default 7821).
-        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        let assistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
         let port = assistant?.daemonPort
             ?? Int(ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "")
             ?? 7821
