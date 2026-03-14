@@ -355,8 +355,8 @@ export class DaemonServer {
         );
       });
 
-    // Dual-write: persist event to the file-based stream so that
-    // cross-process consumers (e.g. the built-in CLI) can read it.
+    // Dual-write to file-based stream for cross-process consumers.
+    // No-op when no subscriber files exist for this conversation.
     if (sessionId) {
       try {
         appendEventToStream(sessionId, event);

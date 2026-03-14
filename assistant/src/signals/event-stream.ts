@@ -1,9 +1,11 @@
 /**
  * File-based event stream for cross-process assistant event delivery.
  *
- * The daemon appends JSON-line events to per-conversation files under
- * `signals/events/<conversationId>`. The CLI watches these files and
- * reads new lines as they arrive.
+ * Subscribers (e.g. the built-in CLI) create a file under
+ * `signals/events/<conversationId>` via {@link watchEventStream}.
+ * The daemon appends JSON-line events to every existing subscriber
+ * file via {@link appendEventToStream}. When a subscriber disposes
+ * its watcher the file is removed, so the daemon stops writing.
  *
  * Write side: {@link appendEventToStream} (called by DaemonServer.broadcast)
  * Read side: {@link watchEventStream} (called by the CLI)
@@ -12,10 +14,13 @@
 import {
   appendFileSync,
   closeSync,
+  existsSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readSync,
   statSync,
+  unlinkSync,
   watch,
   writeFileSync,
 } from "node:fs";
@@ -31,17 +36,34 @@ function eventsDir(): string {
 }
 
 /**
- * Append a serialized event to the conversation's event stream file.
- * Called by the daemon's broadcast path to dual-write events for
- * cross-process consumers (e.g. the built-in CLI).
+ * Append a serialized event to every active subscriber file for the
+ * given conversation. If no subscriber files exist the call is a no-op,
+ * so the daemon never writes events that nobody is listening to.
  */
 export function appendEventToStream(
   conversationId: string,
   event: AssistantEvent,
 ): void {
   const dir = eventsDir();
-  mkdirSync(dir, { recursive: true });
-  appendFileSync(join(dir, conversationId), JSON.stringify(event) + "\n");
+  if (!existsSync(dir)) return;
+
+  const prefix = `${conversationId}.`;
+  let files: string[];
+  try {
+    files = readdirSync(dir).filter((f) => f.startsWith(prefix));
+  } catch {
+    return;
+  }
+  if (files.length === 0) return;
+
+  const line = JSON.stringify(event) + "\n";
+  for (const file of files) {
+    try {
+      appendFileSync(join(dir, file), line);
+    } catch {
+      // Best-effort per subscriber.
+    }
+  }
 }
 
 // ── Read side (CLI) ──────────────────────────────────────────────────
@@ -52,11 +74,12 @@ export interface EventStreamWatcher {
 }
 
 /**
- * Watch a conversation's event stream file and invoke `callback` for
- * each new {@link AssistantEvent} line appended after the call.
+ * Register as a subscriber for a conversation's event stream and
+ * invoke `callback` for each new {@link AssistantEvent} appended.
  *
- * Existing file content is skipped — only events written after the
- * watcher is created are delivered.
+ * Creates a subscriber file under `signals/events/<conversationId>.<pid>`.
+ * The daemon writes events to all such files. On {@link dispose} the
+ * file is removed so the daemon stops writing.
  */
 export function watchEventStream(
   conversationId: string,
@@ -64,16 +87,11 @@ export function watchEventStream(
 ): EventStreamWatcher {
   const dir = eventsDir();
   mkdirSync(dir, { recursive: true });
-  const filePath = join(dir, conversationId);
+  const filePath = join(dir, `${conversationId}.${process.pid}`);
 
-  // Ensure the file exists so fs.watch doesn't fail.
-  let offset: number;
-  try {
-    offset = statSync(filePath).size;
-  } catch {
-    writeFileSync(filePath, "");
-    offset = 0;
-  }
+  // Create the subscriber file (empty). The daemon will append to it.
+  writeFileSync(filePath, "");
+  let offset = 0;
 
   let disposed = false;
 
@@ -113,6 +131,11 @@ export function watchEventStream(
       if (!disposed) {
         disposed = true;
         watcher.close();
+        try {
+          unlinkSync(filePath);
+        } catch {
+          // Already removed.
+        }
       }
     },
   };
