@@ -1,34 +1,64 @@
 #if os(macOS)
 import Foundation
 
-struct LockfileAssistant {
-    let assistantId: String
-    let runtimeUrl: String?
-    let bearerToken: String?
-    let cloud: String
-    let project: String?
-    let region: String?
-    let zone: String?
-    let instanceId: String?
-    let hatchedAt: String?
-    let baseDataDir: String?
-    let daemonPort: Int?
-    let gatewayPort: Int?
-    let instanceDir: String?
+public struct LockfileAssistant {
+    public let assistantId: String
+    public let runtimeUrl: String?
+    public let bearerToken: String?
+    public let cloud: String
+    public let project: String?
+    public let region: String?
+    public let zone: String?
+    public let instanceId: String?
+    public let hatchedAt: String?
+    public let baseDataDir: String?
+    public let daemonPort: Int?
+    public let gatewayPort: Int?
+    public let instanceDir: String?
+
+    public init(
+        assistantId: String,
+        runtimeUrl: String?,
+        bearerToken: String?,
+        cloud: String,
+        project: String?,
+        region: String?,
+        zone: String?,
+        instanceId: String?,
+        hatchedAt: String?,
+        baseDataDir: String?,
+        daemonPort: Int?,
+        gatewayPort: Int?,
+        instanceDir: String?
+    ) {
+        self.assistantId = assistantId
+        self.runtimeUrl = runtimeUrl
+        self.bearerToken = bearerToken
+        self.cloud = cloud
+        self.project = project
+        self.region = region
+        self.zone = zone
+        self.instanceId = instanceId
+        self.hatchedAt = hatchedAt
+        self.baseDataDir = baseDataDir
+        self.daemonPort = daemonPort
+        self.gatewayPort = gatewayPort
+        self.instanceDir = instanceDir
+    }
 
     /// Whether this assistant is running remotely (not on the local machine).
-    var isRemote: Bool {
+    public var isRemote: Bool {
         cloud.lowercased() != "local"
     }
 
     /// Whether this is a platform-managed assistant.
-    var isManaged: Bool {
+    public var isManaged: Bool {
         cloud.lowercased() == "vellum"
     }
 
     /// Resolve the assistant's local runtime HTTP port from the lockfile when
     /// available, otherwise fall back to the current process environment.
-    func resolvedDaemonPort(environment: [String: String]? = nil) -> Int {
+    public func resolvedDaemonPort(environment: [String: String]? = nil) -> Int {
         if let daemonPort {
             return daemonPort
         }
@@ -44,16 +74,16 @@ struct LockfileAssistant {
         return rawPort.flatMap(Int.init) ?? 7821
     }
 
-    var localRuntimeBaseURL: String {
+    public var localRuntimeBaseURL: String {
         "http://localhost:\(resolvedDaemonPort())"
     }
 
-    static func loadLatest() -> LockfileAssistant? {
+    public static func loadLatest() -> LockfileAssistant? {
         loadAll().first
     }
 
     /// Returns all assistant entries from the lockfile, sorted newest first.
-    static func loadAll() -> [LockfileAssistant] {
+    public static func loadAll() -> [LockfileAssistant] {
         guard let json = LockfilePaths.read(),
               let assistants = json["assistants"] as? [[String: Any]] else {
             return []
@@ -96,7 +126,7 @@ struct LockfileAssistant {
     }
 
     /// Find an assistant by its ID in the lockfile.
-    static func loadByName(_ name: String) -> LockfileAssistant? {
+    public static func loadByName(_ name: String) -> LockfileAssistant? {
         loadAll().first { $0.assistantId == name }
     }
 
@@ -112,7 +142,7 @@ struct LockfileAssistant {
     ///   - hatchedAt: ISO-8601 timestamp of when the assistant was created.
     ///   - lockfilePath: Override for tests; defaults to `LockfilePaths.primaryPath`.
     @discardableResult
-    static func upsertManagedEntry(
+    public static func upsertManagedEntry(
         assistantId: String,
         runtimeUrl: String,
         hatchedAt: String,
