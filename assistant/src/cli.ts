@@ -18,13 +18,16 @@ import {
   updateDaemonText,
   updateStatusText,
 } from "./cli/main-screen.jsx";
+import { loadRawConfig, saveRawConfig } from "./config/loader.js";
 import { shouldAutoStartDaemon } from "./daemon/connection-policy.js";
 import { isHttpHealthy } from "./daemon/daemon-control.js";
+import { getModelInfo } from "./daemon/handlers/config-model.js";
 import { ensureDaemonRunning } from "./daemon/lifecycle.js";
 import type {
   ConfirmationRequest,
   ServerMessage,
 } from "./daemon/message-protocol.js";
+import { MODEL_TO_PROVIDER } from "./daemon/session-slash.js";
 import {
   copyToClipboard,
   extractLastCodeBlock,
@@ -1217,79 +1220,34 @@ export async function startCli(): Promise<void> {
 
     if (content === "/model" || content.startsWith("/model ")) {
       const modelArg = content.slice("/model".length).trim();
-      try {
-        const signalsDir = join(getWorkspaceDir(), "signals");
-        mkdirSync(signalsDir, { recursive: true });
-        const resultPath = join(signalsDir, "model.result");
+      if (modelArg) {
         try {
-          unlinkSync(resultPath);
+          const raw = loadRawConfig();
+          const provider = MODEL_TO_PROVIDER[modelArg];
+          raw.model = modelArg;
+          if (provider) raw.provider = provider;
+          saveRawConfig(raw);
+          process.stdout.write(
+            `\n  Model: ${modelArg} (${provider ?? raw.provider})\n\n`,
+          );
         } catch {
-          // May not exist yet.
+          process.stdout.write("[Failed to set model]\n");
         }
-        const requestId = randomUUID();
-        const payload: { action: string; requestId: string; modelId?: string } =
-          modelArg
-            ? { action: "set", modelId: modelArg, requestId }
-            : { action: "get", requestId };
-        writeFileSync(join(signalsDir, "model"), JSON.stringify(payload));
-
-        let settled = false;
-
-        const onResult = (): void => {
-          try {
-            const raw = readFileSync(resultPath, "utf-8");
-            const result = JSON.parse(raw) as {
-              ok?: boolean;
-              model?: string;
-              provider?: string;
-              requestId?: string;
-              error?: string;
-            };
-            if (result.requestId !== requestId) return;
-            if (settled) return;
-            settled = true;
-            modelWatcher.close();
-            clearTimeout(modelTimeoutId);
-            if (result.ok && result.model && result.provider) {
-              process.stdout.write(
-                `\n  Model: ${result.model} (${result.provider})\n\n`,
-              );
-            } else {
-              const action = modelArg ? "set model" : "get model info";
-              process.stdout.write(
-                `[Failed to ${action}: ${result.error ?? "unknown error"}]\n`,
-              );
-            }
+      } else {
+        getModelInfo()
+          .then((info) => {
+            process.stdout.write(
+              `\n  Model: ${info.model} (${info.provider})\n\n`,
+            );
             prompt();
-          } catch {
-            // Result file not yet readable; ignore.
-          }
-        };
-
-        const modelWatcher = watch(signalsDir, (_event, filename) => {
-          if (filename === "model.result") {
-            onResult();
-          }
-        });
-
-        const modelTimeoutId = setTimeout(() => {
-          if (!settled) {
-            settled = true;
-            modelWatcher.close();
-            const action = modelArg ? "Model set" : "Model get";
-            process.stdout.write(`[${action} timed out]\n`);
+          })
+          .catch(() => {
+            process.stdout.write("[Failed to get model info]\n");
             prompt();
-          }
-        }, 5_000);
-
-        if (existsSync(resultPath)) {
-          onResult();
-        }
-      } catch {
-        const action = modelArg ? "set model" : "get model info";
-        process.stdout.write(`[Failed to ${action}]\n`);
-        prompt();
+          });
+        return;
       }
+      prompt();
       return;
     }
 
