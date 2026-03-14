@@ -2,6 +2,7 @@ import CryptoKit
 import Foundation
 import IOKit
 @preconcurrency import Sentry
+import VellumAssistantShared
 
 /// Privacy-safe device identification and Sentry scope configuration.
 /// Uses the same SHA-256(IOPlatformUUID + salt) approach as PairingQRCodeSheet.computeHostId().
