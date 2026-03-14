@@ -37,8 +37,8 @@ function getBroker(): KeychainBrokerClient {
  *
  * @deprecated Use `getSecureKeyAsync` instead. This sync variant only reads
  * from the encrypted file store, bypassing the keychain broker. Retained only
- * for startup code paths in `config/loader.ts` and `providers/managed-proxy/context.ts`
- * that cannot do async I/O.
+ * for sync code paths in `providers/registry.ts`, `providers/managed-proxy/context.ts`,
+ * and `memory/embedding-backend.ts` that cannot do async I/O.
  */
 export function getSecureKey(account: string): string | undefined {
   return encryptedStore.getKey(account);
@@ -50,8 +50,8 @@ export function getSecureKey(account: string): string | undefined {
  *
  * @deprecated Use `setSecureKeyAsync` instead. This sync variant only writes
  * to the encrypted file store, bypassing the keychain broker. Retained only
- * for startup code paths in `config/loader.ts` and `providers/managed-proxy/context.ts`
- * that cannot do async I/O.
+ * for sync code paths in `providers/registry.ts`, `providers/managed-proxy/context.ts`,
+ * and `memory/embedding-backend.ts` that cannot do async I/O.
  */
 export function setSecureKey(account: string, value: string): boolean {
   return encryptedStore.setKey(account, value);
