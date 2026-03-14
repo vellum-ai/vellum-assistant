@@ -149,7 +149,7 @@ describe("CredentialBroker.browserFill", () => {
     upsertCredentialMetadata("github", "token", {
       allowedTools: ["browser_fill_credential"],
     });
-    // No setSecureKey call — metadata exists but value doesn't
+    // No setSecureKeyAsync call — metadata exists but value doesn't
 
     const result = await broker.browserFill({
       service: "github",

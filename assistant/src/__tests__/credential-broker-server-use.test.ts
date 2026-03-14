@@ -149,7 +149,7 @@ describe("CredentialBroker.serverUse", () => {
     upsertCredentialMetadata("vercel", "api_token", {
       allowedTools: ["publish_page"],
     });
-    // No setSecureKey — metadata exists but value doesn't
+    // No setSecureKeyAsync — metadata exists but value doesn't
 
     const result = await broker.serverUse({
       service: "vercel",
@@ -609,7 +609,7 @@ describe("CredentialBroker.serverUseById", () => {
         },
       ],
     });
-    // No setSecureKey — metadata exists but value doesn't
+    // No setSecureKeyAsync — metadata exists but value doesn't
 
     const result = await broker.serverUseById({
       credentialId: meta.credentialId,

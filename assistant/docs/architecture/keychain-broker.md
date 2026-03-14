@@ -32,7 +32,7 @@ graph LR
     RUNTIME["Assistant Runtime (Bun)"] -->|"UDS JSON"| SERVER
     GATEWAY["Gateway (Bun)"] -->|"UDS JSON<br/>(async)"| SERVER
 
-    RUNTIME -.->|"fallback<br/>(sync + broker unavailable)"| ENC["Encrypted Store<br/>(~/.vellum/protected/keys.enc)"]
+    RUNTIME -.->|"fallback<br/>(broker unavailable)"| ENC["Encrypted Store<br/>(~/.vellum/protected/keys.enc)"]
     GATEWAY -.->|"fallback<br/>(broker unavailable)"| ENC
 ```
 
@@ -42,7 +42,7 @@ graph LR
 - **No auth bootstrap problem.** The app writes the broker auth token to disk before launching the daemon, so the daemon always has a valid token at startup.
 - **No keychain prompts on signed builds.** Items are stored with `kSecAttrAccessibleAfterFirstUnlock` under the `vellum-assistant` service name. A stable code-signing identity means macOS grants access without prompting after the first unlock.
 - **No keychain interaction on debug builds.** The entire `KeychainBrokerServer` is compiled out with `#if !DEBUG`, so development builds use the encrypted file store exclusively.
-- **Encrypted file store as permanent fallback.** CLI-only, headless, and development environments always have the encrypted store (`~/.vellum/protected/keys.enc`) available. Async callers that use the broker also write through to the encrypted store so sync callers see a consistent view.
+- **Encrypted file store as permanent fallback.** CLI-only, headless, and development environments always have the encrypted store (`~/.vellum/protected/keys.enc`) available. Writes through the broker also persist to the encrypted store so both backends stay in sync.
 
 ## Components
 
@@ -55,11 +55,11 @@ graph LR
 
 ### TypeScript side (runtime + gateway)
 
-| File                                               | Role                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `assistant/src/security/keychain-broker-client.ts` | Async UDS client for the runtime. Persistent socket connection, request/response correlation, auth token caching with auto-refresh on `UNAUTHORIZED`. Falls back gracefully (returns safe defaults, never throws).                                                                                                                                                                                                                                                                                            |
-| `assistant/src/security/secure-keys.ts`            | Unified API surface. Sync variants use encrypted store only. Async variants (`getSecureKeyAsync`, `setSecureKeyAsync`, `deleteSecureKeyAsync`) check the encrypted store first for reads (instant), falling back to the broker for keys that may exist only in the macOS Keychain. **Writes** go to both stores; return `false` on broker failure (no encrypted-store fallback). **Deletes** return `"deleted"`, `"not-found"`, or `"error"` to let callers distinguish idempotent no-ops from real failures. |
-| `gateway/src/credential-reader.ts`                 | Read-only credential reader. Tries broker via native async UDS connection (`node:net`), falls back to encrypted store. All public credential read functions are async.                                                                                                                                                                                                                                                                                                                                        |
+| File                                               | Role                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/security/keychain-broker-client.ts` | Async UDS client for the runtime. Persistent socket connection, request/response correlation, auth token caching with auto-refresh on `UNAUTHORIZED`. Falls back gracefully (returns safe defaults, never throws).                                                                                                                                                                                                                                       |
+| `assistant/src/security/secure-keys.ts`            | Unified API surface. `getSecureKeyAsync`, `setSecureKeyAsync`, and `deleteSecureKeyAsync` check the encrypted store first for reads (instant), falling back to the broker for keys that may exist only in the macOS Keychain. **Writes** go to both stores; return `false` on broker failure (no encrypted-store fallback). **Deletes** return `"deleted"`, `"not-found"`, or `"error"` to let callers distinguish idempotent no-ops from real failures. |
+| `gateway/src/credential-reader.ts`                 | Read-only credential reader. Tries broker via native async UDS connection (`node:net`), falls back to encrypted store. All public credential read functions are async.                                                                                                                                                                                                                                                                                   |
 
 ## Message Contract
 
@@ -163,9 +163,9 @@ XPC provides stronger caller identity guarantees via audit tokens and code requi
 
 ## Callsite Policy
 
-### Async-first policy
+### Async-only policy
 
-All credential access uses `getSecureKeyAsync`, `setSecureKeyAsync`, and `deleteSecureKeyAsync`. These check the encrypted store first (instant) and fall back to the keychain broker, ensuring secrets stored in the macOS Keychain are always reachable.
+**All credential access uses the async functions** (`getSecureKeyAsync`, `setSecureKeyAsync`, `deleteSecureKeyAsync`). These check the encrypted store first (instant) and fall back to the keychain broker, ensuring secrets stored in the macOS Keychain are always reachable. The migration from sync to async is complete: the sync variants (`getSecureKey`, `setSecureKey`, `deleteSecureKey`) have been deleted and no longer exist in the codebase.
 
 ### Runtime request handlers (secret-routes, etc.)
 
@@ -174,6 +174,10 @@ All runtime HTTP handlers that write or delete secrets use the async APIs (`setS
 ### Gateway (credential-reader)
 
 The gateway reads credentials via async `readCredential()` which tries the broker first (native async UDS), falling back to the encrypted store. The gateway never writes credentials — that responsibility belongs to the assistant runtime.
+
+### Sync function removal
+
+The sync secure-key functions (`getSecureKey`, `setSecureKey`, `deleteSecureKey`) have been deleted. All code uses the async variants (`getSecureKeyAsync`, `setSecureKeyAsync`, `deleteSecureKeyAsync`).
 
 ## Migration
 

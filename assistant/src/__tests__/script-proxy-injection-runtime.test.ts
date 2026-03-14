@@ -27,7 +27,7 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
   listCredentialMetadata: () => credentialMetadataList,
 }));
 
-// Track getSecureKey return values per storage key
+// Track getSecureKeyAsync return values per storage key
 let secureKeyValues = new Map<string, string | undefined>();
 
 mock.module("../security/secure-keys.js", () => ({

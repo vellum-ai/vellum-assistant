@@ -3,8 +3,14 @@
  * available (macOS app embedded), with transparent fallback to the
  * encrypted-at-rest file store.
  *
- * Use `getSecureKeyAsync`, `setSecureKeyAsync`, and `deleteSecureKeyAsync`
- * for all credential access.
+ * All credential access uses the async functions: `getSecureKeyAsync`,
+ * `setSecureKeyAsync`, and `deleteSecureKeyAsync`. These check the
+ * encrypted store first (instant) and fall back to the keychain broker,
+ * ensuring secrets stored in the macOS Keychain are always reachable.
+ *
+ * The former sync variants (`getSecureKey`, `setSecureKey`,
+ * `deleteSecureKey`) have been removed. All call sites have been migrated
+ * to async.
  */
 
 import { getLogger } from "../util/logger.js";
@@ -45,7 +51,7 @@ export function getBackendType(): "broker" | "encrypted" | null {
 }
 
 // ---------------------------------------------------------------------------
-// Primary API — try encrypted store first, fall back to broker
+// Async CRUD — try encrypted store first, fall back to broker
 // ---------------------------------------------------------------------------
 
 /**
@@ -76,8 +82,8 @@ export async function getSecureKeyAsync(
 
 /**
  * Store a secret in secure storage. When the broker is available the key
- * is written there **and** to the encrypted store. Returns `true` only
- * when all writes succeed.
+ * is written there **and** to the encrypted store so both backends stay
+ * in sync. Returns `true` only when all writes succeed.
  *
  * If the broker is available but `broker.set()` fails we return `false`
  * immediately — falling through to an encrypted-store-only write would
@@ -119,7 +125,8 @@ export async function setSecureKeyAsync(
 
 /**
  * Delete a secret from secure storage. When the broker is available the
- * key is deleted there **and** from the encrypted store.
+ * key is deleted there **and** from the encrypted store so both backends
+ * stay in sync.
  *
  * Returns `"deleted"` when the key was removed, `"not-found"` when it
  * didn't exist (idempotent), or `"error"` on a real backend failure.

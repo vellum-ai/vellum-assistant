@@ -28,7 +28,7 @@ const mockDeleteSecureKeyAsync = mock(
     Promise.resolve("deleted" as const),
 );
 const mockSetSecureKeyAsync = mock(() => Promise.resolve(true));
-/** Simulated secure key store for getSecureKey lookups. */
+/** Simulated secure key store for getSecureKeyAsync lookups. */
 const secureKeyValues = new Map<string, string>();
 mock.module("../security/secure-keys.js", () => ({
   deleteSecureKeyAsync: mockDeleteSecureKeyAsync,

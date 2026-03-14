@@ -367,7 +367,7 @@ class CredentialStoreTool implements Tool {
 
         const allMetadata = listCredentialMetadata();
         // Verify secrets still exist by reading all key names once (instead of
-        // per-entry getSecureKey calls that each re-read/re-derive the store).
+        // per-entry getSecureKeyAsync calls that each re-read/re-derive the store).
         let secureKeySet: Set<string> | undefined;
         try {
           secureKeySet = new Set(listSecureKeys());
@@ -765,7 +765,9 @@ class CredentialStoreTool implements Tool {
           if (dbApp) {
             if (!clientId) clientId = dbApp.clientId;
             if (!clientSecret) {
-              clientSecret = await getSecureKeyAsync(dbApp.clientSecretCredentialPath);
+              clientSecret = await getSecureKeyAsync(
+                dbApp.clientSecretCredentialPath,
+              );
             }
           }
         }

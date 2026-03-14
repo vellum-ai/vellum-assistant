@@ -152,7 +152,7 @@ sequenceDiagram
     Note over UI,API: Tool Execution Flow
     Tool->>TokenMgr: withValidToken("gmail", callback)
     TokenMgr->>Store: getConnectionByProvider("integration:google")
-    TokenMgr->>Vault: getSecureKey("oauth_connection/{conn.id}/access_token")
+    TokenMgr->>Vault: getSecureKeyAsync("oauth_connection/{conn.id}/access_token")
     TokenMgr->>Store: check oauth_connections.expires_at
     alt Token expired
         TokenMgr->>Store: resolveRefreshConfig() → tokenUrl, clientId from provider/app rows
