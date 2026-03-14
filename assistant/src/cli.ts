@@ -29,8 +29,11 @@ import type {
   ServerMessage,
 } from "./daemon/message-protocol.js";
 import { MODEL_TO_PROVIDER } from "./daemon/session-slash.js";
-import { getMessages } from "./memory/conversation-crud.js";
-import { getConversationByKey } from "./memory/conversation-key-store.js";
+import { getConversation, getMessages } from "./memory/conversation-crud.js";
+import {
+  getConversationByKey,
+  setConversationKeyIfAbsent,
+} from "./memory/conversation-key-store.js";
 import { listConversations } from "./memory/conversation-queries.js";
 import {
   copyToClipboard,
@@ -590,31 +593,22 @@ export async function startCli(): Promise<void> {
           prompt();
         } else {
           try {
-            const newKey = `builtin-cli:${selected.id}`;
-            const resp = await httpSend("/v1/conversations/switch", {
-              method: "POST",
-              body: JSON.stringify({
-                conversationId: selected.id,
-                conversationKey: newKey,
-              }),
-            });
-            if (resp.ok) {
-              const data = (await resp.json()) as {
-                sessionId: string;
-                title: string;
-              };
-              sessionId = data.sessionId;
-              conversationKey = newKey;
-              pendingSessionPick = false;
-              await reconnectSse();
-              process.stdout.write(
-                `\n  Session: ${data.title}\n  Type your message. Ctrl+D to detach.\n\n`,
-              );
-              prompt();
-            } else {
+            const conversation = getConversation(selected.id);
+            if (!conversation) {
               process.stdout.write("  Failed to switch session.\n");
               renderSessionPicker(sessions);
+              return;
             }
+            const newKey = `builtin-cli:${selected.id}`;
+            setConversationKeyIfAbsent(newKey, selected.id);
+            sessionId = conversation.id;
+            conversationKey = newKey;
+            pendingSessionPick = false;
+            await reconnectSse();
+            process.stdout.write(
+              `\n  Session: ${conversation.title ?? "Untitled"}\n  Type your message. Ctrl+D to detach.\n\n`,
+            );
+            prompt();
           } catch {
             process.stdout.write("  Failed to switch session.\n");
             renderSessionPicker(sessions);
