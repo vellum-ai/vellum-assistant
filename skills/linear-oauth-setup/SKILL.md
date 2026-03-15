@@ -7,7 +7,6 @@ metadata:
   vellum:
     display-name: "Linear OAuth Setup"
     user-invocable: true
-    credential-setup-for: "linear"
     includes: ["collaborative-oauth-flow"]
 ---
 

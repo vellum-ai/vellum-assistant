@@ -50,7 +50,13 @@ enum LogExporter {
             let archiveName = defaultArchiveName()
             let attachment = Attachment(path: archiveURL.path, filename: archiveName)
             let event = Event(level: .info)
-            let errorTitle = "\(formData.reason.displayName) log report"
+            let errorTitle: String
+            switch formData.scope {
+            case .thread(_, let threadTitle, _, _):
+                errorTitle = "\(formData.reason.displayName) log report (thread: \(threadTitle))"
+            case .global:
+                errorTitle = "\(formData.reason.displayName) log report"
+            }
             event.message = SentryMessage(formatted: errorTitle)
             // Set error so Sentry displays the error message (not "No error message provided").
             event.error = NSError(
@@ -62,6 +68,10 @@ enum LogExporter {
                 "source": "log_report",
                 "report_reason": formData.reason.rawValue,
             ]
+            if case .thread(let conversationId, _, _, _) = formData.scope {
+                tags["conversation_id"] = conversationId
+                tags["export_scope"] = "thread"
+            }
             // When routing to the brain project, tag the event so it's clear
             // it originated from the macOS client (not the daemon itself).
             if formData.reason == .assistantBehavior {
@@ -207,7 +217,7 @@ enum LogExporter {
            let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
             await fetchPlatformLogs(into: tempDir, assistantId: assistantId, organizationId: orgId)
         } else {
-            await fetchDaemonExports(into: tempDir)
+            await fetchDaemonExports(into: tempDir, scope: formData?.scope ?? .global)
         }
 
         // 4. XDG CLI logs — ~/.config/vellum/logs/ (hatch.log, retire.log, etc.)
@@ -343,7 +353,7 @@ enum LogExporter {
     /// audit data, daemon logs, workspace files, and config snapshot.
     /// Extracts the archive into `directory/daemon-exports/`.
     /// Silently skips if the gateway is unreachable or returns an error.
-    private nonisolated static func fetchDaemonExports(into directory: URL) async {
+    private nonisolated static func fetchDaemonExports(into directory: URL, scope: LogExportScope) async {
         let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
         let baseURL = LockfilePaths.resolveGatewayUrl(connectedAssistantId: connectedId)
 
@@ -358,7 +368,18 @@ enum LogExporter {
         request.timeoutInterval = 30
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["auditLimit": 10000])
+
+        var body: [String: Any] = ["auditLimit": 10000]
+        if case .thread(let conversationId, _, let startTime, let endTime) = scope {
+            body["conversationId"] = conversationId
+            if let startTime {
+                body["startTime"] = Int(startTime.timeIntervalSince1970 * 1000)
+            }
+            if let endTime {
+                body["endTime"] = Int(endTime.timeIntervalSince1970 * 1000)
+            }
+        }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)

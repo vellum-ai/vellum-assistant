@@ -43,7 +43,6 @@ const VellumMetadataSchema = z
     "user-invocable": z.union([z.boolean(), z.string()]).optional(),
     "disable-model-invocation": z.union([z.boolean(), z.string()]).optional(),
     includes: z.array(z.string()).optional(),
-    "credential-setup-for": z.string().optional(),
     "feature-flag": z.string().optional(),
   })
   .passthrough();
@@ -84,8 +83,6 @@ export interface SkillSummary {
   toolManifest?: SkillToolManifestMeta;
   /** IDs of child skills that this skill includes (metadata-only, not auto-activated). */
   includes?: string[];
-  /** Declares which credential this skill sets up (e.g. "vercel:api_token"). */
-  credentialSetupFor?: string;
   /** Feature flag ID declared in frontmatter. Only skills with this field are subject to feature flag gating. */
   featureFlag?: string;
 }
@@ -205,7 +202,6 @@ interface ParsedFrontmatter {
   disableModelInvocation: boolean;
   metadata?: VellumMetadata;
   includes?: string[];
-  credentialSetupFor?: string;
   featureFlag?: string;
 }
 
@@ -321,11 +317,6 @@ function parseFrontmatter(
     includes = normalized.length > 0 ? normalized : undefined;
   }
 
-  const credentialSetupFor =
-    typeof vellum?.["credential-setup-for"] === "string"
-      ? vellum["credential-setup-for"]
-      : undefined;
-
   const featureFlag =
     typeof vellum?.["feature-flag"] === "string"
       ? vellum["feature-flag"]
@@ -345,7 +336,6 @@ function parseFrontmatter(
     disableModelInvocation,
     metadata,
     includes,
-    credentialSetupFor,
     featureFlag,
   };
 }
@@ -500,7 +490,6 @@ function readSkillFromDirectory(
       metadata: parsed.metadata,
       toolManifest: detectToolManifest(directoryPath),
       includes: parsed.includes,
-      credentialSetupFor: parsed.credentialSetupFor,
       featureFlag: parsed.featureFlag,
     };
   } catch (err) {
@@ -551,7 +540,6 @@ function readBundledSkillFromDirectory(
       metadata: parsed.metadata,
       toolManifest: detectToolManifest(directoryPath),
       includes: parsed.includes,
-      credentialSetupFor: parsed.credentialSetupFor,
       featureFlag: parsed.featureFlag,
     };
   } catch (err) {
@@ -610,7 +598,6 @@ function loadBundledSkills(): SkillSummary[] {
       metadata: skill.metadata,
       toolManifest: skill.toolManifest,
       includes: skill.includes,
-      credentialSetupFor: skill.credentialSetupFor,
       featureFlag: skill.featureFlag,
     });
   }
@@ -748,7 +735,6 @@ function skillSummaryFromDefinition(
     metadata: skill.metadata,
     toolManifest: skill.toolManifest,
     includes: skill.includes,
-    credentialSetupFor: skill.credentialSetupFor,
     featureFlag: skill.featureFlag,
   };
 }
@@ -801,7 +787,6 @@ export function loadSkillCatalog(
             metadata: parsed.metadata,
             toolManifest: detectToolManifest(directory),
             includes: parsed.includes,
-            credentialSetupFor: parsed.credentialSetupFor,
             featureFlag: parsed.featureFlag,
           });
         } catch (err) {
@@ -898,7 +883,6 @@ export function loadSkillCatalog(
           metadata: parsed.metadata,
           toolManifest: detectToolManifest(directory),
           includes: parsed.includes,
-          credentialSetupFor: parsed.credentialSetupFor,
           featureFlag: parsed.featureFlag,
         };
 

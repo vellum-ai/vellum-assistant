@@ -7,7 +7,6 @@ metadata:
   vellum:
     display-name: "Google OAuth Setup"
     user-invocable: true
-    credential-setup-for: "gmail"
     includes: ["collaborative-oauth-flow"]
 ---
 

@@ -7,7 +7,6 @@ metadata:
   vellum:
     display-name: "Slack OAuth Setup"
     user-invocable: true
-    credential-setup-for: "slack"
     includes: ["collaborative-oauth-flow"]
 ---
 

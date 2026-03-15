@@ -569,8 +569,12 @@ describe("keychain-broker-client", () => {
       const result = await client.ping();
       expect(result).toEqual({ pong: true });
 
-      // Stop broker and remove socket — simulate another disconnection
+      // Stop broker and remove socket — simulate another disconnection.
+      // Yield after stop so the client socket receives the close event
+      // before the next ping (otherwise ensureConnected returns the stale
+      // socket and sendRequest waits REQUEST_TIMEOUT_MS for a response).
       await broker.stop();
+      await new Promise((r) => setTimeout(r, 50));
       rmSync(SOCKET_PATH, { force: true });
 
       // This new failure should start from the beginning of the cooldown
@@ -584,7 +588,7 @@ describe("keychain-broker-client", () => {
       // 30s should be enough to clear cooldown
       fakeNow += 30_001;
       expect(client.isAvailable()).toBe(true);
-    });
+    }, 15_000);
 
     test("escalates cooldown on repeated failures", async () => {
       const client = createBrokerClient();

@@ -7,7 +7,6 @@ metadata:
   vellum:
     display-name: "Discord OAuth Setup"
     user-invocable: true
-    credential-setup-for: "discord"
     includes: ["collaborative-oauth-flow"]
 ---
 
