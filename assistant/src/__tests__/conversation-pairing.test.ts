@@ -175,7 +175,7 @@ describe("pairDeliveryWithConversation", () => {
       string,
       unknown
     >;
-    expect(callArgs.threadType).toBe("standard");
+    expect(callArgs.conversationType).toBe("standard");
   });
 
   test("uses threadTitle for conversation title when available", async () => {
@@ -312,7 +312,7 @@ describe("pairDeliveryWithConversation", () => {
       string,
       unknown
     >;
-    expect(callArgs.threadType).toBe("background");
+    expect(callArgs.conversationType).toBe("background");
   });
 
   // ── Binding-key reuse (continue_existing + bindingContext) ────────
