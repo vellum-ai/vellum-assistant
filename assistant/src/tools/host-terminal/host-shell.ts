@@ -163,18 +163,13 @@ class HostShellTool implements Tool {
     // VELLUM_UNTRUSTED_SHELL flag is injected to self-deny raw-secret CLI
     // commands. This does NOT provide the strong CES secrecy guarantee —
     // the subprocess runs unsandboxed and could access protected paths.
+    //
+    // NOTE: forcePromptSideEffects is set in executor.ts BEFORE the
+    // permission check runs, not here. Setting it here would be too late
+    // because execute() is called after permissions have already been evaluated.
     const hostLockdownActive =
       isCesShellLockdownEnabled(config) &&
       isUntrustedTrustClass(context.trustClass);
-
-    // Disable persistent approvals for untrusted sessions under CES lockdown.
-    // The permission checker reads this from the context, so we set it before
-    // we reach the execution path. This is a signal — the permission checker
-    // consumes it upstream, but we also set forcePromptSideEffects to ensure
-    // every invocation prompts.
-    if (hostLockdownActive) {
-      context.forcePromptSideEffects = true;
-    }
 
     log.info(
       {

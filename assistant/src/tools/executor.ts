@@ -2,9 +2,11 @@ import { readFileSync } from "node:fs";
 
 import { getConfig } from "../config/loader.js";
 import { bridgeCesApproval } from "../credential-execution/approval-bridge.js";
+import { isCesShellLockdownEnabled } from "../credential-execution/feature-gates.js";
 import { getHookManager } from "../hooks/manager.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { RiskLevel } from "../permissions/types.js";
+import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
 import { redactSensitiveFields } from "../security/redaction.js";
 import { TokenExpiredError } from "../security/token-manager.js";
 import { PermissionDeniedError, ToolError } from "../util/errors.js";
@@ -85,6 +87,19 @@ export class ToolExecutor {
       // interactive permission/prompt flow so non-interactive sessions
       // don't auto-deny prompt-gated tools and burn the one-time grant.
       if (!gateResult.grantConsumed) {
+        // CES shell lockdown: set forcePromptSideEffects BEFORE the
+        // permission check so the PermissionChecker sees it and promotes
+        // any "allow" trust-rule decision to "prompt". Previously this
+        // flag was set inside host-shell.ts execute(), which runs AFTER
+        // the permission check and therefore had no effect.
+        if (
+          name === "host_bash" &&
+          isCesShellLockdownEnabled(getConfig()) &&
+          isUntrustedTrustClass(context.trustClass)
+        ) {
+          context.forcePromptSideEffects = true;
+        }
+
         // Check permissions via the extracted PermissionChecker
         const permResult = await this.permissionChecker.checkPermission(
           name,
