@@ -107,7 +107,7 @@ function makeGrant(
     grantId: overrides?.grantId ?? "grant-001",
     sessionId: overrides?.sessionId ?? "session-abc",
     credentialHandle:
-      overrides?.credentialHandle ?? "local_static:github:token",
+      overrides?.credentialHandle ?? "local_static:github/token",
     proposalType: overrides?.proposalType ?? "http",
     proposalHash: overrides?.proposalHash ?? "hash-abc",
     allowedPurposes: overrides?.allowedPurposes ?? [
@@ -129,7 +129,7 @@ function makeAuditRecord(
     auditId: overrides?.auditId ?? "audit-001",
     grantId: overrides?.grantId ?? "grant-001",
     credentialHandle:
-      overrides?.credentialHandle ?? "local_static:github:token",
+      overrides?.credentialHandle ?? "local_static:github/token",
     toolName: overrides?.toolName ?? "http",
     target:
       overrides?.target ??
@@ -246,7 +246,7 @@ describe("credential-execution grants list", () => {
       "grants",
       "list",
       "--handle",
-      "local_static:github:token",
+      "local_static:github/token",
       "--json",
     ]);
 
@@ -254,7 +254,7 @@ describe("credential-execution grants list", () => {
     expect(mockCallHistory[0]!.method).toBe("list_grants");
     expect(
       (mockCallHistory[0]!.request as Record<string, unknown>).credentialHandle,
-    ).toBe("local_static:github:token");
+    ).toBe("local_static:github/token");
   });
 
   test("forwards --status filter to RPC call", async () => {
@@ -403,7 +403,7 @@ describe("credential-execution audit list", () => {
       "audit",
       "list",
       "--handle",
-      "local_static:github:token",
+      "local_static:github/token",
       "--grant",
       "grant-001",
       "--json",
@@ -411,7 +411,7 @@ describe("credential-execution audit list", () => {
 
     expect(mockCallHistory).toHaveLength(1);
     const req = mockCallHistory[0]!.request as Record<string, unknown>;
-    expect(req.credentialHandle).toBe("local_static:github:token");
+    expect(req.credentialHandle).toBe("local_static:github/token");
     expect(req.grantId).toBe("grant-001");
   });
 
