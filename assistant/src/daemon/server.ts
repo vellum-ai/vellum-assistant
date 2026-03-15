@@ -257,6 +257,7 @@ export class DaemonServer {
   private cesProcessManager?: CesProcessManager;
   private cesClientPromise?: Promise<CesClient | undefined>;
   private cesInitAbortController?: AbortController;
+  private cesClientRef?: CesClient;
 
   /**
    * Logical assistant identifier used when publishing to the assistant-events hub.
@@ -495,6 +496,7 @@ export class DaemonServer {
             throw new Error("CES initialization aborted during shutdown");
           }
           const client = createCesClient(transport);
+          this.cesClientRef = client;
           const { accepted, reason } = await client.handshake();
           if (abortController.signal.aborted) {
             client.close();
@@ -511,6 +513,7 @@ export class DaemonServer {
             "CES handshake rejected — CES tools will be unavailable",
           );
           client.close();
+          this.cesClientRef = undefined;
           await pm.stop();
           // Reset so next session can retry initialization
           this.cesClientPromise = undefined;
@@ -529,6 +532,7 @@ export class DaemonServer {
           }
           await pm.stop().catch(() => {});
           // Reset so next session can retry initialization
+          this.cesClientRef = undefined;
           this.cesClientPromise = undefined;
           return undefined;
         }
@@ -563,12 +567,17 @@ export class DaemonServer {
     if (this.cesProcessManager) {
       await this.cesProcessManager.forceStop().catch(() => {});
     }
-    // Now await the init promise (which should settle quickly due to abort/kill).
+    // Cancel in-flight handshake/RPC timers by closing the client directly.
+    // Without this, the handshake setTimeout (~10s) keeps the init promise
+    // pending even after the transport is killed.
+    if (this.cesClientRef) {
+      this.cesClientRef.close();
+      this.cesClientRef = undefined;
+    }
+    // Now await the init promise (which should settle immediately since we
+    // killed the transport and cancelled pending timers above).
     if (this.cesClientPromise) {
-      const client = await this.cesClientPromise.catch(() => undefined);
-      if (client) {
-        client.close();
-      }
+      await this.cesClientPromise.catch(() => undefined);
       this.cesClientPromise = undefined;
     }
     if (this.cesProcessManager) {
