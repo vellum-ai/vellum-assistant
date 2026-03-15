@@ -63,15 +63,13 @@ const DEFAULT_MANAGED_CES_DATA_ROOT = "/home/ces/.ces-data";
  * Return the CES-private data root.
  *
  * - Local: `<vellumRoot>/protected/credential-executor/`
- * - Managed: `CES_DATA_DIR` env var (with `CES_DATA_ROOT` fallback), or
- *   `/home/ces/.ces-data` by default
+ * - Managed: `CES_DATA_DIR` env var, or `/home/ces/.ces-data` by default
  */
 export function getCesDataRoot(mode?: CesMode): string {
   const resolvedMode = mode ?? getCesMode();
   if (resolvedMode === "managed") {
     return (
       process.env["CES_DATA_DIR"] ??
-      process.env["CES_DATA_ROOT"] ??
       DEFAULT_MANAGED_CES_DATA_ROOT
     );
   }
