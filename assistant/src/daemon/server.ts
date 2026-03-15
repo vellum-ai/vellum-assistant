@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { disposeAcpSessionManager } from "../acp/index.js";
 import {
   createAssistantMessage,
   createUserMessage,
@@ -566,6 +567,7 @@ export class DaemonServer {
 
   async stop(): Promise<void> {
     getSubagentManager().disposeAll();
+    disposeAcpSessionManager();
     this.evictor.stop();
     this.configWatcher.stop();
     if (this.unsubscribeContactChange) {
