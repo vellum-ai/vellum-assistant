@@ -351,8 +351,8 @@ describe("CES data paths", () => {
     expect(root).toMatch(/protected[/\\]credential-executor$/);
   });
 
-  test("managed mode data root is /ces-data", () => {
-    expect(getCesDataRoot("managed")).toBe("/ces-data");
+  test("managed mode data root is /home/ces/.ces-data", () => {
+    expect(getCesDataRoot("managed")).toBe("/home/ces/.ces-data");
   });
 
   test("local data root is under the Vellum root, not the workspace", () => {
