@@ -28,7 +28,7 @@ struct OnboardingFlowView: View {
 
     private var maxOnboardingStep: Int {
         if managedSignInEnabled {
-            return 1
+            return 2
         }
         return 2
     }
@@ -54,7 +54,7 @@ struct OnboardingFlowView: View {
                         .ignoresSafeArea()
                     )
             } else if (0...maxOnboardingStep).contains(state.currentStep) {
-                // Onboarding flow: WakeUp → APIKey → ImproveExperience (steps 0–2)
+                // Onboarding flow: WakeUp → HostingSelector → (APIKeyEntry|ImproveExperience) (steps 0–2)
                 VStack(spacing: 0) {
                     Spacer()
 
@@ -104,7 +104,11 @@ struct OnboardingFlowView: View {
                                     }
                                 )
                             case 2:
-                                ImproveExperienceStepView(state: state)
+                                if managedSignInEnabled {
+                                    APIKeyEntryStepView(state: state)
+                                } else {
+                                    ImproveExperienceStepView(state: state)
+                                }
                             default:
                                 EmptyView()
                             }

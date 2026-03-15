@@ -27,7 +27,7 @@ enum ActivationKey: String, CaseIterable {
 final class OnboardingState {
     /// Bump this version whenever the default-flow step order changes so that
     /// persisted step indices from a previous layout are not consumed as-is.
-    private static let currentFlowVersion = 10
+    private static let currentFlowVersion = 11
 
     var currentStep: Int = 0
     var assistantName: String = "Velly"
@@ -145,7 +145,7 @@ final class OnboardingState {
         let isManagedSignIn = MacOSClientFeatureFlagManager.shared.isEnabled("managed_sign_in_enabled")
         let maxStep: Int
         if isManagedSignIn {
-            maxStep = 1
+            maxStep = 2
         } else if onboardingVariant == .firstMeeting {
             maxStep = 4
         } else {
