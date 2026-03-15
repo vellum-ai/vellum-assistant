@@ -18,7 +18,7 @@ Introduce the **Credential Execution Service (CES)** as a hard-boundary sidecar 
 
 2. **Separate managed image**: In managed deployments, CES runs as its own container image, distinct from the assistant runtime image and the gateway image. This means managed rollout requires a **third runtime image** and corresponding `vembda` pod-template changes.
 
-3. **CES-owned durable state**: Grants (which credentials a given agent session is authorized to use, under what constraints) and audit logs (which credentials were materialized, when, by whom, for what purpose) are **CES-owned durable state**. The assistant does not read or write grant tables directly. Grant lifecycle is managed entirely through CES RPC.
+3. **CES-owned durable state**: Grants (which credentials are authorized for use, under what constraints) and audit logs (which credentials were materialized, when, by whom, for what purpose) are **CES-owned durable state**. The assistant does not read or write grant tables directly. Grant lifecycle is managed entirely through CES RPC.
 
 4. **Assistant-to-CES RPC only**: The assistant sends execution requests to CES; CES materializes the credential, executes the operation in its own sandbox, and returns the result (stdout/stderr/exit code, HTTP response body, etc.) to the assistant. The assistant never sees the plaintext credential value.
 
@@ -83,18 +83,26 @@ Routing HTTP requests through shell commands (`curl` with credential env vars vi
 
 ## Grant Persistence
 
-CES manages its own grant table, separate from the assistant's `scoped_approval_grants` table. CES grants answer a different question: "Is this agent session authorized to use credential X for purpose Y?" rather than "Did a guardian approve this specific tool invocation?"
+CES manages its own grant table, separate from the assistant's `scoped_approval_grants` table. CES grants answer: "Is credential X authorized for purpose Y?" rather than "Did a guardian approve this specific tool invocation?"
 
-| Field              | Purpose                                                                    |
-| ------------------ | -------------------------------------------------------------------------- |
-| `grant_id`         | Unique identifier                                                          |
-| `session_id`       | The agent session that holds this grant                                    |
-| `credential_id`    | Which credential is authorized                                             |
-| `allowed_purposes` | Constrained set of purposes (e.g., specific API endpoints, specific tools) |
-| `created_at`       | When the grant was minted                                                  |
-| `expires_at`       | TTL-based expiry                                                           |
-| `consumed_at`      | When the grant was used (null if unused)                                   |
-| `revoked_at`       | When the grant was revoked (null if active)                                |
+CES has two grant tiers:
+
+- **Persistent grants** (`always_allow`): Stored in the CES grant table and scoped to the entire assistant — not to a specific session. These are analogous to trust rules: once a user approves `always_allow` for a credential+purpose pair, any session on that assistant can use the grant. The `session_id` field on persistent grants records which session created the grant (audit metadata), but is not used as an enforcement filter during grant matching.
+
+- **Temporary grants** (`allow_once`, `allow_10m`, `allow_thread`): Held in-memory by the CES process and scoped to the session or thread that created them. These grants are not persisted and do not survive CES restarts. `allow_once` is consumed immediately after a single use; `allow_10m` expires after 10 minutes; `allow_thread` lasts for the lifetime of the originating agent thread.
+
+### Persistent grant table
+
+| Field              | Purpose                                                                               |
+| ------------------ | ------------------------------------------------------------------------------------- |
+| `grant_id`         | Unique identifier                                                                     |
+| `session_id`       | The agent session that created this grant (audit metadata, not an enforcement filter) |
+| `credential_id`    | Which credential is authorized                                                        |
+| `allowed_purposes` | Constrained set of purposes (e.g., specific API endpoints, specific tools)            |
+| `created_at`       | When the grant was minted                                                             |
+| `expires_at`       | TTL-based expiry                                                                      |
+| `consumed_at`      | When the grant was used (null if unused)                                              |
+| `revoked_at`       | When the grant was revoked (null if active)                                           |
 
 Audit logs record every materialization event with: grant ID, credential ID, tool name, target (URL/command/form field), timestamp, and outcome (success/failure).
 
