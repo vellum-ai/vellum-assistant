@@ -8,6 +8,7 @@
  */
 
 import { z } from "zod/v4";
+import { RpcErrorSchema } from "./error.js";
 
 // ---------------------------------------------------------------------------
 // Transport handshake
@@ -61,16 +62,10 @@ export const RpcEnvelopeSchema = z.object({
 export type RpcEnvelope = z.infer<typeof RpcEnvelopeSchema>;
 
 // ---------------------------------------------------------------------------
-// RPC error
+// RPC error (defined in error.ts to avoid circular deps with rpc.ts)
 // ---------------------------------------------------------------------------
 
-export const RpcErrorSchema = z.object({
-  code: z.string(),
-  message: z.string(),
-  /** Optional structured details for debugging. */
-  details: z.record(z.string(), z.unknown()).optional(),
-});
-export type RpcError = z.infer<typeof RpcErrorSchema>;
+export { RpcErrorSchema, type RpcError } from "./error.js";
 
 // ---------------------------------------------------------------------------
 // Tool request / response base shapes

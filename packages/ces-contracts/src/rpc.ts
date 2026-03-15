@@ -31,7 +31,7 @@ import {
   PersistentGrantRecordSchema,
   TemporaryGrantDecisionSchema,
 } from "./grants.js";
-import { RpcErrorSchema } from "./index.js";
+import { RpcErrorSchema } from "./error.js";
 
 // ---------------------------------------------------------------------------
 // Method name constants
