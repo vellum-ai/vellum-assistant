@@ -7,7 +7,6 @@ metadata:
   vellum:
     display-name: "Todoist OAuth Setup"
     user-invocable: true
-    credential-setup-for: "todoist"
     includes: ["collaborative-oauth-flow"]
 ---
 

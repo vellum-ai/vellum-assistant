@@ -7,7 +7,6 @@ metadata:
   vellum:
     display-name: "Vercel Token Setup"
     includes: ["browser"]
-    credential-setup-for: "vercel:api_token"
 ---
 
 You are helping your user set up a Vercel API token so they can publish apps to the web.
@@ -32,6 +31,7 @@ Tell the user:
 > **Setting up Vercel API Token**
 >
 > Since I can't automate the browser from here, I'll walk you through each step with direct links. You'll need:
+>
 > 1. A Vercel account (free tier works)
 > 2. About 2 minutes
 >
@@ -131,6 +131,7 @@ Tell the user:
 > **Setting up your Vercel API token so we can publish your app...**
 >
 > Here's what will happen:
+>
 > 1. **A browser opens** to your Vercel account settings
 > 2. **You sign in** (if not already signed in)
 > 3. **I create the token** — you just watch
@@ -147,6 +148,7 @@ If the user declines, acknowledge and stop. No further confirmations are needed 
 Navigate to `https://vercel.com/account/tokens`.
 
 Take a screenshot and snapshot to check the page state:
+
 - **Sign-in page:** Tell the user: "Please sign in to your Vercel account in the browser." Then auto-detect sign-in completion by polling screenshots every 5-10 seconds. Check if the current URL has moved away from the login/sign-in page to the tokens page. Do NOT ask the user to "let me know when you're done" — detect it automatically. Once sign-in is detected, tell the user: "Signed in! Creating your API token now..."
 - **Already signed in:** Tell the user: "Already signed in — creating your API token now..." and continue immediately.
 
@@ -159,6 +161,7 @@ Take a screenshot and snapshot to check the page state:
 Take a screenshot and snapshot. Find and click the button to create a new token (typically labeled "Create" or "Create Token").
 
 On the creation form:
+
 - Token name: **"Vellum Assistant"**
 - Scope: Select **"Full Account"** (or the broadest scope available)
 - Expiration: Select the longest option available, or **"No Expiration"** if offered
@@ -179,6 +182,7 @@ After token creation, Vercel shows the token value **once**. You MUST follow thi
 3. Wait for the user to paste the token.
 
 **Absolute prohibitions during this step:**
+
 - Do NOT try to read the token value from the screenshot. It must come from the user via secure prompt to ensure accuracy.
 - Do NOT navigate away from the page until the user has pasted the token.
 - Do NOT click any download or copy buttons.

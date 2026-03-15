@@ -7,7 +7,6 @@ metadata:
   vellum:
     display-name: "Twitter / X OAuth Setup"
     user-invocable: true
-    credential-setup-for: "twitter"
     includes: ["collaborative-oauth-flow"]
 ---
 

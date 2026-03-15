@@ -7,7 +7,6 @@ metadata:
   vellum:
     display-name: "Dropbox OAuth Setup"
     user-invocable: true
-    credential-setup-for: "dropbox"
     includes: ["collaborative-oauth-flow"]
 ---
 

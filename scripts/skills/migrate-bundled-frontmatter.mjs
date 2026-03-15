@@ -235,15 +235,6 @@ function migrateSkill(dirName, skillDir) {
     changes.push(`includes moved to metadata.vellum`);
   }
 
-  // credential-setup-for: only if present
-  const credSetupFor =
-    fields["credential-setup-for"] ||
-    existingMetadata?.vellum?.["credential-setup-for"];
-  if (credSetupFor) {
-    vellum["credential-setup-for"] = credSetupFor;
-    changes.push(`credential-setup-for moved to metadata.vellum`);
-  }
-
   // Preserve other existing metadata.vellum fields (cli, requires, os, primaryEnv, install, etc.)
   if (existingMetadata?.vellum) {
     for (const [key, val] of Object.entries(existingMetadata.vellum)) {
@@ -252,8 +243,7 @@ function migrateSkill(dirName, skillDir) {
         key === "display-name" ||
         key === "user-invocable" ||
         key === "disable-model-invocation" ||
-        key === "includes" ||
-        key === "credential-setup-for"
+        key === "includes"
       ) {
         continue; // Already handled above
       }

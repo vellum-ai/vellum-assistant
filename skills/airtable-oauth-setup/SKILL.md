@@ -7,7 +7,6 @@ metadata:
   vellum:
     display-name: "Airtable OAuth Setup"
     user-invocable: true
-    credential-setup-for: "airtable"
     includes: ["collaborative-oauth-flow"]
 ---
 

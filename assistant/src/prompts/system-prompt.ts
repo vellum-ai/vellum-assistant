@@ -1035,11 +1035,8 @@ function formatSkillsCatalog(skills: SkillSummary[]): string {
         ? escapeXml(getMcpSetupDescription())
         : escapeXml(skill.description);
     const locAttr = escapeXml(skill.directoryPath);
-    const credAttr = skill.credentialSetupFor
-      ? ` credential-setup-for="${escapeXml(skill.credentialSetupFor)}"`
-      : "";
     lines.push(
-      `<skill id="${idAttr}" name="${nameAttr}" description="${descAttr}" location="${locAttr}"${credAttr} />`,
+      `<skill id="${idAttr}" name="${nameAttr}" description="${descAttr}" location="${locAttr}" />`,
     );
   }
   lines.push("</available_skills>");
@@ -1047,7 +1044,6 @@ function formatSkillsCatalog(skills: SkillSummary[]): string {
   return [
     "## Available Skills",
     "The following skills are available. Before executing one, call `skill_load` to load the full instructions, then use `skill_execute` to invoke the skill's tools.",
-    "When a credential is missing, check if any skill declares `credential-setup-for` matching that service — if so, load that skill.",
     "",
     lines.join("\n"),
     "",

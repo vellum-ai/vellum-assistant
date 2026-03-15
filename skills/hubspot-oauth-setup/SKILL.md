@@ -7,7 +7,6 @@ metadata:
   vellum:
     display-name: "HubSpot OAuth Setup"
     user-invocable: true
-    credential-setup-for: "hubspot"
     includes: ["collaborative-oauth-flow"]
 ---
 
