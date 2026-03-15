@@ -46,12 +46,17 @@ async function acquireCesClient(): Promise<{
   const pm = createCesProcessManager({ assistantConfig: getConfig() });
   const transport = await pm.start();
   const client = createCesClient(transport);
-  const hs = await client.handshake();
 
-  if (!hs.accepted) {
+  try {
+    const hs = await client.handshake();
+
+    if (!hs.accepted) {
+      throw new Error(`CES handshake rejected: ${hs.reason ?? "unknown"}`);
+    }
+  } catch (err) {
     client.close();
     await pm.stop();
-    throw new Error(`CES handshake rejected: ${hs.reason ?? "unknown"}`);
+    throw err;
   }
 
   return {
