@@ -178,8 +178,8 @@ function createStdioTransport(proc: Subprocess): CesTransport {
   let buffer = "";
   let alive = true;
 
-  // Read stdout line by line
-  if (proc.stdout) {
+  // Read stdout line by line — narrow past `number` union arm from Subprocess type
+  if (proc.stdout && typeof proc.stdout !== "number") {
     const reader = proc.stdout.getReader();
 
     void (async () => {
@@ -215,7 +215,7 @@ function createStdioTransport(proc: Subprocess): CesTransport {
 
   return {
     write(line: string): void {
-      if (!alive || !proc.stdin) {
+      if (!alive || !proc.stdin || typeof proc.stdin === "number") {
         throw new Error("CES stdio transport is not alive");
       }
       proc.stdin.write(line + "\n");
@@ -231,7 +231,7 @@ function createStdioTransport(proc: Subprocess): CesTransport {
 
     close(): void {
       alive = false;
-      if (proc.stdin) {
+      if (proc.stdin && typeof proc.stdin !== "number") {
         proc.stdin.end();
       }
     },
