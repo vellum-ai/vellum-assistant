@@ -91,24 +91,6 @@ public enum GatewayHTTPClient {
         return try await URLSession.shared.bytes(for: request)
     }
 
-    // MARK: - Typed JSON API
-
-    /// Performs an authenticated GET request and decodes the JSON response body.
-    ///
-    /// - Parameters:
-    ///   - path: Path segment after `/v1/` (e.g. `"usage/totals?from=0&to=1000"`).
-    ///   - timeout: Request timeout in seconds. Defaults to 30.
-    /// - Returns: The decoded value, or `nil` on non-success status or decode failure.
-    public static func getJSON<T: Decodable>(path: String, timeout: TimeInterval = 30) async -> T? {
-        do {
-            let response = try await get(path: path, timeout: timeout)
-            guard response.isSuccess else { return nil }
-            return try JSONDecoder().decode(T.self, from: response.data)
-        } catch {
-            return nil
-        }
-    }
-
     // MARK: - Internals
 
     #if os(macOS)

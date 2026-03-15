@@ -16,7 +16,7 @@ final class UsageDashboardViewTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        store = UsageDashboardStore(fetcher: NilUsageFetcher())
+        store = UsageDashboardStore(client: NilUsageFetcher())
     }
 
     override func tearDown() {
@@ -70,7 +70,7 @@ final class UsageDashboardViewTests: XCTestCase {
 
     func testRefreshPopulatesLoadedStateWithStubClient() async {
         let stubClient = StubUsageFetcher()
-        let populatedStore = UsageDashboardStore(fetcher: stubClient)
+        let populatedStore = UsageDashboardStore(client: stubClient)
 
         await populatedStore.refresh()
 
@@ -133,14 +133,14 @@ final class UsageDashboardViewTests: XCTestCase {
     #if canImport(UIKit)
 
     func testViewRendersInIdleState() {
-        let store = UsageDashboardStore(fetcher: NilUsageFetcher())
+        let store = UsageDashboardStore(client: NilUsageFetcher())
         let view = UsageDashboardView(store: store)
         let _ = view.body
     }
 
     func testViewRendersInFailedState() async {
         let client = NilUsageFetcher()
-        let store = UsageDashboardStore(fetcher: client)
+        let store = UsageDashboardStore(client: client)
         await store.refresh()
 
         XCTAssertNotNil(store.totalsState)
@@ -154,7 +154,7 @@ final class UsageDashboardViewTests: XCTestCase {
 
     func testViewRendersInLoadedState() async {
         let client = StubUsageFetcher()
-        let store = UsageDashboardStore(fetcher: client)
+        let store = UsageDashboardStore(client: client)
         await store.refresh()
 
         if case .loaded = store.totalsState {} else {
@@ -201,7 +201,7 @@ final class UsageDashboardViewTests: XCTestCase {
 
 /// A fetcher that always returns nil, simulating network failure.
 @MainActor
-private final class NilUsageFetcher: UsageFetching {
+private final class NilUsageFetcher: UsageClientProtocol {
     func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? { nil }
     func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse? { nil }
     func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? { nil }
@@ -209,7 +209,7 @@ private final class NilUsageFetcher: UsageFetching {
 
 /// A fetcher that returns canned usage data for populated-state tests.
 @MainActor
-private final class StubUsageFetcher: UsageFetching {
+private final class StubUsageFetcher: UsageClientProtocol {
     func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? {
         UsageTotalsResponse(
             totalInputTokens: 1000,

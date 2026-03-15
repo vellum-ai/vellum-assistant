@@ -1,10 +1,10 @@
 import Foundation
 
-// MARK: - Usage Fetching Protocol
+// MARK: - Usage Client Protocol
 
 /// Abstraction for fetching usage data, decoupled from the full DaemonClientProtocol.
 @MainActor
-public protocol UsageFetching {
+public protocol UsageClientProtocol {
     func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse?
     func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse?
     func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse?
@@ -12,20 +12,35 @@ public protocol UsageFetching {
 
 /// Fetches usage data via GatewayHTTPClient.
 @MainActor
-public struct GatewayUsageFetcher: UsageFetching {
+public struct UsageClient: UsageClientProtocol {
+    /// A restricted character set for encoding query parameter values.
+    /// `.urlQueryAllowed` permits `&`, `=`, `+`, and `#` which are
+    /// query-string metacharacters that would break parameter parsing.
+    private static let queryValueAllowed: CharacterSet = {
+        var cs = CharacterSet.urlQueryAllowed
+        cs.remove(charactersIn: "&=+#")
+        return cs
+    }()
+
     public init() {}
 
     public func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? {
-        await GatewayHTTPClient.getJSON(path: "usage/totals?from=\(from)&to=\(to)", timeout: 10)
+        guard let response = try? await GatewayHTTPClient.get(path: "usage/totals?from=\(from)&to=\(to)", timeout: 10),
+              response.isSuccess else { return nil }
+        return try? JSONDecoder().decode(UsageTotalsResponse.self, from: response.data)
     }
 
     public func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse? {
-        await GatewayHTTPClient.getJSON(path: "usage/daily?from=\(from)&to=\(to)", timeout: 10)
+        guard let response = try? await GatewayHTTPClient.get(path: "usage/daily?from=\(from)&to=\(to)", timeout: 10),
+              response.isSuccess else { return nil }
+        return try? JSONDecoder().decode(UsageDailyResponse.self, from: response.data)
     }
 
     public func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? {
-        let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? groupBy
-        return await GatewayHTTPClient.getJSON(path: "usage/breakdown?from=\(from)&to=\(to)&groupBy=\(encoded)", timeout: 10)
+        let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? groupBy
+        guard let response = try? await GatewayHTTPClient.get(path: "usage/breakdown?from=\(from)&to=\(to)&groupBy=\(encoded)", timeout: 10),
+              response.isSuccess else { return nil }
+        return try? JSONDecoder().decode(UsageBreakdownResponse.self, from: response.data)
     }
 }
 
@@ -147,20 +162,20 @@ public final class UsageDashboardStore {
 
     // MARK: - Dependencies
 
-    private var fetcher: any UsageFetching
+    private var client: any UsageClientProtocol
 
     /// Generation counters to discard results from stale in-flight requests
     /// when the user changes filters faster than fetches complete.
     private var refreshGeneration: UInt = 0
     private var breakdownGeneration: UInt = 0
 
-    public init(fetcher: any UsageFetching = GatewayUsageFetcher()) {
-        self.fetcher = fetcher
+    public init(client: any UsageClientProtocol = UsageClient()) {
+        self.client = client
     }
 
-    /// Replace the underlying fetcher and reset all loaded data.
-    public func updateFetcher(_ newFetcher: any UsageFetching) {
-        fetcher = newFetcher
+    /// Replace the underlying client and reset all loaded data.
+    public func updateClient(_ newClient: any UsageClientProtocol) {
+        client = newClient
         reset()
     }
 
@@ -196,9 +211,9 @@ public final class UsageDashboardStore {
         dailyState = .loading
         breakdownState = .loading
 
-        async let totalsResult = fetcher.fetchUsageTotals(from: range.from, to: range.to)
-        async let dailyResult = fetcher.fetchUsageDaily(from: range.from, to: range.to)
-        async let breakdownResult = fetcher.fetchUsageBreakdown(
+        async let totalsResult = client.fetchUsageTotals(from: range.from, to: range.to)
+        async let dailyResult = client.fetchUsageDaily(from: range.from, to: range.to)
+        async let breakdownResult = client.fetchUsageBreakdown(
             from: range.from, to: range.to, groupBy: selectedGroupBy.rawValue
         )
 
@@ -244,7 +259,7 @@ public final class UsageDashboardStore {
         let range = selectedRange.epochMillisRange()
         breakdownState = .loading
 
-        let result = await fetcher.fetchUsageBreakdown(
+        let result = await client.fetchUsageBreakdown(
             from: range.from, to: range.to, groupBy: dimension.rawValue
         )
 
