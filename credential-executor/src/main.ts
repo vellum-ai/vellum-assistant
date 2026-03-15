@@ -308,6 +308,8 @@ async function main(): Promise<void> {
     onHandshakeComplete: (hsSessionId) => {
       sessionIdRef.current = hsSessionId;
     },
+    // Local mode reads API keys from env/store directly — no-op handler.
+    onApiKeyUpdate: () => {},
   });
 
   await server.serve();

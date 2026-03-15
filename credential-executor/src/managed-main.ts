@@ -557,6 +557,10 @@ async function main(): Promise<void> {
         log(`Received assistant API key via handshake`);
       }
     },
+    onApiKeyUpdate: (newKey) => {
+      apiKeyRef.current = newKey;
+      log(`Assistant API key updated via RPC`);
+    },
   });
 
   await server.serve();

@@ -22,6 +22,9 @@
  *
  * **Audit**
  * - `list_audit_records` — List audit records for inspection
+ *
+ * **Lifecycle**
+ * - `update_managed_credential` — Push an updated API key to CES after hatch
  */
 
 import { z } from "zod/v4";
@@ -46,6 +49,8 @@ export const CesRpcMethod = {
   ListGrants: "list_grants",
   RevokeGrant: "revoke_grant",
   ListAuditRecords: "list_audit_records",
+  /** Push an updated assistant credential to CES after post-hatch provisioning. */
+  UpdateManagedCredential: "update_managed_credential",
 } as const;
 
 export type CesRpcMethod =
@@ -397,6 +402,26 @@ export type ListAuditRecordsResponse = z.infer<
 >;
 
 // ---------------------------------------------------------------------------
+// update_managed_credential
+// ---------------------------------------------------------------------------
+
+export const UpdateManagedCredentialSchema = z.object({
+  /** The assistant API key to push to CES for platform credential materialization. */
+  assistantApiKey: z.string(), // nosemgrep: not-a-secret
+});
+export type UpdateManagedCredential = z.infer<
+  typeof UpdateManagedCredentialSchema
+>;
+
+export const UpdateManagedCredentialResponseSchema = z.object({
+  /** Whether the managed credential was successfully updated. */
+  updated: z.boolean(),
+});
+export type UpdateManagedCredentialResponse = z.infer<
+  typeof UpdateManagedCredentialResponseSchema
+>;
+
+// ---------------------------------------------------------------------------
 // Full RPC contract type map
 // ---------------------------------------------------------------------------
 
@@ -437,6 +462,10 @@ export interface CesRpcContract {
     request: ListAuditRecords;
     response: ListAuditRecordsResponse;
   };
+  [CesRpcMethod.UpdateManagedCredential]: {
+    request: UpdateManagedCredential;
+    response: UpdateManagedCredentialResponse;
+  };
 }
 
 /**
@@ -474,5 +503,9 @@ export const CesRpcSchemas = {
   [CesRpcMethod.ListAuditRecords]: {
     request: ListAuditRecordsSchema,
     response: ListAuditRecordsResponseSchema,
+  },
+  [CesRpcMethod.UpdateManagedCredential]: {
+    request: UpdateManagedCredentialSchema,
+    response: UpdateManagedCredentialResponseSchema,
   },
 } as const;

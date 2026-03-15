@@ -1,27 +1,93 @@
 /**
- * API key post-handshake propagation tests for managed CES.
+ * Tests for CES API key propagation after hatch.
  *
- * Validates the lazy `ApiKeyRef` pattern used in `managed-main.ts` that
- * allows the assistant API key to arrive after the CES process has started
- * and handlers have been registered. This is the critical managed-mode
- * scenario where the key is provisioned after hatch (the assistant hatches,
- * connects to CES via the bootstrap socket, and forwards the API key in
- * the handshake — but the handlers must already exist by that point).
+ * Validates the fix for the race condition where the assistant API key
+ * can permanently miss CES after hatch in managed mode:
  *
- * Tests cover:
+ * 1. Handshake with no API key -> CES has empty apiKeyRef
+ * 2. updateAssistantApiKey RPC pushes the key after it arrives
+ * 3. CES server invokes the onApiKeyUpdate callback
+ * 4. The client convenience method correctly sends the RPC
  *
- * 1. When `apiKeyRef.current` is empty, managed options are unavailable.
- * 2. Setting `apiKeyRef.current` enables managed options with the key.
- * 3. Lazy resolution: handlers built with the ref resolve the key at
- *    call time, not at registration time.
- * 4. Handshake schema includes the optional `assistantApiKey` field.
- * 5. RPC contract for `UpdateAssistantApiKey` (todo — depends on
- *    parallel PR adding the RPC method).
+ * Also validates the lazy `ApiKeyRef` pattern used in `managed-main.ts`
+ * that allows the assistant API key to arrive after CES handlers are
+ * registered (key resolved at call time, not registration time).
+ *
+ * These tests mock the transport layer (no real processes or sockets)
+ * to verify the contract and wiring in isolation.
  */
 
 import { describe, expect, test } from "bun:test";
 
-import { HandshakeRequestSchema } from "@vellumai/ces-contracts";
+import {
+  CES_PROTOCOL_VERSION,
+  CesRpcMethod,
+  CesRpcSchemas,
+  HandshakeRequestSchema,
+} from "@vellumai/ces-contracts";
+
+import {
+  type CesTransport,
+  createCesClient,
+} from "../credential-execution/client.js";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function createMockTransport(): CesTransport & {
+  sentMessages: string[];
+  messageHandler: ((message: string) => void) | null;
+  simulateMessage(raw: string): void;
+  alive: boolean;
+} {
+  const mock = {
+    sentMessages: [] as string[],
+    messageHandler: null as ((message: string) => void) | null,
+    alive: true,
+
+    write(line: string): void {
+      mock.sentMessages.push(line);
+    },
+
+    onMessage(handler: (message: string) => void): void {
+      mock.messageHandler = handler;
+    },
+
+    isAlive(): boolean {
+      return mock.alive;
+    },
+
+    close(): void {
+      mock.alive = false;
+    },
+
+    simulateMessage(raw: string): void {
+      if (mock.messageHandler) {
+        mock.messageHandler(raw);
+      }
+    },
+  };
+
+  return mock;
+}
+
+async function completeHandshake(
+  transport: ReturnType<typeof createMockTransport>,
+  client: ReturnType<typeof createCesClient>,
+): Promise<void> {
+  const handshakePromise = client.handshake();
+  const sent = JSON.parse(transport.sentMessages[0]);
+  transport.simulateMessage(
+    JSON.stringify({
+      type: "handshake_ack",
+      protocolVersion: CES_PROTOCOL_VERSION,
+      sessionId: sent.sessionId,
+      accepted: true,
+    }),
+  );
+  await handshakePromise;
+}
 
 // ---------------------------------------------------------------------------
 // Reproduce the ApiKeyRef + lazy getter pattern from managed-main.ts:89-146
@@ -86,12 +152,12 @@ function buildLazyGetters(opts: {
 }
 
 // ---------------------------------------------------------------------------
-// Tests
+// Lazy ApiKeyRef pattern tests
 // ---------------------------------------------------------------------------
 
 describe("API key post-handshake propagation", () => {
   // -------------------------------------------------------------------------
-  // 1. Empty ref → options unavailable
+  // 1. Empty ref -> options unavailable
   // -------------------------------------------------------------------------
 
   describe("before API key arrives", () => {
@@ -131,7 +197,7 @@ describe("API key post-handshake propagation", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 2. Setting ref → options become available
+  // 2. Setting ref -> options become available
   // -------------------------------------------------------------------------
 
   describe("after API key arrives via handshake", () => {
@@ -203,7 +269,7 @@ describe("API key post-handshake propagation", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 3. Lazy resolution — key resolved at call time, not registration time
+  // 3. Lazy resolution -- key resolved at call time, not registration time
   // -------------------------------------------------------------------------
 
   describe("lazy resolution timing", () => {
@@ -306,7 +372,7 @@ describe("API key post-handshake propagation", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 4. Missing required fields → undefined (graceful degradation)
+  // 4. Missing required fields -> undefined (graceful degradation)
   // -------------------------------------------------------------------------
 
   describe("missing platform config fields", () => {
@@ -339,7 +405,7 @@ describe("API key post-handshake propagation", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Handshake schema contract — assistantApiKey field
+// Handshake schema contract -- assistantApiKey field
 // ---------------------------------------------------------------------------
 
 describe("handshake schema includes assistantApiKey", () => {
@@ -371,17 +437,139 @@ describe("handshake schema includes assistantApiKey", () => {
 });
 
 // ---------------------------------------------------------------------------
-// UpdateAssistantApiKey RPC contract (depends on parallel PR)
+// update_managed_credential RPC contract
 // ---------------------------------------------------------------------------
 
-describe("UpdateAssistantApiKey RPC contract", () => {
-  test.todo("UpdateAssistantApiKey method exists in CesRpcMethod", () => {
-    // Depends on parallel PR adding CesRpcMethod.UpdateAssistantApiKey
-    // to the ces-contracts package. Once that lands, this test should
-    // verify:
-    //   expect(CesRpcMethod.UpdateAssistantApiKey).toBe("update_assistant_api_key");
-    //   expect(CesRpcSchemas[CesRpcMethod.UpdateAssistantApiKey]).toBeDefined();
-    //   expect(CesRpcSchemas[CesRpcMethod.UpdateAssistantApiKey].request).toBeDefined();
-    //   expect(CesRpcSchemas[CesRpcMethod.UpdateAssistantApiKey].response).toBeDefined();
+describe("update_managed_credential RPC contract", () => {
+  test("RPC method constant exists", () => {
+    expect(CesRpcMethod.UpdateManagedCredential).toBe(
+      "update_managed_credential",
+    );
+  });
+
+  test("request schema validates correct payload", () => {
+    const schema = CesRpcSchemas[CesRpcMethod.UpdateManagedCredential].request;
+    const result = schema.safeParse({ assistantApiKey: "test-key-123" });
+    expect(result.success).toBe(true);
+  });
+
+  test("request schema rejects missing assistantApiKey", () => {
+    const schema = CesRpcSchemas[CesRpcMethod.UpdateManagedCredential].request;
+    const result = schema.safeParse({});
+    expect(result.success).toBe(false);
+  });
+
+  test("response schema validates correct payload", () => {
+    const schema = CesRpcSchemas[CesRpcMethod.UpdateManagedCredential].response;
+    const result = schema.safeParse({ updated: true });
+    expect(result.success).toBe(true);
+  });
+
+  test("response schema rejects missing updated field", () => {
+    const schema = CesRpcSchemas[CesRpcMethod.UpdateManagedCredential].response;
+    const result = schema.safeParse({});
+    expect(result.success).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Client convenience method tests
+// ---------------------------------------------------------------------------
+
+describe("CesClient.updateAssistantApiKey()", () => {
+  test("sends update_managed_credential RPC with the correct payload", async () => {
+    const transport = createMockTransport();
+    const client = createCesClient(transport, {
+      handshakeTimeoutMs: 1_000,
+      requestTimeoutMs: 1_000,
+    });
+
+    await completeHandshake(transport, client);
+
+    // Start the update call
+    const updatePromise = client.updateAssistantApiKey("my-new-api-key");
+
+    // Find the RPC message (second message after handshake)
+    expect(transport.sentMessages.length).toBe(2);
+    const rpcMsg = JSON.parse(transport.sentMessages[1]);
+    expect(rpcMsg.type).toBe("rpc");
+    expect(rpcMsg.method).toBe("update_managed_credential");
+    expect(rpcMsg.kind).toBe("request");
+    expect(rpcMsg.payload).toEqual({ assistantApiKey: "my-new-api-key" });
+
+    // Simulate successful response
+    transport.simulateMessage(
+      JSON.stringify({
+        type: "rpc",
+        id: rpcMsg.id,
+        kind: "response",
+        method: "update_managed_credential",
+        payload: { updated: true },
+        timestamp: new Date().toISOString(),
+      }),
+    );
+
+    const result = await updatePromise;
+    expect(result.updated).toBe(true);
+
+    client.close();
+  });
+
+  test("propagation flow: handshake without key then update", async () => {
+    const transport = createMockTransport();
+    const client = createCesClient(transport, {
+      handshakeTimeoutMs: 1_000,
+      requestTimeoutMs: 1_000,
+    });
+
+    // Step 1: Handshake without API key (simulates pre-hatch state)
+    const handshakePromise = client.handshake();
+    const hsSent = JSON.parse(transport.sentMessages[0]);
+    expect(hsSent.assistantApiKey).toBeUndefined();
+
+    transport.simulateMessage(
+      JSON.stringify({
+        type: "handshake_ack",
+        protocolVersion: CES_PROTOCOL_VERSION,
+        sessionId: hsSent.sessionId,
+        accepted: true,
+      }),
+    );
+    await handshakePromise;
+    expect(client.isReady()).toBe(true);
+
+    // Step 2: Push the API key (simulates post-hatch provisioning)
+    const updatePromise = client.updateAssistantApiKey("provisioned-key");
+    const rpcMsg = JSON.parse(transport.sentMessages[1]);
+
+    transport.simulateMessage(
+      JSON.stringify({
+        type: "rpc",
+        id: rpcMsg.id,
+        kind: "response",
+        method: "update_managed_credential",
+        payload: { updated: true },
+        timestamp: new Date().toISOString(),
+      }),
+    );
+
+    const result = await updatePromise;
+    expect(result.updated).toBe(true);
+
+    client.close();
+  });
+
+  test("throws if called before handshake", async () => {
+    const transport = createMockTransport();
+    const client = createCesClient(transport);
+
+    try {
+      await client.updateAssistantApiKey("key");
+      expect(true).toBe(false); // Should not reach here
+    } catch (err) {
+      expect((err as Error).message).toContain("handshake");
+    }
+
+    client.close();
   });
 });
