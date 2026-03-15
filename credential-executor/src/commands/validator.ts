@@ -433,15 +433,17 @@ function validateArgvPattern(
     }
   }
 
-  // Literal tokens must not match denied binaries — prevents smuggling
-  // denied operations through multi-call umbrella binaries (e.g. busybox wget)
-  for (const token of pattern.tokens) {
-    if (!isPlaceholder(token) && !isRestPlaceholder(token) && isDeniedBinary(token)) {
-      errors.push(
-        `${profilePrefix}: argv pattern "${pattern.name}" token "${token}" matches a denied binary. ` +
-          `Multi-call umbrella binaries and shell trampolines cannot appear in argv patterns.`,
-      );
-    }
+  // Only check denied binaries in executable positions — the first token
+  // (index 0) is the subcommand position for multi-call umbrella binaries
+  // (e.g. busybox wget). Tokens at other positions are argument values and
+  // may legitimately use names that overlap with denied binaries (e.g.
+  // "--scheme https" where "https" is an httpie alias in DENIED_BINARIES).
+  const firstToken = pattern.tokens[0];
+  if (firstToken && !isPlaceholder(firstToken) && !isRestPlaceholder(firstToken) && isDeniedBinary(firstToken)) {
+    errors.push(
+      `${profilePrefix}: argv pattern "${pattern.name}" token "${firstToken}" matches a denied binary. ` +
+        `Multi-call umbrella binaries and shell trampolines cannot appear in executable argv positions.`,
+    );
   }
 
   return errors;

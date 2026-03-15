@@ -507,6 +507,35 @@ describe("validateManifest", () => {
     expect(result.valid).toBe(true);
   });
 
+  test("allows denied binary names in non-executable argv positions", () => {
+    // Names like "https", "exec", "http" overlap with DENIED_BINARIES but
+    // are valid argument values when not in the first (executable) position.
+    const result = validateManifest(
+      buildManifest({
+        commandProfiles: {
+          "connect": {
+            description: "Connect with scheme",
+            allowedArgvPatterns: [
+              {
+                name: "connect-https",
+                tokens: ["connect", "--scheme", "https"],
+              },
+              {
+                name: "run-mode",
+                tokens: ["run", "--mode", "exec", "<target>"],
+              },
+            ],
+            deniedSubcommands: [],
+            allowedNetworkTargets: [
+              { hostPattern: "example.com", protocols: ["https"] },
+            ],
+          },
+        },
+      }),
+    );
+    expect(result.valid).toBe(true);
+  });
+
   // -- Auth adapter validation -----------------------------------------------
 
   test("rejects auth adapter with empty envVarName", () => {
