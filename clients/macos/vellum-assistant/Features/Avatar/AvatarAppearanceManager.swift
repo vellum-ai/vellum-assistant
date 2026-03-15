@@ -261,6 +261,28 @@ final class AvatarAppearanceManager {
         characterBodyShape = AvatarBodyShape(rawValue: components.bodyShape)
         characterEyeStyle = AvatarEyeStyle(rawValue: components.eyeStyle)
         characterColor = AvatarColor(rawValue: components.color)
+        renderAndSaveCharacterPNG()
+    }
+
+    /// Renders the current character traits to a static PNG and saves it to
+    /// avatar-image.png. This ensures a static representation always exists
+    /// alongside the traits file — used by the dock icon, chat avatar image,
+    /// and other clients (iOS, Telegram) that don't have the animated renderer.
+    private func renderAndSaveCharacterPNG() {
+        guard let body = characterBodyShape,
+              let eyes = characterEyeStyle,
+              let color = characterColor else { return }
+        let rendered = AvatarCompositor.render(bodyShape: body, eyeStyle: eyes, color: color)
+        let url = customAvatarURL
+        let dir = url.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        guard let tiffData = rendered.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmap.representation(using: .png, properties: [:]) else { return }
+        try? pngData.write(to: url)
+        cachedChatAvatar = nil
+        customAvatarImage = rendered
+        updateDockIcon()
     }
 
     // MARK: - File Watching
