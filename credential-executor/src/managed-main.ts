@@ -56,6 +56,7 @@ import { publishBundle } from "./toolstore/publish.js";
 import { validateSourceUrl } from "./toolstore/manifest.js";
 import { buildCesEgressHooks } from "./commands/egress-hooks.js";
 import { resolveLocalSubject } from "./subjects/local.js";
+import { checkCredentialPolicy } from "./subjects/policy.js";
 import { resolveManagedSubject, type ManagedSubjectResolverOptions } from "./subjects/managed.js";
 import { materializeManagedToken, type ManagedMaterializerOptions } from "./materializers/managed-platform.js";
 import { HandleType, parseHandle } from "@vellumai/ces-contracts";
@@ -191,6 +192,18 @@ function buildHandlers(sessionIdRef: SessionIdRef): RpcHandlerRegistry {
             if (!subjectResult.ok) {
               return { ok: false as const, error: subjectResult.error };
             }
+
+            // Enforce credential-level policies for local static handles
+            if (subjectResult.subject.type === HandleType.LocalStatic) {
+              const policyCheck = checkCredentialPolicy(
+                subjectResult.subject.metadata,
+                "run_authenticated_command",
+              );
+              if (!policyCheck.ok) {
+                return { ok: false as const, error: policyCheck.error! };
+              }
+            }
+
             const matResult = await localMaterialiser.materialise(
               subjectResult.subject,
             );

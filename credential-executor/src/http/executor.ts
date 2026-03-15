@@ -40,6 +40,7 @@ import type { TemporaryGrantStore } from "../grants/temporary-store.js";
 import type { LocalMaterialiser, MaterialisedCredential } from "../materializers/local.js";
 import { materializeManagedToken, type ManagedMaterializerOptions } from "../materializers/managed-platform.js";
 import { resolveLocalSubject, type LocalSubjectResolverDeps } from "../subjects/local.js";
+import { checkCredentialPolicy } from "../subjects/policy.js";
 import { resolveManagedSubject, type ManagedSubjectResolverOptions } from "../subjects/managed.js";
 import type { SessionIdRef } from "../server.js";
 
@@ -308,6 +309,19 @@ async function materialiseCredential(
       const subjectResult = resolveLocalSubject(rawHandle, deps.localSubjectDeps);
       if (!subjectResult.ok) {
         return { ok: false, error: subjectResult.error };
+      }
+
+      // Enforce credential-level policies for local static handles.
+      // OAuth connections don't carry allowedTools/allowedDomains in the
+      // same way, so policy checks are skipped for OAuth.
+      if (subjectResult.subject.type === HandleType.LocalStatic) {
+        const policyCheck = checkCredentialPolicy(
+          subjectResult.subject.metadata,
+          "make_authenticated_request",
+        );
+        if (!policyCheck.ok) {
+          return { ok: false, error: policyCheck.error! };
+        }
       }
 
       // Materialise through the local materialiser
