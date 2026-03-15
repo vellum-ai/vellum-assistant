@@ -22,10 +22,22 @@ const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
 const deps = pkg.dependencies ?? {};
 const bundled = new Set(pkg.bundledDependencies ?? []);
 
+const unbundled = Object.entries(deps)
+  .filter(([, specifier]) => specifier.startsWith("file:"))
+  .filter(([name]) => !bundled.has(name));
+
+if (unbundled.length > 0) {
+  for (const [name, specifier] of unbundled) {
+    console.error(`"${name}" uses a file: specifier (${specifier}) but is not in bundledDependencies.`);
+  }
+  console.error("\nAdd these packages to bundledDependencies so they are included in the npm tarball.");
+  process.exit(1);
+}
+
 let materialized = 0;
 
 for (const [name, specifier] of Object.entries(deps)) {
-  if (!specifier.startsWith("file:") || !bundled.has(name)) {
+  if (!specifier.startsWith("file:")) {
     continue;
   }
 
