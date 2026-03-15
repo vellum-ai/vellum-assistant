@@ -25,7 +25,6 @@ function checkPackage(dir) {
 
   const allDeps = {
     ...pkg.dependencies,
-    ...pkg.devDependencies,
   };
 
   const fileDeps = Object.keys(allDeps).filter((name) =>
