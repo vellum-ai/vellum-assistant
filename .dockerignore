@@ -15,4 +15,8 @@ assistant/build/
 assistant/.env
 assistant/.env.*
 credential-executor/node_modules/
+credential-executor/.env
+credential-executor/.env.*
 packages/*/node_modules/
+packages/*/.env
+packages/*/.env.*
