@@ -88,8 +88,6 @@ export const setAvatarTool: Tool = {
 
       log.info({ avatarPath }, "Avatar saved successfully");
 
-      // Side-effect hook in tool-side-effects.ts broadcasts avatar_updated to all clients.
-
       return {
         content: "Avatar updated! Your new avatar will appear shortly.",
         isError: false,
