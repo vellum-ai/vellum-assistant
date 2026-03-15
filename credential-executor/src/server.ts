@@ -154,9 +154,14 @@ export class CesRpcServer {
     return this.sessionId;
   }
 
-  /** Shut down the server gracefully. */
+  /** Shut down the server gracefully, destroying transport streams. */
   close(): void {
+    if (this.closed) return;
     this.closed = true;
+    this.input.destroy();
+    if (typeof (this.output as any).destroy === "function") {
+      this.output.destroy();
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -197,7 +202,9 @@ export class CesRpcServer {
     if (msg.type === "handshake_request") {
       this.handleHandshake(msg as HandshakeRequest);
     } else if (msg.type === "rpc") {
-      this.handleRpcEnvelope(msg as unknown as RpcEnvelope);
+      this.handleRpcEnvelope(msg as unknown as RpcEnvelope).catch((err) => {
+        this.logger.error(`[ces-server] Unhandled error in RPC handler: ${err}`);
+      });
     } else {
       this.logger.warn("[ces-server] Unexpected message type:", msg.type);
     }
