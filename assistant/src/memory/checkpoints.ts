@@ -30,6 +30,11 @@ export function setMemoryCheckpoint(key: string, value: string): void {
     .run();
 }
 
+export function deleteMemoryCheckpoint(key: string): void {
+  const db = getDb();
+  db.delete(memoryCheckpoints).where(eq(memoryCheckpoints.key, key)).run();
+}
+
 export function readMessageCursorCheckpoint(
   createdAtKey: string,
   messageIdKey: string,
