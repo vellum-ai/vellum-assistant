@@ -11,14 +11,14 @@
  *    managed CES sidecar via the bootstrap socket and completes the
  *    handshake, returning a functional CesClient.
  *
- * 3. Managed OAuth materialization: platform_oauth handles can be
- *    materialized through the CES sidecar path.
+ * 3. Secure HTTP execution: make_authenticated_request RPC method is
+ *    available in the CES contract for managed sidecar mode.
  *
- * 4. Secure HTTP execution: authenticated HTTP requests are executed
- *    through the CES sidecar transport in managed mode.
+ * 4. Secure command execution: run_authenticated_command RPC method is
+ *    available in the CES contract for managed sidecar mode.
  *
- * 5. Secure command execution: commands are executed through the CES
- *    sidecar transport in managed mode.
+ * 5. Managed OAuth materialization: platform_oauth handles are
+ *    materialized via make_authenticated_request's credentialHandle field.
  *
  * 6. Feature-flag rollback: when the `ces-managed-sidecar` flag is off,
  *    the process manager falls back to local discovery and never attempts
@@ -33,6 +33,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   CES_PROTOCOL_VERSION,
+  CesRpcMethod,
   CesRpcSchemas,
   platformOAuthHandle,
 } from "@vellumai/ces-contracts";
@@ -219,10 +220,14 @@ describe("managed CES bootstrap handshake contract", () => {
 // ---------------------------------------------------------------------------
 
 describe("secure HTTP execution through managed sidecar", () => {
-  test("http_execute RPC method is available in the CES contract", () => {
-    expect(CesRpcSchemas["http_execute"]).toBeDefined();
-    expect(CesRpcSchemas["http_execute"].request).toBeDefined();
-    expect(CesRpcSchemas["http_execute"].response).toBeDefined();
+  test("make_authenticated_request RPC method is available in the CES contract", () => {
+    expect(CesRpcSchemas[CesRpcMethod.MakeAuthenticatedRequest]).toBeDefined();
+    expect(
+      CesRpcSchemas[CesRpcMethod.MakeAuthenticatedRequest].request,
+    ).toBeDefined();
+    expect(
+      CesRpcSchemas[CesRpcMethod.MakeAuthenticatedRequest].response,
+    ).toBeDefined();
   });
 });
 
@@ -231,10 +236,14 @@ describe("secure HTTP execution through managed sidecar", () => {
 // ---------------------------------------------------------------------------
 
 describe("secure command execution through managed sidecar", () => {
-  test("command_execute RPC method is available in the CES contract", () => {
-    expect(CesRpcSchemas["command_execute"]).toBeDefined();
-    expect(CesRpcSchemas["command_execute"].request).toBeDefined();
-    expect(CesRpcSchemas["command_execute"].response).toBeDefined();
+  test("run_authenticated_command RPC method is available in the CES contract", () => {
+    expect(CesRpcSchemas[CesRpcMethod.RunAuthenticatedCommand]).toBeDefined();
+    expect(
+      CesRpcSchemas[CesRpcMethod.RunAuthenticatedCommand].request,
+    ).toBeDefined();
+    expect(
+      CesRpcSchemas[CesRpcMethod.RunAuthenticatedCommand].response,
+    ).toBeDefined();
   });
 });
 
@@ -243,10 +252,12 @@ describe("secure command execution through managed sidecar", () => {
 // ---------------------------------------------------------------------------
 
 describe("managed OAuth materialization through CES sidecar", () => {
-  test("materialize_credential RPC method is available in the CES contract", () => {
-    expect(CesRpcSchemas["materialize_credential"]).toBeDefined();
-    expect(CesRpcSchemas["materialize_credential"].request).toBeDefined();
-    expect(CesRpcSchemas["materialize_credential"].response).toBeDefined();
+  test("make_authenticated_request accepts credentialHandle for OAuth materialization", () => {
+    const schema = CesRpcSchemas[CesRpcMethod.MakeAuthenticatedRequest];
+    expect(schema).toBeDefined();
+    // The credentialHandle field is what triggers OAuth materialization
+    // inside the CES sidecar when a platform_oauth handle is provided.
+    expect(schema.request.shape.credentialHandle).toBeDefined();
   });
 
   test("platform_oauth handle format is valid for managed CES", () => {
