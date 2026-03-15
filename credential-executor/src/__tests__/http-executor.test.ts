@@ -90,7 +90,7 @@ function buildStaticRecord(
     credentialId: overrides.credentialId ?? "cred-uuid-1",
     service: overrides.service ?? "github",
     field: overrides.field ?? "api_key",
-    allowedTools: overrides.allowedTools ?? [],
+    allowedTools: overrides.allowedTools ?? ["make_authenticated_request"],
     allowedDomains: overrides.allowedDomains ?? [],
     createdAt: overrides.createdAt ?? Date.now(),
     updatedAt: overrides.updatedAt ?? Date.now(),
