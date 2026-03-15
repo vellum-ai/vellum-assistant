@@ -246,3 +246,22 @@ public struct SelfHostedProvisioningInfo: Codable, Sendable {
         case rotated
     }
 }
+
+// MARK: - Billing Models
+
+public struct BillingSummaryResponse: Codable, Sendable {
+    public let settled_balance_usd: String
+    public let pending_compute_usd: String
+    public let effective_balance_usd: String
+    public let minimum_top_up_usd: String
+    public let is_degraded: Bool
+}
+
+public struct TopUpCheckoutRequest: Codable, Sendable {
+    public let amount_usd: String
+    public let return_path: String
+}
+
+public struct TopUpCheckoutResponse: Codable, Sendable {
+    public let checkout_url: String
+}
