@@ -26,43 +26,43 @@ The user picks a body shape, eye style, and color. Present the options conversat
 
 ### Body shapes
 
-| Value    | Description                                       |
-| -------- | ------------------------------------------------- |
-| blob     | Soft, amorphous rounded shape                     |
-| cloud    | Puffy cloud silhouette                            |
-| sprout   | Small plant-like form with a stem                 |
-| star     | Five-pointed star                                 |
-| ghost    | Classic ghost silhouette                          |
-| urchin   | Spiky sea-urchin shape                            |
-| stack    | Stacked rounded rectangles                        |
-| flower   | Flower with petals                                |
-| burst    | Spiky starburst                                   |
-| ninja    | Stealthy masked figure                            |
+| Value  | Description                       |
+| ------ | --------------------------------- |
+| blob   | Soft, amorphous rounded shape     |
+| cloud  | Puffy cloud silhouette            |
+| sprout | Small plant-like form with a stem |
+| star   | Five-pointed star                 |
+| ghost  | Classic ghost silhouette          |
+| urchin | Spiky sea-urchin shape            |
+| stack  | Stacked rounded rectangles        |
+| flower | Flower with petals                |
+| burst  | Spiky starburst                   |
+| ninja  | Stealthy masked figure            |
 
 ### Eye styles
 
-| Value     | Description                                      |
-| --------- | ------------------------------------------------ |
-| grumpy    | Furrowed, slightly annoyed look                  |
-| angry     | Sharp, intense expression                        |
-| curious   | Wide, inquisitive eyes                           |
-| goofy     | Playful, off-kilter expression                   |
-| surprised | Big round eyes, startled look                    |
-| bashful   | Shy, half-closed eyes looking to the side        |
-| gentle    | Soft, kind expression                            |
-| quirky    | Asymmetric, offbeat look                         |
-| dazed     | Unfocused, dreamy stare                          |
+| Value     | Description                               |
+| --------- | ----------------------------------------- |
+| grumpy    | Furrowed, slightly annoyed look           |
+| angry     | Sharp, intense expression                 |
+| curious   | Wide, inquisitive eyes                    |
+| goofy     | Playful, off-kilter expression            |
+| surprised | Big round eyes, startled look             |
+| bashful   | Shy, half-closed eyes looking to the side |
+| gentle    | Soft, kind expression                     |
+| quirky    | Asymmetric, offbeat look                  |
+| dazed     | Unfocused, dreamy stare                   |
 
 ### Colors
 
-| Value  | Appearance          |
-| ------ | ------------------- |
-| green  | Leafy green         |
-| orange | Warm orange         |
-| pink   | Soft pink           |
-| purple | Rich purple         |
-| teal   | Blue-green teal     |
-| yellow | Bright yellow       |
+| Value  | Appearance      |
+| ------ | --------------- |
+| green  | Leafy green     |
+| orange | Warm orange     |
+| pink   | Soft pink       |
+| purple | Rich purple     |
+| teal   | Blue-green teal |
+| yellow | Bright yellow   |
 
 ### Setting traits
 
@@ -142,6 +142,7 @@ The generated avatar will appear automatically in the client.
 `character-traits.json` and `avatar-image.png` represent different avatar modes. The client checks for a custom image first — if `avatar-image.png` exists, it displays that. Otherwise, it reads `character-traits.json` to render the native animated character.
 
 Always enforce this rule:
+
 - **Setting native character traits** → remove `avatar-image.png`
 - **Uploading or generating a custom image** → remove `character-traits.json`
 
