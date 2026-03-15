@@ -335,7 +335,11 @@ export async function executeAuthenticatedCommand(
       // Carry the profile's allowedNetworkTargets into the session config
       // so the egress proxy can enforce the allowlist.
       const profile = manifest.commandProfiles[request.profileName];
-      const allowedTargets = profile?.allowedNetworkTargets?.map((t) => t.hostPattern);
+      const allowedTargets = profile?.allowedNetworkTargets?.map((t) => ({
+        host: t.hostPattern,
+        ...(t.ports ? { ports: t.ports } : {}),
+        ...(t.protocols ? { protocols: t.protocols } : {}),
+      }));
       const session = createSession(
         sessionStore,
         conversationId,

@@ -12,6 +12,7 @@
 // ---------------------------------------------------------------------------
 
 export type {
+  AllowedTarget,
   CredentialInjectionTemplate,
   CredentialInjectionType,
   PolicyCallback,
