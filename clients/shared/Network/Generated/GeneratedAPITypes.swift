@@ -3944,6 +3944,46 @@ public struct SkillsListResponseSkillProvenance: Codable, Sendable {
     }
 }
 
+// MARK: - Skill Detail Response (GET /v1/skills/:id)
+
+public struct SkillDetailHTTPResponse: Codable, Sendable {
+    public let skill: SkillsListResponseSkill
+
+    public init(skill: SkillsListResponseSkill) {
+        self.skill = skill
+    }
+}
+
+// MARK: - Skill Detail Files Response (GET /v1/skills/:id/files)
+
+public struct SkillDetailFilesHTTPResponse: Codable, Sendable {
+    public let skill: SkillsListResponseSkill
+    public let files: [SkillFileEntry]
+
+    public init(skill: SkillsListResponseSkill, files: [SkillFileEntry]) {
+        self.skill = skill
+        self.files = files
+    }
+}
+
+public struct SkillFileEntry: Codable, Sendable {
+    public let path: String
+    public let name: String
+    public let size: Int
+    public let mimeType: String
+    public let isBinary: Bool
+    public let content: String?
+
+    public init(path: String, name: String, size: Int, mimeType: String, isBinary: Bool, content: String? = nil) {
+        self.path = path
+        self.name = name
+        self.size = size
+        self.mimeType = mimeType
+        self.isBinary = isBinary
+        self.content = content
+    }
+}
+
 public struct SkillsOperationResponse: Codable, Sendable {
     public let type: String
     public let operation: String
