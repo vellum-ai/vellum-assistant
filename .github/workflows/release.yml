@@ -1897,7 +1897,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          BRANCH="v${{ needs.bump-and-tag.outputs.version }}"
+          VERSION="${{ needs.bump-and-tag.outputs.version }}"
           BEFORE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           echo "before=$BEFORE" >> "$GITHUB_OUTPUT"
 
@@ -1906,9 +1906,9 @@ jobs:
             -H "Authorization: token $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/vellum-ai/vellum-assistant-platform/actions/workflows/playwright.yaml/dispatches" \
-            -d "{\"ref\":\"main\",\"inputs\":{\"branch\":\"$BRANCH\",\"shards\":\"4\",\"test_filter\":\"stable\"}}"
+            -d "{\"ref\":\"main\",\"inputs\":{\"release_version\":\"$VERSION\",\"release_run_id\":\"${{ github.run_id }}\",\"shards\":\"4\",\"test_filter\":\"stable\"}}"
 
-          echo "Triggered playwright workflow for branch $BRANCH"
+          echo "Triggered playwright workflow for version $VERSION (run ${{ github.run_id }})"
           sleep 15
 
       - name: Wait for Playwright workflow result
