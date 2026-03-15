@@ -1,4 +1,6 @@
-import { nanoid } from "nanoid";
+import { customAlphabet } from "nanoid";
+
+const nanoidLower = customAlphabet("abcdefghijklmnopqrstuvwxyz0123456789", 6);
 
 const ADJECTIVES = [
   "brave",
@@ -131,7 +133,7 @@ function randomElement<T>(arr: T[]): T {
 }
 
 export function generateRandomSuffix(): string {
-  return `${randomElement(ADJECTIVES)}-${randomElement(NOUNS)}-${nanoid(6)}`;
+  return `${randomElement(ADJECTIVES)}-${randomElement(NOUNS)}-${nanoidLower()}`;
 }
 
 /**

@@ -7,7 +7,7 @@ import {
 describe("generateRandomSuffix", () => {
   test("returns a string in adjective-noun-nanoid format", () => {
     const result = generateRandomSuffix();
-    expect(result).toMatch(/^[a-z]+-[a-z]+-[A-Za-z0-9_-]{6}$/);
+    expect(result).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{6}$/);
   });
 
   test("produces varying results across multiple calls", () => {
@@ -28,11 +28,11 @@ describe("generateInstanceName", () => {
 
   test("generates species-prefixed name when no explicit name", () => {
     const result = generateInstanceName("vellum");
-    expect(result).toMatch(/^vellum-[a-z]+-[a-z]+-[A-Za-z0-9_-]{6}$/);
+    expect(result).toMatch(/^vellum-[a-z]+-[a-z]+-[a-z0-9]{6}$/);
   });
 
   test("treats null as no explicit name", () => {
     const result = generateInstanceName("openclaw", null);
-    expect(result).toMatch(/^openclaw-[a-z]+-[a-z]+-[A-Za-z0-9_-]{6}$/);
+    expect(result).toMatch(/^openclaw-[a-z]+-[a-z]+-[a-z0-9]{6}$/);
   });
 });
