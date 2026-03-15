@@ -128,9 +128,10 @@ struct APIKeyStepView: View {
         .opacity(showContent ? 1 : 0)
         .offset(y: showContent ? 0 : 12)
         .onAppear {
-            // Clear any previously stored API key for authenticated users so
-            // the assistant falls back to the platform-provisioned token.
-            if isAuthenticated {
+            // Clear any previously stored API key for authenticated users in
+            // the managed sign-in flow so the assistant falls back to the
+            // platform-provisioned token.
+            if managedSignInEnabled && isAuthenticated {
                 APIKeyManager.deleteKey(for: "anthropic")
             }
 
