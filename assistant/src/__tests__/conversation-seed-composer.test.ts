@@ -7,12 +7,12 @@
 
 import { describe, expect, test } from "bun:test";
 
-import type { NotificationSignal } from "../notifications/signal.js";
 import {
   composeConversationSeed,
   isConversationSeedSane,
   resolveVerbosity,
 } from "../notifications/conversation-seed-composer.js";
+import type { NotificationSignal } from "../notifications/signal.js";
 import type {
   NotificationChannel,
   RenderedChannelCopy,
@@ -123,7 +123,9 @@ describe("resolveVerbosity", () => {
 
 describe("isConversationSeedSane", () => {
   test("accepts a normal string", () => {
-    expect(isConversationSeedSane("This is a valid thread seed message.")).toBe(true);
+    expect(isConversationSeedSane("This is a valid thread seed message.")).toBe(
+      true,
+    );
   });
 
   test("rejects empty string", () => {
