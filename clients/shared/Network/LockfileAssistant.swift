@@ -130,11 +130,8 @@ public struct LockfileAssistant {
         loadAll().first { $0.assistantId == name }
     }
 
-    /// Inserts or updates a managed (cloud = "vellum") entry in the lockfile.
-    ///
-    /// If an entry with the same `assistantId` already exists, it is updated
-    /// in place. Otherwise a new entry is appended. All other entries are
-    /// preserved unchanged.
+    /// Creates a managed entry if no entry with the same `assistantId` exists.
+    /// If one already exists, returns `true` without modifying it.
     ///
     /// - Parameters:
     ///   - assistantId: The platform-assigned assistant UUID string.
@@ -142,7 +139,7 @@ public struct LockfileAssistant {
     ///   - hatchedAt: ISO-8601 timestamp of when the assistant was created.
     ///   - lockfilePath: Override for tests; defaults to `LockfilePaths.primaryPath`.
     @discardableResult
-    public static func upsertManagedEntry(
+    public static func ensureManagedEntry(
         assistantId: String,
         runtimeUrl: String,
         hatchedAt: String,
@@ -166,19 +163,19 @@ public struct LockfileAssistant {
 
         var assistants = lockfile["assistants"] as? [[String: Any]] ?? []
 
+        // If an entry with this assistantId already exists, no-op.
+        if assistants.contains(where: { ($0["assistantId"] as? String) == assistantId }) {
+            return true
+        }
+
         let newEntry: [String: Any] = [
             "assistantId": assistantId,
             "runtimeUrl": runtimeUrl,
             "cloud": "vellum",
             "hatchedAt": hatchedAt,
+            "installationId": UUID().uuidString.lowercased(),
         ]
-
-        // Find existing entry with the same assistantId and update, or append.
-        if let existingIndex = assistants.firstIndex(where: { ($0["assistantId"] as? String) == assistantId }) {
-            assistants[existingIndex] = newEntry
-        } else {
-            assistants.append(newEntry)
-        }
+        assistants.append(newEntry)
 
         lockfile["assistants"] = assistants
 
