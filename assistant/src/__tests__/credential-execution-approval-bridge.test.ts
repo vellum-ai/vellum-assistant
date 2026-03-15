@@ -5,7 +5,7 @@
  * 1. Single-use approval: guardian approves, grant is committed to CES,
  *    result contains grantId for retry.
  * 2. Temporary grant reuse: allow_10m decision maps to PT10M TTL.
- * 3. Persistent grant creation: always_allow decision maps to no TTL.
+ * 3. always_allow grant mapping (internal plumbing / forward-compatibility).
  * 4. Denial: guardian denies, no record_grant RPC is made.
  * 5. Timeout: non-interactive session auto-denies (fail-closed).
  * 6. Non-interactive fail-closed: isInteractive=false immediately denies.
@@ -291,7 +291,12 @@ describe("CES approval bridge", () => {
     });
   });
 
-  describe("persistent grant creation (always_allow)", () => {
+  // Note: The always_allow path is not currently reachable from the UI because
+  // the approval bridge passes persistentDecisionsAllowed: false to the prompter,
+  // and the UI only shows "Always Allow" when persistentDecisionsAllowed is true.
+  // This test validates the internal mapUserDecisionToCesDecision mapping for
+  // forward-compatibility — the code path works correctly if the UI ever sends it.
+  describe("always_allow grant mapping (internal plumbing)", () => {
     test("always_allow decision creates persistent grant with no expiry", async () => {
       const prompter = makePrompter("always_allow");
       const cesClient = makeCesClient();
