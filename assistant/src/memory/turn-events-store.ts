@@ -27,6 +27,7 @@ export function queryUnreportedTurnEvents(
         // Exclude tool-result rows persisted with role "user" — these are
         // system-generated and should not count as user turns.
         notLike(messages.content, '%"type":"tool_result"%'),
+        notLike(messages.content, '%"type":"web_search_tool_result"%'),
         afterId
           ? or(
               gt(messages.createdAt, afterCreatedAt),
