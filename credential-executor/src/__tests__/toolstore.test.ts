@@ -299,7 +299,6 @@ describe("publishBundle — digest mismatch rejection", () => {
   });
 
   test("no files are written when digest mismatches", () => {
-    const wrongDigest = computeDigest(TAMPERED_BUNDLE_BYTES);
     publishBundle(
       buildPublishRequest({
         bundleBytes: TAMPERED_BUNDLE_BYTES,
