@@ -211,17 +211,9 @@ function migrateSkill(dirName, skillDir) {
     changes.push(`includes moved to metadata.vellum`);
   }
 
-  // credential-setup-for: only if present
-  const credSetupFor =
-    fields["credential-setup-for"] ||
-    existingMetadata?.vellum?.["credential-setup-for"];
-  if (credSetupFor) {
-    vellum["credential-setup-for"] = credSetupFor;
-    changes.push(`credential-setup-for moved to metadata.vellum`);
-  }
-
   // Preserve other existing metadata.vellum fields (feature-flag, etc.)
-  // Dead keys (cli, requires, os, primaryEnv, install) have been removed.
+  // Dead keys (cli, requires, os, primaryEnv, install, credential-setup-for,
+  // disable-model-invocation) have been removed.
   if (existingMetadata?.vellum) {
     const HANDLED_KEYS = new Set([
       "emoji",
