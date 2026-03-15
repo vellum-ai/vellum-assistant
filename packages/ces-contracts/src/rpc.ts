@@ -24,7 +24,7 @@
  * - `list_audit_records` — List audit records for inspection
  */
 
-import { z } from "zod";
+import { z } from "zod/v4";
 import {
   AuditRecordSummarySchema,
   GrantProposalSchema,

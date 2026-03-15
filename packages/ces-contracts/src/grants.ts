@@ -9,7 +9,7 @@
  * - Audit record summaries (materialization events)
  */
 
-import { z } from "zod";
+import { z } from "zod/v4";
 
 // ---------------------------------------------------------------------------
 // Grant proposal types
