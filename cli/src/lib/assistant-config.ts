@@ -36,6 +36,7 @@ export interface LocalInstanceResources {
 
 export interface AssistantEntry {
   assistantId: string;
+  installationId?: string;
   runtimeUrl: string;
   /** Loopback URL for same-machine health checks (e.g. `http://127.0.0.1:7831`).
    *  Avoids mDNS resolution issues when the machine checks its own gateway. */
@@ -153,7 +154,9 @@ export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
       "share",
       "vellum",
       "assistants",
-      typeof raw.assistantId === "string" ? raw.assistantId : DAEMON_INTERNAL_ASSISTANT_ID,
+      typeof raw.assistantId === "string"
+        ? raw.assistantId
+        : DAEMON_INTERNAL_ASSISTANT_ID,
     );
     raw.resources = {
       instanceDir,
@@ -173,7 +176,9 @@ export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
         "share",
         "vellum",
         "assistants",
-        typeof raw.assistantId === "string" ? raw.assistantId : DAEMON_INTERNAL_ASSISTANT_ID,
+        typeof raw.assistantId === "string"
+          ? raw.assistantId
+          : DAEMON_INTERNAL_ASSISTANT_ID,
       );
       mutated = true;
     }
