@@ -71,9 +71,10 @@ export interface CesProcessManagerConfig {
   /**
    * Assistant configuration for feature-flag checks.
    * The managed sidecar path is gated behind the `ces-managed-sidecar`
-   * feature flag via this config.
+   * feature flag via this config.  When omitted (e.g. CLI / admin
+   * callers), managed mode is allowed unconditionally.
    */
-  assistantConfig: AssistantConfig;
+  assistantConfig?: AssistantConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -125,7 +126,9 @@ export function createCesProcessManager(
       // managed discovery entirely. This ensures rollback safety —
       // disabling the flag leaves existing non-agent platform consumers
       // intact.
-      const managedAllowed = isCesManagedSidecarEnabled(config.assistantConfig);
+      const managedAllowed = config.assistantConfig
+        ? isCesManagedSidecarEnabled(config.assistantConfig)
+        : true; // No config → allow managed mode unconditionally (CLI/admin callers)
 
       if (managedAllowed) {
         discoveryResult = await discoverCes();

@@ -197,7 +197,7 @@ describe("process manager config wiring", () => {
       }),
     };
     // The managed path should be gated
-    expect(isCesManagedSidecarEnabled(config.assistantConfig)).toBe(false);
+    expect(isCesManagedSidecarEnabled(config.assistantConfig!)).toBe(false);
   });
 });
 
