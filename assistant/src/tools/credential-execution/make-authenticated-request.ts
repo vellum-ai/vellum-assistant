@@ -140,6 +140,7 @@ class MakeAuthenticatedRequestTool implements Tool {
               proposalHash: (details.proposalHash as string) ?? "",
               renderedProposal: renderProposal(proposal),
               sessionId: context.sessionId,
+              conversationId: context.conversationId,
             };
           } else {
             log.warn(
