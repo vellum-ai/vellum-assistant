@@ -263,23 +263,19 @@ struct AgentPanelContent: View {
     private func installedSkillDetailView(_ skill: SkillInfo) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
 
-            // Back button
-            Button(action: {
-                withAnimation(VAnimation.standard) {
-                    selectedInstalledSkillId = nil
-                }
-            }) {
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(.chevronLeft, size: 11)
-                    Text("Skills")
-                        .font(VFont.caption)
-                }
-                .foregroundColor(VColor.contentTertiary)
-            }
-            .buttonStyle(.plain)
-
-            // Title row
+            // Title row with back button
             HStack(spacing: VSpacing.sm) {
+                VButton(
+                    label: "Back",
+                    iconOnly: VIcon.chevronLeft.rawValue,
+                    style: .ghost,
+                    tooltip: "Back to Skills"
+                ) {
+                    withAnimation(VAnimation.standard) {
+                        selectedInstalledSkillId = nil
+                    }
+                }
+
                 skillIcon(skill.emoji)
 
                 Text(skill.name)
@@ -365,7 +361,7 @@ struct AgentPanelContent: View {
             }
 
             // Two-pane content: file list + file content viewer
-            HStack(spacing: VSpacing.md) {
+            HStack(alignment: .top, spacing: VSpacing.md) {
                 // Left: file list (always fixed width)
                 skillFilesSection
                     .frame(width: 280, alignment: .topLeading)
@@ -492,7 +488,7 @@ struct AgentPanelContent: View {
             // File content
             ReadOnlyCodeContent(content: content)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
