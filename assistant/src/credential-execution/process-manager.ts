@@ -26,6 +26,7 @@
  */
 
 import { createConnection, type Socket } from "node:net";
+import { StringDecoder } from "node:string_decoder";
 
 import type { Subprocess } from "bun";
 
@@ -244,6 +245,7 @@ function createStdioTransport(proc: Subprocess): CesTransport {
   // Read stdout line by line — narrow past `number` union arm from Subprocess type
   if (proc.stdout && typeof proc.stdout !== "number") {
     const reader = proc.stdout.getReader();
+    const decoder = new TextDecoder();
 
     void (async () => {
       try {
@@ -251,7 +253,7 @@ function createStdioTransport(proc: Subprocess): CesTransport {
           const { value, done } = await reader.read();
           if (done) break;
 
-          buffer += new TextDecoder().decode(value);
+          buffer += decoder.decode(value, { stream: true });
           let newlineIdx: number;
           while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
             const line = buffer.slice(0, newlineIdx).trim();
@@ -310,8 +312,10 @@ function createSocketTransport(socket: Socket): CesTransport {
   let buffer = "";
   let alive = true;
 
+  const decoder = new StringDecoder("utf8");
+
   socket.on("data", (chunk: Buffer | string) => {
-    buffer += chunk.toString();
+    buffer += typeof chunk === "string" ? chunk : decoder.write(chunk);
     let newlineIdx: number;
     while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
       const line = buffer.slice(0, newlineIdx).trim();
