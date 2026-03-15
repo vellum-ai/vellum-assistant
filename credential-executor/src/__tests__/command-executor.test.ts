@@ -19,7 +19,7 @@
  */
 
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, writeFileSync, existsSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync, readFileSync, rmSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -40,6 +40,7 @@ import { PersistentGrantStore } from "../grants/persistent-store.js";
 import { TemporaryGrantStore } from "../grants/temporary-store.js";
 import {
   publishBundle,
+  getBundleManifestPath,
 } from "../toolstore/publish.js";
 import { getCesToolStoreDir, getCesDataRoot } from "../paths.js";
 import { computeDigest } from "../toolstore/integrity.js";
@@ -1130,9 +1131,14 @@ describe("executeAuthenticatedCommand — banned binaries", () => {
 
 describe("executeAuthenticatedCommand — entrypoint path containment", () => {
   test("rejects entrypoint that escapes the bundle directory via path traversal", async () => {
-    const manifest = buildManifest({
+    // Publish a valid bundle with a safe entrypoint, then patch the
+    // toolstore manifest to inject a traversal path. This simulates a
+    // tampered manifest — publishBundle correctly rejects traversal
+    // entrypoints during extraction, so the containment check in the
+    // executor is a defense-in-depth layer.
+    const safeManifest = buildManifest({
       egressMode: EgressMode.NoNetwork,
-      entrypoint: "../../usr/bin/git",
+      entrypoint: "bin/test-cli",
       commandProfiles: {
         "list": {
           description: "List resources",
@@ -1147,10 +1153,19 @@ describe("executeAuthenticatedCommand — entrypoint path containment", () => {
       },
     });
     const { digest } = publishTestBundle(
-      manifest,
+      safeManifest,
       "local",
       '#!/bin/sh\necho "should not run"\n',
     );
+
+    // Patch the toolstore manifest to inject a traversal entrypoint.
+    // The manifest is published as read-only (0o444), so chmod first.
+    const toolstoreDir = getCesToolStoreDir("local");
+    const manifestPath = getBundleManifestPath(toolstoreDir, digest);
+    chmodSync(manifestPath, 0o644);
+    const storedManifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+    storedManifest.secureCommandManifest.entrypoint = "../../usr/bin/git";
+    writeFileSync(manifestPath, JSON.stringify(storedManifest, null, 2) + "\n");
 
     const deps = buildDeps();
     addCommandGrant(
