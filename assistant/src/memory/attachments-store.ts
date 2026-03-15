@@ -5,7 +5,7 @@
  * data. Provides upload, delete, and message-linkage operations.
  */
 
-import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { eq } from "drizzle-orm";
@@ -297,6 +297,33 @@ export function getFilePathForAttachment(attachmentId: string): string | null {
     attachmentId,
   );
   return row?.file_path ?? null;
+}
+
+/**
+ * Return the raw binary content for an attachment, abstracting over inline
+ * (base64-in-DB) vs file-backed (on-disk) storage.
+ *
+ * For file-backed attachments the bytes are read from the on-disk path;
+ * for inline attachments the base64 payload is decoded from the DB row.
+ *
+ * Returns null if the attachment does not exist.
+ */
+export function getAttachmentContent(attachmentId: string): Buffer | null {
+  const filePath = getFilePathForAttachment(attachmentId);
+  if (filePath) {
+    return readFileSync(filePath);
+  }
+
+  // Fall back to inline base64 stored in the DB
+  const db = getDb();
+  const row = db
+    .select({ dataBase64: attachments.dataBase64 })
+    .from(attachments)
+    .where(eq(attachments.id, attachmentId))
+    .get();
+
+  if (!row) return null;
+  return Buffer.from(row.dataBase64, "base64");
 }
 
 export function uploadAttachment(

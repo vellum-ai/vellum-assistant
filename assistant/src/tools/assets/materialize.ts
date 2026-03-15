@@ -7,7 +7,7 @@
  * regular file.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { eq } from "drizzle-orm";
@@ -16,6 +16,10 @@ import {
   type AttachmentContext,
   isAttachmentVisible,
 } from "../../daemon/media-visibility-policy.js";
+import {
+  getAttachmentContent,
+  getFilePathForAttachment,
+} from "../../memory/attachments-store.js";
 import { getConversationType } from "../../memory/conversation-crud.js";
 import { getDb } from "../../memory/db.js";
 import { attachments } from "../../memory/schema.js";
@@ -205,15 +209,28 @@ class AssetMaterializeTool implements Tool {
       };
     }
 
-    // --- Decode and write ---------------------------------------------------
+    // --- Write to disk -------------------------------------------------------
 
     try {
-      const buffer = Buffer.from(attachment.dataBase64, "base64");
-
       // Ensure parent directories exist
       mkdirSync(dirname(resolvedPath), { recursive: true });
 
-      writeFileSync(resolvedPath, buffer);
+      // For file-backed attachments, copy directly from the on-disk path
+      // to avoid reading potentially large files into memory. For inline
+      // attachments, decode the base64 content from the database.
+      const filePath = getFilePathForAttachment(attachmentId);
+      if (filePath) {
+        copyFileSync(filePath, resolvedPath);
+      } else {
+        const buffer = getAttachmentContent(attachmentId);
+        if (!buffer) {
+          return {
+            content: `Error: Could not read content for attachment "${attachmentId}".`,
+            isError: true,
+          };
+        }
+        writeFileSync(resolvedPath, buffer);
+      }
 
       return {
         content:
