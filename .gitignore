@@ -27,6 +27,7 @@ gateway/src/feature-flag-registry.json
 
 # misc
 worktrees/
+.worktrees/
 .DS_Store
 .githooks/.githooks
 *.pem
