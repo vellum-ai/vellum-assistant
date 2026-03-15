@@ -421,7 +421,7 @@ describe("AssetMaterializeTool visibility policy", () => {
       context,
     );
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("private thread");
+    expect(result.content).toContain("private conversation");
     expect(result.content).toContain("cannot be accessed");
   });
 
@@ -456,7 +456,7 @@ describe("AssetMaterializeTool visibility policy", () => {
     // Should mention the filename so the user knows which file
     expect(result.content).toContain("confidential.pdf");
     // Should explain how to access it
-    expect(result.content).toContain("from within the private thread");
+    expect(result.content).toContain("from within the private conversation");
   });
 
   test("materializing from a different private thread is REJECTED", async () => {
@@ -490,7 +490,7 @@ describe("AssetMaterializeTool visibility policy", () => {
       context,
     );
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("private thread");
+    expect(result.content).toContain("private conversation");
   });
 
   test("attachment linked to both private and standard threads can be materialized from anywhere", async () => {
