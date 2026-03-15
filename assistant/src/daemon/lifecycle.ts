@@ -144,7 +144,7 @@ export async function runDaemon(): Promise<void> {
     await initLogfire();
 
     ensureDataDir();
-    runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
+    await runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
 
     // Load (or generate + persist) the auth signing key so tokens survive
     // daemon restarts. Must happen after ensureDataDir() creates the
