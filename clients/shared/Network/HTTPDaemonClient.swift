@@ -355,6 +355,8 @@ public final class HTTPTransport {
         case skillInspect(id: String)
         case skillsDraft
         case skillsCreate
+        case skillDetail(id: String)
+        case skillFiles(id: String)
 
         // Computer Use
         case cuWatch
@@ -744,6 +746,12 @@ public final class HTTPTransport {
             return ("/v1/skills/draft", nil)
         case .skillsCreate:
             return ("/v1/skills", nil)
+        case .skillDetail(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
+            return ("/v1/skills/\(encoded)", nil)
+        case .skillFiles(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
+            return ("/v1/skills/\(encoded)/files", nil)
         // Computer Use
         case .cuWatch:
             return ("/v1/computer-use/watch", nil)
@@ -1155,6 +1163,12 @@ public final class HTTPTransport {
             return ("\(prefix)/skills/draft/", nil)
         case .skillsCreate:
             return ("\(prefix)/skills/", nil)
+        case .skillDetail(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
+            return ("\(prefix)/skills/\(encoded)/", nil)
+        case .skillFiles(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
+            return ("\(prefix)/skills/\(encoded)/files/", nil)
         // Computer Use
         case .cuWatch:
             return ("\(prefix)/computer-use/watch/", nil)
