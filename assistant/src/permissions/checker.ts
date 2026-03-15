@@ -227,6 +227,19 @@ const WRAPPER_PROGRAMS = new Set([
 // value of -u) as the wrapped program instead of `echo`.
 const ENV_VALUE_FLAGS = new Set(["-u", "--unset", "-C", "--chdir"]);
 
+/**
+ * Return the first non-flag argument from an argument list.
+ * Flags are arguments that start with `-`.  This is used to skip global
+ * options (e.g. `--verbose`, `-h`) when extracting the subcommand from
+ * CLIs like `git`, `vellum`, and `assistant`.
+ */
+function firstPositionalArg(args: string[]): string | undefined {
+  for (const arg of args) {
+    if (!arg.startsWith("-")) return arg;
+  }
+  return undefined;
+}
+
 // Bare filenames that `rm` is allowed to delete at Medium risk (instead of
 // High) so workspace-scoped allow rules can approve them without the
 // dangerous `allowHighRisk` flag. Only matches when the args contain no
@@ -647,7 +660,7 @@ async function classifyRiskUncached(
       }
 
       if (prog === "git") {
-        const subcommand = seg.args[0];
+        const subcommand = firstPositionalArg(seg.args);
         if (subcommand && LOW_RISK_GIT_SUBCOMMANDS.has(subcommand)) {
           // Stay at current risk
           continue;
@@ -658,7 +671,7 @@ async function classifyRiskUncached(
       }
 
       if (prog === "vellum" || prog === "assistant") {
-        const subcommand = seg.args[0];
+        const subcommand = firstPositionalArg(seg.args);
         if (subcommand && LOW_RISK_CLI_SUBCOMMANDS.has(subcommand)) {
           // Read-only subcommands stay at current risk
           continue;
