@@ -459,5 +459,7 @@ export function getSessionsForConversation(
  * Stop all sessions and clear internal state. Useful for daemon shutdown.
  */
 export async function stopAllSessions(): Promise<void> {
-  return coreStopAllSessions(store);
+  return coreStopAllSessions(store, (id, err) => {
+    log.debug({ err, id }, "session shutdown error");
+  });
 }
