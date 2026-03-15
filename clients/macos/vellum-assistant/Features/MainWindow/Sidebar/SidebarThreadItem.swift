@@ -191,6 +191,15 @@ struct SidebarThreadItem: View {
                 Label { Text("Mark as unread") } icon: { VIconView(.circle, size: 14) }
             }
             .disabled(!canMarkUnread)
+
+            Divider()
+
+            Button {
+                AppDelegate.shared?.showLogReportWindow(scope: .thread(conversationId: thread.sessionId ?? "", threadTitle: thread.title))
+            } label: {
+                Label { Text("Send Logs for Thread") } icon: { VIconView(.upload, size: 14) }
+            }
+            .disabled(thread.sessionId == nil)
         }
         .pointerCursor()
         .onHover { hovering in
