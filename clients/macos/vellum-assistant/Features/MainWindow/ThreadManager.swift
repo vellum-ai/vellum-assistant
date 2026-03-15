@@ -248,6 +248,39 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         return viewModel
     }
 
+    /// Opens a thread for interaction, optionally creating a new one and/or sending a message.
+    ///
+    /// - Parameters:
+    ///   - message: Text to place in the input field. When nil, the input is left unchanged.
+    ///   - forceNew: When true, always creates a fresh thread via `createThread()`
+    ///     even if one is already active. Defaults to false (reuse the active thread).
+    ///   - autoSend: When true **and** a message is provided, the message is sent
+    ///     immediately. When false the message is only placed in the input field.
+    ///     Defaults to true.
+    ///   - configure: Optional closure to configure the view model before the message
+    ///     is populated/sent (e.g., set skill invocation data or dock state).
+    /// - Returns: The active `ChatViewModel`, or nil if thread creation failed.
+    @discardableResult
+    func openThread(
+        message: String? = nil,
+        forceNew: Bool = false,
+        autoSend: Bool = true,
+        configure: ((ChatViewModel) -> Void)? = nil
+    ) -> ChatViewModel? {
+        if forceNew || activeViewModel == nil {
+            createThread()
+        }
+        guard let viewModel = activeViewModel else { return nil }
+        configure?(viewModel)
+        if let message {
+            viewModel.inputText = message
+            if autoSend {
+                viewModel.sendMessage()
+            }
+        }
+        return viewModel
+    }
+
     /// Ensures an active thread exists, selecting or creating one if needed.
     ///
     /// Selection priority:
