@@ -91,12 +91,12 @@ export const TemporaryGrantDecisionSchema = z.object({
    * The type of grant to create. Determines persistence behaviour:
    * - `allow_once`: Temporary single-use grant (consumed after one use)
    * - `allow_10m`: Temporary timed grant (10-minute TTL)
-   * - `allow_thread`: Temporary thread-scoped grant (lives for session)
+   * - `allow_conversation`: Temporary conversation-scoped grant (lives for session)
    * - `always_allow`: Persistent grant (survives restart)
    *
    * When omitted, defaults to `always_allow` for backwards compatibility.
    */
-  grantType: z.enum(["allow_once", "allow_10m", "allow_thread", "always_allow"]).optional(),
+  grantType: z.enum(["allow_once", "allow_10m", "allow_conversation", "always_allow"]).optional(),
 });
 export type TemporaryGrantDecision = z.infer<
   typeof TemporaryGrantDecisionSchema
