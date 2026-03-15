@@ -81,7 +81,7 @@ export function createRouter(
   req: Request,
   url: URL,
   getClientIp: GetClientIp,
-  server?: Server,
+  server?: Server<unknown>,
 ) => Promise<Response> | Response | null {
   const { authRateLimiter } = deps;
 
@@ -89,7 +89,7 @@ export function createRouter(
     req: Request,
     url: URL,
     getClientIp: GetClientIp,
-    server?: Server,
+    server?: Server<unknown>,
   ) => {
     for (const route of routes) {
       const matchResult = matchRoute(route, url.pathname, req.method);
