@@ -4,7 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./handles": "./src/handles.ts",
+    "./grants": "./src/grants.ts",
+    "./rpc": "./src/rpc.ts",
+    "./rendering": "./src/rendering.ts"
   },
   "scripts": {
     "typecheck": "bunx tsc --noEmit",

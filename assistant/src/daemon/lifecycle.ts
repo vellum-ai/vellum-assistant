@@ -70,12 +70,15 @@ import {
   ensureDataDir,
   getInterfacesDir,
   getRootDir,
+  getWorkspaceDir,
 } from "../util/platform.js";
 import {
   listWorkItems,
   updateWorkItem,
 } from "../work-items/work-item-store.js";
 import { WorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
+import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
+import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
 import {
   createApprovalConversationGenerator,
   createApprovalCopyGenerator,
@@ -141,6 +144,7 @@ export async function runDaemon(): Promise<void> {
     await initLogfire();
 
     ensureDataDir();
+    runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
 
     // Load (or generate + persist) the auth signing key so tokens survive
     // daemon restarts. Must happen after ensureDataDir() creates the

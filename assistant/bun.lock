@@ -11,7 +11,9 @@
         "@modelcontextprotocol/sdk": "^1.15.1",
         "@qdrant/js-client-rest": "^1.16.2",
         "@sentry/node": "^10.38.0",
+        "@vellumai/ces-contracts": "file:../packages/ces-contracts",
         "@vellumai/credential-storage": "file:../packages/credential-storage",
+        "@vellumai/egress-proxy": "file:../packages/egress-proxy",
         "agentmail": "^0.1.0",
         "archiver": "^7.0.1",
         "commander": "^13.1.0",
@@ -496,7 +498,11 @@
 
     "@typescript-eslint/visitor-keys": ["@typescript-eslint/visitor-keys@8.56.0", "", { "dependencies": { "@typescript-eslint/types": "8.56.0", "eslint-visitor-keys": "^5.0.0" } }, "sha512-q+SL+b+05Ud6LbEE35qe4A99P+htKTKVbyiNEe45eCbJFyh/HVK9QXwlrbz+Q4L8SOW4roxSVwXYj4DMBT7Ieg=="],
 
+    "@vellumai/ces-contracts": ["@vellumai/ces-contracts@file:../packages/ces-contracts", { "dependencies": { "zod": "^4.3.6" }, "devDependencies": { "@types/bun": "^1.2.4", "typescript": "^5.7.3" } }],
+
     "@vellumai/credential-storage": ["@vellumai/credential-storage@file:../packages/credential-storage", { "devDependencies": { "@types/bun": "^1.2.4", "typescript": "^5.7.3" } }],
+
+    "@vellumai/egress-proxy": ["@vellumai/egress-proxy@file:../packages/egress-proxy", { "devDependencies": { "@types/bun": "^1.2.4", "typescript": "^5.7.3" } }],
 
     "abort-controller": ["abort-controller@3.0.0", "", { "dependencies": { "event-target-shim": "^5.0.0" } }, "sha512-h8lQ8tacZYnR3vNQTgibj+tODHI5/+l06Au2Pcriv/Gmet0eaj4TwWH41sO9wnHDiQsEj19q0drzdWdeAHtweg=="],
 

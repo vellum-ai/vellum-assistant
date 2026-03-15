@@ -24,18 +24,26 @@ import {
 // ---------------------------------------------------------------------------
 
 describe("package independence", () => {
-  test("does not import from assistant/ or credential-executor/", () => {
-    // Reading our own source is the simplest portable check. If someone
-    // accidentally adds an import, this test will catch it.
-    const src = require("node:fs").readFileSync(
-      require("node:path").resolve(__dirname, "../index.ts"),
-      "utf-8",
-    );
-    expect(src).not.toMatch(/from\s+['"].*assistant\//);
-    expect(src).not.toMatch(/from\s+['"].*credential-executor\//);
-    expect(src).not.toMatch(/require\(['"].*assistant\//);
-    expect(src).not.toMatch(/require\(['"].*credential-executor\//);
-  });
+  const sourceFiles = [
+    "../index.ts",
+    "../handles.ts",
+    "../grants.ts",
+    "../rpc.ts",
+    "../rendering.ts",
+  ];
+
+  for (const file of sourceFiles) {
+    test(`${file} does not import from assistant/ or credential-executor/`, () => {
+      const src = require("node:fs").readFileSync(
+        require("node:path").resolve(__dirname, file),
+        "utf-8",
+      );
+      expect(src).not.toMatch(/from\s+['"].*assistant\//);
+      expect(src).not.toMatch(/from\s+['"].*credential-executor\//);
+      expect(src).not.toMatch(/require\(['"].*assistant\//);
+      expect(src).not.toMatch(/require\(['"].*credential-executor\//);
+    });
+  }
 });
 
 // ---------------------------------------------------------------------------
