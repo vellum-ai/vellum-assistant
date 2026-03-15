@@ -448,7 +448,8 @@ export async function executeAuthenticatedCommand(
       auditId,
     };
   }
-  if (!realEntrypointPath.startsWith(bundleDir + "/") && realEntrypointPath !== bundleDir) {
+  const realBundleDir = realpathSync(bundleDir);
+  if (!realEntrypointPath.startsWith(realBundleDir + "/") && realEntrypointPath !== realBundleDir) {
     if (proxySessionId) {
       try {
         await stopSession(proxySessionId, sessionStore);

@@ -124,7 +124,7 @@ export interface OAuthConnectionRecord {
  * Result of a token refresh attempt.
  */
 export type TokenRefreshResult =
-  | { success: true; accessToken: string; expiresAt: number | null }
+  | { success: true; accessToken: string; expiresAt: number | null; refreshToken?: string }
   | { success: false; error: string };
 
 /**
