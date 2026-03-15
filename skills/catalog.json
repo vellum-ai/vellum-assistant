@@ -409,8 +409,7 @@
           "user-invocable": "true",
           "includes": [
             "browser"
-          ],
-          "disable-model-invocation": "true"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"

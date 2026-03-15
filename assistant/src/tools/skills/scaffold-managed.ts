@@ -96,10 +96,6 @@ export async function executeScaffoldManagedSkill(
       typeof input.user_invocable === "boolean"
         ? input.user_invocable
         : undefined,
-    disableModelInvocation:
-      typeof input.disable_model_invocation === "boolean"
-        ? input.disable_model_invocation
-        : undefined,
     overwrite: input.overwrite === true,
     addToIndex: input.add_to_index !== false,
     includes,

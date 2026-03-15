@@ -207,16 +207,6 @@ function migrateSkill(dirName, skillDir) {
   }
   // If not explicitly set anywhere, omit (runtime defaults to true)
 
-  // disable-model-invocation: only if true
-  const dmiFromField = fields["disable-model-invocation"]?.trim().toLowerCase();
-  const dmiFromMetadata =
-    existingMetadata?.vellum?.["disable-model-invocation"];
-  if (dmiFromField === "true" || dmiFromMetadata === true) {
-    vellum["disable-model-invocation"] = true;
-    changes.push(`disable-model-invocation: true (preserved)`);
-  }
-  // Note: if it's explicitly "false", we omit it (false is the default)
-
   // includes: only if present
   let includesValue;
   if (fields.includes) {

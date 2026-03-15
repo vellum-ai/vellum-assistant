@@ -184,10 +184,10 @@ describe("parseFrontmatterFields", () => {
 
   test("boolean values are parsed as native booleans", () => {
     const result = parseFrontmatterFields(
-      "---\nuser-invocable: false\ndisable-model-invocation: true\n---\n",
+      "---\nuser-invocable: false\nsome-flag: true\n---\n",
     );
     expect(result!.fields["user-invocable"]).toBe(false);
-    expect(result!.fields["disable-model-invocation"]).toBe(true);
+    expect(result!.fields["some-flag"]).toBe(true);
   });
 
   // -- CRLF handling --

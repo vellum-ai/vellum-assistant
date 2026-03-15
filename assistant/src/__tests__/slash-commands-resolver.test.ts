@@ -21,7 +21,7 @@ function makeSkill(
     directoryPath: `/skills/${id}`,
     skillFilePath: `/skills/${id}/SKILL.md`,
     userInvocable: overrides?.userInvocable ?? true,
-    disableModelInvocation: false,
+
     source: "managed",
   };
 }

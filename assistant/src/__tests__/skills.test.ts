@@ -585,13 +585,6 @@ describe("bundled browser skill", () => {
     expect(browserSkill!.userInvocable).toBe(true);
   });
 
-  test("browser skill has model invocation enabled", () => {
-    const catalog = loadSkillCatalog();
-    const browserSkill = catalog.find((s) => s.id === "browser");
-    expect(browserSkill).toBeDefined();
-    expect(browserSkill!.disableModelInvocation).toBe(false);
-  });
-
   test("browser skill has a valid tool manifest with 14 tools", () => {
     const catalog = loadSkillCatalog();
     const browserSkill = catalog.find((s) => s.id === "browser");
@@ -709,13 +702,6 @@ describe("bundled computer-use skill", () => {
     const cuSkill = catalog.find((s) => s.id === "computer-use");
     expect(cuSkill).toBeDefined();
     expect(cuSkill!.userInvocable).toBe(false);
-  });
-
-  test("computer-use skill has model invocation disabled", () => {
-    const catalog = loadSkillCatalog();
-    const cuSkill = catalog.find((s) => s.id === "computer-use");
-    expect(cuSkill).toBeDefined();
-    expect(cuSkill!.disableModelInvocation).toBe(true);
   });
 
   test("computer-use skill has a valid tool manifest with 11 tools", () => {

@@ -1022,8 +1022,7 @@ function getMcpSetupDescription(): string {
 }
 
 function formatSkillsCatalog(skills: SkillSummary[]): string {
-  // Filter out skills with disableModelInvocation
-  const visible = skills.filter((s) => !s.disableModelInvocation);
+  const visible = skills;
   if (visible.length === 0) return "";
 
   const lines = ["<available_skills>"];

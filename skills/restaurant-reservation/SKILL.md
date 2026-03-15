@@ -8,7 +8,6 @@ metadata:
     display-name: "Restaurant Reservation Booking"
     user-invocable: true
     includes: ["browser"]
-    disable-model-invocation: true
 ---
 
 Book restaurant reservations on OpenTable or Resy using browser automation.

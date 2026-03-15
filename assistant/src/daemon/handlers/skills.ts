@@ -842,7 +842,6 @@ export interface CreateSkillParams {
   emoji?: string;
   bodyMarkdown: string;
   userInvocable?: boolean;
-  disableModelInvocation?: boolean;
   overwrite?: boolean;
 }
 
@@ -858,7 +857,6 @@ export async function createSkill(
       emoji: params.emoji,
       bodyMarkdown: params.bodyMarkdown,
       userInvocable: params.userInvocable,
-      disableModelInvocation: params.disableModelInvocation,
       overwrite: params.overwrite,
     });
 

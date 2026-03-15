@@ -159,7 +159,7 @@ mock.module("../config/skills.js", () => ({
       directoryPath: "/skills/start-the-day",
       skillFilePath: "/skills/start-the-day/SKILL.md",
       userInvocable: true,
-      disableModelInvocation: false,
+
       source: "managed",
     },
     {
@@ -171,7 +171,7 @@ mock.module("../config/skills.js", () => ({
       directoryPath: "/skills/browser",
       skillFilePath: "/skills/browser/SKILL.md",
       userInvocable: true,
-      disableModelInvocation: false,
+
       source: "bundled",
     },
   ],
