@@ -208,10 +208,19 @@ class RunAuthenticatedCommandTool implements Tool {
         );
 
         const parts: string[] = [];
+        if (response.exitCode !== undefined) {
+          parts.push(`Exit code: ${response.exitCode}`);
+        }
         if (response.stdout) {
           parts.push(response.stdout);
         }
+        if (response.stderr) {
+          parts.push(`stderr:\n${response.stderr}`);
+        }
         parts.push(`Warning: ${copybackMsg}`);
+        if (response.auditId) {
+          parts.push(`[audit: ${response.auditId}]`);
+        }
 
         return {
           content: parts.join("\n\n"),
