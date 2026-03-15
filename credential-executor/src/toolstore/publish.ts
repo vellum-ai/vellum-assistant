@@ -472,6 +472,36 @@ export function readPublishedManifest(
 }
 
 /**
+ * Delete a published bundle from the toolstore by digest.
+ *
+ * Removes the entire content-addressed directory for the given digest.
+ * Returns true if the directory existed and was deleted, false if it
+ * did not exist (or the digest was invalid).
+ *
+ * This is used during tool unregistration to ensure that a previously
+ * published bundle cannot be executed after the tool is removed from
+ * the in-memory registry.
+ */
+export function deleteBundleFromToolstore(
+  digest: string,
+  cesMode?: CesMode,
+): boolean {
+  if (!isValidSha256Hex(digest)) {
+    return false;
+  }
+
+  const toolstoreDir = getCesToolStoreDir(cesMode);
+  const bundleDir = getBundleDir(toolstoreDir, digest);
+
+  if (!existsSync(bundleDir)) {
+    return false;
+  }
+
+  rmSync(bundleDir, { recursive: true, force: true });
+  return true;
+}
+
+/**
  * Check if a bundle with the given digest is published in the toolstore.
  *
  * Returns false if the digest is not a valid SHA-256 hex string.

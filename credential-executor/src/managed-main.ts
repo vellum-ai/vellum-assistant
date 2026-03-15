@@ -49,7 +49,7 @@ import {
   type RpcHandlerRegistry,
   type SessionIdRef,
 } from "./server.js";
-import { publishBundle } from "./toolstore/publish.js";
+import { deleteBundleFromToolstore, publishBundle } from "./toolstore/publish.js";
 import { validateSourceUrl } from "./toolstore/manifest.js";
 import { buildCesEgressHooks } from "./commands/egress-hooks.js";
 import { resolveManagedSubject, type ManagedSubjectResolverOptions } from "./subjects/managed.js";
@@ -309,7 +309,12 @@ function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef): RpcHan
     },
     publishBundle: (request) => publishBundle({ ...request, cesMode: "managed" }),
     unregisterTool: (toolName: string) => {
-      return toolRegistry.delete(toolName);
+      const entry = toolRegistry.get(toolName);
+      const removed = toolRegistry.delete(toolName);
+      if (removed && entry?.bundleDigest) {
+        deleteBundleFromToolstore(entry.bundleDigest, "managed");
+      }
+      return removed;
     },
     registerTool: (entry) => {
       toolRegistry.set(entry.toolName, entry);

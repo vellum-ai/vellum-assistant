@@ -55,7 +55,7 @@ import {
   type RpcHandlerRegistry,
   type SessionIdRef,
 } from "./server.js";
-import { publishBundle } from "./toolstore/publish.js";
+import { deleteBundleFromToolstore, publishBundle } from "./toolstore/publish.js";
 import { validateSourceUrl } from "./toolstore/manifest.js";
 import { buildCesEgressHooks } from "./commands/egress-hooks.js";
 
@@ -227,7 +227,12 @@ function buildHandlers(sessionIdRef: SessionIdRef): RpcHandlerRegistry {
     },
     publishBundle: (request) => publishBundle({ ...request, cesMode: "local" }),
     unregisterTool: (toolName: string) => {
-      return toolRegistry.delete(toolName);
+      const entry = toolRegistry.get(toolName);
+      const removed = toolRegistry.delete(toolName);
+      if (removed && entry?.bundleDigest) {
+        deleteBundleFromToolstore(entry.bundleDigest, "local");
+      }
+      return removed;
     },
     registerTool: (entry) => {
       toolRegistry.set(entry.toolName, entry);
