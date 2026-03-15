@@ -10,6 +10,7 @@ import { registerChannelVerificationSessionsCommand } from "./commands/channel-v
 import { registerCompletionsCommand } from "./commands/completions.js";
 import { registerConfigCommand } from "./commands/config.js";
 import { registerContactsCommand } from "./commands/contacts.js";
+import { registerCredentialExecutionCommand } from "./commands/credential-execution.js";
 import { registerCredentialsCommand } from "./commands/credentials.js";
 import { registerDefaultAction } from "./commands/default-action.js";
 import { registerDoctorCommand } from "./commands/doctor.js";
@@ -40,6 +41,7 @@ export function buildCliProgram(): Command {
   registerConfigCommand(program);
   registerKeysCommand(program);
   registerCredentialsCommand(program);
+  registerCredentialExecutionCommand(program);
   registerTrustCommand(program);
   registerMemoryCommand(program);
   registerAuditCommand(program);
