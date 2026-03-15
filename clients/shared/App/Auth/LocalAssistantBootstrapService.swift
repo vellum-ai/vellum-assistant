@@ -148,6 +148,7 @@ public final class LocalAssistantBootstrapService {
                 try await injectKeyIntoDaemon(key: existingKey)
                 log.info("Re-synced existing API key to daemon")
                 try? await injectPlatformAssistantIdIntoDaemon(id: platformAssistantId)
+                try? await injectPlatformBaseUrlIntoDaemon(url: authService.baseURL)
                 return .registeredWithExistingKey(assistantId: platformAssistantId)
             } catch {
                 log.warning("Failed to inject existing key into daemon, will reprovision: \(error.localizedDescription)")
@@ -181,6 +182,7 @@ public final class LocalAssistantBootstrapService {
         if (try? await injectPlatformAssistantIdIntoDaemon(id: platformAssistantId)) == nil {
             log.warning("Failed to inject platform assistant ID into daemon on provision path; the TS env-var fallback will be used")
         }
+        try? await injectPlatformBaseUrlIntoDaemon(url: authService.baseURL)
 
         return .registeredAndProvisioned(assistantId: platformAssistantId)
     }
@@ -200,11 +202,40 @@ public final class LocalAssistantBootstrapService {
         )
     }
 
+    /// Clear all managed proxy credentials from the daemon's secret store.
+    /// Intended for sign-out cleanup. Uses direct HTTP calls since the
+    /// GatewayHTTPClient connection may no longer be valid during sign-out.
+    public static func clearDaemonCredentials(daemonBaseURL: String, daemonToken: String) async {
+        for credentialName in ["vellum:assistant_api_key", "vellum:platform_base_url", "vellum:platform_assistant_id"] {
+            guard let url = URL(string: "\(daemonBaseURL)/v1/secrets") else { continue }
+            var request = URLRequest(url: url)
+            request.httpMethod = "DELETE"
+            request.setValue("Bearer \(daemonToken)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.timeoutInterval = 10
+            let body: [String: String] = ["type": "credential", "name": credentialName]
+            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+            _ = try? await URLSession.shared.data(for: request)
+        }
+    }
+
     /// Inject the assistant API key into the daemon's secret store via the gateway.
     private func injectKeyIntoDaemon(key: String) async throws {
         let response = try await GatewayHTTPClient.post(
             path: "secrets",
             json: ["type": "credential", "name": "vellum:assistant_api_key", "value": key],
+            timeout: 10
+        )
+        guard response.isSuccess else {
+            throw LocalBootstrapError.daemonInjectionFailed
+        }
+    }
+
+    /// Inject the platform base URL into the daemon's secret store via the gateway.
+    private func injectPlatformBaseUrlIntoDaemon(url: String) async throws {
+        let response = try await GatewayHTTPClient.post(
+            path: "secrets",
+            json: ["type": "credential", "name": "vellum:platform_base_url", "value": url],
             timeout: 10
         )
         guard response.isSuccess else {
