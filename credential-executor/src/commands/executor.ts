@@ -166,6 +166,8 @@ export interface CommandExecutorDeps {
   materializeCredential: MaterializeCredentialFn;
   /** Audit store for persisting token-free audit records. */
   auditStore?: AuditStore;
+  /** Session ID for audit records. */
+  sessionId?: string;
   /** CES operating mode (for toolstore path resolution). */
   cesMode?: CesMode;
   /** Egress proxy session start hooks (for creating the proxy server). */
@@ -407,6 +409,10 @@ export async function executeAuthenticatedCommand(
   // if an auth adapter declares envVarName: "HOME".
   const generatedHomeDir = join(tmpdir(), `ces-home-${randomUUID()}`);
 
+  // Create the HOME directory and enforce cleanConfigDirs before building env
+  mkdirSync(generatedHomeDir, { recursive: true });
+  enforceCleanConfigDirs(manifest, generatedHomeDir);
+
   const commandEnv = buildCommandEnv(
     adapterEnv,
     proxyEnv,
@@ -482,8 +488,8 @@ export async function executeAuthenticatedCommand(
       grantId: grantResult.grantId ?? "unknown",
       credentialHandle: request.credentialHandle,
       toolName: "command",
-      target: `${request.bundleDigest}/${request.profileName} ${request.argv.join(" ")}`.trim(),
-      sessionId: request.sessionId ?? "unknown",
+      target: `${request.bundleDigest}/${request.profileName}`,
+      sessionId: deps.sessionId ?? "unknown",
       success: execResult.success,
       ...(execResult.error ? { errorMessage: execResult.error } : {}),
       timestamp: new Date().toISOString(),
@@ -872,6 +878,42 @@ function buildCommandEnv(
   }
 
   return env;
+}
+
+// ---------------------------------------------------------------------------
+// Internal: Clean config dirs enforcement
+// ---------------------------------------------------------------------------
+
+/**
+ * Enforce the manifest's `cleanConfigDirs` contract by creating empty
+ * directories under the temp HOME directory.
+ *
+ * For each entry in `cleanConfigDirs`:
+ * - `~/`-prefixed paths are resolved relative to the temp HOME dir and
+ *   created as empty directories. This ensures the command finds an empty
+ *   config directory instead of reading host config that might contain secrets.
+ * - Absolute paths (not `~/`-prefixed) are skipped for v1 — they would
+ *   require filesystem-level isolation (bind mounts, overlayfs).
+ */
+function enforceCleanConfigDirs(
+  manifest: SecureCommandManifest,
+  homeDir: string,
+): void {
+  const dirs = manifest.cleanConfigDirs;
+  if (!dirs) return;
+
+  for (const dirPath of Object.keys(dirs)) {
+    // Only handle ~/‑prefixed paths for v1
+    if (dirPath.startsWith("~/")) {
+      const relativePath = dirPath.slice(2); // strip "~/"
+      const resolvedPath = join(homeDir, relativePath);
+      mkdirSync(resolvedPath, { recursive: true });
+    } else if (dirPath === "~") {
+      // "~" alone is just the home dir itself, already created
+      continue;
+    }
+    // Absolute paths are skipped — would require filesystem-level isolation
+  }
 }
 
 // ---------------------------------------------------------------------------

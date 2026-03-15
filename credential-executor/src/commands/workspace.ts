@@ -175,7 +175,7 @@ export function validateContainedPath(
 ): string | undefined {
   // Resolve symlinks when path exists; fall back to lexical resolve
   let normalizedRoot: string;
-  let normalizedPath: string;
+  let normalizedPath: string = resolve(resolvedPath);
   try {
     normalizedRoot = realpathSync(rootDir);
   } catch {

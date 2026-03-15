@@ -168,13 +168,46 @@ class ManageSecureCommandToolImpl implements Tool {
               authAdapter: {
                 type: "object",
                 description:
-                  "Auth adapter configuration describing how credentials are injected.",
+                  "Auth adapter configuration describing how credentials are injected. " +
+                  "Use type=env_var to set an environment variable, type=temp_file to write " +
+                  "credentials to a temporary file, or type=credential_process to run a helper command.",
                 properties: {
                   type: {
                     type: "string",
                     enum: ["env_var", "temp_file", "credential_process"],
+                    description:
+                      "Adapter type: env_var, temp_file, or credential_process.",
                   },
-                  envVarName: { type: "string" },
+                  envVarName: {
+                    type: "string",
+                    description:
+                      "Environment variable name for credential injection (required for all types).",
+                  },
+                  valuePrefix: {
+                    type: "string",
+                    description:
+                      'Optional prefix prepended to the credential value (env_var only, e.g. "Bearer ").',
+                  },
+                  fileExtension: {
+                    type: "string",
+                    description:
+                      'Optional file extension for the temp file (temp_file only, e.g. ".json").',
+                  },
+                  fileMode: {
+                    type: "number",
+                    description:
+                      "Optional file mode/permissions for the temp file (temp_file only, e.g. 0o600).",
+                  },
+                  helperCommand: {
+                    type: "string",
+                    description:
+                      "Command to run to obtain credentials (credential_process only, required for that type).",
+                  },
+                  timeoutMs: {
+                    type: "number",
+                    description:
+                      "Timeout in milliseconds for the helper command (credential_process only).",
+                  },
                 },
                 required: ["type", "envVarName"],
               },
@@ -260,10 +293,18 @@ class ManageSecureCommandToolImpl implements Tool {
       }
 
       // Reject non-HTTPS source URLs to prevent insecure downloads
-      if (sourceUrl && !sourceUrl.startsWith("https://")) {
+      try {
+        const parsed = new URL(sourceUrl!);
+        if (parsed.protocol !== "https:") {
+          return {
+            content:
+              "Error: sourceUrl must use HTTPS for secure bundle downloads.",
+            isError: true,
+          };
+        }
+      } catch {
         return {
-          content:
-            "Error: sourceUrl must use HTTPS for secure bundle downloads.",
+          content: "Error: sourceUrl is not a valid URL.",
           isError: true,
         };
       }

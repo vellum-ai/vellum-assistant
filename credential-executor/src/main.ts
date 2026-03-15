@@ -167,6 +167,7 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
         };
       },
       auditStore,
+      sessionId,
       cesMode: "local",
       egressHooks: buildCesEgressHooks(),
     },

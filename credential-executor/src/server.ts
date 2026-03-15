@@ -616,12 +616,23 @@ export function createManageSecureCommandToolHandler(
 
     // Validate HTTPS before downloading — CES is the security boundary
     // and must not rely on the caller for URL scheme validation.
-    if (!request.sourceUrl!.startsWith("https://")) {
+    try {
+      const parsed = new URL(request.sourceUrl!);
+      if (parsed.protocol !== "https:") {
+        return {
+          success: false,
+          error: {
+            code: "INVALID_SOURCE_URL",
+            message: "sourceUrl must use HTTPS for secure bundle downloads.",
+          },
+        };
+      }
+    } catch {
       return {
         success: false,
         error: {
           code: "INVALID_SOURCE_URL",
-          message: "sourceUrl must use HTTPS for secure bundle downloads.",
+          message: "sourceUrl is not a valid URL.",
         },
       };
     }
