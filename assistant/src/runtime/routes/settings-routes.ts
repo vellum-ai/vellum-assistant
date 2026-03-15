@@ -78,6 +78,7 @@ function handleVoiceConfigUpdate(activationKey: string): Response {
 // Avatar generation
 // ---------------------------------------------------------------------------
 
+// Also callable via the `vellum-avatar` skill's AI generation mode.
 async function handleGenerateAvatar(description: string): Promise<Response> {
   if (!description.trim()) {
     return httpError("BAD_REQUEST", "Description is required.", 400);
