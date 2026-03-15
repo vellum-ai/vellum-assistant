@@ -7,9 +7,49 @@ on:
     paths:
       - 'clients/macos/**'
       - 'clients/shared/**'
+      - 'clients/Package.swift'
+      - 'clients/.periphery.yml'
+      - 'clients/.periphery_baseline.json'
+      - 'clients/scripts/periphery-scan.sh'
       - '.github/workflows/ci-main-macos.yaml'
 
 jobs:
+  lint-unused:
+    name: Lint Unused Code
+    runs-on: macos-15
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: clients
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 26.2
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
+
+      - name: Cache SPM build artifacts
+        uses: actions/cache@v4
+        with:
+          path: clients/.build
+          key: macos-spm-${{ hashFiles('clients/Package.resolved') }}-${{ hashFiles('clients/**/*.swift') }}
+          restore-keys: |
+            macos-spm-${{ hashFiles('clients/Package.resolved') }}-
+            macos-spm-
+
+      - name: Lint unused code
+        run: bash scripts/periphery-scan.sh
+
+      - name: Upload baseline artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: periphery-baseline
+          path: clients/.periphery_baseline.json
+          if-no-files-found: ignore
+          retention-days: 7
+          include-hidden-files: true
+
   test:
     name: macOS Tests
     runs-on: macos-15
@@ -43,7 +83,7 @@ jobs:
 
   notify-macos:
     name: Slack Notification (macOS)
-    needs: [test]
+    needs: [lint-unused, test]
     if: always()
     continue-on-error: true
     runs-on: ubuntu-latest
@@ -56,11 +96,11 @@ jobs:
         run: |
           GITHUB_USER="${{ github.actor }}"
 
-          if [[ "${{ needs.test.result }}" == "failure" ]]; then
+          if [[ "${{ needs.lint-unused.result }}" == "failure" || "${{ needs.test.result }}" == "failure" ]]; then
             STATUS="failure"
-          elif [[ "${{ needs.test.result }}" == "cancelled" ]]; then
+          elif [[ "${{ needs.lint-unused.result }}" == "cancelled" || "${{ needs.test.result }}" == "cancelled" ]]; then
             STATUS="cancelled"
-          elif [[ "${{ needs.test.result }}" == "skipped" ]]; then
+          elif [[ "${{ needs.lint-unused.result }}" == "skipped" || "${{ needs.test.result }}" == "skipped" ]]; then
             STATUS="skipped"
           else
             STATUS="success"
