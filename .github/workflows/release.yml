@@ -181,15 +181,23 @@ jobs:
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
 
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Compute image name
+      - name: Compute image names
         id: image
-        run: echo "name=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "gcp=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
+          echo "dockerhub=${{ secrets.DOCKERHUB_ORG }}/${{ secrets.ASSISTANT_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
 
       - name: Sync feature flag registry for Docker context
         run: cp meta/feature-flags/feature-flag-registry.json assistant/src/config/feature-flag-registry.json
@@ -201,7 +209,7 @@ jobs:
           context: .
           file: assistant/Dockerfile
           platforms: ${{ matrix.platform }}
-          outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,"name=${{ steps.image.outputs.gcp }},${{ steps.image.outputs.dockerhub }}",push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=assistant-${{ matrix.environment }}-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=assistant-${{ matrix.environment }}-${{ matrix.platform }}
 
@@ -255,6 +263,12 @@ jobs:
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
 
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -268,30 +282,54 @@ jobs:
       - name: Compute image tags
         id: tags
         run: |
-          IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
+          GCP_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
+          DOCKERHUB_IMAGE="${{ secrets.DOCKERHUB_ORG }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
           VERSION="${{ needs.bump-and-tag.outputs.version }}"
-          TAGS="${IMAGE}:${{ steps.release-sha.outputs.sha }}"
-          TAGS=$(printf "%s\n%s" "$TAGS" "${IMAGE}:v${VERSION}")
-          TAGS=$(printf "%s\n%s" "$TAGS" "${IMAGE}:latest")
-          echo "tags<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$TAGS" >> "$GITHUB_OUTPUT"
+          SHA="${{ steps.release-sha.outputs.sha }}"
+
+          GCP_TAGS="${GCP_IMAGE}:${SHA}"
+          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:v${VERSION}")
+          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
+          echo "gcp_tags<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
-      - name: Create manifest list and push
+          DOCKERHUB_TAGS="${DOCKERHUB_IMAGE}:${SHA}"
+          DOCKERHUB_TAGS=$(printf "%s\n%s" "$DOCKERHUB_TAGS" "${DOCKERHUB_IMAGE}:v${VERSION}")
+          DOCKERHUB_TAGS=$(printf "%s\n%s" "$DOCKERHUB_TAGS" "${DOCKERHUB_IMAGE}:latest")
+          echo "dockerhub_tags<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$DOCKERHUB_TAGS" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+          echo "gcp_image=${GCP_IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "dockerhub_image=${DOCKERHUB_IMAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GCP manifest list and push
         working-directory: /tmp/digests
         run: |
-          IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
+          IMAGE="${{ steps.tags.outputs.gcp_image }}"
           TAG_ARGS=""
           while IFS= read -r tag; do
             [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
-          done <<< "${{ steps.tags.outputs.tags }}"
+          done <<< "${{ steps.tags.outputs.gcp_tags }}"
+          SOURCES=$(printf "${IMAGE}@sha256:%s " *)
+          docker buildx imagetools create $TAG_ARGS $SOURCES
+
+      - name: Create Docker Hub manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          IMAGE="${{ steps.tags.outputs.dockerhub_image }}"
+          TAG_ARGS=""
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
+          done <<< "${{ steps.tags.outputs.dockerhub_tags }}"
           SOURCES=$(printf "${IMAGE}@sha256:%s " *)
           docker buildx imagetools create $TAG_ARGS $SOURCES
 
       - name: Export manifest digest
         id: manifest-digest
         run: |
-          IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
+          IMAGE="${{ steps.tags.outputs.gcp_image }}"
           VERSION="${{ needs.bump-and-tag.outputs.version }}"
           DIGEST=$(docker buildx imagetools inspect "${IMAGE}:v${VERSION}" --format '{{json .Manifest.Digest}}' | tr -d '"')
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
@@ -320,6 +358,7 @@ jobs:
           echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Docker Hub:** \`${{ steps.tags.outputs.dockerhub_image }}:v${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
 
   push-gateway-image:
     needs: bump-and-tag
@@ -351,15 +390,23 @@ jobs:
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
 
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Compute image name
+      - name: Compute image names
         id: image
-        run: echo "name=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "gcp=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
+          echo "dockerhub=${{ secrets.DOCKERHUB_ORG }}/${{ secrets.GATEWAY_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
 
       - name: Sync feature flag registry for Docker context
         run: cp meta/feature-flags/feature-flag-registry.json gateway/src/feature-flag-registry.json
@@ -370,7 +417,7 @@ jobs:
         with:
           context: gateway
           platforms: ${{ matrix.platform }}
-          outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,"name=${{ steps.image.outputs.gcp }},${{ steps.image.outputs.dockerhub }}",push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=gateway-${{ matrix.environment }}-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=gateway-${{ matrix.environment }}-${{ matrix.platform }}
 
@@ -423,15 +470,23 @@ jobs:
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
 
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Compute image name
+      - name: Compute image names
         id: image
-        run: echo "name=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "gcp=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
+          echo "dockerhub=${{ secrets.DOCKERHUB_ORG }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push by digest
         id: build
@@ -440,7 +495,7 @@ jobs:
           context: .
           file: credential-executor/Dockerfile
           platforms: ${{ matrix.platform }}
-          outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,"name=${{ steps.image.outputs.gcp }},${{ steps.image.outputs.dockerhub }}",push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=credential-executor-${{ matrix.environment }}-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=credential-executor-${{ matrix.environment }}-${{ matrix.platform }}
 
@@ -494,6 +549,12 @@ jobs:
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
 
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -507,30 +568,54 @@ jobs:
       - name: Compute image tags
         id: tags
         run: |
-          IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
+          GCP_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
+          DOCKERHUB_IMAGE="${{ secrets.DOCKERHUB_ORG }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
           VERSION="${{ needs.bump-and-tag.outputs.version }}"
-          TAGS="${IMAGE}:${{ steps.release-sha.outputs.sha }}"
-          TAGS=$(printf "%s\n%s" "$TAGS" "${IMAGE}:v${VERSION}")
-          TAGS=$(printf "%s\n%s" "$TAGS" "${IMAGE}:latest")
-          echo "tags<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$TAGS" >> "$GITHUB_OUTPUT"
+          SHA="${{ steps.release-sha.outputs.sha }}"
+
+          GCP_TAGS="${GCP_IMAGE}:${SHA}"
+          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:v${VERSION}")
+          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
+          echo "gcp_tags<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
-      - name: Create manifest list and push
+          DOCKERHUB_TAGS="${DOCKERHUB_IMAGE}:${SHA}"
+          DOCKERHUB_TAGS=$(printf "%s\n%s" "$DOCKERHUB_TAGS" "${DOCKERHUB_IMAGE}:v${VERSION}")
+          DOCKERHUB_TAGS=$(printf "%s\n%s" "$DOCKERHUB_TAGS" "${DOCKERHUB_IMAGE}:latest")
+          echo "dockerhub_tags<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$DOCKERHUB_TAGS" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+          echo "gcp_image=${GCP_IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "dockerhub_image=${DOCKERHUB_IMAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GCP manifest list and push
         working-directory: /tmp/digests
         run: |
-          IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
+          IMAGE="${{ steps.tags.outputs.gcp_image }}"
           TAG_ARGS=""
           while IFS= read -r tag; do
             [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
-          done <<< "${{ steps.tags.outputs.tags }}"
+          done <<< "${{ steps.tags.outputs.gcp_tags }}"
+          SOURCES=$(printf "${IMAGE}@sha256:%s " *)
+          docker buildx imagetools create $TAG_ARGS $SOURCES
+
+      - name: Create Docker Hub manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          IMAGE="${{ steps.tags.outputs.dockerhub_image }}"
+          TAG_ARGS=""
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
+          done <<< "${{ steps.tags.outputs.dockerhub_tags }}"
           SOURCES=$(printf "${IMAGE}@sha256:%s " *)
           docker buildx imagetools create $TAG_ARGS $SOURCES
 
       - name: Export manifest digest
         id: manifest-digest
         run: |
-          IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
+          IMAGE="${{ steps.tags.outputs.gcp_image }}"
           VERSION="${{ needs.bump-and-tag.outputs.version }}"
           DIGEST=$(docker buildx imagetools inspect "${IMAGE}:v${VERSION}" --format '{{json .Manifest.Digest}}' | tr -d '"')
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
@@ -559,6 +644,7 @@ jobs:
           echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Docker Hub:** \`${{ steps.tags.outputs.dockerhub_image }}:v${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
 
   push-credential-executor-manifest:
     needs: [bump-and-tag, push-credential-executor-image]
@@ -591,6 +677,12 @@ jobs:
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
 
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -604,30 +696,54 @@ jobs:
       - name: Compute image tags
         id: tags
         run: |
-          IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
+          GCP_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
+          DOCKERHUB_IMAGE="${{ secrets.DOCKERHUB_ORG }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
           VERSION="${{ needs.bump-and-tag.outputs.version }}"
-          TAGS="${IMAGE}:${{ steps.release-sha.outputs.sha }}"
-          TAGS=$(printf "%s\n%s" "$TAGS" "${IMAGE}:v${VERSION}")
-          TAGS=$(printf "%s\n%s" "$TAGS" "${IMAGE}:latest")
-          echo "tags<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$TAGS" >> "$GITHUB_OUTPUT"
+          SHA="${{ steps.release-sha.outputs.sha }}"
+
+          GCP_TAGS="${GCP_IMAGE}:${SHA}"
+          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:v${VERSION}")
+          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:latest")
+          echo "gcp_tags<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
-      - name: Create manifest list and push
+          DOCKERHUB_TAGS="${DOCKERHUB_IMAGE}:${SHA}"
+          DOCKERHUB_TAGS=$(printf "%s\n%s" "$DOCKERHUB_TAGS" "${DOCKERHUB_IMAGE}:v${VERSION}")
+          DOCKERHUB_TAGS=$(printf "%s\n%s" "$DOCKERHUB_TAGS" "${DOCKERHUB_IMAGE}:latest")
+          echo "dockerhub_tags<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$DOCKERHUB_TAGS" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+          echo "gcp_image=${GCP_IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "dockerhub_image=${DOCKERHUB_IMAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GCP manifest list and push
         working-directory: /tmp/digests
         run: |
-          IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
+          IMAGE="${{ steps.tags.outputs.gcp_image }}"
           TAG_ARGS=""
           while IFS= read -r tag; do
             [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
-          done <<< "${{ steps.tags.outputs.tags }}"
+          done <<< "${{ steps.tags.outputs.gcp_tags }}"
+          SOURCES=$(printf "${IMAGE}@sha256:%s " *)
+          docker buildx imagetools create $TAG_ARGS $SOURCES
+
+      - name: Create Docker Hub manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          IMAGE="${{ steps.tags.outputs.dockerhub_image }}"
+          TAG_ARGS=""
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
+          done <<< "${{ steps.tags.outputs.dockerhub_tags }}"
           SOURCES=$(printf "${IMAGE}@sha256:%s " *)
           docker buildx imagetools create $TAG_ARGS $SOURCES
 
       - name: Export manifest digest
         id: manifest-digest
         run: |
-          IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
+          IMAGE="${{ steps.tags.outputs.gcp_image }}"
           VERSION="${{ needs.bump-and-tag.outputs.version }}"
           DIGEST=$(docker buildx imagetools inspect "${IMAGE}:v${VERSION}" --format '{{json .Manifest.Digest}}' | tr -d '"')
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
@@ -656,6 +772,7 @@ jobs:
           echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Docker Hub:** \`${{ steps.tags.outputs.dockerhub_image }}:v${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
 
   register-release:
     needs: [bump-and-tag, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
