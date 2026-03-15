@@ -27,9 +27,31 @@ import {
   type CesClient,
   createCesClient,
 } from "../../credential-execution/client.js";
+import { isCesGrantAuditEnabled } from "../../credential-execution/feature-gates.js";
 import { createCesProcessManager } from "../../credential-execution/process-manager.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
+
+// ---------------------------------------------------------------------------
+// Runtime feature gate
+// ---------------------------------------------------------------------------
+
+/**
+ * Check the ces-grant-audit feature flag and bail with a clear message if
+ * disabled. Returns `true` when the gate is open, `false` (with output
+ * written) when the feature is off.
+ */
+function ensureGrantAuditEnabled(cmd: Command): boolean {
+  if (isCesGrantAuditEnabled(getConfig())) return true;
+
+  writeOutput(cmd, {
+    ok: false,
+    error:
+      "CES grant/audit inspection is disabled (feature_flags.ces-grant-audit.enabled is off)",
+  });
+  process.exitCode = 1;
+  return false;
+}
 
 // ---------------------------------------------------------------------------
 // CES client lifecycle helpers
@@ -139,6 +161,8 @@ Examples:
     )
     .action(
       async (opts: { handle?: string; status?: string }, cmd: Command) => {
+        if (!ensureGrantAuditEnabled(cmd)) return;
+
         let cleanup: (() => Promise<void>) | undefined;
         try {
           const ces = await acquireCesClient();
@@ -201,6 +225,8 @@ Examples:
     )
     .action(
       async (grantId: string, opts: { reason?: string }, cmd: Command) => {
+        if (!ensureGrantAuditEnabled(cmd)) return;
+
         let cleanup: (() => Promise<void>) | undefined;
         try {
           const ces = await acquireCesClient();
@@ -272,6 +298,8 @@ Examples:
         opts: { handle?: string; grant?: string; limit: string },
         cmd: Command,
       ) => {
+        if (!ensureGrantAuditEnabled(cmd)) return;
+
         let cleanup: (() => Promise<void>) | undefined;
         try {
           const ces = await acquireCesClient();
