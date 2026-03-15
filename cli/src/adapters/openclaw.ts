@@ -107,6 +107,7 @@ fi
 
 OPENCLAW_GW_TOKEN=$(openssl rand -hex 32)
 echo -n "\$OPENCLAW_GW_TOKEN" > /tmp/openclaw-gateway-token
+chmod 600 /tmp/openclaw-gateway-token
 
 mkdir -p /root/.openclaw
 openclaw config set env.ANTHROPIC_API_KEY "${anthropicApiKey}"
