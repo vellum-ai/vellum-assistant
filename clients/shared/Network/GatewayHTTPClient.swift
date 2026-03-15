@@ -133,11 +133,12 @@ public enum GatewayHTTPClient {
     #endif
 
     /// Resolved connection metadata used for request construction and auth retry.
-    private struct ConnectionInfo {
+    struct ConnectionInfo {
         let baseURL: String
         let authHeader: (field: String, value: String)
-        /// Non-nil when the connection targets a platform-managed assistant,
-        /// so paths are prefixed with `assistants/{id}/`.
+        /// Non-nil when the connection targets a platform-managed assistant.
+        /// Callers that need platform-proxy routing can use this to prepend
+        /// `assistants/{id}/` to their path.
         let managedAssistantId: String?
 
         var isManaged: Bool { managedAssistantId != nil }
@@ -150,7 +151,7 @@ public enum GatewayHTTPClient {
     /// - iOS: Uses UserDefaults for managed assistants (`managed_assistant_id` +
     ///   `managed_platform_base_url`) and QR-paired assistants (`gateway_base_url`),
     ///   with tokens from the Keychain via `SessionTokenManager` / `ActorTokenManager`.
-    private static func resolveConnection() throws -> ConnectionInfo {
+    static func resolveConnection() throws -> ConnectionInfo {
         #if os(macOS)
         guard let assistant = resolveConnectedAssistant() else {
             throw ClientError.noConnectedAssistant
@@ -206,10 +207,9 @@ public enum GatewayHTTPClient {
 
     /// Builds an authenticated `URLRequest` from the given connection info.
     ///
-    /// - Managed (`cloud == "vellum"`): platform proxy URL with `X-Session-Token`
-    ///   and `assistants/{id}/` prefix in the path.
-    /// - Remote non-managed (GCP/AWS): `runtimeUrl` with `Authorization: Bearer`
-    /// - Local: `http://127.0.0.1:{gatewayPort}` with `Authorization: Bearer`
+    /// The caller is responsible for including any assistant-scoped prefix
+    /// (e.g. `assistants/{id}/`) in the `path` when targeting managed connections.
+    /// Use `ConnectionInfo.managedAssistantId` to determine if a prefix is needed.
     private static func buildRequest(
         path: String,
         method: String,
@@ -226,9 +226,8 @@ public enum GatewayHTTPClient {
             queryComponent = ""
         }
 
-        let assistantPrefix = connection.managedAssistantId.map { "assistants/\($0)/" } ?? ""
         let trailingSlash = pathComponent.hasSuffix("/") ? "" : "/"
-        guard let url = URL(string: "\(connection.baseURL)/v1/\(assistantPrefix)\(pathComponent)\(trailingSlash)\(queryComponent)") else {
+        guard let url = URL(string: "\(connection.baseURL)/v1/\(pathComponent)\(trailingSlash)\(queryComponent)") else {
             throw ClientError.invalidURL
         }
 
