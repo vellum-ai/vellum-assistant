@@ -938,13 +938,12 @@ function buildCommandEnv(
   homeDir?: string,
 ): Record<string, string> {
   const env: Record<string, string> = {
-    // Minimal baseline environment
+    // Inject auth adapter env vars first so they cannot override protected keys
+    ...adapterEnv,
+    // PATH, LANG, and HOME are set after adapterEnv spread to prevent auth
+    // adapters from overriding baseline environment invariants.
     PATH: process.env["PATH"] ?? "/usr/local/bin:/usr/bin:/bin",
     LANG: "en_US.UTF-8",
-    // Inject auth adapter env vars first so they cannot override HOME
-    ...adapterEnv,
-    // HOME is set after adapterEnv spread to prevent auth adapters declaring
-    // envVarName: "HOME" from bypassing the isolated config directory.
     HOME: homeDir ?? join(tmpdir(), `ces-home-${randomUUID()}`),
   };
 
