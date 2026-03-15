@@ -851,7 +851,7 @@ export function buildCliReferenceSection(): string {
     "   - `assistant credentials list` — lists local credentials with their service:field identifiers",
     "   - `assistant oauth connections list` — lists OAuth connections with provider keys",
     "   - `assistant credentials list --search <query>` — filter by service, field, or description",
-    "   For local credentials, construct the CES handle as `local_static:<service>/<field>` from the listed identifiers. Platform-managed entries include a `handle` field directly.",
+    "   For local credentials, construct the CES handle as `local_static:<service>/<field>` from the listed identifiers. For local OAuth connections, the handle is `local_oauth:<providerKey>/<connectionId>` (shown in the `handle` field of `assistant oauth connections list`). Platform-managed entries use `platform_oauth:<connectionId>` handles, also shown in their `handle` field.",
     "",
     "2. **Use CES tools** with the handle to perform authenticated work:",
     "   - `make_authenticated_request` — authenticated HTTP requests (API calls, webhooks). CES injects the credential and returns the response; the assistant never sees raw secrets.",

@@ -1,3 +1,4 @@
+import { localOAuthHandle } from "@vellumai/ces-contracts/handles";
 import type { Command } from "commander";
 
 import {
@@ -90,6 +91,7 @@ function formatConnectionRow(row: ReturnType<typeof getConnection>) {
   const parsed = row.metadata ? JSON.parse(row.metadata) : null;
   return {
     ...row,
+    handle: localOAuthHandle(row.providerKey, row.id),
     grantedScopes: row.grantedScopes ? JSON.parse(row.grantedScopes) : [],
     metadata: parsed ? redactMetadata(parsed) : null,
     hasRefreshToken: row.hasRefreshToken === 1,
