@@ -128,6 +128,12 @@ struct APIKeyStepView: View {
         .opacity(showContent ? 1 : 0)
         .offset(y: showContent ? 0 : 12)
         .onAppear {
+            // Clear any previously stored API key for authenticated users so
+            // the assistant falls back to the platform-provisioned token.
+            if isAuthenticated {
+                APIKeyManager.deleteKey(for: "anthropic")
+            }
+
             if let existingKey = APIKeyManager.getKey(for: "anthropic") {
                 apiKey = existingKey
                 hasExistingKey = true
