@@ -63,3 +63,21 @@ export type {
   PublishRequest,
   PublishResult,
 } from "./toolstore/publish.js";
+
+export { resolveLocalSubject } from "./subjects/local.js";
+export type {
+  ResolvedStaticSubject,
+  ResolvedOAuthSubject,
+  ResolvedLocalSubject,
+  SubjectResolutionResult,
+  OAuthConnectionLookup,
+  LocalSubjectResolverDeps,
+} from "./subjects/local.js";
+
+export { LocalMaterialiser } from "./materializers/local.js";
+export type {
+  MaterialisedCredential,
+  MaterialisationResult,
+  TokenRefreshFn,
+  LocalMaterialiserDeps,
+} from "./materializers/local.js";
