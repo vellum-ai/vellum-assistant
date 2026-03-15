@@ -326,6 +326,9 @@ export function handleListMessages(
         const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
         if (linked.length > 0) {
           msgAttachments = linked.map((a) => {
+            const isFileBacked = !!attachmentsStore.getFilePathForAttachment(
+              a.id,
+            );
             if (a.mimeType.startsWith("image/")) {
               const full = attachmentsStore.getAttachmentById(a.id);
               return {
@@ -338,6 +341,7 @@ export function handleListMessages(
                 ...(a.thumbnailBase64
                   ? { thumbnailData: a.thumbnailBase64 }
                   : {}),
+                ...(isFileBacked ? { fileBacked: true } : {}),
               };
             }
             return {
@@ -349,6 +353,7 @@ export function handleListMessages(
               ...(a.thumbnailBase64
                 ? { thumbnailData: a.thumbnailBase64 }
                 : {}),
+              ...(isFileBacked ? { fileBacked: true } : {}),
             };
           });
         }
@@ -356,6 +361,9 @@ export function handleListMessages(
         const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
         if (linked.length > 0) {
           msgAttachments = linked.map((a) => {
+            const isFileBacked = !!attachmentsStore.getFilePathForAttachment(
+              a.id,
+            );
             if (a.mimeType.startsWith("image/")) {
               const full = attachmentsStore.getAttachmentById(a.id);
               return {
@@ -368,6 +376,7 @@ export function handleListMessages(
                 ...(a.thumbnailBase64
                   ? { thumbnailData: a.thumbnailBase64 }
                   : {}),
+                ...(isFileBacked ? { fileBacked: true } : {}),
               };
             }
             return {
@@ -379,6 +388,7 @@ export function handleListMessages(
               ...(a.thumbnailBase64
                 ? { thumbnailData: a.thumbnailBase64 }
                 : {}),
+              ...(isFileBacked ? { fileBacked: true } : {}),
             };
           });
         }
