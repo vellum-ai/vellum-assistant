@@ -71,6 +71,8 @@ enum LogExporter {
             if case .thread(let conversationId, _, _, _) = formData.scope {
                 tags["conversation_id"] = conversationId
                 tags["export_scope"] = "thread"
+            } else {
+                tags["export_scope"] = "global"
             }
             // When routing to the brain project, tag the event so it's clear
             // it originated from the macOS client (not the daemon itself).
@@ -91,7 +93,12 @@ enum LogExporter {
                     // it here enables cross-project search: find the daemon error
                     // that corresponds to a macOS log report by querying
                     // conversation_id in the vellum-assistant-brain Sentry project.
-                    tags["conversation_id"] = sessionId
+                    // For thread-scoped exports, conversation_id was already set
+                    // to the reported thread's ID above — don't overwrite it with
+                    // the active thread's session ID.
+                    if case .global = formData.scope {
+                        tags["conversation_id"] = sessionId
+                    }
                 }
             }
             var errorCategoryString: String?
@@ -108,7 +115,11 @@ enum LogExporter {
                 if let sessionId = vm.sessionId {
                     // Prefer the view model's sessionId (most up-to-date)
                     tags["session_id"] = sessionId
-                    tags["conversation_id"] = sessionId
+                    // For thread-scoped exports, conversation_id reflects the
+                    // reported thread, not the active one — skip the overwrite.
+                    if case .global = formData.scope {
+                        tags["conversation_id"] = sessionId
+                    }
                 }
             }
             if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") {
