@@ -19,6 +19,7 @@ Commands:
   trust                                    Manage trust rules
   memory                                   Manage long-term memory indexing/retrieval
   audit [options]                          Show recent tool invocations
+  avatar                                   Manage the assistant's avatar
   doctor                                   Run diagnostic checks
   hooks                                    Manage hooks
   mcp                                      Manage MCP (Model Context Protocol) servers

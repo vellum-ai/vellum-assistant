@@ -1,4 +1,3 @@
-#if os(macOS)
 import Foundation
 
 /// Reads or creates a per-device UUID stored at ~/.vellum/device.json.
@@ -73,4 +72,3 @@ public enum DeviceIdStore {
         return deviceId
     }
 }
-#endif
