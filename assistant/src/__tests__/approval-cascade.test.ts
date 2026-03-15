@@ -100,10 +100,6 @@ mock.module("../config/skill-state.js", () => ({
   resolveSkillStates: () => [],
 }));
 
-mock.module("../skills/slash-commands.js", () => ({
-  parseSlashCandidate: () => ({ kind: "not_slash" }),
-}));
-
 // Trust store mock — uses real minimatch for patternMatchesCandidate so the
 // mock doesn't break trust-store-pattern-matches.test.ts when both files run
 // in the same Bun process (mock.module leaks across test files).

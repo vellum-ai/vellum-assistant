@@ -57,10 +57,6 @@ mock.module("../config/skill-state.js", () => ({
   resolveSkillStates: () => [],
 }));
 
-mock.module("../skills/slash-commands.js", () => ({
-  parseSlashCandidate: () => ({ kind: "not_slash" }),
-}));
-
 mock.module("../permissions/trust-store.js", () => ({
   addRule: () => {},
   findHighestPriorityRule: () => null,
