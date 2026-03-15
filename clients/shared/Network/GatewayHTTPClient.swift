@@ -133,25 +133,23 @@ public enum GatewayHTTPClient {
     #endif
 
     /// Resolved connection metadata used for request construction and auth retry.
-    struct ConnectionInfo {
+    private struct ConnectionInfo {
         let baseURL: String
         let authHeader: (field: String, value: String)
-        /// Non-nil when the connection targets a platform-managed assistant.
-        /// Callers that need platform-proxy routing can use this to prepend
-        /// `assistants/{id}/` to their path.
-        let managedAssistantId: String?
-
-        var isManaged: Bool { managedAssistantId != nil }
+        /// The connected assistant's identifier, used to replace `{assistantId}`
+        /// placeholders in request paths.
+        let assistantId: String
+        let isManaged: Bool
     }
 
-    /// Resolves the base URL, auth header, and managed assistant ID for the current connection.
+    /// Resolves the base URL, auth header, assistant ID, and managed flag for the current connection.
     ///
     /// - macOS: Uses the lockfile-based `LockfileAssistant` for full resolution
     ///   (managed, remote, and local assistants).
     /// - iOS: Uses UserDefaults for managed assistants (`managed_assistant_id` +
     ///   `managed_platform_base_url`) and QR-paired assistants (`gateway_base_url`),
     ///   with tokens from the Keychain via `SessionTokenManager` / `ActorTokenManager`.
-    static func resolveConnection() throws -> ConnectionInfo {
+    private static func resolveConnection() throws -> ConnectionInfo {
         #if os(macOS)
         guard let assistant = resolveConnectedAssistant() else {
             throw ClientError.noConnectedAssistant
@@ -162,7 +160,7 @@ public enum GatewayHTTPClient {
                 throw ClientError.notAuthenticated
             }
             let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
-            return ConnectionInfo(baseURL: baseURL, authHeader: ("X-Session-Token", token), managedAssistantId: assistant.assistantId)
+            return ConnectionInfo(baseURL: baseURL, authHeader: ("X-Session-Token", token), assistantId: assistant.assistantId, isManaged: true)
         } else {
             guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
                 throw ClientError.notAuthenticated
@@ -171,10 +169,10 @@ public enum GatewayHTTPClient {
                 guard let runtimeUrl = assistant.runtimeUrl else {
                     throw ClientError.invalidURL
                 }
-                return ConnectionInfo(baseURL: runtimeUrl, authHeader: ("Authorization", "Bearer \(token)"), managedAssistantId: nil)
+                return ConnectionInfo(baseURL: runtimeUrl, authHeader: ("Authorization", "Bearer \(token)"), assistantId: assistant.assistantId, isManaged: false)
             } else {
                 let port = assistant.gatewayPort ?? LockfilePaths.resolveGatewayPort(connectedAssistantId: assistant.assistantId)
-                return ConnectionInfo(baseURL: "http://127.0.0.1:\(port)", authHeader: ("Authorization", "Bearer \(token)"), managedAssistantId: nil)
+                return ConnectionInfo(baseURL: "http://127.0.0.1:\(port)", authHeader: ("Authorization", "Bearer \(token)"), assistantId: assistant.assistantId, isManaged: false)
             }
         }
 
@@ -187,7 +185,7 @@ public enum GatewayHTTPClient {
             guard let token = SessionTokenManager.getToken(), !token.isEmpty else {
                 throw ClientError.notAuthenticated
             }
-            return ConnectionInfo(baseURL: platformBaseURL, authHeader: ("X-Session-Token", token), managedAssistantId: managedAssistantId)
+            return ConnectionInfo(baseURL: platformBaseURL, authHeader: ("X-Session-Token", token), assistantId: managedAssistantId, isManaged: true)
         }
 
         // QR-paired assistant: gateway URL with bearer token auth.
@@ -196,7 +194,9 @@ public enum GatewayHTTPClient {
             guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
                 throw ClientError.notAuthenticated
             }
-            return ConnectionInfo(baseURL: gatewayBaseURL, authHeader: ("Authorization", "Bearer \(token)"), managedAssistantId: nil)
+            // QR-paired assistants don't carry an assistant ID in UserDefaults;
+            // use an empty string so `{assistantId}` placeholders resolve harmlessly.
+            return ConnectionInfo(baseURL: gatewayBaseURL, authHeader: ("Authorization", "Bearer \(token)"), assistantId: "", isManaged: false)
         }
 
         throw ClientError.noConnectedAssistant
@@ -207,27 +207,29 @@ public enum GatewayHTTPClient {
 
     /// Builds an authenticated `URLRequest` from the given connection info.
     ///
-    /// The caller is responsible for including any assistant-scoped prefix
-    /// (e.g. `assistants/{id}/`) in the `path` when targeting managed connections.
-    /// Use `ConnectionInfo.managedAssistantId` to determine if a prefix is needed.
+    /// Replaces `{assistantId}` placeholders in the path with the resolved
+    /// assistant identifier and percent-encodes the resulting path.
     private static func buildRequest(
         path: String,
         method: String,
         timeout: TimeInterval,
         connection: ConnectionInfo
     ) throws -> URLRequest {
+        let resolvedPath = path.replacingOccurrences(of: "{assistantId}", with: connection.assistantId)
+
         let pathComponent: String
         let queryComponent: String
-        if let queryIndex = path.firstIndex(of: "?") {
-            pathComponent = String(path[..<queryIndex])
-            queryComponent = String(path[queryIndex...])
+        if let queryIndex = resolvedPath.firstIndex(of: "?") {
+            pathComponent = String(resolvedPath[..<queryIndex])
+            queryComponent = String(resolvedPath[queryIndex...])
         } else {
-            pathComponent = path
+            pathComponent = resolvedPath
             queryComponent = ""
         }
 
-        let trailingSlash = pathComponent.hasSuffix("/") ? "" : "/"
-        guard let url = URL(string: "\(connection.baseURL)/v1/\(pathComponent)\(trailingSlash)\(queryComponent)") else {
+        let encodedPath = pathComponent.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? pathComponent
+        let trailingSlash = encodedPath.hasSuffix("/") ? "" : "/"
+        guard let url = URL(string: "\(connection.baseURL)/v1/\(encodedPath)\(trailingSlash)\(queryComponent)") else {
             throw ClientError.invalidURL
         }
 

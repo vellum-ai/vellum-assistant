@@ -22,15 +22,8 @@ struct ConversationClient: ConversationClientProtocol {
     nonisolated init() {}
 
     func fetchConversationById(_ conversationId: String) async -> ConversationsListResponse.Session? {
-        let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? conversationId
-        let prefix: String
-        if let assistantId = (try? GatewayHTTPClient.resolveConnection())?.managedAssistantId {
-            prefix = "assistants/\(assistantId)/"
-        } else {
-            prefix = ""
-        }
         let result: (SingleConversationResponse?, GatewayHTTPClient.Response)? = try? await GatewayHTTPClient.get(
-            path: "\(prefix)conversations/\(encoded)", timeout: 10
+            path: "assistants/{assistantId}/conversations/\(conversationId)", timeout: 10
         )
         return result?.0?.session
     }
