@@ -640,8 +640,6 @@ struct ActiveChatViewWrapper: View {
             onTemporaryAllow: { requestId, decision in viewModel.respondToConfirmation(requestId: requestId, decision: decision) },
             onGuardianAction: { requestId, action in viewModel.submitGuardianDecision(requestId: requestId, action: action) },
             onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) },
-            watchSession: ambientAgent.activeWatchSession,
-            onStopWatch: { viewModel.stopWatchSession() },
             onReportMessage: { daemonMessageId in
                 guard let sessionId = viewModel.sessionId else { return }
                 do {

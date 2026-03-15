@@ -9,6 +9,7 @@ on:
       - 'clients/Package.swift'
       - 'clients/.periphery.yml'
       - 'clients/.periphery_baseline.json'
+      - 'clients/.periphery_threshold'
       - 'clients/scripts/periphery-scan.sh'
       - '.github/workflows/pr-macos.yaml'
 

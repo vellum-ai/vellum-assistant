@@ -36,8 +36,6 @@ struct ChatView: View {
     var onTemporaryAllow: ((String, String) -> Void)?
     var onGuardianAction: ((String, String) -> Void)?
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
-    let watchSession: WatchSession?
-    let onStopWatch: () -> Void
     var onReportMessage: ((String?) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
     var isTemporaryChat: Bool = false
@@ -829,8 +827,6 @@ private struct ChatViewPreviewWrapper: View {
                 onConfirmationDeny: { _ in },
                 onAlwaysAllow: { _, _, _, _ in },
                 onSurfaceAction: { _, _, _ in },
-                watchSession: nil,
-                onStopWatch: {},
                 subagentDetailStore: SubagentDetailStore(),
                 anchorMessageId: $anchorMessageId
             )
