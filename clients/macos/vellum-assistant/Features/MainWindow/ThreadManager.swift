@@ -231,23 +231,6 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         enterDraftMode()
     }
 
-    /// Ensures a thread exists and sends a message.
-    /// - Parameters:
-    ///   - message: The text to send.
-    ///   - configure: Optional closure to configure the view model before sending
-    ///     (e.g., set skill invocation data or dock state).
-    @discardableResult
-    func ensureThreadAndSend(message: String, configure: ((ChatViewModel) -> Void)? = nil) -> ChatViewModel? {
-        if activeViewModel == nil {
-            createThread()
-        }
-        guard let viewModel = activeViewModel else { return nil }
-        configure?(viewModel)
-        viewModel.inputText = message
-        viewModel.sendMessage()
-        return viewModel
-    }
-
     /// Opens a thread for interaction, optionally creating a new one and/or sending a message.
     ///
     /// - Parameters:
