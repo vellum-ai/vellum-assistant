@@ -9,9 +9,10 @@
  * Policy rules:
  * - **allowedDomains** — credentials with domain restrictions are scoped to
  *   browser use on those domains and cannot be used server-side by CES.
- * - **allowedTools** — if set, only the listed tools may consume the
- *   credential. CES tool names ("make_authenticated_request",
- *   "run_authenticated_command") must be in the list.
+ * - **allowedTools** — if set (even if empty), only the listed tools may
+ *   consume the credential. An empty array means deny-all. CES tool names
+ *   ("make_authenticated_request", "run_authenticated_command") must be in
+ *   the list.
  */
 
 import type { StaticCredentialRecord } from "@vellumai/credential-storage";
@@ -58,15 +59,18 @@ export function checkCredentialPolicy(
   }
 
   // -- allowedTools ---------------------------------------------------------
-  // If set, the CES tool must be in the allowed list.
-  if (metadata.allowedTools && metadata.allowedTools.length > 0) {
+  // If set (even if empty), the CES tool must be in the allowed list.
+  // An empty allowedTools array means no tools are permitted (deny-all).
+  if (metadata.allowedTools) {
     if (!metadata.allowedTools.includes(cesToolName)) {
       return {
         ok: false,
         error:
-          `Tool "${cesToolName}" is not allowed to use credential ` +
-          `${metadata.service}/${metadata.field}. ` +
-          `Allowed tools: ${metadata.allowedTools.join(", ")}.`,
+          metadata.allowedTools.length === 0
+            ? `Credential ${metadata.service}/${metadata.field} does not allow any tools.`
+            : `Tool "${cesToolName}" is not allowed to use credential ` +
+              `${metadata.service}/${metadata.field}. ` +
+              `Allowed tools: ${metadata.allowedTools.join(", ")}.`,
       };
     }
   }
