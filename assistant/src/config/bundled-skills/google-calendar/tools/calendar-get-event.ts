@@ -13,7 +13,7 @@ export async function run(
   const eventId = input.event_id as string;
   const calendarId = (input.calendar_id as string) ?? "primary";
 
-  const connection = await getCalendarConnection(account, calendarId);
+  const connection = await getCalendarConnection(account);
   const event = await calendar.getEvent(connection, eventId, calendarId);
   return ok(JSON.stringify(event, null, 2));
 }

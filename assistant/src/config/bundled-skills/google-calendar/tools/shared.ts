@@ -12,10 +12,6 @@ export function ok(content: string): ToolExecutionResult {
  */
 export async function getCalendarConnection(
   account?: string,
-  calendarId?: string,
 ): Promise<OAuthConnection> {
-  // If no explicit account but calendar_id looks like an email, use it as the account hint
-  const resolved =
-    account ?? (calendarId?.includes("@") ? calendarId : undefined);
-  return resolveOAuthConnection("integration:google", resolved);
+  return resolveOAuthConnection("integration:google", account);
 }
