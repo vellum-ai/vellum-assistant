@@ -366,18 +366,36 @@ struct AgentPanelContent: View {
 
             // Two-pane content: file list + file content viewer
             HStack(alignment: .top, spacing: VSpacing.md) {
-                // Left: file list
+                // Left: file list (always fixed width)
                 skillFilesSection
-                    .frame(width: expandedFilePath != nil ? 280 : nil, alignment: .topLeading)
-                    .frame(maxWidth: expandedFilePath != nil ? 280 : .infinity, alignment: .topLeading)
+                    .frame(width: 280, alignment: .topLeading)
 
-                // Right: file content viewer
+                // Right: file content viewer (always visible)
                 if let selectedPath = expandedFilePath,
                    let filesResponse = skillsManager.selectedSkillFiles,
                    let file = filesResponse.files.first(where: { $0.path == selectedPath }),
                    !file.isBinary,
                    let content = file.content {
                     skillFileContentPane(file: file, content: content)
+                } else {
+                    // Empty state when no file is selected or loading
+                    VStack {
+                        Spacer()
+                        VIconView(.fileText, size: 32)
+                            .foregroundColor(VColor.contentTertiary)
+                            .padding(.bottom, VSpacing.sm)
+                        Text("Select a file to view")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentTertiary)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(VColor.surfaceOverlay)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.borderBase, lineWidth: 1)
+                    )
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -385,6 +403,14 @@ struct AgentPanelContent: View {
         }
         .onAppear {
             skillsManager.fetchSkillFiles(skillId: skill.id)
+        }
+        .onChange(of: skillsManager.selectedSkillFiles?.files.map(\.path)) {
+            // Auto-select SKILL.md (or the first text file) when files load
+            if expandedFilePath == nil, let files = skillsManager.selectedSkillFiles?.files {
+                let skillMd = files.first { $0.path == "SKILL.md" && !$0.isBinary && $0.content != nil }
+                let firstText = files.first { !$0.isBinary && $0.content != nil }
+                expandedFilePath = (skillMd ?? firstText)?.path
+            }
         }
         .onDisappear {
             expandedFilePath = nil
@@ -554,9 +580,9 @@ struct AgentPanelContent: View {
         let isSelected = expandedFilePath == file.path
 
         Button {
-            if isText {
+            if isText && !isSelected {
                 withAnimation(VAnimation.fast) {
-                    expandedFilePath = isSelected ? nil : file.path
+                    expandedFilePath = file.path
                 }
             }
         } label: {
