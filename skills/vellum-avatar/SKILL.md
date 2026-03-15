@@ -65,12 +65,10 @@ The user picks a body shape, eye style, and color. Present the options conversat
 
 ### Setting traits
 
-After the user chooses, call the render endpoint with the chosen traits. This writes `character-traits.json` and generates the static PNG in one step:
+After the user chooses, run the following command to set the character traits. This writes `character-traits.json`, generates the static PNG, and creates an ASCII representation in one step:
 
 ```bash
-curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/avatar/render-from-traits" \
-  -H "Content-Type: application/json" \
-  -d '{"bodyShape": "<value>", "eyeStyle": "<value>", "color": "<value>"}'
+assistant avatar character update --body-shape <value> --eye-style <value> --color <value>
 ```
 
 The client will detect the traits file and render the animated character. The assistant also generates a static PNG for use as dock icon and by other clients.
@@ -134,5 +132,5 @@ The client checks for character traits first — if `character-traits.json` exis
 
 Enforcement rules:
 
-- **Setting native character traits** → call `POST /v1/avatar/render-from-traits` with `{ bodyShape, eyeStyle, color }`. This writes `character-traits.json` and auto-generates the PNG in one step.
+- **Setting native character traits** → run `assistant avatar character update --body-shape X --eye-style Y --color Z`. This writes `character-traits.json` and auto-generates the PNG in one step.
 - **Uploading or generating a custom image** → write `avatar-image.png` and remove `character-traits.json`.
