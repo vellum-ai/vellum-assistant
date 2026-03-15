@@ -303,12 +303,7 @@ function findSkillById(
     emoji: r.summary.emoji,
     homepage: r.summary.homepage,
     source: r.summary.source,
-    state: (r.state === "degraded" ? "enabled" : r.state) as
-      | "enabled"
-      | "disabled"
-      | "available",
-    degraded: r.degraded,
-    missingRequirements: r.missingRequirements,
+    state: r.state as "enabled" | "disabled" | "available",
     updateAvailable: false,
     provenance: resolveProvenance(r.summary),
   };
