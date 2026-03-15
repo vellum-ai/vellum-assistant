@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "fs";
 import { homedir, tmpdir, userInfo } from "os";
 import { join } from "path";
@@ -416,8 +416,6 @@ export async function hatchAws(
     }
 
     const sshUser = userInfo().username;
-    const bearerToken =
-      species === "openclaw" ? randomBytes(32).toString("hex") : "";
     const hatchedBy = process.env.VELLUM_HATCHED_BY;
     const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
     if (!anthropicApiKey) {
@@ -445,7 +443,6 @@ export async function hatchAws(
 
     const startupScript = await buildStartupScript(
       species,
-      bearerToken,
       sshUser,
       anthropicApiKey,
       instanceName,
@@ -539,19 +536,17 @@ export async function hatchAws(
           process.exit(1);
         }
 
-        if (species !== "openclaw") {
-          try {
-            const tokenData = await leaseGuardianToken(
-              runtimeUrl,
-              instanceName,
-            );
-            awsEntry.bearerToken = tokenData.accessToken;
-            saveAssistantEntry(awsEntry);
-          } catch (err) {
-            console.warn(
-              `\u26a0\ufe0f  Could not lease guardian token: ${err instanceof Error ? err.message : err}`,
-            );
-          }
+        try {
+          const tokenData = await leaseGuardianToken(
+            runtimeUrl,
+            instanceName,
+          );
+          awsEntry.bearerToken = tokenData.accessToken;
+          saveAssistantEntry(awsEntry);
+        } catch (err) {
+          console.warn(
+            `\u26a0\ufe0f  Could not lease guardian token: ${err instanceof Error ? err.message : err}`,
+          );
         }
       } else {
         console.log(

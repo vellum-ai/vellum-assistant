@@ -405,19 +405,17 @@ export async function hatchDocker(
       const handleLine = (line: string): void => {
         if (line.includes("Local assistant hatched!")) {
           process.nextTick(async () => {
-            if (species !== "openclaw") {
-              try {
-                const tokenData = await leaseGuardianToken(
-                  runtimeUrl,
-                  instanceName,
-                );
-                dockerEntry.bearerToken = tokenData.accessToken;
-                saveAssistantEntry(dockerEntry);
-              } catch (err) {
-                console.warn(
-                  `\u26a0\ufe0f  Could not lease guardian token: ${err instanceof Error ? err.message : err}`,
-                );
-              }
+            try {
+              const tokenData = await leaseGuardianToken(
+                runtimeUrl,
+                instanceName,
+              );
+              dockerEntry.bearerToken = tokenData.accessToken;
+              saveAssistantEntry(dockerEntry);
+            } catch (err) {
+              console.warn(
+                `\u26a0\ufe0f  Could not lease guardian token: ${err instanceof Error ? err.message : err}`,
+              );
             }
 
             console.log("");

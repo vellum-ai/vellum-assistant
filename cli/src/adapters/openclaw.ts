@@ -2,7 +2,6 @@ import { GATEWAY_PORT } from "../lib/constants";
 import { buildOpenclawRuntimeServer } from "../lib/openclaw-runtime-server";
 
 export async function buildOpenclawStartupScript(
-  bearerToken: string,
   sshUser: string,
   anthropicApiKey: string,
   timestampRedirect: string,
@@ -98,7 +97,7 @@ else
 fi
 
 set +e
-openclaw gateway install --token ${bearerToken}
+openclaw gateway install
 GATEWAY_INSTALL_EXIT=\$?
 set -e
 
@@ -109,7 +108,7 @@ fi
 mkdir -p /root/.openclaw
 openclaw config set env.ANTHROPIC_API_KEY "${anthropicApiKey}"
 openclaw config set agents.defaults.model.primary "anthropic/claude-opus-4-6"
-openclaw config set gateway.auth.token "${bearerToken}"
+openclaw config set gateway.auth.token ""
 
 echo "=== Starting openclaw gateway at user level ==="
 systemctl --user daemon-reload
