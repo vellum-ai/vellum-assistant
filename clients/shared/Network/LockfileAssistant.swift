@@ -173,7 +173,6 @@ public struct LockfileAssistant {
             "runtimeUrl": runtimeUrl,
             "cloud": "vellum",
             "hatchedAt": hatchedAt,
-            "installationId": UUID().uuidString.lowercased(),
         ]
         assistants.append(newEntry)
 
