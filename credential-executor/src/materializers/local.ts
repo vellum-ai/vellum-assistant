@@ -22,6 +22,7 @@
  */
 
 import {
+  type InjectionTemplate,
   type SecureKeyBackend,
   type TokenRefreshResult,
   getStoredAccessToken,
@@ -55,6 +56,8 @@ export interface MaterialisedCredential {
   handleType: HandleType;
   /** For OAuth: the token expiry timestamp (null if unknown). */
   expiresAt?: number | null;
+  /** Injection templates from the credential metadata (local_static only). */
+  injectionTemplates?: InjectionTemplate[];
 }
 
 export type MaterialisationResult =
@@ -152,6 +155,7 @@ export class LocalMaterialiser {
       credential: {
         value: secretValue,
         handleType: HandleType.LocalStatic,
+        injectionTemplates: subject.metadata.injectionTemplates,
       },
     };
   }

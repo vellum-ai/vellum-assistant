@@ -28,6 +28,7 @@ import type {
   MakeAuthenticatedRequestResponse,
 } from "@vellumai/ces-contracts";
 import { HandleType, parseHandle, hashProposal } from "@vellumai/ces-contracts";
+import type { InjectionTemplate } from "@vellumai/credential-storage";
 
 import { evaluateHttpPolicy, type PolicyResult } from "./policy.js";
 import { filterHttpResponse, type RawHttpResponse } from "./response-filter.js";
@@ -205,7 +206,8 @@ export async function executeAuthenticatedHttpRequest(
   const { credential, secrets } = materialiseResult;
 
   // 4. Build the outbound request with injected auth
-  const outboundHeaders = buildOutboundHeaders(
+  const authenticated = buildAuthenticatedRequest(
+    request.url,
     request.headers ?? {},
     credential,
   );
@@ -215,8 +217,8 @@ export async function executeAuthenticatedHttpRequest(
   try {
     rawResponse = await performHttpRequest(
       request.method,
-      request.url,
-      outboundHeaders,
+      authenticated.url,
+      authenticated.headers,
       request.body,
       policyResult,
       request.credentialHandle,
@@ -369,18 +371,36 @@ async function materialiseCredential(
 }
 
 // ---------------------------------------------------------------------------
-// Auth header injection
+// Auth injection
 // ---------------------------------------------------------------------------
 
 /**
- * Build the outbound request headers by:
- * 1. Stripping any caller-supplied auth headers (defense-in-depth).
- * 2. Injecting the credential as an Authorization header.
+ * Result of building an authenticated request — may contain a modified URL
+ * (e.g. when the credential is injected as a query parameter).
  */
-function buildOutboundHeaders(
+interface AuthenticatedRequest {
+  headers: Record<string, string>;
+  url: string;
+}
+
+/**
+ * Build the outbound request by:
+ * 1. Stripping any caller-supplied auth headers (defense-in-depth).
+ * 2. Injecting the credential using the appropriate strategy.
+ *
+ * For `local_static` handles, the credential's `injectionTemplates` are
+ * checked for a template matching the target URL's hostname. If found,
+ * the template controls how the credential is injected (header name,
+ * value prefix, or query parameter). If no matching template exists,
+ * falls back to `Authorization: Bearer <value>`.
+ *
+ * OAuth handles always use `Authorization: Bearer <value>`.
+ */
+function buildAuthenticatedRequest(
+  url: string,
   callerHeaders: Record<string, string>,
   credential: MaterialisedCredential,
-): Record<string, string> {
+): AuthenticatedRequest {
   const headers: Record<string, string> = {};
 
   // Copy caller headers, stripping any auth headers
@@ -390,14 +410,28 @@ function buildOutboundHeaders(
     }
   }
 
+  let finalUrl = url;
+
   // Inject credential based on handle type
   switch (credential.handleType) {
-    case HandleType.LocalStatic:
-      // Static secrets are injected as Bearer tokens by default.
-      // The subject metadata could specify a different injection strategy
-      // in the future, but for now Bearer is the safe default.
-      headers["Authorization"] = `Bearer ${credential.value}`;
+    case HandleType.LocalStatic: {
+      // Check for a matching injection template
+      const template = findMatchingTemplate(url, credential.injectionTemplates);
+      if (template) {
+        if (template.injectionType === "header") {
+          const headerName = template.headerName ?? "Authorization";
+          const prefix = template.valuePrefix ?? "";
+          headers[headerName] = `${prefix}${credential.value}`;
+        } else if (template.injectionType === "query") {
+          const paramName = template.queryParamName ?? "api_key";
+          finalUrl = appendQueryParam(url, paramName, credential.value);
+        }
+      } else {
+        // No matching template — fall back to Bearer auth
+        headers["Authorization"] = `Bearer ${credential.value}`;
+      }
       break;
+    }
 
     case HandleType.LocalOAuth:
     case HandleType.PlatformOAuth:
@@ -412,7 +446,60 @@ function buildOutboundHeaders(
       break;
   }
 
-  return headers;
+  return { headers, url: finalUrl };
+}
+
+/**
+ * Find the first injection template whose `hostPattern` matches the
+ * target URL's hostname. Returns undefined if no template matches or
+ * no templates are defined.
+ */
+function findMatchingTemplate(
+  url: string,
+  templates: InjectionTemplate[] | undefined,
+): InjectionTemplate | undefined {
+  if (!templates || templates.length === 0) return undefined;
+
+  let hostname: string;
+  try {
+    hostname = new URL(url).hostname;
+  } catch {
+    return undefined;
+  }
+
+  return templates.find((t) => matchHostPattern(t.hostPattern, hostname));
+}
+
+/**
+ * Simple glob-style host pattern matching.
+ *
+ * Supports:
+ * - Exact match: `"api.fal.ai"` matches `"api.fal.ai"`
+ * - Leading wildcard: `"*.fal.ai"` matches `"api.fal.ai"`, `"queue.fal.ai"`
+ * - Bare wildcard: `"*"` matches everything
+ */
+function matchHostPattern(pattern: string, hostname: string): boolean {
+  if (pattern === "*") return true;
+  if (pattern.startsWith("*.")) {
+    const suffix = pattern.slice(1); // e.g. ".fal.ai"
+    return hostname.endsWith(suffix) || hostname === pattern.slice(2);
+  }
+  return pattern === hostname;
+}
+
+/**
+ * Append a query parameter to a URL, preserving existing query params.
+ */
+function appendQueryParam(url: string, name: string, value: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.set(name, value);
+    return parsed.toString();
+  } catch {
+    // If URL parsing fails, fall back to naive append
+    const separator = url.includes("?") ? "&" : "?";
+    return `${url}${separator}${encodeURIComponent(name)}=${encodeURIComponent(value)}`;
+  }
 }
 
 // ---------------------------------------------------------------------------
