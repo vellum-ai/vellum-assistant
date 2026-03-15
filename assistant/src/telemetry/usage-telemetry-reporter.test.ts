@@ -2,7 +2,7 @@
  * Tests for UsageTelemetryReporter.
  *
  * Covers both auth modes (authenticated / anonymous), watermark advancement,
- * error handling, batch recursion, installation ID persistence, and payload shape.
+ * error handling, batch recursion, device ID resolution, and payload shape.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -55,10 +55,10 @@ mock.module("../config/env.js", () => ({
   bool: () => false,
 }));
 
-const mockGetInstallationId = mock(() => "test-installation-id");
+const mockGetDeviceId = mock(() => "test-device-id");
 
-mock.module("../runtime/auth/installation-id.js", () => ({
-  getInstallationId: mockGetInstallationId,
+mock.module("../util/device-id.js", () => ({
+  getDeviceId: mockGetDeviceId,
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -117,8 +117,8 @@ beforeEach(() => {
   mockResolveManagedProxyContext.mockReset();
   mockGetTelemetryPlatformUrl.mockReset();
   mockGetTelemetryAppToken.mockReset();
-  mockGetInstallationId.mockReset();
-  mockGetInstallationId.mockReturnValue("test-installation-id");
+  mockGetDeviceId.mockReset();
+  mockGetDeviceId.mockReturnValue("test-device-id");
 
   // Defaults
   mockGetMemoryCheckpoint.mockReturnValue(null);
@@ -244,7 +244,7 @@ describe("UsageTelemetryReporter", () => {
     expect(watermarkCalls.length).toBe(0);
   });
 
-  test("installation ID comes from lockfile-based resolver", async () => {
+  test("installation ID comes from per-device getDeviceId", async () => {
     const events = [makeUsageEvent()];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
     mockFetch.mockImplementation(() =>
@@ -253,13 +253,13 @@ describe("UsageTelemetryReporter", () => {
 
     const reporter = new UsageTelemetryReporter();
 
-    // First flush — should use the lockfile-based installation ID
+    // First flush — should use the per-device ID
     await reporter.flush();
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const body1 = JSON.parse(
       (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
     );
-    expect(body1.installation_id).toBe("test-installation-id");
+    expect(body1.installation_id).toBe("test-device-id");
 
     // Second flush — should use the same value
     mockQueryUnreportedUsageEvents.mockReturnValue([makeUsageEvent()]);
@@ -268,7 +268,7 @@ describe("UsageTelemetryReporter", () => {
     const body2 = JSON.parse(
       (mockFetch.mock.calls[1] as [string, RequestInit])[1].body as string,
     );
-    expect(body2.installation_id).toBe("test-installation-id");
+    expect(body2.installation_id).toBe("test-device-id");
   });
 
   test("empty batch makes no HTTP call", async () => {
@@ -343,7 +343,7 @@ describe("UsageTelemetryReporter", () => {
     );
 
     // Top-level: installation_id and events array
-    expect(body.installation_id).toBe("test-installation-id");
+    expect(body.installation_id).toBe("test-device-id");
     expect(Array.isArray(body.events)).toBe(true);
     expect(body.events.length).toBe(1);
 
