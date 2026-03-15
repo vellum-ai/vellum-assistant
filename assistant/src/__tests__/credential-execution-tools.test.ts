@@ -57,7 +57,7 @@ describe("CES tool schema shapes", () => {
     expect(schema.properties).toHaveProperty("version");
     expect(schema.properties).toHaveProperty("sourceUrl");
     expect(schema.properties).toHaveProperty("sha256");
-    expect(schema.properties).toHaveProperty("profiles");
+    expect(schema.properties).toHaveProperty("secureCommandManifest");
   });
 
   test("all CES tools are high risk", () => {
@@ -261,6 +261,17 @@ describe("manage_secure_command_tool input validation", () => {
         sourceUrl: "http://insecure.example.com/bundle.tar.gz",
         sha256: "abc123",
         credentialHandle: "local_static:test/key",
+        description: "test tool",
+        secureCommandManifest: {
+          schemaVersion: "1",
+          bundleDigest: "abc123",
+          bundleId: "test-bundle",
+          version: "1.0.0",
+          entrypoint: "bin/test",
+          commandProfiles: {},
+          authAdapter: { type: "env_var", envVarName: "TEST_TOKEN" },
+          egressMode: "no_network",
+        },
       },
       contextWithMockCes,
     );
