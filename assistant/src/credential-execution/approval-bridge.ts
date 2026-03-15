@@ -50,7 +50,7 @@ export interface CesApprovalDecision {
   grantType:
     | "allow_once"
     | "allow_10m"
-    | "allow_thread"
+    | "allow_conversation"
     | "always_allow"
     | undefined;
   /** The original user decision from the confirmation transport. */
@@ -82,7 +82,7 @@ function mapUserDecisionToCesDecision(
       return {
         grantDecision: "approved",
         ttl: undefined,
-        grantType: "allow_thread",
+        grantType: "allow_conversation",
         userDecision: decision,
       };
     case "always_allow":
