@@ -50,7 +50,10 @@ function projectGrant(
     grantId: grant.id,
     sessionId,
     credentialHandle: grant.scope,
-    proposalType: grant.tool as "http" | "command",
+    proposalType:
+      grant.tool === "http" || grant.tool === "command"
+        ? grant.tool
+        : "command",
     proposalHash: grant.id,
     allowedPurposes: [grant.pattern],
     status: "active",
