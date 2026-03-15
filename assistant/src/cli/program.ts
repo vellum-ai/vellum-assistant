@@ -11,6 +11,7 @@ import { registerChannelVerificationSessionsCommand } from "./commands/channel-v
 import { registerCompletionsCommand } from "./commands/completions.js";
 import { registerConfigCommand } from "./commands/config.js";
 import { registerContactsCommand } from "./commands/contacts.js";
+import { registerConversationsCommand } from "./commands/conversations.js";
 import { registerCredentialExecutionCommand } from "./commands/credential-execution.js";
 import { registerCredentialsCommand } from "./commands/credentials.js";
 import { registerDefaultAction } from "./commands/default-action.js";
@@ -23,7 +24,6 @@ import { registerNotificationsCommand } from "./commands/notifications.js";
 import { registerOAuthCommand } from "./commands/oauth/index.js";
 import { registerPlatformCommand } from "./commands/platform.js";
 import { registerSequenceCommand } from "./commands/sequence.js";
-import { registerSessionsCommand } from "./commands/sessions.js";
 import { registerShotgunCommand } from "./commands/shotgun.js";
 import { registerSkillsCommand } from "./commands/skills.js";
 import { registerTrustCommand } from "./commands/trust.js";
@@ -39,7 +39,7 @@ export function buildCliProgram(): Command {
 
   registerDefaultAction(program);
   registerBashCommand(program);
-  registerSessionsCommand(program);
+  registerConversationsCommand(program);
   registerConfigCommand(program);
   registerKeysCommand(program);
   registerCredentialsCommand(program);
