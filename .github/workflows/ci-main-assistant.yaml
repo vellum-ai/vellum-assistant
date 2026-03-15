@@ -6,7 +6,9 @@ on:
     branches: [main]
     paths:
       - 'assistant/**'
-      - 'packages/ces-contracts/**'
+      - 'credential-executor/**'
+      - 'packages/**'
+      - 'scripts/check-bundled-deps.mjs'
       - 'meta/feature-flags/**'
       - '.github/workflows/ci-main-assistant.yaml'
 
@@ -137,9 +139,25 @@ jobs:
           path: assistant/.test-durations
           key: test-durations-${{ github.run_id }}
 
+  check-bundled-deps:
+    name: Check Bundled Dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Verify file: dependencies are in bundledDependencies
+        run: node scripts/check-bundled-deps.mjs assistant credential-executor
+
   notify-assistant:
     name: Slack Notification (Assistant)
-    needs: [lint, typecheck, test]
+    needs: [lint, typecheck, test, check-bundled-deps]
     if: always()
     continue-on-error: true
     runs-on: ubuntu-latest
@@ -152,11 +170,11 @@ jobs:
         run: |
           GITHUB_USER="${{ github.actor }}"
 
-          if [[ "${{ needs.lint.result }}" == "failure" || "${{ needs.typecheck.result }}" == "failure" || "${{ needs.test.result }}" == "failure" ]]; then
+          if [[ "${{ needs.lint.result }}" == "failure" || "${{ needs.typecheck.result }}" == "failure" || "${{ needs.test.result }}" == "failure" || "${{ needs.check-bundled-deps.result }}" == "failure" ]]; then
             STATUS="failure"
-          elif [[ "${{ needs.lint.result }}" == "cancelled" || "${{ needs.typecheck.result }}" == "cancelled" || "${{ needs.test.result }}" == "cancelled" ]]; then
+          elif [[ "${{ needs.lint.result }}" == "cancelled" || "${{ needs.typecheck.result }}" == "cancelled" || "${{ needs.test.result }}" == "cancelled" || "${{ needs.check-bundled-deps.result }}" == "cancelled" ]]; then
             STATUS="cancelled"
-          elif [[ "${{ needs.lint.result }}" == "skipped" || "${{ needs.typecheck.result }}" == "skipped" || "${{ needs.test.result }}" == "skipped" ]]; then
+          elif [[ "${{ needs.lint.result }}" == "skipped" || "${{ needs.typecheck.result }}" == "skipped" || "${{ needs.test.result }}" == "skipped" || "${{ needs.check-bundled-deps.result }}" == "skipped" ]]; then
             STATUS="skipped"
           else
             STATUS="success"
