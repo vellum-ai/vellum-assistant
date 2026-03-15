@@ -374,6 +374,14 @@ export async function executeAuthenticatedCommand(
 
   // Containment check: entrypoint must resolve inside the bundle directory
   if (!entrypointPath.startsWith(bundleDir + "/") && entrypointPath !== bundleDir) {
+    // Stop the proxy session before returning — it may already be running
+    if (proxySessionId) {
+      try {
+        await stopSession(proxySessionId, sessionStore);
+      } catch {
+        // Best-effort proxy cleanup
+      }
+    }
     cleanupAll(scratchDir, tempFilePath);
     return {
       success: false,
@@ -383,10 +391,16 @@ export async function executeAuthenticatedCommand(
     };
   }
 
+  // Generate HOME path before buildCommandEnv so we have a known-safe value
+  // for cleanup. buildCommandEnv spreads adapterEnv which could override HOME
+  // if an auth adapter declares envVarName: "HOME".
+  const generatedHomeDir = join(tmpdir(), `ces-home-${randomUUID()}`);
+
   const commandEnv = buildCommandEnv(
     adapterEnv,
     proxyEnv,
     noNetworkEnv,
+    generatedHomeDir,
   );
 
   // -- 9. Execute the command -----------------------------------------------
@@ -448,7 +462,7 @@ export async function executeAuthenticatedCommand(
     }
   }
 
-  cleanupAll(scratchDir, tempFilePath, commandEnv["HOME"]);
+  cleanupAll(scratchDir, tempFilePath, generatedHomeDir);
 
   // -- 12. Persist audit record -----------------------------------------------
   if (deps.auditStore) {
@@ -810,11 +824,12 @@ function buildCommandEnv(
   adapterEnv: Record<string, string>,
   proxyEnv?: ProxyEnvVars,
   noNetworkEnv?: Record<string, string>,
+  homeDir?: string,
 ): Record<string, string> {
   const env: Record<string, string> = {
     // Minimal baseline environment
     PATH: process.env["PATH"] ?? "/usr/local/bin:/usr/bin:/bin",
-    HOME: join(tmpdir(), `ces-home-${randomUUID()}`),
+    HOME: homeDir ?? join(tmpdir(), `ces-home-${randomUUID()}`),
     LANG: "en_US.UTF-8",
     // Inject auth adapter env vars
     ...adapterEnv,
