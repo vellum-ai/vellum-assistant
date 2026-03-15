@@ -323,7 +323,7 @@ private struct WorkspaceTreeSidebar: View {
                     }
                 }
             }
-            .frame(maxHeight: .infinity)
+            .frame(maxHeight: .infinity, alignment: .topLeading)
 
             if state.uploadingCount > 0 {
                 HStack(spacing: VSpacing.xs) {

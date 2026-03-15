@@ -12,7 +12,7 @@ import {
   getEffectiveMode,
   setConversationMode,
   setTimedMode,
-} from "../runtime/session-approval-overrides.js";
+} from "../runtime/conversation-approval-overrides.js";
 import { getLogger } from "../util/logger.js";
 import { buildPolicyContext } from "./policy-context.js";
 import { isSideEffectTool } from "./side-effects.js";

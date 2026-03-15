@@ -133,7 +133,7 @@ import {
   clearAll as clearAllOverrides,
   setConversationMode,
   setTimedMode,
-} from "../runtime/session-approval-overrides.js";
+} from "../runtime/conversation-approval-overrides.js";
 import { ToolExecutor } from "../tools/executor.js";
 import type { ToolContext as TC } from "../tools/types.js";
 

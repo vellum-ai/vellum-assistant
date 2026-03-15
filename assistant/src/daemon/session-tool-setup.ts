@@ -23,7 +23,7 @@ import {
 import { isAllowDecision } from "../permissions/types.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
-import { getEffectiveMode } from "../runtime/session-approval-overrides.js";
+import { getEffectiveMode } from "../runtime/conversation-approval-overrides.js";
 import { coreAppProxyTools } from "../tools/apps/definitions.js";
 import { registerSessionSender } from "../tools/browser/browser-screencast.js";
 import type { ToolExecutor } from "../tools/executor.js";

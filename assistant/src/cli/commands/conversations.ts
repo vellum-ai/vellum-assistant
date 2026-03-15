@@ -21,43 +21,45 @@ import { timeAgo } from "../../util/time.js";
 import { initializeDb } from "../db.js";
 import { log } from "../logger.js";
 
-export function registerSessionsCommand(program: Command): void {
-  const sessions = program.command("sessions").description("Manage sessions");
+export function registerConversationsCommand(program: Command): void {
+  const conversations = program
+    .command("conversations")
+    .description("Manage conversations");
 
-  sessions.addHelpText(
+  conversations.addHelpText(
     "after",
     `
-Sessions represent conversations with the assistant. Each session has a
-unique ID and a title. The assistant must be running for "new" (it communicates
-via the HTTP API), while "list", "export", and "clear" operate on the local
-SQLite database directly.
+Conversations with the assistant. Each conversation has a unique ID and a
+title. The assistant must be running for "new" (it communicates via the HTTP
+API), while "list", "export", and "clear" operate on the local SQLite database
+directly.
 
 Examples:
-  $ assistant sessions list
-  $ assistant sessions new "Project planning"
-  $ assistant sessions export
-  $ assistant sessions clear`,
+  $ assistant conversations list
+  $ assistant conversations new "Project planning"
+  $ assistant conversations export
+  $ assistant conversations clear`,
   );
 
-  sessions
+  conversations
     .command("list")
-    .description("List all sessions")
+    .description("List all conversations")
     .addHelpText(
       "after",
       `
-Shows all sessions with their ID, title, and a relative timestamp (e.g.
-"3 hours ago"). Sessions are listed in order of most recently updated.
+Shows all conversations with their ID, title, and a relative timestamp (e.g.
+"3 hours ago"). Conversations are listed in order of most recently updated.
 
 Operates on the local SQLite database directly — does not require the assistant.
 
 Examples:
-  $ assistant sessions list`,
+  $ assistant conversations list`,
     )
     .action(async () => {
       initializeDb();
       const all = listConversations(Number.MAX_SAFE_INTEGER);
       if (all.length === 0) {
-        log.info("No sessions");
+        log.info("No conversations");
       } else {
         for (const s of all) {
           log.info(
@@ -67,34 +69,34 @@ Examples:
       }
     });
 
-  sessions
+  conversations
     .command("new [title]")
-    .description("Create a new session")
+    .description("Create a new conversation")
     .addHelpText(
       "after",
       `
 Arguments:
-  title   Optional session title (string). If omitted, a default title is
+  title   Optional conversation title (string). If omitted, a default title is
           assigned by the assistant.
 
-Creates a new conversation session and prints its title and ID.
+Creates a new conversation and prints its title and ID.
 
 Examples:
-  $ assistant sessions new
-  $ assistant sessions new "Project planning"
-  $ assistant sessions new "Bug triage 2026-03-05"`,
+  $ assistant conversations new
+  $ assistant conversations new "Project planning"
+  $ assistant conversations new "Bug triage 2026-03-05"`,
     )
     .action(async (title?: string) => {
       if (shouldAutoStartDaemon()) await ensureDaemonRunning();
       initializeDb();
       const conversation = createConversation(title);
       log.info(
-        `Created session: ${conversation.title ?? "New Conversation"} (${conversation.id})`,
+        `Created conversation: ${conversation.title ?? "New Conversation"} (${conversation.id})`,
       );
     });
 
-  sessions
-    .command("export [sessionId]")
+  conversations
+    .command("export [conversationId]")
     .description("Export a conversation as markdown or JSON")
     .option("-f, --format <format>", "Output format: md or json", "md")
     .option("-o, --output <file>", "Write to file instead of stdout")
@@ -102,9 +104,10 @@ Examples:
       "after",
       `
 Arguments:
-  sessionId   Optional session ID (or unique prefix). Defaults to the most
-              recent session. Supports prefix matching — e.g. "abc123" matches
-              the first session whose ID starts with "abc123".
+  conversationId   Optional conversation ID (or unique prefix). Defaults to the
+                   most recent conversation. Supports prefix matching — e.g.
+                   "abc123" matches the first conversation whose ID starts with
+                   "abc123".
 
 Two output formats are available:
   md    Markdown conversation transcript (default). Human-readable rendering
@@ -115,13 +118,13 @@ Two output formats are available:
 Operates on the local SQLite database directly — does not require the assistant.
 
 Examples:
-  $ assistant sessions export
-  $ assistant sessions export --format json -o conversation.json
-  $ assistant sessions export abc123 --format md`,
+  $ assistant conversations export
+  $ assistant conversations export --format json -o conversation.json
+  $ assistant conversations export abc123 --format md`,
     )
     .action(
       async (
-        sessionId?: string,
+        conversationId?: string,
         opts?: { format: string; output?: string },
       ) => {
         initializeDb();
@@ -131,17 +134,17 @@ Examples:
           process.exit(1);
         }
 
-        let id = sessionId;
+        let id = conversationId;
         if (!id) {
           const all = listConversations(1);
           if (all.length === 0) {
-            log.error("No sessions found");
+            log.error("No conversations found");
             process.exit(1);
           }
           id = all[0].id;
         }
 
-        // Support prefix matching for session IDs
+        // Support prefix matching for conversation IDs
         let conversation = getConversation(id);
         if (!conversation) {
           const all = listConversations(Number.MAX_SAFE_INTEGER);
@@ -149,7 +152,7 @@ Examples:
           if (match) {
             conversation = match;
           } else {
-            log.error(`Session not found: ${id}`);
+            log.error(`Conversation not found: ${id}`);
             process.exit(1);
           }
         }
@@ -179,7 +182,7 @@ Examples:
       },
     );
 
-  sessions
+  conversations
     .command("clear")
     .description(
       "Clear all conversations, messages, and vector data (dev only)",
@@ -198,7 +201,7 @@ the assistant.
 Intended for development use. This action cannot be undone.
 
 Examples:
-  $ assistant sessions clear`,
+  $ assistant conversations clear`,
     )
     .action(async () => {
       log.info(

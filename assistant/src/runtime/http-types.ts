@@ -20,7 +20,7 @@ import type {
   ComposeGuardianActionMessageOptions,
   GuardianActionMessageContext,
 } from "./guardian-action-message-composer.js";
-import type { SessionManagementDeps } from "./routes/session-management-routes.js";
+import type { SessionManagementDeps } from "./routes/conversation-management-routes.js";
 /**
  * Daemon-injected function that generates approval copy using a provider.
  * Returns generated text or `null` on failure (caller falls back to deterministic text).

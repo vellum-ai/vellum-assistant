@@ -93,8 +93,8 @@ extension AppDelegate {
             case .notDetermined:
                 guard !hasRequestedNotificationAuthorizationFromConversationSignal else { return }
                 hasRequestedNotificationAuthorizationFromConversationSignal = true
-                log.info("Requesting notification authorization from notification_conversation_created signal")
-                requestNotificationAuthorization(trigger: "notification_conversation_created", showDeniedToast: true)
+                log.info("Requesting notification authorization from notification_thread_created signal")
+                requestNotificationAuthorization(trigger: "notification_thread_created", showDeniedToast: true)
             case .denied:
                 showNotificationPermissionSettingsToastIfNeeded()
             @unknown default:
@@ -361,7 +361,7 @@ extension AppDelegate {
         )
     }
 
-    /// Schedules a fallback local notification for any notification_conversation_created
+    /// Schedules a fallback local notification for any notification_thread_created
     /// event. If the corresponding notification_intent event arrives within the
     /// delay window, the fallback is cancelled (preventing duplicates). Guardian
     /// questions use a specific body; all other event types use a generic body.
