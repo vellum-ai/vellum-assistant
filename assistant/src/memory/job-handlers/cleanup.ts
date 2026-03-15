@@ -67,7 +67,7 @@ const PRUNE_BATCH_LIMIT = 100;
  *
  * Tables with onDelete cascade on conversation FK (memory_segments,
  * conversation_keys, channel_inbound_events, message_runs, call_sessions,
- * external_conversation_bindings, assistant_inbox_thread_state) are handled
+ * external_conversation_bindings, assistant_inbox_conversation_state) are handled
  * automatically. Tables without cascade (messages, tool_invocations,
  * llm_request_logs) are deleted explicitly before removing the conversation row.
  */
