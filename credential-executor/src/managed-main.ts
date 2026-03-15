@@ -49,6 +49,7 @@ import {
   type RpcHandlerRegistry,
 } from "./server.js";
 import { publishBundle } from "./toolstore/publish.js";
+import { validateSourceUrl } from "./toolstore/manifest.js";
 import type { ManagedSubjectResolverOptions } from "./subjects/managed.js";
 import type { ManagedMaterializerOptions } from "./materializers/managed-platform.js";
 
@@ -171,9 +172,18 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
 
   registerManageSecureCommandToolHandler(handlers, {
     downloadBundle: async (sourceUrl: string) => {
-      const resp = await fetch(sourceUrl);
+      const urlError = validateSourceUrl(sourceUrl);
+      if (urlError) {
+        throw new Error(urlError);
+      }
+      const MAX_BUNDLE_SIZE = 100 * 1024 * 1024; // 100 MB
+      const resp = await fetch(sourceUrl, { signal: AbortSignal.timeout(60_000) });
       if (!resp.ok) {
         throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+      }
+      const contentLength = resp.headers.get("content-length");
+      if (contentLength && parseInt(contentLength, 10) > MAX_BUNDLE_SIZE) {
+        throw new Error(`Bundle too large: ${contentLength} bytes (max ${MAX_BUNDLE_SIZE})`);
       }
       return Buffer.from(await resp.arrayBuffer());
     },
