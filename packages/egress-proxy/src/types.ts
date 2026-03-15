@@ -42,6 +42,13 @@ export interface ProxySessionConfig {
   idleTimeoutMs: number;
   /** Maximum concurrent sessions per conversation. */
   maxSessionsPerConversation: number;
+  /**
+   * Per-command network target allowlist (host glob patterns).
+   * When set, the proxy server MUST reject outbound connections to hosts
+   * that do not match any entry. Used by CES egress enforcement to carry
+   * manifest `allowedNetworkTargets` through to the proxy session.
+   */
+  allowedTargets?: string[];
 }
 
 // ---------------------------------------------------------------------------

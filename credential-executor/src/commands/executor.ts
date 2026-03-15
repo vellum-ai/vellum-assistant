@@ -332,10 +332,15 @@ export async function executeAuthenticatedCommand(
 
     try {
       const conversationId = request.conversationId ?? `ces-cmd-${auditId}`;
+      // Carry the profile's allowedNetworkTargets into the session config
+      // so the egress proxy can enforce the allowlist.
+      const profile = manifest.commandProfiles[request.profileName];
+      const allowedTargets = profile?.allowedNetworkTargets?.map((t) => t.hostPattern);
       const session = createSession(
         sessionStore,
         conversationId,
         [request.credentialHandle],
+        { allowedTargets },
       );
       const started = await startSession(
         sessionStore,

@@ -50,6 +50,7 @@ import {
 } from "./server.js";
 import { publishBundle } from "./toolstore/publish.js";
 import { validateSourceUrl } from "./toolstore/manifest.js";
+import { buildCesEgressHooks } from "./commands/egress-hooks.js";
 import { resolveManagedSubject, type ManagedSubjectResolverOptions } from "./subjects/managed.js";
 import { materializeManagedToken, type ManagedMaterializerOptions } from "./materializers/managed-platform.js";
 import { HandleType, parseHandle } from "@vellumai/ces-contracts";
@@ -210,6 +211,7 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
       },
       auditStore,
       cesMode: "managed",
+      egressHooks: buildCesEgressHooks(),
     },
     defaultWorkspaceDir: "/workspace",
   });

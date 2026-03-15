@@ -54,6 +54,7 @@ import {
 } from "./server.js";
 import { publishBundle } from "./toolstore/publish.js";
 import { validateSourceUrl } from "./toolstore/manifest.js";
+import { buildCesEgressHooks } from "./commands/egress-hooks.js";
 
 // ---------------------------------------------------------------------------
 // Data directory bootstrap
@@ -167,6 +168,7 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
       },
       auditStore,
       cesMode: "local",
+      egressHooks: buildCesEgressHooks(),
     },
     defaultWorkspaceDir: join(vellumRoot, "workspace"),
   });
