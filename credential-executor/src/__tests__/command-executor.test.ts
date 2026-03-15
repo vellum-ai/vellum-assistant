@@ -493,7 +493,7 @@ describe("executeAuthenticatedCommand — grant enforcement", () => {
 
     // The command itself may fail (since the entrypoint is a test script),
     // but it should get past the grant check
-    expect(result.error).not.toContain("No active grant");
+    expect(result.error ?? "").not.toContain("No active grant");
   });
 
   test("allows command with a temporary grant", async () => {
@@ -538,7 +538,7 @@ describe("executeAuthenticatedCommand — grant enforcement", () => {
     const result = await executeAuthenticatedCommand(request, deps);
 
     // Should get past the grant check
-    expect(result.error).not.toContain("No active grant");
+    expect(result.error ?? "").not.toContain("No active grant");
   });
 });
 
@@ -651,7 +651,7 @@ describe("executeAuthenticatedCommand — auth adapters", () => {
     }
     // If the script can't execute (path issues in test), verify we got past
     // the adapter phase
-    expect(result.error).not.toContain("Auth adapter");
+    expect(result.error ?? "").not.toContain("Auth adapter");
   });
 
   test("env_var adapter applies valuePrefix", async () => {
@@ -705,7 +705,7 @@ describe("executeAuthenticatedCommand — auth adapters", () => {
     if (result.exitCode === 0) {
       expect(result.stdout?.trim()).toBe("Bearer my-oauth-token");
     }
-    expect(result.error).not.toContain("Auth adapter");
+    expect(result.error ?? "").not.toContain("Auth adapter");
   });
 
   test("temp_file adapter writes credential to a file", async () => {
@@ -761,7 +761,7 @@ describe("executeAuthenticatedCommand — auth adapters", () => {
       expect(result.stdout?.trim()).toBe('{"key":"test-secret"}');
     }
     // Verify we got past the adapter phase
-    expect(result.error).not.toContain("Auth adapter");
+    expect(result.error ?? "").not.toContain("Auth adapter");
   });
 });
 
@@ -844,8 +844,8 @@ describe("executeAuthenticatedCommand — egress enforcement", () => {
     const result = await executeAuthenticatedCommand(request, deps);
 
     // Should get past egress check
-    expect(result.error).not.toContain("proxy_required");
-    expect(result.error).not.toContain("egress");
+    expect(result.error ?? "").not.toContain("proxy_required");
+    expect(result.error ?? "").not.toContain("egress");
   });
 });
 

@@ -146,13 +146,16 @@ export function urlMatchesTemplate(
     (parsedTemplate.port ? `:${parsedTemplate.port}` : "");
   if (urlHost !== templateHost) return false;
 
-  // Split paths and compare segment-by-segment
+  // Split paths and compare segment-by-segment.
+  // decodeURIComponent is needed because the URL constructor percent-encodes
+  // curly braces ({, }) in paths — placeholders like {:num} become %7B:num%7D.
   const urlSegments = parsedUrl.pathname
     .split("/")
     .filter((s) => s.length > 0);
   const templateSegments = parsedTemplate.pathname
     .split("/")
-    .filter((s) => s.length > 0);
+    .filter((s) => s.length > 0)
+    .map((s) => decodeURIComponent(s));
 
   if (urlSegments.length !== templateSegments.length) return false;
 
