@@ -175,12 +175,43 @@ function acceptOneConnection(socketPath: string, signal: AbortSignal): Promise<{
 }
 
 /**
- * Connect to a Unix socket as a client and return a raw Socket.
+ * Connect to a Unix socket as a client, retrying on transient errors.
+ *
+ * `acceptOneConnection` starts a `net.Server` and the socket path only
+ * exists once the server's `listen` callback fires. On slower CI runners
+ * the `createConnection` call can race ahead and hit `ENOENT` or
+ * `ECONNREFUSED` before the path is ready. A short retry loop with
+ * exponential back-off absorbs this race without needing an explicit
+ * readiness signal from the server side.
  */
-function connectToSocket(socketPath: string): Promise<Socket> {
+function connectToSocket(
+  socketPath: string,
+  { maxRetries = 20, baseDelayMs = 10 } = {},
+): Promise<Socket> {
   return new Promise((resolve, reject) => {
-    const sock = createConnection(socketPath, () => resolve(sock));
-    sock.on("error", reject);
+    let attempt = 0;
+
+    const tryConnect = () => {
+      const sock = createConnection(socketPath, () => {
+        sock.removeAllListeners("error");
+        resolve(sock);
+      });
+      sock.on("error", (err: NodeJS.ErrnoException) => {
+        sock.destroy();
+        attempt++;
+        if (
+          attempt < maxRetries &&
+          (err.code === "ENOENT" || err.code === "ECONNREFUSED")
+        ) {
+          const delay = baseDelayMs * Math.pow(2, Math.min(attempt, 6));
+          setTimeout(tryConnect, delay);
+        } else {
+          reject(err);
+        }
+      });
+    };
+
+    tryConnect();
   });
 }
 

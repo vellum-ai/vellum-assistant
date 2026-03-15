@@ -302,8 +302,11 @@ export function publishBundle(request: PublishRequest): PublishResult {
   mkdirSync(stagingDir, { recursive: true });
 
   try {
-    // Write bundle content (raw archive bytes for digest verification)
-    const stagingBundlePath = join(stagingDir, BUNDLE_FILENAME);
+    // Write bundle content to a unique staging filename so that if the
+    // archive itself contains a root-level "bundle.bin", extraction won't
+    // collide with the staging archive file.
+    const stagingArchiveName = `.ces-bundle-staging-${Date.now()}.tar.gz`;
+    const stagingBundlePath = join(stagingDir, stagingArchiveName);
     writeFileSync(stagingBundlePath, bundleBytes, { mode: 0o444 });
 
     // Extract the tar.gz archive into the staging directory.
@@ -340,8 +343,17 @@ export function publishBundle(request: PublishRequest): PublishResult {
       );
     }
 
-    // Validate that the declared entrypoint exists after extraction
-    const extractedEntrypoint = join(stagingDir, secureCommandManifest.entrypoint);
+    // Validate that the declared entrypoint resolves inside the staging
+    // directory. A manifest with an absolute or `../`-traversal entrypoint
+    // could make chmod (or later execution) touch files outside the bundle.
+    const extractedEntrypoint = resolve(stagingDir, secureCommandManifest.entrypoint);
+    const realStagingDir = realpathSync(stagingDir);
+    if (extractedEntrypoint !== realStagingDir && !extractedEntrypoint.startsWith(realStagingDir + "/")) {
+      throw new Error(
+        `Entrypoint "${secureCommandManifest.entrypoint}" resolves outside the bundle directory. ` +
+        `Path traversal in entrypoint values is not allowed.`,
+      );
+    }
 
     // Check that the entrypoint itself is not a symlink (use lstat to avoid following)
     try {

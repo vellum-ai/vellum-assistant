@@ -20,7 +20,6 @@ import { join } from "node:path";
 
 import {
   computeExpiresAt,
-  oauthAppClientSecretPath,
   type SecureKeyBackend,
   type TokenRefreshResult,
 } from "@vellumai/credential-storage";
@@ -254,6 +253,7 @@ export function createLocalTokenRefreshFn(
         success: true,
         accessToken: result.accessToken,
         expiresAt,
+        refreshToken: result.refreshToken,
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
