@@ -3,6 +3,8 @@ import { z } from "zod";
 import { getDataDir } from "../util/platform.js";
 
 // Re-export all domain schemas
+export type { AcpAgentConfig, AcpConfig } from "./acp-schema.js";
+export { AcpAgentConfigSchema, AcpConfigSchema } from "./acp-schema.js";
 export type {
   CallerIdentityConfig,
   CallsConfig,
@@ -164,6 +166,7 @@ export type { WorkspaceGitConfig } from "./schemas/workspace-git.js";
 export { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 
 // Imports for AssistantConfigSchema composition
+import { AcpConfigSchema } from "./acp-schema.js";
 import { CallsConfigSchema } from "./schemas/calls.js";
 import {
   SlackConfigSchema,
@@ -279,6 +282,7 @@ export const AssistantConfigSchema = z
     heartbeat: HeartbeatConfigSchema.default(HeartbeatConfigSchema.parse({})),
     swarm: SwarmConfigSchema.default(SwarmConfigSchema.parse({})),
     mcp: McpConfigSchema.default(McpConfigSchema.parse({})),
+    acp: AcpConfigSchema.default(AcpConfigSchema.parse({})),
     skills: SkillsConfigSchema.default(SkillsConfigSchema.parse({})),
     workspaceGit: WorkspaceGitConfigSchema.default(
       WorkspaceGitConfigSchema.parse({}),

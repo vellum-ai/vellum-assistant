@@ -26,6 +26,7 @@
     "postinstall": "cd .. && (git config core.hooksPath || git config core.hooksPath .githooks 2>/dev/null || true) && ([ -f meta/feature-flags/sync-bundled-copies.ts ] && bun run meta/feature-flags/sync-bundled-copies.ts 2>/dev/null || true)"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "^0.16.1",
     "@anthropic-ai/claude-agent-sdk": "^0.2.42",
     "@anthropic-ai/sdk": "^0.78.0",
     "@google/genai": "^1.40.0",
