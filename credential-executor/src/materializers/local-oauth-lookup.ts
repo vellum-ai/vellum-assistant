@@ -70,7 +70,7 @@ function rowToRecord(row: OAuthConnectionRow): OAuthConnectionRecord {
 export function createLocalOAuthLookup(
   vellumRoot: string,
 ): OAuthConnectionLookup {
-  const dbPath = join(vellumRoot, "data", "assistant.db");
+  const dbPath = join(vellumRoot, "workspace", "data", "db", "assistant.db");
 
   return {
     getById(connectionId: string): OAuthConnectionRecord | undefined {
