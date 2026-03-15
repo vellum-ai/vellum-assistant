@@ -62,7 +62,18 @@ Proactively remove unused code during every change. Remove code your change make
 
 ## Backwards Compatibility
 
-No external customers yet — do not preserve backwards compatibility unless explicitly asked. No aliases, fallback reads, old API shapes, migration shims, or adapters. Flag breaks in PR descriptions but proceed with the clean implementation. Remove existing backwards-compat code when encountered.
+No aliases, fallback reads, old API shapes, migration shims, or adapters for internal interfaces — proceed with the clean implementation. Remove existing interface backwards-compat code when encountered.
+
+**Exception — persisted state and data.** We have real users with data on disk. Never ship a change that silently breaks existing persisted state. When a change alters workspace file paths, directory structure, data shapes, namespaces, column schemas, or storage formats, include a migration in the same PR.
+
+**Which migration strategy to use:**
+
+| What changed | Migration type | Location |
+|---|---|---|
+| Workspace files (renames, moves, format changes under `~/.vellum/workspace/`) | Workspace migration | `assistant/src/workspace/migrations/` — append to `WORKSPACE_MIGRATIONS` in `registry.ts` |
+| Database schema or data (columns, indexes, backfills) | DB migration | `assistant/src/memory/migrations/` — add function and register in `db-init.ts` |
+
+Migrations must be **idempotent** (safe to re-run if interrupted) and **append-only** (never reorder or remove existing entries). Test migrations — see `assistant/src/__tests__/workspace-migration-*.test.ts` and `assistant/src/__tests__/db-*.test.ts` for patterns. Flag breaking changes in PR descriptions. If a migration is infeasible, call it out explicitly for human review.
 
 ## Assistant-Driven Judgement
 
