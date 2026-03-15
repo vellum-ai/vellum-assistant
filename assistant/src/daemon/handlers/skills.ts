@@ -220,12 +220,6 @@ export interface SkillListItem {
   homepage?: string;
   source: "bundled" | "managed" | "workspace" | "clawhub" | "extra";
   state: "enabled" | "disabled" | "available";
-  degraded: boolean;
-  missingRequirements?: {
-    bins?: string[];
-    env?: string[];
-    permissions?: string[];
-  };
   updateAvailable: boolean;
   userInvocable: boolean;
   provenance: SkillProvenance;
@@ -251,12 +245,7 @@ export function listSkills(_ctx: SkillOperationContext): SkillListItem[] {
     emoji: r.summary.emoji,
     homepage: r.summary.homepage,
     source: r.summary.source,
-    state: (r.state === "degraded" ? "enabled" : r.state) as
-      | "enabled"
-      | "disabled"
-      | "available",
-    degraded: r.degraded,
-    missingRequirements: r.missingRequirements,
+    state: r.state as "enabled" | "disabled" | "available",
     updateAvailable: false,
     userInvocable: r.summary.userInvocable,
     provenance: resolveProvenance(r.summary),

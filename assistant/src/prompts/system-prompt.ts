@@ -1022,13 +1022,8 @@ function getMcpSetupDescription(): string {
 }
 
 function formatSkillsCatalog(skills: SkillSummary[]): string {
-  // Filter out skills with disableModelInvocation or unsupported OS
-  const visible = skills.filter((s) => {
-    if (s.disableModelInvocation) return false;
-    const os = s.metadata?.os;
-    if (os && os.length > 0 && !os.includes(process.platform)) return false;
-    return true;
-  });
+  // Filter out skills with disableModelInvocation
+  const visible = skills.filter((s) => !s.disableModelInvocation);
   if (visible.length === 0) return "";
 
   const lines = ["<available_skills>"];

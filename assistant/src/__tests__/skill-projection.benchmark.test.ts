@@ -56,8 +56,6 @@ mock.module("../config/skills.js", () => ({
       bundled: false,
       userInvocable: false,
     })),
-  // Needed by transitive deps (skill-state.ts imports this)
-  checkSkillRequirements: () => ({ eligible: true, missing: {} }),
   getSkillsDir: () => "/tmp/fake-skills",
   getBundledSkillsDir: () => "/tmp/fake-bundled-skills",
   resolveSkillSelector: () => ({ found: false }),

@@ -831,8 +831,6 @@ describe("YAML metadata round-trip", () => {
         '    display-name: "YAML Nested Skill"',
         "    user-invocable: false",
         "    disable-model-invocation: true",
-        "    os:",
-        `      - "${process.platform}"`,
         "    includes:",
         '      - "child-a"',
         '      - "child-b"',
@@ -855,9 +853,5 @@ describe("YAML metadata round-trip", () => {
     expect(skill!.disableModelInvocation).toBe(true);
     expect(skill!.emoji).toBe("🧪");
     expect(skill!.includes).toEqual(["child-a", "child-b"]);
-
-    // Verify os is parsed into metadata
-    expect(skill!.metadata).toBeDefined();
-    expect(skill!.metadata!.os).toEqual([process.platform]);
   });
 });

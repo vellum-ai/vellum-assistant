@@ -28,7 +28,6 @@ function makeResolved(
   return {
     summary: skill,
     state,
-    degraded: state === "degraded",
   };
 }
 
@@ -64,10 +63,10 @@ describe("buildInvocableSlashCatalog", () => {
     expect(entry!.name).toBe("Start the Day");
   });
 
-  test("includes degraded invocable skill", () => {
-    const skill = makeSkill("degraded-skill");
+  test("includes available invocable skill", () => {
+    const skill = makeSkill("available-skill");
     const catalog = [skill];
-    const resolved = [makeResolved(skill, "degraded")];
+    const resolved = [makeResolved(skill, "available")];
 
     const result = buildInvocableSlashCatalog(catalog, resolved);
     expect(result.size).toBe(1);

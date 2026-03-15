@@ -88,12 +88,6 @@ export interface SkillsListResponse {
     homepage?: string;
     source: "bundled" | "managed" | "workspace" | "clawhub" | "extra";
     state: "enabled" | "disabled" | "available";
-    degraded: boolean;
-    missingRequirements?: {
-      bins?: string[];
-      env?: string[];
-      permissions?: string[];
-    };
     installedVersion?: string;
     latestVersion?: string;
     updateAvailable: boolean;

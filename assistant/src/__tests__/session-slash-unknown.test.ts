@@ -184,7 +184,6 @@ mock.module("../config/skill-state.js", () => ({
     catalog.map((s) => ({
       summary: s,
       state: "enabled",
-      degraded: false,
     })),
 }));
 

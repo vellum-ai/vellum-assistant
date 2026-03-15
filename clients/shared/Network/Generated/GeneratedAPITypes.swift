@@ -3874,8 +3874,6 @@ public struct SkillsListResponseSkill: Codable, Sendable {
     public let homepage: String?
     public let source: String
     public let state: String
-    public let degraded: Bool
-    public let missingRequirements: SkillsListResponseSkillMissingRequirements?
     public let installedVersion: String?
     public let latestVersion: String?
     public let updateAvailable: Bool
@@ -3883,7 +3881,7 @@ public struct SkillsListResponseSkill: Codable, Sendable {
     public let clawhub: SkillsListResponseSkillClawhub?
     public let provenance: SkillsListResponseSkillProvenance?
 
-    public init(id: String, name: String, description: String, emoji: String? = nil, homepage: String? = nil, source: String, state: String, degraded: Bool, missingRequirements: SkillsListResponseSkillMissingRequirements? = nil, installedVersion: String? = nil, latestVersion: String? = nil, updateAvailable: Bool, userInvocable: Bool, clawhub: SkillsListResponseSkillClawhub? = nil, provenance: SkillsListResponseSkillProvenance? = nil) {
+    public init(id: String, name: String, description: String, emoji: String? = nil, homepage: String? = nil, source: String, state: String, installedVersion: String? = nil, latestVersion: String? = nil, updateAvailable: Bool, userInvocable: Bool, clawhub: SkillsListResponseSkillClawhub? = nil, provenance: SkillsListResponseSkillProvenance? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -3891,8 +3889,6 @@ public struct SkillsListResponseSkill: Codable, Sendable {
         self.homepage = homepage
         self.source = source
         self.state = state
-        self.degraded = degraded
-        self.missingRequirements = missingRequirements
         self.installedVersion = installedVersion
         self.latestVersion = latestVersion
         self.updateAvailable = updateAvailable
@@ -3915,18 +3911,6 @@ public struct SkillsListResponseSkillClawhub: Codable, Sendable {
         self.installs = installs
         self.reports = reports
         self.publishedAt = publishedAt
-    }
-}
-
-public struct SkillsListResponseSkillMissingRequirements: Codable, Sendable {
-    public let bins: [String]?
-    public let env: [String]?
-    public let permissions: [String]?
-
-    public init(bins: [String]? = nil, env: [String]? = nil, permissions: [String]? = nil) {
-        self.bins = bins
-        self.env = env
-        self.permissions = permissions
     }
 }
 
