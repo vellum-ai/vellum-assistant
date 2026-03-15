@@ -480,7 +480,7 @@ struct SettingsDeveloperTab: View {
                     }
                 }
 
-                if case .local = home, let uuid = platformUuid {
+                if let uuid = platformUuid {
                     HStack(spacing: VSpacing.xs) {
                         Text("Platform ID:")
                             .font(VFont.caption)
@@ -498,8 +498,7 @@ struct SettingsDeveloperTab: View {
     }
 
     private func resolvePlatformUuid() {
-        guard let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
-              !assistant.isManaged, !assistant.isRemote else {
+        guard let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) else {
             platformUuid = nil
             return
         }
@@ -507,7 +506,7 @@ struct SettingsDeveloperTab: View {
         let userId = authManager.currentUser?.id
         platformUuid = PlatformAssistantIdResolver.resolve(
             lockfileAssistantId: assistant.assistantId,
-            isManaged: false,
+            isManaged: assistant.isManaged,
             organizationId: orgId,
             userId: userId,
             credentialStorage: KeychainCredentialStorage()
