@@ -59,6 +59,7 @@ ${denyReadRules}
 
 ;; Allow write access to the working directory and its children
 (allow file-write*
+  (literal "/dev/null")
   (subpath "__WORKING_DIR__")
   (subpath "/private/tmp")
   (subpath "/tmp")

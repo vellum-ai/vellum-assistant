@@ -205,6 +205,12 @@ describe("terminal sandbox — macOS sandbox-exec behavior", () => {
     const profileContent = writeFileSyncMock.mock.calls[0]?.[1] as string;
     expect(profileContent).toContain('bad\\"dir');
   });
+
+  test("SBPL profile allows writes to /dev/null", () => {
+    wrapCommand("git status", "/tmp/project", nativeConfig());
+    const profileContent = writeFileSyncMock.mock.calls[0]?.[1] as string;
+    expect(profileContent).toContain('(literal "/dev/null")');
+  });
 });
 
 describe("terminal sandbox — backend selection", () => {
