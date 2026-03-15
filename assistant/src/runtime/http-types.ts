@@ -237,6 +237,7 @@ export interface RuntimeAttachmentMetadata {
   kind: string;
   data?: string;
   thumbnailData?: string;
+  fileBacked?: boolean;
 }
 
 export interface RuntimeMessagePayload {
