@@ -184,15 +184,28 @@ export function validateContainedPath(
   try {
     normalizedPath = realpathSync(resolvedPath);
   } catch {
-    // Path doesn't exist yet — resolve its closest existing ancestor via
-    // realpathSync so that symlinks in parent dirs (e.g. /tmp → /private/tmp)
-    // are resolved consistently with the root directory.
-    const parent = dirname(resolvedPath);
-    const child = basename(resolvedPath);
-    try {
-      normalizedPath = join(realpathSync(parent), child);
-    } catch {
-      normalizedPath = resolve(resolvedPath);
+    // Path doesn't exist yet — walk up to the nearest existing ancestor and
+    // resolve it via realpathSync so that symlinks in parent dirs (e.g.
+    // /tmp → /private/tmp on macOS) are resolved consistently with the root
+    // directory. A single dirname call isn't enough for multi-level
+    // non-existent paths like "reports/output.json" where "reports/" also
+    // doesn't exist.
+    let current = resolvedPath;
+    let resolved = false;
+    while (!resolved) {
+      const ancestor = dirname(current);
+      const tail = current.slice(ancestor.length);
+      try {
+        normalizedPath = realpathSync(ancestor) + tail;
+        resolved = true;
+      } catch {
+        if (ancestor === current) {
+          // Reached filesystem root without finding an existing ancestor
+          normalizedPath = resolve(resolvedPath);
+          resolved = true;
+        }
+        current = ancestor;
+      }
     }
   }
 
