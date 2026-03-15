@@ -115,7 +115,7 @@ function createTestConversation(id: string): string {
   const now = Date.now();
   raw
     .query(
-      `INSERT INTO conversations (id, title, created_at, updated_at, thread_type, memory_scope_id) VALUES (?, 'Test', ?, ?, 'standard', 'default')`,
+      `INSERT INTO conversations (id, title, created_at, updated_at, conversation_type, memory_scope_id) VALUES (?, 'Test', ?, ?, 'standard', 'default')`,
     )
     .run(id, now, now);
   return id;

@@ -40,7 +40,6 @@ const VellumMetadataSchema = z
   .object({
     emoji: z.string().optional(),
     "display-name": z.string().optional(),
-    "user-invocable": z.union([z.boolean(), z.string()]).optional(),
     includes: z.array(z.string()).optional(),
     "feature-flag": z.string().optional(),
   })
@@ -74,7 +73,6 @@ export interface SkillSummary {
   icon?: string;
   emoji?: string;
   homepage?: string;
-  userInvocable: boolean;
   source: SkillSource;
   metadata?: VellumMetadata;
   /** Parsed tool manifest metadata, if the skill has a valid TOOLS.json. */
@@ -196,7 +194,6 @@ interface ParsedFrontmatter {
   displayName: string;
   description: string;
   body: string;
-  userInvocable: boolean;
   metadata?: VellumMetadata;
   includes?: string[];
   featureFlag?: string;
@@ -280,17 +277,6 @@ function parseFrontmatter(
     }
   }
 
-  // Read vellum-specific fields exclusively from metadata.vellum
-  const vellumUserInvocable = vellum?.["user-invocable"];
-  let userInvocable: boolean;
-  if (typeof vellumUserInvocable === "boolean") {
-    userInvocable = vellumUserInvocable;
-  } else if (typeof vellumUserInvocable === "string") {
-    userInvocable = vellumUserInvocable !== "false";
-  } else {
-    userInvocable = true;
-  }
-
   let includes: string[] | undefined;
   if (Array.isArray(vellum?.includes)) {
     const normalized = [
@@ -319,7 +305,6 @@ function parseFrontmatter(
     displayName,
     description,
     body: stripCommentLines(body),
-    userInvocable,
     metadata,
     includes,
     featureFlag,
@@ -470,7 +455,6 @@ function readSkillFromDirectory(
       skillFilePath,
       body: parsed.body,
       emoji: parsed.metadata?.emoji,
-      userInvocable: parsed.userInvocable,
 
       source,
       metadata: parsed.metadata,
@@ -520,7 +504,6 @@ function readBundledSkillFromDirectory(
       body: parsed.body,
       bundled: true,
       emoji: parsed.metadata?.emoji,
-      userInvocable: parsed.userInvocable,
 
       source: "bundled",
       metadata: parsed.metadata,
@@ -578,7 +561,6 @@ function loadBundledSkills(): SkillSummary[] {
       skillFilePath: skill.skillFilePath,
       bundled: true,
       emoji: skill.emoji,
-      userInvocable: skill.userInvocable,
 
       source: "bundled",
       metadata: skill.metadata,
@@ -715,7 +697,6 @@ function skillSummaryFromDefinition(
     skillFilePath: skill.skillFilePath,
     bundled: skill.bundled,
     emoji: skill.emoji,
-    userInvocable: skill.userInvocable,
     source,
     metadata: skill.metadata,
     toolManifest: skill.toolManifest,
@@ -766,7 +747,6 @@ export function loadSkillCatalog(
             directoryPath: directory,
             skillFilePath,
             emoji: parsed.metadata?.emoji,
-            userInvocable: parsed.userInvocable,
 
             source: "extra",
             metadata: parsed.metadata,
@@ -862,7 +842,6 @@ export function loadSkillCatalog(
           directoryPath: directory,
           skillFilePath,
           emoji: parsed.metadata?.emoji,
-          userInvocable: parsed.userInvocable,
 
           source: "workspace",
           metadata: parsed.metadata,

@@ -425,8 +425,8 @@ export async function executeAuthenticatedCommand(
   }
 
   // Generate HOME path before buildCommandEnv so we have a known-safe value
-  // for cleanup. buildCommandEnv spreads adapterEnv which could override HOME
-  // if an auth adapter declares envVarName: "HOME".
+  // for cleanup. buildCommandEnv sets HOME after spreading adapterEnv to
+  // prevent auth adapters from overriding the isolated home directory.
   const generatedHomeDir = join(tmpdir(), `ces-home-${randomUUID()}`);
 
   // Create the HOME directory and enforce cleanConfigDirs before building env
@@ -940,10 +940,12 @@ function buildCommandEnv(
   const env: Record<string, string> = {
     // Minimal baseline environment
     PATH: process.env["PATH"] ?? "/usr/local/bin:/usr/bin:/bin",
-    HOME: homeDir ?? join(tmpdir(), `ces-home-${randomUUID()}`),
     LANG: "en_US.UTF-8",
-    // Inject auth adapter env vars
+    // Inject auth adapter env vars first so they cannot override HOME
     ...adapterEnv,
+    // HOME is set after adapterEnv spread to prevent auth adapters declaring
+    // envVarName: "HOME" from bypassing the isolated config directory.
+    HOME: homeDir ?? join(tmpdir(), `ces-home-${randomUUID()}`),
   };
 
   // Inject proxy env vars if the egress proxy is active

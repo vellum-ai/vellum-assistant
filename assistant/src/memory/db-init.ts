@@ -81,7 +81,9 @@ import {
   migrateOAuthProvidersPingUrl,
   migrateReminderRoutingIntent,
   migrateRemindersToSchedules,
+  migrateRenameConversationTypeColumn,
   migrateRenameGuardianVerificationValues,
+  migrateRenameInboxThreadStateTable,
   migrateRenameNotificationThreadColumns,
   migrateRenameVerificationSessionIdColumn,
   migrateRenameVerificationTable,
@@ -397,7 +399,13 @@ export function initializeDb(): void {
   // 65. Convert guardian timestamps from ISO 8601 text to epoch ms integers
   migrateGuardianTimestampsEpochMs(database);
 
-  // 66. Rename notification_deliveries thread columns → conversation columns
+  // 66. Rename assistant_inbox_thread_state → assistant_inbox_conversation_state
+  migrateRenameInboxThreadStateTable(database);
+
+  // 67. Rename thread_type → conversation_type in conversations table
+  migrateRenameConversationTypeColumn(database);
+
+  // 68. Rename notification_deliveries thread columns → conversation columns
   migrateRenameNotificationThreadColumns(database);
 
   validateMigrationState(database);

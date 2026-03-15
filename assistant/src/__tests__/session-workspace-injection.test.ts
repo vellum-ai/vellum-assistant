@@ -82,9 +82,6 @@ mock.module("../config/skill-state.js", () => ({
   resolveSkillStates: () => [],
 }));
 mock.module("../skills/slash-commands.js", () => ({
-  buildInvocableSlashCatalog: () => new Map(),
-  resolveSlashSkillCommand: () => ({ kind: "not_slash" }),
-  rewriteKnownSlashCommandPrompt: () => "",
   parseSlashCandidate: () => ({ kind: "not_slash" }),
 }));
 mock.module("../permissions/trust-store.js", () => ({

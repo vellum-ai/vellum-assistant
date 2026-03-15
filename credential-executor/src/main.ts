@@ -39,6 +39,7 @@ import { LocalMaterialiser } from "./materializers/local.js";
 import { createLocalSecureKeyBackend } from "./materializers/local-secure-key-backend.js";
 import { createLocalOAuthLookup } from "./materializers/local-oauth-lookup.js";
 import { resolveLocalSubject } from "./subjects/local.js";
+import { checkCredentialPolicy } from "./subjects/policy.js";
 import {
   getCesAuditDir,
   getCesDataRoot,
@@ -157,6 +158,18 @@ function buildHandlers(sessionIdRef: SessionIdRef): RpcHandlerRegistry {
         if (!subjectResult.ok) {
           return { ok: false as const, error: subjectResult.error };
         }
+
+        // Enforce credential-level policies for local static handles
+        if (subjectResult.subject.type === "local_static") {
+          const policyCheck = checkCredentialPolicy(
+            subjectResult.subject.metadata,
+            "run_authenticated_command",
+          );
+          if (!policyCheck.ok) {
+            return { ok: false as const, error: policyCheck.error! };
+          }
+        }
+
         const matResult = await localMaterialiser.materialise(subjectResult.subject);
         if (!matResult.ok) {
           return { ok: false as const, error: matResult.error };

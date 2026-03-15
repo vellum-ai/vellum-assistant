@@ -6,7 +6,6 @@ metadata:
   emoji: "🔍"
   vellum:
     display-name: "Influencer Research"
-    user-invocable: true
 ---
 
 You can research and discover influencers across Instagram, TikTok, and X/Twitter using the bundled influencer scripts.

@@ -89,7 +89,7 @@ CES has two grant tiers:
 
 - **Persistent grants** (`always_allow`): Stored in the CES grant table and scoped to the entire assistant — not to a specific session. These are analogous to trust rules: once a user approves `always_allow` for a credential+purpose pair, any session on that assistant can use the grant. The `session_id` field on persistent grants records which session created the grant (audit metadata), but is not used as an enforcement filter during grant matching.
 
-- **Temporary grants** (`allow_once`, `allow_10m`, `allow_thread`): Held in-memory by the CES process and scoped to the session or thread that created them. These grants are not persisted and do not survive CES restarts. `allow_once` is consumed immediately after a single use; `allow_10m` expires after 10 minutes; `allow_thread` lasts for the lifetime of the originating agent thread.
+- **Temporary grants** (`allow_once`, `allow_10m`, `allow_thread`): Held in-memory by the CES process and scoped to the session or thread that created them. These grants are not persisted and do not survive CES restarts. `allow_once` is consumed immediately after a single use; `allow_10m` expires after 10 minutes; `allow_thread` is scoped to the originating conversation via key matching but remains in memory until the CES process restarts (there is no automatic cleanup on thread end).
 
 ### Persistent grant table
 
@@ -343,11 +343,17 @@ When a credential is rotated (e.g., an API key is regenerated), existing CES gra
 
 **Mitigation**: Grants have TTL-based expiry. Operators can force-revoke grants via the grant revocation RPC. Future iterations may integrate with credential-rotation webhooks to auto-revoke affected grants.
 
-### 7. Cooperative egress enforcement via environment variables
+### 7. Cooperative isolation for both network egress and filesystem access
 
-CES enforces egress controls by injecting `HTTP_PROXY`/`HTTPS_PROXY` environment variables into the subprocess environment. This is cooperative — a binary that ignores proxy environment variables, implements its own HTTP stack, or opens raw sockets can bypass CES egress controls entirely. Risk #3 above documents this limitation for both local and managed deployments. In managed deployments specifically, current network policies allow public egress from all containers in the pod, so a non-cooperating binary in the CES container can reach the internet without going through the egress proxy.
+CES enforces isolation controls cooperatively rather than at the OS level:
 
-**Mitigation**: The denied-binary list and manifest validation restrict which binaries can run as secure commands, reducing the surface for non-cooperating binaries. In practice, the well-known CLI tools approved as secure command entrypoints (e.g., `gh`, `aws`) respect proxy environment variables. Future work could add per-container network policies (e.g., Calico rules that restrict the CES container's egress to the proxy sidecar only) or use network namespace isolation to make the proxy mandatory at the network level rather than relying on process-level cooperation.
+- **Network egress**: CES injects `HTTP_PROXY`/`HTTPS_PROXY` environment variables into the subprocess environment. A binary that ignores proxy environment variables, implements its own HTTP stack, or opens raw sockets can bypass CES egress controls entirely. Risk #3 above documents this limitation for both local and managed deployments. In managed deployments specifically, current network policies allow public egress from all containers in the pod, so a non-cooperating binary in the CES container can reach the internet without going through the egress proxy.
+
+- **Filesystem access**: CES commands run with `cwd` set to a CES-private scratch directory, but this is cooperative — commands can use absolute paths to read or write arbitrary locations on the host filesystem. There is no chroot, filesystem namespace, or bind-mount isolation restricting file access. A command that resolves `..` paths or uses absolute paths can escape the scratch directory to access any file readable/writable by the CES process user.
+
+Both limitations stem from the same root cause: v1 relies on process-level conventions (env vars for network, cwd for filesystem) rather than OS-level enforcement primitives.
+
+**Mitigation**: The denied-binary list and manifest validation restrict which binaries can run as secure commands, reducing the surface for non-cooperating binaries. In practice, the well-known CLI tools approved as secure command entrypoints (e.g., `gh`, `aws`) respect proxy environment variables and operate within their working directory. True enforcement requires OS-level sandboxing — Linux network namespaces for mandatory proxy routing and filesystem namespaces or chroot for path isolation — which is planned for v2 when CES runs in managed containers with full namespace support.
 
 ### 8. `credential_process` adapter shares cooperative egress limitation with main command
 

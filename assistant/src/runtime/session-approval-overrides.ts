@@ -1,13 +1,13 @@
 /**
  * Per-conversation temporary approval overrides.
  *
- * When a user chooses `allow_thread` or `allow_10m`, the session records a
+ * When a user chooses `allow_conversation` or `allow_10m`, the session records a
  * temporary approval mode scoped to the conversation. Subsequent tool-use
  * confirmations within the same conversation can check this state to
  * auto-approve without prompting.
  *
  * State is in-memory only -- it does not survive daemon restarts, which is
- * the desired behavior for temporary approvals. Thread-scoped overrides
+ * the desired behavior for temporary approvals. Conversation-scoped overrides
  * persist until the session ends or the mode is explicitly cleared. Timed
  * overrides expire after their TTL (checked at read time, no background sweep).
  */

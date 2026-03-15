@@ -6,7 +6,6 @@ metadata:
   emoji: "📧"
   vellum:
     display-name: "Email Setup"
-    user-invocable: true
     feature-flag: "email-channel"
 ---
 

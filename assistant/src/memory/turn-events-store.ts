@@ -28,8 +28,8 @@ export function queryUnreportedTurnEvents(
         // system-generated and should not count as user turns.
         // Use ESCAPE '\\' so underscores are matched literally, not as
         // single-character wildcards.
-        sql`${messages.content} NOT LIKE '%"type":"tool\\_result"%' ESCAPE '\\\\'`,
-        sql`${messages.content} NOT LIKE '%"type":"web\\_search\\_tool\\_result"%' ESCAPE '\\\\'`,
+        sql`${messages.content} NOT LIKE '%"type":"tool\\_result"%' ESCAPE '\\'`,
+        sql`${messages.content} NOT LIKE '%"type":"web\\_search\\_tool\\_result"%' ESCAPE '\\'`,
         afterId
           ? or(
               gt(messages.createdAt, afterCreatedAt),

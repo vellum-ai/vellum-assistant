@@ -97,7 +97,7 @@ export interface ConversationRow {
   contextSummary: string | null;
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
-  threadType: string;
+  conversationType: string;
   source: string;
   memoryScopeId: string;
   originChannel: string | null;
@@ -120,7 +120,7 @@ export const parseConversation = createRowMapper<
   contextSummary: "contextSummary",
   contextCompactedMessageCount: "contextCompactedMessageCount",
   contextCompactedAt: "contextCompactedAt",
-  threadType: "threadType",
+  conversationType: "conversationType",
   source: "source",
   memoryScopeId: "memoryScopeId",
   originChannel: "originChannel",
@@ -169,7 +169,7 @@ export function createConversation(
     | string
     | {
         title?: string;
-        threadType?: "standard" | "private" | "background";
+        conversationType?: "standard" | "private" | "background";
         source?: string;
         scheduleJobId?: string;
       },
@@ -180,10 +180,11 @@ export function createConversation(
     typeof titleOrOpts === "string"
       ? { title: titleOrOpts }
       : (titleOrOpts ?? {});
-  const threadType = opts.threadType ?? "standard";
+  const conversationType = opts.conversationType ?? "standard";
   const source = opts.source ?? "user";
   const id = uuid();
-  const memoryScopeId = threadType === "private" ? `private:${id}` : "default";
+  const memoryScopeId =
+    conversationType === "private" ? `private:${id}` : "default";
   const conversation = {
     id,
     title: opts.title ?? null,
@@ -195,7 +196,7 @@ export function createConversation(
     contextSummary: null as string | null,
     contextCompactedMessageCount: 0,
     contextCompactedAt: null as number | null,
-    threadType,
+    conversationType,
     source,
     memoryScopeId,
     scheduleJobId: opts.scheduleJobId ?? null,
@@ -240,11 +241,11 @@ export function getConversation(id: string): ConversationRow | null {
   return row ? parseConversation(row) : null;
 }
 
-export function getConversationThreadType(
+export function getConversationType(
   conversationId: string,
 ): "standard" | "private" {
   const conv = getConversation(conversationId);
-  const raw = conv?.threadType;
+  const raw = conv?.conversationType;
   return raw === "private" ? "private" : "standard";
 }
 
@@ -368,7 +369,7 @@ export function purgePrivateConversations(): {
   const privateConvs = db
     .select({ id: conversations.id })
     .from(conversations)
-    .where(eq(conversations.threadType, "private"))
+    .where(eq(conversations.conversationType, "private"))
     .all();
 
   if (privateConvs.length === 0) {
@@ -963,7 +964,7 @@ export function getConversationOriginInterface(
  *
  * Used by the pointer message trust resolver to detect conversations
  * whose audience is a guardian or trusted_contact (even if the
- * conversation itself isn't a desktop-origin private thread).
+ * conversation itself isn't a desktop-origin private conversation).
  */
 export function getConversationRecentProvenanceTrustClass(
   conversationId: string,

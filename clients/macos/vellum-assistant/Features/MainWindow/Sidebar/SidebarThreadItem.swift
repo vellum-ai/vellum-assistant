@@ -38,6 +38,11 @@ struct SidebarThreadItem: View {
             thread.latestAssistantMessageAt != nil
     }
 
+    private var isManagedAssistant: Bool {
+        guard let id = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return false }
+        return LockfileAssistant.loadByName(id)?.isManaged == true
+    }
+
     var body: some View {
         // Always reserve 20pt leading slot so text never shifts.
         // Use a tap gesture instead of Button so .draggable() can coexist —
@@ -195,11 +200,12 @@ struct SidebarThreadItem: View {
             Divider()
 
             Button {
-                AppDelegate.shared?.showLogReportWindow(scope: .thread(conversationId: thread.sessionId ?? "", threadTitle: thread.title))
+                guard let sessionId = thread.sessionId else { return }
+                AppDelegate.shared?.showLogReportWindow(scope: .thread(conversationId: sessionId, threadTitle: thread.title))
             } label: {
                 Label { Text("Send Logs for Thread") } icon: { VIconView(.upload, size: 14) }
             }
-            .disabled(thread.sessionId == nil)
+            .disabled(thread.sessionId == nil || isManagedAssistant)
         }
         .pointerCursor()
         .onHover { hovering in

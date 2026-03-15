@@ -270,9 +270,9 @@ describe("CES approval bridge", () => {
     });
   });
 
-  describe("thread-scoped grant (allow_thread)", () => {
-    test("allow_thread decision maps to approved with no TTL", async () => {
-      const prompter = makePrompter("allow_thread");
+  describe("conversation-scoped grant (allow_conversation)", () => {
+    test("allow_conversation decision maps to approved with no TTL", async () => {
+      const prompter = makePrompter("allow_conversation");
       const cesClient = makeCesClient();
 
       const result = await bridgeCesApproval(

@@ -6,7 +6,6 @@ metadata:
   emoji: "💻"
   vellum:
     display-name: "Claude Code"
-    user-invocable: true
 ---
 
 You are delegating a coding task to Claude Code, an autonomous AI coding agent. Use this skill when the user needs hands-on software engineering work done.

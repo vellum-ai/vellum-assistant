@@ -56,7 +56,7 @@ function buildCesProtectedPaths(): string[] {
   // CES bootstrap socket directory — block access to the Unix socket that
   // accepts RPC commands from the assistant process.
   const bootstrapSocketDir =
-    process.env["CES_BOOTSTRAP_SOCKET_DIR"] || "/run/ces";
+    process.env["CES_BOOTSTRAP_SOCKET_DIR"] || "/run/ces-bootstrap";
   paths.push(bootstrapSocketDir);
 
   // If a full socket path override is set (without the dir env var), block

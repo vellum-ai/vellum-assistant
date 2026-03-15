@@ -68,23 +68,6 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       },
     },
 
-    // GET /v1/skills/:id — single skill metadata
-    {
-      endpoint: "skills/:id",
-      method: "GET",
-      policyKey: "skills",
-      handler: ({ params }) => {
-        const result = getSkill(params.id, ctx());
-        if ("error" in result) {
-          if (result.status === 404) {
-            return httpError("NOT_FOUND", result.error, 404);
-          }
-          return httpError("INTERNAL_ERROR", result.error, 500);
-        }
-        return Response.json(result);
-      },
-    },
-
     // POST /v1/skills/:id/enable — enable skill
     {
       endpoint: "skills/:id/enable",
@@ -278,6 +261,25 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
               result.error,
             )
           ) {
+            return httpError("NOT_FOUND", result.error, 404);
+          }
+          return httpError("INTERNAL_ERROR", result.error, 500);
+        }
+        return Response.json(result);
+      },
+    },
+
+    // GET /v1/skills/:id — single skill metadata
+    // Registered after all literal-segment GET routes (search, inspect, files)
+    // to avoid shadowing them with the parametric :id match.
+    {
+      endpoint: "skills/:id",
+      method: "GET",
+      policyKey: "skills",
+      handler: ({ params }) => {
+        const result = getSkill(params.id, ctx());
+        if ("error" in result) {
+          if (result.status === 404) {
             return httpError("NOT_FOUND", result.error, 404);
           }
           return httpError("INTERNAL_ERROR", result.error, 500);

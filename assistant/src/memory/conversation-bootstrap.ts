@@ -6,7 +6,7 @@ import {
 } from "./conversation-title-service.js";
 
 export interface BootstrapConversationOptions {
-  threadType?: "standard" | "private" | "background";
+  conversationType?: "standard" | "private" | "background";
   source?: string;
   origin: TitleOrigin;
   systemHint: string;
@@ -16,7 +16,7 @@ export interface BootstrapConversationOptions {
 export function bootstrapConversation(opts: BootstrapConversationOptions) {
   const conversation = createConversation({
     title: GENERATING_TITLE,
-    ...(opts.threadType && { threadType: opts.threadType }),
+    ...(opts.conversationType && { conversationType: opts.conversationType }),
     ...(opts.source && { source: opts.source }),
     ...(opts.scheduleJobId && { scheduleJobId: opts.scheduleJobId }),
   });

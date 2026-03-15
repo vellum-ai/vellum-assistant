@@ -119,7 +119,7 @@ export class SubagentManager {
     // ── Create conversation ─────────────────────────────────────────
     const subagentId = uuid();
     const conversation = bootstrapConversation({
-      threadType: "background",
+      conversationType: "background",
       origin: "subagent",
       systemHint: `Subagent: ${config.label}`,
     });

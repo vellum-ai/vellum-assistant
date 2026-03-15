@@ -6,7 +6,6 @@ metadata:
   emoji: "🗣️"
   vellum:
     display-name: "ElevenLabs Voice"
-    user-invocable: true
 ---
 
 ## Overview

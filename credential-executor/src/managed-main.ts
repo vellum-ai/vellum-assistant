@@ -17,7 +17,7 @@
  * All RPC traffic flows exclusively over the accepted Unix socket stream.
  */
 
-import { mkdirSync, unlinkSync } from "node:fs";
+import { mkdirSync, readFileSync, unlinkSync } from "node:fs";
 import { createServer as createNetServer, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 import { Readable, Writable } from "node:stream";
@@ -56,6 +56,7 @@ import { publishBundle } from "./toolstore/publish.js";
 import { validateSourceUrl } from "./toolstore/manifest.js";
 import { buildCesEgressHooks } from "./commands/egress-hooks.js";
 import { resolveLocalSubject } from "./subjects/local.js";
+import { checkCredentialPolicy } from "./subjects/policy.js";
 import { resolveManagedSubject, type ManagedSubjectResolverOptions } from "./subjects/managed.js";
 import { materializeManagedToken, type ManagedMaterializerOptions } from "./materializers/managed-platform.js";
 import { HandleType, parseHandle } from "@vellumai/ces-contracts";
@@ -137,7 +138,25 @@ function buildHandlers(sessionIdRef: SessionIdRef): RpcHandlerRegistry {
     process.env["CES_ASSISTANT_DATA_MOUNT"] ?? "/assistant-data-ro";
   const mountedVellumRoot = join(assistantDataMount, ".vellum");
 
-  const secureKeyBackend = createLocalSecureKeyBackend(mountedVellumRoot);
+  // The assistant writes its machine entropy to `protected/entropy.key` so
+  // the CES sidecar can derive the same AES decryption key. Without this,
+  // key derivation would use the sidecar's own hostname/user/homedir which
+  // differ from the assistant container's values.
+  let assistantEntropy: string | undefined;
+  const entropyPath = join(mountedVellumRoot, "protected", "entropy.key");
+  try {
+    assistantEntropy = readFileSync(entropyPath, "utf-8");
+    log(`Read assistant entropy from ${entropyPath}`);
+  } catch {
+    warn(
+      `Could not read assistant entropy from ${entropyPath}. ` +
+        "local_static credential decryption may fail if machine entropy differs.",
+    );
+  }
+
+  const secureKeyBackend = createLocalSecureKeyBackend(mountedVellumRoot, {
+    entropyOverride: assistantEntropy,
+  });
   const localMaterialiser = new LocalMaterialiser({ secureKeyBackend });
 
   const credentialMetadataPath = join(
@@ -191,6 +210,18 @@ function buildHandlers(sessionIdRef: SessionIdRef): RpcHandlerRegistry {
             if (!subjectResult.ok) {
               return { ok: false as const, error: subjectResult.error };
             }
+
+            // Enforce credential-level policies for local static handles
+            if (subjectResult.subject.type === HandleType.LocalStatic) {
+              const policyCheck = checkCredentialPolicy(
+                subjectResult.subject.metadata,
+                "run_authenticated_command",
+              );
+              if (!policyCheck.ok) {
+                return { ok: false as const, error: policyCheck.error! };
+              }
+            }
+
             const matResult = await localMaterialiser.materialise(
               subjectResult.subject,
             );
@@ -251,7 +282,7 @@ function buildHandlers(sessionIdRef: SessionIdRef): RpcHandlerRegistry {
       cesMode: "managed",
       egressHooks: buildCesEgressHooks(),
     },
-    defaultWorkspaceDir: "/workspace",
+    defaultWorkspaceDir: join(mountedVellumRoot, "workspace"),
   });
 
   // Register manage_secure_command_tool handler

@@ -185,7 +185,7 @@ export async function pairDeliveryWithConversation(
 
       const conversation = createConversation({
         title,
-        threadType: conversationType,
+        conversationType,
         source: "notification",
       });
 
@@ -298,7 +298,7 @@ export async function pairDeliveryWithConversation(
     // notification copy from polluting conversational recall.
     const conversation = createConversation({
       title,
-      threadType: conversationType,
+      conversationType,
       source: "notification",
     });
 

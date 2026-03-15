@@ -184,10 +184,10 @@ describe("parseFrontmatterFields", () => {
 
   test("boolean values are parsed as native booleans", () => {
     const result = parseFrontmatterFields(
-      "---\nuser-invocable: false\nsome-flag: true\n---\n",
+      "---\ndisable-feature: true\nsome-flag: false\n---\n",
     );
-    expect(result!.fields["user-invocable"]).toBe(false);
-    expect(result!.fields["some-flag"]).toBe(true);
+    expect(result!.fields["disable-feature"]).toBe(true);
+    expect(result!.fields["some-flag"]).toBe(false);
   });
 
   // -- CRLF handling --
@@ -219,7 +219,7 @@ describe("parseFrontmatterFields", () => {
       '  emoji: "\uD83D\uDD0C"',
       "  vellum:",
       '    display-name: "Test Skill"',
-      "    user-invocable: false",
+      "    disable-model-invocation: true",
       "---",
       "Body",
     ].join("\n");
@@ -230,7 +230,7 @@ describe("parseFrontmatterFields", () => {
       emoji: "\uD83D\uDD0C",
       vellum: {
         "display-name": "Test Skill",
-        "user-invocable": false,
+        "disable-model-invocation": true,
       },
     });
   });

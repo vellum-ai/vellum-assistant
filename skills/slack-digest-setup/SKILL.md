@@ -6,7 +6,6 @@ metadata:
   emoji: "📊"
   vellum:
     display-name: "Slack Digest Setup"
-    user-invocable: true
     includes: ["slack", "schedule"]
 ---
 

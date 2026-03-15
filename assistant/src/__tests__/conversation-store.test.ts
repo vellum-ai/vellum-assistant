@@ -36,7 +36,7 @@ import {
   deleteLastExchange,
   getConversation,
   getConversationMemoryScopeId,
-  getConversationThreadType,
+  getConversationType,
   getMessages,
 } from "../memory/conversation-crud.js";
 import { isLastUserMessageToolResult } from "../memory/conversation-queries.js";
@@ -415,9 +415,9 @@ describe("conversation thread metadata defaults", () => {
     db.run(`DELETE FROM conversations`);
   });
 
-  test("new conversation has threadType defaulting to standard", () => {
+  test("new conversation has conversationType defaulting to standard", () => {
     const conv = createConversation("test");
-    expect(conv.threadType).toBe("standard");
+    expect(conv.conversationType).toBe("standard");
   });
 
   test("new conversation has memoryScopeId defaulting to default", () => {
@@ -429,7 +429,7 @@ describe("conversation thread metadata defaults", () => {
     const conv = createConversation("test");
     const loaded = getConversation(conv.id);
     expect(loaded).not.toBeNull();
-    expect(loaded!.threadType).toBe("standard");
+    expect(loaded!.conversationType).toBe("standard");
     expect(loaded!.memoryScopeId).toBe("default");
   });
 
@@ -445,7 +445,7 @@ describe("conversation thread metadata defaults", () => {
 
     const loaded = getConversation(id);
     expect(loaded).not.toBeNull();
-    expect(loaded!.threadType).toBe("standard");
+    expect(loaded!.conversationType).toBe("standard");
     expect(loaded!.memoryScopeId).toBe("default");
   });
 });
@@ -460,33 +460,39 @@ describe("createConversation with thread type option", () => {
   test("standard create with string title uses defaults", () => {
     const conv = createConversation("hello");
     expect(conv.title).toBe("hello");
-    expect(conv.threadType).toBe("standard");
+    expect(conv.conversationType).toBe("standard");
     expect(conv.memoryScopeId).toBe("default");
   });
 
   test("standard create with options object uses defaults", () => {
-    const conv = createConversation({ title: "hello", threadType: "standard" });
-    expect(conv.threadType).toBe("standard");
+    const conv = createConversation({
+      title: "hello",
+      conversationType: "standard",
+    });
+    expect(conv.conversationType).toBe("standard");
     expect(conv.memoryScopeId).toBe("default");
   });
 
-  test("private create sets threadType and derives memoryScopeId", () => {
-    const conv = createConversation({ title: "secret", threadType: "private" });
-    expect(conv.threadType).toBe("private");
+  test("private create sets conversationType and derives memoryScopeId", () => {
+    const conv = createConversation({
+      title: "secret",
+      conversationType: "private",
+    });
+    expect(conv.conversationType).toBe("private");
     expect(conv.memoryScopeId).toBe(`private:${conv.id}`);
   });
 
   test("private create memoryScopeId is persisted", () => {
-    const conv = createConversation({ threadType: "private" });
+    const conv = createConversation({ conversationType: "private" });
     const loaded = getConversation(conv.id);
     expect(loaded).not.toBeNull();
-    expect(loaded!.threadType).toBe("private");
+    expect(loaded!.conversationType).toBe("private");
     expect(loaded!.memoryScopeId).toBe(`private:${conv.id}`);
   });
 
   test("no-arg create uses defaults", () => {
     const conv = createConversation();
-    expect(conv.threadType).toBe("standard");
+    expect(conv.conversationType).toBe("standard");
     expect(conv.memoryScopeId).toBe("default");
   });
 });
@@ -498,18 +504,18 @@ describe("conversation metadata read helpers", () => {
     db.run(`DELETE FROM conversations`);
   });
 
-  test("getConversationThreadType returns standard for standard conversation", () => {
+  test("getConversationType returns standard for standard conversation", () => {
     const conv = createConversation("test");
-    expect(getConversationThreadType(conv.id)).toBe("standard");
+    expect(getConversationType(conv.id)).toBe("standard");
   });
 
-  test("getConversationThreadType returns private for private conversation", () => {
-    const conv = createConversation({ threadType: "private" });
-    expect(getConversationThreadType(conv.id)).toBe("private");
+  test("getConversationType returns private for private conversation", () => {
+    const conv = createConversation({ conversationType: "private" });
+    expect(getConversationType(conv.id)).toBe("private");
   });
 
-  test("getConversationThreadType returns standard for missing conversation", () => {
-    expect(getConversationThreadType("nonexistent-id")).toBe("standard");
+  test("getConversationType returns standard for missing conversation", () => {
+    expect(getConversationType("nonexistent-id")).toBe("standard");
   });
 
   test("getConversationMemoryScopeId returns default for standard conversation", () => {
@@ -518,7 +524,7 @@ describe("conversation metadata read helpers", () => {
   });
 
   test("getConversationMemoryScopeId returns private scope for private conversation", () => {
-    const conv = createConversation({ threadType: "private" });
+    const conv = createConversation({ conversationType: "private" });
     expect(getConversationMemoryScopeId(conv.id)).toBe(`private:${conv.id}`);
   });
 
@@ -640,9 +646,9 @@ describe("no private-thread attachment visibility boundary", () => {
   test("attachment from a private thread is visible via getAttachmentById (no thread scoping)", async () => {
     const privateConv = createConversation({
       title: "Secret",
-      threadType: "private",
+      conversationType: "private",
     });
-    expect(privateConv.threadType).toBe("private");
+    expect(privateConv.conversationType).toBe("private");
 
     const msg = await addMessage(
       privateConv.id,
@@ -661,11 +667,11 @@ describe("no private-thread attachment visibility boundary", () => {
   test("attachment from private thread can be linked to a standard thread message", async () => {
     const privateConv = createConversation({
       title: "Private",
-      threadType: "private",
+      conversationType: "private",
     });
     const standardConv = createConversation({
       title: "Standard",
-      threadType: "standard",
+      conversationType: "standard",
     });
 
     const privateMsg = await addMessage(
@@ -695,7 +701,7 @@ describe("no private-thread attachment visibility boundary", () => {
   test("getAttachmentsForMessage returns private thread attachments", async () => {
     const privateConv = createConversation({
       title: "Private",
-      threadType: "private",
+      conversationType: "private",
     });
     const msg = await addMessage(privateConv.id, "assistant", "Private media");
     const stored = uploadAttachment("photo.jpg", "image/jpeg", "AAAA");
@@ -707,8 +713,8 @@ describe("no private-thread attachment visibility boundary", () => {
   });
 
   test("content-hash dedup works across private and standard threads", () => {
-    createConversation({ title: "Private", threadType: "private" });
-    createConversation({ title: "Standard", threadType: "standard" });
+    createConversation({ title: "Private", conversationType: "private" });
+    createConversation({ title: "Standard", conversationType: "standard" });
 
     // Same content uploaded in private and standard contexts
     const fromPrivate = uploadAttachment(
@@ -729,11 +735,11 @@ describe("no private-thread attachment visibility boundary", () => {
   test("clearAll removes attachments from both private and standard threads", async () => {
     const privateConv = createConversation({
       title: "Private",
-      threadType: "private",
+      conversationType: "private",
     });
     const standardConv = createConversation({
       title: "Standard",
-      threadType: "standard",
+      conversationType: "standard",
     });
 
     const privateMsg = await addMessage(

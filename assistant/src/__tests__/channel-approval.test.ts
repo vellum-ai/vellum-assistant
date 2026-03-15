@@ -10,7 +10,7 @@ describe("parseCallbackData", () => {
   test.each([
     ["apr:req-123:approve_once", "approve_once"],
     ["apr:req-123:approve_10m", "approve_10m"],
-    ["apr:req-123:approve_thread", "approve_thread"],
+    ["apr:req-123:approve_conversation", "approve_conversation"],
     ["apr:req-123:approve_always", "approve_always"],
     ["apr:req-123:reject", "reject"],
   ] as const)('parses "%s" as action "%s"', (data, expectedAction) => {

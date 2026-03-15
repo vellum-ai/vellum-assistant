@@ -430,7 +430,7 @@ describe("AssetSearchTool visibility policy", () => {
   test("attachments from private threads are visible within the same private thread", async () => {
     const privateConv = createConversation({
       title: "private-conv",
-      threadType: "private",
+      conversationType: "private",
     });
     const attachment = uploadAttachment("secret.png", "image/png", "AAAA");
     const msg = await addMessage(privateConv.id, "user", "private message");
@@ -452,7 +452,7 @@ describe("AssetSearchTool visibility policy", () => {
   test("attachments from private threads are NOT visible from a different conversation", async () => {
     const privateConv = createConversation({
       title: "private-conv",
-      threadType: "private",
+      conversationType: "private",
     });
     const attachment = uploadAttachment("secret.png", "image/png", "AAAA");
     const msg = await addMessage(privateConv.id, "user", "private message");
@@ -461,7 +461,7 @@ describe("AssetSearchTool visibility policy", () => {
     // Search from a different private conversation
     const otherPrivateConv = createConversation({
       title: "other-private",
-      threadType: "private",
+      conversationType: "private",
     });
     const context: ToolContext = {
       workingDir: "/tmp",
@@ -478,7 +478,7 @@ describe("AssetSearchTool visibility policy", () => {
   test("attachments from private threads are NOT visible from standard threads", async () => {
     const privateConv = createConversation({
       title: "private-conv",
-      threadType: "private",
+      conversationType: "private",
     });
     const attachment = uploadAttachment("secret.png", "image/png", "AAAA");
     const msg = await addMessage(privateConv.id, "user", "private message");
@@ -501,7 +501,7 @@ describe("AssetSearchTool visibility policy", () => {
   test("attachment linked to both private and standard threads is visible everywhere", async () => {
     const privateConv = createConversation({
       title: "private-conv",
-      threadType: "private",
+      conversationType: "private",
     });
     const standardConv = createConversation({ title: "standard-conv" });
     const attachment = uploadAttachment("shared.png", "image/png", "AAAA");

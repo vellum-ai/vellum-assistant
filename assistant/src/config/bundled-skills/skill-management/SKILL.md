@@ -5,7 +5,6 @@ metadata:
   emoji: "\U0001F9E9"
   vellum:
     display-name: "Skill Management"
-    user-invocable: true
 ---
 
 Manage the lifecycle of custom managed skills in `~/.vellum/workspace/skills`.

@@ -161,10 +161,9 @@ Examples:
     )
     .action(
       async (opts: { handle?: string; status?: string }, cmd: Command) => {
-        if (!ensureGrantAuditEnabled(cmd)) return;
-
         let cleanup: (() => Promise<void>) | undefined;
         try {
+          if (!ensureGrantAuditEnabled(cmd)) return;
           const ces = await acquireCesClient();
           cleanup = ces.cleanup;
 
@@ -225,10 +224,9 @@ Examples:
     )
     .action(
       async (grantId: string, opts: { reason?: string }, cmd: Command) => {
-        if (!ensureGrantAuditEnabled(cmd)) return;
-
         let cleanup: (() => Promise<void>) | undefined;
         try {
+          if (!ensureGrantAuditEnabled(cmd)) return;
           const ces = await acquireCesClient();
           cleanup = ces.cleanup;
 
@@ -298,10 +296,9 @@ Examples:
         opts: { handle?: string; grant?: string; limit: string },
         cmd: Command,
       ) => {
-        if (!ensureGrantAuditEnabled(cmd)) return;
-
         let cleanup: (() => Promise<void>) | undefined;
         try {
+          if (!ensureGrantAuditEnabled(cmd)) return;
           const ces = await acquireCesClient();
           cleanup = ces.cleanup;
 

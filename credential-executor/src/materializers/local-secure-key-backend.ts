@@ -12,8 +12,10 @@
  * enforce this invariant.
  *
  * The encrypted store uses AES-256-GCM with a key derived from machine-
- * specific entropy via PBKDF2. Since CES runs on the same machine as the
- * same user, the derived key is identical.
+ * specific entropy via PBKDF2. In local mode, CES runs on the same machine
+ * as the same user so the derived key is identical. In managed mode, CES
+ * runs in a separate container with different hostname/user/homedir, so
+ * the caller must supply the assistant's entropy via `entropyOverride`.
  */
 
 import {
@@ -81,8 +83,8 @@ function getMachineEntropy(): string {
   return parts.join(":");
 }
 
-function deriveKey(salt: Buffer): Buffer {
-  const entropy = getMachineEntropy();
+function deriveKey(salt: Buffer, entropyOverride?: string): Buffer {
+  const entropy = entropyOverride ?? getMachineEntropy();
   return pbkdf2Sync(entropy, salt, PBKDF2_ITERATIONS, KEY_LENGTH, "sha512");
 }
 
@@ -132,11 +134,18 @@ function readStore(storePath: string): StoreFile | null {
  * encrypted key store.
  *
  * @param vellumRoot - The Vellum root directory (e.g. `~/.vellum`).
+ * @param options.entropyOverride - If provided, used instead of local
+ *   machine entropy for key derivation. In managed mode the CES sidecar
+ *   runs in a different container with a different hostname/user, so it
+ *   must use the assistant's entropy (read from the shared data mount)
+ *   to derive the same AES key.
  */
 export function createLocalSecureKeyBackend(
   vellumRoot: string,
+  options?: { entropyOverride?: string },
 ): SecureKeyBackend {
   const storePath = join(vellumRoot, "protected", "keys.enc");
+  const entropy = options?.entropyOverride;
 
   return {
     async get(key: string): Promise<string | undefined> {
@@ -148,7 +157,7 @@ export function createLocalSecureKeyBackend(
         if (!entry) return undefined;
 
         const salt = Buffer.from(store.salt, "hex");
-        const derivedKey = deriveKey(salt);
+        const derivedKey = deriveKey(salt, entropy);
         return decrypt(entry, derivedKey);
       } catch {
         return undefined;

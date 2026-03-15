@@ -6,7 +6,6 @@ metadata:
   emoji: "🧪"
   vellum:
     display-name: "TypeScript Evaluation"
-    user-invocable: false
 ---
 
 # TypeScript Evaluation

@@ -233,12 +233,12 @@ export async function handleSessionCreate(
   msg: SessionCreateRequest,
   ctx: HandlerContext,
 ): Promise<void> {
-  const threadType = normalizeThreadType(msg.threadType);
+  const conversationType = normalizeThreadType(msg.threadType);
   const title =
     msg.title ?? (msg.initialMessage ? GENERATING_TITLE : "New Conversation");
   const conversation = createConversation({
     title,
-    threadType,
+    conversationType,
   });
   const session = await ctx.getOrCreateSession(conversation.id, {
     systemPromptOverride: msg.systemPromptOverride,
@@ -257,7 +257,7 @@ export async function handleSessionCreate(
     sessionId: conversation.id,
     title: conversation.title ?? "New Conversation",
     ...(msg.correlationId ? { correlationId: msg.correlationId } : {}),
-    threadType: normalizeThreadType(conversation.threadType),
+    threadType: normalizeThreadType(conversation.conversationType),
   });
 
   // Auto-send the initial message if provided, kick-starting the skill.
@@ -363,7 +363,7 @@ export async function switchSession(
 ): Promise<{
   sessionId: string;
   title: string;
-  threadType: ReturnType<typeof normalizeThreadType>;
+  conversationType: ReturnType<typeof normalizeThreadType>;
 } | null> {
   const conversation = getConversation(sessionId);
   if (!conversation) {
@@ -385,7 +385,7 @@ export async function switchSession(
   return {
     sessionId: conversation.id,
     title: conversation.title ?? "Untitled",
-    threadType: normalizeThreadType(conversation.threadType),
+    conversationType: normalizeThreadType(conversation.conversationType),
   };
 }
 
@@ -406,7 +406,7 @@ export async function handleSessionSwitch(
     type: "session_info",
     sessionId: result.sessionId,
     title: result.title,
-    threadType: result.threadType,
+    threadType: result.conversationType,
   });
 }
 

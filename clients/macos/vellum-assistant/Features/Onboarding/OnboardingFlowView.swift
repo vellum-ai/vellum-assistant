@@ -275,7 +275,7 @@ struct OnboardingFlowView: View {
             isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             let hatchedAt = isoFormatter.string(from: Date())
 
-            let success = LockfileAssistant.upsertManagedEntry(
+            let success = LockfileAssistant.ensureManagedEntry(
                 assistantId: assistant.id,
                 runtimeUrl: runtimeUrl,
                 hatchedAt: hatchedAt

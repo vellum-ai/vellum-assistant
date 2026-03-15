@@ -654,9 +654,11 @@ export async function handleSendMessage(
     );
   }
 
-  const threadType =
+  const conversationType =
     body.threadType === "private" ? ("private" as const) : undefined;
-  const mapping = getOrCreateConversation(conversationKey, { threadType });
+  const mapping = getOrCreateConversation(conversationKey, {
+    conversationType,
+  });
   const smDeps = deps.sendMessageDeps;
   const session = await smDeps.getOrCreateSession(mapping.conversationId);
 
@@ -979,9 +981,6 @@ export async function handleSendMessage(
   }
 
   const resolvedContent = slashResult.content;
-  if (slashResult.kind === "rewritten") {
-    session.setPreactivatedSkillIds([slashResult.skillId]);
-  }
 
   let messageId: string;
   try {
@@ -992,9 +991,6 @@ export async function handleSendMessage(
       requestId,
     );
   } catch (err) {
-    // Reset preactivated skill IDs so a stale activation doesn't leak
-    // into the next message if persistence fails.
-    session.setPreactivatedSkillIds(undefined);
     throw err;
   }
 
@@ -1188,7 +1184,7 @@ export async function handleGetSuggestion(
 /**
  * GET /search?q=<query>[&limit=<n>][&maxMessagesPerConversation=<n>]
  *
- * Full-text search across all conversation threads (message content + titles).
+ * Full-text search across all conversations (message content + titles).
  * Returns ranked results grouped by conversation, each with matching message excerpts.
  */
 function handleSearchConversations(url: URL): Response {

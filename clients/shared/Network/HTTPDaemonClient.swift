@@ -4330,7 +4330,7 @@ public final class HTTPTransport {
         }
     }
 
-    func createSkill(skillId: String, name: String, description: String, emoji: String?, bodyMarkdown: String, userInvocable: Bool?, overwrite: Bool?, isRetry: Bool = false) async {
+    func createSkill(skillId: String, name: String, description: String, emoji: String?, bodyMarkdown: String, overwrite: Bool?, isRetry: Bool = false) async {
         guard let url = buildURL(for: .skillsCreate) else { return }
 
         var request = URLRequest(url: url)
@@ -4345,7 +4345,6 @@ public final class HTTPTransport {
             "bodyMarkdown": bodyMarkdown
         ]
         if let emoji { body["emoji"] = emoji }
-        if let userInvocable { body["userInvocable"] = userInvocable }
         if let overwrite { body["overwrite"] = overwrite }
 
         do {
@@ -4364,7 +4363,7 @@ public final class HTTPTransport {
             } else if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                 if case .success = refreshResult {
-                    await createSkill(skillId: skillId, name: name, description: description, emoji: emoji, bodyMarkdown: bodyMarkdown, userInvocable: userInvocable, overwrite: overwrite, isRetry: true)
+                    await createSkill(skillId: skillId, name: name, description: description, emoji: emoji, bodyMarkdown: bodyMarkdown, overwrite: overwrite, isRetry: true)
                 }
             } else {
                 let errorMsg = extractErrorMessage(from: data)
