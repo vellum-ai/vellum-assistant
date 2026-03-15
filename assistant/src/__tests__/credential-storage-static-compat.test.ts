@@ -315,8 +315,12 @@ describe("static credential storage compatibility", () => {
       expect(result!.credentialId).toBe("test-id");
       expect(result!.service).toBe("github");
       // OAuth-specific fields should be stripped
-      expect((result as Record<string, unknown>).expiresAt).toBeUndefined();
-      expect((result as Record<string, unknown>).grantedScopes).toBeUndefined();
+      expect(
+        (result as unknown as Record<string, unknown>).expiresAt,
+      ).toBeUndefined();
+      expect(
+        (result as unknown as Record<string, unknown>).grantedScopes,
+      ).toBeUndefined();
     });
 
     test("filters out refresh_token ghost records during migration", () => {
