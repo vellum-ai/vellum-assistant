@@ -54,8 +54,6 @@ import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { mintCredentialPair } from "../runtime/auth/credential-service.js";
-import { BOOTSTRAPPED_ACTOR_HTTP_TOKEN } from "../security/credential-key.js";
-import { setSecureKeyAsync } from "../security/secure-keys.js";
 import {
   initAuthSigningKey,
   loadOrCreateSigningKey,
@@ -64,6 +62,8 @@ import {
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { startScheduler } from "../schedule/scheduler.js";
+import { BOOTSTRAPPED_ACTOR_HTTP_TOKEN } from "../security/credential-key.js";
+import { setSecureKeyAsync } from "../security/secure-keys.js";
 import { UsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { getLogger, initLogger } from "../util/logger.js";
 import {
