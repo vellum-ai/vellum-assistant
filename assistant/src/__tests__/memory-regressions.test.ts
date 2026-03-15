@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -13,6 +13,8 @@ import {
 
 const testDir = mkdtempSync(join(tmpdir(), "memory-regressions-"));
 
+const testWorkspaceDir = join(testDir, ".vellum", "workspace");
+
 mock.module("../util/platform.js", () => ({
   getDataDir: () => testDir,
   isMacOS: () => process.platform === "darwin",
@@ -22,6 +24,8 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
+  getWorkspaceDir: () => testWorkspaceDir,
+  getWorkspacePromptPath: (file: string) => join(testWorkspaceDir, file),
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -128,6 +132,7 @@ import {
   memorySummaries,
   messages,
 } from "../memory/schema.js";
+import { buildCoreIdentityContext } from "../prompts/system-prompt.js";
 
 describe("Memory regressions", () => {
   beforeAll(() => {
@@ -3391,5 +3396,37 @@ describe("Memory regressions", () => {
     // enqueuedJobs should reflect: embed jobs + summary (1), no extract (0)
     const expectedJobs = result.indexedSegments + 1; // embed per segment + summary
     expect(result.enqueuedJobs).toBe(expectedJobs);
+  });
+
+  test("buildCoreIdentityContext includes identity files when they exist", () => {
+    // Create workspace directory and write prompt files
+    mkdirSync(testWorkspaceDir, { recursive: true });
+    writeFileSync(
+      join(testWorkspaceDir, "SOUL.md"),
+      "You are a helpful assistant named Jarvis.",
+    );
+    writeFileSync(
+      join(testWorkspaceDir, "USER.md"),
+      "The user's name is Aaron Levin.",
+    );
+
+    const context = buildCoreIdentityContext();
+    expect(context).not.toBeNull();
+    expect(context).toContain("helpful assistant named Jarvis");
+    expect(context).toContain("Aaron Levin");
+  });
+
+  test("buildCoreIdentityContext returns null when no prompt files exist", () => {
+    // Remove workspace prompt files to simulate a clean state
+    try {
+      rmSync(join(testWorkspaceDir, "SOUL.md"), { force: true });
+      rmSync(join(testWorkspaceDir, "IDENTITY.md"), { force: true });
+      rmSync(join(testWorkspaceDir, "USER.md"), { force: true });
+    } catch {
+      // files may not exist
+    }
+
+    const context = buildCoreIdentityContext();
+    expect(context).toBeNull();
   });
 });
