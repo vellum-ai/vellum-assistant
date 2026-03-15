@@ -48,8 +48,14 @@ jobs:
         run: |
           git fetch origin main --depth=1
           if git show origin/main:clients/.periphery_baseline.json > /tmp/main_baseline.json 2>/dev/null; then
-            echo "found=true" >> "$GITHUB_OUTPUT"
-            echo "Main branch baseline found"
+            USR_COUNT=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(len(d.get('v1',{}).get('usrs',[])))" /tmp/main_baseline.json)
+            if [ "$USR_COUNT" -gt 0 ]; then
+              echo "found=true" >> "$GITHUB_OUTPUT"
+              echo "Main branch baseline found ($USR_COUNT violations)"
+            else
+              echo "found=false" >> "$GITHUB_OUTPUT"
+              echo "Main branch baseline is empty — first-time setup, skipping enforcement"
+            fi
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
             echo "No baseline on main — first-time setup, skipping enforcement"
