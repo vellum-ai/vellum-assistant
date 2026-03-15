@@ -18,6 +18,8 @@ export {
   createCesServer,
   createRunAuthenticatedCommandHandler,
   registerCommandExecutionHandler,
+  createMakeAuthenticatedRequestHandler,
+  buildHandlersWithHttp,
 } from "./server.js";
 export type {
   CesServerOptions,
@@ -96,3 +98,6 @@ export type {
   MaterializeCredentialFn,
   MaterializeCredentialResult,
 } from "./commands/executor.js";
+
+export { executeAuthenticatedHttpRequest } from "./http/executor.js";
+export type { HttpExecutorDeps } from "./http/executor.js";
