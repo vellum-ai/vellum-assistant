@@ -555,30 +555,31 @@ describe("HTTP executor: platform_oauth handles", () => {
       const urlStr = url.toString();
 
       // Platform catalog
-      if (urlStr.includes("/v1/ces/catalog")) {
+      if (urlStr.includes("/oauth/managed/catalog")) {
         return new Response(
-          JSON.stringify({
-            connections: [
-              {
-                id: "conn-platform-1",
-                provider: "slack",
-                account_info: "workspace@slack.com",
-                granted_scopes: ["channels:read"],
-                status: "active",
-              },
-            ],
-          }),
+          JSON.stringify([
+            {
+              handle: "platform_oauth:conn-platform-1",
+              connection_id: "conn-platform-1",
+              provider: "slack",
+              account_label: "workspace@slack.com",
+              scopes_granted: ["channels:read"],
+              status: "active",
+            },
+          ]),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
 
       // Platform token materialization
-      if (urlStr.includes("/v1/ces/connections/conn-platform-1/materialize")) {
+      if (urlStr.includes("/oauth/managed/materialize")) {
         return new Response(
           JSON.stringify({
             access_token: "xoxp-platform-token-12345678",
             token_type: "Bearer",
-            expires_in: 3600,
+            expires_at: new Date(Date.now() + 3600_000).toISOString(),
+            provider: "slack",
+            handle: "platform_oauth:conn-platform-1",
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
@@ -603,11 +604,13 @@ describe("HTTP executor: platform_oauth handles", () => {
       managedSubjectOptions: {
         platformBaseUrl: "https://api.vellum.ai",
         assistantApiKey: "test-api-key",
+        assistantId: "test-assistant-id",
         fetch: platformCatalogFetch,
       },
       managedMaterializerOptions: {
         platformBaseUrl: "https://api.vellum.ai",
         assistantApiKey: "test-api-key",
+        assistantId: "test-assistant-id",
         fetch: platformCatalogFetch,
       },
     });

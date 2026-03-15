@@ -23,6 +23,7 @@ mock.module("../util/logger.js", () => ({
 
 let mockPlatformBaseUrl = "";
 let mockAssistantApiKey: string | null = null;
+let mockPlatformAssistantId = "";
 
 /** Simulated platform catalog responses keyed by URL. */
 let mockFetchResponses: Map<string, { status: number; body: unknown }> =
@@ -30,6 +31,7 @@ let mockFetchResponses: Map<string, { status: number; body: unknown }> =
 
 mock.module("../config/env.js", () => ({
   getPlatformBaseUrl: () => mockPlatformBaseUrl,
+  getPlatformAssistantId: () => mockPlatformAssistantId,
 }));
 
 mock.module("../security/secure-keys.js", () => ({
@@ -88,6 +90,7 @@ describe("fetchManagedCatalog", () => {
   beforeEach(() => {
     mockPlatformBaseUrl = "";
     mockAssistantApiKey = null;
+    mockPlatformAssistantId = "";
     mockFetchResponses = new Map();
   });
 
@@ -119,31 +122,45 @@ describe("fetchManagedCatalog", () => {
     expect(result.descriptors).toEqual([]);
   });
 
+  test("returns empty descriptors when assistant ID is missing", async () => {
+    mockPlatformBaseUrl = "https://platform.example.com";
+    mockAssistantApiKey = "sk-test-key";
+    mockPlatformAssistantId = "";
+
+    const result = await fetchManagedCatalog();
+    expect(result.ok).toBe(true);
+    expect(result.descriptors).toEqual([]);
+  });
+
   test("parses platform catalog response into descriptors with correct handles", async () => {
     mockPlatformBaseUrl = "https://platform.example.com";
     mockAssistantApiKey = "sk-test-key";
+    mockPlatformAssistantId = "ast-uuid-1234";
 
-    mockFetchResponses.set("https://platform.example.com/v1/ces/catalog", {
-      status: 200,
-      body: {
-        connections: [
+    mockFetchResponses.set(
+      "https://platform.example.com/v1/assistants/ast-uuid-1234/oauth/managed/catalog/",
+      {
+        status: 200,
+        body: [
           {
-            id: "conn_google_123",
+            handle: "platform_oauth:conn_google_123",
+            connection_id: "conn_google_123",
             provider: "google",
-            account_info: "user@gmail.com",
-            granted_scopes: ["email", "calendar"],
+            account_label: "user@gmail.com",
+            scopes_granted: ["email", "calendar"],
             status: "active",
           },
           {
-            id: "conn_slack_456",
+            handle: "platform_oauth:conn_slack_456",
+            connection_id: "conn_slack_456",
             provider: "slack",
-            account_info: "workspace-bot",
-            granted_scopes: ["chat:write"],
+            account_label: "workspace-bot",
+            scopes_granted: ["chat:write"],
             status: "active",
           },
         ],
       },
-    });
+    );
 
     const result = await fetchManagedCatalog();
     expect(result.ok).toBe(true);
@@ -166,11 +183,15 @@ describe("fetchManagedCatalog", () => {
   test("handles empty connections list from platform", async () => {
     mockPlatformBaseUrl = "https://platform.example.com";
     mockAssistantApiKey = "sk-test-key";
+    mockPlatformAssistantId = "ast-uuid-1234";
 
-    mockFetchResponses.set("https://platform.example.com/v1/ces/catalog", {
-      status: 200,
-      body: { connections: [] },
-    });
+    mockFetchResponses.set(
+      "https://platform.example.com/v1/assistants/ast-uuid-1234/oauth/managed/catalog/",
+      {
+        status: 200,
+        body: [],
+      },
+    );
 
     const result = await fetchManagedCatalog();
     expect(result.ok).toBe(true);
@@ -180,11 +201,15 @@ describe("fetchManagedCatalog", () => {
   test("handles platform returning HTTP error gracefully", async () => {
     mockPlatformBaseUrl = "https://platform.example.com";
     mockAssistantApiKey = "sk-test-key";
+    mockPlatformAssistantId = "ast-uuid-1234";
 
-    mockFetchResponses.set("https://platform.example.com/v1/ces/catalog", {
-      status: 500,
-      body: { detail: "Internal server error" },
-    });
+    mockFetchResponses.set(
+      "https://platform.example.com/v1/assistants/ast-uuid-1234/oauth/managed/catalog/",
+      {
+        status: 500,
+        body: { detail: "Internal server error" },
+      },
+    );
 
     const result = await fetchManagedCatalog();
     expect(result.ok).toBe(false);
@@ -195,11 +220,15 @@ describe("fetchManagedCatalog", () => {
   test("handles platform returning unexpected format gracefully", async () => {
     mockPlatformBaseUrl = "https://platform.example.com";
     mockAssistantApiKey = "sk-test-key";
+    mockPlatformAssistantId = "ast-uuid-1234";
 
-    mockFetchResponses.set("https://platform.example.com/v1/ces/catalog", {
-      status: 200,
-      body: { unexpected: "shape" },
-    });
+    mockFetchResponses.set(
+      "https://platform.example.com/v1/assistants/ast-uuid-1234/oauth/managed/catalog/",
+      {
+        status: 200,
+        body: { unexpected: "shape" },
+      },
+    );
 
     const result = await fetchManagedCatalog();
     expect(result.ok).toBe(false);
@@ -209,19 +238,22 @@ describe("fetchManagedCatalog", () => {
   test("defaults missing optional fields in catalog entries", async () => {
     mockPlatformBaseUrl = "https://platform.example.com";
     mockAssistantApiKey = "sk-test-key";
+    mockPlatformAssistantId = "ast-uuid-1234";
 
-    mockFetchResponses.set("https://platform.example.com/v1/ces/catalog", {
-      status: 200,
-      body: {
-        connections: [
+    mockFetchResponses.set(
+      "https://platform.example.com/v1/assistants/ast-uuid-1234/oauth/managed/catalog/",
+      {
+        status: 200,
+        body: [
           {
-            id: "conn_minimal",
+            handle: "platform_oauth:conn_minimal",
+            connection_id: "conn_minimal",
             provider: "github",
-            // account_info, granted_scopes, status all omitted
+            // account_label, scopes_granted, status all omitted
           },
         ],
       },
-    });
+    );
 
     const result = await fetchManagedCatalog();
     expect(result.ok).toBe(true);
@@ -237,13 +269,14 @@ describe("fetchManagedCatalog", () => {
   test("error messages never contain API key values", async () => {
     mockPlatformBaseUrl = "https://platform.example.com";
     mockAssistantApiKey = "sk-super-secret-key-12345";
+    mockPlatformAssistantId = "ast-uuid-1234";
 
     // Simulate a network error
     const savedFetch = globalThis.fetch;
     const errorFetch: typeof fetch = Object.assign(
       async () => {
         throw new Error(
-          "Connect failed to https://platform.example.com/v1/ces/catalog with Api-Key sk-super-secret-key-12345",
+          "Connect failed to https://platform.example.com/v1/assistants/ast-uuid-1234/oauth/managed/catalog/ with Api-Key sk-super-secret-key-12345",
         );
       },
       { preconnect: savedFetch.preconnect },
