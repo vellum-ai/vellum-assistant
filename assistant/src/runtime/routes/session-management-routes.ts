@@ -86,7 +86,7 @@ export function sessionManagementRouteDefinitions(
         return Response.json({
           sessionId: result.sessionId,
           title: result.title,
-          threadType:
+          conversationType:
             result.conversationType === "private" ? "private" : "standard",
         });
       },
