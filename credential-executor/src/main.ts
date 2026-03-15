@@ -189,7 +189,24 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
       if (contentLength && parseInt(contentLength, 10) > MAX_BUNDLE_SIZE) {
         throw new Error(`Bundle too large: ${contentLength} bytes (max ${MAX_BUNDLE_SIZE})`);
       }
-      return Buffer.from(await resp.arrayBuffer());
+      // Stream the body and enforce the size limit on actual bytes received,
+      // since Content-Length can be absent (chunked encoding) or lie.
+      const body = resp.body;
+      if (!body) {
+        throw new Error("Response body is null");
+      }
+      const chunks: Uint8Array[] = [];
+      let totalBytes = 0;
+      for await (const chunk of body) {
+        totalBytes += chunk.byteLength;
+        if (totalBytes > MAX_BUNDLE_SIZE) {
+          // Cancel the stream to free resources
+          await body.cancel();
+          throw new Error(`Bundle too large: received >${MAX_BUNDLE_SIZE} bytes (max ${MAX_BUNDLE_SIZE})`);
+        }
+        chunks.push(chunk);
+      }
+      return Buffer.concat(chunks);
     },
     publishBundle: (request) => publishBundle({ ...request, cesMode: "local" }),
     unregisterTool: (toolName: string) => {
