@@ -38,11 +38,11 @@ For managed multi-tenant deployments, CES runs as a sidecar container in the sam
 
 CES exposes exactly three tools to the assistant, registered as a **deliberate exception** to the skill-first tool direction (see `AGENTS.md` and `assistant/src/tools/AGENTS.md`). These tools are not skills because they require hard process-boundary isolation that skill scripts cannot provide.
 
-| Tool                     | Purpose                                                                                                                                                                                     |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ces_run_command`        | Execute a shell command with credential environment variables injected by CES. The credential values are set in the CES process environment only — never transmitted to the assistant.      |
-| `ces_authenticated_http` | Execute an HTTP request with credential-bearing headers/auth injected by CES. CES performs the HTTP call and returns the response body and status to the assistant.                         |
-| `ces_browser_fill`       | Fill a browser form field with a credential value. CES connects to the browser automation endpoint and injects the secret directly — the value never appears in assistant-side tool output. |
+| Tool                         | Purpose                                                                                                                                                                                |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run_authenticated_command`  | Execute a shell command with credential environment variables injected by CES. The credential values are set in the CES process environment only — never transmitted to the assistant. |
+| `make_authenticated_request` | Execute an HTTP request with credential-bearing headers/auth injected by CES. CES performs the HTTP call and returns the response body and status to the assistant.                    |
+| `manage_secure_command_tool` | Register and manage secure command tool bundles in the CES toolstore. Handles bundle lifecycle (registration, unregistration) for manifest-driven credential-bearing commands.         |
 
 ### Tool registration
 
@@ -58,7 +58,7 @@ CES tools use the standard `class ... implements Tool` registration pattern. Thi
 
 The existing `host_bash` tool executes commands on the host machine without any credential isolation. When an agent uses `host_bash`, it has full access to the host environment, including any credentials stored in environment variables, config files, or keychains accessible to the user. CES does not attempt to intercept or sandbox `host_bash` invocations.
 
-**Implication**: `host_bash` represents a weaker security tier. Agents that require the strong secrecy guarantee must use `ces_run_command` instead. Trust rules and permission policies should reflect this distinction — managed deployments may deny `host_bash` entirely for untrusted agents while allowing `ces_run_command`.
+**Implication**: `host_bash` represents a weaker security tier. Agents that require the strong secrecy guarantee must use `run_authenticated_command` instead. Trust rules and permission policies should reflect this distinction — managed deployments may deny `host_bash` entirely for untrusted agents while allowing `run_authenticated_command`.
 
 ### 2. Managed static secrets remain on the assistant data volume for v1
 
@@ -72,7 +72,7 @@ OAuth tokens managed by the platform (`vellum-assistant-platform`) — including
 
 ### 4. Secure generic authenticated HTTP must not run through `run_authenticated_command`
 
-The existing `run_authenticated_command` pattern (used by the script proxy for credentialed bash commands) must not be used as the transport for generic authenticated HTTP requests. `ces_authenticated_http` is a purpose-built tool that:
+The existing `run_authenticated_command` pattern (used by the script proxy for credentialed bash commands) must not be used as the transport for generic authenticated HTTP requests. `make_authenticated_request` is a purpose-built tool that:
 
 - Validates the target URL against the credential's allowed-domains policy before materializing
 - Does not expose a shell execution surface (no command injection vector)
@@ -181,7 +181,7 @@ There is intentionally no `direct` or `unrestricted` egress mode. Commands that 
 
 ## Response Filtering (Defense-in-Depth)
 
-HTTP responses returned to the assistant through `ces_authenticated_http` pass through a sanitization pipeline:
+HTTP responses returned to the assistant through `make_authenticated_request` pass through a sanitization pipeline:
 
 1. **Header filtering** — Only whitelisted response headers (content metadata, rate-limit headers, pagination) are passed through. Auth-bearing headers (`set-cookie`, `www-authenticate`) are stripped.
 2. **Body clamping** — Response bodies are truncated to 256 KB. The full body is never stored.
@@ -211,7 +211,7 @@ Enable flags in this order. Each flag is safe to enable independently, but later
 
 | Order | Flag                                        | Gate                                                                                                                            | Safe to enable alone?                                                                                                           |
 | ----- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | `feature_flags.ces-tools.enabled`           | Register CES tools (`ces_run_command`, `ces_authenticated_http`, `ces_browser_fill`) in the agent loop                          | Yes — tools register but are not invoked unless the agent discovers credentials that require CES                                |
+| 1     | `feature_flags.ces-tools.enabled`           | Register CES tools (`run_authenticated_command`, `make_authenticated_request`, `manage_secure_command_tool`) in the agent loop  | Yes — tools register but are not invoked unless the agent discovers credentials that require CES                                |
 | 2     | `feature_flags.ces-shell-lockdown.enabled`  | Enforce shell lockdown for untrusted agents with CES-active credentials; direct shell access to credentialed services is denied | Yes — only activates when CES credentials are present                                                                           |
 | 3     | `feature_flags.ces-secure-install.enabled`  | Route tool/command installation through CES secure bundle pipeline instead of direct shell                                      | Yes — falls back to standard install if CES is unavailable                                                                      |
 | 4     | `feature_flags.ces-grant-audit.enabled`     | Surface grant listing, grant revocation, and audit inspection endpoints                                                         | Yes — read-only inspection surfaces                                                                                             |
@@ -329,7 +329,7 @@ The following capabilities are intentionally deferred beyond v1:
 - **Cloud KMS/Vault integration for secret storage** — v1 reads secrets from filesystem (`~/.vellum/protected/` locally, `/ces-data` in managed). Moving to a dedicated secrets manager is a future enhancement.
 - **Multi-CES-instance support** — Each assistant pod runs exactly one CES sidecar. Horizontal scaling of CES within a pod is not supported.
 - **Cross-pod credential sharing** — CES grants are scoped to a single pod. There is no grant federation across pods or assistant instances.
-- **Browser automation through CES** — `ces_browser_fill` is defined but browser automation integration is deferred beyond initial rollout.
+- **Browser automation through CES** — Browser form-fill with credential injection is deferred beyond initial rollout.
 - **Credential rotation webhooks** — See residual risk 6 above.
 
 ## See Also
