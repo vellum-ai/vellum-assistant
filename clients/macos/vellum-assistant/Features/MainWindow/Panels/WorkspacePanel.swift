@@ -675,17 +675,7 @@ private struct WorkspaceFileViewer: View {
     }
 
     private var emptyState: some View {
-        VStack {
-            Spacer()
-            VIconView(.fileText, size: 32)
-                .foregroundColor(VColor.contentTertiary)
-                .padding(.bottom, VSpacing.sm)
-            Text("Select a file to view")
-                .font(VFont.body)
-                .foregroundColor(VColor.contentTertiary)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        FileViewerEmptyState()
     }
 
     @ViewBuilder
@@ -739,15 +729,8 @@ private struct WorkspaceFileViewer: View {
             }
 
             if readOnly {
-                ScrollView {
-                    Text(detail.content ?? "")
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.contentDefault)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(VSpacing.md)
-                        .textSelection(.enabled)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ReadOnlyCodeContent(content: detail.content ?? "")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 TextEditor(text: $state.editableContent)
                     .font(VFont.mono)
