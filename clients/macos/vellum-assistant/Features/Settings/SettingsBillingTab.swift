@@ -11,6 +11,7 @@ struct SettingsBillingTab: View {
     @State private var error: String?
     @State private var topUpAmount: String = ""
     @State private var isProcessingTopUp: Bool = false
+    @State private var topUpError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -132,6 +133,16 @@ struct SettingsBillingTab: View {
             ) {
                 Task { await handleTopUp() }
             }
+
+            if let topUpError {
+                HStack(spacing: VSpacing.sm) {
+                    VIconView(.circleAlert, size: 14)
+                        .foregroundColor(VColor.systemNegativeStrong)
+                    Text(topUpError)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.systemNegativeStrong)
+                }
+            }
         }
     }
 
@@ -150,17 +161,17 @@ struct SettingsBillingTab: View {
 
     private func handleTopUp() async {
         guard let amount = Double(topUpAmount) else {
-            error = "Please enter a valid amount."
+            topUpError = "Please enter a valid amount."
             return
         }
 
         if let summary, let minimum = Double(summary.minimum_top_up_usd), amount < minimum {
-            error = "Minimum top-up amount is $\(summary.minimum_top_up_usd)."
+            topUpError = "Minimum top-up amount is $\(summary.minimum_top_up_usd)."
             return
         }
 
         isProcessingTopUp = true
-        error = nil
+        topUpError = nil
         defer { isProcessingTopUp = false }
 
         do {
@@ -168,7 +179,7 @@ struct SettingsBillingTab: View {
             NSWorkspace.shared.open(checkoutURL)
             topUpAmount = ""
         } catch {
-            self.error = "Failed to create checkout session. Please try again."
+            self.topUpError = "Failed to create checkout session. Please try again."
         }
     }
 }
