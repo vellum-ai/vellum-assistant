@@ -110,9 +110,19 @@ const BOOTSTRAP_SOCKET_NAME = "ces.sock";
  * connection, then unlinks it. The path is on a shared `emptyDir` volume
  * visible to both containers.
  *
- * Can be overridden via `CES_BOOTSTRAP_SOCKET` env var.
+ * Priority:
+ * 1. `CES_BOOTSTRAP_SOCKET_DIR` env var (directory) — appends `ces.sock`
+ * 2. `CES_BOOTSTRAP_SOCKET` env var (full file path override)
+ * 3. Hardcoded default: `/run/ces/ces.sock`
+ *
+ * The pod template exports `CES_BOOTSTRAP_SOCKET_DIR`; the full-path
+ * override is kept for local testing convenience.
  */
 export function getBootstrapSocketPath(): string {
+  const dir = process.env["CES_BOOTSTRAP_SOCKET_DIR"];
+  if (dir) {
+    return join(dir, BOOTSTRAP_SOCKET_NAME);
+  }
   return (
     process.env["CES_BOOTSTRAP_SOCKET"] ??
     join(BOOTSTRAP_SOCKET_DIR, BOOTSTRAP_SOCKET_NAME)

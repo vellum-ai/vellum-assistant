@@ -17,7 +17,6 @@
  */
 
 import { existsSync } from "node:fs";
-import { createConnection, type Socket } from "node:net";
 import { join } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
@@ -30,11 +29,33 @@ const log = getLogger("ces-discovery");
 // Well-known paths
 // ---------------------------------------------------------------------------
 
+/** Default directory for the bootstrap socket shared volume. */
+const DEFAULT_BOOTSTRAP_SOCKET_DIR = "/run/ces";
+
+/** Bootstrap socket filename. */
+const BOOTSTRAP_SOCKET_NAME = "ces.sock";
+
 /**
- * Well-known path for the CES bootstrap socket in managed deployments.
- * The CES sidecar writes this socket into a shared emptyDir volume.
+ * Resolve the CES bootstrap socket path.
+ *
+ * Priority:
+ * 1. `CES_BOOTSTRAP_SOCKET_DIR` env var (directory) — appends `ces.sock`
+ * 2. `CES_BOOTSTRAP_SOCKET` env var (full file path override)
+ * 3. Hardcoded default: `/run/ces/ces.sock`
+ *
+ * The pod template exports `CES_BOOTSTRAP_SOCKET_DIR`; the full-path
+ * override is kept for local testing convenience.
  */
-const MANAGED_BOOTSTRAP_SOCKET_PATH = "/run/ces/ces.sock";
+function getManagedBootstrapSocketPath(): string {
+  const dir = process.env["CES_BOOTSTRAP_SOCKET_DIR"];
+  if (dir) {
+    return join(dir, BOOTSTRAP_SOCKET_NAME);
+  }
+  return (
+    process.env["CES_BOOTSTRAP_SOCKET"] ??
+    join(DEFAULT_BOOTSTRAP_SOCKET_DIR, BOOTSTRAP_SOCKET_NAME)
+  );
+}
 
 /**
  * Candidate locations for the local credential-executor binary, checked
@@ -74,12 +95,6 @@ export type DiscoveryResult =
   | DiscoveryFailure;
 
 // ---------------------------------------------------------------------------
-// Socket handshake timeout
-// ---------------------------------------------------------------------------
-
-const SOCKET_CONNECT_TIMEOUT_MS = 5_000;
-
-// ---------------------------------------------------------------------------
 // Local discovery
 // ---------------------------------------------------------------------------
 
@@ -112,18 +127,18 @@ export function discoverLocalCes(): LocalDiscoverySuccess | DiscoveryFailure {
 /**
  * Discover the managed CES sidecar via its bootstrap Unix socket.
  *
- * Attempts to connect to the well-known socket path and verifies the
- * connection succeeds within a timeout. Returns a structured result —
- * never throws.
+ * Checks that the well-known socket file exists on disk. Does NOT open a
+ * connection — the CES sidecar accepts exactly one connection and then
+ * unlinks the socket, so a probe would consume the only slot. The actual
+ * connection is made later by `CesProcessManager.start()`.
  *
- * The socket path can be overridden via `CES_BOOTSTRAP_SOCKET` env var
- * for testing and non-standard pod layouts.
+ * The socket path is derived from `CES_BOOTSTRAP_SOCKET_DIR` (matching the
+ * pod template), with `CES_BOOTSTRAP_SOCKET` as a full-path fallback.
  */
-export async function discoverManagedCes(): Promise<
-  ManagedDiscoverySuccess | DiscoveryFailure
-> {
-  const socketPath =
-    process.env["CES_BOOTSTRAP_SOCKET"] ?? MANAGED_BOOTSTRAP_SOCKET_PATH;
+export function discoverManagedCes():
+  | ManagedDiscoverySuccess
+  | DiscoveryFailure {
+  const socketPath = getManagedBootstrapSocketPath();
 
   if (!existsSync(socketPath)) {
     const reason = `CES bootstrap socket not found at ${socketPath}`;
@@ -131,22 +146,8 @@ export async function discoverManagedCes(): Promise<
     return { mode: "unavailable", reason };
   }
 
-  // Verify we can actually connect to the socket (fail closed on errors)
-  try {
-    const socket = await connectWithTimeout(
-      socketPath,
-      SOCKET_CONNECT_TIMEOUT_MS,
-    );
-    // Connection succeeded — close the probe socket immediately.
-    // The process manager will create the real transport connection.
-    socket.destroy();
-    log.info({ socketPath }, "Managed CES sidecar socket verified");
-    return { mode: "managed", socketPath };
-  } catch (err) {
-    const reason = `CES bootstrap socket handshake failed at ${socketPath}: ${err instanceof Error ? err.message : String(err)}`;
-    log.warn(reason);
-    return { mode: "unavailable", reason };
-  }
+  log.info({ socketPath }, "Managed CES bootstrap socket found");
+  return { mode: "managed", socketPath };
 }
 
 // ---------------------------------------------------------------------------
@@ -160,45 +161,9 @@ export async function discoverManagedCes(): Promise<
  * - Containerized environments → managed sidecar discovery
  * - Non-containerized environments → local executable discovery
  */
-export async function discoverCes(): Promise<DiscoveryResult> {
+export function discoverCes(): DiscoveryResult {
   if (getIsContainerized()) {
     return discoverManagedCes();
   }
   return discoverLocalCes();
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Connect to a Unix domain socket with a timeout.
- *
- * Returns the connected socket or rejects with an error. The caller owns
- * the socket lifecycle.
- */
-function connectWithTimeout(
-  socketPath: string,
-  timeoutMs: number,
-): Promise<Socket> {
-  return new Promise<Socket>((resolve, reject) => {
-    const socket = createConnection({ path: socketPath });
-
-    const timer = setTimeout(() => {
-      socket.destroy();
-      reject(
-        new Error(`Connection to ${socketPath} timed out after ${timeoutMs}ms`),
-      );
-    }, timeoutMs);
-
-    socket.on("connect", () => {
-      clearTimeout(timer);
-      resolve(socket);
-    });
-
-    socket.on("error", (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-  });
 }
