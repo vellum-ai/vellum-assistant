@@ -39,7 +39,7 @@ export type ScheduleNotifyModeNotifier = (payload: {
 
 export type ScheduleNotifier = (schedule: { id: string; name: string }) => void;
 
-export type ScheduleThreadCreatedNotifier = (info: {
+export type ScheduleConversationCreatedNotifier = (info: {
   conversationId: string;
   scheduleJobId: string;
   title: string;
@@ -58,7 +58,7 @@ export function startScheduler(
   notifySchedule: ScheduleNotifier,
   watcherNotifier?: WatcherNotifier,
   watcherEscalator?: WatcherEscalator,
-  onScheduleThreadCreated?: ScheduleThreadCreatedNotifier,
+  onScheduleConversationCreated?: ScheduleConversationCreatedNotifier,
 ): SchedulerHandle {
   let stopped = false;
   let tickRunning = false;
@@ -73,7 +73,7 @@ export function startScheduler(
         notifySchedule,
         watcherNotifier,
         watcherEscalator,
-        onScheduleThreadCreated,
+        onScheduleConversationCreated,
       );
     } catch (err) {
       log.error({ err }, "Schedule tick failed");
@@ -96,7 +96,7 @@ export function startScheduler(
         notifySchedule,
         watcherNotifier,
         watcherEscalator,
-        onScheduleThreadCreated,
+        onScheduleConversationCreated,
       );
     },
     stop(): void {
@@ -112,7 +112,7 @@ async function runScheduleOnce(
   notifySchedule: ScheduleNotifier,
   watcherNotifier?: WatcherNotifier,
   watcherEscalator?: WatcherEscalator,
-  onScheduleThreadCreated?: ScheduleThreadCreatedNotifier,
+  onScheduleConversationCreated?: ScheduleConversationCreatedNotifier,
 ): Promise<number> {
   const now = Date.now();
   let processed = 0;
@@ -170,7 +170,9 @@ async function runScheduleOnce(
     if (taskMatch) {
       const taskId = taskMatch[1];
       const isRruleSet =
-        job.syntax === "rrule" && job.expression != null && hasSetConstructs(job.expression);
+        job.syntax === "rrule" &&
+        job.expression != null &&
+        hasSetConstructs(job.expression);
       try {
         log.info(
           {
@@ -230,7 +232,7 @@ async function runScheduleOnce(
           origin: "schedule",
           systemHint: `Schedule: ${job.name}`,
         });
-        onScheduleThreadCreated?.({
+        onScheduleConversationCreated?.({
           conversationId: fallbackConversation.id,
           scheduleJobId: job.id,
           title: `${job.name}: Error`,
@@ -246,18 +248,18 @@ async function runScheduleOnce(
       source: "schedule",
       scheduleJobId: job.id,
       origin: "schedule",
-      systemHint: isOneShot
-        ? `Reminder: ${job.name}`
-        : `Schedule: ${job.name}`,
+      systemHint: isOneShot ? `Reminder: ${job.name}` : `Schedule: ${job.name}`,
     });
-    onScheduleThreadCreated?.({
+    onScheduleConversationCreated?.({
       conversationId: conversation.id,
       scheduleJobId: job.id,
       title: job.name,
     });
     const runId = createScheduleRun(job.id, conversation.id);
     const isRruleSetMsg =
-      job.syntax === "rrule" && job.expression != null && hasSetConstructs(job.expression);
+      job.syntax === "rrule" &&
+      job.expression != null &&
+      hasSetConstructs(job.expression);
 
     try {
       log.info(
