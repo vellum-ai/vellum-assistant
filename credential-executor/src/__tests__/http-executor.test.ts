@@ -132,7 +132,7 @@ function mockFetch(
   body: string,
   headers?: Record<string, string>,
 ): typeof globalThis.fetch {
-  return async (_url: string | URL | Request, _init?: RequestInit) => {
+  return asFetch(async (_url: string | URL | Request, _init?: RequestInit) => {
     const responseHeaders = new Headers(headers ?? {});
     if (!responseHeaders.has("content-type")) {
       responseHeaders.set("content-type", "application/json");
@@ -141,7 +141,7 @@ function mockFetch(
       status: statusCode,
       headers: responseHeaders,
     });
-  };
+  });
 }
 
 /**
@@ -156,7 +156,7 @@ function mockFetchRecorder(
   requests: Array<{ url: string; init?: RequestInit }>;
 } {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
-  const fetchFn = async (
+  const fetchFn = asFetch(async (
     url: string | URL | Request,
     init?: RequestInit,
   ) => {
@@ -169,7 +169,7 @@ function mockFetchRecorder(
       status: statusCode,
       headers: responseHeaders,
     });
-  };
+  });
   return { fetch: fetchFn, requests };
 }
 
@@ -184,7 +184,7 @@ function mockFetchRedirect(
   finalBody: string,
 ): typeof globalThis.fetch {
   let callCount = 0;
-  return async (_url: string | URL | Request, _init?: RequestInit) => {
+  return asFetch(async (_url: string | URL | Request, _init?: RequestInit) => {
     callCount++;
     if (callCount === 1) {
       return new Response(null, {
@@ -196,7 +196,19 @@ function mockFetchRedirect(
       status: finalStatusCode,
       headers: { "Content-Type": "application/json" },
     });
-  };
+  });
+}
+
+/**
+ * Attach a no-op `preconnect` so a plain async function satisfies
+ * Bun's `typeof globalThis.fetch` (which includes `preconnect`).
+ */
+function asFetch(
+  fn: (url: string | URL | Request, init?: RequestInit) => Promise<Response>,
+): typeof globalThis.fetch {
+  return Object.assign(fn, {
+    preconnect: (_url: string | URL) => {},
+  }) as unknown as typeof globalThis.fetch;
 }
 
 /** Silent logger that suppresses output during tests. */
@@ -230,9 +242,14 @@ function createFixture(
   const temporaryStore = new TemporaryGrantStore();
 
   const backend = createMemoryBackend(secretEntries);
-  const metadataStore = new StaticCredentialMetadataStore();
+  const metadataStore = new StaticCredentialMetadataStore(
+    join(tmpDir, "credentials.json"),
+  );
   for (const record of staticRecords) {
-    metadataStore.upsert(record);
+    metadataStore.upsert(record.service, record.field, {
+      allowedTools: record.allowedTools,
+      allowedDomains: record.allowedDomains,
+    });
   }
 
   const oauthLookup = createOAuthLookup(oauthConnections);
@@ -531,9 +548,9 @@ describe("HTTP executor: platform_oauth handles", () => {
     });
 
     // Mock the platform catalog response
-    const platformCatalogFetch = async (
+    const platformCatalogFetch = asFetch(async (
       url: string | URL | Request,
-      init?: RequestInit,
+      _init?: RequestInit,
     ) => {
       const urlStr = url.toString();
 
@@ -579,7 +596,7 @@ describe("HTTP executor: platform_oauth handles", () => {
       }
 
       return new Response("Not found", { status: 404 });
-    };
+    });
 
     const deps = buildDeps(fixture, [], {
       fetch: platformCatalogFetch,
@@ -907,9 +924,9 @@ describe("HTTP executor: redirect denial", () => {
 
     // Redirect to the same domain/path that matches the grant
     let callCount = 0;
-    const fetchFn: typeof globalThis.fetch = async (
-      url: string | URL | Request,
-      init?: RequestInit,
+    const fetchFn = asFetch(async (
+      _url: string | URL | Request,
+      _init?: RequestInit,
     ) => {
       callCount++;
       if (callCount === 1) {
@@ -922,7 +939,7 @@ describe("HTTP executor: redirect denial", () => {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
-    };
+    });
 
     const deps = buildDeps(fixture, [], { fetch: fetchFn });
 
@@ -1176,9 +1193,9 @@ describe("HTTP executor: network error handling", () => {
       createdAt: Date.now(),
     });
 
-    const fetchFn: typeof globalThis.fetch = async () => {
+    const fetchFn = asFetch(async () => {
       throw new Error("Connection refused");
-    };
+    });
 
     const deps = buildDeps(fixture, [], { fetch: fetchFn });
 
@@ -1209,11 +1226,11 @@ describe("HTTP executor: network error handling", () => {
       createdAt: Date.now(),
     });
 
-    const fetchFn: typeof globalThis.fetch = async () => {
+    const fetchFn = asFetch(async () => {
       throw new Error(
         "Failed to connect with token secret-key-value-12345678 to api.example.com",
       );
-    };
+    });
 
     const deps = buildDeps(fixture, [], { fetch: fetchFn });
 
