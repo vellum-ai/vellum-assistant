@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { dirname } from "node:path";
 
 import { getConfig } from "../../config/loader.js";
 import { isCesShellLockdownEnabled } from "../../credential-execution/feature-gates.js";
@@ -38,12 +39,46 @@ function buildCredentialRefTrace(
  * inside the sandbox when CES shell lockdown is active.
  *
  * Protected paths include:
- * - ~/.vellum/protected/ — credential store secrets
+ * - ~/.vellum/protected/ — credential store secrets (also covers local-mode
+ *   CES data root at ~/.vellum/protected/credential-executor/)
  * - ~/.vellum/workspace/data/db/ — database files that may contain credential metadata
+ * - CES bootstrap socket directory (/run/ces/ or CES_BOOTSTRAP_SOCKET_DIR) —
+ *   prevents untrusted shells from connecting to the CES sidecar directly
+ * - CES managed-mode data root (CES_DATA_DIR / CES_DATA_ROOT /
+ *   /home/ces/.ces-data) — prevents access to CES-private state in managed
+ *   deployments (local-mode is already covered by the protected/ entry)
  */
 function buildCesProtectedPaths(): string[] {
   const root = getRootDir();
-  return [`${root}/protected`, `${root}/workspace/data/db`];
+  const paths = [`${root}/protected`, `${root}/workspace/data/db`];
+
+  // CES bootstrap socket directory — block access to the Unix socket that
+  // accepts RPC commands from the assistant process.
+  const bootstrapSocketDir =
+    process.env["CES_BOOTSTRAP_SOCKET_DIR"] || "/run/ces";
+  paths.push(bootstrapSocketDir);
+
+  // If a full socket path override is set (without the dir env var), block
+  // its parent directory as well.
+  if (
+    !process.env["CES_BOOTSTRAP_SOCKET_DIR"] &&
+    process.env["CES_BOOTSTRAP_SOCKET"]
+  ) {
+    paths.push(dirname(process.env["CES_BOOTSTRAP_SOCKET"]));
+  }
+
+  // CES managed-mode private data root — in managed deployments the CES
+  // data lives outside the Vellum root, so it isn't covered by the
+  // `protected/` entry above.
+  const cesDataDir =
+    process.env["CES_DATA_DIR"] ?? process.env["CES_DATA_ROOT"];
+  if (cesDataDir) {
+    paths.push(cesDataDir);
+  } else if (process.env["CES_MODE"] === "managed") {
+    paths.push("/home/ces/.ces-data");
+  }
+
+  return paths;
 }
 
 const log = getLogger("shell-tool");
