@@ -7,6 +7,7 @@ import { saveAssistantEntry, setActiveAssistant } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
 import { FIREWALL_TAG, GATEWAY_PORT } from "./constants";
 import type { Species } from "./constants";
+import { leaseGuardianToken } from "./guardian-token";
 import { generateRandomSuffix } from "./random-name";
 import { exec, execOutput } from "./step-runner";
 
@@ -506,7 +507,8 @@ export async function hatchGcp(
     }
 
     const sshUser = userInfo().username;
-    const bearerToken = randomBytes(32).toString("hex");
+    const bearerToken =
+      species === "openclaw" ? randomBytes(32).toString("hex") : "";
     const hatchedBy = process.env.VELLUM_HATCHED_BY;
     const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
     if (!anthropicApiKey) {
@@ -652,6 +654,21 @@ export async function hatchGcp(
           console.log("\u2705 Recovery successful!");
         } else {
           process.exit(1);
+        }
+      }
+
+      if (species !== "openclaw") {
+        try {
+          const tokenData = await leaseGuardianToken(
+            runtimeUrl,
+            instanceName,
+          );
+          gcpEntry.bearerToken = tokenData.accessToken;
+          saveAssistantEntry(gcpEntry);
+        } catch (err) {
+          console.warn(
+            `\u26a0\ufe0f  Could not lease guardian token: ${err instanceof Error ? err.message : err}`,
+          );
         }
       }
 
