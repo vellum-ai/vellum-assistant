@@ -219,6 +219,10 @@ export class CesRpcServer {
     const msg = msgResult.data as TransportMessage;
 
     if (msg.type === "handshake_request") {
+      if (this.handshakeComplete) {
+        this.logger.warn("[ces-server] Duplicate handshake_request after session established; ignoring");
+        return;
+      }
       this.handleHandshake(msg as HandshakeRequest);
     } else if (msg.type === "rpc") {
       this.handleRpcEnvelope(msg as unknown as RpcEnvelope).catch((err) => {
