@@ -249,6 +249,11 @@ async function startDaemonFromSource(
     delete env.QDRANT_URL;
   }
 
+  // Write a sentinel PID file before spawning so concurrent hatch() calls
+  // see the file and fall through to the isDaemonResponsive() port check
+  // instead of racing to spawn a duplicate daemon.
+  writeFileSync(pidFile, "starting", "utf-8");
+
   const daemonLogFd = openLogFile("hatch.log");
   const child = spawn("bun", ["run", daemonMainPath], {
     detached: true,
@@ -260,6 +265,10 @@ async function startDaemonFromSource(
 
   if (child.pid) {
     writeFileSync(pidFile, String(child.pid), "utf-8");
+  } else {
+    try {
+      unlinkSync(pidFile);
+    } catch {}
   }
 }
 
@@ -842,6 +851,11 @@ export async function startLocalDaemon(
         delete daemonEnv.QDRANT_URL;
       }
 
+      // Write a sentinel PID file before spawning so concurrent hatch() calls
+      // see the file and fall through to the isDaemonResponsive() port check
+      // instead of racing to spawn a duplicate daemon.
+      writeFileSync(pidFile, "starting", "utf-8");
+
       const daemonLogFd = openLogFile("hatch.log");
       const child = spawn(daemonBinary, [], {
         cwd: dirname(daemonBinary),
@@ -853,10 +867,13 @@ export async function startLocalDaemon(
       child.unref();
       const daemonPid = child.pid;
 
-      // Write PID file immediately so the health monitor can find the process
-      // and concurrent hatch() calls see it as alive.
+      // Overwrite sentinel with real PID, or clean up on spawn failure.
       if (daemonPid) {
         writeFileSync(pidFile, String(daemonPid), "utf-8");
+      } else {
+        try {
+          unlinkSync(pidFile);
+        } catch {}
       }
     }
 
