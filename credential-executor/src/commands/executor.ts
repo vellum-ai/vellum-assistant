@@ -607,13 +607,22 @@ function checkGrant(
   persistentStore: PersistentGrantStore,
   temporaryStore: TemporaryGrantStore,
 ): GrantCheckResult {
-  // If an explicit grantId is provided, check it directly
+  // If an explicit grantId is provided, check it directly — but verify
+  // that the grant's scope matches the current request. Without this
+  // check, an agent with a valid grant for one command/credential could
+  // reuse the grantId for a different command/credential (authorization
+  // bypass).
   if (request.grantId) {
     const grant = persistentStore.getById(request.grantId);
-    if (grant) {
+    if (
+      grant &&
+      grant.tool === "command" &&
+      grant.scope === request.credentialHandle &&
+      grantMatchesCommand(grant.pattern, manifest.bundleId, profileName)
+    ) {
       return { ok: true, grantId: grant.id };
     }
-    // Explicit grant not found — fall through to pattern matching
+    // Explicit grant not found or does not match this request — fall through to pattern matching
   }
 
   // Check persistent grants for a matching command grant
