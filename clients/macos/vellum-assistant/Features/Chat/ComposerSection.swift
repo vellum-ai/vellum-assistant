@@ -20,8 +20,6 @@ struct ComposerSection: View {
     let onFileDrop: ([URL]) -> Void
     var onDropImageData: ((Data, String?) -> Void)? = nil
     let onMicrophoneToggle: () -> Void
-    let watchSession: WatchSession?
-    let onStopWatch: () -> Void
     var voiceModeManager: VoiceModeManager? = nil
     var voiceService: OpenAIVoiceService? = nil
     var onEndVoiceMode: (() -> Void)? = nil
