@@ -7,27 +7,33 @@ enum SettingsTab: String {
     case voice = "Voice"
     case permissionsAndPrivacy = "Permissions & Privacy"
     case contacts = "Contacts"
+    case billing = "Billing"
     case archivedThreads = "Archived Threads"
     case developer = "Developer"
 
     /// Primary tabs shown in the main nav list (excludes feature-flagged bottom tabs).
-    static func primaryTabs(contactsEnabled: Bool = false) -> [SettingsTab] {
+    static func primaryTabs(contactsEnabled: Bool = false, billingEnabled: Bool = false) -> [SettingsTab] {
         var tabs: [SettingsTab] = [.general]
         if contactsEnabled {
             tabs.append(.contacts)
         }
         tabs.append(contentsOf: [
             .voice, .modelsAndServices,
-            .permissionsAndPrivacy, .archivedThreads
+            .permissionsAndPrivacy,
         ])
+        if billingEnabled {
+            tabs.append(.billing)
+        }
+        tabs.append(.archivedThreads)
         return tabs
     }
 
     /// Resolves a tab name string to a SettingsTab. Only accepts current canonical names.
-    static func fromRawValue(_ value: String, contactsEnabled: Bool = false, developerEnabled: Bool = false) -> SettingsTab? {
+    static func fromRawValue(_ value: String, contactsEnabled: Bool = false, billingEnabled: Bool = false, developerEnabled: Bool = false) -> SettingsTab? {
         guard let tab = SettingsTab(rawValue: value) else { return nil }
         // Block feature-flagged tabs when disabled
         if tab == .contacts && !contactsEnabled { return nil }
+        if tab == .billing && !billingEnabled { return nil }
         if tab == .developer && !developerEnabled { return nil }
         return tab
     }
@@ -56,12 +62,14 @@ struct SettingsPanel: View {
     @State private var permissionCheckTask: Task<Void, Never>?
     @State private var selectedTab: SettingsTab = .general
     @State private var isContactsEnabled: Bool = false
+    @State private var isBillingEnabled: Bool = false
     @State private var isDeveloperEnabled: Bool = false
     @State private var isEmailEnabled: Bool = false
     @State private var showingDevUnlock: Bool = false
     @State private var devUnlockText: String = ""
     @State private var devUnlockMonitor: Any?
     private static let contactsFeatureFlagKey = "feature_flags.contacts.enabled"
+    private static let billingFeatureFlagKey = "settings_billing_enabled"
     private static let developerFeatureFlagKey = "feature_flags.settings-developer-nav.enabled"
     private static let emailFeatureFlagKey = "feature_flags.email-channel.enabled"
 
@@ -125,6 +133,7 @@ struct SettingsPanel: View {
             await loadFeatureFlags()
         }
         .onAppear {
+            isBillingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
             store.refreshAPIKeyState()
             store.refreshTelegramStatus()
             store.refreshTwilioStatus()
@@ -151,6 +160,11 @@ struct SettingsPanel: View {
             if let tab = notification.object as? SettingsTab {
                 guard allVisibleTabs.contains(tab) else { return }
                 selectedTab = tab
+            }
+        }
+        .onChange(of: billingVisible) { _, visible in
+            if !visible && selectedTab == .billing {
+                selectedTab = .general
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
@@ -242,7 +256,7 @@ struct SettingsPanel: View {
 
     /// All currently visible tabs (primary + gated bottom tabs).
     private var allVisibleTabs: [SettingsTab] {
-        var tabs = SettingsTab.primaryTabs(contactsEnabled: isContactsEnabled)
+        var tabs = SettingsTab.primaryTabs(contactsEnabled: isContactsEnabled, billingEnabled: billingVisible)
         if isDeveloperEnabled {
             tabs.append(.developer)
         }
@@ -250,9 +264,13 @@ struct SettingsPanel: View {
         return tabs
     }
 
+    private var billingVisible: Bool {
+        isBillingEnabled && authManager.isAuthenticated
+    }
+
     private var settingsNav: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            ForEach(SettingsTab.primaryTabs(contactsEnabled: isContactsEnabled), id: \.self) { tab in
+            ForEach(SettingsTab.primaryTabs(contactsEnabled: isContactsEnabled, billingEnabled: billingVisible), id: \.self) { tab in
                 SettingsNavRow(tab: tab, isSelected: selectedTab == tab) {
                     selectedTab = tab
                 }
@@ -286,6 +304,8 @@ struct SettingsPanel: View {
             permissionsAndPrivacyContent
         case .contacts:
             ContactsContainerView(daemonClient: daemonClient, store: store, isEmailEnabled: isEmailEnabled)
+        case .billing:
+            SettingsBillingTab(authManager: authManager)
         case .archivedThreads:
             SettingsArchivedThreadsTab(threadManager: threadManager)
         case .developer:
