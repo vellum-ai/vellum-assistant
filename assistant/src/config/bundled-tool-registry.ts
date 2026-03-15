@@ -140,7 +140,6 @@ import * as sequenceUpdate from "./bundled-skills/sequences/tools/sequence-updat
 // ── settings ───────────────────────────────────────────────────────────────────
 import * as navigateSettingsTab from "./bundled-skills/settings/tools/navigate-settings-tab.js";
 import * as openSystemSettings from "./bundled-skills/settings/tools/open-system-settings.js";
-import * as setAvatar from "./bundled-skills/settings/tools/set-avatar.js";
 import * as voiceConfigUpdate from "./bundled-skills/settings/tools/voice-config-update.js";
 // ── skill-management ───────────────────────────────────────────────────────────
 import * as deleteManaged from "./bundled-skills/skill-management/tools/delete-managed.js";
@@ -338,7 +337,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
 
   // settings
   ["settings:tools/voice-config-update.ts", voiceConfigUpdate],
-  ["settings:tools/set-avatar.ts", setAvatar],
   ["settings:tools/open-system-settings.ts", openSystemSettings],
   ["settings:tools/navigate-settings-tab.ts", navigateSettingsTab],
 
