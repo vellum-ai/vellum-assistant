@@ -286,6 +286,36 @@ describe("urlMatchesTemplate", () => {
   test("returns false for invalid template", () => {
     expect(urlMatchesTemplate("https://example.com/", "not-a-url")).toBe(false);
   });
+
+  test("returns false (not throw) for malformed percent escapes in template", () => {
+    // A bare % or %zz would cause decodeURIComponent to throw URIError
+    expect(
+      urlMatchesTemplate(
+        "https://api.example.com/users/42",
+        "https://api.example.com/users/%zz",
+      ),
+    ).toBe(false);
+  });
+
+  test("returns false (not throw) for malformed percent escapes in URL", () => {
+    expect(
+      urlMatchesTemplate(
+        "https://api.example.com/data/%zz",
+        "https://api.example.com/data/foo",
+      ),
+    ).toBe(false);
+  });
+
+  test("matches literal segments consistently when both are percent-encoded", () => {
+    // Both sides should be decoded before comparison, so %20 in the URL
+    // matches a space in a literal template segment (and vice versa).
+    expect(
+      urlMatchesTemplate(
+        "https://api.example.com/hello%20world",
+        "https://api.example.com/hello%20world",
+      ),
+    ).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

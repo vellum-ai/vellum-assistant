@@ -15,6 +15,23 @@
  */
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Safely decode a percent-encoded path segment. Falls back to the raw
+ * segment when it contains malformed escapes (e.g. bare `%` or `%zz`)
+ * that would cause `decodeURIComponent` to throw a `URIError`.
+ */
+function safeDecodeSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Segment classification patterns
 // ---------------------------------------------------------------------------
 
@@ -147,15 +164,17 @@ export function urlMatchesTemplate(
   if (urlHost !== templateHost) return false;
 
   // Split paths and compare segment-by-segment.
-  // decodeURIComponent is needed because the URL constructor percent-encodes
-  // curly braces ({, }) in paths — placeholders like {:num} become %7B:num%7D.
+  // safeDecodeSegment is applied to both sides so that percent-encoded bytes
+  // (e.g. %20, %7B) are compared consistently and so that the URL constructor's
+  // encoding of curly braces ({, }) in template placeholders is reversed.
   const urlSegments = parsedUrl.pathname
     .split("/")
-    .filter((s) => s.length > 0);
+    .filter((s) => s.length > 0)
+    .map(safeDecodeSegment);
   const templateSegments = parsedTemplate.pathname
     .split("/")
     .filter((s) => s.length > 0)
-    .map((s) => decodeURIComponent(s));
+    .map(safeDecodeSegment);
 
   if (urlSegments.length !== templateSegments.length) return false;
 
