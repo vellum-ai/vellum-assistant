@@ -46,6 +46,7 @@ import {
   getConversation,
   getDisplayMetaForConversations,
 } from "../memory/conversation-crud.js";
+import { resolveConversationId } from "../memory/conversation-key-store.js";
 import {
   countConversations,
   listConversations,
@@ -891,9 +892,18 @@ export class RuntimeHttpServer {
         method: "POST",
         handler: async ({ req }) => {
           const body = (await req.json()) as Record<string, unknown>;
-          const conversationId = body.conversationId as string | undefined;
-          if (!conversationId)
+          const rawConversationId = body.conversationId as string | undefined;
+          if (!rawConversationId)
             return httpError("BAD_REQUEST", "Missing conversationId", 400);
+          // The client may send a conversation key rather than the internal
+          // conversation ID. Resolve to the internal ID to satisfy FK constraints.
+          const conversationId = resolveConversationId(rawConversationId);
+          if (!conversationId)
+            return httpError(
+              "NOT_FOUND",
+              `Unknown conversation: ${rawConversationId}`,
+              404,
+            );
           try {
             recordConversationSeenSignal({
               conversationId,
