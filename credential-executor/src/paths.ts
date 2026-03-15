@@ -100,7 +100,7 @@ export function getCesToolStoreDir(mode?: CesMode): string {
 // ---------------------------------------------------------------------------
 
 /** Default directory for the bootstrap Unix socket shared volume. */
-const BOOTSTRAP_SOCKET_DIR = "/run/ces";
+const BOOTSTRAP_SOCKET_DIR = "/run/ces-bootstrap";
 
 /** Default bootstrap socket filename. */
 const BOOTSTRAP_SOCKET_NAME = "ces.sock";
@@ -115,7 +115,7 @@ const BOOTSTRAP_SOCKET_NAME = "ces.sock";
  * Priority:
  * 1. `CES_BOOTSTRAP_SOCKET_DIR` env var (directory) — appends `ces.sock`
  * 2. `CES_BOOTSTRAP_SOCKET` env var (full file path override)
- * 3. Hardcoded default: `/run/ces/ces.sock`
+ * 3. Hardcoded default: `/run/ces-bootstrap/ces.sock`
  *
  * The pod template exports `CES_BOOTSTRAP_SOCKET_DIR`; the full-path
  * override is kept for local testing convenience.
@@ -136,7 +136,7 @@ export function getBootstrapSocketPath(): string {
 // ---------------------------------------------------------------------------
 
 /** Default health probe port for managed CES. */
-const DEFAULT_HEALTH_PORT = 7841;
+const DEFAULT_HEALTH_PORT = 8090;
 
 /**
  * Return the health probe port for managed mode.

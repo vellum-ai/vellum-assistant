@@ -275,7 +275,7 @@ describe("non-CES internal consumers intact when flag is off", () => {
   test("existing non-agent flows are unaffected by managed sidecar flag", () => {
     // When the flag is off, the process manager never touches the managed
     // path. This means:
-    // 1. No socket connection attempts to /run/ces/ces.sock
+    // 1. No socket connection attempts to /run/ces-bootstrap/ces.sock
     // 2. No managed transport creation
     // 3. Local mode works identically to before the flag existed
     const config = makeConfig({

@@ -42,7 +42,7 @@ function buildCredentialRefTrace(
  * - ~/.vellum/protected/ — credential store secrets (also covers local-mode
  *   CES data root at ~/.vellum/protected/credential-executor/)
  * - ~/.vellum/workspace/data/db/ — database files that may contain credential metadata
- * - CES bootstrap socket directory (/run/ces/ or CES_BOOTSTRAP_SOCKET_DIR) —
+ * - CES bootstrap socket directory (/run/ces-bootstrap/ or CES_BOOTSTRAP_SOCKET_DIR) —
  *   prevents untrusted shells from connecting to the CES sidecar directly
  * - CES managed-mode data root (CES_DATA_DIR, or /ces-data when
  *   CES_MANAGED_MODE is set) — prevents access to CES-private state in
