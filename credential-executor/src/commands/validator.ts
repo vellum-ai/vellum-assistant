@@ -453,8 +453,10 @@ function validateArgvPattern(
  * - `|`  — pipe (but not `||`)
  * - `$(`  — command substitution
  * - `` ` `` — backtick command substitution
+ * - `\n` — newline (POSIX command separator, equivalent to `;`)
+ * - `\r` — carriage return
  */
-const SHELL_METACHAR_RE = /;|&&|\|\||(?<!\|)\|(?!\|)|\$\(|`/;
+const SHELL_METACHAR_RE = /;|&&|\|\||(?<!\|)\|(?!\|)|\$\(|`|\n|\r/;
 
 /**
  * Returns true if the command string contains shell metacharacters that
