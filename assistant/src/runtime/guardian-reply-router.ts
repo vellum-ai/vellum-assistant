@@ -496,7 +496,7 @@ export async function routeGuardianReply(
 
     // Use all pending requests for the guardian without conversation scoping.
     // Guardian requests for channel/voice flows are created on the requester's
-    // conversation, not the guardian's reply thread, so filtering by
+    // conversation, not the guardian's reply conversation, so filtering by
     // conversationId would incorrectly drop valid pending requests. Identity-
     // based filtering in findPendingCanonicalRequests already constrains
     // results to the correct guardian.

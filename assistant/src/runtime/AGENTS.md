@@ -67,7 +67,7 @@ All `/v1/*` endpoints share a per-client-IP sliding-window rate limiter (`middle
 - **Authenticated**: 300 requests/minute
 - **Unauthenticated**: 20 requests/minute
 
-When the limit is exceeded, the limiter returns 429 and logs a structured warning (module: `rate-limiter`) with the denied endpoint and a breakdown of which endpoints consumed the budget in the current window. This makes it easy to identify whether the cause is rapid thread switching, polling, or unexpected request volume.
+When the limit is exceeded, the limiter returns 429 and logs a structured warning (module: `rate-limiter`) with the denied endpoint and a breakdown of which endpoints consumed the budget in the current window. This makes it easy to identify whether the cause is rapid conversation switching, polling, or unexpected request volume.
 
 Logs are written to `~/.vellum/workspace/data/logs/vellum.log` by default. If `logFile.dir` is configured, logs rotate daily as `assistant-YYYY-MM-DD.log` in that directory. To watch rate limit events in real time:
 

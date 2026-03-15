@@ -97,7 +97,7 @@ async function dispatchGuardianQuestionInner(
   try {
     const expiresAt = Date.now() + getUserConsultationTimeoutMs();
 
-    // Voice decisions are handled in guardian threads tied to the assistant-
+    // Voice decisions are handled in guardian conversations tied to the assistant-
     // level guardian identity. Resolve the principal from the contacts table.
     let guardianPrincipalId: string | undefined;
 
@@ -158,7 +158,7 @@ async function dispatchGuardianQuestionInner(
 
     // Count how many canonical guardian requests are already pending for
     // this call session. Used as a candidate-affinity hint so the decision
-    // engine prefers reusing an existing thread.
+    // engine prefers reusing an existing conversation.
     const activeGuardianRequestCount = listCanonicalGuardianRequests({
       status: "pending",
       sourceType: "voice",
@@ -167,7 +167,7 @@ async function dispatchGuardianQuestionInner(
     // Look up the vellum conversation used for the first guardian question
     // delivery in this call session. When found, pass it as an affinity hint
     // so the notification pipeline deterministically routes to the same
-    // conversation instead of letting the LLM choose a different thread.
+    // conversation instead of letting the LLM choose a different conversation.
     // Find earlier canonical requests for this call session and check their
     // deliveries for a vellum destination conversation ID.
     let existingGuardianConversationId: string | null = null;
@@ -192,12 +192,12 @@ async function dispatchGuardianQuestionInner(
     if (existingGuardianConversationId) {
       log.info(
         { callSessionId, existingGuardianConversationId },
-        "Found existing guardian conversation for call session — enforcing thread affinity",
+        "Found existing guardian conversation for call session — enforcing conversation affinity",
       );
     }
 
     // Route through the canonical notification pipeline. The paired vellum
-    // conversation from this pipeline is the canonical guardian thread.
+    // conversation from this pipeline is the canonical guardian conversation.
     let vellumDeliveryId: string | null = null;
     const requestCode =
       request.requestCode ?? request.id.slice(0, 6).toUpperCase();

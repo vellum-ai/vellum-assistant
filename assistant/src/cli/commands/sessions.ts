@@ -27,7 +27,7 @@ export function registerSessionsCommand(program: Command): void {
   sessions.addHelpText(
     "after",
     `
-Sessions represent conversation threads with the assistant. Each session has a
+Sessions represent conversations with the assistant. Each session has a
 unique ID and a title. The assistant must be running for "new" (it communicates
 via the HTTP API), while "list", "export", and "clear" operate on the local
 SQLite database directly.

@@ -724,7 +724,7 @@ export function getPendingDeliveriesByDestination(
 
 /**
  * Look up all pending deliveries by destination conversation ID.
- * Used for disambiguation when a reused vellum thread has multiple active
+ * Used for disambiguation when a reused vellum conversation has multiple active
  * guardian requests.
  */
 export function getPendingDeliveriesByConversation(
@@ -803,7 +803,7 @@ export function getExpiredDeliveriesByDestination(
 
 /**
  * Look up all expired deliveries by destination conversation ID.
- * Used for disambiguation when a reused vellum thread has multiple expired
+ * Used for disambiguation when a reused vellum conversation has multiple expired
  * guardian requests eligible for follow-up.
  */
 export function getExpiredDeliveriesByConversation(
@@ -885,7 +885,7 @@ export function getFollowupDeliveriesByDestination(
 /**
  * Look up all deliveries for requests in `awaiting_guardian_choice` follow-up
  * state by destination conversation ID. Used for disambiguation when a reused
- * vellum thread has multiple follow-up guardian requests.
+ * vellum conversation has multiple follow-up guardian requests.
  */
 export function getFollowupDeliveriesByConversation(
   conversationId: string,

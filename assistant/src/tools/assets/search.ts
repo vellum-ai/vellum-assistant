@@ -1,5 +1,5 @@
 /**
- * asset_search — cross-thread attachment metadata search.
+ * asset_search — cross-conversation attachment metadata search.
  *
  * Queries the attachments store for matching assets by MIME type,
  * filename, recency, or conversation scope. Returns metadata and
@@ -71,7 +71,7 @@ function formatAttachment(a: StoredAttachment): string {
 
 /**
  * Look up which conversations an attachment belongs to, along with each
- * conversation's thread type. An attachment can be linked to multiple
+ * conversation's type. An attachment can be linked to multiple
  * messages across multiple conversations.
  */
 export function getAttachmentSourceConversations(
@@ -95,9 +95,9 @@ export function getAttachmentSourceConversations(
  * Returns true if visible, false if hidden.
  *
  * - Orphan attachments (no message linkage) are universally visible.
- * - Attachments with any standard-thread source are universally visible.
+ * - Attachments with any standard-conversation source are universally visible.
  * - All-private attachments are visible only if the caller is in one of
- *   the source private threads.
+ *   the source private conversations.
  */
 function isAttachmentVisibleFromContext(
   attachmentId: string,

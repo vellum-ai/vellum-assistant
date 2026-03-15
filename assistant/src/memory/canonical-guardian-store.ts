@@ -653,7 +653,7 @@ export function listPendingCanonicalGuardianRequestsByDestinationChat(
 
 /**
  * List pending canonical requests in scope for a conversation, unioning:
- *   1. Requests whose source `conversationId` matches the queried thread.
+ *   1. Requests whose source `conversationId` matches the queried conversation.
  *   2. Requests that have a delivery whose `destinationConversationId` matches.
  *
  * When `channel` is provided the delivery-scoped lookup is narrowed to that

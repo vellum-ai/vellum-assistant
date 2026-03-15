@@ -169,7 +169,7 @@ export async function handleMemoryUpdate(
   try {
     const db = getDb();
 
-    // Constrain lookup to the current scope so threads cannot mutate
+    // Constrain lookup to the current scope so conversations cannot mutate
     // memory items belonging to a different scope.
     const existing = db
       .select()

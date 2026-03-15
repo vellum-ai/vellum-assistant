@@ -141,8 +141,8 @@ export interface NotificationSignal<TEventName extends string = string> {
   routingHints?: Record<string, unknown>;
   /**
    * Per-channel conversation affinity hint. When set, the decision engine
-   * must force thread reuse to the specified conversation for that channel,
-   * bypassing LLM judgment. Used to enforce deterministic guardian thread
+   * must force conversation reuse to the specified conversation for that channel,
+   * bypassing LLM judgment. Used to enforce deterministic guardian conversation
    * affinity within a call session.
    */
   conversationAffinityHint?: Partial<Record<string, string>>;

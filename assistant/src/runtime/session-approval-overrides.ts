@@ -21,7 +21,7 @@ const DEFAULT_TIMED_DURATION_MS = 10 * 60 * 1000; // 10 minutes
 const store = new Map<string, TemporaryApprovalMode>();
 
 /**
- * Set thread-scoped temporary approval for a conversation.
+ * Set conversation-scoped temporary approval for a conversation.
  * Remains active until explicitly cleared or session ends.
  * Replaces any existing mode for the conversation.
  */

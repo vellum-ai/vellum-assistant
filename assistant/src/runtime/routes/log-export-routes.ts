@@ -50,7 +50,7 @@ const MAX_ARCHIVE_BYTES = 50 * 1024 * 1024;
 
 interface ExportRequestBody {
   auditLimit?: number;
-  conversationId?: string; // scope to a single thread
+  conversationId?: string; // scope to a single conversation
   startTime?: number; // epoch ms — lower bound (inclusive)
   endTime?: number; // epoch ms — upper bound (inclusive)
 }
@@ -250,7 +250,7 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
     // --- Export manifest ---
     const manifest = conversationId
       ? {
-          type: "thread-export" as const,
+          type: "conversation-export" as const,
           conversationId,
           ...(startTime !== undefined ? { startTime } : {}),
           ...(endTime !== undefined ? { endTime } : {}),

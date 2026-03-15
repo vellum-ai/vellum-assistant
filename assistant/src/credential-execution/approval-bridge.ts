@@ -36,7 +36,7 @@ const log = getLogger("ces-approval-bridge");
  * Maps the existing confirmation transport decisions to CES grant semantics:
  * - `allow`          -> approved (single-use grant, no TTL)
  * - `allow_10m`      -> approved (temporary grant, 10-minute TTL)
- * - `allow_conversation` -> approved (thread-scoped grant, no TTL but session-bound)
+ * - `allow_conversation` -> approved (conversation-scoped grant, no TTL but session-bound)
  * - `always_allow`   -> approved (persistent grant, no expiry)
  * - `deny`           -> denied
  * - `always_deny`    -> denied

@@ -26,7 +26,7 @@ const SUMMARY_SYSTEM_PROMPT = [
   "## Goals",
   "## Constraints",
   "## Decisions",
-  "## Open Threads",
+  "## Open Conversations",
   "## Key Artifacts",
   "## Recent Progress",
 ].join("\n");

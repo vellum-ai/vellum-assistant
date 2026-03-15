@@ -317,7 +317,7 @@ export class SubagentManager {
     if (parentSendToClient) {
       // Route the status update through the stored parent sender so the
       // owning session's UI chip updates, even when the abort comes from a
-      // different socket (e.g. after thread switching). Fall back to the
+      // different socket (e.g. after conversation switching). Fall back to the
       // caller-provided sender if no stored sender exists.
       const statusSender = managed.parentSendToClient ?? parentSendToClient;
       this.setStatus(subagentId, "aborted", statusSender);
@@ -331,7 +331,7 @@ export class SubagentManager {
         try {
           // Use the managed subagent's stored parentSendToClient so the
           // notification routes to the parent session's socket, not the
-          // aborting socket (which may be a different thread after switching).
+          // aborting socket (which may be a different conversation after switching).
           this.onSubagentFinished(
             managed.state.config.parentSessionId,
             message,

@@ -176,18 +176,18 @@ class AssetMaterializeTool implements Tool {
       const hasStandard = sources.some((s) => s.conversationType !== "private");
       if (!hasStandard) {
         // All sources are private — check if the caller is in any of those conversations
-        const callerInSourceThread = sources.some((s) =>
+        const callerInSourceConversation = sources.some((s) =>
           isAttachmentVisible(
             { conversationId: s.conversationId, isPrivate: true },
             currentContext,
           ),
         );
-        if (!callerInSourceThread) {
+        if (!callerInSourceConversation) {
           return {
             content:
-              `Error: Attachment "${attachment.originalFilename}" is from a private thread ` +
+              `Error: Attachment "${attachment.originalFilename}" is from a private conversation ` +
               `and cannot be accessed from this context. You can only access this ` +
-              `attachment from within the private thread where it was shared.`,
+              `attachment from within the private conversation where it was shared.`,
             isError: true,
           };
         }

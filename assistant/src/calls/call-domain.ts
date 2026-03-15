@@ -286,7 +286,7 @@ export function createInboundVoiceSession(
   }
 
   // Create a dedicated voice conversation keyed by CallSid so inbound calls
-  // get their own conversation thread.
+  // get their own conversation.
   const voiceConvKey =
     assistantId && assistantId !== DAEMON_INTERNAL_ASSISTANT_ID
       ? `asst:${assistantId}:voice:inbound:${callSid}`
@@ -445,7 +445,7 @@ export async function startCall(
     sessionId = session.id;
 
     // Create a dedicated voice conversation for this call so that voice
-    // transcripts live in their own thread, separate from the chat that
+    // transcripts live in their own conversation, separate from the chat that
     // triggered the call.
     const voiceConvKey = assistantId
       ? `asst:${assistantId}:voice:call:${session.id}`
@@ -937,7 +937,7 @@ export async function startVerificationCall(
 
     // Create a minimal conversation so the call session has a valid FK,
     // and bind it to the voice channel so it never appears as an unbound
-    // desktop thread.
+    // desktop conversation.
     const convKey = `guardian-verify:${verificationSessionId}`;
     const { conversationId } = getOrCreateConversation(convKey);
 
@@ -1069,7 +1069,7 @@ export async function startInviteCall(
 
     // Create a minimal conversation so the call session has a valid FK,
     // and bind it to the voice channel so it never appears as an unbound
-    // desktop thread.
+    // desktop conversation.
     const timestamp = Date.now();
     const convKey = `invite-call:${phoneNumber}:${timestamp}`;
     const { conversationId } = getOrCreateConversation(convKey);
