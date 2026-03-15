@@ -104,6 +104,46 @@
       "label": "Logfire LLM Observability",
       "description": "Enable Logfire tracing for LLM request/response telemetry when LOGFIRE_TOKEN is set",
       "defaultEnabled": false
+    },
+    {
+      "id": "ces-tools",
+      "scope": "assistant",
+      "key": "feature_flags.ces-tools.enabled",
+      "label": "CES Tool Exposure",
+      "description": "Register Credential Execution Service tools (credential-grant, credential-revoke, credential-list) in the agent loop",
+      "defaultEnabled": false
+    },
+    {
+      "id": "ces-shell-lockdown",
+      "scope": "assistant",
+      "key": "feature_flags.ces-shell-lockdown.enabled",
+      "label": "CES Shell Lockdown",
+      "description": "Enforce untrusted-agent shell lockdown when CES credentials are active, restricting direct shell access to credentialed services",
+      "defaultEnabled": false
+    },
+    {
+      "id": "ces-secure-install",
+      "scope": "assistant",
+      "key": "feature_flags.ces-secure-install.enabled",
+      "label": "CES Secure Command Installation",
+      "description": "Enable secure tool/command installation via CES instead of direct shell execution for untrusted agents",
+      "defaultEnabled": false
+    },
+    {
+      "id": "ces-grant-audit",
+      "scope": "assistant",
+      "key": "feature_flags.ces-grant-audit.enabled",
+      "label": "CES Grant & Audit Inspection",
+      "description": "Surface credential grant and audit inspection endpoints for reviewing active grants and access logs",
+      "defaultEnabled": false
+    },
+    {
+      "id": "ces-managed-sidecar",
+      "scope": "assistant",
+      "key": "feature_flags.ces-managed-sidecar.enabled",
+      "label": "CES Managed Sidecar Transport",
+      "description": "Use managed sidecar transport for CES communication when running in a containerized environment",
+      "defaultEnabled": false
     }
   ]
 }
