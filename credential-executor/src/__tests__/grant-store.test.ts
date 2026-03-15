@@ -4,7 +4,7 @@
  * Covers:
  * - Persistent store: initialization, duplicate prevention by canonical grant
  *   hash, fail-closed behavior on corrupt/unreadable files.
- * - Temporary store: allow_once consumption, allow_10m expiry, allow_thread
+ * - Temporary store: allow_once consumption, allow_10m expiry, allow_conversation
  *   scoping by conversation ID, clearConversation cleanup.
  */
 
@@ -457,35 +457,35 @@ describe("TemporaryGrantStore", () => {
     });
   });
 
-  describe("allow_thread", () => {
+  describe("allow_conversation", () => {
     test("requires conversationId", () => {
-      expect(() => store.add("allow_thread", "hash-t", {})).toThrow(
+      expect(() => store.add("allow_conversation", "hash-t", {})).toThrow(
         /conversationId/,
       );
     });
 
     test("scoped to conversation ID", () => {
-      store.add("allow_thread", "hash-t", { conversationId: "conv-1" });
+      store.add("allow_conversation", "hash-t", { conversationId: "conv-1" });
 
-      expect(store.check("allow_thread", "hash-t", "conv-1")).toBe(true);
+      expect(store.check("allow_conversation", "hash-t", "conv-1")).toBe(true);
       // Different conversation should not match
-      expect(store.check("allow_thread", "hash-t", "conv-2")).toBe(false);
+      expect(store.check("allow_conversation", "hash-t", "conv-2")).toBe(false);
     });
 
     test("same proposal hash in different conversations are independent", () => {
-      store.add("allow_thread", "hash-t", { conversationId: "conv-a" });
-      store.add("allow_thread", "hash-t", { conversationId: "conv-b" });
+      store.add("allow_conversation", "hash-t", { conversationId: "conv-a" });
+      store.add("allow_conversation", "hash-t", { conversationId: "conv-b" });
 
-      expect(store.check("allow_thread", "hash-t", "conv-a")).toBe(true);
-      expect(store.check("allow_thread", "hash-t", "conv-b")).toBe(true);
+      expect(store.check("allow_conversation", "hash-t", "conv-a")).toBe(true);
+      expect(store.check("allow_conversation", "hash-t", "conv-b")).toBe(true);
     });
 
-    test("not consumed on check (persists within thread)", () => {
-      store.add("allow_thread", "hash-t", { conversationId: "conv-1" });
+    test("not consumed on check (persists within conversation)", () => {
+      store.add("allow_conversation", "hash-t", { conversationId: "conv-1" });
 
-      expect(store.check("allow_thread", "hash-t", "conv-1")).toBe(true);
-      expect(store.check("allow_thread", "hash-t", "conv-1")).toBe(true);
-      expect(store.check("allow_thread", "hash-t", "conv-1")).toBe(true);
+      expect(store.check("allow_conversation", "hash-t", "conv-1")).toBe(true);
+      expect(store.check("allow_conversation", "hash-t", "conv-1")).toBe(true);
+      expect(store.check("allow_conversation", "hash-t", "conv-1")).toBe(true);
     });
   });
 
@@ -502,9 +502,9 @@ describe("TemporaryGrantStore", () => {
       expect(store.checkAny("hash-any-t")).toBe("allow_10m");
     });
 
-    test("finds allow_thread grant with conversationId", () => {
-      store.add("allow_thread", "hash-any-th", { conversationId: "conv-x" });
-      expect(store.checkAny("hash-any-th", "conv-x")).toBe("allow_thread");
+    test("finds allow_conversation grant with conversationId", () => {
+      store.add("allow_conversation", "hash-any-th", { conversationId: "conv-x" });
+      expect(store.checkAny("hash-any-th", "conv-x")).toBe("allow_conversation");
     });
 
     test("returns undefined when no grants match", () => {
@@ -532,28 +532,28 @@ describe("TemporaryGrantStore", () => {
   });
 
   describe("clearConversation", () => {
-    test("removes all thread grants for a conversation", () => {
-      store.add("allow_thread", "hash-1", { conversationId: "conv-clear" });
-      store.add("allow_thread", "hash-2", { conversationId: "conv-clear" });
-      store.add("allow_thread", "hash-3", { conversationId: "conv-keep" });
+    test("removes all conversation grants for a conversation", () => {
+      store.add("allow_conversation", "hash-1", { conversationId: "conv-clear" });
+      store.add("allow_conversation", "hash-2", { conversationId: "conv-clear" });
+      store.add("allow_conversation", "hash-3", { conversationId: "conv-keep" });
 
       store.clearConversation("conv-clear");
 
-      expect(store.check("allow_thread", "hash-1", "conv-clear")).toBe(false);
-      expect(store.check("allow_thread", "hash-2", "conv-clear")).toBe(false);
+      expect(store.check("allow_conversation", "hash-1", "conv-clear")).toBe(false);
+      expect(store.check("allow_conversation", "hash-2", "conv-clear")).toBe(false);
       // Other conversation unaffected
-      expect(store.check("allow_thread", "hash-3", "conv-keep")).toBe(true);
+      expect(store.check("allow_conversation", "hash-3", "conv-keep")).toBe(true);
     });
 
-    test("does not affect non-thread grants", () => {
-      store.add("allow_once", "hash-non-thread");
-      store.add("allow_10m", "hash-non-thread-t");
+    test("does not affect non-conversation grants", () => {
+      store.add("allow_once", "hash-non-conv");
+      store.add("allow_10m", "hash-non-conv-t");
 
       store.clearConversation("any-conv");
 
-      // Non-thread grants unaffected
-      expect(store.check("allow_once", "hash-non-thread")).toBe(true);
-      expect(store.check("allow_10m", "hash-non-thread-t")).toBe(true);
+      // Non-conversation grants unaffected
+      expect(store.check("allow_once", "hash-non-conv")).toBe(true);
+      expect(store.check("allow_10m", "hash-non-conv-t")).toBe(true);
     });
   });
 
@@ -561,7 +561,7 @@ describe("TemporaryGrantStore", () => {
     test("removes all grants", () => {
       store.add("allow_once", "h1");
       store.add("allow_10m", "h2");
-      store.add("allow_thread", "h3", { conversationId: "c1" });
+      store.add("allow_conversation", "h3", { conversationId: "c1" });
 
       store.clear();
       expect(store.size).toBe(0);
@@ -572,7 +572,7 @@ describe("TemporaryGrantStore", () => {
     test("grants do not survive new store instance", () => {
       store.add("allow_once", "hash-restart");
       store.add("allow_10m", "hash-restart-t");
-      store.add("allow_thread", "hash-restart-th", {
+      store.add("allow_conversation", "hash-restart-th", {
         conversationId: "conv-r",
       });
 

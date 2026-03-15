@@ -252,7 +252,7 @@ function addTemporaryCommandGrant(
   credentialHandle: string,
   bundleDigest: string,
   profileName: string,
-  kind: "allow_once" | "allow_10m" | "allow_thread" = "allow_once",
+  kind: "allow_once" | "allow_10m" | "allow_conversation" = "allow_once",
   conversationId?: string,
   argv: string[] = [],
   purpose: string = "Test execution",
