@@ -454,7 +454,11 @@ export async function stopAllSessions(
   await Promise.all(
     ids.map((id) =>
       stopSession(id, store).catch((err) => {
-        onError?.(id, err);
+        try {
+          onError?.(id, err);
+        } catch {
+          // swallow – never let a throwing callback break Promise.all
+        }
       }),
     ),
   );
