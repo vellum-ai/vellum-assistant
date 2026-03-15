@@ -700,6 +700,89 @@ describe("validateCommand", () => {
 });
 
 // ---------------------------------------------------------------------------
+// credential_process helperCommand denied binary validation
+// ---------------------------------------------------------------------------
+
+describe("credential_process helperCommand denied binary validation", () => {
+  test("rejects helperCommand starting with curl", () => {
+    const result = validateManifest(
+      buildManifest({
+        authAdapter: {
+          type: AuthAdapterType.CredentialProcess,
+          helperCommand: "curl http://example.com",
+          envVarName: "AWS_CREDENTIALS",
+        },
+      }),
+    );
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some(
+        (e) =>
+          e.includes("credential_process") &&
+          e.includes("denied binary") &&
+          e.includes('"curl"'),
+      ),
+    ).toBe(true);
+  });
+
+  test("rejects helperCommand with absolute path to denied binary (python3)", () => {
+    const result = validateManifest(
+      buildManifest({
+        authAdapter: {
+          type: AuthAdapterType.CredentialProcess,
+          helperCommand: "/usr/bin/python3 script.py",
+          envVarName: "AWS_CREDENTIALS",
+        },
+      }),
+    );
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some(
+        (e) =>
+          e.includes("credential_process") &&
+          e.includes("denied binary") &&
+          e.includes('"python3"'),
+      ),
+    ).toBe(true);
+  });
+
+  test("rejects helperCommand starting with bash", () => {
+    const result = validateManifest(
+      buildManifest({
+        authAdapter: {
+          type: AuthAdapterType.CredentialProcess,
+          helperCommand: "bash -c 'echo test'",
+          envVarName: "AWS_CREDENTIALS",
+        },
+      }),
+    );
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some(
+        (e) =>
+          e.includes("credential_process") &&
+          e.includes("denied binary") &&
+          e.includes('"bash"'),
+      ),
+    ).toBe(true);
+  });
+
+  test("accepts helperCommand with allowed binary (aws-vault)", () => {
+    const result = validateManifest(
+      buildManifest({
+        authAdapter: {
+          type: AuthAdapterType.CredentialProcess,
+          helperCommand: "aws-vault exec default --json",
+          envVarName: "AWS_CREDENTIALS",
+        },
+      }),
+    );
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Comprehensive denied binary coverage
 // ---------------------------------------------------------------------------
 

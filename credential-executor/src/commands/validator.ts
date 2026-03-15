@@ -23,6 +23,7 @@
 
 import {
   validateAuthAdapterConfig,
+  AuthAdapterType,
 } from "./auth-adapters.js";
 import {
   type SecureCommandManifest,
@@ -116,6 +117,21 @@ export function validateManifest(
     const adapterErrors = validateAuthAdapterConfig(manifest.authAdapter);
     for (const e of adapterErrors) {
       errors.push(`authAdapter: ${e}`);
+    }
+
+    // -- credential_process helperCommand denied binary check
+    if (manifest.authAdapter.type === AuthAdapterType.CredentialProcess) {
+      const helper = manifest.authAdapter.helperCommand;
+      if (helper && helper.trim().length > 0) {
+        const firstWord = helper.trim().split(/\s+/)[0]!;
+        const basename = pathBasename(firstWord);
+        if (isDeniedBinary(firstWord)) {
+          errors.push(
+            `authAdapter: credential_process helperCommand starts with denied binary "${basename}". ` +
+              `Generic HTTP clients, interpreters, and shell trampolines cannot be used as credential helpers.`,
+          );
+        }
+      }
     }
   }
 
