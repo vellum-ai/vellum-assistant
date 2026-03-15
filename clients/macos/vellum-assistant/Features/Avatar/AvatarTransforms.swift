@@ -39,7 +39,7 @@ enum AvatarTransforms {
     /// Resolves the face center for a body/eye combination, checking the
     /// component store for per-combo overrides before falling back to the
     /// body's default.
-    static func resolveFaceCenter(
+    @MainActor static func resolveFaceCenter(
         bodyShape: AvatarBodyShape,
         eyeStyle: AvatarEyeStyle
     ) -> CGPoint {

@@ -10,19 +10,19 @@ enum AvatarEyeStyle: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var sourceViewBox: CGSize {
+    @MainActor var sourceViewBox: CGSize {
         guard let def = AvatarComponentStore.shared.eyeStyle(id: rawValue) else { return .zero }
         return CGSize(width: def.sourceViewBox.width, height: def.sourceViewBox.height)
     }
 
     /// Approximate center of the combined eye paths' bounding box within sourceViewBox coordinates.
     /// Used by AvatarCompositor to align eyes to each body shape's face center.
-    var eyeCenter: CGPoint {
+    @MainActor var eyeCenter: CGPoint {
         guard let def = AvatarComponentStore.shared.eyeStyle(id: rawValue) else { return .zero }
         return CGPoint(x: def.eyeCenter.x, y: def.eyeCenter.y)
     }
 
-    var paths: [AvatarEyePath] {
+    @MainActor var paths: [AvatarEyePath] {
         guard let def = AvatarComponentStore.shared.eyeStyle(id: rawValue) else { return [] }
         return def.paths.map { path in
             AvatarEyePath(

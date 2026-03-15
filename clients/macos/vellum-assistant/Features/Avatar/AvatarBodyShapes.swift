@@ -5,19 +5,19 @@ enum AvatarBodyShape: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var viewBox: CGSize {
+    @MainActor var viewBox: CGSize {
         guard let def = AvatarComponentStore.shared.bodyShape(id: rawValue) else { return .zero }
         return CGSize(width: def.viewBox.width, height: def.viewBox.height)
     }
 
     /// Point within the viewBox where eyes should be centered — derived from each body's
     /// native eye style placement. Ninja has no native eye style so uses a manual estimate.
-    var faceCenter: CGPoint {
+    @MainActor var faceCenter: CGPoint {
         guard let def = AvatarComponentStore.shared.bodyShape(id: rawValue) else { return .zero }
         return CGPoint(x: def.faceCenter.x, y: def.faceCenter.y)
     }
 
-    var svgPath: String {
+    @MainActor var svgPath: String {
         AvatarComponentStore.shared.bodyShape(id: rawValue)?.svgPath ?? ""
     }
 }
