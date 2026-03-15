@@ -77,19 +77,14 @@ extension MainWindowView {
             IntelligencePanel(
                 onClose: { windowState.selection = nil },
                 onInvokeSkill: { skill in
-                    if threadManager.activeViewModel == nil {
-                        threadManager.createThread()
-                    }
-                    if let viewModel = threadManager.activeViewModel {
-                        viewModel.pendingSkillInvocation = SkillInvocationData(
+                    let vm = threadManager.ensureThreadAndSend(message: "Use the \(skill.name) skill") { vm in
+                        vm.pendingSkillInvocation = SkillInvocationData(
                             name: skill.name,
                             emoji: skill.emoji,
                             description: skill.description
                         )
-                        viewModel.inputText = "Use the \(skill.name) skill"
-                        viewModel.sendMessage()
-                        viewModel.pendingSkillInvocation = nil
                     }
+                    vm?.pendingSkillInvocation = nil
                     windowState.selection = nil
                 },
                 daemonClient: daemonClient,
@@ -124,15 +119,12 @@ extension MainWindowView {
                        !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         // Ensure a thread exists so the prompt doesn't silently fail
                         // on fresh app launch before any chat thread is created.
-                        if threadManager.activeViewModel == nil {
-                            threadManager.createThread()
-                        }
-                        if let vm = threadManager.activeViewModel {
+                        threadManager.ensureThreadAndSend(
+                            message: prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+                        ) { vm in
                             // Sync dock state before sending so the message is
                             // classified correctly (chat vs. workspace refinement).
                             vm.isChatDockedToSide = windowState.isChatDockOpen
-                            vm.inputText = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-                            vm.sendMessage()
                         }
                         return
                     }
@@ -449,19 +441,14 @@ extension MainWindowView {
             IntelligencePanel(
                 onClose: { windowState.dismissOverlay() },
                 onInvokeSkill: { skill in
-                    if threadManager.activeViewModel == nil {
-                        threadManager.createThread()
-                    }
-                    if let viewModel = threadManager.activeViewModel {
-                        viewModel.pendingSkillInvocation = SkillInvocationData(
+                    let vm = threadManager.ensureThreadAndSend(message: "Use the \(skill.name) skill") { vm in
+                        vm.pendingSkillInvocation = SkillInvocationData(
                             name: skill.name,
                             emoji: skill.emoji,
                             description: skill.description
                         )
-                        viewModel.inputText = "Use the \(skill.name) skill"
-                        viewModel.sendMessage()
-                        viewModel.pendingSkillInvocation = nil
                     }
+                    vm?.pendingSkillInvocation = nil
                     windowState.dismissOverlay()
                 },
                 daemonClient: daemonClient,
