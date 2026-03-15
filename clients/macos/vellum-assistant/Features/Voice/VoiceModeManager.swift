@@ -511,7 +511,9 @@ final class VoiceModeManager: ObservableObject {
         }
 
         // "allow for this conversation" / "this conversation" / "for the conversation"
-        let conversationPatterns = ["this conversation", "the conversation", "for conversation", "allow conversation"]
+        // Also accept "thread" as a legacy synonym for backward compatibility.
+        let conversationPatterns = ["this conversation", "the conversation", "for conversation", "allow conversation",
+                                    "this thread", "the thread", "for thread", "allow thread"]
         if conversationPatterns.contains(where: { lower.contains($0) }) && !hasNegative {
             return .allowConversation
         }
