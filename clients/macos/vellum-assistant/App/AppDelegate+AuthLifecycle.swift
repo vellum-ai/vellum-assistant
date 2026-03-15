@@ -135,11 +135,14 @@ extension AppDelegate {
 
     @objc public func performLogout() {
         Task {
+            // Capture assistant ID before logout clears it from UserDefaults
+            let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+
             await authManager.logout()
 
             // Clear managed proxy credentials from the running daemon
             if let token = ActorTokenManager.getToken(), !token.isEmpty {
-                let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+                let assistantId = connectedAssistantId ?? ""
                 let port = LockfileAssistant.loadByName(assistantId)?.daemonPort ?? 7821
                 let daemonBaseURL = "http://localhost:\(port)"
                 await LocalAssistantBootstrapService.clearDaemonCredentials(
@@ -149,7 +152,7 @@ extension AppDelegate {
             }
 
             // Clear the locally-cached credential from Keychain
-            if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") {
+            if let assistantId = connectedAssistantId {
                 let credentialAccount = LocalAssistantBootstrapService.credentialAccount(for: assistantId)
                 _ = KeychainCredentialStorage().delete(account: credentialAccount)
             }
