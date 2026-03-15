@@ -346,8 +346,8 @@ export function publishBundle(request: PublishRequest): PublishResult {
     // Validate that the declared entrypoint resolves inside the staging
     // directory. A manifest with an absolute or `../`-traversal entrypoint
     // could make chmod (or later execution) touch files outside the bundle.
-    const extractedEntrypoint = resolve(stagingDir, secureCommandManifest.entrypoint);
     const realStagingDir = realpathSync(stagingDir);
+    const extractedEntrypoint = resolve(realStagingDir, secureCommandManifest.entrypoint);
     if (extractedEntrypoint !== realStagingDir && !extractedEntrypoint.startsWith(realStagingDir + "/")) {
       throw new Error(
         `Entrypoint "${secureCommandManifest.entrypoint}" resolves outside the bundle directory. ` +
