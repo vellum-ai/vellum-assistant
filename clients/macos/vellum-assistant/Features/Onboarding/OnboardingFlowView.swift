@@ -56,7 +56,9 @@ struct OnboardingFlowView: View {
             } else if (0...maxOnboardingStep).contains(state.currentStep) {
                 // Onboarding flow: WakeUp → APIKey → ImproveExperience (steps 0–2)
                 VStack(spacing: 0) {
-                    Spacer()
+                    // Fixed top inset — positions the icon consistently
+                    // across all steps regardless of bottom content weight.
+                    Color.clear.frame(height: geometry.size.height * 0.2)
 
                     if let nsImage = Self.appIcon {
                         Image(nsImage: nsImage)

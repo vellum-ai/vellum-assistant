@@ -101,10 +101,9 @@ struct APIKeyStepView: View {
             .foregroundColor(VColor.contentSecondary)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
+            .padding(.bottom, VSpacing.xxl)
 
-        Spacer()
-
-        ScrollView {
+        VStack(spacing: VSpacing.md) {
             VStack(spacing: VSpacing.md) {
                 if showHostingSelector {
                     hostingModeSelector
@@ -122,9 +121,8 @@ struct APIKeyStepView: View {
 
                 footerLinks
             }
-            .padding(.horizontal, VSpacing.xxl)
-            .padding(.bottom, VSpacing.lg)
         }
+        .padding(.horizontal, VSpacing.xxl)
         .opacity(showContent ? 1 : 0)
         .offset(y: showContent ? 0 : 12)
         .onAppear {
@@ -164,6 +162,8 @@ struct APIKeyStepView: View {
                 }
             }
         }
+
+        Spacer()
 
         if !managedSignInEnabled {
             OnboardingFooter(currentStep: state.currentStep, totalSteps: 3)
