@@ -101,6 +101,67 @@ public enum GatewayHTTPClient {
     }
     #endif
 
+    /// Resolves the base URL and auth header for the current connection.
+    ///
+    /// - macOS: Uses the lockfile-based `LockfileAssistant` for full resolution
+    ///   (managed, remote, and local assistants).
+    /// - iOS: Uses UserDefaults for managed assistants (`managed_assistant_id` +
+    ///   `managed_platform_base_url`) and QR-paired assistants (`gateway_base_url`),
+    ///   with tokens from the Keychain via `SessionTokenManager` / `ActorTokenManager`.
+    private static func resolveConnection() throws -> (baseURL: String, authHeader: (field: String, value: String)) {
+        #if os(macOS)
+        guard let assistant = resolveConnectedAssistant() else {
+            throw ClientError.noConnectedAssistant
+        }
+
+        if assistant.isManaged {
+            guard let token = SessionTokenManager.getToken(), !token.isEmpty else {
+                throw ClientError.notAuthenticated
+            }
+            let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
+            return (baseURL, ("X-Session-Token", token))
+        } else {
+            guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
+                throw ClientError.notAuthenticated
+            }
+            if assistant.isRemote {
+                guard let runtimeUrl = assistant.runtimeUrl else {
+                    throw ClientError.invalidURL
+                }
+                return (runtimeUrl, ("Authorization", "Bearer \(token)"))
+            } else {
+                let port = assistant.gatewayPort ?? LockfilePaths.resolveGatewayPort(connectedAssistantId: assistant.assistantId)
+                return ("http://127.0.0.1:\(port)", ("Authorization", "Bearer \(token)"))
+            }
+        }
+
+        #elseif os(iOS)
+        // Managed assistant: cloud-hosted via platform proxy with session token auth.
+        if let managedAssistantId = UserDefaults.standard.string(forKey: "managed_assistant_id"),
+           !managedAssistantId.isEmpty,
+           let platformBaseURL = UserDefaults.standard.string(forKey: "managed_platform_base_url"),
+           !platformBaseURL.isEmpty {
+            guard let token = SessionTokenManager.getToken(), !token.isEmpty else {
+                throw ClientError.notAuthenticated
+            }
+            return (platformBaseURL, ("X-Session-Token", token))
+        }
+
+        // QR-paired assistant: gateway URL with bearer token auth.
+        if let gatewayBaseURL = UserDefaults.standard.string(forKey: "gateway_base_url"),
+           !gatewayBaseURL.isEmpty {
+            guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
+                throw ClientError.notAuthenticated
+            }
+            return (gatewayBaseURL, ("Authorization", "Bearer \(token)"))
+        }
+
+        throw ClientError.noConnectedAssistant
+        #else
+        throw ClientError.noConnectedAssistant
+        #endif
+    }
+
     /// Builds an authenticated `URLRequest`, automatically resolving the
     /// connected assistant, gateway base URL, and auth credentials.
     ///
@@ -112,35 +173,7 @@ public enum GatewayHTTPClient {
         method: String,
         timeout: TimeInterval
     ) throws -> URLRequest {
-        #if os(macOS)
-        guard let assistant = resolveConnectedAssistant() else {
-            throw ClientError.noConnectedAssistant
-        }
-
-        let baseURL: String
-        let authHeader: (field: String, value: String)
-
-        if assistant.isManaged {
-            guard let token = SessionTokenManager.getToken(), !token.isEmpty else {
-                throw ClientError.notAuthenticated
-            }
-            baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
-            authHeader = ("X-Session-Token", token)
-        } else {
-            guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
-                throw ClientError.notAuthenticated
-            }
-            if assistant.isRemote {
-                guard let runtimeUrl = assistant.runtimeUrl else {
-                    throw ClientError.invalidURL
-                }
-                baseURL = runtimeUrl
-            } else {
-                let port = assistant.gatewayPort ?? LockfilePaths.resolveGatewayPort(connectedAssistantId: assistant.assistantId)
-                baseURL = "http://127.0.0.1:\(port)"
-            }
-            authHeader = ("Authorization", "Bearer \(token)")
-        }
+        let (baseURL, authHeader) = try resolveConnection()
 
         let trailingSlash = path.hasSuffix("/") ? "" : "/"
         guard let url = URL(string: "\(baseURL)/v1/\(path)\(trailingSlash)") else {
@@ -158,9 +191,6 @@ public enum GatewayHTTPClient {
         }
 
         return request
-        #else
-        throw ClientError.noConnectedAssistant
-        #endif
     }
 
     /// Executes a `URLRequest` and wraps the result in a `Response`.
