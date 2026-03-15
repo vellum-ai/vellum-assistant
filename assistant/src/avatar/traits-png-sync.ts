@@ -51,16 +51,24 @@ export function writeTraitsAndRenderAvatar(traits: CharacterTraits): boolean {
     writeFileSync(pngTmp, pngBuffer);
     renameSync(pngTmp, pngPath);
 
-    // Render and write ASCII art atomically
-    const asciiPath = join(avatarDir, "character-ascii.txt");
-    const asciiArt = renderCharacterAscii(
-      traits.bodyShape,
-      traits.eyeStyle,
-      traits.color,
-    );
-    const asciiTmp = `${asciiPath}.${randomUUID()}.tmp`;
-    writeFileSync(asciiTmp, asciiArt);
-    renameSync(asciiTmp, asciiPath);
+    // Render and write ASCII art atomically — isolated so a failure here
+    // doesn't cause the primary operation (traits JSON + PNG) to report failure.
+    try {
+      const asciiPath = join(avatarDir, "character-ascii.txt");
+      const asciiArt = renderCharacterAscii(
+        traits.bodyShape,
+        traits.eyeStyle,
+        traits.color,
+      );
+      const asciiTmp = `${asciiPath}.${randomUUID()}.tmp`;
+      writeFileSync(asciiTmp, asciiArt);
+      renameSync(asciiTmp, asciiPath);
+    } catch (asciiErr) {
+      log.warn(
+        { err: asciiErr },
+        "Failed to write ASCII sidecar — primary files still written",
+      );
+    }
 
     log.info(
       {
@@ -72,7 +80,7 @@ export function writeTraitsAndRenderAvatar(traits: CharacterTraits): boolean {
     );
     return true;
   } catch (err) {
-    log.error({ err }, "Failed to write traits / render avatar PNG");
+    log.error({ err }, "Failed to write traits / render avatar");
     return false;
   }
 }
