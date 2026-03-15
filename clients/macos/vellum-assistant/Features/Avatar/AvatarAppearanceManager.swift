@@ -172,10 +172,12 @@ final class AvatarAppearanceManager {
         ) else {
             customAvatarImage = nil
             cachedChatAvatar = nil
+            updateDockIcon()
             return
         }
         cachedChatAvatar = nil
         customAvatarImage = NSImage(contentsOf: url)
+        updateDockIcon()
     }
 
     func saveAvatar(_ image: NSImage, bodyShape: AvatarBodyShape? = nil, eyeStyle: AvatarEyeStyle? = nil, color: AvatarColor? = nil) {
@@ -196,6 +198,7 @@ final class AvatarAppearanceManager {
         characterEyeStyle = eyeStyle
         characterColor = color
         saveAvatarComponents()
+        updateDockIcon()
     }
 
     /// Reloads the custom avatar from disk. Called when the daemon notifies
@@ -219,6 +222,7 @@ final class AvatarAppearanceManager {
         cachedChatAvatar = nil
         cachedFallbackAvatar = nil
         cachedFullFallbackAvatar = nil
+        updateDockIcon()
     }
 
     // MARK: - Avatar Components Persistence
@@ -323,6 +327,38 @@ final class AvatarAppearanceManager {
 
         fileMonitor = source
         source.resume()
+    }
+
+    // MARK: - Dock Icon
+
+    /// Updates the application dock icon to match the current avatar.
+    /// When a custom avatar exists, renders it inside a macOS-style squircle mask.
+    /// When cleared, reverts to the default bundle icon.
+    private func updateDockIcon() {
+        guard let avatar = customAvatarImage else {
+            NSApplication.shared.applicationIconImage = nil
+            NSApp.dockTile.display()
+            return
+        }
+
+        let size: CGFloat = 512
+        let square = Self.resizedImage(avatar, to: size)
+        let iconSize = NSSize(width: size, height: size)
+        let icon = NSImage(size: iconSize)
+        icon.lockFocus()
+
+        let rect = NSRect(origin: .zero, size: iconSize)
+        let radius = size * 0.23
+        let path = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
+        path.addClip()
+
+        square.draw(in: rect, from: NSRect(origin: .zero, size: square.size),
+                    operation: .copy, fraction: 1.0)
+
+        icon.unlockFocus()
+
+        NSApplication.shared.applicationIconImage = icon
+        NSApp.dockTile.display()
     }
 
     // MARK: - Image Utilities
