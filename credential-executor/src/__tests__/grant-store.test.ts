@@ -40,6 +40,9 @@ function makeGrant(overrides?: Partial<PersistentGrant>): PersistentGrant {
     pattern: overrides?.pattern ?? "npm install",
     scope: overrides?.scope ?? "/project",
     createdAt: overrides?.createdAt ?? Date.now(),
+    sessionId: overrides?.sessionId ?? "test-session",
+    revokedAt: overrides?.revokedAt,
+    revokedReason: overrides?.revokedReason,
   };
 }
 

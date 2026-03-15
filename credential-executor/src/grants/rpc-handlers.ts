@@ -36,19 +36,13 @@ import type { RpcMethodHandler } from "../server.js";
 
 /**
  * Project a CES internal PersistentGrant into the wire-format
- * PersistentGrantRecord. The internal store uses a simpler schema;
- * the wire format includes additional status/lifecycle fields.
- *
- * Since the persistent store does not track lifecycle states (expiry,
- * revocation, consumption), all persisted grants are considered "active".
+ * PersistentGrantRecord. Maps real fields from the persistent store
+ * schema into the wire contract.
  */
-function projectGrant(
-  grant: PersistentGrant,
-  sessionId: string,
-): PersistentGrantRecord {
+function projectGrant(grant: PersistentGrant): PersistentGrantRecord {
   return {
     grantId: grant.id,
-    sessionId,
+    sessionId: grant.sessionId,
     credentialHandle: grant.scope,
     proposalType:
       grant.tool === "http" || grant.tool === "command"
@@ -56,12 +50,15 @@ function projectGrant(
         : "command",
     proposalHash: grant.id,
     allowedPurposes: [grant.pattern],
-    status: "active",
+    status: grant.revokedAt != null ? "revoked" : "active",
     grantedBy: "user",
     createdAt: new Date(grant.createdAt).toISOString(),
     expiresAt: null,
     consumedAt: null,
-    revokedAt: null,
+    revokedAt:
+      grant.revokedAt != null
+        ? new Date(grant.revokedAt).toISOString()
+        : null,
   };
 }
 
@@ -122,6 +119,7 @@ export function createRecordGrantHandler(
         pattern,
         scope: proposal.credentialHandle,
         createdAt: now,
+        sessionId,
       };
       deps.persistentGrantStore.add(persistentGrant);
     }
@@ -183,23 +181,23 @@ export function createRecordGrantHandler(
 
 export interface ListGrantsHandlerDeps {
   persistentGrantStore: PersistentGrantStore;
-  /** Default session ID for grants that don't track session. */
-  sessionId: string;
 }
 
 /**
  * Create an RPC handler for the `list_grants` method.
  *
- * Lists all persistent grants, optionally filtered by session ID,
- * credential handle, or status. Returns wire-format PersistentGrantRecords
- * that never include raw secret material.
+ * Lists all persistent grants (including revoked, for audit trail),
+ * optionally filtered by session ID, credential handle, or status.
+ * Returns wire-format PersistentGrantRecords that never include raw
+ * secret material.
  */
 export function createListGrantsHandler(
   deps: ListGrantsHandlerDeps,
 ): RpcMethodHandler<ListGrants, ListGrantsResponse> {
   return (request) => {
-    const allGrants = deps.persistentGrantStore.getAll();
-    const projected = allGrants.map((g) => projectGrant(g, deps.sessionId));
+    // Include revoked grants in the listing for audit visibility.
+    const allGrants = deps.persistentGrantStore.getAllIncludingRevoked();
+    const projected = allGrants.map((g) => projectGrant(g));
 
     let filtered = projected;
 
@@ -232,22 +230,24 @@ export interface RevokeGrantHandlerDeps {
 /**
  * Create an RPC handler for the `revoke_grant` method.
  *
- * Removes a grant from the persistent store by its stable ID. Returns
- * success/failure. The reason field is logged but not persisted (the
- * persistent store does not track revocation metadata).
+ * Marks a grant as revoked in the persistent store by its stable ID,
+ * preserving the record for audit trail. Returns success/failure.
  */
 export function createRevokeGrantHandler(
   deps: RevokeGrantHandlerDeps,
 ): RpcMethodHandler<RevokeGrant, RevokeGrantResponse> {
   return (request) => {
-    const removed = deps.persistentGrantStore.remove(request.grantId);
+    const revoked = deps.persistentGrantStore.markRevoked(
+      request.grantId,
+      request.reason,
+    );
 
-    if (!removed) {
+    if (!revoked) {
       return {
         success: false,
         error: {
           code: "GRANT_NOT_FOUND",
-          message: `No grant found with ID "${request.grantId}"`,
+          message: `No grant found with ID "${request.grantId}" (or already revoked)`,
         },
       };
     }
