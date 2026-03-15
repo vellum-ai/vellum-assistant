@@ -140,6 +140,28 @@ describe("validateManifest", () => {
     expect(result.errors.some((e) => e.includes("env"))).toBe(true);
   });
 
+  test("rejects busybox as entrypoint", () => {
+    const result = validateManifest(
+      buildManifest({ entrypoint: "/usr/bin/busybox" }),
+    );
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("busybox"))).toBe(true);
+    expect(
+      result.errors.some((e) => e.includes("structurally denied binary")),
+    ).toBe(true);
+  });
+
+  test("rejects toybox as entrypoint", () => {
+    const result = validateManifest(
+      buildManifest({ entrypoint: "/usr/bin/toybox" }),
+    );
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("toybox"))).toBe(true);
+    expect(
+      result.errors.some((e) => e.includes("structurally denied binary")),
+    ).toBe(true);
+  });
+
   test("rejects bundleId matching a denied binary", () => {
     const result = validateManifest(
       buildManifest({
@@ -355,6 +377,136 @@ describe("validateManifest", () => {
     ).toBe(true);
   });
 
+  // -- Argv pattern tokens matching denied binaries --------------------------
+
+  test("rejects argv pattern with wget as a literal token", () => {
+    const result = validateManifest(
+      buildManifest({
+        commandProfiles: {
+          "download": {
+            description: "Download files",
+            allowedArgvPatterns: [
+              { name: "wget-url", tokens: ["wget", "<url>"] },
+            ],
+            deniedSubcommands: [],
+            allowedNetworkTargets: [
+              { hostPattern: "example.com", protocols: ["https"] },
+            ],
+          },
+        },
+      }),
+    );
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some(
+        (e) =>
+          e.includes('"wget"') &&
+          e.includes("denied binary"),
+      ),
+    ).toBe(true);
+  });
+
+  test("rejects argv pattern with sh as a literal token (shell trampoline)", () => {
+    const result = validateManifest(
+      buildManifest({
+        commandProfiles: {
+          "shell": {
+            description: "Run shell command",
+            allowedArgvPatterns: [
+              { name: "shell-exec", tokens: ["sh", "-c", "<cmd>"] },
+            ],
+            deniedSubcommands: [],
+            allowedNetworkTargets: [
+              { hostPattern: "example.com", protocols: ["https"] },
+            ],
+          },
+        },
+      }),
+    );
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some(
+        (e) =>
+          e.includes('"sh"') &&
+          e.includes("denied binary"),
+      ),
+    ).toBe(true);
+  });
+
+  test("rejects argv pattern with curl as a literal token", () => {
+    const result = validateManifest(
+      buildManifest({
+        commandProfiles: {
+          "fetch": {
+            description: "Fetch URL",
+            allowedArgvPatterns: [
+              { name: "curl-url", tokens: ["curl", "<url>"] },
+            ],
+            deniedSubcommands: [],
+            allowedNetworkTargets: [
+              { hostPattern: "example.com", protocols: ["https"] },
+            ],
+          },
+        },
+      }),
+    );
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some(
+        (e) =>
+          e.includes('"curl"') &&
+          e.includes("denied binary"),
+      ),
+    ).toBe(true);
+  });
+
+  test("allows argv pattern with non-denied literal tokens", () => {
+    const result = validateManifest(
+      buildManifest({
+        commandProfiles: {
+          "api-read": {
+            description: "Read-only API calls",
+            allowedArgvPatterns: [
+              {
+                name: "api-get",
+                tokens: ["api", "<endpoint>", "--method", "GET"],
+              },
+            ],
+            deniedSubcommands: [],
+            allowedNetworkTargets: [
+              { hostPattern: "api.github.com", protocols: ["https"] },
+            ],
+          },
+        },
+      }),
+    );
+    expect(result.valid).toBe(true);
+  });
+
+  test("does not flag placeholder tokens as denied binaries", () => {
+    // Placeholders like <url> should not be checked against the denylist
+    const result = validateManifest(
+      buildManifest({
+        commandProfiles: {
+          "api-read": {
+            description: "Read-only API calls",
+            allowedArgvPatterns: [
+              {
+                name: "api-get",
+                tokens: ["api", "<endpoint>", "<args...>"],
+              },
+            ],
+            deniedSubcommands: [],
+            allowedNetworkTargets: [
+              { hostPattern: "api.github.com", protocols: ["https"] },
+            ],
+          },
+        },
+      }),
+    );
+    expect(result.valid).toBe(true);
+  });
+
   // -- Auth adapter validation -----------------------------------------------
 
   test("rejects auth adapter with empty envVarName", () => {
@@ -466,6 +618,13 @@ describe("isDeniedBinary", () => {
     expect(isDeniedBinary("ruby")).toBe(true);
     expect(isDeniedBinary("perl")).toBe(true);
     expect(isDeniedBinary("php")).toBe(true);
+  });
+
+  test("denies multi-call umbrella binaries", () => {
+    expect(isDeniedBinary("busybox")).toBe(true);
+    expect(isDeniedBinary("toybox")).toBe(true);
+    expect(isDeniedBinary("/usr/bin/busybox")).toBe(true);
+    expect(isDeniedBinary("/usr/bin/toybox")).toBe(true);
   });
 
   test("denies shell trampolines", () => {
@@ -964,6 +1123,12 @@ describe("DENIED_BINARIES set", () => {
       "lua",
       "php",
     ]) {
+      expect(DENIED_BINARIES.has(binary)).toBe(true);
+    }
+  });
+
+  test("contains all expected multi-call umbrella binaries", () => {
+    for (const binary of ["busybox", "toybox"]) {
       expect(DENIED_BINARIES.has(binary)).toBe(true);
     }
   });

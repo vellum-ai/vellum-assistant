@@ -247,6 +247,10 @@ export const DENIED_BINARIES: ReadonlySet<string> = new Set([
   "lua",
   "php",
 
+  // Multi-call umbrella binaries (contain wget, sh, etc. as subcommands)
+  "busybox",
+  "toybox",
+
   // Shell trampolines
   "bash",
   "sh",
