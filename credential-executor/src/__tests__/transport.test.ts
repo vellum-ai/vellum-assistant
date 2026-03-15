@@ -351,8 +351,28 @@ describe("CES data paths", () => {
     expect(root).toMatch(/protected[/\\]credential-executor$/);
   });
 
-  test("managed mode data root is /home/ces/.ces-data", () => {
-    expect(getCesDataRoot("managed")).toBe("/home/ces/.ces-data");
+  test("managed mode data root defaults to /home/ces/.ces-data", () => {
+    const saved = process.env["CES_DATA_ROOT"];
+    delete process.env["CES_DATA_ROOT"];
+    try {
+      expect(getCesDataRoot("managed")).toBe("/home/ces/.ces-data");
+    } finally {
+      if (saved !== undefined) process.env["CES_DATA_ROOT"] = saved;
+    }
+  });
+
+  test("managed mode data root respects CES_DATA_ROOT env var", () => {
+    const saved = process.env["CES_DATA_ROOT"];
+    process.env["CES_DATA_ROOT"] = "/custom/ces-data";
+    try {
+      expect(getCesDataRoot("managed")).toBe("/custom/ces-data");
+    } finally {
+      if (saved !== undefined) {
+        process.env["CES_DATA_ROOT"] = saved;
+      } else {
+        delete process.env["CES_DATA_ROOT"];
+      }
+    }
   });
 
   test("local data root is under the Vellum root, not the workspace", () => {
