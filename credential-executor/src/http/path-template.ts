@@ -19,15 +19,15 @@
 // ---------------------------------------------------------------------------
 
 /**
- * Safely decode a percent-encoded path segment. Falls back to the raw
- * segment when it contains malformed escapes (e.g. bare `%` or `%zz`)
- * that would cause `decodeURIComponent` to throw a `URIError`.
+ * Safely decode a percent-encoded path segment. Returns `null` when it
+ * contains malformed escapes (e.g. bare `%` or `%zz`) so that callers
+ * can fail closed — malformed segments never match anything.
  */
-function safeDecodeSegment(segment: string): string {
+function safeDecodeSegment(segment: string): string | null {
   try {
     return decodeURIComponent(segment);
   } catch {
-    return segment;
+    return null;
   }
 }
 
@@ -167,6 +167,7 @@ export function urlMatchesTemplate(
   // safeDecodeSegment is applied to both sides so that percent-encoded bytes
   // (e.g. %20, %7B) are compared consistently and so that the URL constructor's
   // encoding of curly braces ({, }) in template placeholders is reversed.
+  // A null return means a malformed escape — fail closed immediately.
   const urlSegments = parsedUrl.pathname
     .split("/")
     .filter((s) => s.length > 0)
@@ -176,11 +177,14 @@ export function urlMatchesTemplate(
     .filter((s) => s.length > 0)
     .map(safeDecodeSegment);
 
+  if (urlSegments.some((s) => s === null)) return false;
+  if (templateSegments.some((s) => s === null)) return false;
+
   if (urlSegments.length !== templateSegments.length) return false;
 
   for (let i = 0; i < templateSegments.length; i++) {
-    const tSeg = templateSegments[i];
-    const uSeg = urlSegments[i];
+    const tSeg = templateSegments[i]!;
+    const uSeg = urlSegments[i]!;
 
     if (tSeg === "{:num}") {
       if (!NUMERIC_RE.test(uSeg)) return false;
