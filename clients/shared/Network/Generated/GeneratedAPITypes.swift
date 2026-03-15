@@ -3652,10 +3652,9 @@ public struct SkillsCreateRequest: Codable, Sendable {
     public let emoji: String?
     public let bodyMarkdown: String
     public let userInvocable: Bool?
-    public let disableModelInvocation: Bool?
     public let overwrite: Bool?
 
-    public init(type: String, skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String, userInvocable: Bool? = nil, disableModelInvocation: Bool? = nil, overwrite: Bool? = nil) {
+    public init(type: String, skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String, userInvocable: Bool? = nil, overwrite: Bool? = nil) {
         self.type = type
         self.skillId = skillId
         self.name = name
@@ -3663,7 +3662,6 @@ public struct SkillsCreateRequest: Codable, Sendable {
         self.emoji = emoji
         self.bodyMarkdown = bodyMarkdown
         self.userInvocable = userInvocable
-        self.disableModelInvocation = disableModelInvocation
         self.overwrite = overwrite
     }
 }

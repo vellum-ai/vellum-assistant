@@ -72,7 +72,6 @@ export interface SkillsCreateRequest {
   emoji?: string;
   bodyMarkdown: string;
   userInvocable?: boolean;
-  disableModelInvocation?: boolean;
   overwrite?: boolean;
 }
 

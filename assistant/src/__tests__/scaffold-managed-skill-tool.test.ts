@@ -144,7 +144,7 @@ describe("scaffold_managed_skill tool", () => {
     // Each top-level frontmatter line must start with a known key -- no injected keys
     for (const line of fmLines) {
       expect(line).toMatch(
-        /^(name|description|emoji|user-invocable|disable-model-invocation|metadata)(:\s|:$)/,
+        /^(name|description|emoji|user-invocable|metadata)(:\s|:$)/,
       );
     }
   });

@@ -41,7 +41,6 @@ const VellumMetadataSchema = z
     emoji: z.string().optional(),
     "display-name": z.string().optional(),
     "user-invocable": z.union([z.boolean(), z.string()]).optional(),
-    "disable-model-invocation": z.union([z.boolean(), z.string()]).optional(),
     includes: z.array(z.string()).optional(),
     "feature-flag": z.string().optional(),
   })
@@ -76,7 +75,6 @@ export interface SkillSummary {
   emoji?: string;
   homepage?: string;
   userInvocable: boolean;
-  disableModelInvocation: boolean;
   source: SkillSource;
   metadata?: VellumMetadata;
   /** Parsed tool manifest metadata, if the skill has a valid TOOLS.json. */
@@ -199,7 +197,6 @@ interface ParsedFrontmatter {
   description: string;
   body: string;
   userInvocable: boolean;
-  disableModelInvocation: boolean;
   metadata?: VellumMetadata;
   includes?: string[];
   featureFlag?: string;
@@ -294,16 +291,6 @@ function parseFrontmatter(
     userInvocable = true;
   }
 
-  const vellumDisableModelInvocation = vellum?.["disable-model-invocation"];
-  let disableModelInvocation: boolean;
-  if (typeof vellumDisableModelInvocation === "boolean") {
-    disableModelInvocation = vellumDisableModelInvocation;
-  } else if (typeof vellumDisableModelInvocation === "string") {
-    disableModelInvocation = vellumDisableModelInvocation === "true";
-  } else {
-    disableModelInvocation = false;
-  }
-
   let includes: string[] | undefined;
   if (Array.isArray(vellum?.includes)) {
     const normalized = [
@@ -333,7 +320,6 @@ function parseFrontmatter(
     description,
     body: stripCommentLines(body),
     userInvocable,
-    disableModelInvocation,
     metadata,
     includes,
     featureFlag,
@@ -485,7 +471,7 @@ function readSkillFromDirectory(
       body: parsed.body,
       emoji: parsed.metadata?.emoji,
       userInvocable: parsed.userInvocable,
-      disableModelInvocation: parsed.disableModelInvocation,
+
       source,
       metadata: parsed.metadata,
       toolManifest: detectToolManifest(directoryPath),
@@ -535,7 +521,7 @@ function readBundledSkillFromDirectory(
       bundled: true,
       emoji: parsed.metadata?.emoji,
       userInvocable: parsed.userInvocable,
-      disableModelInvocation: parsed.disableModelInvocation,
+
       source: "bundled",
       metadata: parsed.metadata,
       toolManifest: detectToolManifest(directoryPath),
@@ -593,7 +579,7 @@ function loadBundledSkills(): SkillSummary[] {
       bundled: true,
       emoji: skill.emoji,
       userInvocable: skill.userInvocable,
-      disableModelInvocation: skill.disableModelInvocation,
+
       source: "bundled",
       metadata: skill.metadata,
       toolManifest: skill.toolManifest,
@@ -730,7 +716,6 @@ function skillSummaryFromDefinition(
     bundled: skill.bundled,
     emoji: skill.emoji,
     userInvocable: skill.userInvocable,
-    disableModelInvocation: skill.disableModelInvocation,
     source,
     metadata: skill.metadata,
     toolManifest: skill.toolManifest,
@@ -782,7 +767,7 @@ export function loadSkillCatalog(
             skillFilePath,
             emoji: parsed.metadata?.emoji,
             userInvocable: parsed.userInvocable,
-            disableModelInvocation: parsed.disableModelInvocation,
+
             source: "extra",
             metadata: parsed.metadata,
             toolManifest: detectToolManifest(directory),
@@ -878,7 +863,7 @@ export function loadSkillCatalog(
           skillFilePath,
           emoji: parsed.metadata?.emoji,
           userInvocable: parsed.userInvocable,
-          disableModelInvocation: parsed.disableModelInvocation,
+
           source: "workspace",
           metadata: parsed.metadata,
           toolManifest: detectToolManifest(directory),

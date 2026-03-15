@@ -18,7 +18,7 @@ function makeSkill(id: string, includes?: string[]): SkillSummary {
     directoryPath: `/skills/${id}`,
     skillFilePath: `/skills/${id}/SKILL.md`,
     userInvocable: true,
-    disableModelInvocation: false,
+
     source: "managed",
     includes,
   };

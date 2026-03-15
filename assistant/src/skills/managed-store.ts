@@ -53,7 +53,6 @@ interface BuildSkillMarkdownInput {
   bodyMarkdown: string;
   emoji?: string;
   userInvocable?: boolean;
-  disableModelInvocation?: boolean;
   includes?: string[];
 }
 
@@ -79,9 +78,6 @@ export function buildSkillMarkdown(input: BuildSkillMarkdownInput): string {
   }
   if (input.userInvocable === false) {
     vellum["user-invocable"] = false;
-  }
-  if (input.disableModelInvocation === true) {
-    vellum["disable-model-invocation"] = true;
   }
   if (input.includes && input.includes.length > 0) {
     vellum.includes = input.includes;
@@ -202,7 +198,6 @@ interface CreateManagedSkillParams {
   bodyMarkdown: string;
   emoji?: string;
   userInvocable?: boolean;
-  disableModelInvocation?: boolean;
   overwrite?: boolean;
   addToIndex?: boolean;
   includes?: string[];
@@ -264,7 +259,6 @@ export function createManagedSkill(
     bodyMarkdown: params.bodyMarkdown,
     emoji: params.emoji,
     userInvocable: params.userInvocable,
-    disableModelInvocation: params.disableModelInvocation,
     includes: params.includes,
   });
 
