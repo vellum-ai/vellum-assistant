@@ -625,7 +625,7 @@ function checkGrant(
       grant &&
       grant.tool === "command" &&
       grant.scope === request.credentialHandle &&
-      grantMatchesCommand(grant.pattern, manifest.bundleId, profileName)
+      grantMatchesCommand(grant.pattern, request.credentialHandle, request.bundleDigest, profileName)
     ) {
       return { ok: true, grantId: grant.id };
     }
