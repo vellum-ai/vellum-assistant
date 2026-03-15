@@ -109,7 +109,11 @@ export function createRecordGrantHandler(
     if (grantType === "always_allow") {
       let pattern: string;
       if (proposal.type === "http") {
-        pattern = `${proposal.method} ${proposal.url}`;
+        // Use the templated allowedUrlPatterns (e.g. "https://api.example.com/repos/{:uuid}/pulls")
+        // so the persistent grant covers future requests with different IDs but the same URL structure.
+        // Falls back to the exact URL only if allowedUrlPatterns is missing.
+        const urlPattern = proposal.allowedUrlPatterns?.[0] ?? proposal.url;
+        pattern = `${proposal.method} ${urlPattern}`;
       } else {
         pattern = proposal.allowedCommandPatterns?.[0] ?? proposal.command;
       }
