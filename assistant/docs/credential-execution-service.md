@@ -241,7 +241,7 @@ Local deployments do not require image changes. Enabling `ces-tools` causes the 
 | ------------------------------------------ | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | Process-boundary credential isolation      | Strong (separate child process)                                     | Strong (separate container)                                                          |
 | Credential value never in assistant memory | Strong                                                              | Strong                                                                               |
-| Grant persistence survives restarts        | Strong (filesystem-backed under `~/.vellum/protected/`)             | Strong (dedicated `/ces-data` volume)                                                |
+| Grant persistence survives restarts        | Strong (filesystem-backed under `~/.vellum/protected/`)             | Strong (dedicated `/home/ces/.ces-data` volume)                                      |
 | Network egress enforcement via proxy       | Moderate (relies on process env vars; host networking is available) | Strong (Calico network policy enforces sandbox egress rules)                         |
 | Secret scrubbing in HTTP responses         | Defense-in-depth only                                               | Defense-in-depth only                                                                |
 | `host_bash` restriction                    | Policy-only (trust rules can deny, but the tool exists)             | Policy-only (same; managed deployments should deny `host_bash` for untrusted agents) |
@@ -279,7 +279,7 @@ If the CES sidecar container causes pod scheduling issues or resource pressure:
 1. Disable `ces-tools` on all assistants first (prevents the assistant from attempting CES calls).
 2. Disable `ces-managed-sidecar` on all assistants.
 3. Remove the CES container and its volume mounts from the pod template in vembda.
-4. CES grant/audit data on the `/ces-data` volume is orphaned and can be cleaned up at convenience.
+4. CES grant/audit data on the `/home/ces/.ces-data` volume is orphaned and can be cleaned up at convenience.
 
 The assistant reverts to the pre-CES credential broker once `ces-tools` is disabled.
 
@@ -351,7 +351,7 @@ The `credential_process` auth adapter executes `sh -c <helperCommand>` with the 
 
 The following capabilities are intentionally deferred beyond v1:
 
-- **Cloud KMS/Vault integration for secret storage** — v1 reads secrets from filesystem (`~/.vellum/protected/` locally, `/ces-data` in managed). Moving to a dedicated secrets manager is a future enhancement.
+- **Cloud KMS/Vault integration for secret storage** — v1 reads secrets from filesystem (`~/.vellum/protected/` locally, `/home/ces/.ces-data` in managed). Moving to a dedicated secrets manager is a future enhancement.
 - **Multi-CES-instance support** — Each assistant pod runs exactly one CES sidecar. Horizontal scaling of CES within a pod is not supported.
 - **Cross-pod credential sharing** — CES grants are scoped to a single pod. There is no grant federation across pods or assistant instances.
 - **Browser automation through CES** — Browser form-fill with credential injection is deferred beyond initial rollout.
