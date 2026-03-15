@@ -37,6 +37,7 @@ import {
 } from "../memory/conversation-crud.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
+import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import {
   getFailoverProvider,
@@ -497,7 +498,16 @@ export class DaemonServer {
           }
           const client = createCesClient(transport);
           this.cesClientRef = client;
-          const { accepted, reason } = await client.handshake();
+          // Resolve the assistant API key so CES can use it for platform
+          // credential materialisation. In managed mode the key is provisioned
+          // after hatch and stored in the credential store — CES can't read
+          // the env var, so we pass it via the handshake.
+          const proxyCtx = await resolveManagedProxyContext();
+          const { accepted, reason } = await client.handshake(
+            proxyCtx.assistantApiKey
+              ? { assistantApiKey: proxyCtx.assistantApiKey }
+              : undefined,
+          );
           if (abortController.signal.aborted) {
             client.close();
             throw new Error("CES initialization aborted during shutdown");
