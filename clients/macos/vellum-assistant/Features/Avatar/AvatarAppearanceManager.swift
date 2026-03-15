@@ -290,6 +290,8 @@ final class AvatarAppearanceManager {
                 self?.loadCustomAvatar()
                 if flags.contains(.delete) || flags.contains(.rename) {
                     self?.watchAvatarFile()
+                    self?.loadAvatarComponents()
+                    self?.watchTraitsFile()
                 }
             }
         }
