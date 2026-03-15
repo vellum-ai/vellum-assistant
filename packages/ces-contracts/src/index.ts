@@ -118,3 +118,12 @@ export const TransportMessageSchema = z.discriminatedUnion("type", [
   RpcEnvelopeSchema.extend({ type: z.literal("rpc") }),
 ]);
 export type TransportMessage = z.infer<typeof TransportMessageSchema>;
+
+// ---------------------------------------------------------------------------
+// Re-exports from sub-modules
+// ---------------------------------------------------------------------------
+
+export * from "./handles.js";
+export * from "./grants.js";
+export * from "./rpc.js";
+export * from "./rendering.js";
