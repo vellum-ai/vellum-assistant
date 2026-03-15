@@ -224,7 +224,7 @@ export function initializeDb(): void {
   // 14c3. Guardian action supersession metadata (superseded_by_request_id, superseded_at) + session lookup index
   migrateGuardianActionSupersession(database);
 
-  // 14d. Index on conversations.thread_type for frequent WHERE filters
+  // 14d. Index on conversations.conversation_type for frequent WHERE filters
   migrateConversationsThreadTypeIndex(database);
 
   // 14e. Index on guardian_action_deliveries.destination_conversation_id for conversation-based lookups
@@ -255,7 +255,7 @@ export function initializeDb(): void {
   // 22. Scoped approval grants (channel-agnostic one-time-use grants)
   createScopedApprovalGrantsTable(database);
 
-  // 23. Thread decision audit columns on notification_deliveries
+  // 23. Conversation decision audit columns on notification_deliveries
   migrateNotificationDeliveryThreadDecision(database);
 
   // 24. Canonical guardian requests and deliveries (unified cross-source guardian domain)
