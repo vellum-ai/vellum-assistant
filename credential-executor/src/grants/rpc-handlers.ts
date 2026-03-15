@@ -26,7 +26,7 @@ import type {
 } from "@vellumai/ces-contracts";
 
 import type { PersistentGrantStore, PersistentGrant } from "./persistent-store.js";
-import type { TemporaryGrantStore } from "./temporary-store.js";
+import { type TemporaryGrantStore, DEFAULT_ONCE_FALLBACK_TTL_MS } from "./temporary-store.js";
 import type { AuditStore } from "../audit/store.js";
 import type { RpcMethodHandler } from "../server.js";
 
@@ -140,8 +140,11 @@ export function createRecordGrantHandler(
       // Also add an allow_once fallback: the HTTP executor doesn't pass
       // conversationId, so the thread-scoped grant alone is unreachable
       // for HTTP requests. The allow_once ensures the immediate retry
-      // succeeds regardless of executor type.
-      deps.temporaryGrantStore.add("allow_once", decision.proposalHash);
+      // succeeds regardless of executor type. TTL-scoped to prevent
+      // cross-thread consumption outside the immediate retry window.
+      deps.temporaryGrantStore.add("allow_once", decision.proposalHash, {
+        durationMs: DEFAULT_ONCE_FALLBACK_TTL_MS,
+      });
     } else {
       // allow_once and always_allow both get a single-use temp grant
       // for immediate retry.

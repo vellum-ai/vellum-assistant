@@ -245,8 +245,6 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
       for await (const chunk of body) {
         totalBytes += chunk.byteLength;
         if (totalBytes > MAX_BUNDLE_SIZE) {
-          // Cancel the stream to free resources
-          await body.cancel();
           throw new Error(`Bundle too large: received >${MAX_BUNDLE_SIZE} bytes (max ${MAX_BUNDLE_SIZE})`);
         }
         chunks.push(chunk);

@@ -242,6 +242,21 @@ private struct WorkspaceTreeSidebar: View {
 
                 Spacer()
 
+                Button {
+                    if state.isDirty {
+                        state.pendingHiddenFilesToggle = !state.showHiddenFiles
+                        state.showingDirtyAlert = true
+                    } else {
+                        onToggleHiddenFiles(!state.showHiddenFiles)
+                    }
+                } label: {
+                    VIconView(state.showHiddenFiles ? .eye : .eyeOff, size: 12)
+                        .foregroundColor(state.showHiddenFiles ? VColor.contentDefault : VColor.contentSecondary)
+                }
+                .buttonStyle(.plain)
+                .help(state.showHiddenFiles ? "Hide hidden files" : "Show hidden files")
+                .accessibilityLabel(state.showHiddenFiles ? "Hide hidden files" : "Show hidden files")
+
                 Menu {
                     Button {
                         state.newItemParentPath = ""
@@ -269,59 +284,46 @@ private struct WorkspaceTreeSidebar: View {
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
 
-            HStack {
-                VToggle(isOn: Binding(
-                    get: { state.showHiddenFiles },
-                    set: { newValue in
-                        if state.isDirty {
-                            state.pendingHiddenFilesToggle = newValue
-                            state.showingDirtyAlert = true
-                        } else {
-                            onToggleHiddenFiles(newValue)
-                        }
-                    }
-                ), label: "Show hidden files")
-            }
-            .padding(.horizontal, VSpacing.md)
-            .padding(.bottom, VSpacing.xs)
-
             Divider().background(VColor.borderBase)
 
-            if state.isLoadingTree && state.directoryCache.isEmpty {
-                VStack {
-                    Spacer()
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                    Spacer()
-                }
-            } else {
-                ScrollView([.vertical, .horizontal]) {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        if let rootEntries = state.directoryCache[""] {
-                            ForEach(rootEntries) { entry in
-                                WorkspaceTreeRow(
-                                    entry: entry,
-                                    depth: 0,
-                                    state: state,
-                                    daemonClient: daemonClient,
-                                    minRowWidth: viewportWidth
-                                )
+            Group {
+                if state.isLoadingTree && state.directoryCache.isEmpty {
+                    VStack {
+                        Spacer()
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                        Spacer()
+                    }
+                } else {
+                    ScrollView([.vertical, .horizontal]) {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            if let rootEntries = state.directoryCache[""] {
+                                ForEach(rootEntries) { entry in
+                                    WorkspaceTreeRow(
+                                        entry: entry,
+                                        depth: 0,
+                                        state: state,
+                                        daemonClient: daemonClient,
+                                        minRowWidth: viewportWidth
+                                    )
+                                }
                             }
                         }
+                        .padding(.vertical, VSpacing.xs)
                     }
-                    .padding(.vertical, VSpacing.xs)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .background {
-                    GeometryReader { geo in
-                        Color.clear
-                            .onAppear { viewportWidth = geo.size.width }
-                            .onChange(of: geo.size.width) { _, newWidth in
-                                viewportWidth = newWidth
-                            }
+                    .defaultScrollAnchor(.topLeading)
+                    .background {
+                        GeometryReader { geo in
+                            Color.clear
+                                .onAppear { viewportWidth = geo.size.width }
+                                .onChange(of: geo.size.width) { _, newWidth in
+                                    viewportWidth = newWidth
+                                }
+                        }
                     }
                 }
             }
+            .frame(maxHeight: .infinity)
 
             if state.uploadingCount > 0 {
                 HStack(spacing: VSpacing.xs) {

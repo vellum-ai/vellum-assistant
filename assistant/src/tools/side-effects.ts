@@ -26,6 +26,7 @@ const SIDE_EFFECT_TOOLS: ReadonlySet<string> = new Set([
   "schedule_create",
   "schedule_update",
   "schedule_delete",
+  "manage_secure_command_tool",
 ]);
 
 /**

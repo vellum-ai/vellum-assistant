@@ -44,10 +44,10 @@ function buildCredentialRefTrace(
  * - ~/.vellum/workspace/data/db/ — database files that may contain credential metadata
  * - CES bootstrap socket directory (/run/ces/ or CES_BOOTSTRAP_SOCKET_DIR) —
  *   prevents untrusted shells from connecting to the CES sidecar directly
- * - CES managed-mode data root (CES_DATA_DIR / CES_DATA_ROOT, or
- *   /home/ces/.ces-data when CES_MANAGED_MODE is set) — prevents access to
- *   CES-private state in managed deployments (local-mode is already covered
- *   by the protected/ entry)
+ * - CES managed-mode data root (CES_DATA_DIR, or /home/ces/.ces-data when
+ *   CES_MANAGED_MODE is set) — prevents access to CES-private state in
+ *   managed deployments (local-mode is already covered by the protected/
+ *   entry)
  */
 function buildCesProtectedPaths(): string[] {
   const root = getRootDir();
@@ -71,8 +71,7 @@ function buildCesProtectedPaths(): string[] {
   // CES managed-mode private data root — in managed deployments the CES
   // data lives outside the Vellum root, so it isn't covered by the
   // `protected/` entry above.
-  const cesDataDir =
-    process.env["CES_DATA_DIR"] ?? process.env["CES_DATA_ROOT"];
+  const cesDataDir = process.env["CES_DATA_DIR"];
   if (cesDataDir) {
     paths.push(cesDataDir);
   } else if (process.env["CES_MANAGED_MODE"]) {
