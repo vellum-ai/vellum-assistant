@@ -40,7 +40,6 @@ import { PersistentGrantStore } from "../grants/persistent-store.js";
 import { TemporaryGrantStore } from "../grants/temporary-store.js";
 import {
   publishBundle,
-  getBundleContentPath,
 } from "../toolstore/publish.js";
 import { getCesToolStoreDir, getCesDataRoot } from "../paths.js";
 import { computeDigest } from "../toolstore/integrity.js";
@@ -115,46 +114,67 @@ function buildManifest(
 /**
  * Publish a test bundle into the CES toolstore and return the digest.
  *
- * Creates a minimal shell script as the "binary" and writes it to the
- * toolstore under the computed digest.
+ * Creates a real tar.gz archive containing the entrypoint shell script
+ * at the manifest's declared entrypoint path, then publishes it through
+ * the actual publishBundle function so the extraction path is exercised.
  */
 function publishTestBundle(
   manifest: SecureCommandManifest,
   cesMode: "local" | "managed" = "local",
   scriptContent = '#!/bin/sh\necho "hello from test-cli"\n',
 ): { digest: string; manifest: SecureCommandManifest } {
-  const bundleBytes = Buffer.from(scriptContent, "utf-8");
-  const digest = computeDigest(bundleBytes);
+  // Build a tar.gz archive containing the entrypoint at the declared path
+  const archiveStagingDir = makeTempDir("ces-archive-staging");
+  try {
+    const entrypoint = manifest.entrypoint || "bin/test-cli";
+    const entrypointFullPath = join(archiveStagingDir, entrypoint);
+    mkdirSync(join(archiveStagingDir, entrypoint, ".."), { recursive: true });
+    writeFileSync(entrypointFullPath, scriptContent, { mode: 0o755 });
 
-  // Update the manifest with the computed digest
-  const fullManifest: SecureCommandManifest = {
-    ...manifest,
-    bundleDigest: digest,
-  };
+    // Create tar.gz archive
+    const archivePath = join(archiveStagingDir, "bundle.tar.gz");
+    const tarProc = Bun.spawnSync(
+      ["tar", "czf", archivePath, "-C", archiveStagingDir, entrypoint],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+    if (tarProc.exitCode !== 0) {
+      const stderr = tarProc.stderr
+        ? new TextDecoder().decode(tarProc.stderr).trim()
+        : "unknown error";
+      throw new Error(`Failed to create test archive: ${stderr}`);
+    }
 
-  const result = publishBundle({
-    bundleBytes,
-    expectedDigest: digest,
-    bundleId: fullManifest.bundleId,
-    version: fullManifest.version,
-    sourceUrl: "https://releases.example.com/test-cli-1.0.0.tar.gz",
-    secureCommandManifest: fullManifest,
-    cesMode,
-  });
+    const bundleBytes = Buffer.from(readFileSync(archivePath));
+    const digest = computeDigest(bundleBytes);
 
-  if (!result.success) {
-    throw new Error(`Failed to publish test bundle: ${result.error}`);
+    // Update the manifest with the computed digest
+    const fullManifest: SecureCommandManifest = {
+      ...manifest,
+      bundleDigest: digest,
+    };
+
+    const result = publishBundle({
+      bundleBytes,
+      expectedDigest: digest,
+      bundleId: fullManifest.bundleId,
+      version: fullManifest.version,
+      sourceUrl: "https://releases.example.com/test-cli-1.0.0.tar.gz",
+      secureCommandManifest: fullManifest,
+      cesMode,
+    });
+
+    if (!result.success) {
+      throw new Error(`Failed to publish test bundle: ${result.error}`);
+    }
+
+    return { digest, manifest: fullManifest };
+  } finally {
+    try {
+      rmSync(archiveStagingDir, { recursive: true, force: true });
+    } catch {
+      // Best-effort cleanup
+    }
   }
-
-  // Make the entrypoint executable by creating it in the bundle dir
-  const toolstoreDir = getCesToolStoreDir(cesMode);
-  const bundleDir = join(toolstoreDir, digest);
-  const entrypointDir = join(bundleDir, "bin");
-  mkdirSync(entrypointDir, { recursive: true });
-  const entrypointPath = join(entrypointDir, "test-cli");
-  writeFileSync(entrypointPath, scriptContent, { mode: 0o755 });
-
-  return { digest, manifest: fullManifest };
 }
 
 /**
