@@ -100,7 +100,6 @@ import {
   switchSession,
   undoLastMessage,
 } from "./handlers/sessions.js";
-import { installCliLaunchers } from "./install-cli-launchers.js";
 import type { ServerMessage } from "./message-protocol.js";
 import {
   initializeProvidersAndTools,
@@ -160,14 +159,6 @@ export async function runDaemon(): Promise<void> {
     installTemplates();
     ensurePromptFiles();
 
-    try {
-      installCliLaunchers();
-    } catch (err) {
-      log.warn(
-        { err },
-        "CLI launcher installation failed — continuing startup",
-      );
-    }
     initializeDb();
     // Seed well-known OAuth provider configurations (insert-if-not-exists)
     seedOAuthProviders();
