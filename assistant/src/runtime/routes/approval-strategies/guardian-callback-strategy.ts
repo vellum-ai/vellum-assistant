@@ -441,7 +441,7 @@ async function handleConversationalDecision(params: {
   if (
     decisionAction === "approve_always" ||
     decisionAction === "approve_10m" ||
-    decisionAction === "approve_thread"
+    decisionAction === "approve_conversation"
   ) {
     decisionAction = "approve_once";
   }

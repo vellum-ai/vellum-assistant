@@ -562,7 +562,7 @@ export class Session {
       decisionContext,
     );
 
-    // Mode activation (setTimedMode / setThreadMode) is intentionally NOT
+    // Mode activation (setTimedMode / setConversationMode) is intentionally NOT
     // done here. It is handled in permission-checker.ts where the
     // guardian trust-class and conversation context are available.
 
@@ -609,7 +609,7 @@ export class Session {
    * After resolving one confirmation, auto-resolve other pending
    * confirmations in the same conversation that match the decision.
    *
-   * - allow_10m / allow_thread → approve ALL pending in conversation
+   * - allow_10m / allow_conversation → approve ALL pending in conversation
    * - always_allow / always_allow_high_risk → approve pattern-matching pending
    * - always_deny → deny pattern-matching pending
    * - allow / deny (one-time) → no cascading
@@ -682,7 +682,7 @@ export class Session {
     details?: import("../runtime/pending-interactions.js").ConfirmationDetails,
   ): { allow: boolean } | null {
     // Temporary overrides apply to the entire conversation
-    if (decision === "allow_10m" || decision === "allow_thread") {
+    if (decision === "allow_10m" || decision === "allow_conversation") {
       return { allow: true };
     }
 

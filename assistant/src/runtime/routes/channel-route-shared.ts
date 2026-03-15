@@ -30,10 +30,12 @@ export function requiredDecisionKeywords(
 ): string[] {
   const hasAlways = actions.some((action) => action.id === "approve_always");
   const has10m = actions.some((action) => action.id === "approve_10m");
-  const hasThread = actions.some((action) => action.id === "approve_thread");
+  const hasConversation = actions.some(
+    (action) => action.id === "approve_conversation",
+  );
   const keywords = ["yes", "no"];
   if (has10m) keywords.push("approve for 10 minutes");
-  if (hasThread) keywords.push("approve for thread");
+  if (hasConversation) keywords.push("approve for conversation");
   if (hasAlways) keywords.push("always");
   return keywords;
 }
@@ -45,7 +47,7 @@ export function requiredDecisionKeywords(
 const VALID_ACTIONS: ReadonlySet<string> = new Set<string>([
   "approve_once",
   "approve_10m",
-  "approve_thread",
+  "approve_conversation",
   "approve_always",
   "reject",
 ]);

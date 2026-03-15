@@ -24,7 +24,7 @@ export interface ConfirmationDetails {
   }>;
   scopeOptions: Array<{ label: string; scope: string }>;
   persistentDecisionsAllowed?: boolean;
-  temporaryOptionsAvailable?: Array<"allow_10m" | "allow_thread">;
+  temporaryOptionsAvailable?: Array<"allow_10m" | "allow_conversation">;
 }
 
 export interface PendingInteraction {

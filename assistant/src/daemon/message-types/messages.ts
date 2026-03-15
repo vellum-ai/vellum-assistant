@@ -33,7 +33,7 @@ export interface ConfirmationResponse {
   decision:
     | "allow"
     | "allow_10m"
-    | "allow_thread"
+    | "allow_conversation"
     | "always_allow"
     | "always_allow_high_risk"
     | "deny"
@@ -155,7 +155,7 @@ export interface ConfirmationRequest {
   /** When false, the client should hide "always allow" / trust-rule persistence affordances. */
   persistentDecisionsAllowed?: boolean;
   /** Which temporary approval options the client should render (e.g. "Allow for 10 minutes", "Allow for this thread"). */
-  temporaryOptionsAvailable?: Array<"allow_10m" | "allow_thread">;
+  temporaryOptionsAvailable?: Array<"allow_10m" | "allow_conversation">;
   /** The tool_use block ID for client-side correlation with specific tool calls. */
   toolUseId?: string;
 }
