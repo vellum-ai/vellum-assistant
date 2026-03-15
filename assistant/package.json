@@ -29,6 +29,9 @@
     "@anthropic-ai/claude-agent-sdk": "^0.2.42",
     "@anthropic-ai/sdk": "^0.78.0",
     "@google/genai": "^1.40.0",
+    "@vellumai/ces-contracts": "file:../packages/ces-contracts",
+    "@vellumai/credential-storage": "file:../packages/credential-storage",
+    "@vellumai/egress-proxy": "file:../packages/egress-proxy",
     "@modelcontextprotocol/sdk": "^1.15.1",
     "@qdrant/js-client-rest": "^1.16.2",
     "@sentry/node": "^10.38.0",
@@ -58,6 +61,11 @@
   "engines": {
     "node": ">=20.12.0"
   },
+  "bundledDependencies": [
+    "@vellumai/ces-contracts",
+    "@vellumai/credential-storage",
+    "@vellumai/egress-proxy"
+  ],
   "devDependencies": {
     "@pydantic/logfire-node": "^0.13.0",
     "@types/archiver": "^7.0.0",

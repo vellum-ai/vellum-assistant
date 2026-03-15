@@ -16,6 +16,11 @@ RUN apt-get update && apt-get install -y \
 RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:${PATH}"
 
+# Copy shared packages needed by assistant's repo-local dependencies
+COPY packages/ces-contracts ./packages/ces-contracts
+COPY packages/credential-storage ./packages/credential-storage
+COPY packages/egress-proxy ./packages/egress-proxy
+
 # Install assistant dependencies first for cache reuse
 COPY assistant/package.json assistant/bun.lock ./assistant/
 RUN cd /app/assistant && bun install --frozen-lockfile
