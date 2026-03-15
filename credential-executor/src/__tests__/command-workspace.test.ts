@@ -937,6 +937,36 @@ describe("validateContainedPath", () => {
     expect(err).toBeDefined();
     expect(err).toContain("escapes");
   });
+
+  test("accepts multi-level non-existent path under symlinked root", () => {
+    // On macOS /tmp is a symlink to /private/tmp. Create a real directory
+    // under /tmp so the root resolves through the symlink, then validate a
+    // path with multiple non-existent levels (e.g., reports/output.json where
+    // reports/ also doesn't exist). This exercises the while-loop in the
+    // catch branch iterating more than once before finding an existing ancestor.
+    const base = join("/tmp", `ces-test-multilevel-${randomUUID()}`);
+    mkdirSync(base, { recursive: true });
+    try {
+      // Neither "reports/" nor "reports/output.json" exist on disk
+      const deepPath = join(base, "reports", "output.json");
+      const err = validateContainedPath(deepPath, base, "test");
+      expect(err).toBeUndefined();
+
+      // Verify it also works with even deeper non-existent paths
+      const deeperPath = join(base, "a", "b", "c", "file.txt");
+      const err2 = validateContainedPath(deeperPath, base, "test");
+      expect(err2).toBeUndefined();
+
+      // Verify escape detection still works with multi-level non-existent paths
+      // under a symlinked root — path outside the root should still be rejected
+      const outsidePath = join("/tmp", `ces-test-other-${randomUUID()}`, "a", "b", "file.txt");
+      const err3 = validateContainedPath(outsidePath, base, "test");
+      expect(err3).toBeDefined();
+      expect(err3).toContain("escapes");
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("checkSymlinkEscape", () => {
