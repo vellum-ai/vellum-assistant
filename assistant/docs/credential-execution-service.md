@@ -60,13 +60,36 @@ The existing `host_bash` tool executes commands on the host machine without any 
 
 **Implication**: `host_bash` represents a weaker security tier. Agents that require the strong secrecy guarantee must use `run_authenticated_command` instead. Trust rules and permission policies should reflect this distinction — managed deployments may deny `host_bash` entirely for untrusted agents while allowing `run_authenticated_command`.
 
-### 2. Local static secrets are local-mode only for v1
+### 2. Local static secrets are local-mode only — by design
 
 For the initial implementation, local static secrets (API keys, tokens stored via the credential store in `~/.vellum/protected/`) are only accessible to CES in **local mode**, where CES runs as a child process of the assistant as the same OS user. CES reads them at materialization time via direct filesystem access.
 
-In **managed mode**, `local_static` handles are not supported. The encrypted key store uses PBKDF2 key derivation from user identity (username, homedir), and the assistant and CES containers run as different users, producing different derived keys. Managed deployments must use `platform_oauth` handles exclusively.
+In **managed mode**, `local_static` handles are not supported and the CES returns a clear error for any `local_static` handle. Managed deployments use `platform_oauth` handles exclusively. This is a deliberate architectural decision, not a temporary limitation.
 
-Future iterations may move secret storage to a dedicated secret manager (e.g., cloud KMS, Vault) with CES as the only authorized reader, which would enable static secrets in managed mode.
+#### Why `local_static` cannot work in managed mode
+
+The original design considered having managed deployments share static secrets via the assistant data volume. This is technically impossible due to how the encrypted key store works.
+
+The `local-secure-key-backend.ts` module uses PBKDF2 key derivation where the encryption key is derived from `userInfo().username` and `userInfo().homedir`. In managed deployments:
+
+- The **assistant container** runs as `root` (homedir `/root`)
+- The **CES sidecar container** runs as `ces` / uid 1001 (homedir `/home/ces`)
+
+These produce different PBKDF2-derived AES keys. Even if the encrypted key store file (`keys.enc`) were mounted as a shared volume, CES would derive a different decryption key and silently fail to decrypt the secrets.
+
+#### Rejected alternatives
+
+Three alternatives were evaluated and rejected because each breaks a core security invariant:
+
+1. **Mount decrypted secrets into the CES container** — This would require decrypting secrets in the assistant container and writing plaintext to a shared volume, breaking the "secrets never in assistant process memory" boundary (Boundary Invariant #2).
+
+2. **Use shared key derivation independent of UID** — Deriving the encryption key from a shared secret (e.g., a pod-level token) rather than per-user identity would weaken the encrypted-at-rest security model. The UID-based derivation ensures that only the user who stored the credential can decrypt it, which is a fundamental property of the local credential store.
+
+3. **Pre-decrypt and pass via the RPC socket** — Having the assistant decrypt the secret and send it to CES over the Unix socket would mean the assistant process handles plaintext credential values, directly violating the CES process-boundary isolation guarantee.
+
+Since all alternatives break security invariants that CES exists to enforce, managed deployments route credential access through `platform_oauth` where the platform manages token lifecycle and CES requests materialized tokens via the platform proxy endpoint.
+
+Future iterations may move secret storage to a dedicated secret manager (e.g., cloud KMS, Vault) with CES as the only authorized reader, which would enable static secrets in managed mode without compromising the process-boundary isolation.
 
 ### 3. Platform OAuth materialization stays on the platform
 
@@ -369,7 +392,7 @@ This means the helper is subject to the same cooperative egress limitation as th
 
 The following capabilities are intentionally deferred beyond v1:
 
-- **`local_static` handles in managed mode** — The encrypted key store (`keys.enc`) uses PBKDF2 key derivation from machine-specific entropy that includes `userInfo().username` and `userInfo().homedir`. In managed deployments, the assistant container runs as `root` while the CES sidecar runs as `ces` (uid 1001). This produces different derived AES keys, making `local_static` decryption silently fail across container boundaries. Managed mode returns a clear error for any `local_static` handle and requires `platform_oauth` handles exclusively. The `local-secure-key-backend.ts` module is restricted to local mode where CES runs as the same OS user as the assistant.
+- **`local_static` handles in managed mode** — Structurally unsupported due to PBKDF2 key derivation depending on per-container UID (see Locked Decision #2 for full rationale and rejected alternatives). Managed mode returns a clear error and requires `platform_oauth` handles exclusively.
 - **Cloud KMS/Vault integration for secret storage** — v1 reads secrets from filesystem (`~/.vellum/protected/` locally, `/ces-data` in managed). Moving to a dedicated secrets manager is a future enhancement.
 - **Multi-CES-instance support** — Each assistant pod runs exactly one CES sidecar. Horizontal scaling of CES within a pod is not supported.
 - **Cross-pod credential sharing** — CES grants are scoped to a single pod. There is no grant federation across pods or assistant instances.
