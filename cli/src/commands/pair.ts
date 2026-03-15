@@ -1,4 +1,4 @@
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { readFileSync } from "fs";
 import jsQR from "jsqr";
 import { hostname, userInfo } from "os";
@@ -167,6 +167,7 @@ export async function pair(): Promise<void> {
 
     const customEntry: AssistantEntry = {
       assistantId: instanceName,
+      installationId: randomUUID(),
       runtimeUrl,
       bearerToken,
       cloud: "custom",
