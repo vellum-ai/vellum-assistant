@@ -197,3 +197,44 @@ struct ChatSessionErrorToast: View {
         }
     }
 }
+
+// MARK: - Credits Exhausted Banner
+
+/// Styled inline error banner shown when the user's credits are exhausted.
+/// Displays a clear message and an "Add Funds" CTA button.
+struct CreditsExhaustedBanner: View {
+    let onAddFunds: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.sm) {
+                VIconView(.creditCard, size: 16)
+                    .foregroundColor(VColor.systemNegativeStrong)
+                Text("You've run out of credits")
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.contentEmphasized)
+                Spacer()
+                Button {
+                    onDismiss()
+                } label: {
+                    VIconView(.x, size: 14)
+                        .foregroundColor(VColor.contentTertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss")
+            }
+            Text("Add funds to continue using the assistant.")
+                .font(VFont.body)
+                .foregroundColor(VColor.contentSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            VButton(label: "Add Funds", style: .primary) {
+                onAddFunds()
+            }
+        }
+        .padding(VSpacing.lg)
+        .background(VColor.systemNegativeWeak.opacity(0.3))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+}

@@ -105,4 +105,9 @@ public struct SessionError: Equatable {
         self.debugDetails = debugDetails
         self.errorCategory = errorCategory
     }
+
+    /// Whether this error indicates that the user's credits are exhausted.
+    public var isCreditsExhausted: Bool {
+        errorCategory == "credits_exhausted"
+    }
 }
