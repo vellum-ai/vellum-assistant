@@ -1,7 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { disposeAcpSessionManager } from "../acp/index.js";
+import {
+  disposeAcpSessionManager,
+  setBroadcastToAllClients,
+} from "../acp/index.js";
 import {
   createAssistantMessage,
   createUserMessage,
@@ -309,6 +312,7 @@ export class DaemonServer {
     this.evictor = new SessionEvictor(this.sessions);
     getSubagentManager().sharedRequestTimestamps = this.sharedRequestTimestamps;
     getSubagentManager().broadcastToAllClients = (msg) => this.broadcast(msg);
+    setBroadcastToAllClients((msg) => this.broadcast(msg));
     this.evictor.onEvict = (sessionId: string) => {
       getSubagentManager().abortAllForParent(sessionId);
     };
