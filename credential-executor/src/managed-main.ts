@@ -99,24 +99,25 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
 
   // -- Managed credential options --------------------------------------------
   // In managed mode, credentials are obtained from the platform via its
-  // token-materialization endpoint. The platform URL and API key are provided
-  // through environment variables set by the orchestration layer.
+  // token-materialization endpoint. The platform URL, API key, and assistant
+  // ID are provided through environment variables set by the orchestration layer.
   const platformBaseUrl = process.env["PLATFORM_BASE_URL"] ?? "";
   const assistantApiKey = process.env["ASSISTANT_API_KEY"] ?? "";
+  const assistantId = process.env["PLATFORM_ASSISTANT_ID"] ?? "";
 
   const managedSubjectOptions: ManagedSubjectResolverOptions | undefined =
-    platformBaseUrl && assistantApiKey
-      ? { platformBaseUrl, assistantApiKey }
+    platformBaseUrl && assistantApiKey && assistantId
+      ? { platformBaseUrl, assistantApiKey, assistantId }
       : undefined;
 
   const managedMaterializerOptions: ManagedMaterializerOptions | undefined =
-    platformBaseUrl && assistantApiKey
-      ? { platformBaseUrl, assistantApiKey }
+    platformBaseUrl && assistantApiKey && assistantId
+      ? { platformBaseUrl, assistantApiKey, assistantId }
       : undefined;
 
   if (!managedSubjectOptions) {
     warn(
-      "PLATFORM_BASE_URL and/or ASSISTANT_API_KEY not set. " +
+      "PLATFORM_BASE_URL, ASSISTANT_API_KEY, and/or PLATFORM_ASSISTANT_ID not set. " +
         "Managed credential materialisation will not be available.",
     );
   }

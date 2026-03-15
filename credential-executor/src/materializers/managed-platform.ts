@@ -70,6 +70,9 @@ export class MaterializationError extends Error {
 /**
  * Shape of the platform's CES token-materialization response.
  *
+ * Field names match the platform's ManagedTokenMaterializeResponseSerializer:
+ *   access_token, token_type, expires_at, provider, handle
+ *
  * The platform issues a short-lived access token for the specified
  * connection. The token is pre-authorized for the scopes granted on
  * the connection.
@@ -77,8 +80,10 @@ export class MaterializationError extends Error {
 interface PlatformTokenResponse {
   access_token: string;
   token_type?: string;
-  /** Seconds until the token expires. */
-  expires_in?: number | null;
+  /** ISO-8601 datetime when the token expires (null if no expiry). */
+  expires_at?: string | null;
+  provider?: string;
+  handle?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -95,6 +100,11 @@ export interface ManagedMaterializerOptions {
    */
   assistantApiKey: string;
   /**
+   * Platform-assigned assistant UUID. Required for building the
+   * platform materialize URL: /v1/assistants/<id>/oauth/managed/materialize/
+   */
+  assistantId: string;
+  /**
    * Optional custom fetch implementation (for testing).
    */
   fetch?: typeof globalThis.fetch;
@@ -109,7 +119,9 @@ export interface ManagedMaterializerOptions {
  * by calling the platform's token-materialization endpoint.
  *
  * The endpoint is:
- *   POST {platformBaseUrl}/v1/ces/connections/{connectionId}/materialize
+ *   POST {platformBaseUrl}/v1/assistants/{assistantId}/oauth/managed/materialize/
+ *
+ * The request body contains `{ connection_id: <uuid> }`.
  *
  * The platform validates the assistant API key, checks that the connection
  * is active, and returns a fresh access token (refreshing upstream if
@@ -120,7 +132,7 @@ export interface ManagedMaterializerOptions {
  */
 export async function materializeManagedToken(
   subject: ManagedSubject,
-  options: ManagedMaterializerOptions,
+  options: ManagedMaterializerOptions
 ): Promise<MaterializeResult> {
   // -- Validate prerequisites -----------------------------------------------
   if (!options.platformBaseUrl) {
@@ -128,7 +140,7 @@ export async function materializeManagedToken(
       ok: false,
       error: new MaterializationError(
         "MISSING_PLATFORM_URL",
-        "Platform base URL is required for managed token materialization",
+        "Platform base URL is required for managed token materialization"
       ),
     };
   }
@@ -138,15 +150,28 @@ export async function materializeManagedToken(
       ok: false,
       error: new MaterializationError(
         "MISSING_API_KEY",
-        "Assistant API key is required for managed token materialization",
+        "Assistant API key is required for managed token materialization"
+      ),
+    };
+  }
+
+  if (!options.assistantId) {
+    return {
+      ok: false,
+      error: new MaterializationError(
+        "MISSING_ASSISTANT_ID",
+        "Assistant ID is required for managed token materialization"
       ),
     };
   }
 
   // -- Call platform token endpoint -----------------------------------------
   const fetchFn = options.fetch ?? globalThis.fetch;
-  const materializeUrl =
-    `${options.platformBaseUrl}/v1/ces/connections/${encodeURIComponent(subject.connectionId)}/materialize`;
+  const materializeUrl = `${
+    options.platformBaseUrl
+  }/v1/assistants/${encodeURIComponent(
+    options.assistantId
+  )}/oauth/managed/materialize/`;
 
   let response: Response;
   try {
@@ -157,7 +182,7 @@ export async function materializeManagedToken(
         Accept: "application/json",
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ connection_id: subject.connectionId }),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -165,7 +190,7 @@ export async function materializeManagedToken(
       ok: false,
       error: new MaterializationError(
         "PLATFORM_UNREACHABLE",
-        `Failed to reach platform token endpoint: ${sanitizeError(message)}`,
+        `Failed to reach platform token endpoint: ${sanitizeError(message)}`
       ),
     };
   }
@@ -187,7 +212,7 @@ export async function materializeManagedToken(
       ok: false,
       error: new MaterializationError(
         "INVALID_TOKEN_RESPONSE",
-        "Platform token endpoint returned invalid JSON",
+        "Platform token endpoint returned invalid JSON"
       ),
     };
   }
@@ -197,13 +222,13 @@ export async function materializeManagedToken(
       ok: false,
       error: new MaterializationError(
         "INVALID_TOKEN_RESPONSE",
-        "Platform token response missing access_token",
+        "Platform token response missing access_token"
       ),
     };
   }
 
   // -- Build materialized token ---------------------------------------------
-  const expiresAt = computeExpiresAt(body.expires_in);
+  const expiresAt = parseExpiresAt(body.expires_at);
 
   const token: MaterializedToken = {
     accessToken: body.access_token,
@@ -225,41 +250,41 @@ export async function materializeManagedToken(
  */
 function mapPlatformError(
   status: number,
-  connectionId: string,
+  connectionId: string
 ): MaterializationError {
   switch (status) {
     case 401:
       return new MaterializationError(
         "PLATFORM_AUTH_FAILED",
-        "Assistant API key is invalid or expired (HTTP 401)",
+        "Assistant API key is invalid or expired (HTTP 401)"
       );
     case 403:
       return new MaterializationError(
         "PLATFORM_FORBIDDEN",
-        "Assistant is not authorized to materialize this connection (HTTP 403)",
+        "Assistant is not authorized to materialize this connection (HTTP 403)"
       );
     case 404:
       return new MaterializationError(
         "CONNECTION_NOT_FOUND",
-        `Connection ${connectionId} not found on the platform (HTTP 404)`,
+        `Connection ${connectionId} not found on the platform (HTTP 404)`
       );
     default:
       return new MaterializationError(
         `PLATFORM_HTTP_${status}`,
-        `Platform token endpoint returned HTTP ${status}`,
+        `Platform token endpoint returned HTTP ${status}`
       );
   }
 }
 
 /**
- * Compute the absolute expiry timestamp from an `expires_in` seconds value.
- * Returns null if the value is missing or zero.
+ * Parse an ISO-8601 `expires_at` datetime string into epoch milliseconds.
+ * Returns null if the value is missing or invalid.
  */
-function computeExpiresAt(
-  expiresIn: number | null | undefined,
-): number | null {
-  if (expiresIn == null || expiresIn <= 0) return null;
-  return Date.now() + expiresIn * 1000;
+function parseExpiresAt(expiresAt: string | null | undefined): number | null {
+  if (expiresAt == null) return null;
+  const ts = new Date(expiresAt).getTime();
+  if (Number.isNaN(ts)) return null;
+  return ts;
 }
 
 /**

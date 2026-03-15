@@ -11,6 +11,7 @@
 
 import { platformOAuthHandle } from "@vellumai/ces-contracts";
 
+import { getPlatformAssistantId } from "../config/env.js";
 import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
 import { getLogger } from "../util/logger.js";
 
@@ -44,17 +45,17 @@ export interface ManagedCredentialDescriptor {
 /**
  * Shape of a single connection entry in the platform catalog response.
  * Only non-secret fields are parsed; token values are never included.
+ *
+ * Field names match the platform's ManagedConnectionCatalogEntrySerializer:
+ *   handle, connection_id, provider, account_label, scopes_granted, status
  */
 interface PlatformCatalogEntry {
-  id: string;
+  handle: string;
+  connection_id: string;
   provider: string;
-  account_info?: string | null;
-  granted_scopes?: string[];
+  account_label?: string | null;
+  scopes_granted?: string[];
   status?: string;
-}
-
-interface PlatformCatalogResponse {
-  connections: PlatformCatalogEntry[];
 }
 
 // ---------------------------------------------------------------------------
@@ -84,7 +85,13 @@ export async function fetchManagedCatalog(): Promise<FetchManagedCatalogResult> 
     return { ok: true, descriptors: [] };
   }
 
-  const url = `${ctx.platformBaseUrl}/v1/ces/catalog`;
+  const assistantId = getPlatformAssistantId();
+  if (!assistantId) {
+    log.warn("PLATFORM_ASSISTANT_ID not set; cannot fetch managed catalog");
+    return { ok: true, descriptors: [] };
+  }
+
+  const url = `${ctx.platformBaseUrl}/v1/assistants/${encodeURIComponent(assistantId)}/oauth/managed/catalog/`;
 
   try {
     const response = await fetch(url, {
@@ -97,7 +104,9 @@ export async function fetchManagedCatalog(): Promise<FetchManagedCatalogResult> 
 
     if (!response.ok) {
       const statusText = response.statusText || `HTTP ${response.status}`;
-      log.warn(`Platform CES catalog returned ${response.status}: ${statusText}`);
+      log.warn(
+        `Platform CES catalog returned ${response.status}: ${statusText}`,
+      );
       return {
         ok: false,
         descriptors: [],
@@ -105,9 +114,11 @@ export async function fetchManagedCatalog(): Promise<FetchManagedCatalogResult> 
       };
     }
 
-    const body = (await response.json()) as PlatformCatalogResponse;
+    // The platform returns a flat JSON array of catalog entries
+    // (serialized with many=True), not a wrapper object.
+    const body = (await response.json()) as PlatformCatalogEntry[];
 
-    if (!body.connections || !Array.isArray(body.connections)) {
+    if (!Array.isArray(body)) {
       return {
         ok: false,
         descriptors: [],
@@ -115,24 +126,25 @@ export async function fetchManagedCatalog(): Promise<FetchManagedCatalogResult> 
       };
     }
 
-    const descriptors: ManagedCredentialDescriptor[] = body.connections.map(
-      (entry) => ({
-        handle: platformOAuthHandle(entry.id),
-        source: "platform" as const,
-        provider: entry.provider,
-        connectionId: entry.id,
-        accountInfo: entry.account_info ?? null,
-        grantedScopes: entry.granted_scopes ?? [],
-        status: entry.status ?? "unknown",
-      }),
-    );
+    const descriptors: ManagedCredentialDescriptor[] = body.map((entry) => ({
+      handle: platformOAuthHandle(entry.connection_id),
+      source: "platform" as const,
+      provider: entry.provider,
+      connectionId: entry.connection_id,
+      accountInfo: entry.account_label ?? null,
+      grantedScopes: entry.scopes_granted ?? [],
+      status: entry.status ?? "unknown",
+    }));
 
     return { ok: true, descriptors };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     // Ensure the error message does not leak secrets — strip any URL params
     // that might contain tokens (defensive, since we use Api-Key header).
-    const safeMessage = message.replace(/Api-Key\s+\S+/gi, "Api-Key [REDACTED]");
+    const safeMessage = message.replace(
+      /Api-Key\s+\S+/gi,
+      "Api-Key [REDACTED]",
+    );
     log.warn(`Failed to fetch managed CES catalog: ${safeMessage}`);
     return {
       ok: false,
