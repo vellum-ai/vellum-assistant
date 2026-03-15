@@ -538,10 +538,6 @@ struct AgentPanelContent: View {
         if skillsManager.isLoadingSkillFiles || skillsManager.skillFilesError != nil ||
             (skillsManager.selectedSkillFiles != nil && !skillsManager.selectedSkillFiles!.files.isEmpty) {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Text("Files")
-                    .font(VFont.bodyBold)
-                    .foregroundColor(VColor.contentDefault)
-
                 if skillsManager.isLoadingSkillFiles {
                     HStack {
                         Spacer()
