@@ -56,6 +56,10 @@ mock.module("../credential-execution/process-manager.js", () => ({
   }),
 }));
 
+mock.module("../credential-execution/feature-gates.js", () => ({
+  isCesGrantAuditEnabled: () => true,
+}));
+
 mock.module("../credential-execution/client.js", () => ({
   createCesClient: () => ({
     handshake: async () => ({

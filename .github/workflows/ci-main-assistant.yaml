@@ -6,7 +6,8 @@ on:
     branches: [main]
     paths:
       - 'assistant/**'
-      - 'packages/ces-contracts/**'
+      - 'credential-executor/**'
+      - 'packages/**'
       - 'meta/feature-flags/**'
       - '.github/workflows/ci-main-assistant.yaml'
 

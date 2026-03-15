@@ -48,18 +48,24 @@ const FORBIDDEN_PATTERNS = [
   /from\s+['"]@vellumai\/assistant/,
   /import\s*\(.*\/assistant\/src\//,
   /require\s*\(.*\/assistant\/src\//,
+  /import\s+['"].*\/assistant\/src\//,
+  /import\s+['"]@vellumai\/assistant/,
 
   // CES server modules (future — reserve the boundary now)
   /from\s+['"].*\/ces\/src\//,
   /from\s+['"]@vellumai\/ces/,
   /import\s*\(.*\/ces\/src\//,
   /require\s*\(.*\/ces\/src\//,
+  /import\s+['"].*\/ces\/src\//,
+  /import\s+['"]@vellumai\/ces/,
 
   // Gateway internals
   /from\s+['"].*\/gateway\/src\//,
   /from\s+['"]@vellumai\/vellum-gateway/,
   /import\s*\(.*\/gateway\/src\//,
   /require\s*\(.*\/gateway\/src\//,
+  /import\s+['"].*\/gateway\/src\//,
+  /import\s+['"]@vellumai\/vellum-gateway/,
 ];
 
 describe("package boundary", () => {
@@ -96,6 +102,7 @@ describe("package boundary", () => {
       ...pkgJson.dependencies,
       ...pkgJson.devDependencies,
       ...pkgJson.peerDependencies,
+      ...pkgJson.optionalDependencies,
     };
 
     const forbidden = [
@@ -105,10 +112,7 @@ describe("package boundary", () => {
     ];
 
     for (const dep of forbidden) {
-      expect(allDeps).not.toHaveProperty(
-        dep,
-        `package.json must not depend on ${dep}`,
-      );
+      expect(allDeps).not.toHaveProperty(dep);
     }
   });
 

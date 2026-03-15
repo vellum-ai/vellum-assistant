@@ -36,6 +36,9 @@ import {
 } from "./grants/rpc-handlers.js";
 import { TemporaryGrantStore } from "./grants/temporary-store.js";
 import { LocalMaterialiser } from "./materializers/local.js";
+import { createLocalSecureKeyBackend } from "./materializers/local-secure-key-backend.js";
+import { createLocalOAuthLookup } from "./materializers/local-oauth-lookup.js";
+import { resolveLocalSubject } from "./subjects/local.js";
 import {
   getCesAuditDir,
   getCesDataRoot,
@@ -50,7 +53,8 @@ import {
   type RpcHandlerRegistry,
 } from "./server.js";
 import { publishBundle } from "./toolstore/publish.js";
-import type { OAuthConnectionLookup } from "./subjects/local.js";
+import { validateSourceUrl } from "./toolstore/manifest.js";
+import { buildCesEgressHooks } from "./commands/egress-hooks.js";
 
 // ---------------------------------------------------------------------------
 // Data directory bootstrap
@@ -100,41 +104,25 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
   const vellumRoot = getVellumRootDir();
   const credentialMetadataPath = join(
     vellumRoot,
+    "workspace",
     "data",
-    "credential-metadata.json",
+    "credentials",
+    "metadata.json",
   );
   const metadataStore = new StaticCredentialMetadataStore(
     credentialMetadataPath,
   );
 
-  // Stub OAuth connection lookup — local OAuth connections are resolved from
-  // the assistant's SQLite database which CES cannot access directly. When
-  // local OAuth execution is needed, a connection bridge must be added.
-  const oauthConnections: OAuthConnectionLookup = {
-    getById: () => undefined,
-  };
+  // Read-only OAuth connection lookup backed by the assistant's SQLite
+  // database. CES opens the database in read-only mode.
+  const oauthConnections = createLocalOAuthLookup(vellumRoot);
 
-  // Stub SecureKeyBackend — in local mode the backend implementation lives in
-  // the assistant process (keychain or encrypted file store). CES cannot import
-  // it directly. HTTP/command handlers that require credential materialisation
-  // will return a structured error until a CES-native backend is wired in.
-  const stubSecureKeyBackend = {
-    async get(_key: string) {
-      return undefined;
-    },
-    async set(_key: string, _value: string) {
-      return false;
-    },
-    async delete(_key: string) {
-      return "error" as const;
-    },
-    async list() {
-      return [];
-    },
-  };
+  // CES-native SecureKeyBackend that reads from the assistant's encrypted
+  // key store file. Read-only — CES never writes or deletes keys.
+  const secureKeyBackend = createLocalSecureKeyBackend(vellumRoot);
 
   const localMaterialiser = new LocalMaterialiser({
-    secureKeyBackend: stubSecureKeyBackend,
+    secureKeyBackend,
   });
 
   // -- Build handler registry ------------------------------------------------
@@ -149,6 +137,7 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
         metadataStore,
         oauthConnections,
       },
+      auditStore,
       sessionId,
     },
   );
@@ -158,13 +147,28 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
     executorDeps: {
       persistentStore: persistentGrantStore,
       temporaryStore: temporaryGrantStore,
-      materializeCredential: async (_handle) => ({
-        ok: false as const,
-        error:
-          "CES local credential materialisation not yet available. " +
-          "A CES-native secure-key backend must be configured.",
-      }),
+      materializeCredential: async (handle) => {
+        // Resolve the subject first, then materialise through the local backend
+        const subjectResult = resolveLocalSubject(handle, {
+          metadataStore,
+          oauthConnections,
+        });
+        if (!subjectResult.ok) {
+          return { ok: false as const, error: subjectResult.error };
+        }
+        const matResult = await localMaterialiser.materialise(subjectResult.subject);
+        if (!matResult.ok) {
+          return { ok: false as const, error: matResult.error };
+        }
+        return {
+          ok: true as const,
+          value: matResult.credential.value,
+          handleType: matResult.credential.handleType,
+        };
+      },
+      auditStore,
       cesMode: "local",
+      egressHooks: buildCesEgressHooks(),
     },
     defaultWorkspaceDir: join(vellumRoot, "workspace"),
   });
@@ -174,11 +178,37 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
 
   registerManageSecureCommandToolHandler(handlers, {
     downloadBundle: async (sourceUrl: string) => {
-      const resp = await fetch(sourceUrl);
+      const urlError = validateSourceUrl(sourceUrl);
+      if (urlError) {
+        throw new Error(urlError);
+      }
+      const MAX_BUNDLE_SIZE = 100 * 1024 * 1024; // 100 MB
+      const resp = await fetch(sourceUrl, { signal: AbortSignal.timeout(60_000) });
       if (!resp.ok) {
         throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
       }
-      return Buffer.from(await resp.arrayBuffer());
+      const contentLength = resp.headers.get("content-length");
+      if (contentLength && parseInt(contentLength, 10) > MAX_BUNDLE_SIZE) {
+        throw new Error(`Bundle too large: ${contentLength} bytes (max ${MAX_BUNDLE_SIZE})`);
+      }
+      // Stream the body and enforce the size limit on actual bytes received,
+      // since Content-Length can be absent (chunked encoding) or lie.
+      const body = resp.body;
+      if (!body) {
+        throw new Error("Response body is null");
+      }
+      const chunks: Uint8Array[] = [];
+      let totalBytes = 0;
+      for await (const chunk of body) {
+        totalBytes += chunk.byteLength;
+        if (totalBytes > MAX_BUNDLE_SIZE) {
+          // Cancel the stream to free resources
+          await body.cancel();
+          throw new Error(`Bundle too large: received >${MAX_BUNDLE_SIZE} bytes (max ${MAX_BUNDLE_SIZE})`);
+        }
+        chunks.push(chunk);
+      }
+      return Buffer.concat(chunks);
     },
     publishBundle: (request) => publishBundle({ ...request, cesMode: "local" }),
     unregisterTool: (toolName: string) => {
@@ -197,7 +227,6 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
 
   handlers[CesRpcMethod.ListGrants] = createListGrantsHandler({
     persistentGrantStore,
-    sessionId,
   }) as typeof handlers[string];
 
   handlers[CesRpcMethod.RevokeGrant] = createRevokeGrantHandler({

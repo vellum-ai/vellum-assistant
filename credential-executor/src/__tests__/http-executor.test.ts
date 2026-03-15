@@ -43,6 +43,7 @@ import { PersistentGrantStore } from "../grants/persistent-store.js";
 import { TemporaryGrantStore } from "../grants/temporary-store.js";
 import { LocalMaterialiser } from "../materializers/local.js";
 import type { OAuthConnectionLookup, LocalSubjectResolverDeps } from "../subjects/local.js";
+import { AuditStore } from "../audit/store.js";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -284,6 +285,7 @@ function buildDeps(
     sessionId: "test-session",
     logger: silentLogger,
     ...overrides,
+    auditStore: overrides.auditStore ?? new AuditStore(fixture.tmpDir),
   };
 }
 
@@ -317,6 +319,7 @@ describe("HTTP executor: local static secrets", () => {
       pattern: "GET https://api.github.com/repos/owner/repo",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const { fetch: fetchFn, requests } = mockFetchRecorder(
@@ -356,6 +359,7 @@ describe("HTTP executor: local static secrets", () => {
       pattern: "GET https://api.github.com/user",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     // Simulate API echoing back the token in response
@@ -390,6 +394,7 @@ describe("HTTP executor: local static secrets", () => {
       pattern: "GET https://api.github.com/data",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const fetchFn = mockFetch(200, '{"ok": true}', {
@@ -454,6 +459,7 @@ describe("HTTP executor: local OAuth", () => {
       pattern: "GET https://www.googleapis.com/calendar/v3/calendars/primary/events",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const { fetch: fetchFn, requests } = mockFetchRecorder(
@@ -494,6 +500,7 @@ describe("HTTP executor: local OAuth", () => {
       pattern: "GET https://www.googleapis.com/oauth2/v1/tokeninfo",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     // Simulate tokeninfo endpoint echoing the token
@@ -545,6 +552,7 @@ describe("HTTP executor: platform_oauth handles", () => {
       pattern: "GET https://api.slack.com/api/conversations.list",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     // Mock the platform catalog response
@@ -555,30 +563,31 @@ describe("HTTP executor: platform_oauth handles", () => {
       const urlStr = url.toString();
 
       // Platform catalog
-      if (urlStr.includes("/v1/ces/catalog")) {
+      if (urlStr.includes("/oauth/managed/catalog")) {
         return new Response(
-          JSON.stringify({
-            connections: [
-              {
-                id: "conn-platform-1",
-                provider: "slack",
-                account_info: "workspace@slack.com",
-                granted_scopes: ["channels:read"],
-                status: "active",
-              },
-            ],
-          }),
+          JSON.stringify([
+            {
+              handle: "platform_oauth:conn-platform-1",
+              connection_id: "conn-platform-1",
+              provider: "slack",
+              account_label: "workspace@slack.com",
+              scopes_granted: ["channels:read"],
+              status: "active",
+            },
+          ]),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
 
       // Platform token materialization
-      if (urlStr.includes("/v1/ces/connections/conn-platform-1/materialize")) {
+      if (urlStr.includes("/oauth/managed/materialize")) {
         return new Response(
           JSON.stringify({
             access_token: "xoxp-platform-token-12345678",
             token_type: "Bearer",
-            expires_in: 3600,
+            expires_at: new Date(Date.now() + 3600_000).toISOString(),
+            provider: "slack",
+            handle: "platform_oauth:conn-platform-1",
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
@@ -603,11 +612,13 @@ describe("HTTP executor: platform_oauth handles", () => {
       managedSubjectOptions: {
         platformBaseUrl: "https://api.vellum.ai",
         assistantApiKey: "test-api-key",
+        assistantId: "test-assistant-id",
         fetch: platformCatalogFetch,
       },
       managedMaterializerOptions: {
         platformBaseUrl: "https://api.vellum.ai",
         assistantApiKey: "test-api-key",
+        assistantId: "test-assistant-id",
         fetch: platformCatalogFetch,
       },
     });
@@ -640,6 +651,7 @@ describe("HTTP executor: platform_oauth handles", () => {
       pattern: "GET https://api.slack.com/data",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     // No managedSubjectOptions or managedMaterializerOptions
@@ -772,6 +784,7 @@ describe("HTTP executor: forbidden header rejection", () => {
       pattern: "GET https://api.github.com/user",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const { fetch: fetchFn, requests } = mockFetchRecorder(200, '{"ok": true}');
@@ -803,6 +816,7 @@ describe("HTTP executor: forbidden header rejection", () => {
       pattern: "GET https://api.github.com/user",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const { fetch: fetchFn, requests } = mockFetchRecorder(200, '{"ok": true}');
@@ -833,6 +847,7 @@ describe("HTTP executor: forbidden header rejection", () => {
       pattern: "GET https://api.github.com/user",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const deps = buildDeps(fixture, []);
@@ -882,6 +897,7 @@ describe("HTTP executor: redirect denial", () => {
       pattern: "GET https://api.github.com/repos/owner/repo",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     // Redirect to an evil domain
@@ -910,6 +926,73 @@ describe("HTTP executor: redirect denial", () => {
     expect(result.error!.message).toContain("denied");
   });
 
+  test("303 redirect evaluates policy against GET, not original method", async () => {
+    const handle = localStaticHandle("github", "api_key");
+
+    // Grant only covers GET — no POST grant exists
+    fixture.persistentStore.add({
+      id: "grant-github-get-only",
+      tool: "http",
+      pattern: "GET https://api.github.com/repos/owner/repo/result",
+      scope: handle,
+      createdAt: Date.now(),
+      sessionId: "test-session",
+    });
+
+    // Also add a grant for the original POST endpoint
+    fixture.persistentStore.add({
+      id: "grant-github-post",
+      tool: "http",
+      pattern: "POST https://api.github.com/repos/owner/repo/action",
+      scope: handle,
+      createdAt: Date.now(),
+      sessionId: "test-session",
+    });
+
+    // POST -> 303 redirect to a GET-only granted endpoint
+    let callCount = 0;
+    const requests: Array<{ url: string; method: string }> = [];
+    const fetchFn = asFetch(async (
+      url: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      callCount++;
+      requests.push({ url: url.toString(), method: init?.method ?? "GET" });
+      if (callCount === 1) {
+        return new Response(null, {
+          status: 303,
+          headers: { Location: "https://api.github.com/repos/owner/repo/result" },
+        });
+      }
+      return new Response('{"status": "done"}', {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    const deps = buildDeps(fixture, [], { fetch: fetchFn });
+
+    const result = await executeAuthenticatedHttpRequest(
+      {
+        credentialHandle: handle,
+        method: "POST",
+        url: "https://api.github.com/repos/owner/repo/action",
+        body: '{"trigger": true}',
+        purpose: "Trigger action",
+      },
+      deps,
+    );
+
+    // Should succeed — policy evaluates GET (post-303 method) against the grant
+    expect(result.success).toBe(true);
+    expect(result.statusCode).toBe(200);
+
+    // Verify the redirect hop actually used GET
+    expect(requests).toHaveLength(2);
+    expect(requests[0].method).toBe("POST");
+    expect(requests[1].method).toBe("GET");
+  });
+
   test("allows redirect to path covered by same grant", async () => {
     const handle = localStaticHandle("github", "api_key");
 
@@ -920,6 +1003,7 @@ describe("HTTP executor: redirect denial", () => {
       pattern: "GET https://api.github.com/repos/owner/repo",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     // Redirect to the same domain/path that matches the grant
@@ -986,6 +1070,7 @@ describe("HTTP executor: filtered response behaviour", () => {
       pattern: "GET https://api.example.com/protected",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const fetchFn = mockFetch(401, '{"error": "unauthorized"}', {
@@ -1020,6 +1105,7 @@ describe("HTTP executor: filtered response behaviour", () => {
       pattern: "GET https://api.example.com/data",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const fetchFn = mockFetch(200, '{"ok": true}', {
@@ -1077,6 +1163,7 @@ describe("HTTP executor: audit summary integrity", () => {
       pattern: "GET https://api.github.com/user",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const fetchFn = mockFetch(200, '{"login": "octocat"}');
@@ -1110,6 +1197,7 @@ describe("HTTP executor: audit summary integrity", () => {
       pattern: "GET https://api.github.com/user",
       scope: badHandle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const deps = buildDeps(fixture, []);
@@ -1191,6 +1279,7 @@ describe("HTTP executor: network error handling", () => {
       pattern: "GET https://api.example.com/data",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const fetchFn = asFetch(async () => {
@@ -1224,6 +1313,7 @@ describe("HTTP executor: network error handling", () => {
       pattern: "GET https://api.example.com/data",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const fetchFn = asFetch(async () => {

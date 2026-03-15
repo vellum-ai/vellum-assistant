@@ -35,28 +35,35 @@ import {
 
 const TEST_PLATFORM_URL = "https://api.test-platform.vellum.ai";
 const TEST_API_KEY = "test-api-key-abc123";
+const TEST_ASSISTANT_ID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
 
 /**
- * Build a mock catalog response with the given entries.
+ * Build a mock catalog response matching the platform's flat-array format.
+ * The platform serializes with many=True, returning a JSON array directly.
  */
 function buildCatalogResponse(
   entries: PlatformCatalogEntry[],
-): { connections: PlatformCatalogEntry[] } {
-  return { connections: entries };
+): PlatformCatalogEntry[] {
+  return entries;
 }
 
 /**
- * Build a mock platform token response.
+ * Build a mock platform token response matching
+ * ManagedTokenMaterializeResponseSerializer.
  */
 function buildTokenResponse(overrides: {
   access_token?: string;
   token_type?: string;
-  expires_in?: number | null;
+  expires_at?: string | null;
+  provider?: string;
+  handle?: string;
 } = {}) {
   return {
     access_token: overrides.access_token ?? "mat_token_abc123",
     token_type: overrides.token_type ?? "Bearer",
-    expires_in: overrides.expires_in ?? 3600,
+    expires_at: overrides.expires_at ?? new Date(Date.now() + 3600_000).toISOString(),
+    provider: overrides.provider ?? "google",
+    handle: overrides.handle ?? "platform_oauth:conn_test123",
   };
 }
 
@@ -78,12 +85,12 @@ function createMockFetch(handlers: {
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
 
-    if (url.includes("/v1/ces/catalog")) {
+    if (url.includes("/oauth/managed/catalog")) {
       if (handlers.catalog?.error) {
         throw handlers.catalog.error;
       }
       return new Response(
-        JSON.stringify(handlers.catalog?.body ?? { connections: [] }),
+        JSON.stringify(handlers.catalog?.body ?? []),
         {
           status: handlers.catalog?.status ?? 200,
           headers: { "Content-Type": "application/json" },
@@ -91,7 +98,7 @@ function createMockFetch(handlers: {
       );
     }
 
-    if (url.includes("/materialize")) {
+    if (url.includes("/oauth/managed/materialize")) {
       if (handlers.materialize?.error) {
         throw handlers.materialize.error;
       }
@@ -138,10 +145,11 @@ describe("resolveManagedSubject", () => {
         status: 200,
         body: buildCatalogResponse([
           {
-            id: "conn_abc123",
+            handle: "platform_oauth:conn_abc123",
+            connection_id: "conn_abc123",
             provider: "google",
-            account_info: "user@example.com",
-            granted_scopes: ["email", "calendar"],
+            account_label: "user@example.com",
+            scopes_granted: ["email", "calendar"],
             status: "active",
           },
         ]),
@@ -151,6 +159,7 @@ describe("resolveManagedSubject", () => {
     const result = await resolveManagedSubject(handle, {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
       fetch: mockFetch,
     });
 
@@ -172,15 +181,16 @@ describe("resolveManagedSubject", () => {
       catalog: {
         status: 200,
         body: buildCatalogResponse([
-          { id: "conn_first", provider: "slack" },
+          { handle: "platform_oauth:conn_first", connection_id: "conn_first", provider: "slack" },
           {
-            id: "conn_second",
+            handle: "platform_oauth:conn_second",
+            connection_id: "conn_second",
             provider: "github",
-            account_info: "dev@github.com",
-            granted_scopes: ["repo", "read:org"],
+            account_label: "dev@github.com",
+            scopes_granted: ["repo", "read:org"],
             status: "active",
           },
-          { id: "conn_third", provider: "google" },
+          { handle: "platform_oauth:conn_third", connection_id: "conn_third", provider: "google" },
         ]),
       },
     });
@@ -188,6 +198,7 @@ describe("resolveManagedSubject", () => {
     const result = await resolveManagedSubject(handle, {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
       fetch: mockFetch,
     });
 
@@ -203,7 +214,7 @@ describe("resolveManagedSubject", () => {
       catalog: {
         status: 200,
         body: buildCatalogResponse([
-          { id: "conn_minimal", provider: "slack" },
+          { handle: "platform_oauth:conn_minimal", connection_id: "conn_minimal", provider: "slack" },
         ]),
       },
     });
@@ -211,6 +222,7 @@ describe("resolveManagedSubject", () => {
     const result = await resolveManagedSubject(handle, {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
       fetch: mockFetch,
     });
 
@@ -229,6 +241,7 @@ describe("resolveManagedSubject", () => {
     const result = await resolveManagedSubject("not-a-valid-handle", {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
     });
 
     expect(result.ok).toBe(false);
@@ -240,6 +253,7 @@ describe("resolveManagedSubject", () => {
     const result = await resolveManagedSubject("local_static:github/api_key", {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
     });
 
     expect(result.ok).toBe(false);
@@ -254,6 +268,7 @@ describe("resolveManagedSubject", () => {
       {
         platformBaseUrl: TEST_PLATFORM_URL,
         assistantApiKey: TEST_API_KEY,
+        assistantId: TEST_ASSISTANT_ID,
       },
     );
 
@@ -273,7 +288,7 @@ describe("resolveManagedSubject", () => {
       catalog: {
         status: 200,
         body: buildCatalogResponse([
-          { id: "conn_other", provider: "slack" },
+          { handle: "platform_oauth:conn_other", connection_id: "conn_other", provider: "slack" },
         ]),
       },
     });
@@ -281,6 +296,7 @@ describe("resolveManagedSubject", () => {
     const result = await resolveManagedSubject(handle, {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
       fetch: mockFetch,
     });
 
@@ -303,6 +319,7 @@ describe("resolveManagedSubject", () => {
     const result = await resolveManagedSubject(handle, {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
       fetch: mockFetch,
     });
 
@@ -321,6 +338,7 @@ describe("resolveManagedSubject", () => {
     const result = await resolveManagedSubject(handle, {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
       fetch: mockFetch,
     });
 
@@ -338,6 +356,7 @@ describe("resolveManagedSubject", () => {
     const result = await resolveManagedSubject(handle, {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
       fetch: mockFetch,
     });
 
@@ -355,6 +374,7 @@ describe("resolveManagedSubject", () => {
     const result = await resolveManagedSubject(handle, {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
       fetch: mockFetch,
     });
 
@@ -373,6 +393,7 @@ describe("resolveManagedSubject", () => {
     const result = await resolveManagedSubject(handle, {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: "",
+      assistantId: TEST_ASSISTANT_ID,
     });
 
     expect(result.ok).toBe(false);
@@ -386,11 +407,26 @@ describe("resolveManagedSubject", () => {
     const result = await resolveManagedSubject(handle, {
       platformBaseUrl: "",
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
     });
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.code).toBe("MISSING_PLATFORM_URL");
+  });
+
+  test("fails when assistant ID is missing", async () => {
+    const handle = platformOAuthHandle("conn_test");
+
+    const result = await resolveManagedSubject(handle, {
+      platformBaseUrl: TEST_PLATFORM_URL,
+      assistantApiKey: TEST_API_KEY,
+      assistantId: "",
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("MISSING_ASSISTANT_ID");
   });
 
   // -------------------------------------------------------------------------
@@ -409,6 +445,7 @@ describe("resolveManagedSubject", () => {
     const result = await resolveManagedSubject(handle, {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
       fetch: mockFetch,
     });
 
@@ -432,6 +469,7 @@ describe("resolveManagedSubject", () => {
     const result = await resolveManagedSubject(handle, {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
       fetch: mockFetch,
     });
 
@@ -457,6 +495,7 @@ describe("resolveManagedSubject", () => {
     const result = await resolveManagedSubject(handle, {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
       fetch: mockFetch,
     });
 
@@ -473,20 +512,21 @@ describe("resolveManagedSubject", () => {
 describe("materializeManagedToken", () => {
   test("materializes a token successfully", async () => {
     const subject = buildManagedSubject();
+    const futureExpiry = new Date(Date.now() + 1_800_000).toISOString();
     const mockFetch = createMockFetch({
       materialize: {
         status: 200,
         body: buildTokenResponse({
           access_token: "fresh_token_xyz",
-          expires_in: 1800,
+          expires_at: futureExpiry,
         }),
       },
     });
 
-    const before = Date.now();
     const result = await materializeManagedToken(subject, {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
       fetch: mockFetch,
     });
 
@@ -497,12 +537,10 @@ describe("materializeManagedToken", () => {
     expect(result.token.tokenType).toBe("Bearer");
     expect(result.token.provider).toBe("google");
     expect(result.token.connectionId).toBe("conn_test123");
-    // expires_in: 1800 seconds = 1,800,000 ms from now
+    // expires_at is parsed from ISO datetime
     expect(result.token.expiresAt).not.toBeNull();
-    expect(result.token.expiresAt!).toBeGreaterThanOrEqual(before + 1_799_000);
-    expect(result.token.expiresAt!).toBeLessThanOrEqual(
-      Date.now() + 1_801_000,
-    );
+    const expectedMs = new Date(futureExpiry).getTime();
+    expect(result.token.expiresAt!).toBe(expectedMs);
   });
 
   test("defaults token_type to Bearer when not provided", async () => {
@@ -510,13 +548,14 @@ describe("materializeManagedToken", () => {
     const mockFetch = createMockFetch({
       materialize: {
         status: 200,
-        body: { access_token: "tok_no_type" },
+        body: { access_token: "tok_no_type", expires_at: null },
       },
     });
 
     const result = await materializeManagedToken(subject, {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
       fetch: mockFetch,
     });
 
@@ -539,6 +578,7 @@ describe("materializeManagedToken", () => {
     const result = await materializeManagedToken(subject, {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
       fetch: mockFetch,
     });
 
@@ -557,6 +597,7 @@ describe("materializeManagedToken", () => {
     const result = await materializeManagedToken(subject, {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
       fetch: mockFetch,
     });
 
@@ -574,6 +615,7 @@ describe("materializeManagedToken", () => {
     const result = await materializeManagedToken(subject, {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
       fetch: mockFetch,
     });
 
@@ -592,6 +634,7 @@ describe("materializeManagedToken", () => {
     const result = await materializeManagedToken(subject, {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
       fetch: mockFetch,
     });
 
@@ -610,6 +653,7 @@ describe("materializeManagedToken", () => {
     const result = await materializeManagedToken(subject, {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: "",
+      assistantId: TEST_ASSISTANT_ID,
     });
 
     expect(result.ok).toBe(false);
@@ -623,11 +667,26 @@ describe("materializeManagedToken", () => {
     const result = await materializeManagedToken(subject, {
       platformBaseUrl: "",
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
     });
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.code).toBe("MISSING_PLATFORM_URL");
+  });
+
+  test("fails when assistant ID is missing", async () => {
+    const subject = buildManagedSubject();
+
+    const result = await materializeManagedToken(subject, {
+      platformBaseUrl: TEST_PLATFORM_URL,
+      assistantApiKey: TEST_API_KEY,
+      assistantId: "",
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("MISSING_ASSISTANT_ID");
   });
 
   // -------------------------------------------------------------------------
@@ -646,6 +705,7 @@ describe("materializeManagedToken", () => {
     const result = await materializeManagedToken(subject, {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
       fetch: mockFetch,
     });
 
@@ -669,6 +729,7 @@ describe("materializeManagedToken", () => {
     const result = await materializeManagedToken(subject, {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
       fetch: mockFetch,
     });
 
@@ -687,13 +748,14 @@ describe("materializeManagedToken", () => {
     const mockFetch = createMockFetch({
       materialize: {
         status: 200,
-        body: { token_type: "Bearer", expires_in: 3600 },
+        body: { token_type: "Bearer", expires_at: new Date(Date.now() + 3600_000).toISOString() },
       },
     });
 
     const result = await materializeManagedToken(subject, {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
       fetch: mockFetch,
     });
 
@@ -717,14 +779,14 @@ describe("materializeManagedToken", () => {
     ) => {
       callCount++;
       const url = typeof input === "string" ? input : input.toString();
-      if (url.includes("/materialize")) {
+      if (url.includes("/oauth/managed/materialize")) {
         // Each call returns a different token to prove we got a fresh one
         return Promise.resolve(
           new Response(
             JSON.stringify(
               buildTokenResponse({
                 access_token: `fresh_token_${callCount}`,
-                expires_in: 3600,
+                expires_at: new Date(Date.now() + 3600_000).toISOString(),
               }),
             ),
             {
@@ -740,6 +802,7 @@ describe("materializeManagedToken", () => {
     const opts: ManagedMaterializerOptions = {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
       fetch: mockFetch,
     };
 
@@ -771,10 +834,11 @@ describe("uniform subject interface", () => {
         status: 200,
         body: buildCatalogResponse([
           {
-            id: "conn_uniform",
+            handle: "platform_oauth:conn_uniform",
+            connection_id: "conn_uniform",
             provider: "github",
-            account_info: "dev@example.com",
-            granted_scopes: ["repo"],
+            account_label: "dev@example.com",
+            scopes_granted: ["repo"],
             status: "active",
           },
         ]),
@@ -784,6 +848,7 @@ describe("uniform subject interface", () => {
     const result = await resolveManagedSubject(handle, {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
       fetch: mockFetch,
     });
 
@@ -804,7 +869,7 @@ describe("uniform subject interface", () => {
       catalog: {
         status: 200,
         body: buildCatalogResponse([
-          { id: "conn_branch", provider: "slack" },
+          { handle: "platform_oauth:conn_branch", connection_id: "conn_branch", provider: "slack" },
         ]),
       },
     });
@@ -812,6 +877,7 @@ describe("uniform subject interface", () => {
     const result = await resolveManagedSubject(handle, {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
       fetch: mockFetch,
     });
 
@@ -850,6 +916,7 @@ describe("token non-persistence invariant", () => {
     const result = await materializeManagedToken(subject, {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
       fetch: mockFetch,
     });
 
@@ -918,10 +985,11 @@ describe("end-to-end resolve and materialize", () => {
         status: 200,
         body: buildCatalogResponse([
           {
-            id: "conn_e2e",
+            handle: "platform_oauth:conn_e2e",
+            connection_id: "conn_e2e",
             provider: "google",
-            account_info: "e2e@example.com",
-            granted_scopes: ["drive"],
+            account_label: "e2e@example.com",
+            scopes_granted: ["drive"],
             status: "active",
           },
         ]),
@@ -930,7 +998,7 @@ describe("end-to-end resolve and materialize", () => {
         status: 200,
         body: buildTokenResponse({
           access_token: "e2e_access_token",
-          expires_in: 7200,
+          expires_at: new Date(Date.now() + 7200_000).toISOString(),
         }),
       },
     });
@@ -938,6 +1006,7 @@ describe("end-to-end resolve and materialize", () => {
     const opts = {
       platformBaseUrl: TEST_PLATFORM_URL,
       assistantApiKey: TEST_API_KEY,
+      assistantId: TEST_ASSISTANT_ID,
       fetch: mockFetch,
     };
 

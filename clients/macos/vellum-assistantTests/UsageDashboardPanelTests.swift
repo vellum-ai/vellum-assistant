@@ -447,16 +447,7 @@ struct UsageDashboardPanelViewCloseTests {
 // MARK: - Mock Client
 
 @MainActor
-private final class MockPanelClient: DaemonClientProtocol {
-    var isConnected: Bool = true
-
-    func subscribe() -> AsyncStream<ServerMessage> { AsyncStream { $0.finish() } }
-    func send<T: Encodable>(_ message: T) throws {}
-    func connect() async throws {}
-    func disconnect() {}
-    func startSSE() {}
-    func stopSSE() {}
-
+private final class MockPanelClient: UsageClientProtocol {
     var stubbedTotals: UsageTotalsResponse?
     var stubbedDaily: UsageDailyResponse?
     var stubbedBreakdown: UsageBreakdownResponse?

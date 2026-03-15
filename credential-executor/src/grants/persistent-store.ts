@@ -43,6 +43,12 @@ export interface PersistentGrant {
   scope: string;
   /** When the grant was created (epoch ms). */
   createdAt: number;
+  /** The agent session that created this grant. */
+  sessionId: string;
+  /** When the grant was revoked (epoch ms), or undefined if active. */
+  revokedAt?: number;
+  /** Human-readable reason for revocation. */
+  revokedReason?: string;
 }
 
 /** On-disk format for the grants file. */
@@ -60,7 +66,6 @@ const GRANTS_FILENAME = "grants.json";
 
 export class PersistentGrantStore {
   private readonly filePath: string;
-  private cache: PersistentGrant[] | null = null;
   /** Set to true when the store detects corruption; blocks all operations. */
   private corrupt = false;
 
@@ -98,22 +103,30 @@ export class PersistentGrantStore {
   }
 
   /**
-   * Return all persisted grants.
+   * Return all persisted grants that are not revoked.
    *
    * Returns an empty array if the store has never been initialised
    * (no file on disk). Throws if the store is corrupt.
    */
   getAll(): PersistentGrant[] {
+    return this.getAllIncludingRevoked().filter((g) => g.revokedAt == null);
+  }
+
+  /**
+   * Return all persisted grants including revoked ones.
+   *
+   * Used by the listing handler to expose the full audit trail.
+   */
+  getAllIncludingRevoked(): PersistentGrant[] {
     this.assertNotCorrupt();
-    if (this.cache !== null) return [...this.cache];
     if (!existsSync(this.filePath)) return [];
     return [...this.loadFromDisk()];
   }
 
   /**
-   * Look up a grant by its canonical ID.
+   * Look up a grant by its canonical ID (active grants only).
    *
-   * Returns `undefined` if not found. Throws if the store is corrupt.
+   * Returns `undefined` if not found or revoked. Throws if the store is corrupt.
    */
   getById(id: string): PersistentGrant | undefined {
     return this.getAll().find((g) => g.id === id);
@@ -138,9 +151,11 @@ export class PersistentGrantStore {
   }
 
   /**
-   * Remove a grant by its canonical ID.
+   * Remove a grant by its canonical ID (hard delete).
    *
    * Returns `true` if the grant was found and removed, `false` otherwise.
+   *
+   * Prefer `markRevoked()` for audit-preserving revocation.
    */
   remove(id: string): boolean {
     this.assertNotCorrupt();
@@ -148,6 +163,25 @@ export class PersistentGrantStore {
     const index = grants.findIndex((g) => g.id === id);
     if (index === -1) return false;
     grants.splice(index, 1);
+    this.writeToDisk(grants);
+    return true;
+  }
+
+  /**
+   * Mark a grant as revoked by its canonical ID. The grant remains
+   * on disk for audit purposes but is excluded from `getAll()` and
+   * `getById()` lookups.
+   *
+   * Returns `true` if the grant was found and marked revoked,
+   * `false` if the grant does not exist or is already revoked.
+   */
+  markRevoked(id: string, reason?: string): boolean {
+    this.assertNotCorrupt();
+    const grants = this.loadFromDisk();
+    const grant = grants.find((g) => g.id === id);
+    if (!grant || grant.revokedAt != null) return false;
+    grant.revokedAt = Date.now();
+    grant.revokedReason = reason;
     this.writeToDisk(grants);
     return true;
   }
@@ -210,7 +244,6 @@ export class PersistentGrantStore {
         throw new Error("CES grants file is malformed: grants is not an array");
       }
 
-      this.cache = file.grants;
       return [...file.grants];
     } catch (err) {
       if (this.corrupt) throw err;
@@ -241,7 +274,5 @@ export class PersistentGrantStore {
     // Enforce owner-only permissions even if the file already existed
     // with wider permissions.
     chmodSync(this.filePath, 0o600);
-
-    this.cache = grants;
   }
 }

@@ -5,7 +5,8 @@ on:
     types: [labeled, synchronize, opened, reopened]
     paths:
       - 'assistant/**'
-      - 'packages/ces-contracts/**'
+      - 'credential-executor/**'
+      - 'packages/**'
       - 'scripts/skills/**'
       - 'meta/feature-flags/**'
       - '.github/workflows/pr-assistant.yaml'

@@ -121,41 +121,8 @@ class HostShellTool implements Tool {
         isError: true,
       };
     }
-    // Proxy to connected client for execution on the user's machine
-    // when a capable client is available (managed/cloud-hosted mode).
-    if (context.hostBashProxy?.isAvailable()) {
-      const { shellDefaultTimeoutSec, shellMaxTimeoutSec } =
-        getConfig().timeouts;
-      const rawSec =
-        typeof input.timeout_seconds === "number"
-          ? input.timeout_seconds
-          : shellDefaultTimeoutSec;
-      const normalizedTimeout = Math.max(
-        1,
-        Math.min(rawSec, shellMaxTimeoutSec),
-      );
-      return context.hostBashProxy.request(
-        {
-          command,
-          working_dir: rawWorkingDir as string | undefined,
-          timeout_seconds: normalizedTimeout,
-        },
-        context.sessionId,
-        context.signal,
-      );
-    }
-
-    const workingDir =
-      typeof rawWorkingDir === "string" ? rawWorkingDir : homedir();
-
     const config = getConfig();
     const { shellDefaultTimeoutSec, shellMaxTimeoutSec } = config.timeouts;
-    const requestedSec =
-      typeof input.timeout_seconds === "number"
-        ? input.timeout_seconds
-        : shellDefaultTimeoutSec;
-    const timeoutSec = Math.max(1, Math.min(requestedSec, shellMaxTimeoutSec));
-    const timeoutMs = timeoutSec * 1000;
 
     // CES shell lockdown: host_bash is the weaker-tier escape hatch. When
     // lockdown is active for untrusted actors, persistent approvals are
@@ -170,6 +137,44 @@ class HostShellTool implements Tool {
     const hostLockdownActive =
       isCesShellLockdownEnabled(config) &&
       isUntrustedTrustClass(context.trustClass);
+
+    // Proxy to connected client for execution on the user's machine
+    // when a capable client is available (managed/cloud-hosted mode).
+    if (context.hostBashProxy?.isAvailable()) {
+      const rawSec =
+        typeof input.timeout_seconds === "number"
+          ? input.timeout_seconds
+          : shellDefaultTimeoutSec;
+      const normalizedTimeout = Math.max(
+        1,
+        Math.min(rawSec, shellMaxTimeoutSec),
+      );
+      // Propagate VELLUM_UNTRUSTED_SHELL to the proxied client so CLI
+      // commands self-deny raw-secret flows even when executed remotely.
+      const proxyEnv: Record<string, string> | undefined = hostLockdownActive
+        ? { VELLUM_UNTRUSTED_SHELL: "1" }
+        : undefined;
+      return context.hostBashProxy.request(
+        {
+          command,
+          working_dir: rawWorkingDir as string | undefined,
+          timeout_seconds: normalizedTimeout,
+          env: proxyEnv,
+        },
+        context.sessionId,
+        context.signal,
+      );
+    }
+
+    const workingDir =
+      typeof rawWorkingDir === "string" ? rawWorkingDir : homedir();
+
+    const requestedSec =
+      typeof input.timeout_seconds === "number"
+        ? input.timeout_seconds
+        : shellDefaultTimeoutSec;
+    const timeoutSec = Math.max(1, Math.min(requestedSec, shellMaxTimeoutSec));
+    const timeoutMs = timeoutSec * 1000;
 
     log.info(
       {

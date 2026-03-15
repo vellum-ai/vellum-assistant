@@ -39,7 +39,12 @@ export class HostBashProxy {
   }
 
   request(
-    input: { command: string; working_dir?: string; timeout_seconds?: number },
+    input: {
+      command: string;
+      working_dir?: string;
+      timeout_seconds?: number;
+      env?: Record<string, string>;
+    },
     sessionId: string,
     signal?: AbortSignal,
   ): Promise<ToolExecutionResult> {
@@ -94,6 +99,9 @@ export class HostBashProxy {
         command: input.command,
         working_dir: input.working_dir,
         timeout_seconds: input.timeout_seconds,
+        ...(input.env && Object.keys(input.env).length > 0
+          ? { env: input.env }
+          : {}),
       } as ServerMessage);
     });
   }

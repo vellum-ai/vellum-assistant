@@ -67,6 +67,55 @@ describe("HostBashProxy", () => {
       expect(proxy.hasPendingRequest(requestId)).toBe(false);
     });
 
+    test("forwards env field in host_bash_request message", async () => {
+      setup();
+
+      const resultPromise = proxy.request(
+        {
+          command: "echo locked",
+          env: { VELLUM_UNTRUSTED_SHELL: "1" },
+        },
+        "session-1",
+      );
+
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.type).toBe("host_bash_request");
+      expect(sent.env).toEqual({ VELLUM_UNTRUSTED_SHELL: "1" });
+
+      const requestId = sent.requestId as string;
+      proxy.resolve(requestId, {
+        stdout: "locked\n",
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      });
+
+      await resultPromise;
+    });
+
+    test("omits env field when not provided", async () => {
+      setup();
+
+      const resultPromise = proxy.request(
+        { command: "echo normal" },
+        "session-1",
+      );
+
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.env).toBeUndefined();
+
+      const requestId = sent.requestId as string;
+      proxy.resolve(requestId, {
+        stdout: "normal\n",
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      });
+
+      await resultPromise;
+    });
+
     test("formats error output correctly", async () => {
       setup();
 

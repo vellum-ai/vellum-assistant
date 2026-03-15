@@ -31,7 +31,6 @@ import {
   lstatSync,
   mkdirSync,
   readFileSync,
-  readlinkSync,
   realpathSync,
   rmSync,
 } from "node:fs";
@@ -163,27 +162,57 @@ export function validateRelativePath(
 
 /**
  * Verify that a resolved path is contained within the expected root
- * directory. Returns an error string if the path escapes.
+ * directory. When the path exists on disk, symlinks are fully resolved
+ * via `realpathSync` so that symlinked segments cannot escape the root.
+ * When the path doesn't exist yet, its closest existing ancestor is
+ * resolved via `realpathSync` to ensure consistent symlink handling
+ * (e.g. `/tmp` → `/private/tmp` on macOS).
  */
 export function validateContainedPath(
   resolvedPath: string,
   rootDir: string,
   label: string,
 ): string | undefined {
-  const normalizedRoot = resolve(rootDir) + "/";
-  const normalizedPath = resolve(resolvedPath);
+  // Resolve symlinks when path exists; fall back to lexical resolve
+  let normalizedRoot: string;
+  let normalizedPath: string;
+  try {
+    normalizedRoot = realpathSync(rootDir);
+  } catch {
+    normalizedRoot = resolve(rootDir);
+  }
+  try {
+    normalizedPath = realpathSync(resolvedPath);
+  } catch {
+    // Path doesn't exist yet — resolve its closest existing ancestor via
+    // realpathSync so that symlinks in parent dirs (e.g. /tmp → /private/tmp)
+    // are resolved consistently with the root directory.
+    const parent = dirname(resolvedPath);
+    const child = basename(resolvedPath);
+    try {
+      normalizedPath = join(realpathSync(parent), child);
+    } catch {
+      normalizedPath = resolve(resolvedPath);
+    }
+  }
+
+  const rootPrefix = normalizedRoot + "/";
 
   // The path must start with the root directory prefix
   // (or be the root directory itself, though that's unusual for files)
-  if (!normalizedPath.startsWith(normalizedRoot) && normalizedPath !== resolve(rootDir)) {
-    return `${label}: resolved path "${normalizedPath}" escapes the root directory "${resolve(rootDir)}".`;
+  if (!normalizedPath.startsWith(rootPrefix) && normalizedPath !== normalizedRoot) {
+    return `${label}: resolved path "${normalizedPath}" escapes the root directory "${normalizedRoot}".`;
   }
   return undefined;
 }
 
 /**
- * Check if a path is a symlink that points outside the given root.
- * Returns an error string if it's an escaping symlink, undefined if safe.
+ * Check if a path (or any of its parent components) involves symlinks
+ * that resolve outside the given root directory.
+ *
+ * Uses `realpathSync` to fully resolve all symlink chains (including
+ * chained symlinks and symlinked parent directories) and then validates
+ * that the fully-resolved path is still within the root.
  */
 export function checkSymlinkEscape(
   filePath: string,
@@ -191,24 +220,20 @@ export function checkSymlinkEscape(
   label: string,
 ): string | undefined {
   try {
-    const stat = lstatSync(filePath);
-    if (!stat.isSymbolicLink()) {
-      return undefined; // Not a symlink — safe
-    }
-
-    // Resolve the symlink target
-    const target = readlinkSync(filePath);
-    const resolvedTarget = resolve(dirname(filePath), target);
-    const normalizedRoot = resolve(rootDir) + "/";
+    // Fully resolve all symlinks (handles chained symlinks and
+    // symlinked parent directories in a single call)
+    const resolvedTarget = realpathSync(filePath);
+    const resolvedRoot = realpathSync(rootDir);
+    const rootPrefix = resolvedRoot + "/";
 
     if (
-      !resolvedTarget.startsWith(normalizedRoot) &&
-      resolvedTarget !== resolve(rootDir)
+      !resolvedTarget.startsWith(rootPrefix) &&
+      resolvedTarget !== resolvedRoot
     ) {
-      return `${label}: symlink "${filePath}" points to "${resolvedTarget}" which is outside the scratch directory "${resolve(rootDir)}".`;
+      return `${label}: path "${filePath}" resolves to "${resolvedTarget}" which is outside the scratch directory "${resolvedRoot}".`;
     }
   } catch {
-    // If we can't stat the file, it doesn't exist yet or is inaccessible.
+    // If we can't resolve the file, it doesn't exist yet or is inaccessible.
     // This will be caught later during the actual copy.
     return undefined;
   }

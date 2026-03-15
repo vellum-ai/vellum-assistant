@@ -83,12 +83,16 @@ export interface ManagedSubject extends ResolvedSubject {
 /**
  * Shape of a single connection entry in the platform catalog response.
  * Only non-secret fields are parsed; token values are never included.
+ *
+ * Field names match the platform's ManagedConnectionCatalogEntrySerializer:
+ *   handle, connection_id, provider, account_label, scopes_granted, status
  */
 export interface PlatformCatalogEntry {
-  id: string;
+  handle: string;
+  connection_id: string;
   provider: string;
-  account_info?: string | null;
-  granted_scopes?: string[];
+  account_label?: string | null;
+  scopes_granted?: string[];
   status?: string;
 }
 
@@ -120,6 +124,11 @@ export interface ManagedSubjectResolverOptions {
    * Assistant API key for authenticating with the platform.
    */
   assistantApiKey: string;
+  /**
+   * Platform-assigned assistant UUID. Required for building the
+   * platform catalog URL: /v1/assistants/<id>/oauth/managed/catalog/
+   */
+  assistantId: string;
   /**
    * Optional custom fetch implementation (for testing).
    */
@@ -191,9 +200,19 @@ export async function resolveManagedSubject(
     };
   }
 
+  if (!options.assistantId) {
+    return {
+      ok: false,
+      error: new SubjectResolutionError(
+        "MISSING_ASSISTANT_ID",
+        "Assistant ID is required for managed subject resolution",
+      ),
+    };
+  }
+
   // -- Fetch catalog entry --------------------------------------------------
   const fetchFn = options.fetch ?? globalThis.fetch;
-  const catalogUrl = `${options.platformBaseUrl}/v1/ces/catalog`;
+  const catalogUrl = `${options.platformBaseUrl}/v1/assistants/${encodeURIComponent(options.assistantId)}/oauth/managed/catalog/`;
 
   let response: Response;
   try {
@@ -226,9 +245,11 @@ export async function resolveManagedSubject(
   }
 
   // -- Parse response -------------------------------------------------------
-  let body: { connections?: PlatformCatalogEntry[] };
+  // The platform returns a flat JSON array of catalog entries
+  // (serialized with many=True), not a wrapper object.
+  let entries: PlatformCatalogEntry[];
   try {
-    body = (await response.json()) as { connections?: PlatformCatalogEntry[] };
+    entries = (await response.json()) as PlatformCatalogEntry[];
   } catch {
     return {
       ok: false,
@@ -239,7 +260,7 @@ export async function resolveManagedSubject(
     };
   }
 
-  if (!body.connections || !Array.isArray(body.connections)) {
+  if (!Array.isArray(entries)) {
     return {
       ok: false,
       error: new SubjectResolutionError(
@@ -250,8 +271,8 @@ export async function resolveManagedSubject(
   }
 
   // -- Find matching connection ---------------------------------------------
-  const entry = body.connections.find(
-    (c) => c.id === platformHandle.connectionId,
+  const entry = entries.find(
+    (c) => c.connection_id === platformHandle.connectionId,
   );
 
   if (!entry) {
@@ -269,9 +290,9 @@ export async function resolveManagedSubject(
     source: "managed",
     handle,
     provider: entry.provider,
-    connectionId: entry.id,
-    accountInfo: entry.account_info ?? null,
-    grantedScopes: entry.granted_scopes ?? [],
+    connectionId: entry.connection_id,
+    accountInfo: entry.account_label ?? null,
+    grantedScopes: entry.scopes_granted ?? [],
     status: entry.status ?? "unknown",
   };
 

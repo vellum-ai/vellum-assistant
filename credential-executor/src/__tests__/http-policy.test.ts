@@ -286,6 +286,36 @@ describe("urlMatchesTemplate", () => {
   test("returns false for invalid template", () => {
     expect(urlMatchesTemplate("https://example.com/", "not-a-url")).toBe(false);
   });
+
+  test("returns false (not throw) for malformed percent escapes in template", () => {
+    // A bare % or %zz would cause decodeURIComponent to throw URIError
+    expect(
+      urlMatchesTemplate(
+        "https://api.example.com/users/42",
+        "https://api.example.com/users/%zz",
+      ),
+    ).toBe(false);
+  });
+
+  test("returns false (not throw) for malformed percent escapes in URL", () => {
+    expect(
+      urlMatchesTemplate(
+        "https://api.example.com/data/%zz",
+        "https://api.example.com/data/foo",
+      ),
+    ).toBe(false);
+  });
+
+  test("matches literal segments consistently when both are percent-encoded", () => {
+    // Both sides should be decoded before comparison, so %20 in the URL
+    // matches a space in a literal template segment (and vice versa).
+    expect(
+      urlMatchesTemplate(
+        "https://api.example.com/hello%20world",
+        "https://api.example.com/hello%20world",
+      ),
+    ).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -383,6 +413,7 @@ describe("evaluateHttpPolicy", () => {
       pattern: "GET https://api.github.com/repos/owner/repo",
       scope: "local_static:github/api_key",
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const request: HttpPolicyRequest = {
@@ -407,6 +438,7 @@ describe("evaluateHttpPolicy", () => {
       pattern: "POST https://api.example.com/data",
       scope: "local_static:svc/key",
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const request: HttpPolicyRequest = {
@@ -431,6 +463,7 @@ describe("evaluateHttpPolicy", () => {
       pattern: "GET https://api.example.com/users/{:num}/posts",
       scope: "local_static:svc/key",
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const request: HttpPolicyRequest = {
@@ -457,17 +490,20 @@ describe("evaluateHttpPolicy", () => {
 
     const result = evaluateHttpPolicy(request, persistentStore, temporaryStore);
     expect(result.allowed).toBe(false);
-    if (!result.allowed && result.reason === "approval_required") {
-      expect(result.proposal.type).toBe("http");
-      expect(result.proposal.credentialHandle).toBe(
-        "local_static:github/api_key",
-      );
-      expect(result.proposal.method).toBe("GET");
-      // Proposal should have allowedUrlPatterns with templated path
-      expect(result.proposal.allowedUrlPatterns).toBeDefined();
-      expect(result.proposal.allowedUrlPatterns![0]).toBe(
-        "https://api.github.com/repos/owner/repo/pulls/{:num}",
-      );
+    if (!result.allowed) {
+      expect(result.reason).toBe("approval_required");
+      if (result.reason === "approval_required") {
+        expect(result.proposal.type).toBe("http");
+        expect(result.proposal.credentialHandle).toBe(
+          "local_static:github/api_key",
+        );
+        expect(result.proposal.method).toBe("GET");
+        // Proposal should have allowedUrlPatterns with templated path
+        expect(result.proposal.allowedUrlPatterns).toBeDefined();
+        expect(result.proposal.allowedUrlPatterns![0]).toBe(
+          "https://api.github.com/repos/owner/repo/pulls/{:num}",
+        );
+      }
     }
   });
 
@@ -496,6 +532,7 @@ describe("evaluateHttpPolicy", () => {
       pattern: "GET https://api.example.com/data",
       scope: "local_static:other/key",
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const request: HttpPolicyRequest = {
@@ -516,6 +553,7 @@ describe("evaluateHttpPolicy", () => {
       pattern: "GET https://api.example.com/data",
       scope: "local_static:svc/key",
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const request: HttpPolicyRequest = {
@@ -537,6 +575,7 @@ describe("evaluateHttpPolicy", () => {
       pattern: "GET https://api.example.com/data",
       scope: "local_static:svc/key",
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const request: HttpPolicyRequest = {
@@ -891,17 +930,20 @@ describe("end-to-end: policy evaluation → response filter → audit", () => {
 
     // Must be blocked
     expect(policyResult.allowed).toBe(false);
-    if (!policyResult.allowed && policyResult.reason === "approval_required") {
-      expect(policyResult.proposal.type).toBe("http");
-      expect(policyResult.proposal.credentialHandle).toBe(
-        "local_static:stripe/api_key",
-      );
-      // Must have specific URL pattern, not wildcard
-      expect(policyResult.proposal.allowedUrlPatterns).toBeDefined();
-      expect(policyResult.proposal.allowedUrlPatterns!.length).toBeGreaterThan(0);
-      for (const pattern of policyResult.proposal.allowedUrlPatterns!) {
-        expect(pattern).not.toBe("/*");
-        expect(pattern).not.toContain("*");
+    if (!policyResult.allowed) {
+      expect(policyResult.reason).toBe("approval_required");
+      if (policyResult.reason === "approval_required") {
+        expect(policyResult.proposal.type).toBe("http");
+        expect(policyResult.proposal.credentialHandle).toBe(
+          "local_static:stripe/api_key",
+        );
+        // Must have specific URL pattern, not wildcard
+        expect(policyResult.proposal.allowedUrlPatterns).toBeDefined();
+        expect(policyResult.proposal.allowedUrlPatterns!.length).toBeGreaterThan(0);
+        for (const pattern of policyResult.proposal.allowedUrlPatterns!) {
+          expect(pattern).not.toBe("/*");
+          expect(pattern).not.toContain("*");
+        }
       }
     }
   });
@@ -915,6 +957,7 @@ describe("end-to-end: policy evaluation → response filter → audit", () => {
       pattern: "GET https://api.stripe.com/v1/charges/{:num}",
       scope: "local_static:stripe/api_key",
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
     const temporaryStore = new TemporaryGrantStore();
 

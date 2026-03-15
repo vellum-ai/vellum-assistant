@@ -12,18 +12,15 @@ import UIKit
 @MainActor
 final class UsageDashboardViewTests: XCTestCase {
 
-    private var mockClient: MockDaemonClient!
     private var store: UsageDashboardStore!
 
     override func setUp() {
         super.setUp()
-        mockClient = MockDaemonClient()
-        store = UsageDashboardStore(client: mockClient)
+        store = UsageDashboardStore(client: NilUsageClient())
     }
 
     override func tearDown() {
         store = nil
-        mockClient = nil
         super.tearDown()
     }
 
@@ -46,8 +43,8 @@ final class UsageDashboardViewTests: XCTestCase {
     // MARK: - Loading → Failed (mock returns nil)
 
     func testRefreshTransitionsToFailedWhenClientReturnsNil() async {
-        // MockDaemonClient's default protocol extensions return nil for all
-        // usage fetches, so refresh should transition to .failed.
+        // NilUsageClient returns nil for all usage fetches,
+        // so refresh should transition to .failed.
         await store.refresh()
 
         if case .failed(let msg) = store.totalsState {
@@ -72,7 +69,7 @@ final class UsageDashboardViewTests: XCTestCase {
     // MARK: - Populated State
 
     func testRefreshPopulatesLoadedStateWithStubClient() async {
-        let stubClient = StubUsageDaemonClient()
+        let stubClient = StubUsageClient()
         let populatedStore = UsageDashboardStore(client: stubClient)
 
         await populatedStore.refresh()
@@ -136,13 +133,13 @@ final class UsageDashboardViewTests: XCTestCase {
     #if canImport(UIKit)
 
     func testViewRendersInIdleState() {
-        let store = UsageDashboardStore(client: MockDaemonClient())
+        let store = UsageDashboardStore(client: NilUsageClient())
         let view = UsageDashboardView(store: store)
         let _ = view.body
     }
 
     func testViewRendersInFailedState() async {
-        let client = MockDaemonClient()
+        let client = NilUsageClient()
         let store = UsageDashboardStore(client: client)
         await store.refresh()
 
@@ -156,7 +153,7 @@ final class UsageDashboardViewTests: XCTestCase {
     }
 
     func testViewRendersInLoadedState() async {
-        let client = StubUsageDaemonClient()
+        let client = StubUsageClient()
         let store = UsageDashboardStore(client: client)
         await store.refresh()
 
@@ -200,24 +197,19 @@ final class UsageDashboardViewTests: XCTestCase {
     }
 }
 
-// MARK: - Stub Client
+// MARK: - Test Clients
 
-/// A stub that returns canned usage data for populated-state tests.
-/// Implements `DaemonClientProtocol` directly since `MockDaemonClient` is final.
+/// A client that always returns nil, simulating network failure.
 @MainActor
-private final class StubUsageDaemonClient: DaemonClientProtocol {
-    var isConnected: Bool = false
+private final class NilUsageClient: UsageClientProtocol {
+    func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? { nil }
+    func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse? { nil }
+    func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? { nil }
+}
 
-    func subscribe() -> AsyncStream<ServerMessage> {
-        AsyncStream { $0.finish() }
-    }
-
-    func send<T: Encodable>(_ message: T) throws {}
-    func connect() async throws {}
-    func disconnect() {}
-    func startSSE() {}
-    func stopSSE() {}
-
+/// A client that returns canned usage data for populated-state tests.
+@MainActor
+private final class StubUsageClient: UsageClientProtocol {
     func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? {
         UsageTotalsResponse(
             totalInputTokens: 1000,

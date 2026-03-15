@@ -1,6 +1,9 @@
 import Foundation
+import os
 import SwiftUI
 import VellumAssistantShared
+
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AssistantTransfer")
 
 /// Transfer UI for moving an assistant between local and cloud (managed) hosting.
 ///
@@ -21,6 +24,7 @@ struct AssistantTransferSection: View {
     @State private var showingConfirmation = false
     @State private var showingManagedConfirmation = false
     @State private var errorMessage: String?
+    @State private var transferTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -58,7 +62,7 @@ struct AssistantTransferSection: View {
         .alert("Transfer to Cloud", isPresented: $showingConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Transfer", role: .destructive) {
-                Task { await transferLocalToManaged() }
+                transferTask = Task { await transferLocalToManaged() }
             }
         } message: {
             Text("This will move all conversations, memory, and settings to a cloud-hosted assistant, then retire the local one. This cannot be undone.")
@@ -66,10 +70,13 @@ struct AssistantTransferSection: View {
         .alert("Transfer to Local", isPresented: $showingManagedConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Transfer", role: .destructive) {
-                Task { await transferManagedToLocal() }
+                transferTask = Task { await transferManagedToLocal() }
             }
         } message: {
             Text("This will move all conversations, memory, and settings to a local assistant on this Mac, then retire the cloud one. This cannot be undone.")
+        }
+        .onDisappear {
+            transferTask?.cancel()
         }
     }
 
@@ -138,11 +145,14 @@ struct AssistantTransferSection: View {
             case .createdNew(let assistant):
                 platformAssistant = assistant
             }
-            LockfileAssistant.upsertManagedEntry(
+            let lockfileSuccess = LockfileAssistant.upsertManagedEntry(
                 assistantId: platformAssistant.id,
                 runtimeUrl: AuthService.shared.baseURL,
                 hatchedAt: platformAssistant.created_at ?? ISO8601DateFormatter().string(from: Date())
             )
+            guard lockfileSuccess else {
+                throw TransferError.importFailed(message: "Failed to save managed assistant configuration to lockfile.")
+            }
 
             // Step 3 — Import bundle to managed assistant
             currentStep = "Importing data to cloud..."
@@ -150,16 +160,21 @@ struct AssistantTransferSection: View {
 
             // Step 4 — Switch to managed assistant
             currentStep = "Switching to cloud assistant..."
-            guard let managedAssistant = LockfileAssistant.loadAll().first(where: { $0.isManaged }) else {
+            guard let managedAssistant = LockfileAssistant.loadAll().first(where: { $0.assistantId == platformAssistant.id && $0.isManaged }) else {
                 throw TransferError.managedEntryNotFound
             }
             AppDelegate.shared?.performSwitchAssistant(to: managedAssistant)
+            transferTask = nil
             onClose()
 
             // Step 5 — Retire local assistant (fire-and-forget)
             currentStep = "Cleaning up..."
             let localName = assistant.assistantId
-            try? await AppDelegate.shared?.assistantCli.retire(name: localName)
+            do {
+                try await AppDelegate.shared?.assistantCli.retire(name: localName)
+            } catch {
+                log.error("[transfer] Failed to retire local assistant \(localName, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
         } catch {
             errorMessage = "Transfer failed: \(error.localizedDescription)"
         }
@@ -197,6 +212,7 @@ struct AssistantTransferSection: View {
             currentStep = "Waiting for export..."
             var downloadUrl: String?
             for _ in 0..<100 {
+                try Task.checkCancellation()
                 let statusResponse = try await GatewayHTTPClient.get(path: "migrations/export/\(jobId)/status")
                 guard statusResponse.isSuccess,
                       let statusJson = try? JSONSerialization.jsonObject(with: statusResponse.data) as? [String: Any],
@@ -235,12 +251,15 @@ struct AssistantTransferSection: View {
                 throw TransferError.exportFailed(statusCode: statusCode)
             }
 
-            // Step 4 — Ensure local assistant exists
+            // Step 4 — Ensure local assistant exists and its daemon is running
             currentStep = "Preparing local assistant..."
             var localAssistant = LockfileAssistant.loadAll().first(where: { !$0.isRemote && !$0.isManaged })
             if localAssistant == nil {
                 try await AppDelegate.shared?.assistantCli.hatch()
                 localAssistant = LockfileAssistant.loadAll().first(where: { !$0.isRemote && !$0.isManaged })
+            } else {
+                // Existing local assistant may be sleeping — wake it before health check
+                try await AppDelegate.shared?.assistantCli.wake(name: localAssistant!.assistantId)
             }
             guard let resolvedLocal = localAssistant else {
                 throw TransferError.localAssistantNotFound
@@ -261,24 +280,12 @@ struct AssistantTransferSection: View {
                 try await Task.sleep(nanoseconds: 1_000_000_000)
             }
 
-            // Step 5 — Switch to local assistant (triggers credential bootstrap)
-            currentStep = "Switching to local assistant..."
-            AppDelegate.shared?.performSwitchAssistant(to: resolvedLocal)
+            // Step 5 — Bootstrap actor token directly against the local daemon
+            // (without calling performSwitchAssistant, which destroys the window)
+            currentStep = "Authenticating with local assistant..."
+            let actorToken = try await bootstrapActorToken(daemonPort: daemonPort)
 
-            // Step 6 — Wait for actor token (up to 30s, now bootstrapped by switch)
-            var actorToken: String?
-            for i in 0..<30 {
-                if let token = ActorTokenManager.getToken(), !token.isEmpty {
-                    actorToken = token
-                    break
-                }
-                if i == 29 {
-                    throw TransferError.notSignedIn
-                }
-                try await Task.sleep(nanoseconds: 1_000_000_000)
-            }
-
-            // Step 7 — Import to local
+            // Step 6 — Import to local
             currentStep = "Importing data..."
             guard let importURL = URL(string: "http://localhost:\(daemonPort)/v1/migrations/import") else {
                 throw TransferError.invalidURL
@@ -286,7 +293,7 @@ struct AssistantTransferSection: View {
             var importRequest = URLRequest(url: importURL)
             importRequest.httpMethod = "POST"
             importRequest.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-            importRequest.setValue("Bearer \(actorToken!)", forHTTPHeaderField: "Authorization")
+            importRequest.setValue("Bearer \(actorToken)", forHTTPHeaderField: "Authorization")
             importRequest.httpBody = bundleData
             importRequest.timeoutInterval = 120
 
@@ -302,10 +309,12 @@ struct AssistantTransferSection: View {
                 throw TransferError.importFailed(message: errorMsg)
             }
 
-            // Step 8 — Close settings (after successful import)
+            // Step 7 — Switch to local assistant now that import succeeded
+            AppDelegate.shared?.performSwitchAssistant(to: resolvedLocal)
+            transferTask = nil
             onClose()
 
-            // Step 9 — Retire managed assistant (fire-and-forget with pre-saved auth)
+            // Step 8 — Retire managed assistant (fire-and-forget with pre-saved auth)
             currentStep = "Cleaning up..."
             if let token = savedSessionToken {
                 let retireUrlString = "\(savedPlatformUrl)/v1/assistants/\(managedAssistantId)/retire/"
@@ -317,8 +326,18 @@ struct AssistantTransferSection: View {
                     if let orgId = savedOrgId {
                         retireRequest.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
                     }
-                    _ = try? await URLSession.shared.data(for: retireRequest)
+                    let retireResult = try? await URLSession.shared.data(for: retireRequest)
+                    if let (_, retireResponse) = retireResult,
+                       let httpRetire = retireResponse as? HTTPURLResponse,
+                       (200..<300).contains(httpRetire.statusCode) {
+                        log.info("[transfer] Retired managed assistant \(managedAssistantId, privacy: .public)")
+                    } else {
+                        let statusCode = (retireResult?.1 as? HTTPURLResponse)?.statusCode ?? 0
+                        log.error("[transfer] Failed to retire managed assistant \(managedAssistantId, privacy: .public): HTTP \(statusCode, privacy: .public)")
+                    }
                 }
+            } else {
+                log.warning("[transfer] Skipping managed assistant retire — no session token available for \(managedAssistantId, privacy: .public)")
             }
         } catch {
             errorMessage = "Transfer failed: \(error.localizedDescription)"
@@ -350,6 +369,44 @@ struct AssistantTransferSection: View {
         }
 
         return data
+    }
+
+    /// Bootstraps an actor token directly against a local daemon's `/v1/guardian/init`
+    /// endpoint without going through `performSwitchAssistant` (which destroys the window).
+    /// Retries with exponential backoff up to ~30s.
+    private func bootstrapActorToken(daemonPort: Int) async throws -> String {
+        let deviceId = PairingQRCodeSheet.computeHostId()
+        guard let url = URL(string: "http://localhost:\(daemonPort)/v1/guardian/init") else {
+            throw TransferError.invalidURL
+        }
+
+        let body: [String: String] = ["platform": "macos", "deviceId": deviceId]
+        let bodyData = try JSONSerialization.data(withJSONObject: body)
+
+        var delay: UInt64 = 2_000_000_000
+        for attempt in 0..<6 {
+            try Task.checkCancellation()
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.timeoutInterval = 15
+            request.httpBody = bodyData
+
+            if let (data, response) = try? await URLSession.shared.data(for: request),
+               let http = response as? HTTPURLResponse,
+               (200..<300).contains(http.statusCode),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let token = json["accessToken"] as? String ?? json["actorToken"] as? String {
+                return token
+            }
+
+            if attempt < 5 {
+                try await Task.sleep(nanoseconds: delay)
+                delay = min(delay * 2, 10_000_000_000)
+            }
+        }
+
+        throw TransferError.notSignedIn
     }
 
     /// Imports a `.vbundle` archive into the managed assistant via the platform API.

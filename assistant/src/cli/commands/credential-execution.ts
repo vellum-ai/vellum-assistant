@@ -22,10 +22,12 @@ import {
 } from "@vellumai/ces-contracts";
 import type { Command } from "commander";
 
+import { getConfig } from "../../config/loader.js";
 import {
   type CesClient,
   createCesClient,
 } from "../../credential-execution/client.js";
+import { isCesGrantAuditEnabled } from "../../credential-execution/feature-gates.js";
 import { createCesProcessManager } from "../../credential-execution/process-manager.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
@@ -42,15 +44,20 @@ async function acquireCesClient(): Promise<{
   client: CesClient;
   cleanup: () => Promise<void>;
 }> {
-  const pm = createCesProcessManager();
+  const pm = createCesProcessManager({ assistantConfig: getConfig() });
   const transport = await pm.start();
   const client = createCesClient(transport);
-  const hs = await client.handshake();
 
-  if (!hs.accepted) {
+  try {
+    const hs = await client.handshake();
+
+    if (!hs.accepted) {
+      throw new Error(`CES handshake rejected: ${hs.reason ?? "unknown"}`);
+    }
+  } catch (err) {
     client.close();
     await pm.stop();
-    throw new Error(`CES handshake rejected: ${hs.reason ?? "unknown"}`);
+    throw err;
   }
 
   return {
@@ -133,6 +140,10 @@ Examples:
     )
     .action(
       async (opts: { handle?: string; status?: string }, cmd: Command) => {
+        if (!isCesGrantAuditEnabled(getConfig())) {
+          log.info("credential-execution commands are not enabled");
+          return;
+        }
         let cleanup: (() => Promise<void>) | undefined;
         try {
           const ces = await acquireCesClient();
@@ -195,6 +206,10 @@ Examples:
     )
     .action(
       async (grantId: string, opts: { reason?: string }, cmd: Command) => {
+        if (!isCesGrantAuditEnabled(getConfig())) {
+          log.info("credential-execution commands are not enabled");
+          return;
+        }
         let cleanup: (() => Promise<void>) | undefined;
         try {
           const ces = await acquireCesClient();
@@ -266,6 +281,10 @@ Examples:
         opts: { handle?: string; grant?: string; limit: string },
         cmd: Command,
       ) => {
+        if (!isCesGrantAuditEnabled(getConfig())) {
+          log.info("credential-execution commands are not enabled");
+          return;
+        }
         let cleanup: (() => Promise<void>) | undefined;
         try {
           const ces = await acquireCesClient();

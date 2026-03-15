@@ -207,7 +207,25 @@ async function startDaemonFromSource(
   // --- Lifecycle guard: prevent split-brain daemon state ---
   if (existsSync(pidFile)) {
     try {
-      const pid = parseInt(readFileSync(pidFile, "utf-8").trim(), 10);
+      const content = readFileSync(pidFile, "utf-8").trim();
+
+      // Another caller is already spawning the daemon — wait for it
+      // instead of racing to spawn a duplicate.
+      if (content === "starting") {
+        console.log(
+          "   Assistant is starting — waiting for it to become ready...",
+        );
+        if (await waitForDaemonReady(resources.daemonPort, 60000)) {
+          console.log("   Assistant is ready\n");
+          return;
+        }
+        // The other spawn may have failed; clean up and proceed to spawn.
+        try {
+          unlinkSync(pidFile);
+        } catch {}
+      }
+
+      const pid = parseInt(content, 10);
       if (!isNaN(pid)) {
         try {
           process.kill(pid, 0);
@@ -250,8 +268,7 @@ async function startDaemonFromSource(
   }
 
   // Write a sentinel PID file before spawning so concurrent hatch() calls
-  // see the file and fall through to the isDaemonResponsive() port check
-  // instead of racing to spawn a duplicate daemon.
+  // detect the in-progress spawn and wait instead of racing.
   writeFileSync(pidFile, "starting", "utf-8");
 
   const daemonLogFd = openLogFile("hatch.log");
@@ -293,7 +310,25 @@ async function startDaemonWatchFromSource(
   // If a daemon is already running, skip spawning a new one.
   if (existsSync(pidFile)) {
     try {
-      const pid = parseInt(readFileSync(pidFile, "utf-8").trim(), 10);
+      const content = readFileSync(pidFile, "utf-8").trim();
+
+      // Another caller is already spawning the daemon — wait for it
+      // instead of racing to spawn a duplicate.
+      if (content === "starting") {
+        console.log(
+          "   Assistant is starting — waiting for it to become ready...",
+        );
+        if (await waitForDaemonReady(resources.daemonPort, 60000)) {
+          console.log("   Assistant is ready\n");
+          return;
+        }
+        // The other spawn may have failed; clean up and proceed to spawn.
+        try {
+          unlinkSync(pidFile);
+        } catch {}
+      }
+
+      const pid = parseInt(content, 10);
       if (!isNaN(pid)) {
         try {
           process.kill(pid, 0); // Check if alive
@@ -337,6 +372,10 @@ async function startDaemonWatchFromSource(
     delete env.QDRANT_URL;
   }
 
+  // Write a sentinel PID file before spawning so concurrent hatch() calls
+  // detect the in-progress spawn and wait instead of racing.
+  writeFileSync(pidFile, "starting", "utf-8");
+
   const daemonLogFd = openLogFile("hatch.log");
   const child = spawn("bun", ["--watch", "run", mainPath], {
     detached: true,
@@ -347,8 +386,13 @@ async function startDaemonWatchFromSource(
   child.unref();
   const daemonPid = child.pid;
 
+  // Overwrite sentinel with real PID, or clean up on spawn failure.
   if (daemonPid) {
     writeFileSync(pidFile, String(daemonPid), "utf-8");
+  } else {
+    try {
+      unlinkSync(pidFile);
+    } catch {}
   }
 
   console.log("   Assistant started in watch mode (bun --watch)");
@@ -763,7 +807,26 @@ export async function startLocalDaemon(
     let daemonAlive = false;
     if (existsSync(pidFile)) {
       try {
-        const pid = parseInt(readFileSync(pidFile, "utf-8").trim(), 10);
+        const content = readFileSync(pidFile, "utf-8").trim();
+
+        // Another caller is already spawning the daemon — wait for it
+        // instead of racing to spawn a duplicate.
+        if (content === "starting") {
+          console.log(
+            "   Assistant is starting — waiting for it to become ready...",
+          );
+          if (await waitForDaemonReady(resources.daemonPort, 60000)) {
+            console.log("   Assistant is ready\n");
+            ensureBunInstalled();
+            return;
+          }
+          // The other spawn may have failed; clean up and proceed to spawn.
+          try {
+            unlinkSync(pidFile);
+          } catch {}
+        }
+
+        const pid = parseInt(content, 10);
         if (!isNaN(pid)) {
           try {
             process.kill(pid, 0); // Check if alive

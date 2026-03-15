@@ -18,9 +18,7 @@
  *   credential.
  */
 
-import { createHash } from "node:crypto";
-
-import type { HttpGrantProposal } from "@vellumai/ces-contracts";
+import { hashProposal, type HttpGrantProposal } from "@vellumai/ces-contracts";
 
 import type { PersistentGrant, PersistentGrantStore } from "../grants/persistent-store.js";
 import type { TemporaryGrantStore } from "../grants/temporary-store.js";
@@ -129,10 +127,14 @@ export function evaluateHttpPolicy(
   // 2. Check explicit grantId in persistent store
   if (request.grantId) {
     const grant = persistentStore.getById(request.grantId);
-    if (grant) {
+    if (
+      grant &&
+      grant.tool === "http" &&
+      grantCoversRequest(grant, request.credentialHandle, request.method, request.url, "")
+    ) {
       return { allowed: true, grantId: grant.id, grantSource: "persistent" };
     }
-    // Explicit grant not found — fall through to pattern matching
+    // Explicit grant not found or does not cover this request — fall through to pattern matching
   }
 
   // 3. Check persistent grants for pattern match
@@ -150,7 +152,7 @@ export function evaluateHttpPolicy(
   // 4. Check temporary grants
   // Build a proposal hash key from the canonical request shape
   const proposal = buildProposal(request, pathTemplate);
-  const proposalHash = hashProposalForLookup(proposal);
+  const proposalHash = hashProposal(proposal);
 
   const tempKind = temporaryStore.checkAny(
     proposalHash,
@@ -234,23 +236,3 @@ function buildProposal(
   };
 }
 
-/**
- * Compute a deterministic hash key for temporary grant lookup.
- *
- * Uses the same canonical JSON → SHA-256 approach as the contracts package
- * `hashProposal`, but we use a simplified inline version here to avoid
- * importing the full contracts rendering module into the policy hot path.
- */
-function hashProposalForLookup(proposal: HttpGrantProposal): string {
-  // Build a canonical key from the proposal's stable fields:
-  // type + credentialHandle + method + allowedUrlPatterns (sorted)
-  const parts = [
-    proposal.type,
-    proposal.credentialHandle,
-    proposal.method.toUpperCase(),
-    ...(proposal.allowedUrlPatterns ?? []).slice().sort(),
-  ];
-  const canonical = JSON.stringify(parts);
-
-  return createHash("sha256").update(canonical, "utf8").digest("hex");
-}

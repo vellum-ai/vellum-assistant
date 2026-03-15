@@ -78,6 +78,7 @@ final class AvatarAppearanceManager {
     static let shared = AvatarAppearanceManager()
 
     private var fileMonitor: DispatchSourceFileSystemObject?
+    private var traitsFileMonitor: DispatchSourceFileSystemObject?
     private var identityObserver: NSObjectProtocol?
 
     /// Workspace path for custom avatar -- canonical storage location.
@@ -118,6 +119,7 @@ final class AvatarAppearanceManager {
         loadCustomAvatar()
         loadAvatarComponents()
         watchAvatarFile()
+        watchTraitsFile()
 
         // Refresh assistantName and invalidate cached fallback avatars when
         // the user renames their assistant so the initial-letter avatar
@@ -209,6 +211,7 @@ final class AvatarAppearanceManager {
         cachedFallbackAvatar = nil
         cachedFullFallbackAvatar = nil
         loadCustomAvatar()
+        loadAvatarComponents()
     }
 
     func clearCustomAvatar() {
@@ -287,6 +290,8 @@ final class AvatarAppearanceManager {
                 self?.loadCustomAvatar()
                 if flags.contains(.delete) || flags.contains(.rename) {
                     self?.watchAvatarFile()
+                    self?.loadAvatarComponents()
+                    self?.watchTraitsFile()
                 }
             }
         }
@@ -314,6 +319,10 @@ final class AvatarAppearanceManager {
         source.setEventHandler { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                self.loadAvatarComponents()
+                if FileManager.default.fileExists(atPath: self.avatarComponentsURL.path) {
+                    self.watchTraitsFile()
+                }
                 if FileManager.default.fileExists(atPath: self.customAvatarURL.path) {
                     self.loadCustomAvatar()
                     self.watchAvatarFile()
@@ -326,6 +335,72 @@ final class AvatarAppearanceManager {
         }
 
         fileMonitor = source
+        source.resume()
+    }
+
+    /// Watch character-traits.json for external changes (e.g. assistant writes new traits).
+    private func watchTraitsFile() {
+        traitsFileMonitor?.cancel()
+        traitsFileMonitor = nil
+
+        let path = avatarComponentsURL.path
+        let fd = open(path, O_EVTONLY)
+
+        if fd < 0 {
+            // File doesn't exist yet — fall back to watching the directory for its creation.
+            // This mirrors the watchAvatarFile() → watchAvatarDirectory() pattern.
+            // We store the directory watcher in traitsFileMonitor (not fileMonitor) to
+            // avoid clobbering the avatar file/directory watcher.
+            let dirPath = (avatarComponentsURL.path as NSString).deletingLastPathComponent
+            let dirFd = open(dirPath, O_EVTONLY)
+            guard dirFd >= 0 else { return }
+
+            let dirSource = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: dirFd,
+                eventMask: .write,
+                queue: .global(qos: .utility)
+            )
+
+            dirSource.setEventHandler { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if FileManager.default.fileExists(atPath: self.avatarComponentsURL.path) {
+                        self.loadAvatarComponents()
+                        self.watchTraitsFile()
+                    }
+                }
+            }
+
+            dirSource.setCancelHandler {
+                close(dirFd)
+            }
+
+            traitsFileMonitor = dirSource
+            dirSource.resume()
+            return
+        }
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .delete, .rename],
+            queue: .global(qos: .utility)
+        )
+
+        source.setEventHandler { [weak self] in
+            let flags = source.data
+            Task { @MainActor [weak self] in
+                self?.loadAvatarComponents()
+                if flags.contains(.delete) || flags.contains(.rename) {
+                    self?.watchTraitsFile()
+                }
+            }
+        }
+
+        source.setCancelHandler {
+            close(fd)
+        }
+
+        traitsFileMonitor = source
         source.resume()
     }
 

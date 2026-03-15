@@ -179,6 +179,8 @@ export class Session {
   /** @internal */ hostFileProxy?: HostFileProxy;
   /** @internal */ cesProcessManager?: CesProcessManager;
   /** @internal */ cesClient?: CesClient;
+  /** @internal */ cesInitAborted = false;
+  /** @internal */ cesInitPromise?: Promise<void>;
   /** @internal */ readonly queue = new MessageQueue();
   /** @internal */ currentActiveSurfaceId?: string;
   /** @internal */ currentPage?: string;
@@ -334,11 +336,20 @@ export class Session {
     if (isCesToolsEnabled(config)) {
       const pm = createCesProcessManager({ assistantConfig: config });
       this.cesProcessManager = pm;
-      void (async () => {
+      this.cesInitPromise = (async () => {
         try {
           const transport = await pm.start();
+          if (this.cesInitAborted) {
+            await pm.stop();
+            return;
+          }
           const client = createCesClient(transport);
           const { accepted, reason } = await client.handshake();
+          if (this.cesInitAborted) {
+            client.close();
+            await pm.stop();
+            return;
+          }
           if (accepted) {
             this.cesClient = client;
             log.info("CES client initialized and handshake accepted");
@@ -348,6 +359,7 @@ export class Session {
               "CES handshake rejected — CES tools will be unavailable",
             );
             client.close();
+            await pm.stop();
           }
         } catch (err) {
           if (err instanceof CesUnavailableError) {
@@ -361,6 +373,8 @@ export class Session {
               "Failed to initialize CES client — CES tools will be unavailable",
             );
           }
+          // Clean up the process manager on any init failure
+          await pm.stop().catch(() => {});
         }
       })();
     }
@@ -498,7 +512,11 @@ export class Session {
     this.hostBashProxy?.dispose();
     this.hostCuProxy?.dispose();
     this.hostFileProxy?.dispose();
-    // Gracefully shut down the CES client and process manager
+    // Signal the async CES init to abort and stop the process manager
+    // immediately so we don't keep the child process alive for the full
+    // handshake timeout window. The deferred .then() handles client cleanup
+    // once the init promise settles.
+    this.cesInitAborted = true;
     if (this.cesClient) {
       this.cesClient.close();
       this.cesClient = undefined;
@@ -506,6 +524,16 @@ export class Session {
     if (this.cesProcessManager) {
       void this.cesProcessManager.stop();
       this.cesProcessManager = undefined;
+    }
+    if (this.cesInitPromise) {
+      void this.cesInitPromise.then(() => {
+        // Client may have been set between our immediate cleanup and the
+        // promise settling — close it if so.
+        if (this.cesClient) {
+          this.cesClient.close();
+          this.cesClient = undefined;
+        }
+      });
     }
     disposeSession(this);
   }

@@ -110,6 +110,7 @@ class MakeAuthenticatedRequestTool implements Tool {
         ...(headers ? { headers } : {}),
         ...(body !== undefined ? { body } : {}),
         ...(grantId ? { grantId } : {}),
+        conversationId: context.conversationId,
       });
 
       if (!response.success) {
@@ -173,7 +174,10 @@ class MakeAuthenticatedRequestTool implements Tool {
       }
 
       return {
-        content: parts.join("\n\n"),
+        content:
+          parts.length > 0
+            ? parts.join("\n\n")
+            : "Request completed successfully.",
         isError: false,
       };
     } catch (err) {

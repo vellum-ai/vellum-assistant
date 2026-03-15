@@ -8,6 +8,7 @@ Bun + TypeScript monorepo with multiple packages:
 - `cli/` — Multi-assistant management CLI (Bun + TypeScript). See `cli/AGENTS.md`.
 - `clients/` — Client apps (macOS/iOS/etc). See `clients/AGENTS.md` and platform docs like `clients/macos/CLAUDE.md`.
 - `gateway/` — Channel ingress gateway (Bun + TypeScript)
+- `packages/` — Shared internal packages (e.g. `ces-contracts` for CES wire-protocol schemas)
 - `scripts/` — Utility scripts
 - `skills/` — First-party skill catalog (portable skill packages). See `skills/AGENTS.md`.
 - `.claude/` — Claude Code slash commands and helper scripts (see `.claude/README.md`). Most commands are shared from [`claude-skills`](https://github.com/vellum-ai/claude-skills) via symlinks; repo-local commands (`/update`, `/release`) live in `.claude/skills/<name>/` as local skill directories. The `/update` command uses `vellum ps`, `vellum sleep`, and `vellum wake` to manage assistant lifecycle.
@@ -61,7 +62,18 @@ Proactively remove unused code during every change. Remove code your change make
 
 ## Backwards Compatibility
 
-No external customers yet — do not preserve backwards compatibility unless explicitly asked. No aliases, fallback reads, old API shapes, migration shims, or adapters. Flag breaks in PR descriptions but proceed with the clean implementation. Remove existing backwards-compat code when encountered.
+No aliases, fallback reads, old API shapes, migration shims, or adapters for internal interfaces — proceed with the clean implementation. Remove existing interface backwards-compat code when encountered.
+
+**Exception — persisted state and data.** We have real users with data on disk. Never ship a change that silently breaks existing persisted state. When a change alters workspace file paths, directory structure, data shapes, namespaces, column schemas, or storage formats, include a migration in the same PR.
+
+**Which migration strategy to use:**
+
+| What changed | Migration type | Location |
+|---|---|---|
+| Workspace files (renames, moves, format changes under `~/.vellum/workspace/`) | Workspace migration | `assistant/src/workspace/migrations/` — append to `WORKSPACE_MIGRATIONS` in `registry.ts` |
+| Database schema or data (columns, indexes, backfills) | DB migration | `assistant/src/memory/migrations/` — add function and register in `db-init.ts` |
+
+Migrations must be **idempotent** (safe to re-run if interrupted) and **append-only** (never reorder or remove existing entries). Test migrations — see `assistant/src/__tests__/workspace-migration-*.test.ts` and `assistant/src/__tests__/db-*.test.ts` for patterns. Flag breaking changes in PR descriptions. If a migration is infeasible, call it out explicitly for human review.
 
 ## Assistant-Driven Judgement
 

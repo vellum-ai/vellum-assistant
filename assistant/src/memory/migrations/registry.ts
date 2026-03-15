@@ -202,6 +202,13 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Convert guardian table timestamps from ISO 8601 text to epoch ms integers for consistency with all other tables",
   },
+  {
+    key: "migration_guardian_timestamps_rebuild_v1",
+    version: 30,
+    dependsOn: ["migration_guardian_timestamps_epoch_ms_v1"],
+    description:
+      "Rebuild guardian tables so timestamp columns have INTEGER affinity instead of TEXT",
+  },
 ];
 
 export interface MigrationValidationResult {

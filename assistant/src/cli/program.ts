@@ -1,5 +1,7 @@
 import { Command } from "commander";
 
+import { getConfig } from "../config/loader.js";
+import { isCesGrantAuditEnabled } from "../credential-execution/feature-gates.js";
 import { registerHooksCommand } from "../hooks/cli.js";
 import { APP_VERSION } from "../version.js";
 import { registerAuditCommand } from "./commands/audit.js";
@@ -22,8 +24,8 @@ import { registerNotificationsCommand } from "./commands/notifications.js";
 import { registerOAuthCommand } from "./commands/oauth/index.js";
 import { registerPlatformCommand } from "./commands/platform.js";
 import { registerSequenceCommand } from "./commands/sequence.js";
-import { registerShotgunCommand } from "./commands/shotgun.js";
 import { registerSessionsCommand } from "./commands/sessions.js";
+import { registerShotgunCommand } from "./commands/shotgun.js";
 import { registerSkillsCommand } from "./commands/skills.js";
 import { registerTrustCommand } from "./commands/trust.js";
 import { registerUsageCommand } from "./commands/usage.js";
@@ -42,7 +44,9 @@ export function buildCliProgram(): Command {
   registerConfigCommand(program);
   registerKeysCommand(program);
   registerCredentialsCommand(program);
-  registerCredentialExecutionCommand(program);
+  if (isCesGrantAuditEnabled(getConfig())) {
+    registerCredentialExecutionCommand(program);
+  }
   registerTrustCommand(program);
   registerMemoryCommand(program);
   registerAuditCommand(program);

@@ -9,7 +9,7 @@
  * - Audit record summaries (materialization events)
  */
 
-import { z } from "zod";
+import { z } from "zod/v4";
 
 // ---------------------------------------------------------------------------
 // Grant proposal types
@@ -87,6 +87,16 @@ export const TemporaryGrantDecisionSchema = z.object({
   reason: z.string().optional(),
   /** How long the grant should remain valid (ISO-8601 duration, e.g. "PT1H"). */
   ttl: z.string().optional(),
+  /**
+   * The type of grant to create. Determines persistence behaviour:
+   * - `allow_once`: Temporary single-use grant (consumed after one use)
+   * - `allow_10m`: Temporary timed grant (10-minute TTL)
+   * - `allow_thread`: Temporary thread-scoped grant (lives for session)
+   * - `always_allow`: Persistent grant (survives restart)
+   *
+   * When omitted, defaults to `always_allow` for backwards compatibility.
+   */
+  grantType: z.enum(["allow_once", "allow_10m", "allow_thread", "always_allow"]).optional(),
 });
 export type TemporaryGrantDecision = z.infer<
   typeof TemporaryGrantDecisionSchema

@@ -83,23 +83,33 @@ export class ToolExecutor {
     const tool = gateResult.tool;
 
     try {
+      // CES shell lockdown: set forcePromptSideEffects BEFORE both the
+      // grantConsumed short-circuit and the permission check. This ensures
+      // the flag is visible to all downstream consumers regardless of
+      // whether a scoped grant was consumed. Previously this was nested
+      // inside the `!grantConsumed` block, meaning untrusted host_bash
+      // calls that arrived with a consumed guardian-approval grant would
+      // skip this assignment entirely — defeating the lockdown.
+      if (
+        name === "host_bash" &&
+        isCesShellLockdownEnabled(getConfig()) &&
+        isUntrustedTrustClass(context.trustClass)
+      ) {
+        context.forcePromptSideEffects = true;
+      }
+
+      // Secure command tool installation always requires fresh per-invocation
+      // approval — no persistent grants. This is unconditional (not gated on
+      // CES lockdown or trust class) because installing secure tools is
+      // inherently high-impact.
+      if (name === "manage_secure_command_tool") {
+        context.forcePromptSideEffects = true;
+      }
+
       // A consumed scoped grant is a complete authorization — skip the
       // interactive permission/prompt flow so non-interactive sessions
       // don't auto-deny prompt-gated tools and burn the one-time grant.
       if (!gateResult.grantConsumed) {
-        // CES shell lockdown: set forcePromptSideEffects BEFORE the
-        // permission check so the PermissionChecker sees it and promotes
-        // any "allow" trust-rule decision to "prompt". Previously this
-        // flag was set inside host-shell.ts execute(), which runs AFTER
-        // the permission check and therefore had no effect.
-        if (
-          name === "host_bash" &&
-          isCesShellLockdownEnabled(getConfig()) &&
-          isUntrustedTrustClass(context.trustClass)
-        ) {
-          context.forcePromptSideEffects = true;
-        }
-
         // Check permissions via the extracted PermissionChecker
         const permResult = await this.permissionChecker.checkPermission(
           name,
@@ -221,6 +231,27 @@ export class ToolExecutor {
       // indicator, present the proposal to the guardian via the existing
       // confirmation transport, commit the decision to CES, and retry
       // the original tool invocation with the granted grantId.
+      if (execResult.cesApprovalRequired && !context.cesClient) {
+        const msg = `CES approval required for "${name}" but no CES client is available. Ensure the Credential Execution Service is running.`;
+        const durationMs = Date.now() - startTime;
+        emitLifecycleEvent(context, {
+          type: "error",
+          toolName: name,
+          executionTarget,
+          input,
+          workingDir: context.workingDir,
+          sessionId: context.sessionId,
+          conversationId: context.conversationId,
+          requestId: context.requestId,
+          riskLevel,
+          decision: "error",
+          durationMs,
+          errorMessage: msg,
+          isExpected: true,
+          errorCategory: "tool_failure",
+        });
+        return { content: msg, isError: true };
+      }
       if (execResult.cesApprovalRequired && context.cesClient) {
         const bridgeResult = await bridgeCesApproval(
           execResult.cesApprovalRequired,

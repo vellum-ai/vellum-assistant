@@ -539,14 +539,30 @@ describe("RPC schemas", () => {
       version: "2.15.0",
       sourceUrl: "https://bundles.example.com/aws-cli-2.15.0.vbundle",
       sha256: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
-      profiles: ["aws"],
+      secureCommandManifest: {
+        schemaVersion: "1",
+        bundleDigest: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+        bundleId: "aws-cli",
+        version: "2.15.0",
+        entrypoint: "bin/aws",
+        commandProfiles: {
+          aws: {
+            description: "AWS CLI access",
+            allowedArgvPatterns: [{ name: "any", tokens: ["<cmd...>"] }],
+            deniedSubcommands: [],
+          },
+        },
+        authAdapter: { type: "env_var" as const, envVarName: "AWS_ACCESS_KEY_ID" },
+        egressMode: "proxy_required" as const,
+      },
     });
     expect(result.action).toBe("register");
     expect(result.bundleId).toBe("aws-cli");
     expect(result.version).toBe("2.15.0");
     expect(result.sourceUrl).toBe("https://bundles.example.com/aws-cli-2.15.0.vbundle");
     expect(result.sha256).toBe("abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890");
-    expect(result.profiles).toEqual(["aws"]);
+    expect(result.secureCommandManifest).toBeDefined();
+    expect(result.secureCommandManifest!.entrypoint).toBe("bin/aws");
   });
 
   test("ManageSecureCommandToolSchema parses unregister action", () => {

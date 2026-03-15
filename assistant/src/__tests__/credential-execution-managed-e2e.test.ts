@@ -183,14 +183,14 @@ describe("process manager config wiring", () => {
     expect(isCesManagedSidecarEnabled(config.assistantConfig!)).toBe(true);
   });
 
-  test("CesProcessManagerConfig allows omitting assistantConfig for backward compat", () => {
-    const config: CesProcessManagerConfig = {};
-    expect(config.assistantConfig).toBeUndefined();
+  test("CesProcessManagerConfig requires assistantConfig for feature-flag gate", () => {
+    const config: CesProcessManagerConfig = {
+      assistantConfig: makeConfig({}),
+    };
+    expect(config.assistantConfig).toBeDefined();
   });
 
-  test("when flag is off and config is provided, managed discovery is skipped", () => {
-    // This validates the contract: createCesProcessManager with a config
-    // where the flag is off should fall back to local discovery.
+  test("when flag is off, managed discovery is skipped", () => {
     const config: CesProcessManagerConfig = {
       assistantConfig: makeConfig({
         "feature_flags.ces-managed-sidecar.enabled": false,

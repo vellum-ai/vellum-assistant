@@ -23,7 +23,8 @@
     "test:stable": "EXCLUDE_EXPERIMENTAL=true bash scripts/test.sh",
     "test:bench": "find src/__tests__ -maxdepth 1 -type f -name '*.benchmark.test.ts' -print0 | xargs -0 -P 1 -I {} bun test {}",
     "test:filesystem-tools": "bash scripts/test-filesystem-tools.sh",
-    "postinstall": "cd .. && (git config core.hooksPath || git config core.hooksPath .githooks 2>/dev/null || true) && ([ -f meta/feature-flags/sync-bundled-copies.ts ] && bun run meta/feature-flags/sync-bundled-copies.ts 2>/dev/null || true)"
+    "postinstall": "cd .. && (git config core.hooksPath || git config core.hooksPath .githooks 2>/dev/null || true) && ([ -f meta/feature-flags/sync-bundled-copies.ts ] && bun run meta/feature-flags/sync-bundled-copies.ts 2>/dev/null || true)",
+    "prepack": "node ../scripts/prepack-bundled-deps.mjs"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.42",

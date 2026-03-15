@@ -11,9 +11,9 @@
  * - **Local**: CES private state lives under the Vellum root's `protected/`
  *   directory at `<rootDir>/protected/credential-executor/`.
  *
- * - **Managed**: CES private state lives at `/ces-data`, a dedicated volume
- *   mounted only into the CES container. The assistant container never sees
- *   this volume.
+ * - **Managed**: CES private state lives at `/home/ces/.ces-data` by default
+ *   (overridable via `CES_DATA_DIR` env var). The assistant container never
+ *   sees this path.
  *
  * The assistant-visible data root (where workspace, embeddings, etc. live)
  * is a separate path and must never be used for CES-private writes.
@@ -51,19 +51,29 @@ function getVellumRootDir(): string {
   return join(baseDataDir || homedir(), ".vellum");
 }
 
-/** Well-known managed CES data root (dedicated volume mount). */
-const MANAGED_CES_DATA_ROOT = "/ces-data";
+/**
+ * Default managed CES data root.
+ *
+ * Defaults to `/home/ces/.ces-data` so the non-root `ces` user (uid 1001)
+ * can write without extra chown/mkdir in the Dockerfile.
+ */
+const DEFAULT_MANAGED_CES_DATA_ROOT = "/home/ces/.ces-data";
 
 /**
  * Return the CES-private data root.
  *
  * - Local: `<vellumRoot>/protected/credential-executor/`
- * - Managed: `/ces-data`
+ * - Managed: `CES_DATA_DIR` env var (with `CES_DATA_ROOT` fallback), or
+ *   `/home/ces/.ces-data` by default
  */
 export function getCesDataRoot(mode?: CesMode): string {
   const resolvedMode = mode ?? getCesMode();
   if (resolvedMode === "managed") {
-    return MANAGED_CES_DATA_ROOT;
+    return (
+      process.env["CES_DATA_DIR"] ??
+      process.env["CES_DATA_ROOT"] ??
+      DEFAULT_MANAGED_CES_DATA_ROOT
+    );
   }
   return join(getVellumRootDir(), "protected", "credential-executor");
 }
@@ -104,9 +114,19 @@ const BOOTSTRAP_SOCKET_NAME = "ces.sock";
  * connection, then unlinks it. The path is on a shared `emptyDir` volume
  * visible to both containers.
  *
- * Can be overridden via `CES_BOOTSTRAP_SOCKET` env var.
+ * Priority:
+ * 1. `CES_BOOTSTRAP_SOCKET_DIR` env var (directory) — appends `ces.sock`
+ * 2. `CES_BOOTSTRAP_SOCKET` env var (full file path override)
+ * 3. Hardcoded default: `/run/ces/ces.sock`
+ *
+ * The pod template exports `CES_BOOTSTRAP_SOCKET_DIR`; the full-path
+ * override is kept for local testing convenience.
  */
 export function getBootstrapSocketPath(): string {
+  const dir = process.env["CES_BOOTSTRAP_SOCKET_DIR"];
+  if (dir) {
+    return join(dir, BOOTSTRAP_SOCKET_NAME);
+  }
   return (
     process.env["CES_BOOTSTRAP_SOCKET"] ??
     join(BOOTSTRAP_SOCKET_DIR, BOOTSTRAP_SOCKET_NAME)

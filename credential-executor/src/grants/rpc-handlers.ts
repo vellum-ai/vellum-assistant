@@ -36,29 +36,29 @@ import type { RpcMethodHandler } from "../server.js";
 
 /**
  * Project a CES internal PersistentGrant into the wire-format
- * PersistentGrantRecord. The internal store uses a simpler schema;
- * the wire format includes additional status/lifecycle fields.
- *
- * Since the persistent store does not track lifecycle states (expiry,
- * revocation, consumption), all persisted grants are considered "active".
+ * PersistentGrantRecord. Maps real fields from the persistent store
+ * schema into the wire contract.
  */
-function projectGrant(
-  grant: PersistentGrant,
-  sessionId: string,
-): PersistentGrantRecord {
+function projectGrant(grant: PersistentGrant): PersistentGrantRecord {
   return {
     grantId: grant.id,
-    sessionId,
+    sessionId: grant.sessionId,
     credentialHandle: grant.scope,
-    proposalType: grant.tool as "http" | "command",
+    proposalType:
+      grant.tool === "http" || grant.tool === "command"
+        ? grant.tool
+        : "command",
     proposalHash: grant.id,
     allowedPurposes: [grant.pattern],
-    status: "active",
+    status: grant.revokedAt != null ? "revoked" : "active",
     grantedBy: "user",
     createdAt: new Date(grant.createdAt).toISOString(),
     expiresAt: null,
     consumedAt: null,
-    revokedAt: null,
+    revokedAt:
+      grant.revokedAt != null
+        ? new Date(grant.revokedAt).toISOString()
+        : null,
   };
 }
 
@@ -94,30 +94,57 @@ export function createRecordGrantHandler(
       return { success: true };
     }
 
-    // Build a PersistentGrant from the decision.
     const proposal = decision.proposal;
     const now = Date.now();
     const grantId = decision.proposalHash;
 
-    const persistentGrant: PersistentGrant = {
-      id: grantId,
-      tool: proposal.type,
-      pattern:
-        proposal.type === "http"
-          ? `${proposal.method} ${proposal.url}`
-          : proposal.command,
-      scope: proposal.credentialHandle,
-      createdAt: now,
-    };
+    // Determine the grant type. When omitted (backwards compat), default
+    // to `always_allow` so existing callers that don't send `grantType`
+    // continue to create persistent grants.
+    const grantType = decision.grantType ?? "always_allow";
 
-    // Persist the grant.
-    deps.persistentGrantStore.add(persistentGrant);
+    // Only `always_allow` creates a persistent grant. All other approved
+    // decisions create only a temporary grant — this prevents allow_once,
+    // allow_10m, and allow_thread from becoming effectively permanent.
+    if (grantType === "always_allow") {
+      let pattern: string;
+      if (proposal.type === "http") {
+        // Use the templated allowedUrlPatterns (e.g. "https://api.example.com/repos/{:uuid}/pulls")
+        // so the persistent grant covers future requests with different IDs but the same URL structure.
+        // Falls back to the exact URL only if allowedUrlPatterns is missing.
+        const urlPattern = proposal.allowedUrlPatterns?.[0] ?? proposal.url;
+        pattern = `${proposal.method} ${urlPattern}`;
+      } else {
+        pattern = proposal.allowedCommandPatterns?.[0] ?? proposal.command;
+      }
+      const persistentGrant: PersistentGrant = {
+        id: grantId,
+        tool: proposal.type,
+        pattern,
+        scope: proposal.credentialHandle,
+        createdAt: now,
+        sessionId,
+      };
+      deps.persistentGrantStore.add(persistentGrant);
+    }
 
-    // Also record a temporary grant so the caller can use it immediately.
-    // Map TTL to the appropriate temporary grant kind.
-    if (decision.ttl === "PT10M") {
+    // Record a temporary grant so the caller can use it immediately.
+    // For `always_allow`, an `allow_once` temp grant bridges the gap until
+    // the next policy check hits the persistent store.
+    if (grantType === "allow_10m") {
       deps.temporaryGrantStore.add("allow_10m", decision.proposalHash);
+    } else if (grantType === "allow_thread") {
+      deps.temporaryGrantStore.add("allow_thread", decision.proposalHash, {
+        conversationId: sessionId,
+      });
+      // Also add an allow_once fallback: the HTTP executor doesn't pass
+      // conversationId, so the thread-scoped grant alone is unreachable
+      // for HTTP requests. The allow_once ensures the immediate retry
+      // succeeds regardless of executor type.
+      deps.temporaryGrantStore.add("allow_once", decision.proposalHash);
     } else {
+      // allow_once and always_allow both get a single-use temp grant
+      // for immediate retry.
       deps.temporaryGrantStore.add("allow_once", decision.proposalHash);
     }
 
@@ -158,23 +185,23 @@ export function createRecordGrantHandler(
 
 export interface ListGrantsHandlerDeps {
   persistentGrantStore: PersistentGrantStore;
-  /** Default session ID for grants that don't track session. */
-  sessionId: string;
 }
 
 /**
  * Create an RPC handler for the `list_grants` method.
  *
- * Lists all persistent grants, optionally filtered by session ID,
- * credential handle, or status. Returns wire-format PersistentGrantRecords
- * that never include raw secret material.
+ * Lists all persistent grants (including revoked, for audit trail),
+ * optionally filtered by session ID, credential handle, or status.
+ * Returns wire-format PersistentGrantRecords that never include raw
+ * secret material.
  */
 export function createListGrantsHandler(
   deps: ListGrantsHandlerDeps,
 ): RpcMethodHandler<ListGrants, ListGrantsResponse> {
   return (request) => {
-    const allGrants = deps.persistentGrantStore.getAll();
-    const projected = allGrants.map((g) => projectGrant(g, deps.sessionId));
+    // Include revoked grants in the listing for audit visibility.
+    const allGrants = deps.persistentGrantStore.getAllIncludingRevoked();
+    const projected = allGrants.map((g) => projectGrant(g));
 
     let filtered = projected;
 
@@ -207,22 +234,24 @@ export interface RevokeGrantHandlerDeps {
 /**
  * Create an RPC handler for the `revoke_grant` method.
  *
- * Removes a grant from the persistent store by its stable ID. Returns
- * success/failure. The reason field is logged but not persisted (the
- * persistent store does not track revocation metadata).
+ * Marks a grant as revoked in the persistent store by its stable ID,
+ * preserving the record for audit trail. Returns success/failure.
  */
 export function createRevokeGrantHandler(
   deps: RevokeGrantHandlerDeps,
 ): RpcMethodHandler<RevokeGrant, RevokeGrantResponse> {
   return (request) => {
-    const removed = deps.persistentGrantStore.remove(request.grantId);
+    const revoked = deps.persistentGrantStore.markRevoked(
+      request.grantId,
+      request.reason,
+    );
 
-    if (!removed) {
+    if (!revoked) {
       return {
         success: false,
         error: {
           code: "GRANT_NOT_FOUND",
-          message: `No grant found with ID "${request.grantId}"`,
+          message: `No grant found with ID "${request.grantId}" (or already revoked)`,
         },
       };
     }

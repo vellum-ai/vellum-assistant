@@ -252,23 +252,36 @@ Local deployments do not require image changes. Enabling `ces-tools` causes the 
 
 Turn off all CES feature flags. The assistant stops registering CES tools and reverts to the pre-CES credential broker for all credential operations. No data migration is needed — CES grant and audit state is CES-private and does not affect the assistant's own tables.
 
-Flag disable order (reverse of enable order):
+Flag disable order:
 
-1. `ces-managed-sidecar` — assistant reverts to local transport (or stops using CES if other flags are also off)
+> **Important — managed deployments**: In managed containers, the assistant image does not ship the `credential-executor` binary, so local CES transport is unavailable. Disabling `ces-managed-sidecar` while `ces-tools` is still enabled will break credentialed tool execution because the assistant cannot fall back to local discovery. Always disable `ces-tools` before `ces-managed-sidecar` in managed deployments.
+
+**Local deployments** (reverse of enable order):
+
+1. `ces-managed-sidecar` — assistant reverts to local child-process transport
 2. `ces-grant-audit` — inspection surfaces disappear
 3. `ces-secure-install` — tool installation reverts to direct shell
 4. `ces-shell-lockdown` — shell lockdown is lifted
 5. `ces-tools` — CES tools are unregistered from the agent loop
 
+**Managed deployments** (`ces-tools` must be disabled before the sidecar):
+
+1. `ces-grant-audit` — inspection surfaces disappear
+2. `ces-secure-install` — tool installation reverts to direct shell
+3. `ces-shell-lockdown` — shell lockdown is lifted
+4. `ces-tools` — CES tools are unregistered; assistant reverts to the pre-CES credential broker
+5. `ces-managed-sidecar` — sidecar transport is deactivated (safe now that no CES tools are registered)
+
 ### Removing the managed sidecar
 
 If the CES sidecar container causes pod scheduling issues or resource pressure:
 
-1. Disable `ces-managed-sidecar` on all assistants.
-2. Remove the CES container and its volume mounts from the pod template in vembda.
-3. CES grant/audit data on the `/ces-data` volume is orphaned and can be cleaned up at convenience.
+1. Disable `ces-tools` on all assistants first (prevents the assistant from attempting CES calls).
+2. Disable `ces-managed-sidecar` on all assistants.
+3. Remove the CES container and its volume mounts from the pod template in vembda.
+4. CES grant/audit data on the `/ces-data` volume is orphaned and can be cleaned up at convenience.
 
-The assistant continues to function with the local child-process CES transport (if `ces-tools` is still on) or without CES entirely.
+The assistant reverts to the pre-CES credential broker once `ces-tools` is disabled.
 
 ### Partial rollback
 
@@ -321,6 +334,18 @@ Once a secure command manifest passes validation and is published to the toolsto
 When a credential is rotated (e.g., an API key is regenerated), existing CES grants referencing that credential continue to use the old value until the grant expires or is revoked. CES does not receive push notifications about credential rotation.
 
 **Mitigation**: Grants have TTL-based expiry. Operators can force-revoke grants via the grant revocation RPC. Future iterations may integrate with credential-rotation webhooks to auto-revoke affected grants.
+
+### 7. Cooperative egress enforcement via environment variables
+
+CES enforces egress controls by injecting `HTTP_PROXY`/`HTTPS_PROXY` environment variables into the subprocess environment. This is cooperative — a binary that ignores proxy environment variables, implements its own HTTP stack, or opens raw sockets can bypass CES egress controls entirely. Risk #3 above documents this for local deployments where host networking is available, but the limitation also applies in managed deployments: current network policies allow public egress from all containers in the pod, so a non-cooperating binary in the CES container can reach the internet without going through the egress proxy.
+
+**Mitigation**: The denied-binary list and manifest validation restrict which binaries can run as secure commands, reducing the surface for non-cooperating binaries. In practice, the well-known CLI tools approved as secure command entrypoints (e.g., `gh`, `aws`) respect proxy environment variables. Future work could add per-container network policies (e.g., Calico rules that restrict the CES container's egress to the proxy sidecar only) or use network namespace isolation to make the proxy mandatory at the network level rather than relying on process-level cooperation.
+
+### 8. `credential_process` adapter runs before egress proxy session is established
+
+The `credential_process` auth adapter executes `sh -c <helperCommand>` with the raw credential piped to stdin. This helper command runs during the credential materialization phase, **before** the egress proxy session for the secure command is started. A malicious or compromised helper command could exfiltrate the credential value over the network before egress controls take effect.
+
+**Mitigation**: The `credential_process` helper command is specified in the secure command manifest, which is validated and approved at registration time. Only trusted helper commands should be registered. Additionally, the helper's purpose is to transform credential format (e.g., producing AWS `credential_process` JSON output), not to make network calls — a helper that contacts the network is a code smell that should be caught during manifest review. Future work could restructure the adapter to start the egress proxy session before running the helper, or run the helper inside the egress-controlled network namespace.
 
 ## Intentional v1 Out-of-Scope
 

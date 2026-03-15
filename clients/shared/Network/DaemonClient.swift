@@ -87,9 +87,6 @@ public protocol DaemonClientProtocol {
     func startSSE()
     func stopSSE()
     func fetchSurfaceData(surfaceId: String, sessionId: String) async -> SurfaceData?
-    func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse?
-    func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse?
-    func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse?
     func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error>
 }
 
@@ -100,9 +97,6 @@ extension DaemonClientProtocol {
 
     /// Default no-op implementation for clients that don't support HTTP surface fetches.
     public func fetchSurfaceData(surfaceId: String, sessionId: String) async -> SurfaceData? { nil }
-    public func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? { nil }
-    public func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse? { nil }
-    public func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? { nil }
 
     /// Default no-op implementation for clients that don't support btw side-chain.
     public func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error> {
@@ -819,37 +813,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         } catch {
             return nil
         }
-    }
-
-    // MARK: - Usage Reporting
-
-    /// Fetch aggregate usage totals for a time range (epoch milliseconds).
-    /// Delegates to HTTPTransport for remote connections, or calls the local daemon HTTP server.
-    public func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? {
-        if let httpTransport {
-            return await httpTransport.fetchUsageTotals(from: from, to: to)
-        }
-
-        return await executeLocalRequest(path: "v1/usage/totals?from=\(from)&to=\(to)", timeout: 10)
-    }
-
-    /// Fetch per-day usage buckets for a time range (epoch milliseconds).
-    public func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse? {
-        if let httpTransport {
-            return await httpTransport.fetchUsageDaily(from: from, to: to)
-        }
-
-        return await executeLocalRequest(path: "v1/usage/daily?from=\(from)&to=\(to)", timeout: 10)
-    }
-
-    /// Fetch grouped usage breakdown for a time range (epoch milliseconds).
-    public func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? {
-        if let httpTransport {
-            return await httpTransport.fetchUsageBreakdown(from: from, to: to, groupBy: groupBy)
-        }
-
-        let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? groupBy
-        return await executeLocalRequest(path: "v1/usage/breakdown?from=\(from)&to=\(to)&groupBy=\(encoded)", timeout: 10)
     }
 
     // MARK: - Single Conversation Lookup

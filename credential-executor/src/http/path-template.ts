@@ -15,6 +15,23 @@
  */
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Safely decode a percent-encoded path segment. Returns `null` when it
+ * contains malformed escapes (e.g. bare `%` or `%zz`) so that callers
+ * can fail closed — malformed segments never match anything.
+ */
+function safeDecodeSegment(segment: string): string | null {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Segment classification patterns
 // ---------------------------------------------------------------------------
 
@@ -147,21 +164,27 @@ export function urlMatchesTemplate(
   if (urlHost !== templateHost) return false;
 
   // Split paths and compare segment-by-segment.
-  // decodeURIComponent is needed because the URL constructor percent-encodes
-  // curly braces ({, }) in paths — placeholders like {:num} become %7B:num%7D.
+  // safeDecodeSegment is applied to both sides so that percent-encoded bytes
+  // (e.g. %20, %7B) are compared consistently and so that the URL constructor's
+  // encoding of curly braces ({, }) in template placeholders is reversed.
+  // A null return means a malformed escape — fail closed immediately.
   const urlSegments = parsedUrl.pathname
     .split("/")
-    .filter((s) => s.length > 0);
+    .filter((s) => s.length > 0)
+    .map(safeDecodeSegment);
   const templateSegments = parsedTemplate.pathname
     .split("/")
     .filter((s) => s.length > 0)
-    .map((s) => decodeURIComponent(s));
+    .map(safeDecodeSegment);
+
+  if (urlSegments.some((s) => s === null)) return false;
+  if (templateSegments.some((s) => s === null)) return false;
 
   if (urlSegments.length !== templateSegments.length) return false;
 
   for (let i = 0; i < templateSegments.length; i++) {
-    const tSeg = templateSegments[i];
-    const uSeg = urlSegments[i];
+    const tSeg = templateSegments[i]!;
+    const uSeg = urlSegments[i]!;
 
     if (tSeg === "{:num}") {
       if (!NUMERIC_RE.test(uSeg)) return false;

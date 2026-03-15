@@ -175,8 +175,17 @@ public enum GatewayHTTPClient {
     ) throws -> URLRequest {
         let (baseURL, authHeader) = try resolveConnection()
 
-        let trailingSlash = path.hasSuffix("/") ? "" : "/"
-        guard let url = URL(string: "\(baseURL)/v1/\(path)\(trailingSlash)") else {
+        let pathComponent: String
+        let queryComponent: String
+        if let queryIndex = path.firstIndex(of: "?") {
+            pathComponent = String(path[..<queryIndex])
+            queryComponent = String(path[queryIndex...])
+        } else {
+            pathComponent = path
+            queryComponent = ""
+        }
+        let trailingSlash = pathComponent.hasSuffix("/") ? "" : "/"
+        guard let url = URL(string: "\(baseURL)/v1/\(pathComponent)\(trailingSlash)\(queryComponent)") else {
             throw ClientError.invalidURL
         }
 

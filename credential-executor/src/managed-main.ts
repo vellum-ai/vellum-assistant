@@ -49,8 +49,11 @@ import {
   type RpcHandlerRegistry,
 } from "./server.js";
 import { publishBundle } from "./toolstore/publish.js";
-import type { ManagedSubjectResolverOptions } from "./subjects/managed.js";
-import type { ManagedMaterializerOptions } from "./materializers/managed-platform.js";
+import { validateSourceUrl } from "./toolstore/manifest.js";
+import { buildCesEgressHooks } from "./commands/egress-hooks.js";
+import { resolveManagedSubject, type ManagedSubjectResolverOptions } from "./subjects/managed.js";
+import { materializeManagedToken, type ManagedMaterializerOptions } from "./materializers/managed-platform.js";
+import { HandleType, parseHandle } from "@vellumai/ces-contracts";
 
 // ---------------------------------------------------------------------------
 // Logging (managed always logs to stderr)
@@ -97,24 +100,25 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
 
   // -- Managed credential options --------------------------------------------
   // In managed mode, credentials are obtained from the platform via its
-  // token-materialization endpoint. The platform URL and API key are provided
-  // through environment variables set by the orchestration layer.
+  // token-materialization endpoint. The platform URL, API key, and assistant
+  // ID are provided through environment variables set by the orchestration layer.
   const platformBaseUrl = process.env["PLATFORM_BASE_URL"] ?? "";
   const assistantApiKey = process.env["ASSISTANT_API_KEY"] ?? "";
+  const assistantId = process.env["PLATFORM_ASSISTANT_ID"] ?? "";
 
   const managedSubjectOptions: ManagedSubjectResolverOptions | undefined =
-    platformBaseUrl && assistantApiKey
-      ? { platformBaseUrl, assistantApiKey }
+    platformBaseUrl && assistantApiKey && assistantId
+      ? { platformBaseUrl, assistantApiKey, assistantId }
       : undefined;
 
   const managedMaterializerOptions: ManagedMaterializerOptions | undefined =
-    platformBaseUrl && assistantApiKey
-      ? { platformBaseUrl, assistantApiKey }
+    platformBaseUrl && assistantApiKey && assistantId
+      ? { platformBaseUrl, assistantApiKey, assistantId }
       : undefined;
 
   if (!managedSubjectOptions) {
     warn(
-      "PLATFORM_BASE_URL and/or ASSISTANT_API_KEY not set. " +
+      "PLATFORM_BASE_URL, ASSISTANT_API_KEY, and/or PLATFORM_ASSISTANT_ID not set. " +
         "Managed credential materialisation will not be available.",
     );
   }
@@ -147,21 +151,67 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
       },
       managedSubjectOptions,
       managedMaterializerOptions,
+      auditStore,
       sessionId,
     },
   );
 
-  // Register run_authenticated_command handler
+  // Register run_authenticated_command handler with managed platform materializer
   registerCommandExecutionHandler(handlers, {
     executorDeps: {
       persistentStore: persistentGrantStore,
       temporaryStore: temporaryGrantStore,
-      materializeCredential: async (_handle) => ({
-        ok: false as const,
-        error:
-          "Command credential materialisation in managed mode is not yet available.",
-      }),
+      materializeCredential: async (handle) => {
+        if (!managedMaterializerOptions) {
+          return {
+            ok: false as const,
+            error:
+              "PLATFORM_BASE_URL and/or ASSISTANT_API_KEY not set. " +
+              "Managed credential materialisation is not available.",
+          };
+        }
+
+        // Parse handle to determine type
+        const parseResult = parseHandle(handle);
+        if (!parseResult.ok) {
+          return { ok: false as const, error: parseResult.error };
+        }
+
+        if (parseResult.handle.type !== HandleType.PlatformOAuth) {
+          return {
+            ok: false as const,
+            error: `Handle type "${parseResult.handle.type}" is not supported in managed mode. ` +
+              `Only platform_oauth handles are available.`,
+          };
+        }
+
+        // Resolve managed subject
+        const subjectResult = await resolveManagedSubject(
+          handle,
+          managedSubjectOptions!,
+        );
+        if (!subjectResult.ok) {
+          return { ok: false as const, error: subjectResult.error.message };
+        }
+
+        // Materialize through the managed platform materializer
+        const matResult = await materializeManagedToken(
+          subjectResult.subject,
+          managedMaterializerOptions,
+        );
+        if (!matResult.ok) {
+          return { ok: false as const, error: matResult.error.message };
+        }
+
+        return {
+          ok: true as const,
+          value: matResult.token.accessToken,
+          handleType: HandleType.PlatformOAuth,
+        };
+      },
+      auditStore,
       cesMode: "managed",
+      egressHooks: buildCesEgressHooks(),
     },
     defaultWorkspaceDir: "/workspace",
   });
@@ -171,11 +221,37 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
 
   registerManageSecureCommandToolHandler(handlers, {
     downloadBundle: async (sourceUrl: string) => {
-      const resp = await fetch(sourceUrl);
+      const urlError = validateSourceUrl(sourceUrl);
+      if (urlError) {
+        throw new Error(urlError);
+      }
+      const MAX_BUNDLE_SIZE = 100 * 1024 * 1024; // 100 MB
+      const resp = await fetch(sourceUrl, { signal: AbortSignal.timeout(60_000) });
       if (!resp.ok) {
         throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
       }
-      return Buffer.from(await resp.arrayBuffer());
+      const contentLength = resp.headers.get("content-length");
+      if (contentLength && parseInt(contentLength, 10) > MAX_BUNDLE_SIZE) {
+        throw new Error(`Bundle too large: ${contentLength} bytes (max ${MAX_BUNDLE_SIZE})`);
+      }
+      // Stream the body and enforce the size limit on actual bytes received,
+      // since Content-Length can be absent (chunked encoding) or lie.
+      const body = resp.body;
+      if (!body) {
+        throw new Error("Response body is null");
+      }
+      const chunks: Uint8Array[] = [];
+      let totalBytes = 0;
+      for await (const chunk of body) {
+        totalBytes += chunk.byteLength;
+        if (totalBytes > MAX_BUNDLE_SIZE) {
+          // Cancel the stream to free resources
+          await body.cancel();
+          throw new Error(`Bundle too large: received >${MAX_BUNDLE_SIZE} bytes (max ${MAX_BUNDLE_SIZE})`);
+        }
+        chunks.push(chunk);
+      }
+      return Buffer.concat(chunks);
     },
     publishBundle: (request) => publishBundle({ ...request, cesMode: "managed" }),
     unregisterTool: (toolName: string) => {
@@ -194,7 +270,6 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
 
   handlers[CesRpcMethod.ListGrants] = createListGrantsHandler({
     persistentGrantStore,
-    sessionId,
   }) as typeof handlers[string];
 
   handlers[CesRpcMethod.RevokeGrant] = createRevokeGrantHandler({
@@ -227,11 +302,16 @@ function startHealthServer(port: number, signal: AbortSignal): ReturnType<typeof
         );
       }
       if (url.pathname === "/readyz") {
-        const ready = rpcConnected;
+        // Always return 200 — pod readiness must not depend on whether the
+        // assistant has connected.  When the CES feature flag is off the
+        // assistant never connects, and a 503 here would block pod
+        // scheduling during dark-launch.  The sidecar can't do useful work
+        // without a connection anyway, so readiness is purely about the
+        // process being up and able to accept a future connection.
         return new Response(
-          JSON.stringify({ ready, version: CES_PROTOCOL_VERSION }),
+          JSON.stringify({ ready: true, rpcConnected, version: CES_PROTOCOL_VERSION }),
           {
-            status: ready ? 200 : 503,
+            status: 200,
             headers: { "Content-Type": "application/json" },
           },
         );

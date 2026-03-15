@@ -38,8 +38,8 @@
  * violations all result in command rejection before or after execution.
  */
 
-import { createHash, randomUUID } from "node:crypto";
-import { dirname, join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { dirname, join, resolve } from "node:path";
 import { mkdirSync, writeFileSync, unlinkSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import {
@@ -68,6 +68,9 @@ import {
   type WorkspaceOutput,
   type CopybackResult,
 } from "./workspace.js";
+import { hashProposal, type AuditRecordSummary, type CommandGrantProposal } from "@vellumai/ces-contracts";
+
+import type { AuditStore } from "../audit/store.js";
 import type { PersistentGrantStore } from "../grants/persistent-store.js";
 import type { TemporaryGrantStore } from "../grants/temporary-store.js";
 
@@ -121,6 +124,19 @@ export interface ExecuteCommandResult {
   error?: string;
   /** Audit-relevant metadata. */
   auditId?: string;
+  /**
+   * When the failure reason is a missing grant, this field contains the
+   * proposal metadata needed by the approval bridge. Present only when
+   * the error is an approval-required grant failure.
+   */
+  approvalRequired?: {
+    credentialHandle: string;
+    bundleId: string;
+    bundleDigest: string;
+    profileName: string;
+    command: string;
+    purpose: string;
+  };
 }
 
 /**
@@ -148,6 +164,8 @@ export interface CommandExecutorDeps {
   temporaryStore: TemporaryGrantStore;
   /** Credential materializer function. */
   materializeCredential: MaterializeCredentialFn;
+  /** Audit store for persisting token-free audit records. */
+  auditStore?: AuditStore;
   /** CES operating mode (for toolstore path resolution). */
   cesMode?: CesMode;
   /** Egress proxy session start hooks (for creating the proxy server). */
@@ -228,6 +246,14 @@ export async function executeAuthenticatedCommand(
       success: false,
       error: grantResult.error,
       auditId,
+      approvalRequired: {
+        credentialHandle: request.credentialHandle,
+        bundleId: manifest.bundleId,
+        bundleDigest: request.bundleDigest,
+        profileName: request.profileName,
+        command: `${request.bundleDigest}/${request.profileName} ${request.argv.join(" ")}`.trim(),
+        purpose: request.purpose,
+      },
     };
   }
 
@@ -306,10 +332,19 @@ export async function executeAuthenticatedCommand(
 
     try {
       const conversationId = request.conversationId ?? `ces-cmd-${auditId}`;
+      // Carry the profile's allowedNetworkTargets into the session config
+      // so the egress proxy can enforce the allowlist.
+      const profile = manifest.commandProfiles[request.profileName];
+      const allowedTargets = profile?.allowedNetworkTargets?.map((t) => ({
+        host: t.hostPattern,
+        ...(t.ports ? { ports: t.ports } : {}),
+        ...(t.protocols ? { protocols: t.protocols } : {}),
+      }));
       const session = createSession(
         sessionStore,
         conversationId,
         [request.credentialHandle],
+        { allowedTargets },
       );
       const started = await startSession(
         sessionStore,
@@ -328,17 +363,55 @@ export async function executeAuthenticatedCommand(
     }
   }
 
+  // For no_network mode, block all outbound by pointing proxy vars at a
+  // non-existent address. This prevents subprocesses from making direct
+  // connections even without a running egress proxy.
+  let noNetworkEnv: Record<string, string> | undefined;
+  if (manifest.egressMode === EgressMode.NoNetwork) {
+    const blockedProxy = "http://127.0.0.1:0";
+    noNetworkEnv = {
+      HTTP_PROXY: blockedProxy,
+      HTTPS_PROXY: blockedProxy,
+      http_proxy: blockedProxy,
+      https_proxy: blockedProxy,
+      NO_PROXY: "",
+      no_proxy: "",
+    };
+  }
+
   // -- 8. Build the execution environment -----------------------------------
-  const entrypointPath = join(
-    getBundleContentPath(toolstoreDir, request.bundleDigest),
-    "..",
-    manifest.entrypoint,
-  );
+  const bundleDir = dirname(getBundleContentPath(toolstoreDir, request.bundleDigest));
+  const entrypointPath = resolve(bundleDir, manifest.entrypoint);
+
+  // Containment check: entrypoint must resolve inside the bundle directory
+  if (!entrypointPath.startsWith(bundleDir + "/") && entrypointPath !== bundleDir) {
+    // Stop the proxy session before returning — it may already be running
+    if (proxySessionId) {
+      try {
+        await stopSession(proxySessionId, sessionStore);
+      } catch {
+        // Best-effort proxy cleanup
+      }
+    }
+    cleanupAll(scratchDir, tempFilePath);
+    return {
+      success: false,
+      error: `Entrypoint "${manifest.entrypoint}" resolves outside the bundle directory. ` +
+        `Path traversal is not allowed.`,
+      auditId,
+    };
+  }
+
+  // Generate HOME path before buildCommandEnv so we have a known-safe value
+  // for cleanup. buildCommandEnv spreads adapterEnv which could override HOME
+  // if an auth adapter declares envVarName: "HOME".
+  const generatedHomeDir = join(tmpdir(), `ces-home-${randomUUID()}`);
 
   const commandEnv = buildCommandEnv(
     adapterEnv,
     proxyEnv,
-    manifest.cleanConfigDirs,
+    noNetworkEnv,
+    generatedHomeDir,
   );
 
   // -- 9. Execute the command -----------------------------------------------
@@ -400,7 +473,23 @@ export async function executeAuthenticatedCommand(
     }
   }
 
-  cleanupAll(scratchDir, tempFilePath);
+  cleanupAll(scratchDir, tempFilePath, generatedHomeDir);
+
+  // -- 12. Persist audit record -----------------------------------------------
+  if (deps.auditStore) {
+    const auditRecord: AuditRecordSummary = {
+      auditId,
+      grantId: grantResult.grantId ?? "unknown",
+      credentialHandle: request.credentialHandle,
+      toolName: "command",
+      target: `${request.bundleDigest}/${request.profileName} ${request.argv.join(" ")}`.trim(),
+      sessionId: request.sessionId ?? "unknown",
+      success: execResult.success,
+      ...(execResult.error ? { errorMessage: execResult.error } : {}),
+      timestamp: new Date().toISOString(),
+    };
+    try { deps.auditStore.append(auditRecord); } catch { /* audit persistence must not block execution */ }
+  }
 
   return execResult;
 }
@@ -529,13 +618,22 @@ function checkGrant(
   persistentStore: PersistentGrantStore,
   temporaryStore: TemporaryGrantStore,
 ): GrantCheckResult {
-  // If an explicit grantId is provided, check it directly
+  // If an explicit grantId is provided, check it directly — but verify
+  // that the grant's scope matches the current request. Without this
+  // check, an agent with a valid grant for one command/credential could
+  // reuse the grantId for a different command/credential (authorization
+  // bypass).
   if (request.grantId) {
     const grant = persistentStore.getById(request.grantId);
-    if (grant) {
+    if (
+      grant &&
+      grant.tool === "command" &&
+      grant.scope === request.credentialHandle &&
+      grantMatchesCommand(grant.pattern, request.credentialHandle, request.bundleDigest, profileName)
+    ) {
       return { ok: true, grantId: grant.id };
     }
-    // Explicit grant not found — fall through to pattern matching
+    // Explicit grant not found or does not match this request — fall through to pattern matching
   }
 
   // Check persistent grants for a matching command grant
@@ -544,18 +642,23 @@ function checkGrant(
     if (
       grant.tool === "command" &&
       grant.scope === request.credentialHandle &&
-      grantMatchesCommand(grant.pattern, manifest.bundleId, profileName)
+      grantMatchesCommand(grant.pattern, request.credentialHandle, request.bundleDigest, profileName)
     ) {
       return { ok: true, grantId: grant.id };
     }
   }
 
-  // Check temporary grants
-  const proposalHash = computeCommandProposalHash(
-    request.credentialHandle,
-    manifest.bundleId,
-    profileName,
-  );
+  // Check temporary grants — build the same proposal shape that the
+  // approval bridge produces, then hash with the canonical algorithm
+  // from `@vellumai/ces-contracts` so the hashes align.
+  const tempProposal: CommandGrantProposal = {
+    type: "command",
+    credentialHandle: request.credentialHandle,
+    command: `${request.bundleDigest}/${profileName} ${request.argv.join(" ")}`.trim(),
+    purpose: request.purpose,
+    allowedCommandPatterns: [`${request.credentialHandle}:${request.bundleDigest}:${profileName}`],
+  };
+  const proposalHash = hashProposal(tempProposal);
   const tempKind = temporaryStore.checkAny(
     proposalHash,
     request.conversationId,
@@ -575,28 +678,17 @@ function checkGrant(
 /**
  * Check if a persistent grant pattern matches a command invocation.
  *
- * Grant patterns for commands use the format: `<bundleId>/<profileName>`.
+ * Grant patterns for commands use the format: `<credentialHandle>:<bundleDigest>:<profileName>`.
  */
 function grantMatchesCommand(
   pattern: string,
-  bundleId: string,
+  credentialHandle: string,
+  bundleDigest: string,
   profileName: string,
 ): boolean {
-  return pattern === `${bundleId}/${profileName}`;
+  return pattern === `${credentialHandle}:${bundleDigest}:${profileName}`;
 }
 
-/**
- * Compute a deterministic hash for temporary grant lookup.
- */
-function computeCommandProposalHash(
-  credentialHandle: string,
-  bundleId: string,
-  profileName: string,
-): string {
-  const parts = ["command", credentialHandle, bundleId, profileName];
-  const canonical = JSON.stringify(parts);
-  return createHash("sha256").update(canonical, "utf8").digest("hex");
-}
 
 // ---------------------------------------------------------------------------
 // Internal: Auth adapter environment construction
@@ -677,7 +769,7 @@ async function buildAuthAdapterEnv(
  */
 async function runCredentialProcess(
   helperCommand: string,
-  _credentialValue: string,
+  credentialValue: string,
   timeoutMs: number,
 ): Promise<{ ok: true; stdout: string } | { ok: false; error: string }> {
   try {
@@ -688,12 +780,20 @@ async function runCredentialProcess(
       env: {}, // Clean environment — no secrets leaked
     });
 
-    // Close stdin immediately — the helper reads only from its argv/config
+    // Write the credential value to stdin for the helper to consume
+    proc.stdin.write(credentialValue);
     proc.stdin.end();
 
     const timeoutSignal = AbortSignal.timeout(timeoutMs);
-    const exitCode = await Promise.race([
-      proc.exited,
+
+    // Consume stdout/stderr concurrently with waiting for exit to avoid
+    // pipe buffer deadlocks when the helper produces large output.
+    const [exitCode, stdout, stderr] = await Promise.race([
+      Promise.all([
+        proc.exited,
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+      ]),
       new Promise<never>((_, reject) => {
         timeoutSignal.addEventListener("abort", () => {
           proc.kill();
@@ -701,9 +801,6 @@ async function runCredentialProcess(
         });
       }),
     ]);
-
-    const stdout = await new Response(proc.stdout).text();
-    const stderr = await new Response(proc.stderr).text();
 
     if (exitCode !== 0) {
       return {
@@ -740,12 +837,13 @@ async function runCredentialProcess(
 function buildCommandEnv(
   adapterEnv: Record<string, string>,
   proxyEnv?: ProxyEnvVars,
-  _cleanConfigDirs?: Record<string, string>,
+  noNetworkEnv?: Record<string, string>,
+  homeDir?: string,
 ): Record<string, string> {
   const env: Record<string, string> = {
     // Minimal baseline environment
     PATH: process.env["PATH"] ?? "/usr/local/bin:/usr/bin:/bin",
-    HOME: join(tmpdir(), `ces-home-${randomUUID()}`),
+    HOME: homeDir ?? join(tmpdir(), `ces-home-${randomUUID()}`),
     LANG: "en_US.UTF-8",
     // Inject auth adapter env vars
     ...adapterEnv,
@@ -765,6 +863,12 @@ function buildCommandEnv(
     if (proxyEnv.SSL_CERT_FILE) {
       env["SSL_CERT_FILE"] = proxyEnv.SSL_CERT_FILE;
     }
+  }
+
+  // For no_network mode, inject proxy vars pointing at a dead address to
+  // block direct outbound connections from the subprocess.
+  if (noNetworkEnv) {
+    Object.assign(env, noNetworkEnv);
   }
 
   return env;
@@ -795,11 +899,14 @@ async function runCommand(
     stderr: "pipe",
   });
 
-  const exitCode = await proc.exited;
-
-  // Capture stdout and stderr with size limits
-  const stdoutRaw = await new Response(proc.stdout).text();
-  const stderrRaw = await new Response(proc.stderr).text();
+  // Consume stdout/stderr concurrently with waiting for exit to avoid
+  // pipe buffer deadlocks when the command produces output exceeding the
+  // OS pipe buffer size (~64KB).
+  const [exitCode, stdoutRaw, stderrRaw] = await Promise.all([
+    proc.exited,
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
 
   const stdout = stdoutRaw.length > maxOutputBytes
     ? stdoutRaw.slice(0, maxOutputBytes) + "\n[output truncated]"
@@ -823,13 +930,22 @@ async function runCommand(
 // Internal: Cleanup helpers
 // ---------------------------------------------------------------------------
 
-function cleanupAll(scratchDir: string, tempFilePath?: string): void {
+function cleanupAll(scratchDir: string, tempFilePath?: string, homeDir?: string): void {
   // Clean up temp auth file
   if (tempFilePath) {
     try {
       unlinkSync(tempFilePath);
       // Also remove the parent temp directory
       rmSync(dirname(tempFilePath), { recursive: true, force: true });
+    } catch {
+      // Best-effort cleanup
+    }
+  }
+
+  // Clean up per-execution HOME temp directory
+  if (homeDir) {
+    try {
+      rmSync(homeDir, { recursive: true, force: true });
     } catch {
       // Best-effort cleanup
     }

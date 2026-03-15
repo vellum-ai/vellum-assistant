@@ -20,6 +20,8 @@ import {
   CES_PROTOCOL_VERSION,
   CesRpcMethod,
   CesRpcSchemas,
+  hashProposal,
+  type CommandGrantProposal,
   type HandshakeAck,
   type HandshakeRequest,
   type MakeAuthenticatedRequest,
@@ -154,9 +156,14 @@ export class CesRpcServer {
     return this.sessionId;
   }
 
-  /** Shut down the server gracefully. */
+  /** Shut down the server gracefully, destroying transport streams. */
   close(): void {
+    if (this.closed) return;
     this.closed = true;
+    this.input.destroy();
+    if (typeof (this.output as any).destroy === "function") {
+      this.output.destroy();
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -197,7 +204,9 @@ export class CesRpcServer {
     if (msg.type === "handshake_request") {
       this.handleHandshake(msg as HandshakeRequest);
     } else if (msg.type === "rpc") {
-      this.handleRpcEnvelope(msg as unknown as RpcEnvelope);
+      this.handleRpcEnvelope(msg as unknown as RpcEnvelope).catch((err) => {
+        this.logger.error(`[ces-server] Unhandled error in RPC handler: ${err}`);
+      });
     } else {
       this.logger.warn("[ces-server] Unexpected message type:", msg.type);
     }
@@ -412,14 +421,46 @@ export function createRunAuthenticatedCommandHandler(
       credentialHandle: request.credentialHandle,
       argv: parseResult.argv,
       workspaceDir: request.cwd ?? options.defaultWorkspaceDir,
+      inputs: request.inputs,
+      outputs: request.outputs,
       purpose: request.purpose,
       grantId: request.grantId,
+      conversationId: request.conversationId,
     };
 
     const result = await executeAuthenticatedCommand(
       execRequest,
       options.executorDeps,
     );
+
+    // If the failure was due to a missing grant, return a structured
+    // APPROVAL_REQUIRED response with the proposal so the approval
+    // bridge can activate.
+    if (!result.success && result.approvalRequired) {
+      const { credentialHandle, bundleDigest, profileName, command, purpose } =
+        result.approvalRequired;
+
+      const proposal: CommandGrantProposal = {
+        type: "command",
+        credentialHandle,
+        command,
+        purpose,
+        allowedCommandPatterns: [`${credentialHandle}:${bundleDigest}:${profileName}`],
+      };
+
+      return {
+        success: false,
+        error: {
+          code: "APPROVAL_REQUIRED",
+          message: `No active grant covers this command. Approval is required.`,
+          details: {
+            proposal,
+            proposalHash: hashProposal(proposal),
+          },
+        },
+        auditId: result.auditId,
+      };
+    }
 
     return {
       success: result.success,
@@ -561,12 +602,26 @@ export function createManageSecureCommandToolHandler(
     if (!request.sourceUrl) missing.push("sourceUrl");
     if (!request.sha256) missing.push("sha256");
     if (!request.credentialHandle) missing.push("credentialHandle");
+    if (!request.description) missing.push("description");
+    if (!request.secureCommandManifest) missing.push("secureCommandManifest");
     if (missing.length > 0) {
       return {
         success: false,
         error: {
           code: "MISSING_FIELDS",
           message: `Register action requires: ${missing.join(", ")}`,
+        },
+      };
+    }
+
+    // Validate HTTPS before downloading — CES is the security boundary
+    // and must not rely on the caller for URL scheme validation.
+    if (!request.sourceUrl!.startsWith("https://")) {
+      return {
+        success: false,
+        error: {
+          code: "INVALID_SOURCE_URL",
+          message: "sourceUrl must use HTTPS for secure bundle downloads.",
         },
       };
     }
@@ -585,6 +640,11 @@ export function createManageSecureCommandToolHandler(
       };
     }
 
+    // The caller provides the full secure command manifest via the RPC
+    // payload. Cast to the internal type — publishBundle() validates it.
+    const secureCommandManifest =
+      request.secureCommandManifest as unknown as import("./commands/profiles.js").SecureCommandManifest;
+
     // Publish into the immutable toolstore (includes digest verification)
     const publishResult = deps.publishBundle({
       bundleBytes,
@@ -592,13 +652,7 @@ export function createManageSecureCommandToolHandler(
       bundleId: request.bundleId!,
       version: request.version!,
       sourceUrl: request.sourceUrl!,
-      // The secure command manifest is embedded in the bundle; for now
-      // pass a minimal manifest with declared profiles.
-      secureCommandManifest: {
-        commandProfiles: Object.fromEntries(
-          (request.profiles ?? []).map((p) => [p, { command: request.toolName }]),
-        ),
-      } as unknown as import("./commands/profiles.js").SecureCommandManifest,
+      secureCommandManifest,
     });
 
     if (!publishResult.success) {
@@ -615,7 +669,7 @@ export function createManageSecureCommandToolHandler(
     deps.registerTool({
       toolName: request.toolName,
       credentialHandle: request.credentialHandle!,
-      description: request.description ?? "",
+      description: request.description!,
       bundleDigest: request.sha256!,
     });
 

@@ -15,6 +15,8 @@
  * verification, and installation inside the CES sandbox.
  */
 
+import type { ManageSecureCommandTool } from "@vellumai/ces-contracts/rpc";
+
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
@@ -69,12 +71,6 @@ class ManageSecureCommandToolImpl implements Tool {
             description:
               "SHA-256 hash of the bundle for integrity verification (required for register).",
           },
-          profiles: {
-            type: "array",
-            items: { type: "string" },
-            description:
-              'Declared credential profiles the bundle requires (e.g. ["aws", "github"]). Shown to the guardian during approval.',
-          },
           credentialHandle: {
             type: "string",
             description:
@@ -84,6 +80,126 @@ class ManageSecureCommandToolImpl implements Tool {
             type: "string",
             description:
               "Human-readable description of what the secure command tool does (required for register).",
+          },
+          secureCommandManifest: {
+            type: "object",
+            description:
+              "Full secure command manifest for the bundle (required for register). " +
+              "Contains entrypoint, command profiles, auth adapter, egress mode, etc. " +
+              "CES validates this manifest before publishing the bundle.",
+            properties: {
+              schemaVersion: {
+                type: "string",
+                description: 'Manifest schema version. Must be "1".',
+              },
+              bundleDigest: {
+                type: "string",
+                description: "SHA-256 hex digest of the command bundle.",
+              },
+              bundleId: {
+                type: "string",
+                description: "Unique identifier for the command bundle.",
+              },
+              version: {
+                type: "string",
+                description: "Semantic version of the bundle.",
+              },
+              entrypoint: {
+                type: "string",
+                description:
+                  'Path to the executable entrypoint within the bundle (e.g. "bin/gh").',
+              },
+              commandProfiles: {
+                type: "object",
+                description:
+                  "Named command profiles. Each profile defines a narrow execution boundary.",
+                additionalProperties: {
+                  type: "object",
+                  properties: {
+                    description: { type: "string" },
+                    allowedArgvPatterns: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          name: { type: "string" },
+                          tokens: {
+                            type: "array",
+                            items: { type: "string" },
+                          },
+                        },
+                        required: ["name", "tokens"],
+                      },
+                    },
+                    deniedSubcommands: {
+                      type: "array",
+                      items: { type: "string" },
+                    },
+                    deniedFlags: {
+                      type: "array",
+                      items: { type: "string" },
+                    },
+                    allowedNetworkTargets: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          hostPattern: { type: "string" },
+                          ports: {
+                            type: "array",
+                            items: { type: "number" },
+                          },
+                          protocols: {
+                            type: "array",
+                            items: { type: "string" },
+                          },
+                        },
+                        required: ["hostPattern"],
+                      },
+                    },
+                  },
+                  required: [
+                    "description",
+                    "allowedArgvPatterns",
+                    "deniedSubcommands",
+                  ],
+                },
+              },
+              authAdapter: {
+                type: "object",
+                description:
+                  "Auth adapter configuration describing how credentials are injected.",
+                properties: {
+                  type: {
+                    type: "string",
+                    enum: ["env_var", "temp_file", "credential_process"],
+                  },
+                  envVarName: { type: "string" },
+                },
+                required: ["type", "envVarName"],
+              },
+              egressMode: {
+                type: "string",
+                enum: ["proxy_required", "no_network"],
+                description: "Network egress enforcement mode.",
+              },
+              cleanConfigDirs: {
+                type: "object",
+                description:
+                  "Config directories to mount as empty tmpfs during execution.",
+                additionalProperties: { type: "string" },
+              },
+            },
+            required: [
+              "schemaVersion",
+              "bundleDigest",
+              "bundleId",
+              "version",
+              "entrypoint",
+              "commandProfiles",
+              "authAdapter",
+              "egressMode",
+            ],
           },
         },
         required: ["action", "toolName"],
@@ -122,6 +238,10 @@ class ManageSecureCommandToolImpl implements Tool {
       const sourceUrl = input.sourceUrl as string | undefined;
       const sha256 = input.sha256 as string | undefined;
       const credentialHandle = input.credentialHandle as string | undefined;
+      const description = input.description as string | undefined;
+      const secureCommandManifest = input.secureCommandManifest as
+        | Record<string, unknown>
+        | undefined;
 
       const missing: string[] = [];
       if (!bundleId) missing.push("bundleId");
@@ -129,6 +249,8 @@ class ManageSecureCommandToolImpl implements Tool {
       if (!sourceUrl) missing.push("sourceUrl");
       if (!sha256) missing.push("sha256");
       if (!credentialHandle) missing.push("credentialHandle");
+      if (!description) missing.push("description");
+      if (!secureCommandManifest) missing.push("secureCommandManifest");
 
       if (missing.length > 0) {
         return {
@@ -165,9 +287,8 @@ class ManageSecureCommandToolImpl implements Tool {
               version: input.version as string,
               sourceUrl: input.sourceUrl as string,
               sha256: input.sha256 as string,
-              ...(input.profiles
-                ? { profiles: input.profiles as string[] }
-                : {}),
+              secureCommandManifest:
+                input.secureCommandManifest as ManageSecureCommandTool["secureCommandManifest"],
             }
           : {}),
       });

@@ -284,9 +284,6 @@ public final class HTTPTransport {
         case contactsInvitesCall(id: String)
         case channelsReadiness
         case surfaceContent(surfaceId: String, sessionId: String)
-        case usageTotals(from: Int, to: Int)
-        case usageDaily(from: Int, to: Int)
-        case usageBreakdown(from: Int, to: Int, groupBy: String)
         case workspaceTree(path: String, showHidden: Bool)
         case workspaceFile(path: String, showHidden: Bool)
         case workspaceFileContent(path: String, showHidden: Bool)
@@ -556,13 +553,6 @@ public final class HTTPTransport {
             let sEncoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
             let qEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? sessionId
             return ("/v1/surfaces/\(sEncoded)", "sessionId=\(qEncoded)")
-        case .usageTotals(let from, let to):
-            return ("/v1/usage/totals", "from=\(from)&to=\(to)")
-        case .usageDaily(let from, let to):
-            return ("/v1/usage/daily", "from=\(from)&to=\(to)")
-        case .usageBreakdown(let from, let to, let groupBy):
-            let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? groupBy
-            return ("/v1/usage/breakdown", "from=\(from)&to=\(to)&groupBy=\(encoded)")
         case .workspaceTree(let path, let showHidden):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
             var params: [String] = []
@@ -974,13 +964,6 @@ public final class HTTPTransport {
             let sEncoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
             let qEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? sessionId
             return ("\(prefix)/surfaces/\(sEncoded)/", "sessionId=\(qEncoded)")
-        case .usageTotals(let from, let to):
-            return ("\(prefix)/usage/totals/", "from=\(from)&to=\(to)")
-        case .usageDaily(let from, let to):
-            return ("\(prefix)/usage/daily/", "from=\(from)&to=\(to)")
-        case .usageBreakdown(let from, let to, let groupBy):
-            let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? groupBy
-            return ("\(prefix)/usage/breakdown/", "from=\(from)&to=\(to)&groupBy=\(encoded)")
         case .workspaceTree(let path, let showHidden):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
             var params: [String] = []
@@ -3229,89 +3212,6 @@ public final class HTTPTransport {
             }
         } catch {
             log.error("fetchRemoteIdentity failed: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    // MARK: - Usage Reporting
-
-    /// Fetch aggregate usage totals from `GET /v1/usage/totals`.
-    func fetchUsageTotals(from: Int, to: Int, isRetry: Bool = false) async -> UsageTotalsResponse? {
-        guard let url = buildURL(for: .usageTotals(from: from, to: to)) else { return nil }
-
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 10
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        return await fetchUsageTotals(from: from, to: to, isRetry: true)
-                    }
-                    return nil
-                }
-                guard (200...299).contains(http.statusCode) else { return nil }
-            }
-            return try decoder.decode(UsageTotalsResponse.self, from: data)
-        } catch {
-            log.error("fetchUsageTotals failed: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    /// Fetch per-day usage buckets from `GET /v1/usage/daily`.
-    func fetchUsageDaily(from: Int, to: Int, isRetry: Bool = false) async -> UsageDailyResponse? {
-        guard let url = buildURL(for: .usageDaily(from: from, to: to)) else { return nil }
-
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 10
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        return await fetchUsageDaily(from: from, to: to, isRetry: true)
-                    }
-                    return nil
-                }
-                guard (200...299).contains(http.statusCode) else { return nil }
-            }
-            return try decoder.decode(UsageDailyResponse.self, from: data)
-        } catch {
-            log.error("fetchUsageDaily failed: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    /// Fetch grouped usage breakdown from `GET /v1/usage/breakdown`.
-    func fetchUsageBreakdown(from: Int, to: Int, groupBy: String, isRetry: Bool = false) async -> UsageBreakdownResponse? {
-        guard let url = buildURL(for: .usageBreakdown(from: from, to: to, groupBy: groupBy)) else { return nil }
-
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 10
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        return await fetchUsageBreakdown(from: from, to: to, groupBy: groupBy, isRetry: true)
-                    }
-                    return nil
-                }
-                guard (200...299).contains(http.statusCode) else { return nil }
-            }
-            return try decoder.decode(UsageBreakdownResponse.self, from: data)
-        } catch {
-            log.error("fetchUsageBreakdown failed: \(error.localizedDescription)")
             return nil
         }
     }

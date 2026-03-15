@@ -24,7 +24,7 @@
  * - `list_audit_records` — List audit records for inspection
  */
 
-import { z } from "zod";
+import { z } from "zod/v4";
 import {
   AuditRecordSummarySchema,
   GrantProposalSchema,
@@ -70,6 +70,8 @@ export const MakeAuthenticatedRequestSchema = z.object({
   purpose: z.string(),
   /** Existing grant ID to consume, if the caller holds one. */
   grantId: z.string().optional(),
+  /** Conversation ID for thread-scoped temporary grants. */
+  conversationId: z.string().optional(),
 });
 export type MakeAuthenticatedRequest = z.infer<
   typeof MakeAuthenticatedRequestSchema
@@ -97,6 +99,25 @@ export type MakeAuthenticatedRequestResponse = z.infer<
 // run_authenticated_command
 // ---------------------------------------------------------------------------
 
+/**
+ * A file to stage from the assistant workspace into the CES scratch directory.
+ */
+const WorkspaceInputSchema = z.object({
+  /** Relative path within the assistant workspace directory. */
+  workspacePath: z.string(),
+});
+
+/**
+ * A file the command produces in the scratch directory that should be
+ * copied back to the assistant workspace after execution.
+ */
+const WorkspaceOutputSchema = z.object({
+  /** Relative path within the scratch directory where the command writes output. */
+  scratchPath: z.string(),
+  /** Relative path within the assistant workspace where the output is copied. */
+  workspacePath: z.string(),
+});
+
 export const RunAuthenticatedCommandSchema = z.object({
   /** CES credential handle to use for environment injection. */
   credentialHandle: z.string(),
@@ -106,10 +127,16 @@ export const RunAuthenticatedCommandSchema = z.object({
   envMappings: z.record(z.string(), z.string()).optional(),
   /** Optional working directory. */
   cwd: z.string().optional(),
+  /** Workspace files to stage as read-only inputs in the CES scratch directory. */
+  inputs: z.array(WorkspaceInputSchema).optional(),
+  /** Workspace files to copy back from the CES scratch directory after execution. */
+  outputs: z.array(WorkspaceOutputSchema).optional(),
   /** Human-readable purpose for audit logging. */
   purpose: z.string(),
   /** Existing grant ID to consume, if the caller holds one. */
   grantId: z.string().optional(),
+  /** Conversation ID for thread-scoped temporary grants. */
+  conversationId: z.string().optional(),
 });
 export type RunAuthenticatedCommand = z.infer<
   typeof RunAuthenticatedCommandSchema
@@ -145,6 +172,74 @@ export const ManageSecureCommandToolAction = {
 export type ManageSecureCommandToolAction =
   (typeof ManageSecureCommandToolAction)[keyof typeof ManageSecureCommandToolAction];
 
+/**
+ * Zod schema for allowed argv patterns within a command profile.
+ */
+const AllowedArgvPatternSchema = z.object({
+  name: z.string(),
+  tokens: z.array(z.string()),
+});
+
+/**
+ * Zod schema for allowed network targets within a command profile.
+ */
+const AllowedNetworkTargetSchema = z.object({
+  hostPattern: z.string(),
+  ports: z.array(z.number()).optional(),
+  protocols: z.array(z.enum(["http", "https"])).optional(),
+});
+
+/**
+ * Zod schema for a single command profile within a secure command manifest.
+ */
+const CommandProfileSchema = z.object({
+  description: z.string(),
+  allowedArgvPatterns: z.array(AllowedArgvPatternSchema),
+  deniedSubcommands: z.array(z.string()),
+  deniedFlags: z.array(z.string()).optional(),
+  allowedNetworkTargets: z.array(AllowedNetworkTargetSchema).optional(),
+});
+
+/**
+ * Zod schema for auth adapter configuration (discriminated union on `type`).
+ */
+const AuthAdapterConfigSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("env_var"),
+    envVarName: z.string(),
+    valuePrefix: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("temp_file"),
+    envVarName: z.string(),
+    fileExtension: z.string().optional(),
+    fileMode: z.number().optional(),
+  }),
+  z.object({
+    type: z.literal("credential_process"),
+    envVarName: z.string(),
+    helperCommand: z.string(),
+    timeoutMs: z.number().optional(),
+  }),
+]);
+
+/**
+ * Zod schema for the full secure command manifest passed during register.
+ * This mirrors the {@link SecureCommandManifest} interface in
+ * `credential-executor/src/commands/profiles.ts`.
+ */
+export const SecureCommandManifestSchema = z.object({
+  schemaVersion: z.string(),
+  bundleDigest: z.string(),
+  bundleId: z.string(),
+  version: z.string(),
+  entrypoint: z.string(),
+  commandProfiles: z.record(z.string(), CommandProfileSchema),
+  authAdapter: AuthAdapterConfigSchema,
+  egressMode: z.enum(["proxy_required", "no_network"]),
+  cleanConfigDirs: z.record(z.string(), z.string()).optional(),
+});
+
 export const ManageSecureCommandToolSchema = z.object({
   /** Whether to register or unregister the tool. */
   action: z.enum(["register", "unregister"]),
@@ -162,8 +257,12 @@ export const ManageSecureCommandToolSchema = z.object({
   sourceUrl: z.string().optional(),
   /** SHA-256 hex digest of the bundle for integrity verification (required for register). */
   sha256: z.string().optional(),
-  /** Declared credential profiles the bundle requires (e.g. ["aws", "github"]). */
-  profiles: z.array(z.string()).optional(),
+  /**
+   * Full secure command manifest for the bundle (required for register).
+   * Contains entrypoint, command profiles, auth adapter, egress mode, etc.
+   * CES validates this manifest before publishing the bundle.
+   */
+  secureCommandManifest: SecureCommandManifestSchema.optional(),
 });
 export type ManageSecureCommandTool = z.infer<
   typeof ManageSecureCommandToolSchema

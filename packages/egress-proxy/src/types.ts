@@ -33,6 +33,24 @@ export interface ProxySession {
 }
 
 // ---------------------------------------------------------------------------
+// Allowed network target
+// ---------------------------------------------------------------------------
+
+/**
+ * Describes a network target that an egress proxy session is allowed to
+ * connect to. Carries host, port, and protocol restrictions from the
+ * secure command manifest.
+ */
+export interface AllowedTarget {
+  /** Host glob pattern (e.g. "api.github.com", "*.amazonaws.com"). */
+  host: string;
+  /** Allowed port(s). When omitted or empty, any port is allowed. */
+  ports?: number[];
+  /** Allowed protocol(s) ("http" | "https"). When omitted or empty, any protocol is allowed. */
+  protocols?: Array<"http" | "https">;
+}
+
+// ---------------------------------------------------------------------------
 // Session configuration
 // ---------------------------------------------------------------------------
 
@@ -42,6 +60,17 @@ export interface ProxySessionConfig {
   idleTimeoutMs: number;
   /** Maximum concurrent sessions per conversation. */
   maxSessionsPerConversation: number;
+  /**
+   * Per-command network target allowlist.
+   * When set, the proxy server MUST reject outbound connections to targets
+   * that do not match any entry. Used by CES egress enforcement to carry
+   * manifest `allowedNetworkTargets` through to the proxy session.
+   *
+   * Each entry specifies a host glob pattern and optional port/protocol
+   * restrictions. When `ports` is omitted, any port is allowed. When
+   * `protocols` is omitted, any protocol is allowed.
+   */
+  allowedTargets?: AllowedTarget[];
 }
 
 // ---------------------------------------------------------------------------
