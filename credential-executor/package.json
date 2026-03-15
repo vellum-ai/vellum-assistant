@@ -14,7 +14,9 @@
     "dev": "bun run src/main.ts",
     "dev:managed": "CES_MODE=managed bun run src/managed-main.ts",
     "typecheck": "bunx tsc --noEmit",
-    "test": "bun test src/"
+    "test": "bun test src/",
+    "prepack": "node ../scripts/prepack-bundled-deps.mjs",
+    "prepublishOnly": "node ../scripts/check-bundled-deps.mjs ."
   },
   "dependencies": {
     "@vellumai/ces-contracts": "file:../packages/ces-contracts",
