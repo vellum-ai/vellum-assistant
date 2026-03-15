@@ -42,8 +42,8 @@ public struct ConversationsListResponse: Decodable {
 }
 
 /// Response shape from `GET /v1/conversations/:id`.
-struct SingleConversationResponse: Decodable {
-    let session: ConversationsListResponse.Session
+public struct SingleConversationResponse: Decodable {
+    public let session: ConversationsListResponse.Session
 }
 
 private struct HTTPErrorEnvelope: Decodable {
