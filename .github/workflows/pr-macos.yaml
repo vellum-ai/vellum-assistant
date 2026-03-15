@@ -54,6 +54,7 @@ jobs:
           path: clients/.periphery_baseline.json
           if-no-files-found: ignore
           retention-days: 7
+          include-hidden-files: true
 
   build-check:
     if: contains(github.event.pull_request.labels.*.name, 'preview')
