@@ -413,22 +413,22 @@ describe("notification decision strategy", () => {
     });
   });
 
-  // -- Thread action validation -----------------------------------------------
+  // -- Conversation action validation -----------------------------------------------
 
-  describe("thread action validation", () => {
+  describe("conversation action validation", () => {
     const validChannels: NotificationChannel[] = ["vellum", "telegram"];
     const candidateSet: ConversationCandidateSet = {
       vellum: [
         {
           conversationId: "conv-001",
-          title: "Reminder thread",
+          title: "Reminder conversation",
           updatedAt: Date.now(),
           latestSourceEventName: "schedule.notify",
           channel: "vellum",
         },
         {
           conversationId: "conv-002",
-          title: "Guardian thread",
+          title: "Guardian conversation",
           updatedAt: Date.now(),
           latestSourceEventName: "guardian.question",
           channel: "vellum",
@@ -438,7 +438,7 @@ describe("notification decision strategy", () => {
       telegram: [
         {
           conversationId: "conv-003",
-          title: "Telegram thread",
+          title: "Telegram conversation",
           updatedAt: Date.now(),
           latestSourceEventName: "schedule.notify",
           channel: "telegram",
@@ -506,7 +506,7 @@ describe("notification decision strategy", () => {
       expect(result.vellum).toEqual({ action: "start_new" });
     });
 
-    test("ignores thread actions for channels not in validChannels", () => {
+    test("ignores conversation actions for channels not in validChannels", () => {
       const result = validateConversationActions(
         { voice: { action: "start_new" } },
         validChannels,
@@ -829,9 +829,9 @@ describe("notification decision strategy", () => {
     });
   });
 
-  // -- Guardian call thread affinity enforcement --------------------------------
+  // -- Guardian call conversation affinity enforcement --------------------------------
 
-  describe("guardian call thread affinity enforcement", () => {
+  describe("guardian call conversation affinity enforcement", () => {
     function makeDecision(
       overrides?: Partial<NotificationDecision>,
     ): NotificationDecision {
@@ -896,7 +896,7 @@ describe("notification decision strategy", () => {
       });
     });
 
-    test("non-guardian event is not affected by guardian call thread affinity", () => {
+    test("non-guardian event is not affected by guardian call conversation affinity", () => {
       const decision = makeDecision({
         conversationActions: {
           vellum: { action: "reuse_existing", conversationId: "conv-456" },

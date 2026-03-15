@@ -179,7 +179,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        conversationKey: "guardian-thread-key",
+        conversationKey: "guardian-conversation-key",
         content: "05BECB approve",
         sourceChannel: "vellum",
         interface: "macos",
@@ -256,7 +256,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        conversationKey: "guardian-thread-key",
+        conversationKey: "guardian-conversation-key",
         content: "hello there",
         sourceChannel: "vellum",
         interface: "macos",
@@ -329,7 +329,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        conversationKey: "guardian-thread-key",
+        conversationKey: "guardian-conversation-key",
         content: "approve",
         sourceChannel: "vellum",
         interface: "macos",
@@ -406,7 +406,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        conversationKey: "guardian-thread-key",
+        conversationKey: "guardian-conversation-key",
         content: "A1B2C3 approve",
         sourceChannel: "vellum",
         interface: "macos",
@@ -479,7 +479,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        conversationKey: "guardian-thread-key",
+        conversationKey: "guardian-conversation-key",
         content: "reject",
         sourceChannel: "vellum",
         interface: "macos",
@@ -546,7 +546,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        conversationKey: "guardian-thread-key",
+        conversationKey: "guardian-conversation-key",
         content: "tell me more about this request",
         sourceChannel: "vellum",
         interface: "macos",
@@ -615,7 +615,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        conversationKey: "guardian-thread-key",
+        conversationKey: "guardian-conversation-key",
         content: "no sorry, beats 0 and 3 should be new threads",
         sourceChannel: "vellum",
         interface: "macos",
@@ -685,7 +685,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        conversationKey: "guardian-thread-key",
+        conversationKey: "guardian-conversation-key",
         content: "no sorry, beats 0 and 3 should be new threads",
         sourceChannel: "telegram",
         interface: "telegram",

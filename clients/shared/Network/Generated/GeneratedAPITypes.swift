@@ -3085,17 +3085,17 @@ public struct RemoveTrustRule: Codable, Sendable {
     }
 }
 
-public struct ReorderThreadsRequest: Codable, Sendable {
+public struct ReorderConversationsRequest: Codable, Sendable {
     public let type: String
-    public let updates: [ReorderThreadsRequestUpdate]
+    public let updates: [ReorderConversationsRequestUpdate]
 
-    public init(type: String, updates: [ReorderThreadsRequestUpdate]) {
+    public init(type: String, updates: [ReorderConversationsRequestUpdate]) {
         self.type = type
         self.updates = updates
     }
 }
 
-public struct ReorderThreadsRequestUpdate: Codable, Sendable {
+public struct ReorderConversationsRequestUpdate: Codable, Sendable {
     public let sessionId: String
     public let displayOrder: Double?
     public let isPinned: Bool

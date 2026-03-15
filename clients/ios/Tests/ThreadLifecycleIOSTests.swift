@@ -815,9 +815,9 @@ final class ThreadLifecycleIOSTests: XCTestCase {
 
     func testPinningConnectedThreadUpdatesLocalStateAndEmitsReorder() {
         let daemonClient = DaemonClient()
-        var reorderRequests: [ReorderThreadsRequest] = []
+        var reorderRequests: [ReorderConversationsRequest] = []
         daemonClient.sendOverride = { message in
-            if let request = message as? ReorderThreadsRequest {
+            if let request = message as? ReorderConversationsRequest {
                 reorderRequests.append(request)
             }
         }
@@ -906,9 +906,9 @@ final class ThreadLifecycleIOSTests: XCTestCase {
 
     func testUnpinningConnectedThreadRecompactsPinnedOrderAndEmitsReorder() {
         let daemonClient = DaemonClient()
-        var reorderRequests: [ReorderThreadsRequest] = []
+        var reorderRequests: [ReorderConversationsRequest] = []
         daemonClient.sendOverride = { message in
-            if let request = message as? ReorderThreadsRequest {
+            if let request = message as? ReorderConversationsRequest {
                 reorderRequests.append(request)
             }
         }

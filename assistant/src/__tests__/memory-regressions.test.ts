@@ -661,7 +661,7 @@ describe("Memory regressions", () => {
     expect(updated!.verificationState).toBe("user_confirmed");
   });
 
-  test("private thread cannot update default-scope item by ID", async () => {
+  test("private conversation cannot update default-scope item by ID", async () => {
     const db = getDb();
     const now = Date.now();
     const { handleMemoryUpdate } = await import("../tools/memory/handlers.js");
@@ -704,7 +704,7 @@ describe("Memory regressions", () => {
     expect(item!.statement).toBe("Original default-scope statement");
   });
 
-  test("standard thread cannot update private-scope item by ID", async () => {
+  test("standard conversation cannot update private-scope item by ID", async () => {
     const db = getDb();
     const now = Date.now();
     const { handleMemoryUpdate } = await import("../tools/memory/handlers.js");
@@ -1935,7 +1935,7 @@ describe("Memory regressions", () => {
       VALUES ('seg-ovr-default', 'msg-override-fallback', '${convId}', 'user', 0, 'Global memory about microservices architecture patterns', 10, 'default', ${now}, ${now})
     `);
 
-    // Insert segment in private thread scope
+    // Insert segment in private conversation scope
     db.run(`
       INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
       VALUES ('seg-ovr-private', 'msg-override-fallback', '${convId}', 'user', 1, 'Private thread memory about microservices architecture patterns', 10, 'private-thread-42', ${now}, ${now})
@@ -2191,7 +2191,7 @@ describe("Memory regressions", () => {
   // PR-17: addMessage() passes conversation scope to the indexer
   test("addMessage inherits private conversation scope on memory segments", async () => {
     const conv = createConversation({
-      title: "Private thread",
+      title: "Private conversation",
       conversationType: "private",
     });
     expect(conv.memoryScopeId).toMatch(/^private:/);
@@ -2199,7 +2199,7 @@ describe("Memory regressions", () => {
     const msg = await addMessage(
       conv.id,
       "user",
-      "My secret project details for the private thread.",
+      "My secret project details for the private conversation.",
     );
 
     const db = getDb();
@@ -2217,7 +2217,7 @@ describe("Memory regressions", () => {
 
   test("addMessage uses default scope for standard conversations", async () => {
     const conv = createConversation({
-      title: "Standard thread",
+      title: "Standard conversation",
       conversationType: "standard",
     });
     expect(conv.memoryScopeId).toBe("default");
@@ -2758,7 +2758,7 @@ describe("Memory regressions", () => {
 
   // ── End-to-end memory-boundary regression tests ─────────────────────
 
-  test("e2e: private-only facts are recalled in private thread but not in standard thread", async () => {
+  test("e2e: private-only facts are recalled in private conversation but not in standard conversation", async () => {
     const db = getDb();
 
     // 1. Create a private conversation and add a message with a distinctive fact
@@ -2796,7 +2796,7 @@ describe("Memory regressions", () => {
     // Collect the item IDs so we can check them in recall results
     const privateItemKeys = privateItems.map((i) => `item:${i.id}`);
 
-    // 3. Create a standard conversation for the "standard thread" perspective
+    // 3. Create a standard conversation for the "standard conversation" perspective
     const stdConv = createConversation({
       title: "Standard e2e test",
       conversationType: "standard",
@@ -2824,7 +2824,7 @@ describe("Memory regressions", () => {
       },
     };
 
-    // 4. Private thread recall — should find the Zephyr fact
+    // 4. Private conversation recall — should find the Zephyr fact
     const privRecall = await buildMemoryRecall(
       "Zephyr framework microservices",
       privConv.id,
@@ -2840,8 +2840,8 @@ describe("Memory regressions", () => {
     // Verify the pipeline ran and recency search found segments.
     expect(privRecall.recencyHits).toBeGreaterThan(0);
 
-    // 5. Standard thread recall — must NOT find the Zephyr fact (no leak)
-    // Mirror the production call in session-memory.ts: for standard threads
+    // 5. Standard conversation recall — must NOT find the Zephyr fact (no leak)
+    // Mirror the production call in session-memory.ts: for standard conversations
     // (scopeId === 'default'), scopePolicyOverride is undefined.
     const stdRecall = await buildMemoryRecall(
       "Zephyr framework microservices",
@@ -2860,7 +2860,7 @@ describe("Memory regressions", () => {
     expect(stdRecall.injectedText.toLowerCase()).not.toContain("zephyr");
   });
 
-  test("e2e: private thread still recalls facts from default memory scope", async () => {
+  test("e2e: private conversation still recalls facts from default memory scope", async () => {
     const db = getDb();
     const now = Date.now();
 
@@ -2928,7 +2928,7 @@ describe("Memory regressions", () => {
       },
     };
 
-    // 3. Private thread recall with fallback to default — should find the Obsidian fact
+    // 3. Private conversation recall with fallback to default — should find the Obsidian fact
     const privRecall = await buildMemoryRecall(
       "Obsidian editor note-taking",
       privConv.id,
@@ -2965,7 +2965,7 @@ describe("Memory regressions", () => {
         conversationId: conv.id,
         role: "user",
         content:
-          "My confidential backfill test content for private thread preservation.",
+          "My confidential backfill test content for private conversation preservation.",
         createdAt: conv.createdAt + 1,
       })
       .run();

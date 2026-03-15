@@ -561,7 +561,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
         // Clear ordering state before archiving so stale is_pinned/display_order
         // values don't affect DB pagination (which sorts by is_pinned DESC).
-        // Send the update BEFORE setting isArchived, because sendReorderThreads()
+        // Send the update BEFORE setting isArchived, because sendReorderConversations()
         // only serializes visibleThreads (non-archived).
         let wasPinned = threads[index].isPinned
         let hadOrder = threads[index].displayOrder != nil
@@ -580,7 +580,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             recompactPinnedOrders()
         }
         if wasPinned || hadOrder {
-            sendReorderThreads()
+            sendReorderConversations()
         }
 
         if let sessionId = threads[index].sessionId {
@@ -909,7 +909,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         thread.isPinned = true
         thread.pinnedOrder = nextOrder
         threads[index] = thread
-        sendReorderThreads()
+        sendReorderConversations()
     }
 
     func unpinThread(id: UUID) {
@@ -920,7 +920,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         thread.displayOrder = nil
         threads[index] = thread
         recompactPinnedOrders()
-        sendReorderThreads()
+        sendReorderConversations()
     }
 
     func reorderPinnedThreads(from source: IndexSet, to destination: Int) {
@@ -933,7 +933,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             }
         }
         threads = draft
-        sendReorderThreads()
+        sendReorderConversations()
     }
 
     func updateLastInteracted(threadId: UUID) {
@@ -949,7 +949,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
         threads[index] = thread
         if hadOrder {
-            sendReorderThreads()
+            sendReorderConversations()
         }
     }
 
@@ -1064,7 +1064,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
         // Single write — triggers objectWillChange exactly once.
         threads = draft
-        sendReorderThreads()
+        sendReorderConversations()
         return true
     }
 
@@ -1089,9 +1089,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// the pinned ordering survives restarts. For unpinned threads that have been
     /// explicitly reordered (non-nil displayOrder), sends their displayOrder. For
     /// unpinned threads without explicit ordering, sends nil so they sort by recency.
-    private func sendReorderThreads() {
+    private func sendReorderConversations() {
         let visible = visibleThreads
-        var updates: [ReorderThreadsRequestUpdate] = []
+        var updates: [ReorderConversationsRequestUpdate] = []
         for thread in visible {
             guard let sessionId = thread.sessionId else { continue }
             let order: Double?
@@ -1102,7 +1102,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             } else {
                 order = thread.displayOrder.map { Double($0) }
             }
-            updates.append(ReorderThreadsRequestUpdate(
+            updates.append(ReorderConversationsRequestUpdate(
                 sessionId: sessionId,
                 displayOrder: order,
                 isPinned: thread.isPinned
@@ -1110,12 +1110,12 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
         guard !updates.isEmpty else { return }
         do {
-            try daemonClient.send(ReorderThreadsRequest(
-                type: "reorder_threads",
+            try daemonClient.send(ReorderConversationsRequest(
+                type: "reorder_conversations",
                 updates: updates
             ))
         } catch {
-            log.error("Failed to send reorder_threads: \(error.localizedDescription)")
+            log.error("Failed to send reorder_conversations: \(error.localizedDescription)")
         }
     }
 
@@ -1597,9 +1597,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
         // Re-send ordering now that this thread has a session ID.
         // Any drag/pin actions performed before the daemon assigned
-        // a session would have been skipped by sendReorderThreads()
+        // a session would have been skipped by sendReorderConversations()
         // because it filters out threads without a sessionId.
-        sendReorderThreads()
+        sendReorderConversations()
         // Flush any rename that was queued before the session ID was assigned.
         if let pendingTitle = pendingRenames.removeValue(forKey: threadId) {
             try? daemonClient.send(SessionRenameRequest(
