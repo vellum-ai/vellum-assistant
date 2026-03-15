@@ -28,6 +28,7 @@ import {
   type SecureCommandManifest,
   type CommandProfile,
   type AllowedArgvPattern,
+  type AllowedNetworkTarget,
   MANIFEST_SCHEMA_VERSION,
   EGRESS_MODES,
   EgressMode,
@@ -237,6 +238,15 @@ function validateProfile(
         `${prefix}: egressMode is "proxy_required" but no allowedNetworkTargets are declared. ` +
           "Commands with network egress must declare their allowed network targets.",
       );
+    } else {
+      for (let i = 0; i < profile.allowedNetworkTargets.length; i++) {
+        const target = profile.allowedNetworkTargets[i]!;
+        const targetErrors = validateNetworkTarget(
+          `${prefix}: allowedNetworkTargets[${i}]`,
+          target,
+        );
+        errors.push(...targetErrors);
+      }
     }
   }
 
@@ -249,6 +259,100 @@ function validateProfile(
         `${prefix}: egressMode is "no_network" but allowedNetworkTargets are declared. ` +
           "This is contradictory — remove network targets or change egressMode.",
       );
+    }
+  }
+
+  return errors;
+}
+
+// ---------------------------------------------------------------------------
+// Network target validation
+// ---------------------------------------------------------------------------
+
+/**
+ * Overbroad host patterns that effectively match everything.
+ * These defeat the purpose of declaring allowed network targets.
+ */
+const OVERBROAD_HOST_PATTERNS: ReadonlySet<string> = new Set([
+  "*",
+  "*.*",
+  "*.*.*",
+  "*.*.*.*",
+]);
+
+/**
+ * Validate a single {@link AllowedNetworkTarget} entry.
+ *
+ * Returns an array of error messages (empty if valid). Checks:
+ * - `hostPattern` is non-empty
+ * - `hostPattern` is not overbroad (e.g. `"*"`, `"*.*"`)
+ * - `hostPattern` is either an exact hostname or a wildcard-subdomain pattern (`*.domain.tld`)
+ * - `ports` (if specified) are valid (1–65535)
+ * - `protocols` (if specified) are `"http"` or `"https"` only
+ */
+function validateNetworkTarget(
+  prefix: string,
+  target: AllowedNetworkTarget,
+): string[] {
+  const errors: string[] = [];
+
+  // -- hostPattern must be non-empty
+  if (!target.hostPattern || target.hostPattern.trim().length === 0) {
+    errors.push(`${prefix}: hostPattern is required and must be non-empty.`);
+    return errors; // Can't validate further without a pattern
+  }
+
+  const pattern = target.hostPattern;
+
+  // -- Reject overbroad patterns
+  if (OVERBROAD_HOST_PATTERNS.has(pattern)) {
+    errors.push(
+      `${prefix}: hostPattern "${pattern}" is overbroad and matches effectively any host. ` +
+        "Use exact hostnames (e.g. \"api.github.com\") or wildcard-subdomain patterns (e.g. \"*.github.com\").",
+    );
+    return errors;
+  }
+
+  // -- Validate pattern shape: exact hostname or *.domain.tld
+  if (pattern.includes("*")) {
+    // Only *.domain.tld form is allowed
+    if (!pattern.startsWith("*.") || pattern.indexOf("*", 1) !== -1) {
+      errors.push(
+        `${prefix}: hostPattern "${pattern}" uses an unsupported wildcard format. ` +
+          "Only wildcard-subdomain patterns (\"*.domain.tld\") are allowed. " +
+          "Wildcards in the middle or end of a hostname are not supported.",
+      );
+    } else {
+      // Ensure the domain part after *. is non-empty and looks like a domain
+      const domain = pattern.slice(2);
+      if (!domain || domain.trim().length === 0) {
+        errors.push(
+          `${prefix}: hostPattern "${pattern}" has an empty domain after the wildcard prefix.`,
+        );
+      }
+    }
+  }
+
+  // -- Validate ports
+  if (target.ports) {
+    for (const port of target.ports) {
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        errors.push(
+          `${prefix}: port ${port} is invalid. Ports must be integers between 1 and 65535.`,
+        );
+      }
+    }
+  }
+
+  // -- Validate protocols
+  if (target.protocols) {
+    const validProtocols = new Set(["http", "https"]);
+    for (const proto of target.protocols) {
+      if (!validProtocols.has(proto)) {
+        errors.push(
+          `${prefix}: protocol "${proto}" is invalid. Only "http" and "https" are allowed.`,
+        );
+      }
     }
   }
 

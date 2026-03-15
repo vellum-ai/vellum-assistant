@@ -31,10 +31,11 @@ import type { AllowedTarget, ManagedSession, SessionStartHooks } from "@vellumai
  * - Exact match: `"api.github.com"` matches `"api.github.com"`
  * - Wildcard subdomain: `"*.github.com"` matches `"api.github.com"`,
  *   `"foo.bar.github.com"`, and also `"github.com"` (apex)
- * - Plain `"*"` matches everything
+ *
+ * Note: `"*"` (match-everything) is intentionally NOT supported. The
+ * manifest validator rejects overbroad patterns at registration time.
  */
 function matchesHostPattern(hostname: string, pattern: string): boolean {
-  if (pattern === "*") return true;
   if (pattern === hostname) return true;
   if (pattern.startsWith("*.")) {
     const suffix = pattern.slice(1); // e.g. ".github.com"
