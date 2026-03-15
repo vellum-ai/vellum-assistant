@@ -132,6 +132,11 @@ export function createRecordGrantHandler(
       deps.temporaryGrantStore.add("allow_thread", decision.proposalHash, {
         conversationId: sessionId,
       });
+      // Also add an allow_once fallback: the HTTP executor doesn't pass
+      // conversationId, so the thread-scoped grant alone is unreachable
+      // for HTTP requests. The allow_once ensures the immediate retry
+      // succeeds regardless of executor type.
+      deps.temporaryGrantStore.add("allow_once", decision.proposalHash);
     } else {
       // allow_once and always_allow both get a single-use temp grant
       // for immediate retry.
