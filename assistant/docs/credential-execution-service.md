@@ -139,7 +139,7 @@ Audit logs record every materialization event with: grant ID, credential ID, too
 │         ▼                   ▼            │
 │  ┌─────────────────────────────────┐    │
 │  │  shared emptyDir volume         │    │
-│  │  └── /run/ces/ces.sock          │    │
+│  │  └── /run/ces-bootstrap/ces.sock │    │
 │  └─────────────────────────────────┘    │
 │         │                               │
 │         ▼                               │
@@ -229,7 +229,7 @@ Enable flags in this order. Each flag is safe to enable independently, but later
 
 To dark-launch CES in managed deployments without user impact:
 
-1. **Deploy the CES container image** via the `credential_executor_image` field in `POST /v1/internal/assistant-image-releases/`. The warm-pool manager picks it up and includes it in pod templates. The CES container starts, binds its bootstrap socket and health port (7841), but does nothing until an assistant connects.
+1. **Deploy the CES container image** via the `credential_executor_image` field in `POST /v1/internal/assistant-image-releases/`. The warm-pool manager picks it up and includes it in pod templates. The CES container starts, binds its bootstrap socket and health port (8090), but does nothing until an assistant connects.
 
 2. **Verify sidecar health** using kubelet probes: `/healthz` (liveness) and `/readyz` (readiness, always returns 200; includes `rpcConnected` field for observability). CES reports its protocol version in both probe responses.
 

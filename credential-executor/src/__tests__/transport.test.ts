@@ -163,12 +163,12 @@ describe("health probes", () => {
     expect(src).toMatch(/startHealthServer\(healthPort/);
   });
 
-  test("getHealthPort defaults to 7841", () => {
+  test("getHealthPort defaults to 8090", () => {
     // Save and clear env
     const saved = process.env["CES_HEALTH_PORT"];
     delete process.env["CES_HEALTH_PORT"];
     try {
-      expect(getHealthPort()).toBe(7841);
+      expect(getHealthPort()).toBe(8090);
     } finally {
       if (saved !== undefined) process.env["CES_HEALTH_PORT"] = saved;
     }
@@ -382,11 +382,11 @@ describe("CES data paths", () => {
     expect(root).not.toMatch(/workspace/);
   });
 
-  test("getBootstrapSocketPath defaults to /run/ces/ces.sock", () => {
+  test("getBootstrapSocketPath defaults to /run/ces-bootstrap/ces.sock", () => {
     const saved = process.env["CES_BOOTSTRAP_SOCKET"];
     delete process.env["CES_BOOTSTRAP_SOCKET"];
     try {
-      expect(getBootstrapSocketPath()).toBe("/run/ces/ces.sock");
+      expect(getBootstrapSocketPath()).toBe("/run/ces-bootstrap/ces.sock");
     } finally {
       if (saved !== undefined) process.env["CES_BOOTSTRAP_SOCKET"] = saved;
     }

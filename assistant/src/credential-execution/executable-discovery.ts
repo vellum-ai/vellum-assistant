@@ -30,7 +30,7 @@ const log = getLogger("ces-discovery");
 // ---------------------------------------------------------------------------
 
 /** Default directory for the bootstrap socket shared volume. */
-const DEFAULT_BOOTSTRAP_SOCKET_DIR = "/run/ces";
+const DEFAULT_BOOTSTRAP_SOCKET_DIR = "/run/ces-bootstrap";
 
 /** Bootstrap socket filename. */
 const BOOTSTRAP_SOCKET_NAME = "ces.sock";
@@ -41,7 +41,7 @@ const BOOTSTRAP_SOCKET_NAME = "ces.sock";
  * Priority:
  * 1. `CES_BOOTSTRAP_SOCKET_DIR` env var (directory) — appends `ces.sock`
  * 2. `CES_BOOTSTRAP_SOCKET` env var (full file path override)
- * 3. Hardcoded default: `/run/ces/ces.sock`
+ * 3. Hardcoded default: `/run/ces-bootstrap/ces.sock`
  *
  * The pod template exports `CES_BOOTSTRAP_SOCKET_DIR`; the full-path
  * override is kept for local testing convenience.
