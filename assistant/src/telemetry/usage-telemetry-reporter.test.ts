@@ -55,6 +55,12 @@ mock.module("../config/env.js", () => ({
   bool: () => false,
 }));
 
+const mockGetInstallationId = mock(() => "test-installation-id");
+
+mock.module("../runtime/auth/installation-id.js", () => ({
+  getInstallationId: mockGetInstallationId,
+}));
+
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
@@ -111,6 +117,8 @@ beforeEach(() => {
   mockResolveManagedProxyContext.mockReset();
   mockGetTelemetryPlatformUrl.mockReset();
   mockGetTelemetryAppToken.mockReset();
+  mockGetInstallationId.mockReset();
+  mockGetInstallationId.mockReturnValue("test-installation-id");
 
   // Defaults
   mockGetMemoryCheckpoint.mockReturnValue(null);
@@ -236,17 +244,7 @@ describe("UsageTelemetryReporter", () => {
     expect(watermarkCalls.length).toBe(0);
   });
 
-  test("installation ID generated on first flush, reused thereafter", async () => {
-    let storedInstallId: string | null = null;
-
-    mockGetMemoryCheckpoint.mockImplementation((key: string) => {
-      if (key === "telemetry:installation_id") return storedInstallId;
-      return null;
-    });
-    mockSetMemoryCheckpoint.mockImplementation((key: string, value: string) => {
-      if (key === "telemetry:installation_id") storedInstallId = value;
-    });
-
+  test("installation ID comes from lockfile-based resolver", async () => {
     const events = [makeUsageEvent()];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
     mockFetch.mockImplementation(() =>
@@ -255,25 +253,22 @@ describe("UsageTelemetryReporter", () => {
 
     const reporter = new UsageTelemetryReporter();
 
-    // First flush — should generate and store a new installation ID
+    // First flush — should use the lockfile-based installation ID
     await reporter.flush();
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const body1 = JSON.parse(
       (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
     );
-    expect(body1.installation_id).toBeTruthy();
-    expect(typeof body1.installation_id).toBe("string");
+    expect(body1.installation_id).toBe("test-installation-id");
 
-    // Second flush
+    // Second flush — should use the same value
     mockQueryUnreportedUsageEvents.mockReturnValue([makeUsageEvent()]);
     await reporter.flush();
     expect(mockFetch).toHaveBeenCalledTimes(2);
     const body2 = JSON.parse(
       (mockFetch.mock.calls[1] as [string, RequestInit])[1].body as string,
     );
-
-    // Both flushes should use the same installation ID
-    expect(body2.installation_id).toBe(body1.installation_id);
+    expect(body2.installation_id).toBe("test-installation-id");
   });
 
   test("empty batch makes no HTTP call", async () => {
@@ -348,7 +343,7 @@ describe("UsageTelemetryReporter", () => {
     );
 
     // Top-level: installation_id and events array
-    expect(typeof body.installation_id).toBe("string");
+    expect(body.installation_id).toBe("test-installation-id");
     expect(Array.isArray(body.events)).toBe(true);
     expect(body.events.length).toBe(1);
 
