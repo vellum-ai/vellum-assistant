@@ -230,7 +230,10 @@ function buildHandlers(sessionIdRef: SessionIdRef): RpcHandlerRegistry {
       const entry = toolRegistry.get(toolName);
       const removed = toolRegistry.delete(toolName);
       if (removed && entry?.bundleDigest) {
-        deleteBundleFromToolstore(entry.bundleDigest, "local");
+        const stillInUse = Array.from(toolRegistry.values()).some(t => t.bundleDigest === entry.bundleDigest);
+        if (!stillInUse) {
+          deleteBundleFromToolstore(entry.bundleDigest, "local");
+        }
       }
       return removed;
     },
