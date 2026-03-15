@@ -136,6 +136,10 @@ jobs:
         working-directory: .
         run: bash clients/scripts/check-design-tokens.sh --mode=strict
 
+      - name: Install linked package dependencies
+        working-directory: .
+        run: cd packages/ces-contracts && bun install --frozen-lockfile
+
       - name: Build binaries
         run: ./build.sh binaries
 
