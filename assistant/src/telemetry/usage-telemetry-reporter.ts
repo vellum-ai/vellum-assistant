@@ -9,8 +9,6 @@
  * - Anonymous: X-Telemetry-Token static token from env
  */
 
-import { v4 as uuid } from "uuid";
-
 import {
   getTelemetryAppToken,
   getTelemetryPlatformUrl,
@@ -22,6 +20,7 @@ import {
 import { queryUnreportedUsageEvents } from "../memory/llm-usage-store.js";
 import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
 import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
+import { getInstallationId } from "../runtime/auth/installation-id.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("usage-telemetry");
@@ -34,24 +33,10 @@ const CHECKPOINT_KEY_WATERMARK = "telemetry:usage:last_reported_at";
 const CHECKPOINT_KEY_WATERMARK_ID = "telemetry:usage:last_reported_id";
 const CHECKPOINT_KEY_TURN_WATERMARK = "telemetry:turns:last_reported_at";
 const CHECKPOINT_KEY_TURN_WATERMARK_ID = "telemetry:turns:last_reported_id";
-const CHECKPOINT_KEY_INSTALL_ID = "telemetry:installation_id";
 const REPORT_INTERVAL_MS = 5 * 60 * 1000;
 const BATCH_SIZE = 500;
 const MAX_CONSECUTIVE_BATCHES = 10;
 const TELEMETRY_PATH = "/v1/assistants/self-hosted-local/telemetry/usage/";
-
-// ---------------------------------------------------------------------------
-// Installation ID
-// ---------------------------------------------------------------------------
-
-function getOrCreateInstallationId(): string {
-  const existing = getMemoryCheckpoint(CHECKPOINT_KEY_INSTALL_ID);
-  if (existing) return existing;
-
-  const id = uuid();
-  setMemoryCheckpoint(CHECKPOINT_KEY_INSTALL_ID, id);
-  return id;
-}
 
 // ---------------------------------------------------------------------------
 // Reporter
@@ -144,7 +129,7 @@ export class UsageTelemetryReporter {
 
       // Build payload
       const payload = {
-        installation_id: getOrCreateInstallationId(),
+        installation_id: getInstallationId(),
         events: events.map((e) => ({
           daemon_event_id: e.id,
           provider: e.provider,
