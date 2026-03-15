@@ -228,7 +228,7 @@ function addTemporaryCommandGrant(
   const parts = ["command", credentialHandle, bundleId, profileName];
   const canonical = JSON.stringify(parts);
   const proposalHash = createHash("sha256").update(canonical, "utf8").digest("hex");
-  store.record(kind, proposalHash, { conversationId });
+  store.add(kind, proposalHash, { conversationId });
 }
 
 // ---------------------------------------------------------------------------
