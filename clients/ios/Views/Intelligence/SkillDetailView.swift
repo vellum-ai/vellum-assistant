@@ -173,17 +173,6 @@ struct SkillDetailView: View {
                     .multilineTextAlignment(.center)
             }
 
-            if skill.degraded == true {
-                HStack(spacing: 4) {
-                    VIconView(.triangleAlert, size: 12)
-                    Text("Degraded")
-                        .font(VFont.caption)
-                }
-                .foregroundColor(.orange)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("Skill is degraded")
-            }
-
             if skill.updateAvailable {
                 HStack(spacing: 4) {
                     VIconView(.circleArrowUp, size: 12)
