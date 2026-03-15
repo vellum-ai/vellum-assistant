@@ -345,7 +345,7 @@ function resolveStatusCommand(context: SlashContext): SlashResolution {
 }
 
 /**
- * Resolve slash commands against the current skill catalog.
+ * Resolve built-in slash commands (/model, /status, /commands, /pair, provider shortcuts).
  * Returns `unknown` with a deterministic message, or the (possibly rewritten) content.
  */
 export async function resolveSlash(

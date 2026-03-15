@@ -94,7 +94,7 @@ export interface ProcessSessionContext {
   currentPage?: string;
   /** Cumulative token usage stats for the session. */
   readonly usageStats: UsageStats;
-  /** Request-scoped skill IDs preactivated via slash resolution. */
+  /** Request-scoped skill IDs preactivated via config or programmatic injection. */
   preactivatedSkillIds?: string[];
   /** Add a skill ID to the preactivated set without replacing existing entries. */
   addPreactivatedSkillId(id: string): void;

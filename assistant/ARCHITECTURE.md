@@ -1192,7 +1192,6 @@ The following capabilities ship as bundled skills in `assistant/src/config/bundl
 ```mermaid
 graph TB
     subgraph "Activation Sources"
-        SLASH["Slash command<br/>/skill-id → preactivate"]
         MARKER["&lt;loaded_skill id=&quot;...&quot; /&gt;<br/>marker in conversation history"]
         CONFIG["Config / session<br/>preactivatedSkillIds"]
     end
@@ -1214,7 +1213,6 @@ graph TB
         PROVIDER["LLM Provider<br/>receives full tool list"]
     end
 
-    SLASH --> CONFIG
     MARKER --> DERIVE
     CONFIG --> UNION
     DERIVE --> UNION
@@ -1229,7 +1227,7 @@ graph TB
     RESOLVE --> PROVIDER
 ```
 
-**Internal preactivation**: Some bundled skills are preactivated programmatically rather than by user slash commands or model discovery. For example, desktop sessions set `preactivatedSkillIds: ['computer-use']`, causing `projectSkillTools()` to load the 11 `computer_use_*` tool definitions from the bundled skill's `TOOLS.json` on the first turn. These proxy tools forward actions to the connected macOS client via `HostCuProxy`.
+**Internal preactivation**: Some bundled skills are preactivated programmatically rather than by model discovery. For example, desktop sessions set `preactivatedSkillIds: ['computer-use']`, causing `projectSkillTools()` to load the 11 `computer_use_*` tool definitions from the bundled skill's `TOOLS.json` on the first turn. These proxy tools forward actions to the connected macOS client via `HostCuProxy`.
 
 ### Skill Tool Execution
 

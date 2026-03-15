@@ -2,7 +2,7 @@
  * Session-time projection of active skill tools.
  *
  * On each agent turn the conversation history (and any pre-activated IDs from
- * config or slash commands) determine which skills are "active".  This module
+ * config or programmatic injection) determine which skills are "active".  This module
  * computes the union, loads tool manifests, registers new skill tools, tears
  * down tools for skills that are no longer active, and returns the projected
  * tool definitions so the agent loop can include them in the next request.
