@@ -47,6 +47,28 @@ public enum GatewayHTTPClient {
         return try await execute(request)
     }
 
+    /// Performs an authenticated GET request and decodes the JSON response into the given type.
+    ///
+    /// - Parameters:
+    ///   - path: Path segment after `/v1/` (e.g. `"usage/totals?from=0&to=1"`).
+    ///   - timeout: Request timeout in seconds. Defaults to 30.
+    ///   - configure: Optional closure to customise the `JSONDecoder` before decoding
+    ///     (e.g. set `keyDecodingStrategy`).
+    /// - Returns: The decoded value, or `nil` when the HTTP status is non-success.
+    /// - Throws: `ClientError` if the request cannot be constructed, network errors
+    ///   from `URLSession`, or `DecodingError` if the response body cannot be decoded.
+    public static func get<T: Decodable>(
+        path: String,
+        timeout: TimeInterval = 30,
+        configure: ((_ decoder: JSONDecoder) -> Void)? = nil
+    ) async throws -> T? {
+        let response = try await get(path: path, timeout: timeout)
+        guard response.isSuccess else { return nil }
+        let decoder = JSONDecoder()
+        configure?(decoder)
+        return try decoder.decode(T.self, from: response.data)
+    }
+
     /// Performs an authenticated POST request against the gateway.
     ///
     /// - Parameters:
@@ -89,31 +111,6 @@ public enum GatewayHTTPClient {
         var request = try buildRequest(path: path, method: "GET", timeout: timeout)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         return try await URLSession.shared.bytes(for: request)
-    }
-
-    // MARK: - JSON Convenience
-
-    /// Performs an authenticated GET request and decodes the JSON response into the given type.
-    ///
-    /// - Parameters:
-    ///   - path: Path segment after `/v1/` (e.g. `"usage/totals?from=0&to=1"`).
-    ///   - timeout: Request timeout in seconds. Defaults to 30.
-    ///   - configure: Optional closure to customise the `JSONDecoder` before decoding
-    ///     (e.g. set `keyDecodingStrategy`). The default decoder uses no special strategies.
-    /// - Returns: The decoded value, or `nil` when the HTTP status is non-success.
-    /// - Throws: `ClientError` if the request cannot be constructed, network errors
-    ///   from `URLSession`, or `DecodingError` if the response body cannot be decoded.
-    public static func getJSON<T: Decodable>(
-        _ type: T.Type = T.self,
-        path: String,
-        timeout: TimeInterval = 30,
-        configure: ((_ decoder: JSONDecoder) -> Void)? = nil
-    ) async throws -> T? {
-        let response = try await get(path: path, timeout: timeout)
-        guard response.isSuccess else { return nil }
-        let decoder = JSONDecoder()
-        configure?(decoder)
-        return try decoder.decode(T.self, from: response.data)
     }
 
     // MARK: - Internals

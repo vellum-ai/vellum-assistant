@@ -25,16 +25,16 @@ public struct UsageClient: UsageClientProtocol {
     nonisolated public init() {}
 
     public func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? {
-        try? await GatewayHTTPClient.getJSON(path: "usage/totals?from=\(from)&to=\(to)", timeout: 10)
+        try? await GatewayHTTPClient.get(path: "usage/totals?from=\(from)&to=\(to)", timeout: 10)
     }
 
     public func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse? {
-        try? await GatewayHTTPClient.getJSON(path: "usage/daily?from=\(from)&to=\(to)", timeout: 10)
+        try? await GatewayHTTPClient.get(path: "usage/daily?from=\(from)&to=\(to)", timeout: 10)
     }
 
     public func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? {
         let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? groupBy
-        return try? await GatewayHTTPClient.getJSON(path: "usage/breakdown?from=\(from)&to=\(to)&groupBy=\(encoded)", timeout: 10)
+        return try? await GatewayHTTPClient.get(path: "usage/breakdown?from=\(from)&to=\(to)&groupBy=\(encoded)", timeout: 10)
     }
 }
 

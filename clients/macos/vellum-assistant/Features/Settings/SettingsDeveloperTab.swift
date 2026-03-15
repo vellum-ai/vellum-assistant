@@ -427,7 +427,7 @@ struct SettingsDeveloperTab: View {
 
     private func fetchHealthz() async {
         do {
-            healthz = try await GatewayHTTPClient.getJSON(
+            healthz = try await GatewayHTTPClient.get(
                 path: "assistants/\(selectedAssistantId)/healthz",
                 timeout: 10
             ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
