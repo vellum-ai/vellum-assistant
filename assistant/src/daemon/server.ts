@@ -30,7 +30,7 @@ import {
 import {
   addMessage,
   getConversationMemoryScopeId,
-  getConversationThreadType,
+  getConversationType,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
@@ -270,8 +270,8 @@ export class DaemonServer {
   }
 
   private deriveMemoryPolicy(conversationId: string): SessionMemoryPolicy {
-    const threadType = getConversationThreadType(conversationId);
-    if (threadType === "private") {
+    const conversationType = getConversationType(conversationId);
+    if (conversationType === "private") {
       return {
         scopeId: getConversationMemoryScopeId(conversationId),
         includeDefaultFallback: true,

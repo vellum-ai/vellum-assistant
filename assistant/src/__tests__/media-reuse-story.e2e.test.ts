@@ -511,7 +511,7 @@ describe("Private-thread variant: cross-thread media blocking", () => {
     // Upload selfie in a private thread
     const privateThread = createConversation({
       title: "Private selfie thread",
-      threadType: "private",
+      conversationType: "private",
     });
     const selfie = uploadAttachment(
       "private-selfie.png",
@@ -542,7 +542,7 @@ describe("Private-thread variant: cross-thread media blocking", () => {
   test("selfie in private thread A is NOT materializable from Thread B", async () => {
     const privateThread = createConversation({
       title: "Private selfie thread",
-      threadType: "private",
+      conversationType: "private",
     });
     const base64 = Buffer.from("private image data").toString("base64");
     const selfie = uploadAttachment("private-selfie.png", "image/png", base64);
@@ -571,7 +571,7 @@ describe("Private-thread variant: cross-thread media blocking", () => {
   test("selfie in private thread IS accessible from the same private thread", async () => {
     const privateThread = createConversation({
       title: "Private selfie thread",
-      threadType: "private",
+      conversationType: "private",
     });
     const selfie = uploadAttachment(
       "private-selfie.png",
@@ -608,7 +608,7 @@ describe("Private-thread variant: cross-thread media blocking", () => {
   test("selfie in private thread A is NOT accessible from private thread B", async () => {
     const privateThreadA = createConversation({
       title: "Private thread A",
-      threadType: "private",
+      conversationType: "private",
     });
     const selfie = uploadAttachment(
       "thread-a-selfie.png",
@@ -625,7 +625,7 @@ describe("Private-thread variant: cross-thread media blocking", () => {
     // Search from a different private thread
     const privateThreadB = createConversation({
       title: "Private thread B",
-      threadType: "private",
+      conversationType: "private",
     });
     const context: ToolContext = {
       workingDir: sandboxDir,

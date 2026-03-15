@@ -81,6 +81,7 @@ import {
   migrateOAuthProvidersPingUrl,
   migrateReminderRoutingIntent,
   migrateRemindersToSchedules,
+  migrateRenameConversationTypeColumn,
   migrateRenameGuardianVerificationValues,
   migrateRenameInboxThreadStateTable,
   migrateRenameVerificationSessionIdColumn,
@@ -399,6 +400,9 @@ export function initializeDb(): void {
 
   // 66. Rename assistant_inbox_thread_state → assistant_inbox_conversation_state
   migrateRenameInboxThreadStateTable(database);
+
+  // 67. Rename thread_type → conversation_type in conversations table
+  migrateRenameConversationTypeColumn(database);
 
   validateMigrationState(database);
 

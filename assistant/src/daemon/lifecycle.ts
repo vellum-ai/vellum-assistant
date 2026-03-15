@@ -28,7 +28,7 @@ import * as attachmentsStore from "../memory/attachments-store.js";
 import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
 import {
   deleteMessageById,
-  getConversationThreadType,
+  getConversationType,
   getMessages,
   purgePrivateConversations,
 } from "../memory/conversation-crud.js";
@@ -652,8 +652,8 @@ export async function runDaemon(): Promise<void> {
           data: a.dataBase64,
         })),
       deriveDefaultStrictSideEffects: (conversationId) => {
-        const threadType = getConversationThreadType(conversationId);
-        return threadType === "private";
+        const conversationType = getConversationType(conversationId);
+        return conversationType === "private";
       },
     });
     try {

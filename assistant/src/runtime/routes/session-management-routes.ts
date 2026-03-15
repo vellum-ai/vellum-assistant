@@ -32,7 +32,7 @@ export interface SessionManagementDeps {
   switchSession: (sessionId: string) => Promise<{
     sessionId: string;
     title: string;
-    threadType: string;
+    conversationType: string;
   } | null>;
   renameSession: (sessionId: string, name: string) => boolean;
   clearAllSessions: () => number;
