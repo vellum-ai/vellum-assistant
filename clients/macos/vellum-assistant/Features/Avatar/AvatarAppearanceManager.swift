@@ -80,12 +80,6 @@ final class AvatarAppearanceManager {
 
     static let shared = AvatarAppearanceManager()
 
-    /// Character component definitions fetched from the daemon on launch.
-    /// Used to validate trait selections against the daemon's source of truth.
-    /// nil until the first successful fetch; the client still works with
-    /// hardcoded enums as fallback.
-    private var daemonComponents: AvatarComponentService.ComponentsResponse?
-
     private var fileMonitor: DispatchSourceFileSystemObject?
     private var traitsFileMonitor: DispatchSourceFileSystemObject?
     private var identityObserver: NSObjectProtocol?
@@ -131,9 +125,9 @@ final class AvatarAppearanceManager {
         watchTraitsFile()
 
         // Fire-and-forget: fetch character component definitions from the
-        // daemon so future PRs can validate trait selections against the
-        // daemon's source of truth. The app still works with hardcoded
-        // enums if the daemon is unreachable.
+        // daemon and populate AvatarComponentStore.shared so downstream
+        // code can look up definitions by ID. The app still works with
+        // hardcoded enums if the daemon is unreachable.
         Task { [weak self] in
             await self?.fetchComponentsFromDaemon()
         }
@@ -162,8 +156,8 @@ final class AvatarAppearanceManager {
 
     // MARK: - Daemon Component Fetch
 
-    /// Fetches the canonical character component definitions from the daemon.
-    /// On success, stores them in `daemonComponents` for future validation.
+    /// Fetches the canonical character component definitions from the daemon
+    /// and populates `AvatarComponentStore.shared` for O(1) lookups.
     /// Fails silently — the client continues to work with hardcoded enums.
     private func fetchComponentsFromDaemon() async {
         guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
@@ -173,7 +167,9 @@ final class AvatarAppearanceManager {
         }
 
         let port = assistant.resolvedDaemonPort()
-        daemonComponents = await AvatarComponentService.fetch(port: port)
+        if let response = await AvatarComponentService.fetch(port: port) {
+            AvatarComponentStore.shared.load(response)
+        }
     }
 
     // MARK: - Custom Avatar
