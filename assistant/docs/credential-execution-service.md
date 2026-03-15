@@ -182,12 +182,14 @@ The adapter type is declared in the secure command manifest (`authAdapter` field
 
 Secure commands declare one of two egress modes:
 
-| Mode             | Behavior                                                                                                                                                                                                                             |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `proxy_required` | All network traffic must route through a CES-owned egress proxy session. `HTTP_PROXY`/`HTTPS_PROXY` env vars are injected. Each command profile must declare `allowedNetworkTargets` specifying host patterns, ports, and protocols. |
-| `no_network`     | The command has no network requirements. Network targets in profiles are rejected as contradictory.                                                                                                                                  |
+| Mode             | Behavior                                                                                                                                                                                                                                                             |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `proxy_required` | All network traffic must route through a CES-owned egress proxy session. `HTTP_PROXY`/`HTTPS_PROXY` env vars are injected. Each command profile must declare `allowedNetworkTargets` specifying host patterns, ports, and protocols.                                 |
+| `no_network`     | The command has no network requirements. No proxy session is started. Network targets in profiles are rejected as contradictory. This is strictly more restrictive than `proxy_required` — the command receives dead-proxy env vars that block outbound connections. |
 
-There is intentionally no `direct` or `unrestricted` egress mode. Commands that contact the network must go through the proxy so CES can enforce target allowlists and produce audit entries.
+There is intentionally no `direct` or `unrestricted` egress mode. Commands that contact the network must go through the proxy so CES can enforce target allowlists and produce audit entries. Both modes are valid for command profiles; `no_network` is preferred when a command has no legitimate network needs.
+
+**Important**: The `proxy_required` enforcement is **cooperative** — it relies on `HTTP_PROXY`/`HTTPS_PROXY` environment variable injection, not kernel-level network filtering. Binaries that ignore proxy environment variables, implement their own HTTP stacks, or open raw sockets can bypass the proxy allowlist entirely. See [Residual Risk #7](#7-cooperative-isolation-for-both-network-egress-and-filesystem-access) for the full risk analysis and mitigation strategy.
 
 ## Response Filtering (Defense-in-Depth)
 
@@ -247,14 +249,14 @@ Local deployments do not require image changes. Enabling `ces-tools` causes the 
 
 ### Guarantees by deployment mode
 
-| Guarantee                                  | Local                                                               | Managed                                                                                                                         |
-| ------------------------------------------ | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Process-boundary credential isolation      | Strong (separate child process)                                     | Strong (separate container)                                                                                                     |
-| Credential value never in assistant memory | Strong                                                              | Strong                                                                                                                          |
-| Grant persistence survives restarts        | Strong (filesystem-backed under `~/.vellum/protected/`)             | Strong (dedicated `/ces-data` volume)                                                                                           |
-| Network egress enforcement via proxy       | Moderate (relies on process env vars; host networking is available) | Moderate (cooperative via env vars; per-container Calico egress restriction is a design goal but not yet enforced — see Risk 7) |
-| Secret scrubbing in HTTP responses         | Defense-in-depth only                                               | Defense-in-depth only                                                                                                           |
-| `host_bash` restriction                    | Policy-only (trust rules can deny, but the tool exists)             | Policy-only (same; managed deployments should deny `host_bash` for untrusted agents)                                            |
+| Guarantee                                  | Local                                                                                                 | Managed                                                                                                                                          |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Process-boundary credential isolation      | Strong (separate child process)                                                                       | Strong (separate container)                                                                                                                      |
+| Credential value never in assistant memory | Strong                                                                                                | Strong                                                                                                                                           |
+| Grant persistence survives restarts        | Strong (filesystem-backed under `~/.vellum/protected/`)                                               | Strong (dedicated `/ces-data` volume)                                                                                                            |
+| Network egress enforcement via proxy       | Moderate (cooperative via HTTP_PROXY/HTTPS_PROXY env vars; host networking is available — see Risk 7) | Moderate (cooperative via env vars; per-container Calico/NetworkPolicy egress restriction is a v2 design goal but not yet enforced — see Risk 7) |
+| Secret scrubbing in HTTP responses         | Defense-in-depth only                                                                                 | Defense-in-depth only                                                                                                                            |
+| `host_bash` restriction                    | Policy-only (trust rules can deny, but the tool exists)                                               | Policy-only (same; managed deployments should deny `host_bash` for untrusted agents)                                                             |
 
 ## Rollback
 
@@ -355,7 +357,9 @@ CES enforces isolation controls cooperatively rather than at the OS level:
 
 Both limitations stem from the same root cause: v1 relies on process-level conventions (env vars for network, cwd for filesystem) rather than OS-level enforcement primitives.
 
-**Mitigation**: The denied-binary list and manifest validation restrict which binaries can run as secure commands, reducing the surface for non-cooperating binaries. In practice, the well-known CLI tools approved as secure command entrypoints (e.g., `gh`, `aws`) respect proxy environment variables. True enforcement requires OS-level sandboxing — Linux network namespaces for mandatory proxy routing and filesystem namespaces or chroot for path isolation — which is planned for v2 when CES runs in managed containers with full namespace support.
+**Mitigation**: The denied-binary list and manifest validation restrict which binaries can run as secure commands, reducing the surface for non-cooperating binaries. In practice, the well-known CLI tools approved as secure command entrypoints (e.g., `gh`, `aws`) respect proxy environment variables. Bundles are content-addressed (SHA-256 digest) and immutable after registration, and user approval is required before any secure command executes — together these form a defense-in-depth chain that compensates for the cooperative enforcement model.
+
+True kernel-level enforcement requires OS-level sandboxing — Linux network namespaces for mandatory proxy routing (iptables REDIRECT rules), Kubernetes NetworkPolicies or Calico egress policies restricting CES container traffic to the proxy sidecar only, and filesystem namespaces or chroot for path isolation. This is a v2 concern for **managed mode**, where CES runs in its own container with full namespace support. In **local mode**, kernel-level enforcement is impractical because CES runs as a user-space child process of the assistant — the user already has full host access, and iptables/network namespace manipulation requires root privileges that the assistant does not (and should not) have.
 
 ### 8. `credential_process` adapter shares cooperative egress limitation with main command
 
