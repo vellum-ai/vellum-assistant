@@ -13,6 +13,14 @@ import {
 } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import { onContactChange } from "../contacts/contact-events.js";
+import type { CesClient } from "../credential-execution/client.js";
+import { createCesClient } from "../credential-execution/client.js";
+import { isCesToolsEnabled } from "../credential-execution/feature-gates.js";
+import {
+  type CesProcessManager,
+  CesUnavailableError,
+  createCesProcessManager,
+} from "../credential-execution/process-manager.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
 import {
@@ -243,6 +251,12 @@ export class DaemonServer {
   // Composed subsystems
   private configWatcher = new ConfigWatcher();
 
+  // CES (Credential Execution Service) — process-level singleton.
+  // The CES sidecar accepts exactly one bootstrap connection, so we must
+  // hold that connection at the server level rather than per-session.
+  private cesProcessManager?: CesProcessManager;
+  private cesClientPromise?: Promise<CesClient | undefined>;
+
   /**
    * Logical assistant identifier used when publishing to the assistant-events hub.
    */
@@ -465,6 +479,48 @@ export class DaemonServer {
       this.broadcast({ type: "contacts_changed" });
     });
 
+    // CES lifecycle — start the CES process and perform the RPC handshake
+    // once at server level. The managed sidecar accepts exactly one bootstrap
+    // connection, so this must be a process-level singleton.
+    if (isCesToolsEnabled(config)) {
+      const pm = createCesProcessManager({ assistantConfig: config });
+      this.cesProcessManager = pm;
+      this.cesClientPromise = (async () => {
+        try {
+          const transport = await pm.start();
+          const client = createCesClient(transport);
+          const { accepted, reason } = await client.handshake();
+          if (accepted) {
+            log.info(
+              "CES client initialized and handshake accepted (server-level)",
+            );
+            return client;
+          }
+          log.warn(
+            { reason },
+            "CES handshake rejected — CES tools will be unavailable",
+          );
+          client.close();
+          await pm.stop();
+          return undefined;
+        } catch (err) {
+          if (err instanceof CesUnavailableError) {
+            log.info(
+              { reason: err.message },
+              "CES is not available — CES tools will be unavailable",
+            );
+          } else {
+            log.warn(
+              { error: err instanceof Error ? err.message : String(err) },
+              "Failed to initialize CES client — CES tools will be unavailable",
+            );
+          }
+          await pm.stop().catch(() => {});
+          return undefined;
+        }
+      })();
+    }
+
     log.info("DaemonServer started (HTTP-only mode)");
   }
 
@@ -481,6 +537,19 @@ export class DaemonServer {
       session.dispose();
     }
     this.sessions.clear();
+
+    // Tear down the server-level CES client and process manager
+    if (this.cesClientPromise) {
+      const client = await this.cesClientPromise.catch(() => undefined);
+      if (client) {
+        client.close();
+      }
+      this.cesClientPromise = undefined;
+    }
+    if (this.cesProcessManager) {
+      await this.cesProcessManager.stop().catch(() => {});
+      this.cesProcessManager = undefined;
+    }
 
     log.info("Daemon server stopped");
   }
@@ -606,6 +675,10 @@ export class DaemonServer {
         const maxTokens = storedOptions?.maxResponseTokens ?? config.maxTokens;
 
         const memoryPolicy = this.deriveMemoryPolicy(conversationId);
+        // Resolve the shared CES client (may still be initializing).
+        const sharedCesClient = this.cesClientPromise
+          ? await this.cesClientPromise
+          : undefined;
         const newSession = new Session(
           conversationId,
           provider,
@@ -615,6 +688,7 @@ export class DaemonServer {
           workingDir,
           (msg) => this.broadcast(msg),
           memoryPolicy,
+          sharedCesClient,
         );
         newSession.updateClient(sendToClient, true);
         await newSession.loadFromDb();

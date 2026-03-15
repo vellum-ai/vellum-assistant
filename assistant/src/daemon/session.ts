@@ -24,13 +24,6 @@ import type {
 import { getConfig } from "../config/loader.js";
 import { ContextWindowManager } from "../context/window-manager.js";
 import type { CesClient } from "../credential-execution/client.js";
-import { createCesClient } from "../credential-execution/client.js";
-import { isCesToolsEnabled } from "../credential-execution/feature-gates.js";
-import {
-  type CesProcessManager,
-  CesUnavailableError,
-  createCesProcessManager,
-} from "../credential-execution/process-manager.js";
 import { EventBus } from "../events/bus.js";
 import type { AssistantDomainEvents } from "../events/domain-events.js";
 import { createToolAuditListener } from "../events/tool-audit-listener.js";
@@ -56,7 +49,6 @@ import type { AuthContext } from "../runtime/auth/types.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import * as approvalOverrides from "../runtime/session-approval-overrides.js";
 import { ToolExecutor } from "../tools/executor.js";
-import { getLogger } from "../util/logger.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
 import type { CuObservationResult } from "./host-cu-proxy.js";
@@ -125,8 +117,6 @@ export interface SessionMemoryPolicy {
   strictSideEffects: boolean;
 }
 
-const log = getLogger("session");
-
 export const DEFAULT_MEMORY_POLICY: Readonly<SessionMemoryPolicy> =
   Object.freeze({
     scopeId: "default",
@@ -177,10 +167,7 @@ export class Session {
   /** @internal */ hostBashProxy?: HostBashProxy;
   /** @internal */ hostCuProxy?: HostCuProxy;
   /** @internal */ hostFileProxy?: HostFileProxy;
-  /** @internal */ cesProcessManager?: CesProcessManager;
   /** @internal */ cesClient?: CesClient;
-  /** @internal */ cesInitAborted = false;
-  /** @internal */ cesInitPromise?: Promise<void>;
   /** @internal */ readonly queue = new MessageQueue();
   /** @internal */ currentActiveSurfaceId?: string;
   /** @internal */ currentPage?: string;
@@ -248,6 +235,7 @@ export class Session {
     workingDir: string,
     broadcastToAllClients?: (msg: ServerMessage) => void,
     memoryPolicy?: SessionMemoryPolicy,
+    sharedCesClient?: CesClient,
   ) {
     this.conversationId = conversationId;
     this.systemPrompt = systemPrompt;
@@ -328,55 +316,11 @@ export class Session {
     const config = getConfig();
     this.streamThinking = config.thinking.streamThinking ?? false;
 
-    // CES (Credential Execution Service) lifecycle — conditionally start the
-    // CES process and perform the RPC handshake when CES tools are enabled.
-    // The initialization is async; cesClient is set once the handshake
-    // completes. Tools reading context.cesClient tolerate it being undefined
-    // until then (they return a graceful error).
-    if (isCesToolsEnabled(config)) {
-      const pm = createCesProcessManager({ assistantConfig: config });
-      this.cesProcessManager = pm;
-      this.cesInitPromise = (async () => {
-        try {
-          const transport = await pm.start();
-          if (this.cesInitAborted) {
-            await pm.stop();
-            return;
-          }
-          const client = createCesClient(transport);
-          const { accepted, reason } = await client.handshake();
-          if (this.cesInitAborted) {
-            client.close();
-            await pm.stop();
-            return;
-          }
-          if (accepted) {
-            this.cesClient = client;
-            log.info("CES client initialized and handshake accepted");
-          } else {
-            log.warn(
-              { reason },
-              "CES handshake rejected — CES tools will be unavailable",
-            );
-            client.close();
-            await pm.stop();
-          }
-        } catch (err) {
-          if (err instanceof CesUnavailableError) {
-            log.info(
-              { reason: err.message },
-              "CES is not available — CES tools will be unavailable",
-            );
-          } else {
-            log.warn(
-              { error: err instanceof Error ? err.message : String(err) },
-              "Failed to initialize CES client — CES tools will be unavailable",
-            );
-          }
-          // Clean up the process manager on any init failure
-          await pm.stop().catch(() => {});
-        }
-      })();
+    // CES (Credential Execution Service) — use the shared server-level client.
+    // The CES sidecar accepts exactly one bootstrap connection, so the
+    // client is owned by DaemonServer and passed in here.
+    if (sharedCesClient) {
+      this.cesClient = sharedCesClient;
     }
 
     const resolveTools = createResolveToolsCallback(toolDefs, this);
@@ -512,29 +456,9 @@ export class Session {
     this.hostBashProxy?.dispose();
     this.hostCuProxy?.dispose();
     this.hostFileProxy?.dispose();
-    // Signal the async CES init to abort and stop the process manager
-    // immediately so we don't keep the child process alive for the full
-    // handshake timeout window. The deferred .then() handles client cleanup
-    // once the init promise settles.
-    this.cesInitAborted = true;
-    if (this.cesClient) {
-      this.cesClient.close();
-      this.cesClient = undefined;
-    }
-    if (this.cesProcessManager) {
-      void this.cesProcessManager.stop();
-      this.cesProcessManager = undefined;
-    }
-    if (this.cesInitPromise) {
-      void this.cesInitPromise.then(() => {
-        // Client may have been set between our immediate cleanup and the
-        // promise settling — close it if so.
-        if (this.cesClient) {
-          this.cesClient.close();
-          this.cesClient = undefined;
-        }
-      });
-    }
+    // CES client is owned by DaemonServer — just drop the reference.
+    // Do NOT close it here; the server manages the CES lifecycle.
+    this.cesClient = undefined;
     disposeSession(this);
   }
 
