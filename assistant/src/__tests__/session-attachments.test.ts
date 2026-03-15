@@ -39,6 +39,7 @@ mock.module("../config/loader.js", () => ({
 // Stub out video thumbnail generation (requires ffmpeg)
 mock.module("../daemon/video-thumbnail.js", () => ({
   generateVideoThumbnail: () => Promise.resolve(null),
+  generateVideoThumbnailFromPath: () => Promise.resolve(null),
 }));
 
 // Stub out permission checker / trust store
