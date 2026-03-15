@@ -11,7 +11,8 @@
  *   to a permissive default when the persistent state is corrupt.
  * - **Atomic writes**: Uses rename-over-tmp to prevent partial writes.
  * - **Deduplication**: Grants are keyed by a canonical hash (the `id`
- *   field) — adding a grant with an existing ID is a no-op.
+ *   field) — adding an active grant with an existing ID is a no-op.
+ *   Revoked grants with the same ID are reactivated (upsert).
  */
 
 import {
@@ -43,7 +44,7 @@ export interface PersistentGrant {
   scope: string;
   /** When the grant was created (epoch ms). */
   createdAt: number;
-  /** The agent session that created this grant. */
+  /** The agent session that created this grant. May be absent on legacy grants. */
   sessionId: string;
   /** When the grant was revoked (epoch ms), or undefined if active. */
   revokedAt?: number;
@@ -133,17 +134,35 @@ export class PersistentGrantStore {
   }
 
   /**
-   * Add a grant. If a grant with the same `id` already exists, this is
-   * a no-op (idempotent deduplication by canonical hash).
+   * Add a grant. If an active grant with the same `id` already exists,
+   * this is a no-op (idempotent deduplication by canonical hash).
    *
-   * Returns `true` if the grant was newly added, `false` if it was a
-   * duplicate.
+   * If a revoked grant with the same `id` exists, it is reactivated
+   * with the new grant's fields — this supports the revoke-then-re-approve
+   * workflow where the same proposal hash is re-granted.
+   *
+   * Returns `true` if the grant was newly added or reactivated, `false`
+   * if it was a duplicate of an already-active grant.
    */
   add(grant: PersistentGrant): boolean {
     this.assertNotCorrupt();
     const grants = this.loadFromDisk();
-    if (grants.some((g) => g.id === grant.id)) {
-      return false;
+    const existing = grants.find((g) => g.id === grant.id);
+    if (existing) {
+      // Already active — deduplicate as before.
+      if (existing.revokedAt == null) {
+        return false;
+      }
+      // Revoked — reactivate with fresh fields.
+      existing.tool = grant.tool;
+      existing.pattern = grant.pattern;
+      existing.scope = grant.scope;
+      existing.createdAt = grant.createdAt;
+      existing.sessionId = grant.sessionId;
+      existing.revokedAt = undefined;
+      existing.revokedReason = undefined;
+      this.writeToDisk(grants);
+      return true;
     }
     grants.push(grant);
     this.writeToDisk(grants);
