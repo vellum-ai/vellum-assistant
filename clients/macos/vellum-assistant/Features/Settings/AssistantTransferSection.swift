@@ -1,6 +1,9 @@
 import Foundation
+import os
 import SwiftUI
 import VellumAssistantShared
+
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AssistantTransfer")
 
 /// Transfer UI for moving an assistant between local and cloud (managed) hosting.
 ///
@@ -166,7 +169,11 @@ struct AssistantTransferSection: View {
             // Step 5 — Retire local assistant (fire-and-forget)
             currentStep = "Cleaning up..."
             let localName = assistant.assistantId
-            try? await AppDelegate.shared?.assistantCli.retire(name: localName)
+            do {
+                try await AppDelegate.shared?.assistantCli.retire(name: localName)
+            } catch {
+                log.error("[transfer] Failed to retire local assistant \(localName, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
         } catch {
             errorMessage = "Transfer failed: \(error.localizedDescription)"
         }
@@ -317,8 +324,18 @@ struct AssistantTransferSection: View {
                     if let orgId = savedOrgId {
                         retireRequest.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
                     }
-                    _ = try? await URLSession.shared.data(for: retireRequest)
+                    let retireResult = try? await URLSession.shared.data(for: retireRequest)
+                    if let (_, retireResponse) = retireResult,
+                       let httpRetire = retireResponse as? HTTPURLResponse,
+                       (200..<300).contains(httpRetire.statusCode) {
+                        log.info("[transfer] Retired managed assistant \(managedAssistantId, privacy: .public)")
+                    } else {
+                        let statusCode = (retireResult?.1 as? HTTPURLResponse)?.statusCode ?? 0
+                        log.error("[transfer] Failed to retire managed assistant \(managedAssistantId, privacy: .public): HTTP \(statusCode, privacy: .public)")
+                    }
                 }
+            } else {
+                log.warning("[transfer] Skipping managed assistant retire — no session token available for \(managedAssistantId, privacy: .public)")
             }
         } catch {
             errorMessage = "Transfer failed: \(error.localizedDescription)"
