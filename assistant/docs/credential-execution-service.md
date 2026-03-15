@@ -321,7 +321,7 @@ The egress proxy relies on `HTTP_PROXY`/`HTTPS_PROXY` environment variables. A s
 
 CES commands run in a separate process with a clean environment (isolated HOME, stripped env vars, proxy injection) but do not use container-level or VM-level sandboxing in local mode. A malicious command binary could escalate privileges or read host files.
 
-**Mitigation**: Secure command bundles must be published and approved in the CES toolstore before execution. The manifest-driven validation (denied binaries, allowed argv patterns, denied subcommands/flags) restricts what can run. In managed deployments, the entire pod runs under Calico sandbox network policies with restricted egress.
+**Mitigation**: Secure command bundles must be published and approved in the CES toolstore before execution. The manifest-driven validation (denied binaries, allowed argv patterns, denied subcommands/flags) restricts what can run. In managed deployments, per-container Calico network policies restricting CES egress are a design goal but not yet enforced (see Risk 7 and the guarantees table above). Current managed mitigation relies on the same denied-binary list and manifest validation as local deployments.
 
 ### 5. Secure command manifest is trusted after registration
 
@@ -337,7 +337,7 @@ When a credential is rotated (e.g., an API key is regenerated), existing CES gra
 
 ### 7. Cooperative egress enforcement via environment variables
 
-CES enforces egress controls by injecting `HTTP_PROXY`/`HTTPS_PROXY` environment variables into the subprocess environment. This is cooperative — a binary that ignores proxy environment variables, implements its own HTTP stack, or opens raw sockets can bypass CES egress controls entirely. Risk #3 above documents this for local deployments where host networking is available, but the limitation also applies in managed deployments: current network policies allow public egress from all containers in the pod, so a non-cooperating binary in the CES container can reach the internet without going through the egress proxy.
+CES enforces egress controls by injecting `HTTP_PROXY`/`HTTPS_PROXY` environment variables into the subprocess environment. This is cooperative — a binary that ignores proxy environment variables, implements its own HTTP stack, or opens raw sockets can bypass CES egress controls entirely. Risk #3 above documents this limitation for both local and managed deployments. In managed deployments specifically, current network policies allow public egress from all containers in the pod, so a non-cooperating binary in the CES container can reach the internet without going through the egress proxy.
 
 **Mitigation**: The denied-binary list and manifest validation restrict which binaries can run as secure commands, reducing the surface for non-cooperating binaries. In practice, the well-known CLI tools approved as secure command entrypoints (e.g., `gh`, `aws`) respect proxy environment variables. Future work could add per-container network policies (e.g., Calico rules that restrict the CES container's egress to the proxy sidecar only) or use network namespace isolation to make the proxy mandatory at the network level rather than relying on process-level cooperation.
 
