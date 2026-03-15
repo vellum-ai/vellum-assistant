@@ -33,6 +33,7 @@ import { evaluateHttpPolicy, type PolicyResult } from "./policy.js";
 import { filterHttpResponse, type RawHttpResponse } from "./response-filter.js";
 import { generateHttpAuditSummary } from "./audit.js";
 
+import type { AuditStore } from "../audit/store.js";
 import type { PersistentGrantStore } from "../grants/persistent-store.js";
 import type { TemporaryGrantStore } from "../grants/temporary-store.js";
 
@@ -75,6 +76,8 @@ export interface HttpExecutorDeps {
   managedSubjectOptions?: ManagedSubjectResolverOptions;
   /** Options for managed token materialisation (null if managed mode is unavailable). */
   managedMaterializerOptions?: ManagedMaterializerOptions;
+  /** Audit store for persisting token-free audit records. */
+  auditStore: AuditStore;
   /** Session ID for audit records. */
   sessionId: string;
   /** Optional custom fetch implementation (for testing). */
@@ -185,6 +188,8 @@ export async function executeAuthenticatedHttpRequest(
       errorMessage: materialiseResult.error,
     });
 
+    try { deps.auditStore.append(audit); } catch { /* audit persistence must not block execution */ }
+
     return {
       success: false,
       error: {
@@ -230,6 +235,8 @@ export async function executeAuthenticatedHttpRequest(
       errorMessage: safeError,
     });
 
+    try { deps.auditStore.append(audit); } catch { /* audit persistence must not block execution */ }
+
     return {
       success: false,
       error: {
@@ -243,7 +250,7 @@ export async function executeAuthenticatedHttpRequest(
   // 6. Filter the response through the sanitisation pipeline
   const filtered = filterHttpResponse(rawResponse, secrets);
 
-  // 7. Generate audit summary
+  // 7. Generate and persist audit summary
   const audit = generateHttpAuditSummary({
     credentialHandle: request.credentialHandle,
     grantId,
@@ -253,6 +260,8 @@ export async function executeAuthenticatedHttpRequest(
     success: true,
     statusCode: rawResponse.statusCode,
   });
+
+  try { deps.auditStore.append(audit); } catch { /* audit persistence must not block execution */ }
 
   logger.log(
     `[ces-http] ${request.method} ${request.url} -> ${rawResponse.statusCode} (grant=${grantId})`,

@@ -147,6 +147,7 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
       },
       managedSubjectOptions,
       managedMaterializerOptions,
+      auditStore,
       sessionId,
     },
   );
@@ -161,6 +162,7 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
         error:
           "Command credential materialisation in managed mode is not yet available.",
       }),
+      auditStore,
       cesMode: "managed",
     },
     defaultWorkspaceDir: "/workspace",

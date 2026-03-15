@@ -68,6 +68,9 @@ import {
   type WorkspaceOutput,
   type CopybackResult,
 } from "./workspace.js";
+import type { AuditRecordSummary } from "@vellumai/ces-contracts";
+
+import type { AuditStore } from "../audit/store.js";
 import type { PersistentGrantStore } from "../grants/persistent-store.js";
 import type { TemporaryGrantStore } from "../grants/temporary-store.js";
 
@@ -148,6 +151,8 @@ export interface CommandExecutorDeps {
   temporaryStore: TemporaryGrantStore;
   /** Credential materializer function. */
   materializeCredential: MaterializeCredentialFn;
+  /** Audit store for persisting token-free audit records. */
+  auditStore?: AuditStore;
   /** CES operating mode (for toolstore path resolution). */
   cesMode?: CesMode;
   /** Egress proxy session start hooks (for creating the proxy server). */
@@ -425,6 +430,22 @@ export async function executeAuthenticatedCommand(
   }
 
   cleanupAll(scratchDir, tempFilePath, commandEnv["HOME"]);
+
+  // -- 12. Persist audit record -----------------------------------------------
+  if (deps.auditStore) {
+    const auditRecord: AuditRecordSummary = {
+      auditId,
+      grantId: grantResult.grantId ?? "unknown",
+      credentialHandle: request.credentialHandle,
+      toolName: "command",
+      target: `${request.bundleDigest}/${request.profileName} ${request.argv.join(" ")}`.trim(),
+      sessionId: request.sessionId ?? "unknown",
+      success: execResult.success,
+      ...(execResult.error ? { errorMessage: execResult.error } : {}),
+      timestamp: new Date().toISOString(),
+    };
+    try { deps.auditStore.append(auditRecord); } catch { /* audit persistence must not block execution */ }
+  }
 
   return execResult;
 }

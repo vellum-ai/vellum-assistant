@@ -149,6 +149,7 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
         metadataStore,
         oauthConnections,
       },
+      auditStore,
       sessionId,
     },
   );
@@ -164,6 +165,7 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
           "CES local credential materialisation not yet available. " +
           "A CES-native secure-key backend must be configured.",
       }),
+      auditStore,
       cesMode: "local",
     },
     defaultWorkspaceDir: join(vellumRoot, "workspace"),
