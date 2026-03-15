@@ -36,6 +36,19 @@ final class OnboardingState {
     var accessibilityGranted: Bool = false
     var screenGranted: Bool = false
     var skipPermissionChecks: Bool = false
+
+    /// Whether the user explicitly skipped login during onboarding.
+    var skippedAuth: Bool = false
+
+    /// The hosting mode selected in onboarding step 1.
+    var selectedHostingMode: HostingMode = .local
+
+    enum HostingMode: String {
+        case vellumCloud = "vellum-cloud"
+        case local = "local"
+        case localDocker = "local-docker"
+        case vps = "vps"
+    }
     var hasHatched: Bool = false
     var interviewCompleted: Bool = false
     var cloudProvider: String = "local"
@@ -175,6 +188,7 @@ final class OnboardingState {
         hatchCompleted = false
         hatchLogLines = []
         hasHatched = false
+        skippedAuth = false
 
         // Clear stored API key so the user starts fresh
         APIKeyManager.deleteKey(for: "anthropic")

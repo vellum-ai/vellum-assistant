@@ -30,17 +30,6 @@ struct WakeUpStepView: View {
         return NSImage(contentsOf: url)
     }()
 
-    private var managedSignInEnabled: Bool {
-        MacOSClientFeatureFlagManager.shared.isEnabled("managed_sign_in_enabled")
-    }
-
-    private var primaryButtonTitle: String {
-        onboardingPrimaryButtonTitle(
-            isAuthenticated: authManager?.isAuthenticated == true,
-            hasAssistant: LockfileAssistant.loadLatest() != nil
-        )
-    }
-
     // MARK: - Body
 
     var body: some View {
@@ -83,26 +72,22 @@ struct WakeUpStepView: View {
                         .foregroundColor(VColor.contentSecondary)
                 }
                 .frame(height: 36)
-            } else if managedSignInEnabled {
-                let buttonTitle = primaryButtonTitle
-                VStack(spacing: VSpacing.xs) {
-                    OnboardingButton(title: buttonTitle, style: .primary) {
-                        onContinueWithVellum()
-                    }
-                    .accessibilityLabel(buttonTitle)
-                }
-
-                if authManager?.isAuthenticated != true {
-                    OnboardingButton(title: "Skip for now", style: .secondary) {
-                        onStartWithAPIKey()
-                    }
-                    .accessibilityLabel("Skip for now")
-                }
             } else {
-                OnboardingButton(title: "Get Started", style: .primary) {
-                    onStartWithAPIKey()
+                OnboardingButton(title: "Log In", style: .primary) {
+                    onContinueWithVellum()
                 }
-                .accessibilityLabel("Get Started")
+                .accessibilityLabel("Log In")
+
+                Button {
+                    state?.skippedAuth = true
+                    onStartWithAPIKey()
+                } label: {
+                    Text("Skip")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentSecondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Skip")
             }
 
             // Auth error message
