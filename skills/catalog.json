@@ -641,6 +641,19 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "vellum-avatar",
+      "name": "vellum-avatar",
+      "description": "Customize the assistant's avatar — build a native character, upload an image, or generate one with AI",
+      "metadata": {
+        "emoji": "🎨",
+        "vellum": {
+          "display-name": "Avatar",
+          "user-invocable": "true"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "vercel-token-setup",
       "name": "vercel-token-setup",
       "description": "Set up a Vercel API token for publishing apps using browser automation",
