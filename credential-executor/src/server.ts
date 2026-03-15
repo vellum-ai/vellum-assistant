@@ -220,7 +220,15 @@ export class CesRpcServer {
 
     if (msg.type === "handshake_request") {
       if (this.handshakeComplete) {
-        this.logger.warn("[ces-server] Duplicate handshake_request after session established; ignoring");
+        this.logger.warn("[ces-server] Duplicate handshake_request after session established; rejecting");
+        const ack: HandshakeAck = {
+          type: "handshake_ack",
+          protocolVersion: CES_PROTOCOL_VERSION,
+          sessionId: (msg as HandshakeRequest).sessionId,
+          accepted: false,
+          reason: "Session already established",
+        };
+        this.sendMessage(ack);
         return;
       }
       this.handleHandshake(msg as HandshakeRequest);
