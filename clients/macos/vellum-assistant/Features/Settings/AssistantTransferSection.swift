@@ -62,7 +62,7 @@ struct AssistantTransferSection: View {
         .alert("Transfer to Cloud", isPresented: $showingConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Transfer", role: .destructive) {
-                Task { await transferLocalToManaged() }
+                transferTask = Task { await transferLocalToManaged() }
             }
         } message: {
             Text("This will move all conversations, memory, and settings to a cloud-hosted assistant, then retire the local one. This cannot be undone.")
@@ -164,6 +164,7 @@ struct AssistantTransferSection: View {
                 throw TransferError.managedEntryNotFound
             }
             AppDelegate.shared?.performSwitchAssistant(to: managedAssistant)
+            transferTask = nil
             onClose()
 
             // Step 5 — Retire local assistant (fire-and-forget)
@@ -310,6 +311,7 @@ struct AssistantTransferSection: View {
 
             // Step 7 — Switch to local assistant now that import succeeded
             AppDelegate.shared?.performSwitchAssistant(to: resolvedLocal)
+            transferTask = nil
             onClose()
 
             // Step 8 — Retire managed assistant (fire-and-forget with pre-saved auth)
