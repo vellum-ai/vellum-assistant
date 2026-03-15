@@ -10,6 +10,8 @@
  * straight through to the CES RPC call with no transformation.
  */
 
+import { GrantProposalSchema, renderProposal } from "@vellumai/ces-contracts";
+
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
@@ -117,14 +119,44 @@ class MakeAuthenticatedRequestTool implements Tool {
           { credentialHandle, method, url, error: errorMsg },
           "CES make_authenticated_request failed",
         );
+
+        // Extract CES approval data from error.details when approval is required.
+        // CES returns the proposal and proposalHash inside error.details, not as
+        // a top-level response field.
+        let cesApprovalRequired: ToolExecutionResult["cesApprovalRequired"];
+        if (
+          response.error?.code === "APPROVAL_REQUIRED" &&
+          response.error.details
+        ) {
+          const details = response.error.details as Record<string, unknown>;
+          const proposalParseResult = GrantProposalSchema.safeParse(
+            details.proposal,
+          );
+          if (proposalParseResult.success) {
+            const proposal = proposalParseResult.data;
+            cesApprovalRequired = {
+              proposal,
+              proposalHash: (details.proposalHash as string) ?? "",
+              renderedProposal: renderProposal(proposal),
+              sessionId: context.sessionId,
+            };
+          } else {
+            log.warn(
+              {
+                credentialHandle,
+                method,
+                url,
+                parseError: proposalParseResult.error,
+              },
+              "CES APPROVAL_REQUIRED response has invalid proposal in error.details",
+            );
+          }
+        }
+
         return {
           content: `Error: ${errorMsg}`,
           isError: true,
-          cesApprovalRequired:
-            response.error?.code === "APPROVAL_REQUIRED"
-              ? ((response as unknown as Record<string, unknown>)
-                  .approvalRequired as ToolExecutionResult["cesApprovalRequired"])
-              : undefined,
+          cesApprovalRequired,
         };
       }
 
