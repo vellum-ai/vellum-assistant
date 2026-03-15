@@ -79,7 +79,7 @@ export class NotificationBroadcaster {
   ): Promise<NotificationDeliveryResult[]> {
     const destinations = resolveDestinations(decision.selectedChannels);
 
-    // Ensure vellum is processed first so the notification_conversation_created
+    // Ensure vellum is processed first so the notification_thread_created
     // event fires immediately, before slower channel sends (e.g. Telegram 30s
     // timeout) can delay it past the macOS deep-link retry window.
     const orderedChannels = [...decision.selectedChannels].sort((a, b) => {
@@ -242,7 +242,7 @@ export class NotificationBroadcaster {
           }
         }
 
-        // Emit notification_conversation_created event only when a NEW
+        // Emit notification_thread_created event only when a NEW
         // conversation was actually created. Reusing an existing conversation
         // should not fire the event — the client already knows about the
         // conversation.

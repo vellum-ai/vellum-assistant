@@ -74,7 +74,7 @@ function getBroadcaster(): NotificationBroadcaster {
       const broadcastFn = registeredBroadcastFn;
       broadcasterInstance.setOnConversationCreated((info) => {
         broadcastFn({
-          type: "notification_conversation_created",
+          type: "notification_thread_created",
           conversationId: info.conversationId,
           title: info.title,
           sourceEventName: info.sourceEventName,
@@ -85,7 +85,7 @@ function getBroadcaster(): NotificationBroadcaster {
             conversationId: info.conversationId,
             guardianScoped: info.targetGuardianPrincipalId != null,
           },
-          "Emitted notification_conversation_created push event",
+          "Emitted notification_thread_created push event",
         );
       });
     }
@@ -168,7 +168,7 @@ export interface EmitSignalParams<TEventName extends string = string> {
   dedupeKey?: string;
   /**
    * Optional callback invoked immediately when the broadcaster pairs a vellum
-   * conversation and emits `notification_conversation_created`.
+   * conversation and emits `notification_thread_created`.
    */
   onConversationCreated?: (info: ConversationCreatedInfo) => void;
   /**
@@ -320,7 +320,7 @@ export async function emitNotificationSignal<TEventName extends string>(
     }
 
     // Step 4: Dispatch through the broadcaster
-    // Note: notification_conversation_created events are emitted eagerly inside
+    // Note: notification_thread_created events are emitted eagerly inside
     // the broadcaster as soon as vellum conversation pairing succeeds, rather
     // than after all channel deliveries complete. This avoids a race where
     // slow Telegram delivery delays the push past the macOS deep-link retry.
