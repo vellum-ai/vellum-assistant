@@ -47,8 +47,9 @@ COPY --from=builder --chown=ces:ces /app /app
 
 USER ces
 
-EXPOSE 7840
+EXPOSE 7841
 
-ENV CES_PORT=7840
+ENV CES_MODE=managed
+ENV CES_HEALTH_PORT=7841
 
-CMD ["bun", "run", "src/index.ts"]
+CMD ["bun", "run", "src/managed-main.ts"]

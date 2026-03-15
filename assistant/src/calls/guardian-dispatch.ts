@@ -144,7 +144,7 @@ async function dispatchGuardianQuestionInner(
       guardianPrincipalId,
       toolName,
       inputDigest,
-      expiresAt: new Date(expiresAt).toISOString(),
+      expiresAt,
     });
 
     log.info(

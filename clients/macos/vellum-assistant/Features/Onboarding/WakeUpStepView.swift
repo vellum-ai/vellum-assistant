@@ -138,11 +138,18 @@ struct WakeUpStepView: View {
 
         // Characters peeking up from the bottom — single composed image
         // exported from Figma, displayed edge-to-edge at the window bottom.
+        // Clip bottom corners to match the macOS window corner radius.
         if let characters = Self.welcomeCharacters {
             Image(nsImage: characters)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(maxWidth: .infinity)
+                .clipShape(UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: VRadius.window,
+                    bottomTrailingRadius: VRadius.window,
+                    topTrailingRadius: 0
+                ))
                 .opacity(showCharacters ? 1 : 0)
                 .offset(y: showCharacters ? 0 : 30)
                 .animation(.easeOut(duration: 0.6).delay(0.7), value: showCharacters)

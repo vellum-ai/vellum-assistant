@@ -78,6 +78,7 @@ function handleVoiceConfigUpdate(activationKey: string): Response {
 // Avatar generation
 // ---------------------------------------------------------------------------
 
+// Also callable via the `vellum-avatar` skill's AI generation mode.
 async function handleGenerateAvatar(description: string): Promise<Response> {
   if (!description.trim()) {
     return httpError("BAD_REQUEST", "Description is required.", 400);
@@ -100,8 +101,22 @@ async function handleGenerateAvatar(description: string): Promise<Response> {
       getWorkspaceDir(),
       "data",
       "avatar",
-      "custom-avatar.png",
+      "avatar-image.png",
     );
+
+    // Notify all connected SSE clients so every macOS/iOS instance
+    // reloads the avatar image immediately.
+    assistantEventHub
+      .publish(
+        buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+          type: "avatar_updated",
+          avatarPath,
+        }),
+      )
+      .catch((err) => {
+        log.warn({ err }, "Failed to publish avatar_updated event");
+      });
+
     return Response.json({ ok: true, avatarPath });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -176,7 +191,9 @@ async function handleOAuthConnectStart(body: {
     if (dbApp) {
       clientId = dbApp.clientId;
       if (!clientSecret) {
-        clientSecret = await getSecureKeyAsync(dbApp.clientSecretCredentialPath);
+        clientSecret = await getSecureKeyAsync(
+          dbApp.clientSecretCredentialPath,
+        );
       }
     }
   }

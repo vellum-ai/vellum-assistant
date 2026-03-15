@@ -52,6 +52,11 @@ const SKILL_DIR = path.resolve(
   "../config/bundled-skills/claude-code",
 );
 
+const SHARED_DIR = path.resolve(
+  import.meta.dirname ?? __dirname,
+  "../config/bundled-skills/_shared",
+);
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -134,5 +139,45 @@ describe("Claude Code skill migration regression", () => {
     expect(spy).toHaveBeenCalledWith(input, ctx);
 
     spy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bundled skill shared guidance — CES tools instead of token-reveal
+// ---------------------------------------------------------------------------
+
+describe("CLI_RETRIEVAL_PATTERN.md CES guidance", () => {
+  const patternPath = path.join(SHARED_DIR, "CLI_RETRIEVAL_PATTERN.md");
+  const content = fs.readFileSync(patternPath, "utf-8");
+
+  test("teaches handle discovery via assistant credentials list", () => {
+    expect(content).toContain("assistant credentials list");
+  });
+
+  test("teaches handle discovery via assistant oauth connections list", () => {
+    expect(content).toContain("assistant oauth connections list");
+  });
+
+  test("teaches make_authenticated_request CES tool", () => {
+    expect(content).toContain("make_authenticated_request");
+  });
+
+  test("teaches run_authenticated_command CES tool", () => {
+    expect(content).toContain("run_authenticated_command");
+  });
+
+  test("warns that host_bash is outside CES secrecy boundary", () => {
+    expect(content).toContain("outside the CES secrecy boundary");
+  });
+
+  // -- Deprecated patterns must NOT appear --
+
+  test("does not teach proxied bash with credential_ids", () => {
+    expect(content).not.toContain("credential_ids");
+    expect(content).not.toContain("network_mode: proxied");
+  });
+
+  test("does not teach oauth connections token for raw token extraction", () => {
+    expect(content).not.toContain("oauth connections token");
   });
 });

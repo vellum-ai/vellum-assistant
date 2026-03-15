@@ -1,11 +1,13 @@
 import { spawn } from "node:child_process";
 
 import { getConfig } from "../../config/loader.js";
+import { isCesShellLockdownEnabled } from "../../credential-execution/feature-gates.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
+import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
-import { getDataDir } from "../../util/platform.js";
+import { getDataDir, getRootDir } from "../../util/platform.js";
 import { resolveCredentialRef } from "../credentials/resolve.js";
 import {
   getOrStartSession,
@@ -29,6 +31,19 @@ function buildCredentialRefTrace(
   unresolvedRefs: string[],
 ) {
   return { rawRefs, resolvedIds, unresolvedRefs };
+}
+
+/**
+ * Build the list of absolute paths that should be blocked from read access
+ * inside the sandbox when CES shell lockdown is active.
+ *
+ * Protected paths include:
+ * - ~/.vellum/protected/ — credential store secrets
+ * - ~/.vellum/workspace/data/db/ — database files that may contain credential metadata
+ */
+function buildCesProtectedPaths(): string[] {
+  const root = getRootDir();
+  return [`${root}/protected`, `${root}/workspace/data/db`];
 }
 
 const log = getLogger("shell-tool");
@@ -96,8 +111,32 @@ class ShellTool implements Tool {
       return { content: "Error: command contains null bytes", isError: true };
     }
 
+    const config = getConfig();
+    const shellLockdownActive =
+      isCesShellLockdownEnabled(config) &&
+      isUntrustedTrustClass(context.trustClass);
+
     const networkMode: "off" | "proxied" =
       input.network_mode === "proxied" ? "proxied" : "off";
+
+    // -----------------------------------------------------------------------
+    // CES shell lockdown — reject proxied credential sessions for untrusted
+    // actors when the lockdown flag is active. Proxied sessions grant the
+    // subprocess access to credentials through the egress proxy, which
+    // violates the secrecy guarantee.
+    // -----------------------------------------------------------------------
+    if (shellLockdownActive && networkMode === "proxied") {
+      log.warn(
+        { trustClass: context.trustClass },
+        "CES shell lockdown: rejecting proxied credential session for untrusted actor",
+      );
+      return {
+        content:
+          "Error: proxied credential sessions are not available in untrusted shell mode. " +
+          "Use the credential grant workflow to request access through a guardian.",
+        isError: true,
+      };
+    }
 
     const rawCredentialRefs: string[] = [];
     if (Array.isArray(input.credential_ids)) {
@@ -106,6 +145,24 @@ class ShellTool implements Tool {
           rawCredentialRefs.push(id);
         }
       }
+    }
+
+    // -----------------------------------------------------------------------
+    // CES shell lockdown — reject non-empty credential-ref mode for untrusted
+    // actors. Even when network_mode is "off", passing credential_ids could
+    // allow the model to probe stored credential metadata.
+    // -----------------------------------------------------------------------
+    if (shellLockdownActive && rawCredentialRefs.length > 0) {
+      log.warn(
+        { trustClass: context.trustClass, refCount: rawCredentialRefs.length },
+        "CES shell lockdown: rejecting credential-ref mode for untrusted actor",
+      );
+      return {
+        content:
+          "Error: credential references are not available in untrusted shell mode. " +
+          "Use the credential grant workflow to request access through a guardian.",
+        isError: true,
+      };
     }
 
     // Resolve credential refs (UUID or service/field) to canonical UUIDs.
@@ -152,7 +209,6 @@ class ShellTool implements Tool {
       credentialIds.push(...rawCredentialRefs);
     }
 
-    const config = getConfig();
     const { shellDefaultTimeoutSec, shellMaxTimeoutSec } = config.timeouts;
     const requestedSec =
       typeof input.timeout_seconds === "number"
@@ -213,13 +269,26 @@ class ShellTool implements Tool {
       Object.assign(env, proxyEnv);
     }
 
+    // Inject VELLUM_UNTRUSTED_SHELL=1 so assistant CLI commands can self-deny
+    // raw-token/secret reveal flows when invoked from an untrusted shell.
+    if (shellLockdownActive) {
+      env.VELLUM_UNTRUSTED_SHELL = "1";
+    }
+
     const result = await new Promise<ToolExecutionResult>((resolve) => {
       const stdoutChunks: Buffer[] = [];
       const stderrChunks: Buffer[] = [];
       let timedOut = false;
 
+      // CES shell lockdown: build deny-read paths for protected credential
+      // data, the protected dir, and data sub-dirs that contain secrets.
+      const denyReadPaths: string[] | undefined = shellLockdownActive
+        ? buildCesProtectedPaths()
+        : undefined;
+
       const wrapped = wrapCommand(command, context.workingDir, sandboxConfig, {
         networkMode,
+        denyReadPaths,
       });
       const child = spawn(wrapped.command, wrapped.args, {
         cwd: context.workingDir,

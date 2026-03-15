@@ -16,7 +16,7 @@ const TOOL_NAME = "set_avatar";
 
 /** Canonical path where the custom avatar PNG is stored. */
 function getAvatarPath(): string {
-  return join(getWorkspaceDir(), "data", "avatar", "custom-avatar.png");
+  return join(getWorkspaceDir(), "data", "avatar", "avatar-image.png");
 }
 
 export const setAvatarTool: Tool = {
@@ -87,8 +87,6 @@ export const setAvatarTool: Tool = {
       renameSync(tmpPath, avatarPath);
 
       log.info({ avatarPath }, "Avatar saved successfully");
-
-      // Side-effect hook in tool-side-effects.ts broadcasts avatar_updated to all clients.
 
       return {
         content: "Avatar updated! Your new avatar will appear shortly.",

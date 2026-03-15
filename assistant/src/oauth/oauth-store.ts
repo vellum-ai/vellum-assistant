@@ -5,6 +5,12 @@
  * extra_params, granted_scopes, metadata) are stored as serialized JSON strings.
  */
 
+import {
+  deleteOAuthTokens,
+  oauthAppClientSecretPath,
+  oauthConnectionAccessTokenPath,
+  type SecureKeyBackend,
+} from "@vellumai/credential-storage";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
@@ -191,7 +197,7 @@ export async function upsertApp(
     );
   }
 
-  const defaultCredPath = (appId: string) => `oauth_app/${appId}/client_secret`;
+  const defaultCredPath = (appId: string) => oauthAppClientSecretPath(appId);
 
   // Verify the credential path points to an existing secret.
   if (clientSecretCredentialPath) {
@@ -498,7 +504,7 @@ export async function isProviderConnected(
   const conn = getConnectionByProvider(providerKey);
   if (!conn || conn.status !== "active") return false;
   return (
-    (await getSecureKeyAsync(`oauth_connection/${conn.id}/access_token`)) !==
+    (await getSecureKeyAsync(oauthConnectionAccessTokenPath(conn.id))) !==
     undefined
   );
 }
@@ -611,14 +617,21 @@ export async function disconnectOAuthProvider(
     : getConnectionByProvider(providerKey, clientId);
   if (!conn) return "not-found";
 
-  const r1 = await deleteSecureKeyAsync(
-    `oauth_connection/${conn.id}/access_token`,
-  );
-  const r2 = await deleteSecureKeyAsync(
-    `oauth_connection/${conn.id}/refresh_token`,
+  // Wrap the assistant's secure-key functions into the SecureKeyBackend
+  // interface expected by the shared deleteOAuthTokens helper.
+  const backend: SecureKeyBackend = {
+    get: (key: string) => getSecureKeyAsync(key),
+    set: (key: string, value: string) => setSecureKeyAsync(key, value),
+    delete: (key: string) => deleteSecureKeyAsync(key),
+    list: async () => [],
+  };
+
+  const { accessTokenResult, refreshTokenResult } = await deleteOAuthTokens(
+    backend,
+    conn.id,
   );
 
-  if (r1 === "error" || r2 === "error") {
+  if (accessTokenResult === "error" || refreshTokenResult === "error") {
     // Return "error" (rather than throwing like deleteApp) so the connection row
     // is preserved. This avoids orphaning secrets in secure storage — the caller
     // can retry later and the row acts as a pointer to the keys that still need
@@ -628,8 +641,8 @@ export async function disconnectOAuthProvider(
       {
         providerKey,
         connectionId: conn.id,
-        accessTokenResult: r1,
-        refreshTokenResult: r2,
+        accessTokenResult,
+        refreshTokenResult,
       },
       "Failed to delete OAuth secure keys — skipping connection row deletion to avoid orphaning secrets",
     );

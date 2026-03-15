@@ -7,10 +7,12 @@
     ".": "./src/index.ts"
   },
   "bin": {
-    "credential-executor": "./src/index.ts"
+    "credential-executor": "./src/main.ts",
+    "credential-executor-managed": "./src/managed-main.ts"
   },
   "scripts": {
-    "dev": "bun run src/index.ts",
+    "dev": "bun run src/main.ts",
+    "dev:managed": "CES_MODE=managed bun run src/managed-main.ts",
     "typecheck": "bunx tsc --noEmit",
     "test": "bun test src/"
   },

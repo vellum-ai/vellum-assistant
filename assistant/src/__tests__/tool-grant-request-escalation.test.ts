@@ -422,7 +422,7 @@ describe("applyCanonicalGuardianDecision / tool_grant_request", () => {
       guardianPrincipalId: "test-principal-id",
       toolName: "bash",
       inputDigest: "sha256:testdigest",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await applyCanonicalGuardianDecision({
@@ -452,7 +452,7 @@ describe("applyCanonicalGuardianDecision / tool_grant_request", () => {
       guardianPrincipalId: "test-principal-id",
       toolName: "bash",
       inputDigest: "sha256:testdigest",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await applyCanonicalGuardianDecision({
@@ -480,7 +480,7 @@ describe("applyCanonicalGuardianDecision / tool_grant_request", () => {
       guardianPrincipalId: "test-principal-id",
       toolName: "bash",
       inputDigest: "sha256:testdigest",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await applyCanonicalGuardianDecision({
@@ -662,7 +662,7 @@ describe("inline wait-and-resume", () => {
       guardianPrincipalId: "test-principal-id",
       toolName: "bash",
       inputDigest: "sha256:waitgrant",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     // Schedule approval after 50ms
@@ -704,7 +704,7 @@ describe("inline wait-and-resume", () => {
       guardianPrincipalId: "test-principal-id",
       toolName: "bash",
       inputDigest: "sha256:denywait",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     // Schedule rejection after 50ms
@@ -743,7 +743,7 @@ describe("inline wait-and-resume", () => {
       guardianPrincipalId: "test-principal-id",
       toolName: "bash",
       inputDigest: "sha256:timeoutwait",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const start = Date.now();
@@ -777,7 +777,7 @@ describe("inline wait-and-resume", () => {
       guardianPrincipalId: "test-principal-id",
       toolName: "bash",
       inputDigest: "sha256:abortwait",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const controller = new AbortController();

@@ -113,7 +113,7 @@ export function makeEventSender(params: {
           toolName: event.toolName,
           status: "pending",
           requestCode: generateCanonicalRequestCode(),
-          expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+          expiresAt: Date.now() + 5 * 60 * 1000,
         });
       } catch (err) {
         log.debug(

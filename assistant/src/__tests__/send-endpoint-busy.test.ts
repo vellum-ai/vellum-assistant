@@ -443,7 +443,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       guardianPrincipalId: "test-principal-id",
       status: "pending",
       requestCode: "ABC123",
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      expiresAt: Date.now() + 5 * 60 * 1000,
     });
 
     await startServer(() => session);
@@ -503,7 +503,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       status: "pending",
       guardianPrincipalId: "test-principal-id",
       requestCode: "C0FFEE",
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      expiresAt: Date.now() + 5 * 60 * 1000,
     });
 
     const approvalConversationGenerator: ApprovalConversationGenerator = async (
@@ -571,7 +571,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       status: "pending",
       guardianPrincipalId: "test-principal-id",
       requestCode: "DEF456",
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      expiresAt: Date.now() + 5 * 60 * 1000,
     });
 
     await startServer(() => session);
@@ -631,7 +631,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       status: "pending",
       guardianPrincipalId: "test-principal-id",
       requestCode: "Q2D456",
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      expiresAt: Date.now() + 5 * 60 * 1000,
     });
 
     await startServer(() => session);
@@ -691,7 +691,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       status: "pending",
       guardianPrincipalId: "test-principal-id",
       requestCode: "GHI789",
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      expiresAt: Date.now() + 5 * 60 * 1000,
     });
 
     await startServer(() => session);
@@ -749,7 +749,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       status: "pending",
       guardianPrincipalId: "test-principal-id",
       requestCode: "JKL012",
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      expiresAt: Date.now() + 5 * 60 * 1000,
     });
 
     await startServer(() => session);

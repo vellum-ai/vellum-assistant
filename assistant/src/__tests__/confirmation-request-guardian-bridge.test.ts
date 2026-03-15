@@ -129,7 +129,7 @@ function makeCanonicalRequest(overrides: Record<string, unknown> = {}) {
     toolName: "bash",
     status: "pending",
     requestCode: generateCanonicalRequestCode(),
-    expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+    expiresAt: Date.now() + 5 * 60 * 1000,
     ...overrides,
   });
 }

@@ -8,33 +8,99 @@
  * from the local credential store, executes the requested operation through
  * the egress proxy, and returns sanitised results.
  *
- * This entrypoint bootstraps the CES process and starts listening for
- * incoming transport connections from the assistant.
+ * This module re-exports the public API surface. For entrypoints see:
+ * - `main.ts` — local mode (stdio transport, child process)
+ * - `managed-main.ts` — managed mode (Unix socket transport, sidecar)
  */
 
-import { CES_PROTOCOL_VERSION } from "@vellumai/ces-contracts";
+export {
+  CesRpcServer,
+  createCesServer,
+  createRunAuthenticatedCommandHandler,
+  registerCommandExecutionHandler,
+  createMakeAuthenticatedRequestHandler,
+  createManageSecureCommandToolHandler,
+  registerManageSecureCommandToolHandler,
+  buildHandlersWithHttp,
+} from "./server.js";
+export type {
+  CesServerOptions,
+  ManageSecureCommandToolHandlerDeps,
+  RpcHandlerRegistry,
+  RpcMethodHandler,
+  RunAuthenticatedCommandHandlerOptions,
+} from "./server.js";
 
-const PORT = parseInt(process.env["CES_PORT"] ?? "7840", 10);
+export {
+  getCesDataRoot,
+  getCesGrantsDir,
+  getCesAuditDir,
+  getCesToolStoreDir,
+  getCesMode,
+  getBootstrapSocketPath,
+  getHealthPort,
+} from "./paths.js";
+export type { CesMode } from "./paths.js";
 
-console.log(
-  `[credential-executor] Starting CES v${CES_PROTOCOL_VERSION} on port ${PORT}`,
-);
+export { PersistentGrantStore, TemporaryGrantStore } from "./grants/index.js";
+export type {
+  PersistentGrant,
+  TemporaryGrant,
+  TemporaryGrantKind,
+} from "./grants/index.js";
 
-// Placeholder — the server implementation will be added in subsequent PRs.
-const server = Bun.serve({
-  port: PORT,
-  fetch(_req) {
-    return new Response(
-      JSON.stringify({
-        service: "credential-executor",
-        protocolVersion: CES_PROTOCOL_VERSION,
-        status: "ok",
-      }),
-      {
-        headers: { "Content-Type": "application/json" },
-      },
-    );
-  },
-});
+export { computeDigest, verifyDigest } from "./toolstore/integrity.js";
+export type { DigestVerificationResult } from "./toolstore/integrity.js";
 
-console.log(`[credential-executor] Listening on http://localhost:${server.port}`);
+export {
+  isValidSha256Hex,
+  validateSourceUrl,
+  isWorkspaceOriginPath,
+} from "./toolstore/manifest.js";
+export type {
+  BundleOrigin,
+  ToolstoreManifest,
+} from "./toolstore/manifest.js";
+
+export {
+  publishBundle,
+  readPublishedManifest,
+  isBundlePublished,
+  getBundleDir,
+  getBundleManifestPath,
+  getBundleContentPath,
+} from "./toolstore/publish.js";
+export type {
+  PublishRequest,
+  PublishResult,
+} from "./toolstore/publish.js";
+
+export { resolveLocalSubject } from "./subjects/local.js";
+export type {
+  ResolvedStaticSubject,
+  ResolvedOAuthSubject,
+  ResolvedLocalSubject,
+  SubjectResolutionResult,
+  OAuthConnectionLookup,
+  LocalSubjectResolverDeps,
+} from "./subjects/local.js";
+
+export { LocalMaterialiser } from "./materializers/local.js";
+export type {
+  MaterialisedCredential,
+  MaterialisationResult,
+  TokenRefreshFn,
+  LocalMaterialiserDeps,
+} from "./materializers/local.js";
+
+export { executeAuthenticatedCommand } from "./commands/executor.js";
+export type {
+  ExecuteCommandRequest,
+  ExecuteCommandResult,
+  CommandExecutorDeps,
+  MaterializeCredentialFn,
+  MaterializeCredentialResult,
+} from "./commands/executor.js";
+
+export { executeAuthenticatedHttpRequest } from "./http/executor.js";
+export type { HttpExecutorDeps } from "./http/executor.js";

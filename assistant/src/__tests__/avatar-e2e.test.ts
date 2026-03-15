@@ -129,7 +129,7 @@ function geminiContentResponse() {
 }
 
 const expectedAvatarPath =
-  "/tmp/test-workspace-e2e/data/avatar/custom-avatar.png";
+  "/tmp/test-workspace-e2e/data/avatar/avatar-image.png";
 
 // ---------------------------------------------------------------------------
 // Tests

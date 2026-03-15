@@ -126,7 +126,7 @@ describe("applyCanonicalGuardianDecision", () => {
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: "shell",
       inputDigest: "sha256:abc",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await applyCanonicalGuardianDecision({
@@ -160,7 +160,7 @@ describe("applyCanonicalGuardianDecision", () => {
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: "shell",
       inputDigest: "sha256:abc",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await applyCanonicalGuardianDecision({
@@ -187,7 +187,7 @@ describe("applyCanonicalGuardianDecision", () => {
       callSessionId: "call-1",
       pendingQuestionId: "pq-1",
       questionText: "What is the gate code?",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await applyCanonicalGuardianDecision({
@@ -214,7 +214,7 @@ describe("applyCanonicalGuardianDecision", () => {
       conversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await applyCanonicalGuardianDecision({
@@ -241,7 +241,7 @@ describe("applyCanonicalGuardianDecision", () => {
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: "shell",
       inputDigest: "sha256:abc",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await applyCanonicalGuardianDecision({
@@ -265,7 +265,7 @@ describe("applyCanonicalGuardianDecision", () => {
       sourceType: "channel",
       conversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await applyCanonicalGuardianDecision({
@@ -286,7 +286,7 @@ describe("applyCanonicalGuardianDecision", () => {
       conversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await applyCanonicalGuardianDecision({
@@ -309,7 +309,7 @@ describe("applyCanonicalGuardianDecision", () => {
       conversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     // First decision succeeds
@@ -358,7 +358,7 @@ describe("applyCanonicalGuardianDecision", () => {
       conversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await applyCanonicalGuardianDecision({
@@ -388,7 +388,7 @@ describe("applyCanonicalGuardianDecision", () => {
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: "shell",
       inputDigest: "sha256:abc",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await applyCanonicalGuardianDecision({
@@ -421,7 +421,7 @@ describe("applyCanonicalGuardianDecision", () => {
       conversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
-      expiresAt: new Date(Date.now() - 10_000).toISOString(), // already expired
+      expiresAt: Date.now() - 10_000, // already expired
     });
 
     const result = await applyCanonicalGuardianDecision({
@@ -466,7 +466,7 @@ describe("applyCanonicalGuardianDecision", () => {
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: "file_read",
       inputDigest: "sha256:def",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await applyCanonicalGuardianDecision({
@@ -488,7 +488,7 @@ describe("applyCanonicalGuardianDecision", () => {
       callSessionId: "call-99",
       pendingQuestionId: "pq-99",
       questionText: "What is the password?",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await applyCanonicalGuardianDecision({
@@ -510,7 +510,7 @@ describe("applyCanonicalGuardianDecision", () => {
       conversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     // Should still succeed — CAS resolution happens regardless of resolver
@@ -535,7 +535,7 @@ describe("applyCanonicalGuardianDecision", () => {
       toolName: "host_bash",
       inputDigest: "sha256:voice-digest-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await applyCanonicalGuardianDecision({

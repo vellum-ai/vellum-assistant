@@ -1,0 +1,392 @@
+#!/usr/bin/env bun
+/**
+ * Managed CES entrypoint.
+ *
+ * In managed (sidecar) mode the CES container:
+ *
+ * 1. Ensures the CES-private data directories exist.
+ * 2. Binds a bootstrap Unix socket on the shared bootstrap volume.
+ * 3. Accepts exactly **one** assistant runtime connection.
+ * 4. Unlinks the socket path immediately after the connection is accepted,
+ *    preventing any second process from connecting.
+ * 5. Serves RPC on the accepted stream only.
+ * 6. Simultaneously serves health probes (`/healthz`, `/readyz`) on a
+ *    dedicated HTTP port for Kubernetes liveness/readiness checks.
+ *
+ * The managed entrypoint never opens a generic TCP or HTTP command API.
+ * All RPC traffic flows exclusively over the accepted Unix socket stream.
+ */
+
+import { mkdirSync, unlinkSync } from "node:fs";
+import { createServer as createNetServer, type Socket } from "node:net";
+import { dirname } from "node:path";
+import { Readable, Writable } from "node:stream";
+
+import { CES_PROTOCOL_VERSION, CesRpcMethod } from "@vellumai/ces-contracts";
+
+import { AuditStore } from "./audit/store.js";
+import { PersistentGrantStore } from "./grants/persistent-store.js";
+import {
+  createListAuditRecordsHandler,
+  createListGrantsHandler,
+  createRevokeGrantHandler,
+} from "./grants/rpc-handlers.js";
+import { TemporaryGrantStore } from "./grants/temporary-store.js";
+import {
+  getBootstrapSocketPath,
+  getCesAuditDir,
+  getCesDataRoot,
+  getCesGrantsDir,
+  getCesToolStoreDir,
+  getHealthPort,
+} from "./paths.js";
+import {
+  buildHandlersWithHttp,
+  CesRpcServer,
+  registerCommandExecutionHandler,
+  type RpcHandlerRegistry,
+} from "./server.js";
+import type { ManagedSubjectResolverOptions } from "./subjects/managed.js";
+import type { ManagedMaterializerOptions } from "./materializers/managed-platform.js";
+
+// ---------------------------------------------------------------------------
+// Logging (managed always logs to stderr)
+// ---------------------------------------------------------------------------
+
+const log = (msg: string) =>
+  process.stderr.write(`[ces-managed] ${msg}\n`);
+
+const warn = (msg: string) =>
+  process.stderr.write(`[ces-managed] WARN: ${msg}\n`);
+
+// ---------------------------------------------------------------------------
+// Data directory bootstrap
+// ---------------------------------------------------------------------------
+
+function ensureDataDirs(): void {
+  const dirs = [
+    getCesDataRoot("managed"),
+    getCesGrantsDir("managed"),
+    getCesAuditDir("managed"),
+    getCesToolStoreDir("managed"),
+  ];
+  for (const dir of dirs) {
+    mkdirSync(dir, { recursive: true });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Build RPC handler registry (managed mode)
+// ---------------------------------------------------------------------------
+
+function buildHandlers(sessionId: string): RpcHandlerRegistry {
+  // -- Grant stores ----------------------------------------------------------
+  const persistentGrantStore = new PersistentGrantStore(
+    getCesGrantsDir("managed"),
+  );
+  persistentGrantStore.init();
+
+  const temporaryGrantStore = new TemporaryGrantStore();
+
+  // -- Audit store -----------------------------------------------------------
+  const auditStore = new AuditStore(getCesAuditDir("managed"));
+  auditStore.init();
+
+  // -- Managed credential options --------------------------------------------
+  // In managed mode, credentials are obtained from the platform via its
+  // token-materialization endpoint. The platform URL and API key are provided
+  // through environment variables set by the orchestration layer.
+  const platformBaseUrl = process.env["PLATFORM_BASE_URL"] ?? "";
+  const assistantApiKey = process.env["ASSISTANT_API_KEY"] ?? "";
+
+  const managedSubjectOptions: ManagedSubjectResolverOptions | undefined =
+    platformBaseUrl && assistantApiKey
+      ? { platformBaseUrl, assistantApiKey }
+      : undefined;
+
+  const managedMaterializerOptions: ManagedMaterializerOptions | undefined =
+    platformBaseUrl && assistantApiKey
+      ? { platformBaseUrl, assistantApiKey }
+      : undefined;
+
+  if (!managedSubjectOptions) {
+    warn(
+      "PLATFORM_BASE_URL and/or ASSISTANT_API_KEY not set. " +
+        "Managed credential materialisation will not be available.",
+    );
+  }
+
+  // -- Build handler registry ------------------------------------------------
+
+  // In managed mode there is no local secure-key backend. The HTTP handler
+  // uses managed subject resolution and managed materialisation instead.
+  // The localMaterialiser and localSubjectDeps are required by HttpExecutorDeps
+  // but will only be reached for local_static/local_oauth handles (which are
+  // not expected in managed deployments). We stub them to fail closed.
+  const stubLocalMaterialiser = {
+    async materialise() {
+      return {
+        ok: false as const,
+        error: "Local credential materialisation is not available in managed mode.",
+      };
+    },
+    reset() {},
+  };
+
+  const handlers = buildHandlersWithHttp(
+    {
+      persistentGrantStore,
+      temporaryGrantStore,
+      localMaterialiser: stubLocalMaterialiser as any,
+      localSubjectDeps: {
+        metadataStore: { getByServiceField: () => undefined } as any,
+        oauthConnections: { getById: () => undefined },
+      },
+      managedSubjectOptions,
+      managedMaterializerOptions,
+      sessionId,
+    },
+  );
+
+  // Register run_authenticated_command handler
+  registerCommandExecutionHandler(handlers, {
+    executorDeps: {
+      persistentStore: persistentGrantStore,
+      temporaryStore: temporaryGrantStore,
+      materializeCredential: async (_handle) => ({
+        ok: false as const,
+        error:
+          "Command credential materialisation in managed mode is not yet available.",
+      }),
+      cesMode: "managed",
+    },
+    defaultWorkspaceDir: "/workspace",
+  });
+
+  // Register grant management handlers
+  handlers[CesRpcMethod.ListGrants] = createListGrantsHandler({
+    persistentGrantStore,
+    sessionId,
+  }) as typeof handlers[string];
+
+  handlers[CesRpcMethod.RevokeGrant] = createRevokeGrantHandler({
+    persistentGrantStore,
+  }) as typeof handlers[string];
+
+  // Register audit record handler
+  handlers[CesRpcMethod.ListAuditRecords] = createListAuditRecordsHandler({
+    auditStore,
+  }) as typeof handlers[string];
+
+  return handlers;
+}
+
+// ---------------------------------------------------------------------------
+// Health server
+// ---------------------------------------------------------------------------
+
+let rpcConnected = false;
+
+function startHealthServer(port: number, signal: AbortSignal): ReturnType<typeof Bun.serve> {
+  const server = Bun.serve({
+    port,
+    fetch(req) {
+      const url = new URL(req.url);
+      if (url.pathname === "/healthz") {
+        return new Response(
+          JSON.stringify({ status: "ok", version: CES_PROTOCOL_VERSION }),
+          { headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.pathname === "/readyz") {
+        const ready = rpcConnected;
+        return new Response(
+          JSON.stringify({ ready, version: CES_PROTOCOL_VERSION }),
+          {
+            status: ready ? 200 : 503,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
+      return new Response("Not Found", { status: 404 });
+    },
+  });
+
+  signal.addEventListener("abort", () => {
+    server.stop(true);
+  }, { once: true });
+
+  return server;
+}
+
+// ---------------------------------------------------------------------------
+// Bootstrap socket server (accepts exactly one connection)
+// ---------------------------------------------------------------------------
+
+/**
+ * Listen on a Unix socket, accept exactly one connection, unlink the
+ * socket path, and return readable/writable streams for the accepted
+ * connection.
+ */
+function acceptOneConnection(
+  socketPath: string,
+  signal: AbortSignal,
+): Promise<{ readable: Readable; writable: Writable; socket: Socket }> {
+  return new Promise((resolve, reject) => {
+    // Ensure the socket directory exists
+    mkdirSync(dirname(socketPath), { recursive: true });
+
+    // Clean up any stale socket file
+    try {
+      unlinkSync(socketPath);
+    } catch {
+      // Ignore — file may not exist
+    }
+
+    const netServer = createNetServer();
+
+    const cleanup = () => {
+      netServer.close();
+      try {
+        unlinkSync(socketPath);
+      } catch {
+        // Already unlinked or never created
+      }
+    };
+
+    if (signal.aborted) {
+      reject(new Error("Aborted before listening"));
+      return;
+    }
+
+    signal.addEventListener("abort", () => {
+      cleanup();
+      reject(new Error("Aborted while waiting for connection"));
+    }, { once: true });
+
+    netServer.on("error", (err) => {
+      cleanup();
+      reject(err);
+    });
+
+    netServer.listen(socketPath, () => {
+      log(`Bootstrap socket listening at ${socketPath}`);
+    });
+
+    netServer.on("connection", (socket: Socket) => {
+      // Accept exactly one connection, then close the listener and
+      // unlink the socket path so no other process can connect.
+      log("Assistant connected via bootstrap socket");
+      netServer.close();
+      try {
+        unlinkSync(socketPath);
+      } catch {
+        // Already unlinked
+      }
+      log("Bootstrap socket unlinked (single-connection enforced)");
+
+      const readable = new Readable({
+        read() {
+          // Data is pushed externally
+        },
+      });
+
+      const writable = new Writable({
+        write(chunk, _encoding, callback) {
+          if (socket.writable) {
+            socket.write(chunk, callback);
+          } else {
+            callback(new Error("Socket no longer writable"));
+          }
+        },
+      });
+
+      socket.on("data", (chunk) => {
+        readable.push(chunk);
+      });
+
+      socket.on("end", () => {
+        readable.push(null);
+      });
+
+      socket.on("error", (err) => {
+        readable.destroy(err);
+        writable.destroy(err);
+      });
+
+      resolve({ readable, writable, socket });
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+async function main(): Promise<void> {
+  ensureDataDirs();
+
+  log(`Starting CES v${CES_PROTOCOL_VERSION} (managed mode)`);
+
+  const controller = new AbortController();
+
+  // Graceful shutdown
+  const shutdown = () => {
+    log("Shutting down...");
+    controller.abort();
+  };
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+
+  // Start health server on dedicated port
+  const healthPort = getHealthPort();
+  const healthServer = startHealthServer(healthPort, controller.signal);
+  log(`Health server listening on port ${healthPort}`);
+
+  // Wait for exactly one assistant connection on the bootstrap socket
+  const socketPath = getBootstrapSocketPath();
+  log(`Waiting for assistant connection on ${socketPath}...`);
+
+  let connection: Awaited<ReturnType<typeof acceptOneConnection>>;
+  try {
+    connection = await acceptOneConnection(socketPath, controller.signal);
+  } catch (err) {
+    if (controller.signal.aborted) {
+      log("Shutdown before assistant connected.");
+      return;
+    }
+    throw err;
+  }
+
+  rpcConnected = true;
+
+  // Build the handler registry with all available RPC implementations
+  const sessionId = `ces-managed-${Date.now()}`;
+  const handlers = buildHandlers(sessionId);
+
+  const server = new CesRpcServer({
+    input: connection.readable,
+    output: connection.writable,
+    handlers,
+    logger: {
+      log: (msg: string, ...args: unknown[]) =>
+        process.stderr.write(`[ces-managed] ${msg} ${args.map(String).join(" ")}\n`),
+      warn: (msg: string, ...args: unknown[]) =>
+        process.stderr.write(`[ces-managed] WARN: ${msg} ${args.map(String).join(" ")}\n`),
+      error: (msg: string, ...args: unknown[]) =>
+        process.stderr.write(`[ces-managed] ERROR: ${msg} ${args.map(String).join(" ")}\n`),
+    },
+    signal: controller.signal,
+  });
+
+  await server.serve();
+
+  rpcConnected = false;
+  log("RPC session ended. Shutting down...");
+  controller.abort();
+}
+
+main().catch((err) => {
+  process.stderr.write(`[ces-managed] Fatal: ${err}\n`);
+  process.exit(1);
+});

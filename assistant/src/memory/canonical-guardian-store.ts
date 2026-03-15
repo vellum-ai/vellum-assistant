@@ -29,7 +29,7 @@ export function isRequestExpired(
   request: Pick<CanonicalGuardianRequest, "expiresAt">,
 ): boolean {
   if (!request.expiresAt) return false;
-  return new Date(request.expiresAt).getTime() < Date.now();
+  return request.expiresAt < Date.now();
 }
 
 // ---------------------------------------------------------------------------
@@ -64,9 +64,9 @@ export interface CanonicalGuardianRequest {
   decidedByExternalUserId: string | null;
   decidedByPrincipalId: string | null;
   followupState: string | null;
-  expiresAt: string | null;
-  createdAt: string;
-  updatedAt: string;
+  expiresAt: number | null;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface CanonicalGuardianDelivery {
@@ -77,8 +77,8 @@ export interface CanonicalGuardianDelivery {
   destinationChatId: string | null;
   destinationMessageId: string | null;
   status: string;
-  createdAt: string;
-  updatedAt: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -201,7 +201,7 @@ export interface CreateCanonicalGuardianRequestParams {
   decidedByExternalUserId?: string;
   decidedByPrincipalId?: string;
   followupState?: string;
-  expiresAt?: string;
+  expiresAt?: number;
 }
 
 /**
@@ -231,7 +231,7 @@ export function createCanonicalGuardianRequest(
   }
 
   const db = getDb();
-  const now = new Date().toISOString();
+  const now = Date.now();
   const id = params.id ?? uuid();
 
   const row = {
@@ -383,7 +383,7 @@ export interface UpdateCanonicalGuardianRequestParams {
   decidedByExternalUserId?: string;
   decidedByPrincipalId?: string;
   followupState?: string | null;
-  expiresAt?: string;
+  expiresAt?: number;
 }
 
 export function updateCanonicalGuardianRequest(
@@ -391,7 +391,7 @@ export function updateCanonicalGuardianRequest(
   updates: UpdateCanonicalGuardianRequestParams,
 ): CanonicalGuardianRequest | null {
   const db = getDb();
-  const now = new Date().toISOString();
+  const now = Date.now();
 
   const setValues: Record<string, unknown> = { updatedAt: now };
   if (updates.status !== undefined) setValues.status = updates.status;
@@ -431,7 +431,7 @@ export function resolveCanonicalGuardianRequest(
   decision: ResolveDecision,
 ): CanonicalGuardianRequest | null {
   const db = getDb();
-  const now = new Date().toISOString();
+  const now = Date.now();
 
   const setValues: Record<string, unknown> = {
     status: decision.status,
@@ -487,7 +487,7 @@ const INTERACTION_BOUND_KINDS = ["tool_approval", "pending_question"];
  */
 export function expireAllPendingCanonicalRequests(): number {
   const db = getDb();
-  const now = new Date().toISOString();
+  const now = Date.now();
 
   db.update(canonicalGuardianRequests)
     .set({ status: "expired", updatedAt: now })
@@ -520,7 +520,7 @@ export function createCanonicalGuardianDelivery(
   params: CreateCanonicalGuardianDeliveryParams,
 ): CanonicalGuardianDelivery {
   const db = getDb();
-  const now = new Date().toISOString();
+  const now = Date.now();
   const id = params.id ?? uuid();
 
   const row = {
@@ -781,7 +781,7 @@ export function getCanonicalRequestByPendingQuestionId(
  */
 export function expireCanonicalGuardianRequest(id: string): void {
   const db = getDb();
-  const now = new Date().toISOString();
+  const now = Date.now();
 
   db.update(canonicalGuardianRequests)
     .set({ status: "expired", updatedAt: now })
@@ -804,7 +804,7 @@ export function updateCanonicalGuardianDelivery(
   updates: UpdateCanonicalGuardianDeliveryParams,
 ): CanonicalGuardianDelivery | null {
   const db = getDb();
-  const now = new Date().toISOString();
+  const now = Date.now();
 
   const setValues: Record<string, unknown> = { updatedAt: now };
   if (updates.status !== undefined) setValues.status = updates.status;

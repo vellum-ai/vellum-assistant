@@ -374,6 +374,76 @@ jobs:
           path: /tmp/digests/*
           retention-days: 1
 
+  push-credential-executor-image:
+    needs: bump-and-tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, production]
+        platform:
+          - linux/amd64
+          - linux/arm64
+    environment: ${{ matrix.environment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute image name
+        id: image
+        run: echo "name=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: credential-executor/Dockerfile
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=credential-executor-${{ matrix.environment }}-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=credential-executor-${{ matrix.environment }}-${{ matrix.platform }}
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Prepare platform suffix
+        id: platform
+        run: |
+          platform="${{ matrix.platform }}"
+          echo "suffix=${platform//\//-}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: credential-executor-digests-${{ matrix.environment }}-${{ steps.platform.outputs.suffix }}
+          path: /tmp/digests/*
+          retention-days: 1
+
   push-gateway-manifest:
     needs: [bump-and-tag, push-gateway-image]
     runs-on: ubuntu-latest
@@ -453,8 +523,87 @@ jobs:
           echo "**Version:** \`${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
 
+  push-credential-executor-manifest:
+    needs: [bump-and-tag, push-credential-executor-image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, production]
+    environment: ${{ matrix.environment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+
+      - name: Get release SHA
+        id: release-sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: credential-executor-digests-${{ matrix.environment }}-*
+          merge-multiple: true
+
+      - name: Compute image tags
+        id: tags
+        run: |
+          IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
+          VERSION="${{ needs.bump-and-tag.outputs.version }}"
+          TAGS="${IMAGE}:${{ steps.release-sha.outputs.sha }}"
+          TAGS=$(printf "%s\n%s" "$TAGS" "${IMAGE}:v${VERSION}")
+          TAGS=$(printf "%s\n%s" "$TAGS" "${IMAGE}:latest")
+          echo "tags<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$TAGS" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
+          TAG_ARGS=""
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
+          done <<< "${{ steps.tags.outputs.tags }}"
+          SOURCES=$(printf "${IMAGE}@sha256:%s " *)
+          docker buildx imagetools create $TAG_ARGS $SOURCES
+
+      - name: Export image metadata
+        id: meta
+        run: |
+          echo "repository=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${{ needs.bump-and-tag.outputs.version }}" >> "$GITHUB_OUTPUT"
+          echo "sha=${{ steps.release-sha.outputs.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Summary
+        run: |
+          echo "## Credential Executor Image Published (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
+
   register-release:
-    needs: [bump-and-tag, push-assistant-manifest, push-gateway-manifest]
+    needs: [bump-and-tag, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -484,13 +633,21 @@ jobs:
           name: gateway-digests-${{ matrix.environment }}-linux-amd64
           path: /tmp/gateway-digest
 
+      - name: Download credential-executor amd64 digest
+        uses: actions/download-artifact@v4
+        with:
+          name: credential-executor-digests-${{ matrix.environment }}-linux-amd64
+          path: /tmp/credential-executor-digest
+
       - name: Extract amd64 digests
         id: digests
         run: |
           ASSISTANT_DIGEST="sha256:$(ls /tmp/assistant-digest/)"
           GATEWAY_DIGEST="sha256:$(ls /tmp/gateway-digest/)"
+          CREDENTIAL_EXECUTOR_DIGEST="sha256:$(ls /tmp/credential-executor-digest/)"
           echo "assistant_digest=${ASSISTANT_DIGEST}" >> "$GITHUB_OUTPUT"
           echo "gateway_digest=${GATEWAY_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "credential_executor_digest=${CREDENTIAL_EXECUTOR_DIGEST}" >> "$GITHUB_OUTPUT"
 
       - name: Resolve platform credentials
         id: platform-creds
@@ -509,6 +666,7 @@ jobs:
           SHA="${{ steps.release-sha.outputs.sha }}"
           ASSISTANT_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
           GATEWAY_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
+          CREDENTIAL_EXECUTOR_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
 
           PAYLOAD=$(jq -n \
             --arg version "$VERSION" \
@@ -521,6 +679,10 @@ jobs:
             --arg gateway_tag "v${VERSION}" \
             --arg gateway_sha "$SHA" \
             --arg gateway_digest "${{ steps.digests.outputs.gateway_digest }}" \
+            --arg credential_executor_repo "$CREDENTIAL_EXECUTOR_REPO" \
+            --arg credential_executor_tag "v${VERSION}" \
+            --arg credential_executor_sha "$SHA" \
+            --arg credential_executor_digest "${{ steps.digests.outputs.credential_executor_digest }}" \
             '{
               version: $version,
               released_at: $released_at,
@@ -536,6 +698,12 @@ jobs:
                 tag: $gateway_tag,
                 sha: $gateway_sha,
                 digest: $gateway_digest
+              },
+              credential_executor_image: {
+                repository: $credential_executor_repo,
+                tag: $credential_executor_tag,
+                sha: $credential_executor_sha,
+                digest: $credential_executor_digest
               }
             }')
 
@@ -1225,7 +1393,7 @@ jobs:
           rm -rf ~/.private_keys 2>/dev/null || true
 
   release:
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, register-release, ci-playwright]
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, register-release, ci-playwright]
     if: ${{ !cancelled() && needs.bump-and-tag.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos-arm64.result == 'success' && needs.ci-playwright.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -1686,7 +1854,7 @@ jobs:
   notify-release:
     name: Slack Notification (Release)
     if: always() && !cancelled()
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, register-release, release, update-platform, ci-assistant, ci-cli, ci-gateway, ci-playwright]
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, register-release, release, update-platform, ci-assistant, ci-cli, ci-gateway, ci-playwright]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -1732,6 +1900,7 @@ jobs:
           RI=$(ci_icon "${{ needs.release-ios.result }}")
           AI=$(ci_icon "${{ needs.push-assistant-manifest.result }}")
           GI=$(ci_icon "${{ needs.push-gateway-manifest.result }}")
+          CEI=$(ci_icon "${{ needs.push-credential-executor-manifest.result }}")
           RR=$(ci_icon "${{ needs.register-release.result }}")
 
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
@@ -1740,7 +1909,7 @@ jobs:
             PLAYWRIGHT_LINE=" (<${RUN_URL}#artifacts|view report>)"
           fi
 
-          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s register-release' "$A" "$C" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$AI" "$GI" "$RR")
+          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s register-release' "$A" "$C" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$AI" "$GI" "$CEI" "$RR")
           META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "${{ github.actor }}")
 
           # Fetch release notes from GitHub release

@@ -124,9 +124,7 @@ export async function tryMintGuardianActionGrant(params: {
     conversationId: request.sourceConversationId,
     callSessionId: request.callSessionId,
     guardianExternalUserId: guardianExternalUserId ?? null,
-    expiresAt: new Date(
-      Date.now() + GUARDIAN_ACTION_GRANT_TTL_MS,
-    ).toISOString(),
+    expiresAt: Date.now() + GUARDIAN_ACTION_GRANT_TTL_MS,
   });
 
   if (result.ok) {

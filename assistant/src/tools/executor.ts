@@ -1,9 +1,12 @@
 import { readFileSync } from "node:fs";
 
 import { getConfig } from "../config/loader.js";
+import { bridgeCesApproval } from "../credential-execution/approval-bridge.js";
+import { isCesShellLockdownEnabled } from "../credential-execution/feature-gates.js";
 import { getHookManager } from "../hooks/manager.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { RiskLevel } from "../permissions/types.js";
+import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
 import { redactSensitiveFields } from "../security/redaction.js";
 import { TokenExpiredError } from "../security/token-manager.js";
 import { PermissionDeniedError, ToolError } from "../util/errors.js";
@@ -84,6 +87,19 @@ export class ToolExecutor {
       // interactive permission/prompt flow so non-interactive sessions
       // don't auto-deny prompt-gated tools and burn the one-time grant.
       if (!gateResult.grantConsumed) {
+        // CES shell lockdown: set forcePromptSideEffects BEFORE the
+        // permission check so the PermissionChecker sees it and promotes
+        // any "allow" trust-rule decision to "prompt". Previously this
+        // flag was set inside host-shell.ts execute(), which runs AFTER
+        // the permission check and therefore had no effect.
+        if (
+          name === "host_bash" &&
+          isCesShellLockdownEnabled(getConfig()) &&
+          isUntrustedTrustClass(context.trustClass)
+        ) {
+          context.forcePromptSideEffects = true;
+        }
+
         // Check permissions via the extracted PermissionChecker
         const permResult = await this.permissionChecker.checkPermission(
           name,
@@ -199,6 +215,98 @@ export class ToolExecutor {
           toolTimeoutMs,
           name,
         );
+      }
+
+      // CES approval bridge: if the tool returned an approval_required
+      // indicator, present the proposal to the guardian via the existing
+      // confirmation transport, commit the decision to CES, and retry
+      // the original tool invocation with the granted grantId.
+      if (execResult.cesApprovalRequired && context.cesClient) {
+        const bridgeResult = await bridgeCesApproval(
+          execResult.cesApprovalRequired,
+          this.prompter,
+          context.cesClient,
+          {
+            isInteractive: context.isInteractive,
+            sessionId: context.sessionId,
+            signal: context.signal,
+          },
+        );
+
+        if (bridgeResult.outcome === "approved") {
+          // Retry the original tool invocation with the grantId attached.
+          // The CES tool implementations accept grantId in the input to
+          // bypass the approval check on the retry.
+          const retryInput = { ...input, grantId: bridgeResult.grantId };
+
+          log.info(
+            {
+              toolName: name,
+              grantId: bridgeResult.grantId,
+              sessionId: context.sessionId,
+            },
+            "CES approval granted — retrying tool invocation with grantId",
+          );
+
+          if (tool.executionMode === "proxy") {
+            execResult = await executeWithTimeout(
+              context.proxyToolResolver!(name, retryInput),
+              toolTimeoutMs,
+              name,
+            );
+          } else {
+            execResult = await executeWithTimeout(
+              tool.execute(retryInput, execContext),
+              toolTimeoutMs,
+              name,
+            );
+          }
+        } else if (
+          bridgeResult.outcome === "denied" ||
+          bridgeResult.outcome === "timeout"
+        ) {
+          const denialReason =
+            bridgeResult.outcome === "timeout"
+              ? `CES approval timed out for "${name}". The tool was not executed.`
+              : `CES approval denied for "${name}". The tool was not executed.`;
+          const durationMs = Date.now() - startTime;
+          emitLifecycleEvent(context, {
+            type: "permission_denied",
+            toolName: name,
+            executionTarget,
+            input,
+            workingDir: context.workingDir,
+            sessionId: context.sessionId,
+            conversationId: context.conversationId,
+            requestId: context.requestId,
+            riskLevel,
+            decision: "deny",
+            reason: denialReason,
+            durationMs,
+          });
+          return { content: denialReason, isError: true };
+        } else {
+          // bridgeResult.outcome === "error"
+          const errorMsg = `CES approval bridge error for "${name}": ${bridgeResult.message}`;
+          const durationMs = Date.now() - startTime;
+          emitLifecycleEvent(context, {
+            type: "error",
+            toolName: name,
+            executionTarget,
+            input,
+            workingDir: context.workingDir,
+            sessionId: context.sessionId,
+            conversationId: context.conversationId,
+            requestId: context.requestId,
+            riskLevel,
+            decision: "error",
+            durationMs,
+            errorMessage: errorMsg,
+            isExpected: true,
+            errorCategory: "tool_failure",
+          });
+          return { content: errorMsg, isError: true };
+        }
       }
 
       // Sensitive output extraction: strip directives, replace raw values

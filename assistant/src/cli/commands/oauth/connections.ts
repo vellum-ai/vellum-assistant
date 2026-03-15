@@ -1,5 +1,9 @@
 import type { Command } from "commander";
 
+import {
+  fetchManagedCatalog,
+  type ManagedCredentialDescriptor,
+} from "../../../credential-execution/managed-catalog.js";
 import { orchestrateOAuthConnect } from "../../../oauth/connect-orchestrator.js";
 import {
   disconnectOAuthProvider,
@@ -27,6 +31,24 @@ import {
 import { isLinux, isMacOS } from "../../../util/platform.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
+
+// ---------------------------------------------------------------------------
+// CES shell lockdown guard
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true when the current process is running inside an untrusted shell
+ * (CES shell lockdown active). CLI commands that reveal raw tokens must
+ * check this and fail deterministically.
+ */
+function isUntrustedShell(): boolean {
+  return process.env.VELLUM_UNTRUSTED_SHELL === "1";
+}
+
+/** Error message for commands blocked by CES shell lockdown. */
+const UNTRUSTED_SHELL_ERROR =
+  "This command is not available in untrusted shell mode. " +
+  "Raw token access is restricted when running under CES shell lockdown.";
 
 const log = getCliLogger("cli");
 
@@ -74,6 +96,25 @@ function formatConnectionRow(row: ReturnType<typeof getConnection>) {
     createdAt: new Date(row.createdAt).toISOString(),
     updatedAt: new Date(row.updatedAt).toISOString(),
     expiresAt: row.expiresAt ? new Date(row.expiresAt).toISOString() : null,
+  };
+}
+
+/**
+ * Format a platform-managed credential descriptor into a connection-like
+ * output row. Never includes token values — only handle references and
+ * non-secret metadata.
+ */
+function formatManagedConnectionRow(
+  descriptor: ManagedCredentialDescriptor,
+): Record<string, unknown> {
+  return {
+    source: "platform",
+    handle: descriptor.handle,
+    provider: descriptor.provider,
+    connectionId: descriptor.connectionId,
+    accountInfo: descriptor.accountInfo,
+    grantedScopes: descriptor.grantedScopes,
+    status: descriptor.status,
   };
 }
 
@@ -128,23 +169,49 @@ Examples:
   $ assistant oauth connections list --provider integration:google
   $ assistant oauth connections list --client-id abc123`,
     )
-    .action((opts: { provider?: string; clientId?: string }, cmd: Command) => {
-      try {
-        const rows = listConnections(opts.provider, opts.clientId).map(
-          formatConnectionRow,
-        );
+    .action(
+      async (opts: { provider?: string; clientId?: string }, cmd: Command) => {
+        try {
+          const rows = listConnections(opts.provider, opts.clientId).map(
+            formatConnectionRow,
+          );
 
-        if (!shouldOutputJson(cmd)) {
-          log.info(`Found ${rows.length} connection(s)`);
+          // Fetch platform-managed connections (best-effort — errors do not
+          // break local listing).
+          const managedResult = await fetchManagedCatalog();
+          let managedEntries: Array<Record<string, unknown>> = [];
+          if (managedResult.ok && managedResult.descriptors.length > 0) {
+            let descriptors = managedResult.descriptors;
+            // Apply provider filter if specified
+            if (opts.provider) {
+              const filterKey = opts.provider.toLowerCase();
+              descriptors = descriptors.filter(
+                (d) => d.provider.toLowerCase() === filterKey,
+              );
+            }
+            managedEntries = descriptors.map(formatManagedConnectionRow);
+          }
+
+          if (!shouldOutputJson(cmd)) {
+            log.info(
+              `Found ${rows.length} local connection(s)` +
+                (managedEntries.length > 0
+                  ? `, ${managedEntries.length} platform-managed`
+                  : ""),
+            );
+          }
+
+          writeOutput(cmd, {
+            connections: rows,
+            managedConnections: managedEntries,
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          writeOutput(cmd, { ok: false, error: message });
+          process.exitCode = 1;
         }
-
-        writeOutput(cmd, rows);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        writeOutput(cmd, { ok: false, error: message });
-        process.exitCode = 1;
-      }
-    });
+      },
+    );
 
   // ---------------------------------------------------------------------------
   // connections get
@@ -251,6 +318,13 @@ Examples:
         cmd: Command,
       ) => {
         try {
+          // CES shell lockdown: deny raw token reveal in untrusted shells.
+          if (isUntrustedShell()) {
+            writeOutput(cmd, { ok: false, error: UNTRUSTED_SHELL_ERROR });
+            process.exitCode = 1;
+            return;
+          }
+
           const token = await withValidToken(
             providerKey,
             async (t) => t,

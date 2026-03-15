@@ -134,7 +134,7 @@ export function createOrReuseToolGrantRequest(
     toolName,
     inputDigest,
     questionText,
-    expiresAt: new Date(Date.now() + GUARDIAN_APPROVAL_TTL_MS).toISOString(),
+    expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
   });
   const requestCode =
     canonicalRequest.requestCode ??

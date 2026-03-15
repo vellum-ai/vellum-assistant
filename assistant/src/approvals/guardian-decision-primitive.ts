@@ -116,7 +116,7 @@ export function tryMintToolApprovalGrant(params: {
     callSessionId: null,
     guardianExternalUserId,
     requesterExternalUserId: approval.requesterExternalUserId,
-    expiresAt: new Date(Date.now() + GRANT_TTL_MS).toISOString(),
+    expiresAt: Date.now() + GRANT_TTL_MS,
   });
 
   if (result.ok) {
@@ -285,7 +285,7 @@ export function mintCanonicalRequestGrant(params: {
     callSessionId: request.callSessionId ?? null,
     guardianExternalUserId: guardianExternalUserId ?? null,
     requesterExternalUserId: request.requesterExternalUserId ?? null,
-    expiresAt: new Date(Date.now() + GRANT_TTL_MS).toISOString(),
+    expiresAt: Date.now() + GRANT_TTL_MS,
   });
 
   if (result.ok) {
@@ -479,7 +479,7 @@ export async function applyCanonicalGuardianDecision(
   }
 
   // 2d. Check expiry
-  if (request.expiresAt && new Date(request.expiresAt).getTime() < Date.now()) {
+  if (request.expiresAt && request.expiresAt < Date.now()) {
     log.info(
       {
         event: "canonical_decision_expired",

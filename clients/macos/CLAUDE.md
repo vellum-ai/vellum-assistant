@@ -187,7 +187,7 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 
 **VSpacing** — 4pt grid: `xxs`(2), `xs`(4), `sm`(8), `md`(12), `lg`(16), `xl`(24), `xxl`(32), `xxxl`(48). Semantic aliases: `inline`=sm, `content`=lg, `section`=xl, `page`=xxl.
 
-**VRadius** — `xs`(2), `sm`(4), `md`(8), `lg`(12), `xl`(16), `pill`(999).
+**VRadius** — `xs`(2), `sm`(4), `md`(8), `window`(10), `lg`(12), `xl`(16), `pill`(999).
 
 **VAnimation** — `snappy` (0.12s easeOut), `fast` (0.15s easeOut), `standard` (0.25s easeInOut), `slow` (0.4s easeInOut), `spring`, `panel` (gentle spring for panels), `bouncy` (celebratory spring).
 

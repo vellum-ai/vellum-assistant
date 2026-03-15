@@ -196,6 +196,12 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Add client_secret_credential_path column to oauth_apps and backfill existing rows with convention-based paths",
   },
+  {
+    key: "migration_guardian_timestamps_epoch_ms_v1",
+    version: 29,
+    description:
+      "Convert guardian table timestamps from ISO 8601 text to epoch ms integers for consistency with all other tables",
+  },
 ];
 
 export interface MigrationValidationResult {

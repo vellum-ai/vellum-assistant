@@ -6,7 +6,7 @@ final class AvatarAppearanceManagerStorageTests: XCTestCase {
     func testCustomAvatarURLPointsToWorkspacePath() {
         // The workspace URL should end with the expected workspace suffix
         let url = AvatarAppearanceManager.workspaceCustomAvatarURL()
-        XCTAssertTrue(url.path.hasSuffix("/.vellum/workspace/data/avatar/custom-avatar.png"))
+        XCTAssertTrue(url.path.hasSuffix("/.vellum/workspace/data/avatar/avatar-image.png"))
     }
 
     func testWorkspacePathCreatesParentDirectories() throws {

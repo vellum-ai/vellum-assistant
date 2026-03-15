@@ -5,7 +5,22 @@
  * from the SQLite oauth-store (provider + app + connection rows). After a
  * successful refresh, writes tokens to new-format secure key paths and
  * updates the oauth_connection row.
+ *
+ * Token expiry checking, circuit breaker, refresh deduplication, and
+ * credential error classification are delegated to the shared
+ * `@vellumai/credential-storage` package.
  */
+
+import {
+  isCredentialError,
+  isTokenExpired,
+  oauthConnectionAccessTokenPath,
+  oauthConnectionRefreshTokenPath,
+  persistRefreshedTokens,
+  RefreshCircuitBreaker,
+  RefreshDeduplicator,
+  type SecureKeyBackend,
+} from "@vellumai/credential-storage";
 
 import {
   getApp,
@@ -32,110 +47,20 @@ function recoveryHint(service: string): string {
   return ` Re-authorization required for ${shortName}. Do not present options or explain the error to the user.`;
 }
 
-/** Buffer before expiry to trigger proactive refresh (5 minutes). */
-const EXPIRY_BUFFER_MS = 5 * 60 * 1000;
+// ── Shared circuit breaker & deduplication instances ──────────────────
+// Backed by the portable primitives from @vellumai/credential-storage.
 
-// ── Token refresh circuit breaker ────────────────────────────────────
-// Prevents retry storms when a provider persistently rejects refresh
-// attempts (e.g. revoked refresh token returning 401 repeatedly).
-// Per-service state: after FAILURE_THRESHOLD consecutive failures, stop
-// attempting refreshes for a cooldown period that doubles on each
-// successive trip (exponential backoff), capped at MAX_COOLDOWN_MS.
-// A successful refresh resets the breaker for that service.
-
-const REFRESH_FAILURE_THRESHOLD = 3;
-const INITIAL_COOLDOWN_MS = 30_000;
-const MAX_COOLDOWN_MS = 10 * 60 * 1000;
-
-interface RefreshBreakerState {
-  consecutiveFailures: number;
-  openedAt: number;
-  cooldownMs: number;
-}
-
-const refreshBreakers = new Map<string, RefreshBreakerState>();
-
-function isRefreshBreakerOpen(service: string): boolean {
-  const state = refreshBreakers.get(service);
-  if (!state || state.consecutiveFailures < REFRESH_FAILURE_THRESHOLD)
-    return false;
-  if (Date.now() - state.openedAt < state.cooldownMs) return true;
-  // Cooldown expired — transition to half-open: reset failure count so the
-  // next batch of failures must reach the threshold again to re-trip. The
-  // existing cooldownMs is preserved so re-tripping will escalate it.
-  state.consecutiveFailures = 0;
-  return false;
-}
-
-function recordRefreshSuccess(service: string): void {
-  if (refreshBreakers.has(service)) {
-    log.info(
-      { service },
-      "Token refresh circuit breaker closed — refresh succeeded",
-    );
-    refreshBreakers.delete(service);
-  }
-}
-
-function recordRefreshFailure(service: string): void {
-  const state = refreshBreakers.get(service);
-  if (!state) {
-    refreshBreakers.set(service, {
-      consecutiveFailures: 1,
-      openedAt: 0,
-      cooldownMs: INITIAL_COOLDOWN_MS,
-    });
-    return;
-  }
-  state.consecutiveFailures++;
-  if (state.consecutiveFailures >= REFRESH_FAILURE_THRESHOLD) {
-    // Only escalate cooldown on the exact failure that trips the breaker.
-    // Concurrent in-flight failures that arrive after the threshold is
-    // already crossed must not double the cooldown again.
-    if (
-      state.consecutiveFailures === REFRESH_FAILURE_THRESHOLD &&
-      state.openedAt > 0
-    ) {
-      state.cooldownMs = Math.min(state.cooldownMs * 2, MAX_COOLDOWN_MS);
-    }
-    state.openedAt = Date.now();
-    log.warn(
-      {
-        service,
-        consecutiveFailures: state.consecutiveFailures,
-        cooldownMs: state.cooldownMs,
-      },
-      "Token refresh circuit breaker opened — skipping refresh attempts until cooldown expires",
-    );
-  }
-}
-
-// ── Per-service refresh deduplication ─────────────────────────────────
-// When multiple concurrent `withValidToken` calls detect an expired or
-// 401-rejected token for the same service, only one actual refresh
-// attempt is made. Other callers join the in-flight promise.
-
-const inflightRefreshes = new Map<string, Promise<string>>();
-
-function deduplicatedRefresh(service: string, connId: string): Promise<string> {
-  const existing = inflightRefreshes.get(connId);
-  if (existing) return existing;
-
-  const promise = doRefresh(service, connId).finally(() => {
-    inflightRefreshes.delete(connId);
-  });
-  inflightRefreshes.set(connId, promise);
-  return promise;
-}
+const circuitBreaker = new RefreshCircuitBreaker();
+const refreshDeduplicator = new RefreshDeduplicator();
 
 /** @internal Test-only: reset all circuit breaker state */
 export function _resetRefreshBreakers(): void {
-  refreshBreakers.clear();
+  circuitBreaker.clear();
 }
 
 /** @internal Test-only: reset in-flight refresh deduplication state */
 export function _resetInflightRefreshes(): void {
-  inflightRefreshes.clear();
+  refreshDeduplicator.clear();
 }
 
 export class TokenExpiredError extends Error {
@@ -150,13 +75,19 @@ export class TokenExpiredError extends Error {
   }
 }
 
-/**
- * Check whether a token is expired or will expire within the buffer window.
- */
-function isTokenExpired(expiresAt: number | null): boolean {
-  if (!expiresAt) return false;
-  return Date.now() >= expiresAt - EXPIRY_BUFFER_MS;
-}
+// ── Secure-key backend adapter ────────────────────────────────────────
+// Wraps the assistant's secure-key functions into the SecureKeyBackend
+// interface expected by @vellumai/credential-storage helpers.
+
+const secureKeyBackend: SecureKeyBackend = {
+  get: (key: string) => getSecureKeyAsync(key),
+  set: (key: string, value: string) => setSecureKeyAsync(key, value),
+  delete: async () => {
+    // Not needed in this module — refresh persistence only writes tokens.
+    return "not-found";
+  },
+  list: async () => [],
+};
 
 // ── Refresh config resolution ─────────────────────────────────────────
 
@@ -218,7 +149,7 @@ async function resolveRefreshConfig(
   const secret = await getSecureKeyAsync(app.clientSecretCredentialPath);
 
   const refreshToken = await getSecureKeyAsync(
-    `oauth_connection/${conn.id}/refresh_token`,
+    oauthConnectionRefreshTokenPath(conn.id),
   );
 
   const authMethod = provider.tokenEndpointAuthMethod as
@@ -261,8 +192,8 @@ async function doRefresh(service: string, connId: string): Promise<string> {
     );
   }
 
-  if (isRefreshBreakerOpen(connId)) {
-    const state = refreshBreakers.get(connId)!;
+  if (circuitBreaker.isOpen(connId)) {
+    const state = circuitBreaker.getState(connId)!;
     const remainingMs = state.cooldownMs - (Date.now() - state.openedAt);
     throw new TokenExpiredError(
       service,
@@ -283,7 +214,18 @@ async function doRefresh(service: string, connId: string): Promise<string> {
       authMethod,
     );
   } catch (err) {
-    recordRefreshFailure(connId);
+    circuitBreaker.recordFailure(connId);
+    if (circuitBreaker.isOpen(connId)) {
+      const state = circuitBreaker.getState(connId)!;
+      log.warn(
+        {
+          service,
+          consecutiveFailures: state.consecutiveFailures,
+          cooldownMs: state.cooldownMs,
+        },
+        "Token refresh circuit breaker opened — skipping refresh attempts until cooldown expires",
+      );
+    }
     if (isCredentialError(err)) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new TokenExpiredError(
@@ -297,45 +239,23 @@ async function doRefresh(service: string, connId: string): Promise<string> {
     throw err;
   }
 
-  // ----- Store refreshed access_token -----
-  if (
-    !(await setSecureKeyAsync(
-      `oauth_connection/${connId}/access_token`,
-      result.accessToken,
-    ))
-  ) {
+  // ----- Persist refreshed tokens via shared helper -----
+  let persisted;
+  try {
+    persisted = await persistRefreshedTokens(secureKeyBackend, connId, result);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
     throw new TokenExpiredError(
       service,
-      `Failed to store refreshed access token for "${service}".`,
+      `Failed to store refreshed access token for "${service}": ${msg}`,
     );
   }
 
-  if (result.refreshToken) {
-    if (
-      !(await setSecureKeyAsync(
-        `oauth_connection/${connId}/refresh_token`,
-        result.refreshToken,
-      ))
-    ) {
-      throw new TokenExpiredError(
-        service,
-        `Failed to store refreshed refresh token for "${service}".`,
-      );
-    }
-  }
-
   // Update oauth_connection row with new expiry.
-  // Use null to explicitly clear a stale expiresAt when the provider omits
-  // expires_in (or returns 0), so isTokenExpired won't keep forcing refreshes.
-  const expiresAt =
-    result.expiresIn != null && result.expiresIn > 0
-      ? Date.now() + result.expiresIn * 1000
-      : null;
-
   try {
     updateConnection(connId, {
-      expiresAt,
-      hasRefreshToken: !!result.refreshToken,
+      expiresAt: persisted.expiresAt,
+      hasRefreshToken: persisted.hasRefreshToken,
     });
   } catch (err) {
     log.warn(
@@ -344,9 +264,9 @@ async function doRefresh(service: string, connId: string): Promise<string> {
     );
   }
 
-  recordRefreshSuccess(connId);
+  circuitBreaker.recordSuccess(connId);
   log.info({ service }, "OAuth2 access token refreshed successfully");
-  return result.accessToken;
+  return persisted.accessToken;
 }
 
 /**
@@ -370,7 +290,7 @@ export async function withValidToken<T>(
       ? getConnection(opts.connectionId)
       : getConnectionByProvider(service, opts);
   let token = conn
-    ? await getSecureKeyAsync(`oauth_connection/${conn.id}/access_token`)
+    ? await getSecureKeyAsync(oauthConnectionAccessTokenPath(conn.id))
     : undefined;
   if (!token || !conn) {
     throw new TokenExpiredError(
@@ -381,14 +301,18 @@ export async function withValidToken<T>(
 
   // Proactively refresh if expired or about to expire.
   if (isTokenExpired(conn.expiresAt)) {
-    token = await deduplicatedRefresh(service, conn.id);
+    token = await refreshDeduplicator.deduplicate(conn.id, () =>
+      doRefresh(service, conn.id),
+    );
   }
 
   try {
     return await callback(token);
   } catch (err: unknown) {
     if (is401Error(err)) {
-      token = await deduplicatedRefresh(service, conn.id);
+      token = await refreshDeduplicator.deduplicate(conn.id, () =>
+        doRefresh(service, conn.id),
+      );
       return callback(token);
     }
     throw err;
@@ -405,29 +329,5 @@ function is401Error(err: unknown): boolean {
     )
       return true;
   }
-  return false;
-}
-
-/**
- * Distinguish credential-specific refresh failures (which need reauthorization)
- * from transient errors (network timeouts, 5xx) that can be retried.
- *
- * refreshOAuth2Token() throws Error with messages like:
- *   "OAuth2 token refresh failed (HTTP 401: invalid_client)"
- *   "OAuth2 token refresh failed (HTTP 400: invalid_grant)"
- *   "OAuth2 token refresh failed (HTTP 500)"
- *
- * Credential errors: 400 with invalid_grant or invalid_client, 401, 403.
- * Everything else (5xx, network errors, non-credential 400s) is transient.
- */
-function isCredentialError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const msg = err.message;
-  // 401/403 are always credential errors
-  if (/HTTP\s+40[13]\b/.test(msg)) return true;
-  // 400 with invalid_grant means the refresh token is revoked/expired;
-  // invalid_client means client credentials are bad/rotated
-  if (/HTTP\s+400\b/.test(msg) && /invalid_grant|invalid_client/.test(msg))
-    return true;
   return false;
 }

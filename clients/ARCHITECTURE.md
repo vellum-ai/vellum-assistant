@@ -451,7 +451,7 @@ The avatar uses a simple image-based approach: a custom user-uploaded profile pi
 - `AvatarAppearanceManager` — Observable singleton that provides `chatAvatarImage` (custom PNG or initial-letter fallback). Watches the custom avatar file for live updates.
 - `AvatarCustomizationPanel` — User surface for uploading/clearing a custom profile picture
 
-**Custom avatar storage:** User-uploaded profile pictures are stored at `~/.vellum/workspace/data/avatar/custom-avatar.png`. On first launch after upgrade, any legacy avatar from `~/Library/Application Support/vellum-assistant/` is automatically migrated (copied, not moved). The avatar customization panel is accessible from the Identity panel via a "Customize Avatar" CTA button.
+**Custom avatar storage:** User-uploaded profile pictures are stored at `~/.vellum/workspace/data/avatar/avatar-image.png`. On first launch after upgrade, any legacy avatar from `~/Library/Application Support/vellum-assistant/` is automatically migrated (copied, not moved). The avatar customization panel is accessible from the Identity panel via a "Customize Avatar" CTA button.
 
 **Fallback:** When no custom avatar exists, `buildInitialLetterAvatar(name:)` renders a Forest._600 circle with the assistant's first initial in white.
 

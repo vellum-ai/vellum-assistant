@@ -182,7 +182,7 @@ function makePendingInteractionRegistrar(
           toolName: msg.toolName,
           status: "pending",
           requestCode: generateCanonicalRequestCode(),
-          expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+          expiresAt: Date.now() + 5 * 60 * 1000,
         });
 
         // For trusted-contact sessions, bridge to guardian.question so the
