@@ -76,7 +76,7 @@ let mockDbMessages: Array<{ id: string; role: string; content: string }> = [];
 let mockConversation: Record<string, unknown> | null = null;
 
 mock.module("../memory/conversation-crud.js", () => ({
-  getConversationThreadType: () => "default",
+  getConversationType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
