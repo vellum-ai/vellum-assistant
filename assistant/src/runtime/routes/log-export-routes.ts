@@ -482,10 +482,7 @@ function collectWorkspaceFiles(): Record<string, string> {
         }
         if (!stat.isFile()) continue;
 
-        // Enforce cumulative size cap
-        if (totalBytes + stat.size > MAX_WORKSPACE_PAYLOAD_BYTES) continue;
-
-        // SQLite DB handling: dump as SQL text
+        // SQLite DB handling: dump as SQL text, then enforce size cap
         if (entry.endsWith(".db")) {
           try {
             const proc = spawnSync("sqlite3", [fullPath, ".dump"], {
@@ -496,14 +493,20 @@ function collectWorkspaceFiles(): Record<string, string> {
                 proc.stdout instanceof Buffer
                   ? proc.stdout.toString("utf-8")
                   : String(proc.stdout);
+              const outputBytes = Buffer.byteLength(output, "utf-8");
+              if (totalBytes + outputBytes > MAX_WORKSPACE_PAYLOAD_BYTES)
+                continue;
               result[relPath + ".sql"] = output;
-              totalBytes += Buffer.byteLength(output, "utf-8");
+              totalBytes += outputBytes;
             }
           } catch {
             // Skip if dump fails
           }
           continue;
         }
+
+        // Enforce cumulative size cap for non-DB files
+        if (totalBytes + stat.size > MAX_WORKSPACE_PAYLOAD_BYTES) continue;
 
         // Read as UTF-8 and skip binary files (null-byte heuristic)
         const content = readFileSync(fullPath, "utf-8");
