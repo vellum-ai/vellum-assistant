@@ -1,5 +1,5 @@
 /**
- * Focused tests for thread candidate validation in the notification decision
+ * Focused tests for conversation candidate validation in the notification decision
  * engine. Validates that:
  * - Valid reuse targets pass validation
  * - Invalid reuse targets are rejected and downgraded to start_new
@@ -8,19 +8,19 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { validateThreadActions } from "../notifications/decision-engine.js";
+import { validateConversationActions } from "../notifications/decision-engine.js";
 import type {
-  ThreadCandidate,
-  ThreadCandidateSet,
-} from "../notifications/thread-candidates.js";
+  ConversationCandidate,
+  ConversationCandidateSet,
+} from "../notifications/conversation-candidates.js";
 import type {
   NotificationChannel,
-  ThreadAction,
+  ConversationAction,
 } from "../notifications/types.js";
 
 // -- Helpers -----------------------------------------------------------------
 
-function makeCandidate(overrides?: Partial<ThreadCandidate>): ThreadCandidate {
+function makeCandidate(overrides?: Partial<ConversationCandidate>): ConversationCandidate {
   return {
     conversationId: "conv-default",
     title: "Test Thread",
@@ -37,14 +37,14 @@ function makeCandidate(overrides?: Partial<ThreadCandidate>): ThreadCandidate {
  */
 function isCandidateIdPresent(
   id: string,
-  candidates: ThreadCandidate[],
+  candidates: ConversationCandidate[],
 ): boolean {
   return candidates.some((c) => c.conversationId === id);
 }
 
 // -- Tests -------------------------------------------------------------------
 
-describe("thread candidate validation", () => {
+describe("conversation candidate validation", () => {
   describe("candidate ID matching", () => {
     test("returns true when conversationId matches a candidate", () => {
       const candidates = [
@@ -107,19 +107,19 @@ describe("thread candidate validation", () => {
     });
   });
 
-  describe("thread action downgrade semantics", () => {
+  describe("conversation action downgrade semantics", () => {
     test("start_new action does not require a conversationId", () => {
-      const action: ThreadAction = { action: "start_new" };
+      const action: ConversationAction = { action: "start_new" };
       expect(action.action).toBe("start_new");
       expect("conversationId" in action).toBe(false);
     });
 
-    test("reuse_existing with valid candidate is accepted via validateThreadActions", () => {
-      const candidateSet: ThreadCandidateSet = {
+    test("reuse_existing with valid candidate is accepted via validateConversationActions", () => {
+      const candidateSet: ConversationCandidateSet = {
         vellum: [makeCandidate({ conversationId: "conv-valid" })],
       };
 
-      const result = validateThreadActions(
+      const result = validateConversationActions(
         { vellum: { action: "reuse_existing", conversationId: "conv-valid" } },
         ["vellum"] as NotificationChannel[],
         candidateSet,
@@ -132,11 +132,11 @@ describe("thread candidate validation", () => {
     });
 
     test("reuse_existing with invalid candidate is downgraded to start_new", () => {
-      const candidateSet: ThreadCandidateSet = {
+      const candidateSet: ConversationCandidateSet = {
         vellum: [makeCandidate({ conversationId: "conv-valid" })],
       };
 
-      const result = validateThreadActions(
+      const result = validateConversationActions(
         { vellum: { action: "reuse_existing", conversationId: "conv-hacked" } },
         ["vellum"] as NotificationChannel[],
         candidateSet,
@@ -146,7 +146,7 @@ describe("thread candidate validation", () => {
     });
 
     test("reuse_existing with empty candidate set is downgraded to start_new", () => {
-      const result = validateThreadActions(
+      const result = validateConversationActions(
         { vellum: { action: "reuse_existing", conversationId: "conv-any" } },
         ["vellum"] as NotificationChannel[],
         undefined,
@@ -158,13 +158,13 @@ describe("thread candidate validation", () => {
 
   describe("candidate set per channel", () => {
     test("channels without candidates result in empty map entries", () => {
-      const candidateMap: ThreadCandidateSet = {};
+      const candidateMap: ConversationCandidateSet = {};
 
       // When no candidates exist for vellum, the map has no entry
       expect(candidateMap.vellum).toBeUndefined();
     });
 
-    test("candidate set preserves channel association via validateThreadActions", () => {
+    test("candidate set preserves channel association via validateConversationActions", () => {
       const vellumCandidates = [
         makeCandidate({
           conversationId: "conv-v1",
@@ -178,7 +178,7 @@ describe("thread candidate validation", () => {
         }),
       ];
 
-      const candidateSet: ThreadCandidateSet = {
+      const candidateSet: ConversationCandidateSet = {
         vellum: vellumCandidates,
         telegram: telegramCandidates,
       };
@@ -186,28 +186,28 @@ describe("thread candidate validation", () => {
       // Vellum candidate should not be valid for telegram and vice versa
       const validChannels: NotificationChannel[] = ["vellum", "telegram"];
 
-      const result1 = validateThreadActions(
+      const result1 = validateConversationActions(
         { vellum: { action: "reuse_existing", conversationId: "conv-v1" } },
         validChannels,
         candidateSet,
       );
       expect(result1.vellum?.action).toBe("reuse_existing");
 
-      const result2 = validateThreadActions(
+      const result2 = validateConversationActions(
         { vellum: { action: "reuse_existing", conversationId: "conv-t1" } },
         validChannels,
         candidateSet,
       );
       expect(result2.vellum?.action).toBe("start_new");
 
-      const result3 = validateThreadActions(
+      const result3 = validateConversationActions(
         { telegram: { action: "reuse_existing", conversationId: "conv-t1" } },
         validChannels,
         candidateSet,
       );
       expect(result3.telegram?.action).toBe("reuse_existing");
 
-      const result4 = validateThreadActions(
+      const result4 = validateConversationActions(
         { telegram: { action: "reuse_existing", conversationId: "conv-v1" } },
         validChannels,
         candidateSet,

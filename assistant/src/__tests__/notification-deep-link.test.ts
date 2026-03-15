@@ -62,7 +62,7 @@ mock.module("../notifications/conversation-pairing.js", () => ({
       messageId: `mock-msg-${pairingCallCount}`,
       strategy: "start_new_conversation" as const,
       createdNewConversation: true,
-      threadDecisionFallbackUsed: false,
+      conversationFallbackUsed: false,
     };
   },
 }));
@@ -476,7 +476,7 @@ describe("notification deep-link metadata", () => {
         messageId: "msg-paired-abc",
         strategy: "start_new_conversation" as const,
         createdNewConversation: true,
-        threadDecisionFallbackUsed: false,
+        conversationFallbackUsed: false,
       };
 
       const signal = makeSignal();
@@ -499,7 +499,7 @@ describe("notification deep-link metadata", () => {
         messageId: "msg-paired-def",
         strategy: "start_new_conversation" as const,
         createdNewConversation: true,
-        threadDecisionFallbackUsed: false,
+        conversationFallbackUsed: false,
       };
 
       const signal = makeSignal();
@@ -522,12 +522,12 @@ describe("notification deep-link metadata", () => {
         messageId: "msg-reused-xyz",
         strategy: "start_new_conversation" as const,
         createdNewConversation: false,
-        threadDecisionFallbackUsed: false,
+        conversationFallbackUsed: false,
       };
 
       const signal = makeSignal();
       const decision = makeDecision({
-        threadActions: {
+        conversationActions: {
           vellum: {
             action: "reuse_existing",
             conversationId: "conv-original-placeholder",
@@ -556,7 +556,7 @@ describe("notification deep-link metadata", () => {
         messageId: "msg-delivery-1",
         strategy: "start_new_conversation" as const,
         createdNewConversation: false,
-        threadDecisionFallbackUsed: false,
+        conversationFallbackUsed: false,
       };
 
       await broadcaster.broadcastDecision(makeSignal(), makeDecision());
@@ -567,7 +567,7 @@ describe("notification deep-link metadata", () => {
         messageId: "msg-delivery-2",
         strategy: "start_new_conversation" as const,
         createdNewConversation: false,
-        threadDecisionFallbackUsed: false,
+        conversationFallbackUsed: false,
       };
 
       await broadcaster.broadcastDecision(makeSignal(), makeDecision());

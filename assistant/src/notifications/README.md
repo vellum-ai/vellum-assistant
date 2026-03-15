@@ -7,8 +7,8 @@ Signal-driven notification architecture where producers emit free-form events an
 ```
 Producer → NotificationSignal → Candidate Generation → Decision Engine (LLM) → Deterministic Checks → Broadcaster → Conversation Pairing → Adapters → Delivery
                                                               ↑                                                            ↓
-                                                      Preference Summary                                    notification_thread_created SSE event
-                                                      Thread Candidates                                     (creation-only — not emitted on reuse)
+                                                      Preference Summary                                    notification_conversation_created SSE event
+                                                      Conversation Candidates                               (creation-only — not emitted on reuse)
 ```
 
 ### 1. Signal
@@ -17,37 +17,37 @@ A producer calls `emitNotificationSignal()` with a free-form event name, attenti
 
 ### 2. Candidate Generation
 
-Before the decision engine runs, the system builds a **thread candidate set** per channel (`thread-candidates.ts`). This is a compact snapshot of recent notification-sourced conversations that the decision engine can choose to reuse instead of starting a new thread.
+Before the decision engine runs, the system builds a **conversation candidate set** per channel (`conversation-candidates.ts`). This is a compact snapshot of recent notification-sourced conversations that the decision engine can choose to reuse instead of starting a new conversation.
 
 **How candidates are generated:**
 
 - For each selected channel, the system queries `notification_deliveries` joined with `notification_decisions` and `notification_events` to find conversations that were created by the notification pipeline within the last 24 hours.
 - Up to 5 candidates per channel are returned, deduplicated by conversation ID, most-recent first.
 - Each candidate includes: `conversationId`, `title`, `updatedAt`, `latestSourceEventName`, and `channel`.
-- **Guardian context enrichment**: When candidates exist, a batch query counts pending (unresolved) guardian approval requests per conversation. Candidates with `pendingUnresolvedRequestCount > 0` carry a `guardianContext` field so the LLM can make informed reuse decisions for threads with active guardian questions.
-- **Candidate-affinity hints**: Guardian dispatch (`guardian-dispatch.ts`) includes `activeGuardianRequestCount` in the signal's `contextPayload`. When multiple guardian questions arise in the same call session, this hint nudges the decision engine toward reusing the existing thread rather than creating a new one for each question.
+- **Guardian context enrichment**: When candidates exist, a batch query counts pending (unresolved) guardian approval requests per conversation. Candidates with `pendingUnresolvedRequestCount > 0` carry a `guardianContext` field so the LLM can make informed reuse decisions for conversations with active guardian questions.
+- **Candidate-affinity hints**: Guardian dispatch (`guardian-dispatch.ts`) includes `activeGuardianRequestCount` in the signal's `contextPayload`. When multiple guardian questions arise in the same call session, this hint nudges the decision engine toward reusing the existing conversation rather than creating a new one for each question.
 
-The candidate set is serialized into a compact `<thread-candidates>` block in the decision engine's system prompt. Candidate generation is wrapped in try/catch — a failure does not block the decision path; the engine simply proceeds without candidates (all channels default to `start_new`).
+The candidate set is serialized into a compact `<conversation-candidates>` block in the decision engine's system prompt. Candidate generation is wrapped in try/catch — a failure does not block the decision path; the engine simply proceeds without candidates (all channels default to `start_new`).
 
 ### 3. Decision
 
-The decision engine (`decision-engine.ts`) sends the signal to an LLM (configured via `notifications.decisionModelIntent`) along with available channels, the user's preference summary, and the thread candidate set. The LLM responds with a structured decision: whether to notify, which channels, rendered copy per channel, a deduplication key, and **per-channel thread actions**.
+The decision engine (`decision-engine.ts`) sends the signal to an LLM (configured via `notifications.decisionModelIntent`) along with available channels, the user's preference summary, and the conversation candidate set. The LLM responds with a structured decision: whether to notify, which channels, rendered copy per channel, a deduplication key, and **per-channel conversation actions**.
 
-**Thread actions:** For each selected channel, the LLM decides:
+**Conversation actions:** For each selected channel, the LLM decides:
 
-- `start_new` — create a fresh conversation thread for this delivery.
-- `reuse_existing` — append to an existing candidate thread (must provide a `conversationId` from the candidate set).
+- `start_new` — create a fresh conversation for this delivery.
+- `reuse_existing` — append to an existing candidate conversation (must provide a `conversationId` from the candidate set).
 
-The LLM is guided to prefer `reuse_existing` when the signal is a continuation or update of an existing notification thread (same event type, related context), and `start_new` when the signal is a distinct event deserving its own thread.
+The LLM is guided to prefer `reuse_existing` when the signal is a continuation or update of an existing notification conversation (same event type, related context), and `start_new` when the signal is a distinct event deserving its own conversation.
 
-**Validation and fallback:** Thread actions are strictly validated against the candidate set (`validateThreadActions` in `decision-engine.ts`):
+**Validation and fallback:** Conversation actions are strictly validated against the candidate set (`validateConversationActions` in `decision-engine.ts`):
 
 - A `reuse_existing` action with an empty or missing `conversationId` is downgraded to `start_new` with a warning.
 - A `reuse_existing` action referencing a conversation ID not in the candidate set is downgraded to `start_new` with a warning.
 - Unknown action values are silently ignored; the channel defaults to `start_new` downstream.
-- Channels with no thread action in the decision output default to `start_new`.
+- Channels with no conversation action in the decision output default to `start_new`.
 
-When the LLM is unavailable or returns invalid output, a deterministic fallback fires: high-urgency + requires-action signals notify on all channels; everything else is suppressed. The fallback path does not produce thread actions (all channels use `start_new`).
+When the LLM is unavailable or returns invalid output, a deterministic fallback fires: high-urgency + requires-action signals notify on all channels; everything else is suppressed. The fallback path does not produce conversation actions (all channels use `start_new`).
 
 ### 4. Deterministic Checks
 
@@ -71,7 +71,7 @@ Hard invariants that the LLM cannot override:
 
 ### 6. Broadcast, Conversation Pairing, and Delivery
 
-The broadcaster (`broadcaster.ts`) iterates over selected channels (vellum first for fast SSE push), resolves destinations via `destination-resolver.ts`, pairs each delivery with a conversation via `conversation-pairing.ts`, pulls rendered copy from the decision (falling back to `copy-composer.ts` templates), and dispatches through channel adapters. Each delivery attempt is recorded in `notification_deliveries` with `conversation_id`, `message_id`, and `conversation_strategy` columns.
+The broadcaster (`broadcaster.ts`) iterates over selected channels (vellum first for fast SSE push), resolves destinations via `destination-resolver.ts`, pairs each delivery with a conversation via `conversation-pairing.ts`, pulls rendered copy from the decision (falling back to `copy-composer.ts` templates), and dispatches through channel adapters. Each delivery attempt is recorded in `notification_deliveries` with `conversation_id`, `message_id`, and `conversation_strategy` columns. The broadcaster emits `notification_conversation_created` SSE events for new vellum conversations.
 
 ## Channel Policy Registry
 
@@ -88,7 +88,7 @@ Each policy defines:
 
 | Strategy                         | Behavior                                                                                                                                                                                                                                     | Used by                                  |
 | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| `start_new_conversation`         | Creates a fresh conversation per delivery. The thread is surfaced via SSE.                                                                                                                                                                   | `vellum`                                 |
+| `start_new_conversation`         | Creates a fresh conversation per delivery. The conversation is surfaced via SSE.                                                                                                                                                             | `vellum`                                 |
 | `continue_existing_conversation` | Looks up a previously bound conversation by binding key (sourceChannel + externalChatId) and appends to it. When no bound conversation exists (first delivery to a destination), creates a new one and upserts the binding for future reuse. | `telegram`, `whatsapp`, `slack`, `email` |
 | `not_deliverable`                | Channel cannot receive notifications. Pairing returns null IDs.                                                                                                                                                                              | `phone`                                  |
 
@@ -109,19 +109,19 @@ Each policy defines:
 
 ## Conversation Pairing Invariant
 
-**Every notification delivery gets a conversation.** Before the adapter sends a notification, `pairDeliveryWithConversation()` (in `conversation-pairing.ts`) materializes a conversation and seed message based on the channel's conversation strategy and the decision engine's per-channel thread action:
+**Every notification delivery gets a conversation.** Before the adapter sends a notification, `pairDeliveryWithConversation()` (in `conversation-pairing.ts`) materializes a conversation and seed message based on the channel's conversation strategy and the decision engine's per-channel conversation action:
 
-### Thread Reuse Path (`reuse_existing`)
+### Conversation Reuse Path (`reuse_existing`)
 
 When the decision engine selects `reuse_existing` for a channel with a valid candidate `conversationId`:
 
 1. The pairing function looks up the target conversation.
-2. If the conversation exists and has `source: 'notification'`, the seed message is **appended** to the existing thread (not a new conversation). The result has `createdNewConversation: false`.
-3. If the target is invalid (does not exist, or has a different `source`), the function falls back to creating a new conversation and sets `threadDecisionFallbackUsed: true` on the result. A warning is logged with the invalid target details.
+2. If the conversation exists and has `source: 'notification'`, the seed message is **appended** to the existing conversation (not a new one). The result has `createdNewConversation: false`.
+3. If the target is invalid (does not exist, or has a different `source`), the function falls back to creating a new conversation and sets `conversationFallbackUsed: true` on the result. A warning is logged with the invalid target details.
 
-### New Thread Path (`start_new` / default)
+### New Conversation Path (`start_new` / default)
 
-- **`start_new_conversation`**: Creates a new conversation with `threadType: 'standard'` and `source: 'notification'`, plus an assistant message containing the thread seed. Memory indexing is skipped on the seed message to prevent notification copy from polluting conversational recall. The result has `createdNewConversation: true`.
+- **`start_new_conversation`**: Creates a new conversation with `threadType: 'standard'` and `source: 'notification'`, plus an assistant message containing the conversation seed. Memory indexing is skipped on the seed message to prevent notification copy from polluting conversational recall. The result has `createdNewConversation: true`.
 - **`continue_existing_conversation`**: Looks up a previously bound conversation by binding key (`sourceChannel` + `externalChatId` via `getBindingByChannelChat()`). When a valid bound conversation with `source: 'notification'` exists, the seed message is appended to it and the binding timestamp is refreshed. When no binding exists or the bound conversation is stale/invalid, a new conversation is created and the binding is upserted for future reuse. The result has `createdNewConversation: false` on reuse, `true` on fresh creation.
 - **`not_deliverable`**: Returns `{ conversationId: null, messageId: null }`.
 
@@ -131,25 +131,25 @@ The pairing function is resilient -- errors are caught and logged. A pairing fai
 
 The system produces **three distinct copy outputs** per notification:
 
-| Output              | Purpose                                      | Verbosity                |
-| ------------------- | -------------------------------------------- | ------------------------ |
-| `title` + `body`    | Native notification popup (macOS/iOS banner) | Short and glanceable     |
-| `deliveryText`      | Channel-native chat message text (Telegram)  | Natural chat phrasing    |
-| Thread seed message | Opening message in the notification thread   | Richer and context-aware |
+| Output                    | Purpose                                          | Verbosity                |
+| ------------------------- | ------------------------------------------------ | ------------------------ |
+| `title` + `body`          | Native notification popup (macOS/iOS banner)     | Short and glanceable     |
+| `deliveryText`            | Channel-native chat message text (Telegram)      | Natural chat phrasing    |
+| Conversation seed message | Opening message in the notification conversation | Richer and context-aware |
 
 ### How It Works
 
-1. The **decision engine** can produce `title`/`body` (popup copy), `deliveryText` (chat copy), and `threadSeedMessage` (richer thread content) per channel.
+1. The **decision engine** can produce `title`/`body` (popup copy), `deliveryText` (chat copy), and `conversationSeedMessage` (richer conversation content) per channel.
 2. **Adapters** use the surface-appropriate field:
    - Vellum/macOS notifications use `title` + `body`.
-   - Telegram delivery prefers `deliveryText` and falls back to `threadSeedMessage`, then `body`, then `title`.
-3. **Conversation pairing** uses the thread seed as the conversation's opening message:
-   - If the LLM produced a valid `threadSeedMessage`, it is used directly (after a sanity check rejects empty, too-short, JSON dumps, or excessively long values).
-   - Otherwise, the **runtime thread seed composer** (`thread-seed-composer.ts`) generates a deterministic, surface-aware seed.
+   - Telegram delivery prefers `deliveryText` and falls back to `conversationSeedMessage`, then `body`, then `title`.
+3. **Conversation pairing** uses the conversation seed as the conversation's opening message:
+   - If the LLM produced a valid `conversationSeedMessage`, it is used directly (after a sanity check rejects empty, too-short, JSON dumps, or excessively long values).
+   - Otherwise, the **runtime conversation seed composer** (`conversation-seed-composer.ts`) generates a deterministic, surface-aware seed.
 
 ### Surface-Aware Verbosity
 
-The thread seed composer adapts verbosity to the delivery surface:
+The conversation seed composer adapts verbosity to the delivery surface:
 
 | Channel    | Default Interface | Verbosity | Style                                          |
 | ---------- | ----------------- | --------- | ---------------------------------------------- |
@@ -177,21 +177,21 @@ Body:  Take out the trash
 Take out the trash
 ```
 
-**Thread seed on vellum/macos (rich):**
+**Conversation seed on vellum/macos (rich):**
 
 ```
 Reminder. Take out the trash. Action required.
 ```
 
-## Thread Surfacing via `notification_thread_created` Event (Creation-Only)
+## Conversation Surfacing via `notification_conversation_created` Event (Creation-Only)
 
-The `notification_thread_created` SSE event is emitted **only when a brand-new conversation is actually created** by the broadcaster. Reused threads do not trigger this event — the macOS/iOS client already knows about the conversation from the original creation.
+The `notification_conversation_created` SSE event is emitted **only when a brand-new conversation is actually created** by the broadcaster. Reused conversations do not trigger this event — the macOS/iOS client already knows about the conversation from the original creation.
 
 This is enforced in `broadcaster.ts` by gating the event emission on `pairing.createdNewConversation === true`:
 
 ```ts
-// Emit notification_thread_created only when a NEW conversation was
-// actually created. Reusing an existing thread should not fire the SSE
+// Emit notification_conversation_created only when a NEW conversation was
+// actually created. Reusing an existing conversation should not fire the SSE
 // event — the client already knows about the conversation.
 if (
   pairing.createdNewConversation &&
@@ -201,29 +201,29 @@ if (
 }
 ```
 
-When a vellum notification thread **is** newly created (strategy `start_new_conversation`), the broadcaster emits the SSE event **immediately**, before waiting for slower channel deliveries (e.g. Telegram). This avoids a race where a slow Telegram delivery delays the broadcast past the macOS deep-link retry window.
+When a vellum notification conversation **is** newly created (strategy `start_new_conversation`), the broadcaster emits the SSE event **immediately**, before waiting for slower channel deliveries (e.g. Telegram). This avoids a race where a slow Telegram delivery delays the broadcast past the macOS deep-link retry window.
 
 The SSE event payload:
 
 ```ts
 {
-  type: 'notification_thread_created',
+  type: 'notification_conversation_created',
   conversationId: string,
   title: string,
   sourceEventName: string,
 }
 ```
 
-The macOS/iOS client listens for this event and surfaces the thread in the sidebar, enabling deep-link navigation to the notification thread.
+The macOS/iOS client listens for this event and surfaces the conversation in the sidebar, enabling deep-link navigation to the notification conversation.
 
-### Per-Dispatch Thread Callback
+### Per-Dispatch Conversation Callback
 
-`emitNotificationSignal()` accepts an optional `onThreadCreated` callback (`options.onThreadCreated`). This lets producers run domain side effects (for example, creating cross-channel guardian delivery rows) as soon as vellum pairing occurs, without introducing a second thread-creation path.
+`emitNotificationSignal()` accepts an optional `onConversationCreated` callback (`options.onConversationCreated`). This lets producers run domain side effects (for example, creating cross-channel guardian delivery rows) as soon as vellum pairing occurs, without introducing a second conversation-creation path.
 
 **Important distinction between the two callbacks:**
 
-- **Per-dispatch `options.onThreadCreated`**: Fires for **both** new and reused vellum conversation pairings. Callers like `dispatchGuardianQuestion` rely on this to create delivery bookkeeping rows before `emitNotificationSignal()` returns, regardless of whether the conversation was newly created or reused.
-- **Class-level `this.onThreadCreated` (SSE broadcast)**: Fires **only** when a brand-new conversation is created (`createdNewConversation === true && strategy === 'start_new_conversation'`). This emits the `notification_thread_created` SSE event so macOS/iOS clients surface the new thread in the sidebar. Reused threads do not trigger this event because the client already knows about the conversation.
+- **Per-dispatch `options.onConversationCreated`**: Fires for **both** new and reused vellum conversation pairings. Callers like `dispatchGuardianQuestion` rely on this to create delivery bookkeeping rows before `emitNotificationSignal()` returns, regardless of whether the conversation was newly created or reused.
+- **Class-level `this.onConversationCreated` (SSE broadcast)**: Fires **only** when a brand-new conversation is created (`createdNewConversation === true && strategy === 'start_new_conversation'`). This emits the `notification_conversation_created` SSE event so macOS/iOS clients surface the new conversation in the sidebar. Reused conversations do not trigger this event because the client already knows about the conversation.
 
 ## Schedule Routing Metadata and Trigger-Time Enforcement
 
@@ -233,11 +233,11 @@ Schedules (both recurring and one-shot) carry optional routing metadata that con
 
 The `routing_intent` field on each `schedule_jobs` row specifies the desired channel coverage:
 
-| Intent           | Behavior                                              | When to use                                                          |
-| ---------------- | ----------------------------------------------------- | -------------------------------------------------------------------- |
-| `single_channel` | Default LLM-driven routing (no override)              | Standard schedules where the decision engine picks the best channel  |
-| `multi_channel`  | Ensures delivery on 2+ channels when 2+ are connected | Important schedules the user wants on both desktop and phone         |
-| `all_channels`   | Forces delivery on every connected channel            | Critical schedules that must reach the user everywhere               |
+| Intent           | Behavior                                              | When to use                                                         |
+| ---------------- | ----------------------------------------------------- | ------------------------------------------------------------------- |
+| `single_channel` | Default LLM-driven routing (no override)              | Standard schedules where the decision engine picks the best channel |
+| `multi_channel`  | Ensures delivery on 2+ channels when 2+ are connected | Important schedules the user wants on both desktop and phone        |
+| `all_channels`   | Forces delivery on every connected channel            | Critical schedules that must reach the user everywhere              |
 
 The default is `all_channels`. Routing intent is persisted in the `schedule_jobs` table (`routing_intent` column) and carried through the notification signal as `routingIntent`.
 
@@ -295,7 +295,7 @@ Local SSE via the daemon's broadcast mechanism. The `VellumAdapter` emits a `not
 - `title` and `body` -- rendered notification copy
 - `deepLinkMetadata` -- optional metadata for navigating to the relevant context (e.g. `{ conversationId }`)
 
-The macOS/iOS client posts a native `UNUserNotificationCenter` notification from this payload. When the user taps the notification, the client uses `deepLinkMetadata` to navigate to the relevant thread.
+The macOS/iOS client posts a native `UNUserNotificationCenter` notification from this payload. When the user taps the notification, the client uses `deepLinkMetadata` to navigate to the relevant conversation.
 
 ### Telegram (when guardian binding exists)
 
@@ -313,26 +313,26 @@ Connected channels are resolved at signal emission time by `getConnectedChannels
 The system uses a single conversation materialization path for **all** notifications -- there are no legacy bypass paths or dual-broadcast mechanisms. Every notification, including guardian questions and ingress escalation alerts, flows through `emitNotificationSignal()`:
 
 1. `emitNotificationSignal()` evaluates the signal and dispatches to channels.
-2. `NotificationBroadcaster` pairs each delivery with a conversation via `pairDeliveryWithConversation()`, executing the per-channel thread action (start_new or reuse_existing).
-3. For vellum deliveries, the broadcaster merges `conversationId` into `deepLinkMetadata` and emits `notification_thread_created` only when a new conversation was created (not on reuse).
+2. `NotificationBroadcaster` pairs each delivery with a conversation via `pairDeliveryWithConversation()`, executing the per-channel conversation action (start_new or reuse_existing).
+3. For vellum deliveries, the broadcaster merges `conversationId` into `deepLinkMetadata` and emits `notification_conversation_created` only when a new conversation was created (not on reuse).
 
-Guardian dispatch follows this same path and uses the optional `onThreadCreated` callback to attach guardian-delivery bookkeeping to the canonical vellum conversation.
+Guardian dispatch follows this same path and uses the optional `onConversationCreated` callback to attach guardian-delivery bookkeeping to the canonical vellum conversation.
 
 ### Conversation Pairing Invariant
 
-For notification flows that create conversations, the conversation must be created **before** the SSE event is emitted. This ensures the macOS client can immediately fetch the conversation contents when it receives the thread-created event.
+For notification flows that create conversations, the conversation must be created **before** the SSE event is emitted. This ensures the macOS client can immediately fetch the conversation contents when it receives the conversation-created event.
 
-## Thread Decision Audit Trail
+## Conversation Decision Audit Trail
 
-Every thread routing decision is persisted for observability:
+Every conversation routing decision is persisted for observability:
 
 ### Decision-Level Audit (`notification_decisions`)
 
-When the decision is persisted, a `threadActions` summary is included in `validationResults`:
+When the decision is persisted, a `conversationActions` summary is included in `validationResults`:
 
 ```json
 {
-  "threadActions": {
+  "conversationActions": {
     "vellum": "start_new",
     "telegram": "reuse:conv-abc-123"
   }
@@ -341,35 +341,35 @@ When the decision is persisted, a `threadActions` summary is included in `valida
 
 ### Delivery-Level Audit (`notification_deliveries`)
 
-Three columns on `notification_deliveries` record the per-channel thread decision:
+Three columns on `notification_deliveries` record the per-channel conversation decision:
 
-| Column                          | Type    | Description                                                                                                 |
-| ------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------- |
-| `thread_action`                 | TEXT    | `'start_new'` or `'reuse_existing'` — what the model decided                                                |
-| `thread_target_conversation_id` | TEXT    | The candidate `conversationId` when action is `reuse_existing`                                              |
-| `thread_decision_fallback_used` | INTEGER | `1` if `reuse_existing` was attempted but the target was invalid, so a new conversation was created instead |
+| Column                       | Type    | Description                                                                                                 |
+| ---------------------------- | ------- | ----------------------------------------------------------------------------------------------------------- |
+| `conversation_action`        | TEXT    | `'start_new'` or `'reuse_existing'` — what the model decided                                                |
+| `conversation_target_id`     | TEXT    | The candidate `conversationId` when action is `reuse_existing`                                              |
+| `conversation_fallback_used` | INTEGER | `1` if `reuse_existing` was attempted but the target was invalid, so a new conversation was created instead |
 
 ### Query Examples
 
 ```sql
--- Thread reuse decisions with fallback tracking
-SELECT d.channel, d.thread_action, d.thread_target_conversation_id,
-       d.thread_decision_fallback_used, d.conversation_id
+-- Conversation reuse decisions with fallback tracking
+SELECT d.channel, d.conversation_action, d.conversation_target_id,
+       d.conversation_fallback_used, d.conversation_id
 FROM notification_deliveries d
-WHERE d.thread_action IS NOT NULL
+WHERE d.conversation_action IS NOT NULL
 ORDER BY d.created_at DESC
 LIMIT 20;
 
 -- Reuse failures (model hallucinated an invalid conversation ID)
-SELECT d.channel, d.thread_target_conversation_id, d.conversation_id
+SELECT d.channel, d.conversation_target_id, d.conversation_id
 FROM notification_deliveries d
-WHERE d.thread_decision_fallback_used = 1
+WHERE d.conversation_fallback_used = 1
 ORDER BY d.created_at DESC;
 ```
 
-## Guardian Multi-Request Disambiguation in Reused Threads
+## Guardian Multi-Request Disambiguation in Reused Conversations
 
-When the decision engine routes multiple guardian questions to the **same** conversation (via `reuse_existing`), those questions share a single thread. The guardian needs a way to indicate which question they are answering. This is handled via **request-code disambiguation**.
+When the decision engine routes multiple guardian questions to the **same** conversation (via `reuse_existing`), those questions share a single conversation. The guardian needs a way to indicate which question they are answering. This is handled via **request-code disambiguation**.
 
 ### How Request Codes Work
 
@@ -379,9 +379,9 @@ Each `guardian_action_request` is assigned a unique 6-character hex code (e.g. `
 
 The disambiguation logic is identical on all channels — mac/vellum (`session-process.ts`) and Telegram (`inbound-message-handler.ts`):
 
-1. **Single pending delivery in the thread**: The guardian's reply is matched to the sole pending request automatically. No request code prefix is needed. This is the **single-match fast path**.
+1. **Single pending delivery in the conversation**: The guardian's reply is matched to the sole pending request automatically. No request code prefix is needed. This is the **single-match fast path**.
 
-2. **Multiple pending deliveries in the thread**: The guardian must prefix their reply with the request code of the question they are answering (e.g. `A1B2C3 yes, allow it`). Matching is case-insensitive.
+2. **Multiple pending deliveries in the conversation**: The guardian must prefix their reply with the request code of the question they are answering (e.g. `A1B2C3 yes, allow it`). Matching is case-insensitive.
 
 3. **No code match**: If the guardian's reply does not start with any active request code, a **disambiguation message** is sent back listing all active request codes so the guardian can retry with the correct prefix.
 
@@ -400,35 +400,35 @@ All disambiguation messages are generated through `composeGuardianActionMessageG
 
 | Scenario                           | When triggered                                         |
 | ---------------------------------- | ------------------------------------------------------ |
-| `guardian_disambiguation`          | Multiple pending approval requests in a thread         |
+| `guardian_disambiguation`          | Multiple pending approval requests in a conversation   |
 | `guardian_expired_disambiguation`  | Multiple expired requests with late replies            |
 | `guardian_followup_disambiguation` | Multiple follow-up deliveries awaiting guardian action |
 
 ## Key Files
 
-| File                      | Purpose                                                                                              |
-| ------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `../channels/config.ts`   | Channel policy registry -- single source of truth for per-channel notification behavior              |
-| `emit-signal.ts`          | Single entry point for producers; orchestrates the full pipeline                                     |
-| `signal.ts`               | `NotificationSignal` and `AttentionHints` type definitions                                           |
-| `types.ts`                | Channel adapter interfaces, delivery types, decision output contract, `ThreadAction` union           |
-| `thread-candidates.ts`    | Builds per-channel candidate set of recent notification conversations for the decision engine        |
-| `conversation-pairing.ts` | Materializes conversation + message per delivery based on channel strategy                           |
-| `decision-engine.ts`      | LLM-based routing with forced tool_choice; deterministic fallback                                    |
-| `deterministic-checks.ts` | Pre-send gate checks (dedupe, source-active, channel availability)                                   |
-| `runtime-dispatch.ts`     | Dispatch gating (no-op decisions, empty channels)                                                    |
-| `broadcaster.ts`          | Fan-out to channel adapters with delivery audit trail; emits `notification_thread_created` SSE event |
-| `copy-composer.ts`        | Template-based fallback notification copy when LLM copy is unavailable                               |
-| `thread-seed-composer.ts` | Surface-aware thread seed generation (richer than notification copy)                                 |
-| `destination-resolver.ts` | Resolves per-channel endpoints (vellum SSE, Telegram chat ID)                                        |
-| `adapters/macos.ts`       | Vellum adapter -- broadcasts `notification_intent` via SSE with deep-link metadata                   |
-| `adapters/telegram.ts`    | Telegram adapter -- POSTs to gateway `/deliver/telegram`                                             |
-| `preference-extractor.ts` | Detects notification preferences in conversation messages                                            |
-| `preference-summary.ts`   | Builds preference context string for the decision engine prompt                                      |
-| `preferences-store.ts`    | CRUD for `notification_preferences` table                                                            |
-| `events-store.ts`         | CRUD for `notification_events` table                                                                 |
-| `decisions-store.ts`      | CRUD for `notification_decisions` table                                                              |
-| `deliveries-store.ts`     | CRUD for `notification_deliveries` table                                                             |
+| File                            | Purpose                                                                                                    |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `../channels/config.ts`         | Channel policy registry -- single source of truth for per-channel notification behavior                    |
+| `emit-signal.ts`                | Single entry point for producers; orchestrates the full pipeline                                           |
+| `signal.ts`                     | `NotificationSignal` and `AttentionHints` type definitions                                                 |
+| `types.ts`                      | Channel adapter interfaces, delivery types, decision output contract, `ConversationAction` union           |
+| `conversation-candidates.ts`    | Builds per-channel candidate set of recent notification conversations for the decision engine              |
+| `conversation-pairing.ts`       | Materializes conversation + message per delivery based on channel strategy                                 |
+| `decision-engine.ts`            | LLM-based routing with forced tool_choice; deterministic fallback                                          |
+| `deterministic-checks.ts`       | Pre-send gate checks (dedupe, source-active, channel availability)                                         |
+| `runtime-dispatch.ts`           | Dispatch gating (no-op decisions, empty channels)                                                          |
+| `broadcaster.ts`                | Fan-out to channel adapters with delivery audit trail; emits `notification_conversation_created` SSE event |
+| `copy-composer.ts`              | Template-based fallback notification copy when LLM copy is unavailable                                     |
+| `conversation-seed-composer.ts` | Surface-aware conversation seed generation (richer than notification copy)                                 |
+| `destination-resolver.ts`       | Resolves per-channel endpoints (vellum SSE, Telegram chat ID)                                              |
+| `adapters/macos.ts`             | Vellum adapter -- broadcasts `notification_intent` via SSE with deep-link metadata                         |
+| `adapters/telegram.ts`          | Telegram adapter -- POSTs to gateway `/deliver/telegram`                                                   |
+| `preference-extractor.ts`       | Detects notification preferences in conversation messages                                                  |
+| `preference-summary.ts`         | Builds preference context string for the decision engine prompt                                            |
+| `preferences-store.ts`          | CRUD for `notification_preferences` table                                                                  |
+| `events-store.ts`               | CRUD for `notification_events` table                                                                       |
+| `decisions-store.ts`            | CRUD for `notification_decisions` table                                                                    |
+| `deliveries-store.ts`           | CRUD for `notification_deliveries` table                                                                   |
 
 ## How to Add a New Notification Producer
 

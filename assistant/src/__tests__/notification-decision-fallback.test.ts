@@ -29,8 +29,8 @@ mock.module("../notifications/preference-summary.js", () => ({
   getPreferenceSummary: () => undefined,
 }));
 
-mock.module("../notifications/thread-candidates.js", () => ({
-  buildThreadCandidates: () => undefined,
+mock.module("../notifications/conversation-candidates.js", () => ({
+  buildConversationCandidates: () => undefined,
   serializeCandidatesForPrompt: () => undefined,
 }));
 
@@ -434,7 +434,7 @@ describe("access-request instruction enforcement", () => {
     expect(decision.renderedCopy.vellum?.body).toBe(fullBody);
   });
 
-  test("enforcement also applies to deliveryText and threadSeedMessage", async () => {
+  test("enforcement also applies to deliveryText and conversationSeedMessage", async () => {
     configuredProvider = {
       sendMessage: async () => ({ content: [] }),
     };
@@ -449,7 +449,7 @@ describe("access-request instruction enforcement", () => {
             title: "Access Request",
             body: "Someone wants access.",
             deliveryText: "Someone wants access.",
-            threadSeedMessage: "Someone wants access.",
+            conversationSeedMessage: "Someone wants access.",
           },
         },
         dedupeKey: "access-req-multi-field",
@@ -466,10 +466,10 @@ describe("access-request instruction enforcement", () => {
     expect(decision.renderedCopy.telegram?.deliveryText).toContain(
       "open invite flow",
     );
-    expect(decision.renderedCopy.telegram?.threadSeedMessage).toContain(
+    expect(decision.renderedCopy.telegram?.conversationSeedMessage).toContain(
       "A1B2C3",
     );
-    expect(decision.renderedCopy.telegram?.threadSeedMessage).toContain(
+    expect(decision.renderedCopy.telegram?.conversationSeedMessage).toContain(
       "open invite flow",
     );
   });

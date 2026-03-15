@@ -6,9 +6,9 @@
  * - Handles missing adapters gracefully
  * - Falls back to copy-composer when decision copy is missing
  * - Reports delivery results per channel
- * - Emits notification_thread_created only when a new conversation is created
- * - Does NOT emit notification_thread_created when reusing an existing thread
- * - Threads destination binding context into conversation pairing for external channels
+ * - Emits notification_conversation_created only when a new conversation is created
+ * - Does NOT emit notification_conversation_created when reusing an existing conversation
+ * - Passes destination binding context into conversation pairing for external channels
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -89,12 +89,12 @@ mock.module("../notifications/conversation-pairing.js", () => ({
       messageId: `mock-msg-${pairingCallCount}`,
       strategy: "start_new_conversation" as const,
       createdNewConversation: true,
-      threadDecisionFallbackUsed: false,
+      conversationFallbackUsed: false,
     };
   },
 }));
 
-import type { ThreadCreatedInfo } from "../notifications/broadcaster.js";
+import type { ConversationCreatedInfo } from "../notifications/broadcaster.js";
 import { NotificationBroadcaster } from "../notifications/broadcaster.js";
 import type { NotificationSignal } from "../notifications/signal.js";
 import type {
@@ -295,7 +295,7 @@ describe("notification broadcaster", () => {
     expect(vellumAdapter.sent[0].copy.body).toBeDefined();
   });
 
-  test("adapter receives concise copy (title/body), not the thread seed message", async () => {
+  test("adapter receives concise copy (title/body), not the conversation seed message", async () => {
     const vellumAdapter = new MockAdapter("vellum");
     const broadcaster = new NotificationBroadcaster([vellumAdapter]);
 
@@ -305,7 +305,7 @@ describe("notification broadcaster", () => {
         vellum: {
           title: "Reminder",
           body: "Take out the trash",
-          threadSeedMessage:
+          conversationSeedMessage:
             "This is a much richer seed message with more context about the reminder and what you should do about it.",
         },
       },
@@ -315,7 +315,7 @@ describe("notification broadcaster", () => {
 
     expect(vellumAdapter.sent).toHaveLength(1);
     // The adapter payload uses the full copy object — title/body are what
-    // the native notification displays. threadSeedMessage is only consumed
+    // the native notification displays. The conversationSeedMessage is only consumed
     // by conversation pairing, not by the adapter's display logic.
     expect(vellumAdapter.sent[0].copy.title).toBe("Reminder");
     expect(vellumAdapter.sent[0].copy.body).toBe("Take out the trash");
@@ -336,46 +336,48 @@ describe("notification broadcaster", () => {
     expect(vellumAdapter.sent).toHaveLength(0);
   });
 
-  // ── Thread-created event emission ───────────────────────────────────
+  // ── Conversation-created event emission ─────────────────────────────
 
-  test("fires onThreadCreated when a new vellum conversation is created (start_new)", async () => {
+  test("fires onConversationCreated when a new vellum conversation is created (start_new)", async () => {
     const vellumAdapter = new MockAdapter("vellum");
     const broadcaster = new NotificationBroadcaster([vellumAdapter]);
-    const threadCreatedCalls: ThreadCreatedInfo[] = [];
-    broadcaster.setOnThreadCreated((info) => threadCreatedCalls.push(info));
+    const conversationCreatedCalls: ConversationCreatedInfo[] = [];
+    broadcaster.setOnConversationCreated((info) =>
+      conversationCreatedCalls.push(info),
+    );
 
     const signal = makeSignal();
-    // No threadActions means default start_new behavior
+    // No conversationActions means default start_new behavior
     const decision = makeDecision();
 
     await broadcaster.broadcastDecision(signal, decision);
 
-    // Pairing creates a new conversation by default, so onThreadCreated should fire
-    expect(threadCreatedCalls).toHaveLength(1);
-    expect(threadCreatedCalls[0].sourceEventName).toBe("test.event");
+    // Pairing creates a new conversation by default, so onConversationCreated should fire
+    expect(conversationCreatedCalls).toHaveLength(1);
+    expect(conversationCreatedCalls[0].sourceEventName).toBe("test.event");
   });
 
-  test("fires per-dispatch onThreadCreated callback on new conversation", async () => {
+  test("fires per-dispatch onConversationCreated callback on new conversation", async () => {
     const vellumAdapter = new MockAdapter("vellum");
     const broadcaster = new NotificationBroadcaster([vellumAdapter]);
-    const dispatchCalls: ThreadCreatedInfo[] = [];
+    const dispatchCalls: ConversationCreatedInfo[] = [];
 
     const signal = makeSignal();
     const decision = makeDecision();
 
     await broadcaster.broadcastDecision(signal, decision, {
-      onThreadCreated: (info) => dispatchCalls.push(info),
+      onConversationCreated: (info) => dispatchCalls.push(info),
     });
 
     expect(dispatchCalls).toHaveLength(1);
   });
 
-  test("does NOT fire class-level onThreadCreated when reusing an existing thread", async () => {
+  test("does NOT fire class-level onConversationCreated when reusing an existing conversation", async () => {
     const vellumAdapter = new MockAdapter("vellum");
     const broadcaster = new NotificationBroadcaster([vellumAdapter]);
-    const eventCalls: ThreadCreatedInfo[] = [];
-    const dispatchCalls: ThreadCreatedInfo[] = [];
-    broadcaster.setOnThreadCreated((info) => eventCalls.push(info));
+    const eventCalls: ConversationCreatedInfo[] = [];
+    const dispatchCalls: ConversationCreatedInfo[] = [];
+    broadcaster.setOnConversationCreated((info) => eventCalls.push(info));
 
     // Simulate a successful reuse by injecting a pairing result with
     // createdNewConversation=false. This bypasses the real conversation
@@ -386,12 +388,12 @@ describe("notification broadcaster", () => {
       messageId: "msg-reused-789",
       strategy: "start_new_conversation",
       createdNewConversation: false,
-      threadDecisionFallbackUsed: false,
+      conversationFallbackUsed: false,
     };
 
     const signal = makeSignal();
     const decision = makeDecision({
-      threadActions: {
+      conversationActions: {
         vellum: {
           action: "reuse_existing",
           conversationId: "conv-existing-123",
@@ -400,7 +402,7 @@ describe("notification broadcaster", () => {
     });
 
     await broadcaster.broadcastDecision(signal, decision, {
-      onThreadCreated: (info) => dispatchCalls.push(info),
+      onConversationCreated: (info) => dispatchCalls.push(info),
     });
 
     // The class-level event callback should NOT fire because
@@ -486,11 +488,11 @@ describe("notification broadcaster", () => {
     });
   });
 
-  test("reused thread via binding-key continuation does NOT emit class-level onThreadCreated", async () => {
+  test("reused conversation via binding-key continuation does NOT emit class-level onConversationCreated", async () => {
     const vellumAdapter = new MockAdapter("vellum");
     const broadcaster = new NotificationBroadcaster([vellumAdapter]);
-    const eventCalls: ThreadCreatedInfo[] = [];
-    broadcaster.setOnThreadCreated((info) => eventCalls.push(info));
+    const eventCalls: ConversationCreatedInfo[] = [];
+    broadcaster.setOnConversationCreated((info) => eventCalls.push(info));
 
     // Simulate binding-key continuation: pairing reuses an existing bound
     // conversation (createdNewConversation=false, strategy=continue_existing_conversation)
@@ -499,7 +501,7 @@ describe("notification broadcaster", () => {
       messageId: "msg-bound-voice-001",
       strategy: "continue_existing_conversation" as const,
       createdNewConversation: false,
-      threadDecisionFallbackUsed: false,
+      conversationFallbackUsed: false,
     };
 
     const signal = makeSignal();
@@ -508,27 +510,27 @@ describe("notification broadcaster", () => {
     await broadcaster.broadcastDecision(signal, decision);
 
     // The class-level event callback should NOT fire because
-    // createdNewConversation is false — the thread already exists
+    // createdNewConversation is false — the conversation already exists
     // in the external channel and the client already knows about it.
     expect(eventCalls).toHaveLength(0);
   });
 
-  test("fresh conversation for continue_existing_conversation does NOT emit class-level onThreadCreated", async () => {
+  test("fresh conversation for continue_existing_conversation does NOT emit class-level onConversationCreated", async () => {
     const vellumAdapter = new MockAdapter("vellum");
     const broadcaster = new NotificationBroadcaster([vellumAdapter]);
-    const eventCalls: ThreadCreatedInfo[] = [];
-    broadcaster.setOnThreadCreated((info) => eventCalls.push(info));
+    const eventCalls: ConversationCreatedInfo[] = [];
+    broadcaster.setOnConversationCreated((info) => eventCalls.push(info));
 
     // First delivery to a new destination: creates a fresh conversation but
     // the strategy is continue_existing_conversation (not start_new_conversation),
-    // so the event should NOT fire — these are background threads not
+    // so the event should NOT fire — these are background conversations not
     // meant to appear in the sidebar.
     nextPairingResult = {
       conversationId: "conv-new-telegram-dest",
       messageId: "msg-new-telegram-dest",
       strategy: "continue_existing_conversation" as const,
       createdNewConversation: true,
-      threadDecisionFallbackUsed: false,
+      conversationFallbackUsed: false,
     };
 
     const signal = makeSignal();
@@ -541,10 +543,10 @@ describe("notification broadcaster", () => {
     expect(eventCalls).toHaveLength(0);
   });
 
-  test("per-dispatch onThreadCreated fires for reused binding-key conversation", async () => {
+  test("per-dispatch onConversationCreated fires for reused binding-key conversation", async () => {
     const vellumAdapter = new MockAdapter("vellum");
     const broadcaster = new NotificationBroadcaster([vellumAdapter]);
-    const dispatchCalls: ThreadCreatedInfo[] = [];
+    const dispatchCalls: ConversationCreatedInfo[] = [];
 
     // Binding-key reuse: conversation already exists
     nextPairingResult = {
@@ -552,14 +554,14 @@ describe("notification broadcaster", () => {
       messageId: "msg-bound-telegram-789",
       strategy: "continue_existing_conversation" as const,
       createdNewConversation: false,
-      threadDecisionFallbackUsed: false,
+      conversationFallbackUsed: false,
     };
 
     const signal = makeSignal();
     const decision = makeDecision();
 
     await broadcaster.broadcastDecision(signal, decision, {
-      onThreadCreated: (info) => dispatchCalls.push(info),
+      onConversationCreated: (info) => dispatchCalls.push(info),
     });
 
     // The per-dispatch callback SHOULD fire regardless of reuse

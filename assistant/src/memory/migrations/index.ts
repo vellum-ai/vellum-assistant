@@ -104,6 +104,7 @@ export { migrateDropContactInteractionColumns } from "./159-drop-contact-interac
 export { migrateDropLoopbackPortColumn } from "./160-drop-loopback-port-column.js";
 export { migrateDropOrphanedMediaTables } from "./161-drop-orphaned-media-tables.js";
 export { migrateGuardianTimestampsEpochMs } from "./162-guardian-timestamps-epoch-ms.js";
+export { migrateRenameNotificationThreadColumns } from "./163-rename-notification-thread-columns.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

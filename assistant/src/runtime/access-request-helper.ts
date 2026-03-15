@@ -223,7 +223,7 @@ export function notifyGuardianOfAccessRequest(
       previousMemberStatus: previousMemberStatus ?? null,
     },
     dedupeKey: `access-request:${canonicalRequest.id}`,
-    onThreadCreated: (info) => {
+    onConversationCreated: (info) => {
       if (info.sourceEventName !== "ingress.access_request" || vellumDeliveryId)
         return;
       const delivery = createCanonicalGuardianDelivery({

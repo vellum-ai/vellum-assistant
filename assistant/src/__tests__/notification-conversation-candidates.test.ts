@@ -1,5 +1,5 @@
 /**
- * Focused tests for thread candidate building and prompt serialization.
+ * Focused tests for conversation candidate building and prompt serialization.
  *
  * Validates that the candidate builder produces correct, lightweight metadata
  * and that the prompt serializer formats it in a token-efficient way.
@@ -8,10 +8,10 @@
 import { describe, expect, test } from "bun:test";
 
 import type {
-  ThreadCandidate,
-  ThreadCandidateSet,
-} from "../notifications/thread-candidates.js";
-import { serializeCandidatesForPrompt } from "../notifications/thread-candidates.js";
+  ConversationCandidate,
+  ConversationCandidateSet,
+} from "../notifications/conversation-candidates.js";
+import { serializeCandidatesForPrompt } from "../notifications/conversation-candidates.js";
 import type { NotificationChannel } from "../notifications/types.js";
 
 // -- serializeCandidatesForPrompt tests ---------------------------------------
@@ -22,12 +22,12 @@ describe("serializeCandidatesForPrompt", () => {
   });
 
   test("returns null when all channels have empty arrays", () => {
-    const set: ThreadCandidateSet = { vellum: [] };
+    const set: ConversationCandidateSet = { vellum: [] };
     expect(serializeCandidatesForPrompt(set)).toBeNull();
   });
 
   test("serializes a single channel with one candidate", () => {
-    const set: ThreadCandidateSet = {
+    const set: ConversationCandidateSet = {
       vellum: [
         {
           conversationId: "conv-001",
@@ -48,7 +48,7 @@ describe("serializeCandidatesForPrompt", () => {
   });
 
   test("serializes untitled conversations with placeholder", () => {
-    const set: ThreadCandidateSet = {
+    const set: ConversationCandidateSet = {
       vellum: [
         {
           conversationId: "conv-002",
@@ -66,7 +66,7 @@ describe("serializeCandidatesForPrompt", () => {
   });
 
   test("includes guardian context when present", () => {
-    const set: ThreadCandidateSet = {
+    const set: ConversationCandidateSet = {
       vellum: [
         {
           conversationId: "conv-003",
@@ -84,7 +84,7 @@ describe("serializeCandidatesForPrompt", () => {
   });
 
   test("serializes multiple channels", () => {
-    const set: ThreadCandidateSet = {
+    const set: ConversationCandidateSet = {
       vellum: [
         {
           conversationId: "conv-001",
@@ -113,7 +113,7 @@ describe("serializeCandidatesForPrompt", () => {
   });
 
   test("serializes multiple candidates per channel", () => {
-    const set: ThreadCandidateSet = {
+    const set: ConversationCandidateSet = {
       vellum: [
         {
           conversationId: "conv-001",
@@ -140,11 +140,11 @@ describe("serializeCandidatesForPrompt", () => {
   });
 });
 
-// -- ThreadCandidate type correctness -----------------------------------------
+// -- ConversationCandidate type correctness -----------------------------------------
 
-describe("ThreadCandidate type", () => {
+describe("ConversationCandidate type", () => {
   test("candidate has all required fields", () => {
-    const candidate: ThreadCandidate = {
+    const candidate: ConversationCandidate = {
       conversationId: "conv-test",
       title: "Test",
       updatedAt: Date.now(),
@@ -156,7 +156,7 @@ describe("ThreadCandidate type", () => {
   });
 
   test("candidate can include guardian context", () => {
-    const candidate: ThreadCandidate = {
+    const candidate: ConversationCandidate = {
       conversationId: "conv-test",
       title: "Test",
       updatedAt: Date.now(),

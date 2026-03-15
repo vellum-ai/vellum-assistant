@@ -1,18 +1,18 @@
 /**
- * Tests for the thread seed composer.
+ * Tests for the conversation seed composer.
  *
  * Validates surface-aware verbosity resolution, copy-based seed
- * composition, and the threadSeedMessage sanity check.
+ * composition, and the conversationSeedMessage sanity check.
  */
 
 import { describe, expect, test } from "bun:test";
 
 import type { NotificationSignal } from "../notifications/signal.js";
 import {
-  composeThreadSeed,
-  isThreadSeedSane,
+  composeConversationSeed,
+  isConversationSeedSane,
   resolveVerbosity,
-} from "../notifications/thread-seed-composer.js";
+} from "../notifications/conversation-seed-composer.js";
 import type {
   NotificationChannel,
   RenderedChannelCopy,
@@ -119,64 +119,64 @@ describe("resolveVerbosity", () => {
   });
 });
 
-// ── isThreadSeedSane ───────────────────────────────────────────────────
+// ── isConversationSeedSane ───────────────────────────────────────────────────
 
-describe("isThreadSeedSane", () => {
+describe("isConversationSeedSane", () => {
   test("accepts a normal string", () => {
-    expect(isThreadSeedSane("This is a valid thread seed message.")).toBe(true);
+    expect(isConversationSeedSane("This is a valid thread seed message.")).toBe(true);
   });
 
   test("rejects empty string", () => {
-    expect(isThreadSeedSane("")).toBe(false);
+    expect(isConversationSeedSane("")).toBe(false);
   });
 
   test("rejects very short string (1-2 chars)", () => {
-    expect(isThreadSeedSane("Hi")).toBe(false);
+    expect(isConversationSeedSane("Hi")).toBe(false);
   });
 
   test("accepts short CJK text (>= 3 chars)", () => {
     // CJK characters pack more meaning per character
-    expect(isThreadSeedSane("リマインダー")).toBe(true);
-    expect(isThreadSeedSane("提醒您")).toBe(true);
+    expect(isConversationSeedSane("リマインダー")).toBe(true);
+    expect(isConversationSeedSane("提醒您")).toBe(true);
   });
 
   test("accepts string at min boundary (3 chars)", () => {
-    expect(isThreadSeedSane("abc")).toBe(true);
+    expect(isConversationSeedSane("abc")).toBe(true);
   });
 
   test("rejects JSON object dump", () => {
-    expect(isThreadSeedSane('{"key": "value", "nested": {"a": 1}}')).toBe(
+    expect(isConversationSeedSane('{"key": "value", "nested": {"a": 1}}')).toBe(
       false,
     );
   });
 
   test("rejects JSON array dump", () => {
-    expect(isThreadSeedSane('[{"item": 1}, {"item": 2}]')).toBe(false);
+    expect(isConversationSeedSane('[{"item": 1}, {"item": 2}]')).toBe(false);
   });
 
   test("rejects non-string values", () => {
-    expect(isThreadSeedSane(42)).toBe(false);
-    expect(isThreadSeedSane(null)).toBe(false);
-    expect(isThreadSeedSane(undefined)).toBe(false);
+    expect(isConversationSeedSane(42)).toBe(false);
+    expect(isConversationSeedSane(null)).toBe(false);
+    expect(isConversationSeedSane(undefined)).toBe(false);
   });
 
   test("rejects excessively long string", () => {
-    expect(isThreadSeedSane("x".repeat(2001))).toBe(false);
+    expect(isConversationSeedSane("x".repeat(2001))).toBe(false);
   });
 
   test("accepts string at max boundary", () => {
-    expect(isThreadSeedSane("x".repeat(2000))).toBe(true);
+    expect(isConversationSeedSane("x".repeat(2000))).toBe(true);
   });
 });
 
-// ── composeThreadSeed — copy-based composition ─────────────────────────
+// ── composeConversationSeed — copy-based composition ─────────────────────────
 
-describe("composeThreadSeed", () => {
+describe("composeConversationSeed", () => {
   describe("rich verbosity (vellum/macos)", () => {
     test("combines title and body into flowing prose", () => {
       const signal = makeSignal();
       const copy = makeCopy({ title: "Reminder", body: "Take out the trash" });
-      const seed = composeThreadSeed(
+      const seed = composeConversationSeed(
         signal,
         "vellum" as NotificationChannel,
         copy,
@@ -197,7 +197,7 @@ describe("composeThreadSeed", () => {
         },
       });
       const copy = makeCopy({ title: "Reminder", body: "Call the doctor" });
-      const seed = composeThreadSeed(
+      const seed = composeConversationSeed(
         signal,
         "vellum" as NotificationChannel,
         copy,
@@ -218,7 +218,7 @@ describe("composeThreadSeed", () => {
         title: "Guardian Question",
         body: "Action required: What is the gate code?",
       });
-      const seed = composeThreadSeed(
+      const seed = composeConversationSeed(
         signal,
         "vellum" as NotificationChannel,
         copy,
@@ -230,7 +230,7 @@ describe("composeThreadSeed", () => {
     test('omits "Notification" generic title', () => {
       const signal = makeSignal();
       const copy = makeCopy({ title: "Notification", body: "Something new." });
-      const seed = composeThreadSeed(
+      const seed = composeConversationSeed(
         signal,
         "vellum" as NotificationChannel,
         copy,
@@ -244,7 +244,7 @@ describe("composeThreadSeed", () => {
     test("preserves title/body format with newline separator", () => {
       const signal = makeSignal();
       const copy = makeCopy({ title: "Alert", body: "Details here." });
-      const seed = composeThreadSeed(
+      const seed = composeConversationSeed(
         signal,
         "telegram" as NotificationChannel,
         copy,
@@ -262,7 +262,7 @@ describe("composeThreadSeed", () => {
         },
       });
       const copy = makeCopy({ title: "Reminder", body: "Respond to email" });
-      const seed = composeThreadSeed(
+      const seed = composeConversationSeed(
         signal,
         "telegram" as NotificationChannel,
         copy,
@@ -278,7 +278,7 @@ describe("composeThreadSeed", () => {
         title: "リマインダー",
         body: "ゴミを出してください",
       });
-      const seed = composeThreadSeed(
+      const seed = composeConversationSeed(
         signal,
         "vellum" as NotificationChannel,
         copy,
@@ -293,7 +293,7 @@ describe("composeThreadSeed", () => {
         title: "リマインダー",
         body: "ゴミを出してください",
       });
-      const seed = composeThreadSeed(
+      const seed = composeConversationSeed(
         signal,
         "telegram" as NotificationChannel,
         copy,
@@ -315,7 +315,7 @@ describe("composeThreadSeed", () => {
         title: "ガーディアンの質問",
         body: "ゲートコードは何ですか？",
       });
-      const seed = composeThreadSeed(
+      const seed = composeConversationSeed(
         signal,
         "vellum" as NotificationChannel,
         copy,
@@ -341,12 +341,12 @@ describe("composeThreadSeed", () => {
         title: "Reminder",
         body: "Important meeting at 3pm",
       });
-      const richSeed = composeThreadSeed(
+      const richSeed = composeConversationSeed(
         signal,
         "vellum" as NotificationChannel,
         copy,
       );
-      const compactSeed = composeThreadSeed(
+      const compactSeed = composeConversationSeed(
         signal,
         "telegram" as NotificationChannel,
         copy,
@@ -362,7 +362,7 @@ describe("composeThreadSeed", () => {
       });
       const copy = makeCopy({ title: "Alert", body: "Details." });
       // Channel is vellum but interfaceHint says telegram → compact format
-      const seed = composeThreadSeed(
+      const seed = composeConversationSeed(
         signal,
         "vellum" as NotificationChannel,
         copy,
@@ -375,7 +375,7 @@ describe("composeThreadSeed", () => {
     test("handles empty copy body gracefully", () => {
       const signal = makeSignal();
       const copy = makeCopy({ title: "Alert", body: "" });
-      const seed = composeThreadSeed(
+      const seed = composeConversationSeed(
         signal,
         "vellum" as NotificationChannel,
         copy,
@@ -386,7 +386,7 @@ describe("composeThreadSeed", () => {
     test("never produces raw JSON in output", () => {
       const signal = makeSignal();
       const copy = makeCopy({ title: "Alert", body: "Check the results." });
-      const seed = composeThreadSeed(
+      const seed = composeConversationSeed(
         signal,
         "vellum" as NotificationChannel,
         copy,
@@ -400,7 +400,7 @@ describe("composeThreadSeed", () => {
     test("falls back to event name when both title and body are empty", () => {
       const signal = makeSignal({ sourceEventName: "schedule.notify" });
       const copy = makeCopy({ title: "", body: "" });
-      const seed = composeThreadSeed(
+      const seed = composeConversationSeed(
         signal,
         "vellum" as NotificationChannel,
         copy,
@@ -411,7 +411,7 @@ describe("composeThreadSeed", () => {
     test('falls back to event name when title is "Notification" and body is empty', () => {
       const signal = makeSignal({ sourceEventName: "schedule.complete" });
       const copy = makeCopy({ title: "Notification", body: "" });
-      const seed = composeThreadSeed(
+      const seed = composeConversationSeed(
         signal,
         "vellum" as NotificationChannel,
         copy,
@@ -425,7 +425,7 @@ describe("composeThreadSeed", () => {
         contextPayload: { message: "Take out the trash" },
       });
       const copy = makeCopy({ title: "", body: "" });
-      const seed = composeThreadSeed(
+      const seed = composeConversationSeed(
         signal,
         "vellum" as NotificationChannel,
         copy,
@@ -439,7 +439,7 @@ describe("composeThreadSeed", () => {
         contextPayload: { summary: "Deployed v2.3.1 successfully" },
       });
       const copy = makeCopy({ title: "", body: "" });
-      const seed = composeThreadSeed(
+      const seed = composeConversationSeed(
         signal,
         "telegram" as NotificationChannel,
         copy,
@@ -453,7 +453,7 @@ describe("composeThreadSeed", () => {
         contextPayload: { questionText: "What is the gate code?" },
       });
       const copy = makeCopy({ title: "", body: "" });
-      const seed = composeThreadSeed(
+      const seed = composeConversationSeed(
         signal,
         "vellum" as NotificationChannel,
         copy,
@@ -467,12 +467,12 @@ describe("composeThreadSeed", () => {
         contextPayload: { message: "Call the doctor" },
       });
       const copy = makeCopy({ title: "", body: "" });
-      const richSeed = composeThreadSeed(
+      const richSeed = composeConversationSeed(
         signal,
         "vellum" as NotificationChannel,
         copy,
       );
-      const compactSeed = composeThreadSeed(
+      const compactSeed = composeConversationSeed(
         signal,
         "telegram" as NotificationChannel,
         copy,
@@ -484,7 +484,7 @@ describe("composeThreadSeed", () => {
     test("fallback handles whitespace-only copy", () => {
       const signal = makeSignal({ sourceEventName: "watcher.notification" });
       const copy = makeCopy({ title: "   ", body: "  " });
-      const seed = composeThreadSeed(
+      const seed = composeConversationSeed(
         signal,
         "vellum" as NotificationChannel,
         copy,
@@ -498,7 +498,7 @@ describe("composeThreadSeed", () => {
         contextPayload: {},
       });
       const copy = makeCopy({ title: "", body: "" });
-      const seed = composeThreadSeed(
+      const seed = composeConversationSeed(
         signal,
         "vellum" as NotificationChannel,
         copy,
@@ -512,7 +512,7 @@ describe("composeThreadSeed", () => {
         contextPayload: { senderIdentifier: "Alice" },
       });
       const copy = makeCopy({ title: "", body: "" });
-      const seed = composeThreadSeed(
+      const seed = composeConversationSeed(
         signal,
         "vellum" as NotificationChannel,
         copy,
@@ -529,7 +529,7 @@ describe("composeThreadSeed", () => {
         },
       });
       const copy = makeCopy({ title: "", body: "" });
-      const seed = composeThreadSeed(
+      const seed = composeConversationSeed(
         signal,
         "vellum" as NotificationChannel,
         copy,

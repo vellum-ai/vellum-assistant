@@ -2,7 +2,7 @@
  * Regression tests for the ASK_GUARDIAN canonical notification path.
  *
  * Validates that guardian dispatch relies on the generic notification
- * pipeline (including thread-created callbacks) without a custom dispatch path.
+ * pipeline (including conversation-created callbacks) without a custom dispatch path.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ThreadCreatedInfo } from "../notifications/broadcaster.js";
+import type { ConversationCreatedInfo } from "../notifications/broadcaster.js";
 import type { NotificationDeliveryResult } from "../notifications/types.js";
 
 const testDir = mkdtempSync(join(tmpdir(), "notification-guardian-path-"));
@@ -54,7 +54,7 @@ mock.module("../runtime/guardian-vellum-migration.js", () => ({
 }));
 
 const emitCalls: unknown[] = [];
-let mockThreadCreated: ThreadCreatedInfo | null = null;
+let mockConversationCreated: ConversationCreatedInfo | null = null;
 let mockEmitResult: {
   signalId: string;
   deduplicated: boolean;
@@ -79,9 +79,12 @@ let mockEmitResult: {
 mock.module("../notifications/emit-signal.js", () => ({
   emitNotificationSignal: async (params: Record<string, unknown>) => {
     emitCalls.push(params);
-    const onThreadCreated = params.onThreadCreated;
-    if (typeof onThreadCreated === "function" && mockThreadCreated) {
-      onThreadCreated(mockThreadCreated);
+    const onConversationCreated = params.onConversationCreated;
+    if (
+      typeof onConversationCreated === "function" &&
+      mockConversationCreated
+    ) {
+      onConversationCreated(mockConversationCreated);
     }
     return mockEmitResult;
   },
@@ -125,7 +128,7 @@ function resetTables(): void {
   emitCalls.length = 0;
   // Note: mockTelegramBinding/mockVellumBinding assignments
   // removed — they only fed the stale channel-guardian-store mock.
-  mockThreadCreated = null;
+  mockConversationCreated = null;
   mockEmitResult = {
     signalId: "sig-1",
     deduplicated: false,
@@ -200,7 +203,7 @@ describe("ASK_GUARDIAN canonical notification path", () => {
   test("uses notification_thread_created callback instead of a guardian-specific dispatch path", async () => {
     const convId = "conv-guardian-notif-2";
     ensureConversation(convId);
-    mockThreadCreated = {
+    mockConversationCreated = {
       conversationId: "conv-from-thread-callback",
       title: "Guardian question",
       sourceEventName: "guardian.question",
@@ -235,7 +238,7 @@ describe("ASK_GUARDIAN canonical notification path", () => {
     });
 
     const signalParams = emitCalls[0] as Record<string, unknown>;
-    expect(typeof signalParams.onThreadCreated).toBe("function");
+    expect(typeof signalParams.onConversationCreated).toBe("function");
     expect(signalParams.skipVellumThread).toBeUndefined();
   });
 

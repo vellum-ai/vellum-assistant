@@ -12,8 +12,8 @@ import { getGatewayInternalBaseUrl } from "../../config/env.js";
 import { mintDaemonDeliveryToken } from "../../runtime/auth/token-service.js";
 import { deliverChannelReply } from "../../runtime/gateway-client.js";
 import { getLogger } from "../../util/logger.js";
+import { isConversationSeedSane } from "../conversation-seed-composer.js";
 import { nonEmpty } from "../copy-composer.js";
-import { isThreadSeedSane } from "../thread-seed-composer.js";
 import type {
   ChannelAdapter,
   ChannelDeliveryPayload,
@@ -28,8 +28,8 @@ function resolveSlackMessageText(payload: ChannelDeliveryPayload): string {
   const deliveryText = nonEmpty(payload.copy.deliveryText);
   if (deliveryText) return deliveryText;
 
-  if (isThreadSeedSane(payload.copy.threadSeedMessage)) {
-    return payload.copy.threadSeedMessage.trim();
+  if (isConversationSeedSane(payload.copy.conversationSeedMessage)) {
+    return payload.copy.conversationSeedMessage.trim();
   }
 
   const body = nonEmpty(payload.copy.body);

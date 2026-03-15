@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ThreadCreatedInfo } from "../notifications/broadcaster.js";
+import type { ConversationCreatedInfo } from "../notifications/broadcaster.js";
 import type { NotificationDeliveryResult } from "../notifications/types.js";
 
 const testDir = mkdtempSync(join(tmpdir(), "guardian-dispatch-test-"));
@@ -48,7 +48,7 @@ mock.module("../runtime/guardian-vellum-migration.js", () => ({
 }));
 
 const emitCalls: unknown[] = [];
-let threadCreatedFromMock: ThreadCreatedInfo | null = null;
+let conversationCreatedFromMock: ConversationCreatedInfo | null = null;
 let mockEmitResult: {
   signalId: string;
   deduplicated: boolean;
@@ -73,9 +73,9 @@ let mockEmitResult: {
 mock.module("../notifications/emit-signal.js", () => ({
   emitNotificationSignal: async (params: Record<string, unknown>) => {
     emitCalls.push(params);
-    const callback = params.onThreadCreated;
-    if (typeof callback === "function" && threadCreatedFromMock) {
-      callback(threadCreatedFromMock);
+    const callback = params.onConversationCreated;
+    if (typeof callback === "function" && conversationCreatedFromMock) {
+      callback(conversationCreatedFromMock);
     }
     return mockEmitResult;
   },
@@ -119,7 +119,7 @@ function resetTables(): void {
   // Note: mockTelegramBinding/mockVoiceBinding/mockVellumBinding assignments
   // removed — they only fed the stale channel-guardian-store mock.
   emitCalls.length = 0;
-  threadCreatedFromMock = null;
+  conversationCreatedFromMock = null;
   mockEmitResult = {
     signalId: "sig-1",
     deduplicated: false,
@@ -196,7 +196,7 @@ describe("guardian-dispatch", () => {
 
     const signalParams = emitCalls[0] as Record<string, unknown>;
     expect(signalParams.skipVellumThread).toBeUndefined();
-    expect(typeof signalParams.onThreadCreated).toBe("function");
+    expect(typeof signalParams.onConversationCreated).toBe("function");
   });
 
   test("creates a telegram guardian delivery with binding metadata when pipeline sends telegram", async () => {
@@ -310,11 +310,11 @@ describe("guardian-dispatch", () => {
     expect(vellumDelivery!.status).toBe("failed");
   });
 
-  test("uses onThreadCreated callback conversation when delivery result omits conversationId", async () => {
+  test("uses onConversationCreated callback conversation when delivery result omits conversationId", async () => {
     const convId = "conv-dispatch-4";
     ensureConversation(convId);
 
-    threadCreatedFromMock = {
+    conversationCreatedFromMock = {
       conversationId: "conv-from-thread-created",
       title: "Guardian alert",
       sourceEventName: "guardian.question",

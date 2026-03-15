@@ -1,7 +1,7 @@
 /**
- * Surface-aware thread seed message composer.
+ * Surface-aware conversation seed message composer.
  *
- * Generates richer seed content for notification threads than the concise
+ * Generates richer seed content for notification conversations than the concise
  * title/body used in native notification popups. Verbosity adapts to the
  * delivery surface: vellum/macos gets flowing prose, telegram gets compact.
  *
@@ -9,7 +9,7 @@
  * so LLM-localized copy is preserved for non-English users.
  *
  * This runs in the daemon runtime (not via skills), ensuring every
- * notification thread has a readable seed message regardless of whether
+ * notification conversation has a readable seed message regardless of whether
  * the decision engine's LLM produced one.
  */
 
@@ -55,12 +55,12 @@ export function resolveVerbosity(
 }
 
 /**
- * Check whether a model-provided threadSeedMessage is usable.
+ * Check whether a model-provided conversationSeedMessage is usable.
  *
  * Rejects empty strings, raw JSON dumps, and excessively long content.
  * Min-length is 3 (not higher) to support concise CJK text.
  */
-export function isThreadSeedSane(value: unknown): value is string {
+export function isConversationSeedSane(value: unknown): value is string {
   if (typeof value !== "string") return false;
   const trimmed = value.trim();
   if (trimmed.length < 3) return false;
@@ -86,7 +86,7 @@ function humanizeEventName(eventName: string): string {
  *
  * Extracts the most useful fields from `contextPayload` (common keys like
  * message, summary, body, preview, senderIdentifier, title, label, questionText) and combines
- * them with a humanized event name. This ensures notification threads retain
+ * them with a humanized event name. This ensures notification conversations retain
  * usable audit context even when the decision engine produces empty copy.
  */
 function buildContextFallback(signal: NotificationSignal): string {
@@ -127,16 +127,16 @@ function hasCopyContent(copy: RenderedChannelCopy): boolean {
 }
 
 /**
- * Compose a thread seed message from signal context.
+ * Compose a conversation seed message from signal context.
  *
  * Builds from `copy.title` and `copy.body` so that LLM-localized content
  * is preserved. Surface-aware formatting makes the seed richer on
  * desktop (flowing prose) and compact on mobile (title + body separated).
  *
  * When rendered copy is blank, falls back to signal metadata (event name
- * and context payload) so notification threads always have usable content.
+ * and context payload) so notification conversations always have usable content.
  */
-export function composeThreadSeed(
+export function composeConversationSeed(
   signal: NotificationSignal,
   channel: NotificationChannel,
   copy: RenderedChannelCopy,

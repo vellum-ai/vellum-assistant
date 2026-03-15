@@ -165,7 +165,7 @@ export function createOrReuseToolGrantRequest(
       questionText,
     },
     dedupeKey: `tool-grant-request:${canonicalRequest.id}`,
-    onThreadCreated: (info) => {
+    onConversationCreated: (info) => {
       createCanonicalGuardianDelivery({
         requestId: canonicalRequest.id,
         destinationChannel: "vellum",
@@ -177,7 +177,7 @@ export function createOrReuseToolGrantRequest(
   // Record deliveries from the notification pipeline results (fire-and-forget).
   void signalPromise.then((signalResult) => {
     for (const result of signalResult.deliveryResults) {
-      if (result.channel === "vellum") continue; // handled in onThreadCreated
+      if (result.channel === "vellum") continue; // handled in onConversationCreated
       createCanonicalGuardianDelivery({
         requestId: canonicalRequest.id,
         destinationChannel: result.channel,

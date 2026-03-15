@@ -223,7 +223,7 @@ async function dispatchGuardianQuestionInner(
       },
       conversationAffinityHint,
       dedupeKey: `guardian:${request.id}`,
-      onThreadCreated: (info) => {
+      onConversationCreated: (info) => {
         if (info.sourceEventName !== "guardian.question" || vellumDeliveryId)
           return;
         const delivery = createCanonicalGuardianDelivery({

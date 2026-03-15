@@ -46,10 +46,10 @@ const mockOnThreadCreatedCallbacks: Array<
 mock.module("../notifications/emit-signal.js", () => ({
   emitNotificationSignal: async (params: Record<string, unknown>) => {
     emittedSignals.push(params);
-    // Capture onThreadCreated callback so tests can invoke it
-    if (typeof params.onThreadCreated === "function") {
+    // Capture onConversationCreated callback so tests can invoke it
+    if (typeof params.onConversationCreated === "function") {
       mockOnThreadCreatedCallbacks.push(
-        params.onThreadCreated as (info: {
+        params.onConversationCreated as (info: {
           conversationId: string;
           title: string;
           sourceEventName: string;
@@ -302,7 +302,7 @@ describe("bridgeConfirmationRequestToGuardian", () => {
     );
   });
 
-  test("creates vellum delivery row via onThreadCreated callback", () => {
+  test("creates vellum delivery row via onConversationCreated callback", () => {
     const canonicalRequest = makeCanonicalRequest();
     const trustContext = makeTrustedContactContext();
 
@@ -315,7 +315,7 @@ describe("bridgeConfirmationRequestToGuardian", () => {
 
     expect(mockOnThreadCreatedCallbacks).toHaveLength(1);
 
-    // Simulate the broadcaster invoking onThreadCreated
+    // Simulate the broadcaster invoking onConversationCreated
     mockOnThreadCreatedCallbacks[0]({
       conversationId: "guardian-thread-1",
       title: "Guardian question",

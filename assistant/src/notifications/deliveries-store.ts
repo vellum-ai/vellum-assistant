@@ -30,9 +30,9 @@ export interface NotificationDeliveryRow {
   conversationId: string | null;
   messageId: string | null;
   conversationStrategy: string | null;
-  threadAction: string | null;
-  threadTargetConversationId: string | null;
-  threadDecisionFallbackUsed: number | null;
+  conversationAction: string | null;
+  conversationTargetId: string | null;
+  conversationFallbackUsed: number | null;
   clientDeliveryStatus: string | null;
   clientDeliveryError: string | null;
   clientDeliveryAt: number | null;
@@ -58,9 +58,9 @@ function rowToDelivery(
     conversationId: row.conversationId,
     messageId: row.messageId,
     conversationStrategy: row.conversationStrategy,
-    threadAction: row.threadAction,
-    threadTargetConversationId: row.threadTargetConversationId,
-    threadDecisionFallbackUsed: row.threadDecisionFallbackUsed,
+    conversationAction: row.conversationAction,
+    conversationTargetId: row.conversationTargetId,
+    conversationFallbackUsed: row.conversationFallbackUsed,
     clientDeliveryStatus: row.clientDeliveryStatus,
     clientDeliveryError: row.clientDeliveryError,
     clientDeliveryAt: row.clientDeliveryAt,
@@ -84,9 +84,9 @@ export interface CreateDeliveryParams {
   conversationId?: string;
   messageId?: string;
   conversationStrategy?: string;
-  threadAction?: string;
-  threadTargetConversationId?: string;
-  threadDecisionFallbackUsed?: boolean;
+  conversationAction?: string;
+  conversationTargetId?: string;
+  conversationFallbackUsed?: boolean;
 }
 
 /** Create a new delivery audit record. */
@@ -111,11 +111,11 @@ export function createDelivery(
     conversationId: params.conversationId ?? null,
     messageId: params.messageId ?? null,
     conversationStrategy: params.conversationStrategy ?? null,
-    threadAction: params.threadAction ?? null,
-    threadTargetConversationId: params.threadTargetConversationId ?? null,
-    threadDecisionFallbackUsed:
-      params.threadDecisionFallbackUsed != null
-        ? params.threadDecisionFallbackUsed
+    conversationAction: params.conversationAction ?? null,
+    conversationTargetId: params.conversationTargetId ?? null,
+    conversationFallbackUsed:
+      params.conversationFallbackUsed != null
+        ? params.conversationFallbackUsed
           ? 1
           : 0
         : null,

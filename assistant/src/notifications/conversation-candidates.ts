@@ -1,9 +1,9 @@
 /**
- * Thread candidate builder for notification thread reuse.
+ * Conversation candidate builder for notification conversation reuse.
  *
  * Builds a lightweight candidate set of recent notification conversations
  * per channel that the decision engine can choose to reuse instead of
- * starting a new thread. Includes guardian-specific context (pending
+ * starting a new conversation. Includes guardian-specific context (pending
  * unresolved request count) when available.
  *
  * The candidate set is intentionally compact — only the fields the LLM
@@ -23,9 +23,9 @@ import {
 import { getLogger } from "../util/logger.js";
 import type { NotificationChannel } from "./types.js";
 
-const log = getLogger("thread-candidates");
+const log = getLogger("conversation-candidates");
 
-/** Maximum number of candidate threads to surface per channel. */
+/** Maximum number of candidate conversations to surface per channel. */
 const MAX_CANDIDATES_PER_CHANNEL = 5;
 
 /** Only consider conversations updated within this window (ms). */
@@ -33,14 +33,14 @@ const CANDIDATE_RECENCY_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 // -- Public types -------------------------------------------------------------
 
-/** Guardian-specific context attached to a thread candidate when available. */
+/** Guardian-specific context attached to a conversation candidate when available. */
 export interface GuardianCandidateContext {
   /** Number of unresolved (pending) guardian approval requests in this conversation. */
   pendingUnresolvedRequestCount: number;
 }
 
 /** A single candidate conversation that the decision engine can select for reuse. */
-export interface ThreadCandidate {
+export interface ConversationCandidate {
   conversationId: string;
   title: string | null;
   updatedAt: number;
@@ -52,14 +52,14 @@ export interface ThreadCandidate {
 }
 
 /** Candidate set for the decision engine, keyed by channel. */
-export type ThreadCandidateSet = Partial<
-  Record<NotificationChannel, ThreadCandidate[]>
+export type ConversationCandidateSet = Partial<
+  Record<NotificationChannel, ConversationCandidate[]>
 >;
 
 // -- Core builder -------------------------------------------------------------
 
 /**
- * Build the thread candidate set for all selected channels.
+ * Build the conversation candidate set for all selected channels.
  *
  * Queries recent notification-sourced conversations that were delivered
  * to each channel and enriches them with guardian-specific metadata
@@ -68,10 +68,10 @@ export type ThreadCandidateSet = Partial<
  * Errors are caught per-channel so a failure in one channel does not
  * block candidates for others.
  */
-export function buildThreadCandidates(
+export function buildConversationCandidates(
   channels: NotificationChannel[],
-): ThreadCandidateSet {
-  const result: ThreadCandidateSet = {};
+): ConversationCandidateSet {
+  const result: ConversationCandidateSet = {};
   const cutoff = Date.now() - CANDIDATE_RECENCY_WINDOW_MS;
 
   for (const channel of channels) {
@@ -84,7 +84,7 @@ export function buildThreadCandidates(
       const errMsg = err instanceof Error ? err.message : String(err);
       log.warn(
         { err: errMsg, channel },
-        "Failed to build thread candidates for channel",
+        "Failed to build conversation candidates for channel",
       );
     }
   }
@@ -104,7 +104,7 @@ export function buildThreadCandidates(
 function buildCandidatesForChannel(
   channel: NotificationChannel,
   cutoffMs: number,
-): ThreadCandidate[] {
+): ConversationCandidate[] {
   const db = getDb();
 
   // Find recent notification deliveries for this channel that have a
@@ -147,7 +147,7 @@ function buildCandidatesForChannel(
 
   // Deduplicate by conversationId (keep the most recent delivery per conversation)
   const seen = new Set<string>();
-  const candidates: ThreadCandidate[] = [];
+  const candidates: ConversationCandidate[] = [];
 
   for (const row of rows) {
     if (!row.conversationId) continue;
@@ -240,18 +240,18 @@ function batchCountPendingByConversation(
 // -- Prompt serialization -----------------------------------------------------
 
 /**
- * Serialize a thread candidate set into a compact text block suitable for
+ * Serialize a conversation candidate set into a compact text block suitable for
  * injection into the decision engine's user prompt.
  *
  * Designed to be token-efficient while giving the LLM enough context
  * to make a reuse decision.
  */
 export function serializeCandidatesForPrompt(
-  candidateSet: ThreadCandidateSet,
+  candidateSet: ConversationCandidateSet,
 ): string | null {
   const channelEntries = Object.entries(candidateSet) as [
     NotificationChannel,
-    ThreadCandidate[],
+    ConversationCandidate[],
   ][];
   if (channelEntries.length === 0) return null;
 
