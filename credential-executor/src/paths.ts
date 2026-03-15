@@ -11,9 +11,9 @@
  * - **Local**: CES private state lives under the Vellum root's `protected/`
  *   directory at `<rootDir>/protected/credential-executor/`.
  *
- * - **Managed**: CES private state lives at `/ces-data`, a dedicated volume
- *   mounted only into the CES container. The assistant container never sees
- *   this volume.
+ * - **Managed**: CES private state lives at `/home/ces/.ces-data` by default
+ *   (overridable via `CES_DATA_ROOT` env var). The assistant container never
+ *   sees this path.
  *
  * The assistant-visible data root (where workspace, embeddings, etc. live)
  * is a separate path and must never be used for CES-private writes.
@@ -52,24 +52,23 @@ function getVellumRootDir(): string {
 }
 
 /**
- * Well-known managed CES data root.
+ * Default managed CES data root.
  *
  * Defaults to `/home/ces/.ces-data` so the non-root `ces` user (uid 1001)
- * can write without extra chown/mkdir in the Dockerfile. Can be overridden
- * via `CES_DATA_ROOT` for custom volume mounts.
+ * can write without extra chown/mkdir in the Dockerfile.
  */
-const MANAGED_CES_DATA_ROOT = process.env["CES_DATA_ROOT"] ?? "/home/ces/.ces-data";
+const DEFAULT_MANAGED_CES_DATA_ROOT = "/home/ces/.ces-data";
 
 /**
  * Return the CES-private data root.
  *
  * - Local: `<vellumRoot>/protected/credential-executor/`
- * - Managed: `/ces-data`
+ * - Managed: `CES_DATA_ROOT` env var, or `/home/ces/.ces-data` by default
  */
 export function getCesDataRoot(mode?: CesMode): string {
   const resolvedMode = mode ?? getCesMode();
   if (resolvedMode === "managed") {
-    return MANAGED_CES_DATA_ROOT;
+    return process.env["CES_DATA_ROOT"] ?? DEFAULT_MANAGED_CES_DATA_ROOT;
   }
   return join(getVellumRootDir(), "protected", "credential-executor");
 }
