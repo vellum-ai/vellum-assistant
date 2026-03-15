@@ -14,8 +14,6 @@ import VellumAssistantShared
 @MainActor
 struct AssistantTransferSection: View {
     let assistant: LockfileAssistant
-    let store: SettingsStore
-    let authManager: AuthManager
     let onClose: () -> Void
 
     @State private var isTransferring = false
@@ -23,7 +21,6 @@ struct AssistantTransferSection: View {
     @State private var showingConfirmation = false
     @State private var showingManagedConfirmation = false
     @State private var errorMessage: String?
-    @State private var successMessage: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -53,12 +50,6 @@ struct AssistantTransferSection: View {
                 Text(error)
                     .font(VFont.caption)
                     .foregroundColor(VColor.systemNegativeStrong)
-            }
-
-            if let success = successMessage {
-                Text(success)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.systemPositiveStrong)
             }
         }
         .padding(VSpacing.lg)
@@ -127,7 +118,6 @@ struct AssistantTransferSection: View {
     private func transferLocalToManaged() async {
         isTransferring = true
         errorMessage = nil
-        successMessage = nil
         defer {
             isTransferring = false
             currentStep = nil
@@ -169,14 +159,7 @@ struct AssistantTransferSection: View {
             // Step 5 — Retire local assistant (fire-and-forget)
             currentStep = "Cleaning up..."
             let localName = assistant.assistantId
-            var retireWarning: String?
-            do {
-                try await AppDelegate.shared?.assistantCli.retire(name: localName)
-            } catch {
-                retireWarning = " Note: the source assistant could not be retired automatically."
-            }
-
-            successMessage = "Transfer complete. You are now using the cloud assistant.\(retireWarning ?? "")"
+            try? await AppDelegate.shared?.assistantCli.retire(name: localName)
         } catch {
             errorMessage = "Transfer failed: \(error.localizedDescription)"
         }
@@ -187,7 +170,6 @@ struct AssistantTransferSection: View {
     private func transferManagedToLocal() async {
         isTransferring = true
         errorMessage = nil
-        successMessage = nil
         defer {
             isTransferring = false
             currentStep = nil
@@ -325,7 +307,6 @@ struct AssistantTransferSection: View {
 
             // Step 9 — Retire managed assistant (fire-and-forget with pre-saved auth)
             currentStep = "Cleaning up..."
-            var retireWarning: String?
             if let token = savedSessionToken {
                 let retireUrlString = "\(savedPlatformUrl)/v1/assistants/\(managedAssistantId)/retire/"
                 if let retireURL = URL(string: retireUrlString) {
@@ -336,22 +317,9 @@ struct AssistantTransferSection: View {
                     if let orgId = savedOrgId {
                         retireRequest.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
                     }
-                    let retireResult = try? await URLSession.shared.data(for: retireRequest)
-                    if let (_, retireResponse) = retireResult,
-                       let httpRetire = retireResponse as? HTTPURLResponse,
-                       (200..<300).contains(httpRetire.statusCode) {
-                        // Retire succeeded
-                    } else {
-                        retireWarning = " Note: the source assistant could not be retired automatically."
-                    }
-                } else {
-                    retireWarning = " Note: the source assistant could not be retired automatically."
+                    _ = try? await URLSession.shared.data(for: retireRequest)
                 }
-            } else {
-                retireWarning = " Note: the source assistant could not be retired automatically."
             }
-
-            successMessage = "Transfer complete. You are now using a local assistant.\(retireWarning ?? "")"
         } catch {
             errorMessage = "Transfer failed: \(error.localizedDescription)"
         }

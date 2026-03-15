@@ -85,8 +85,6 @@ struct SettingsDeveloperTab: View {
                !assistant.isRemote || assistant.isManaged {
                 AssistantTransferSection(
                     assistant: assistant,
-                    store: store,
-                    authManager: authManager,
                     onClose: onClose
                 )
             }
