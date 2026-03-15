@@ -355,7 +355,7 @@ CES enforces isolation controls cooperatively rather than at the OS level:
 
 Both limitations stem from the same root cause: v1 relies on process-level conventions (env vars for network, cwd for filesystem) rather than OS-level enforcement primitives.
 
-**Mitigation**: The denied-binary list and manifest validation restrict which binaries can run as secure commands, reducing the surface for non-cooperating binaries. In practice, the well-known CLI tools approved as secure command entrypoints (e.g., `gh`, `aws`) respect proxy environment variables and operate within their working directory. True enforcement requires OS-level sandboxing — Linux network namespaces for mandatory proxy routing and filesystem namespaces or chroot for path isolation — which is planned for v2 when CES runs in managed containers with full namespace support.
+**Mitigation**: The denied-binary list and manifest validation restrict which binaries can run as secure commands, reducing the surface for non-cooperating binaries. In practice, the well-known CLI tools approved as secure command entrypoints (e.g., `gh`, `aws`) respect proxy environment variables. True enforcement requires OS-level sandboxing — Linux network namespaces for mandatory proxy routing and filesystem namespaces or chroot for path isolation — which is planned for v2 when CES runs in managed containers with full namespace support.
 
 ### 8. `credential_process` adapter shares cooperative egress limitation with main command
 
