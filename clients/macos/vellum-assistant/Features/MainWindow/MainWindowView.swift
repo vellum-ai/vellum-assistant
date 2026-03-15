@@ -511,6 +511,7 @@ struct MainWindowView: View {
                         let dividerHeight: CGFloat = 1 + SidebarLayoutMetrics.dividerVerticalPadding * 2
                         let drawerY = bottomPad + SidebarLayoutMetrics.rowMinHeight + dividerHeight + VSpacing.xs
                         DrawerMenuView(
+                            authManager: authManager,
                             onSettings: {
                                 sidebar.showPreferencesDrawer = false
                                 windowState.selection = .panel(.settings)
@@ -526,6 +527,11 @@ struct MainWindowView: View {
                             onLogOut: {
                                 sidebar.showPreferencesDrawer = false
                                 AppDelegate.shared?.performLogout()
+                            },
+                            onOpenBilling: {
+                                sidebar.showPreferencesDrawer = false
+                                settingsStore.pendingSettingsTab = .billing
+                                windowState.selection = .panel(.settings)
                             }
                         )
                         .frame(width: drawerWidth)
