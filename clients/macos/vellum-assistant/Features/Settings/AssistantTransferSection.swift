@@ -21,6 +21,7 @@ struct AssistantTransferSection: View {
     @State private var showingConfirmation = false
     @State private var showingManagedConfirmation = false
     @State private var errorMessage: String?
+    @State private var transferTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -66,10 +67,13 @@ struct AssistantTransferSection: View {
         .alert("Transfer to Local", isPresented: $showingManagedConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Transfer", role: .destructive) {
-                Task { await transferManagedToLocal() }
+                transferTask = Task { await transferManagedToLocal() }
             }
         } message: {
             Text("This will move all conversations, memory, and settings to a local assistant on this Mac, then retire the cloud one. This cannot be undone.")
+        }
+        .onDisappear {
+            transferTask?.cancel()
         }
     }
 
@@ -200,6 +204,7 @@ struct AssistantTransferSection: View {
             currentStep = "Waiting for export..."
             var downloadUrl: String?
             for _ in 0..<100 {
+                try Task.checkCancellation()
                 let statusResponse = try await GatewayHTTPClient.get(path: "migrations/export/\(jobId)/status")
                 guard statusResponse.isSuccess,
                       let statusJson = try? JSONSerialization.jsonObject(with: statusResponse.data) as? [String: Any],
@@ -238,12 +243,15 @@ struct AssistantTransferSection: View {
                 throw TransferError.exportFailed(statusCode: statusCode)
             }
 
-            // Step 4 — Ensure local assistant exists
+            // Step 4 — Ensure local assistant exists and its daemon is running
             currentStep = "Preparing local assistant..."
             var localAssistant = LockfileAssistant.loadAll().first(where: { !$0.isRemote && !$0.isManaged })
             if localAssistant == nil {
                 try await AppDelegate.shared?.assistantCli.hatch()
                 localAssistant = LockfileAssistant.loadAll().first(where: { !$0.isRemote && !$0.isManaged })
+            } else {
+                // Existing local assistant may be sleeping — wake it before health check
+                try await AppDelegate.shared?.assistantCli.wake(name: localAssistant!.assistantId)
             }
             guard let resolvedLocal = localAssistant else {
                 throw TransferError.localAssistantNotFound
@@ -268,17 +276,9 @@ struct AssistantTransferSection: View {
             currentStep = "Switching to local assistant..."
             AppDelegate.shared?.performSwitchAssistant(to: resolvedLocal)
 
-            // Step 6 — Wait for actor token (up to 30s, now bootstrapped by switch)
-            var actorToken: String?
-            for i in 0..<30 {
-                if let token = ActorTokenManager.getToken(), !token.isEmpty {
-                    actorToken = token
-                    break
-                }
-                if i == 29 {
-                    throw TransferError.notSignedIn
-                }
-                try await Task.sleep(nanoseconds: 1_000_000_000)
+            // Step 6 — Wait for actor token (bootstrapped by the switch)
+            guard let actorToken = await ActorTokenManager.waitForToken(timeout: 30) else {
+                throw TransferError.notSignedIn
             }
 
             // Step 7 — Import to local
@@ -289,7 +289,7 @@ struct AssistantTransferSection: View {
             var importRequest = URLRequest(url: importURL)
             importRequest.httpMethod = "POST"
             importRequest.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-            importRequest.setValue("Bearer \(actorToken!)", forHTTPHeaderField: "Authorization")
+            importRequest.setValue("Bearer \(actorToken)", forHTTPHeaderField: "Authorization")
             importRequest.httpBody = bundleData
             importRequest.timeoutInterval = 120
 
