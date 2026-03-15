@@ -22,7 +22,7 @@ import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdirSync, writeFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { randomUUID, createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
 import { AuthAdapterType } from "../commands/auth-adapters.js";
 import {
@@ -44,6 +44,7 @@ import {
 } from "../toolstore/publish.js";
 import { getCesToolStoreDir, getCesDataRoot } from "../paths.js";
 import { computeDigest } from "../toolstore/integrity.js";
+import { hashProposal, type CommandGrantProposal } from "@vellumai/ces-contracts";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -198,17 +199,19 @@ function buildDeps(
 
 /**
  * Add a command grant to the persistent store.
+ *
+ * Pattern uses the canonical triple: `credentialHandle:bundleDigest:profileName`.
  */
 function addCommandGrant(
   store: PersistentGrantStore,
   credentialHandle: string,
-  bundleId: string,
+  bundleDigest: string,
   profileName: string,
 ): void {
   store.add({
     id: randomUUID(),
     tool: "command",
-    pattern: `${bundleId}/${profileName}`,
+    pattern: `${credentialHandle}:${bundleDigest}:${profileName}`,
     scope: credentialHandle,
     createdAt: Date.now(),
   });
@@ -216,18 +219,29 @@ function addCommandGrant(
 
 /**
  * Add a temporary command grant.
+ *
+ * Constructs the same CommandGrantProposal shape that the executor builds
+ * and hashes it with `hashProposal` from `@vellumai/ces-contracts` so the
+ * hashes align.
  */
 function addTemporaryCommandGrant(
   store: TemporaryGrantStore,
   credentialHandle: string,
-  bundleId: string,
+  bundleDigest: string,
   profileName: string,
   kind: "allow_once" | "allow_10m" | "allow_thread" = "allow_once",
   conversationId?: string,
+  argv: string[] = [],
+  purpose: string = "Test execution",
 ): void {
-  const parts = ["command", credentialHandle, bundleId, profileName];
-  const canonical = JSON.stringify(parts);
-  const proposalHash = createHash("sha256").update(canonical, "utf8").digest("hex");
+  const proposal: CommandGrantProposal = {
+    type: "command",
+    credentialHandle,
+    command: `${bundleDigest}/${profileName}${argv.length ? " " + argv.join(" ") : ""}`,
+    purpose,
+    allowedCommandPatterns: [`${credentialHandle}:${bundleDigest}:${profileName}`],
+  };
+  const proposalHash = hashProposal(proposal);
   store.add(kind, proposalHash, { conversationId });
 }
 
@@ -320,7 +334,7 @@ describe("executeAuthenticatedCommand — profile validation", () => {
     addCommandGrant(
       deps.persistentStore,
       "local_static:test/api_key",
-      manifest.bundleId,
+      digest,
       "nonexistent",
     );
 
@@ -347,7 +361,7 @@ describe("executeAuthenticatedCommand — profile validation", () => {
     addCommandGrant(
       deps.persistentStore,
       "local_static:test/api_key",
-      manifest.bundleId,
+      digest,
       "list",
     );
 
@@ -375,7 +389,7 @@ describe("executeAuthenticatedCommand — profile validation", () => {
     addCommandGrant(
       deps.persistentStore,
       "local_static:test/api_key",
-      manifest.bundleId,
+      digest,
       "list",
     );
 
@@ -402,7 +416,7 @@ describe("executeAuthenticatedCommand — profile validation", () => {
     addCommandGrant(
       deps.persistentStore,
       "local_static:test/api_key",
-      manifest.bundleId,
+      digest,
       "list",
     );
 
@@ -476,7 +490,7 @@ describe("executeAuthenticatedCommand — grant enforcement", () => {
     addCommandGrant(
       deps.persistentStore,
       "local_static:test/api_key",
-      manifest.bundleId,
+      digest,
       "list",
     );
 
@@ -522,8 +536,12 @@ describe("executeAuthenticatedCommand — grant enforcement", () => {
     addTemporaryCommandGrant(
       deps.temporaryStore,
       "local_static:test/api_key",
-      manifest.bundleId,
+      digest,
       "list",
+      "allow_once",
+      undefined,
+      ["list", "--format", "json"],
+      "Test execution",
     );
 
     const request: ExecuteCommandRequest = {
@@ -571,7 +589,7 @@ describe("executeAuthenticatedCommand — credential materialization", () => {
     addCommandGrant(
       deps.persistentStore,
       "local_static:test/api_key",
-      manifest.bundleId,
+      digest,
       "list",
     );
 
@@ -630,7 +648,7 @@ describe("executeAuthenticatedCommand — auth adapters", () => {
     addCommandGrant(
       deps.persistentStore,
       "local_static:test/api_key",
-      manifest.bundleId,
+      digest,
       "list",
     );
 
@@ -687,7 +705,7 @@ describe("executeAuthenticatedCommand — auth adapters", () => {
     addCommandGrant(
       deps.persistentStore,
       "local_static:test/api_key",
-      manifest.bundleId,
+      digest,
       "list",
     );
 
@@ -742,7 +760,7 @@ describe("executeAuthenticatedCommand — auth adapters", () => {
     addCommandGrant(
       deps.persistentStore,
       "local_static:test/api_key",
-      manifest.bundleId,
+      digest,
       "list",
     );
 
@@ -782,7 +800,7 @@ describe("executeAuthenticatedCommand — egress enforcement", () => {
     addCommandGrant(
       deps.persistentStore,
       "local_static:test/api_key",
-      manifest.bundleId,
+      digest,
       "list",
     );
 
@@ -828,7 +846,7 @@ describe("executeAuthenticatedCommand — egress enforcement", () => {
     addCommandGrant(
       deps.persistentStore,
       "local_static:test/api_key",
-      manifest.bundleId,
+      digest,
       "list",
     );
 
@@ -880,7 +898,7 @@ describe("executeAuthenticatedCommand — command execution", () => {
     addCommandGrant(
       deps.persistentStore,
       "local_static:test/api_key",
-      manifest.bundleId,
+      digest,
       "list",
     );
 
@@ -926,7 +944,7 @@ describe("executeAuthenticatedCommand — command execution", () => {
     addCommandGrant(
       deps.persistentStore,
       "local_static:test/api_key",
-      manifest.bundleId,
+      digest,
       "list",
     );
 
@@ -973,7 +991,7 @@ describe("executeAuthenticatedCommand — command execution", () => {
     addCommandGrant(
       deps.persistentStore,
       "local_static:test/api_key",
-      manifest.bundleId,
+      digest,
       "list",
     );
 
@@ -1027,7 +1045,7 @@ describe("executeAuthenticatedCommand — output copyback", () => {
     addCommandGrant(
       deps.persistentStore,
       "local_static:test/api_key",
-      manifest.bundleId,
+      digest,
       "list",
     );
 
@@ -1117,7 +1135,7 @@ describe("executeAuthenticatedCommand — entrypoint path containment", () => {
     addCommandGrant(
       deps.persistentStore,
       "local_static:test/api_key",
-      manifest.bundleId,
+      digest,
       "list",
     );
 
@@ -1170,7 +1188,7 @@ describe("executeAuthenticatedCommand — no_network enforcement", () => {
     addCommandGrant(
       deps.persistentStore,
       "local_static:test/api_key",
-      manifest.bundleId,
+      digest,
       "list",
     );
 
@@ -1230,7 +1248,7 @@ describe("executeAuthenticatedCommand — credential_process stdin", () => {
     addCommandGrant(
       deps.persistentStore,
       "local_static:test/api_key",
-      manifest.bundleId,
+      digest,
       "list",
     );
 
@@ -1360,7 +1378,7 @@ describe("executeAuthenticatedCommand — integration: local static secret", () 
     addCommandGrant(
       deps.persistentStore,
       "local_static:test/api_key",
-      manifest.bundleId,
+      digest,
       "list",
     );
 
@@ -1420,7 +1438,7 @@ describe("executeAuthenticatedCommand — integration: local OAuth", () => {
     addCommandGrant(
       deps.persistentStore,
       "local_oauth:integration:google/conn-123",
-      manifest.bundleId,
+      digest,
       "list",
     );
 
@@ -1478,7 +1496,7 @@ describe("executeAuthenticatedCommand — integration: managed OAuth", () => {
     addCommandGrant(
       deps.persistentStore,
       "platform_oauth:platform-conn-456",
-      manifest.bundleId,
+      digest,
       "list",
     );
 

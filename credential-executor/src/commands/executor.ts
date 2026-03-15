@@ -38,7 +38,7 @@
  * violations all result in command rejection before or after execution.
  */
 
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { mkdirSync, writeFileSync, unlinkSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -68,7 +68,7 @@ import {
   type WorkspaceOutput,
   type CopybackResult,
 } from "./workspace.js";
-import type { AuditRecordSummary } from "@vellumai/ces-contracts";
+import { hashProposal, type AuditRecordSummary, type CommandGrantProposal } from "@vellumai/ces-contracts";
 
 import type { AuditStore } from "../audit/store.js";
 import type { PersistentGrantStore } from "../grants/persistent-store.js";
@@ -132,6 +132,7 @@ export interface ExecuteCommandResult {
   approvalRequired?: {
     credentialHandle: string;
     bundleId: string;
+    bundleDigest: string;
     profileName: string;
     command: string;
     purpose: string;
@@ -248,6 +249,7 @@ export async function executeAuthenticatedCommand(
       approvalRequired: {
         credentialHandle: request.credentialHandle,
         bundleId: manifest.bundleId,
+        bundleDigest: request.bundleDigest,
         profileName: request.profileName,
         command: `${request.bundleDigest}/${request.profileName} ${request.argv.join(" ")}`.trim(),
         purpose: request.purpose,
@@ -622,18 +624,23 @@ function checkGrant(
     if (
       grant.tool === "command" &&
       grant.scope === request.credentialHandle &&
-      grantMatchesCommand(grant.pattern, manifest.bundleId, profileName)
+      grantMatchesCommand(grant.pattern, request.credentialHandle, request.bundleDigest, profileName)
     ) {
       return { ok: true, grantId: grant.id };
     }
   }
 
-  // Check temporary grants
-  const proposalHash = computeCommandProposalHash(
-    request.credentialHandle,
-    manifest.bundleId,
-    profileName,
-  );
+  // Check temporary grants — build the same proposal shape that the
+  // approval bridge produces, then hash with the canonical algorithm
+  // from `@vellumai/ces-contracts` so the hashes align.
+  const tempProposal: CommandGrantProposal = {
+    type: "command",
+    credentialHandle: request.credentialHandle,
+    command: `${request.bundleDigest}/${profileName} ${request.argv.join(" ")}`.trim(),
+    purpose: request.purpose,
+    allowedCommandPatterns: [`${request.credentialHandle}:${request.bundleDigest}:${profileName}`],
+  };
+  const proposalHash = hashProposal(tempProposal);
   const tempKind = temporaryStore.checkAny(
     proposalHash,
     request.conversationId,
@@ -653,28 +660,17 @@ function checkGrant(
 /**
  * Check if a persistent grant pattern matches a command invocation.
  *
- * Grant patterns for commands use the format: `<bundleId>/<profileName>`.
+ * Grant patterns for commands use the format: `<credentialHandle>:<bundleDigest>:<profileName>`.
  */
 function grantMatchesCommand(
   pattern: string,
-  bundleId: string,
+  credentialHandle: string,
+  bundleDigest: string,
   profileName: string,
 ): boolean {
-  return pattern === `${bundleId}/${profileName}`;
+  return pattern === `${credentialHandle}:${bundleDigest}:${profileName}`;
 }
 
-/**
- * Compute a deterministic hash for temporary grant lookup.
- */
-function computeCommandProposalHash(
-  credentialHandle: string,
-  bundleId: string,
-  profileName: string,
-): string {
-  const parts = ["command", credentialHandle, bundleId, profileName];
-  const canonical = JSON.stringify(parts);
-  return createHash("sha256").update(canonical, "utf8").digest("hex");
-}
 
 // ---------------------------------------------------------------------------
 // Internal: Auth adapter environment construction

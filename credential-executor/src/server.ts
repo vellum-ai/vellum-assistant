@@ -434,7 +434,7 @@ export function createRunAuthenticatedCommandHandler(
     // APPROVAL_REQUIRED response with the proposal so the approval
     // bridge can activate.
     if (!result.success && result.approvalRequired) {
-      const { credentialHandle, bundleId, profileName, command, purpose } =
+      const { credentialHandle, bundleDigest, profileName, command, purpose } =
         result.approvalRequired;
 
       const proposal: CommandGrantProposal = {
@@ -442,7 +442,7 @@ export function createRunAuthenticatedCommandHandler(
         credentialHandle,
         command,
         purpose,
-        allowedCommandPatterns: [`${bundleId}/${profileName}`],
+        allowedCommandPatterns: [`${credentialHandle}:${bundleDigest}:${profileName}`],
       };
 
       return {

@@ -110,13 +110,16 @@ export function createRecordGrantHandler(
     // decisions create only a temporary grant — this prevents allow_once,
     // allow_10m, and allow_thread from becoming effectively permanent.
     if (grantType === "always_allow") {
+      let pattern: string;
+      if (proposal.type === "http") {
+        pattern = `${proposal.method} ${proposal.url}`;
+      } else {
+        pattern = proposal.allowedCommandPatterns?.[0] ?? proposal.command;
+      }
       const persistentGrant: PersistentGrant = {
         id: grantId,
         tool: proposal.type,
-        pattern:
-          proposal.type === "http"
-            ? `${proposal.method} ${proposal.url}`
-            : proposal.command,
+        pattern,
         scope: proposal.credentialHandle,
         createdAt: now,
       };
