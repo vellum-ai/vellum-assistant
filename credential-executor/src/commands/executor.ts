@@ -166,6 +166,8 @@ export interface CommandExecutorDeps {
   materializeCredential: MaterializeCredentialFn;
   /** Audit store for persisting token-free audit records. */
   auditStore?: AuditStore;
+  /** Session ID for audit records. */
+  sessionId?: string;
   /** CES operating mode (for toolstore path resolution). */
   cesMode?: CesMode;
   /** Egress proxy session start hooks (for creating the proxy server). */
@@ -482,8 +484,8 @@ export async function executeAuthenticatedCommand(
       grantId: grantResult.grantId ?? "unknown",
       credentialHandle: request.credentialHandle,
       toolName: "command",
-      target: `${request.bundleDigest}/${request.profileName} ${request.argv.join(" ")}`.trim(),
-      sessionId: request.sessionId ?? "unknown",
+      target: `${request.bundleDigest}/${request.profileName}`,
+      sessionId: deps.sessionId ?? "unknown",
       success: execResult.success,
       ...(execResult.error ? { errorMessage: execResult.error } : {}),
       timestamp: new Date().toISOString(),
