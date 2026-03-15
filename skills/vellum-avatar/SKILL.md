@@ -112,10 +112,10 @@ Tell the user their avatar has been updated. The client will pick up the new ima
 
 ## Mode 3: AI-Generated Image
 
-The user describes what they want their avatar to look like. Use `bash` to call the daemon's avatar generation HTTP endpoint:
+The user describes what they want their avatar to look like. Use `bash` to call the gateway's avatar generation endpoint:
 
 ```bash
-curl -s -X POST http://localhost:${VELLUM_DAEMON_PORT:-9320}/v1/settings/avatar/generate \
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/settings/avatar/generate" \
   -H "Content-Type: application/json" \
   -d '{"description": "<user'\''s description>"}'
 ```
