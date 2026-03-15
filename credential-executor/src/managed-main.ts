@@ -56,6 +56,7 @@ import { resolveManagedSubject } from "./subjects/managed.js";
 import { materializeManagedToken } from "./materializers/managed-platform.js";
 import { HandleType, parseHandle } from "@vellumai/ces-contracts";
 import { buildLazyGetters, type ApiKeyRef } from "./managed-lazy-getters.js";
+import { MANAGED_LOCAL_STATIC_REJECTION_ERROR } from "./managed-errors.js";
 
 // ---------------------------------------------------------------------------
 // Logging (managed always logs to stderr)
@@ -144,9 +145,7 @@ function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef): RpcHan
   const localMaterialiserStub = {
     materialise: async () => ({
       ok: false as const,
-      error:
-        "local_static credential handles are not supported in managed mode. " +
-        "Use platform_oauth handles for managed deployments.",
+      error: MANAGED_LOCAL_STATIC_REJECTION_ERROR,
     }),
   };
 
@@ -187,9 +186,7 @@ function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef): RpcHan
           case HandleType.LocalStatic: {
             return {
               ok: false as const,
-              error:
-                "local_static credential handles are not supported in managed mode. " +
-                "Use platform_oauth handles for managed deployments.",
+              error: MANAGED_LOCAL_STATIC_REJECTION_ERROR,
             };
           }
 
