@@ -144,6 +144,14 @@
       "label": "CES Managed Sidecar Transport",
       "description": "Use managed sidecar transport for CES communication when running in a containerized environment",
       "defaultEnabled": false
+    },
+    {
+      "id": "settings-billing",
+      "scope": "macos",
+      "key": "settings_billing_enabled",
+      "label": "Billing Settings Tab",
+      "description": "Show the Billing tab in Settings when signed in, displaying credits balance and top-up",
+      "defaultEnabled": false
     }
   ]
 }
