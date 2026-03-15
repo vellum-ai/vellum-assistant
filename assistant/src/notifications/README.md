@@ -121,7 +121,7 @@ When the decision engine selects `reuse_existing` for a channel with a valid can
 
 ### New Conversation Path (`start_new` / default)
 
-- **`start_new_conversation`**: Creates a new conversation with `threadType: 'standard'` and `source: 'notification'`, plus an assistant message containing the conversation seed. Memory indexing is skipped on the seed message to prevent notification copy from polluting conversational recall. The result has `createdNewConversation: true`.
+- **`start_new_conversation`**: Creates a new conversation with `conversationType: 'standard'` and `source: 'notification'`, plus an assistant message containing the conversation seed. Memory indexing is skipped on the seed message to prevent notification copy from polluting conversational recall. The result has `createdNewConversation: true`.
 - **`continue_existing_conversation`**: Looks up a previously bound conversation by binding key (`sourceChannel` + `externalChatId` via `getBindingByChannelChat()`). When a valid bound conversation with `source: 'notification'` exists, the seed message is appended to it and the binding timestamp is refreshed. When no binding exists or the bound conversation is stale/invalid, a new conversation is created and the binding is upserted for future reuse. The result has `createdNewConversation: false` on reuse, `true` on fresh creation.
 - **`not_deliverable`**: Returns `{ conversationId: null, messageId: null }`.
 

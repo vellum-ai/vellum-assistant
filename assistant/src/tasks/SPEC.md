@@ -83,7 +83,7 @@ conversations (see `conversation-crud.ts`), extended to a new `task:` namespace.
 
 ## 3. Run Surface
 
-Each task run creates a new background conversation with `threadType: 'background'`.
+Each task run creates a new background conversation with `conversationType: 'background'`.
 
 ### Lifecycle
 
@@ -103,7 +103,7 @@ Each task run creates a new background conversation with `threadType: 'backgroun
    list (existing behavior in `conversation-crud.ts`). Clients can query for
    them explicitly to surface task results in a dedicated UI.
 
-**Why background conversations:** Reuses the existing `threadType: 'background'`
+**Why background conversations:** Reuses the existing `conversationType: 'background'`
 infrastructure. Task runs don't interrupt the user's current conversation, and
 clients can choose how and when to display results (toast, panel, separate
 tab).

@@ -312,16 +312,16 @@ When the embedding backend or Qdrant is unavailable:
 
 ## Private Threads — Isolated Memory and Strict Side-Effect Controls
 
-Private threads provide per-conversation memory isolation and stricter tool execution controls. When a conversation is created with `threadType: 'private'`, the daemon assigns it a unique memory scope and enforces additional safeguards to prevent unintended side effects.
+Private threads provide per-conversation memory isolation and stricter tool execution controls. When a conversation is created with `conversationType: 'private'`, the daemon assigns it a unique memory scope and enforces additional safeguards to prevent unintended side effects.
 
 ### Schema Columns
 
 Two columns on the `conversations` table drive the feature:
 
-| Column            | Type                               | Values                                                                   | Purpose                                                                                                                        |
-| ----------------- | ---------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| `thread_type`     | `text NOT NULL DEFAULT 'standard'` | `'standard'` or `'private'`                                              | Determines whether the conversation uses shared or isolated memory and permission policies                                     |
-| `memory_scope_id` | `text NOT NULL DEFAULT 'default'`  | `'default'` for standard threads; `'private:<uuid>'` for private threads | Scopes all memory writes (items, segments) to this namespace; embeddings are isolated indirectly via their parent item/segment |
+| Column              | Type                               | Values                                                                   | Purpose                                                                                                                        |
+| ------------------- | ---------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `conversation_type` | `text NOT NULL DEFAULT 'standard'` | `'standard'` or `'private'`                                              | Determines whether the conversation uses shared or isolated memory and permission policies                                     |
+| `memory_scope_id`   | `text NOT NULL DEFAULT 'default'`  | `'default'` for standard threads; `'private:<uuid>'` for private threads | Scopes all memory writes (items, segments) to this namespace; embeddings are isolated indirectly via their parent item/segment |
 
 ### Memory Isolation
 
@@ -355,7 +355,7 @@ graph TB
 
 ### SessionMemoryPolicy
 
-The daemon derives a `SessionMemoryPolicy` from the conversation's `thread_type` and `memory_scope_id` when creating or restoring a session:
+The daemon derives a `SessionMemoryPolicy` from the conversation's `conversation_type` and `memory_scope_id` when creating or restoring a session:
 
 ```typescript
 interface SessionMemoryPolicy {
@@ -388,7 +388,7 @@ This ensures that file writes, bash commands, host operations, and other mutatin
 
 | File                                         | Role                                                                                       |
 | -------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `assistant/src/memory/schema.ts`             | `conversations` table: `threadType` and `memoryScopeId` column definitions                 |
+| `assistant/src/memory/schema.ts`             | `conversations` table: `conversationType` and `memoryScopeId` column definitions           |
 | `assistant/src/daemon/session.ts`            | `SessionMemoryPolicy` interface and `DEFAULT_MEMORY_POLICY` constant                       |
 | `assistant/src/daemon/server.ts`             | `deriveMemoryPolicy()` — maps thread type to memory policy                                 |
 | `assistant/src/daemon/session-tool-setup.ts` | Propagates `memoryPolicy.strictSideEffects` as `forcePromptSideEffects` into `ToolContext` |
