@@ -43,6 +43,7 @@ import { PersistentGrantStore } from "../grants/persistent-store.js";
 import { TemporaryGrantStore } from "../grants/temporary-store.js";
 import { LocalMaterialiser } from "../materializers/local.js";
 import type { OAuthConnectionLookup, LocalSubjectResolverDeps } from "../subjects/local.js";
+import { AuditStore } from "../audit/store.js";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -284,6 +285,7 @@ function buildDeps(
     sessionId: "test-session",
     logger: silentLogger,
     ...overrides,
+    auditStore: overrides.auditStore ?? new AuditStore(fixture.tmpDir),
   };
 }
 
