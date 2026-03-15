@@ -62,7 +62,7 @@ extension AppDelegate {
         if let target = msg.targetGuardianPrincipalId {
             let localId = ActorTokenManager.getGuardianPrincipalId()
             if let localId, localId != target {
-                log.info("Skipping notification_conversation_created for guardian \(target) — local guardian is \(localId)")
+                log.info("Skipping notification_thread_created for guardian \(target) — local guardian is \(localId)")
                 return
             }
         }
