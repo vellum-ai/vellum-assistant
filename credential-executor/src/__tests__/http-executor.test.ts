@@ -910,6 +910,71 @@ describe("HTTP executor: redirect denial", () => {
     expect(result.error!.message).toContain("denied");
   });
 
+  test("303 redirect evaluates policy against GET, not original method", async () => {
+    const handle = localStaticHandle("github", "api_key");
+
+    // Grant only covers GET — no POST grant exists
+    fixture.persistentStore.add({
+      id: "grant-github-get-only",
+      tool: "http",
+      pattern: "GET https://api.github.com/repos/owner/repo/result",
+      scope: handle,
+      createdAt: Date.now(),
+    });
+
+    // Also add a grant for the original POST endpoint
+    fixture.persistentStore.add({
+      id: "grant-github-post",
+      tool: "http",
+      pattern: "POST https://api.github.com/repos/owner/repo/action",
+      scope: handle,
+      createdAt: Date.now(),
+    });
+
+    // POST -> 303 redirect to a GET-only granted endpoint
+    let callCount = 0;
+    const requests: Array<{ url: string; method: string }> = [];
+    const fetchFn = asFetch(async (
+      url: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      callCount++;
+      requests.push({ url: url.toString(), method: init?.method ?? "GET" });
+      if (callCount === 1) {
+        return new Response(null, {
+          status: 303,
+          headers: { Location: "https://api.github.com/repos/owner/repo/result" },
+        });
+      }
+      return new Response('{"status": "done"}', {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    const deps = buildDeps(fixture, [], { fetch: fetchFn });
+
+    const result = await executeAuthenticatedHttpRequest(
+      {
+        credentialHandle: handle,
+        method: "POST",
+        url: "https://api.github.com/repos/owner/repo/action",
+        body: '{"trigger": true}',
+        purpose: "Trigger action",
+      },
+      deps,
+    );
+
+    // Should succeed — policy evaluates GET (post-303 method) against the grant
+    expect(result.success).toBe(true);
+    expect(result.statusCode).toBe(200);
+
+    // Verify the redirect hop actually used GET
+    expect(requests).toHaveLength(2);
+    expect(requests[0].method).toBe("POST");
+    expect(requests[1].method).toBe("GET");
+  });
+
   test("allows redirect to path covered by same grant", async () => {
     const handle = localStaticHandle("github", "api_key");
 
