@@ -21,7 +21,7 @@
  * Managed env contract:
  * - CES_BOOTSTRAP_SOCKET  — Path to the bootstrap Unix socket (shared emptyDir)
  * - /assistant-data-ro     — Assistant data mounted read-only into the CES sidecar
- * - /ces-data              — CES private data directory (separate PVC)
+ * - /home/ces/.ces-data    — CES private data directory (separate PVC)
  * - CES_HEALTH_PORT        — Health check port exposed by the CES sidecar
  */
 
@@ -61,7 +61,7 @@ export const CES_ASSISTANT_DATA_READONLY_MOUNT = "/assistant-data-ro";
  * Private data directory for the CES sidecar (separate PVC).
  * CES stores grants, audit logs, and credential material here.
  */
-export const CES_PRIVATE_DATA_DIR = "/ces-data";
+export const CES_PRIVATE_DATA_DIR = "/home/ces/.ces-data";
 
 // ---------------------------------------------------------------------------
 // Process manager configuration
