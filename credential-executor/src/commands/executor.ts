@@ -108,8 +108,6 @@ export interface ExecuteCommandRequest {
   grantId?: string;
   /** Conversation ID for thread-scoped temporary grants. */
   conversationId?: string;
-  /** Session ID for the egress proxy. */
-  sessionId?: string;
 }
 
 /**
