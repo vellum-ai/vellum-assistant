@@ -2,8 +2,7 @@
 /**
  * Standalone DoorDash CLI entry point.
  *
- * Invoked via the launcher script at ~/.vellum/bin/doordash,
- * which is created when the doordash skill is installed.
+ * Invoked via `bun {baseDir}/scripts/doordash-entry.ts <subcommand>`.
  *
  * registerDoordashCommand() creates a nested `doordash` subcommand
  * (designed for `vellum doordash <sub>`). We extract that subcommand

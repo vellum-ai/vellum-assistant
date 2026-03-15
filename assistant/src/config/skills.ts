@@ -52,12 +52,6 @@ const SkillMetadataSchema = z
   })
   .passthrough();
 
-// ─── New interfaces for extended skill metadata ──────────────────────────────
-
-export interface VellumMetadata {
-  emoji?: string;
-}
-
 export type SkillSource = "bundled" | "managed" | "workspace" | "extra";
 
 // ─── Core interfaces ─────────────────────────────────────────────────────────
@@ -74,7 +68,6 @@ export interface SkillSummary {
   emoji?: string;
   homepage?: string;
   source: SkillSource;
-  metadata?: VellumMetadata;
   /** Parsed tool manifest metadata, if the skill has a valid TOOLS.json. */
   toolManifest?: SkillToolManifestMeta;
   /** IDs of child skills that this skill includes (metadata-only, not auto-activated). */
@@ -194,7 +187,7 @@ interface ParsedFrontmatter {
   displayName: string;
   description: string;
   body: string;
-  metadata?: VellumMetadata;
+  emoji?: string;
   includes?: string[];
   featureFlag?: string;
 }
@@ -225,7 +218,7 @@ function parseFrontmatter(
   }
 
   // metadata is already a parsed object from YAML — validate with Zod schema
-  let metadata: VellumMetadata | undefined;
+  let emoji: string | undefined;
   let parsedMeta: z.infer<typeof SkillMetadataSchema> | undefined;
   let vellum: z.infer<typeof VellumMetadataSchema> | undefined;
 
@@ -243,20 +236,7 @@ function parseFrontmatter(
       if (zodResult.success) {
         parsedMeta = zodResult.data;
         vellum = parsedMeta.vellum;
-        if (parsedMeta.vellum) {
-          metadata = parsedMeta.vellum as VellumMetadata;
-        }
-        // Inject top-level emoji into metadata when metadata.vellum doesn't
-        // carry its own emoji. The Agent Skills spec places emoji at the
-        // top level of the metadata object, so bundled skills that follow
-        // this convention would otherwise lose their emoji value.
-        if (parsedMeta.emoji) {
-          if (metadata && !metadata.emoji) {
-            metadata.emoji = parsedMeta.emoji;
-          } else if (!metadata) {
-            metadata = { emoji: parsedMeta.emoji };
-          }
-        }
+        emoji = vellum?.emoji ?? parsedMeta.emoji;
       } else {
         // Zod validation failed — fall back to raw parsed object so we don't
         // lose all metadata because of a single bad field value.  We coerce
@@ -269,9 +249,11 @@ function parseFrontmatter(
         const raw = metadataRaw as Record<string, unknown>;
         parsedMeta = raw as z.infer<typeof SkillMetadataSchema>;
         vellum = raw?.vellum as z.infer<typeof VellumMetadataSchema>;
-        if (raw?.vellum && typeof raw.vellum === "object") {
-          const vellumRaw = raw.vellum as Record<string, unknown>;
-          metadata = vellumRaw as unknown as VellumMetadata;
+        if (vellum && typeof vellum === "object") {
+          emoji = typeof vellum.emoji === "string" ? vellum.emoji : undefined;
+        }
+        if (!emoji && parsedMeta?.emoji) {
+          emoji = parsedMeta.emoji;
         }
       }
     }
@@ -305,7 +287,7 @@ function parseFrontmatter(
     displayName,
     description,
     body: stripCommentLines(body),
-    metadata,
+    emoji,
     includes,
     featureFlag,
   };
@@ -454,10 +436,9 @@ function readSkillFromDirectory(
       directoryPath,
       skillFilePath,
       body: parsed.body,
-      emoji: parsed.metadata?.emoji,
+      emoji: parsed.emoji,
 
       source,
-      metadata: parsed.metadata,
       toolManifest: detectToolManifest(directoryPath),
       includes: parsed.includes,
       featureFlag: parsed.featureFlag,
@@ -503,10 +484,9 @@ function readBundledSkillFromDirectory(
       skillFilePath,
       body: parsed.body,
       bundled: true,
-      emoji: parsed.metadata?.emoji,
+      emoji: parsed.emoji,
 
       source: "bundled",
-      metadata: parsed.metadata,
       toolManifest: detectToolManifest(directoryPath),
       includes: parsed.includes,
       featureFlag: parsed.featureFlag,
@@ -563,7 +543,6 @@ function loadBundledSkills(): SkillSummary[] {
       emoji: skill.emoji,
 
       source: "bundled",
-      metadata: skill.metadata,
       toolManifest: skill.toolManifest,
       includes: skill.includes,
       featureFlag: skill.featureFlag,
@@ -698,7 +677,6 @@ function skillSummaryFromDefinition(
     bundled: skill.bundled,
     emoji: skill.emoji,
     source,
-    metadata: skill.metadata,
     toolManifest: skill.toolManifest,
     includes: skill.includes,
     featureFlag: skill.featureFlag,
@@ -746,10 +724,9 @@ export function loadSkillCatalog(
             description: parsed.description,
             directoryPath: directory,
             skillFilePath,
-            emoji: parsed.metadata?.emoji,
+            emoji: parsed.emoji,
 
             source: "extra",
-            metadata: parsed.metadata,
             toolManifest: detectToolManifest(directory),
             includes: parsed.includes,
             featureFlag: parsed.featureFlag,
@@ -841,10 +818,9 @@ export function loadSkillCatalog(
           description: parsed.description,
           directoryPath: directory,
           skillFilePath,
-          emoji: parsed.metadata?.emoji,
+          emoji: parsed.emoji,
 
           source: "workspace",
-          metadata: parsed.metadata,
           toolManifest: detectToolManifest(directory),
           includes: parsed.includes,
           featureFlag: parsed.featureFlag,

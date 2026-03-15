@@ -2,7 +2,7 @@ import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
 import type { AssistantConfig, SkillEntryConfig } from "./schema.js";
 import type { SkillSummary } from "./skills.js";
 
-export type SkillState = "enabled" | "disabled" | "available";
+export type SkillState = "enabled" | "disabled";
 
 export interface ResolvedSkill {
   summary: SkillSummary;

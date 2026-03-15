@@ -245,7 +245,7 @@ export interface SkillListItem {
   emoji?: string;
   homepage?: string;
   source: "bundled" | "managed" | "workspace" | "clawhub" | "extra";
-  state: "enabled" | "disabled" | "available";
+  state: "enabled" | "disabled";
   updateAvailable: boolean;
   provenance: SkillProvenance;
 }
@@ -270,7 +270,7 @@ export function listSkills(_ctx: SkillOperationContext): SkillListItem[] {
     emoji: r.summary.emoji,
     homepage: r.summary.homepage,
     source: r.summary.source,
-    state: r.state as "enabled" | "disabled" | "available",
+    state: r.state,
     updateAvailable: false,
     provenance: resolveProvenance(r.summary),
   }));
@@ -305,7 +305,7 @@ function findSkillById(
     emoji: r.summary.emoji,
     homepage: r.summary.homepage,
     source: r.summary.source,
-    state: r.state as "enabled" | "disabled" | "available",
+    state: r.state,
     updateAvailable: false,
     provenance: resolveProvenance(r.summary),
   };
