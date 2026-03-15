@@ -155,9 +155,11 @@ function readStore(): StoreFile | null {
 function writeStore(store: StoreFile): void {
   const path = getStorePath();
   ensureDir(dirname(path));
-  writeFileSync(path, JSON.stringify(store, null, 2), { mode: 0o600 });
-  // Enforce 0600 even if the file already existed with permissive bits
-  chmodSync(path, 0o600);
+  // Atomic write: write to temp file then rename to avoid partial/corrupt writes
+  const tmpPath = path + ".tmp";
+  writeFileSync(tmpPath, JSON.stringify(store, null, 2), { mode: 0o600 });
+  chmodSync(tmpPath, 0o600);
+  renameSync(tmpPath, path);
 }
 
 function getOrCreateStore(): StoreFile {
