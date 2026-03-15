@@ -44,9 +44,9 @@
  * get-cart-items fallback endpoint returns whatever is already in the cart, NOT
  * what was just added. Always validate the target ASIN is present before returning.
  *
- * runWithBackoff() retries on HTTP 403, but not all 403s are rate limits. A 403
- * from /alm/addtofreshcart with "fakeOfferId" means the request payload was wrong,
- * not that we're rate-limited. Check the response body before classifying the error.
+ * runWithBackoff() retries on HTTP 403. Browser scripts return only
+ * { __status: 403, __error: true } without the response body, so all 403s
+ * are treated as rate limits.
  */
 
 import { execFile, spawn } from "node:child_process";
@@ -292,9 +292,8 @@ export async function cdpEval(tabId: number, script: string): Promise<unknown> {
  * Handle the raw result object returned from cdpEval scripts.
  * Throws appropriate errors for auth failures, rate limits, and other errors.
  *
- * Not all 403s are rate limits — a 403 from /alm/addtofreshcart with
- * "fakeOfferId" means the request payload was wrong. We inspect the response
- * body (surfaced via __addCartJson or __message) before classifying.
+ * Browser scripts return only { __status, __error } for 403 responses —
+ * the response body is not surfaced, so all 403s are treated as rate limits.
  */
 export function handleResult(result: Record<string, unknown>): void {
   if (result.__error) {
@@ -302,20 +301,6 @@ export function handleResult(result: Record<string, unknown>): void {
       throw new SessionExpiredError("Amazon session has expired.");
     }
     if (result.__status === 403) {
-      // Check whether this is a payload rejection rather than a rate limit.
-      // Payload errors contain indicators like "fakeOfferId" in the response body.
-      const bodyHint =
-        ((result.__addCartJson as string) ?? "") +
-        ((result.__message as string) ?? "");
-      const isPayloadError =
-        bodyHint.includes("fakeOfferId") ||
-        bodyHint.includes("INVALID_ITEM") ||
-        bodyHint.includes("offerListingID");
-      if (isPayloadError) {
-        throw new Error(
-          `Amazon rejected the request payload (HTTP 403): ${bodyHint.substring(0, 200)}`,
-        );
-      }
       throw new RateLimitError("Amazon rate limit hit (HTTP 403).");
     }
     throw new Error(
