@@ -365,7 +365,7 @@ struct AgentPanelContent: View {
             }
 
             // Two-pane content: file list + file content viewer
-            HStack(alignment: .top, spacing: VSpacing.md) {
+            HStack(spacing: VSpacing.md) {
                 // Left: file list (always fixed width)
                 skillFilesSection
                     .frame(width: 280, alignment: .topLeading)
@@ -503,13 +503,13 @@ struct AgentPanelContent: View {
             ScrollView([.vertical, .horizontal]) {
                 Text(content)
                     .font(VFont.mono)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundColor(VColor.contentDefault)
                     .textSelection(.enabled)
                     .padding(VSpacing.md)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
