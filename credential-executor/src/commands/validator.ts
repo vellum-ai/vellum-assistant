@@ -118,6 +118,23 @@ export function validateManifest(
     }
   }
 
+  // -- cleanConfigDirs key validation (defense-in-depth against path traversal)
+  if (manifest.cleanConfigDirs) {
+    for (const key of Object.keys(manifest.cleanConfigDirs)) {
+      if (key.includes("..")) {
+        errors.push(
+          `cleanConfigDirs key "${key}" contains path traversal sequence "..". ` +
+            `This is not allowed.`,
+        );
+      }
+      if (key.trim().length === 0) {
+        errors.push(
+          `cleanConfigDirs contains an empty key.`,
+        );
+      }
+    }
+  }
+
   // -- Command profiles (must have at least one)
   if (
     !manifest.commandProfiles ||

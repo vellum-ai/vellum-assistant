@@ -431,8 +431,24 @@ export async function executeAuthenticatedCommand(
   const generatedHomeDir = join(tmpdir(), `ces-home-${randomUUID()}`);
 
   // Create the HOME directory and enforce cleanConfigDirs before building env
-  mkdirSync(generatedHomeDir, { recursive: true });
-  enforceCleanConfigDirs(manifest, generatedHomeDir);
+  try {
+    mkdirSync(generatedHomeDir, { recursive: true });
+    enforceCleanConfigDirs(manifest, generatedHomeDir);
+  } catch (err) {
+    if (proxySessionId) {
+      try {
+        await stopSession(proxySessionId, sessionStore);
+      } catch {
+        // Best-effort proxy cleanup
+      }
+    }
+    cleanupAll(scratchDir, tempFilePath, generatedHomeDir);
+    return {
+      success: false,
+      error: `Clean config dirs setup failed: ${err instanceof Error ? err.message : String(err)}`,
+      auditId,
+    };
+  }
 
   const commandEnv = buildCommandEnv(
     adapterEnv,
@@ -978,7 +994,11 @@ function enforceCleanConfigDirs(
     // Only handle ~/‑prefixed paths for v1
     if (dirPath.startsWith("~/")) {
       const relativePath = dirPath.slice(2); // strip "~/"
-      const resolvedPath = join(homeDir, relativePath);
+      const resolvedPath = resolve(homeDir, relativePath);
+      // Containment check: resolved path must stay inside homeDir
+      if (!resolvedPath.startsWith(homeDir + "/") && resolvedPath !== homeDir) {
+        continue; // Skip paths that escape the home directory
+      }
       mkdirSync(resolvedPath, { recursive: true });
     } else if (dirPath === "~") {
       // "~" alone is just the home dir itself, already created
