@@ -155,6 +155,7 @@ export type RuntimeAttachmentMeta = {
 
 export type RuntimeAttachmentPayload = RuntimeAttachmentMeta & {
   data: string; // base64-encoded
+  fileBacked?: boolean;
 };
 
 export type RuntimeInboundResponse = {
@@ -304,6 +305,40 @@ export type UploadAttachmentResponse = {
   id: string;
 };
 
+export async function downloadAttachmentContent(
+  config: GatewayConfig,
+  attachmentId: string,
+): Promise<Buffer> {
+  cbBeforeRequest();
+
+  const url = `${config.assistantRuntimeBaseUrl}/v1/attachments/${encodeURIComponent(attachmentId)}/content`;
+
+  let response: Response;
+  try {
+    response = await fetchImpl(url, {
+      method: "GET",
+      headers: runtimeServiceHeaders(config),
+      signal: AbortSignal.timeout(config.runtimeTimeoutMs),
+    });
+  } catch (err) {
+    cbOnFailure();
+    throw err;
+  }
+
+  if (!response.ok) {
+    const body = await response.text();
+    if (response.status >= 500) cbOnFailure();
+    else cbOnSuccess();
+    throw new Error(
+      `Attachment content download failed (${response.status}): ${body}`,
+    );
+  }
+
+  cbOnSuccess();
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
 export async function downloadAttachment(
   config: GatewayConfig,
   attachmentId: string,
@@ -332,7 +367,16 @@ export async function downloadAttachment(
   }
 
   cbOnSuccess();
-  return (await response.json()) as RuntimeAttachmentPayload;
+  const payload = (await response.json()) as RuntimeAttachmentPayload;
+
+  // Transparently hydrate file-backed attachments: fetch the binary content
+  // from the dedicated /content endpoint and inline it as base64.
+  if (payload.fileBacked && !payload.data) {
+    const contentBuffer = await downloadAttachmentContent(config, attachmentId);
+    payload.data = contentBuffer.toString("base64");
+  }
+
+  return payload;
 }
 
 // ── Twilio webhook forwarding ────────────────────────────────────────

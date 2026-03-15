@@ -136,7 +136,9 @@ export async function sendWhatsAppAttachments(
   for (const meta of attachments) {
     if (
       meta.sizeBytes !== undefined &&
-      meta.sizeBytes > config.maxAttachmentBytes
+      meta.sizeBytes >
+        (config.maxAttachmentBytes.whatsapp ??
+          config.maxAttachmentBytes.default)
     ) {
       log.warn(
         { attachmentId: meta.id, sizeBytes: meta.sizeBytes },
@@ -155,7 +157,11 @@ export async function sendWhatsAppAttachments(
       const buffer = Buffer.from(payload.data, "base64");
       const sizeBytes = meta.sizeBytes ?? payload.sizeBytes ?? buffer.length;
 
-      if (sizeBytes > config.maxAttachmentBytes) {
+      if (
+        sizeBytes >
+        (config.maxAttachmentBytes.whatsapp ??
+          config.maxAttachmentBytes.default)
+      ) {
         log.warn(
           { attachmentId: meta.id, sizeBytes },
           "Skipping oversized outbound attachment (detected after download)",

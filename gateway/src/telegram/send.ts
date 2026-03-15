@@ -84,7 +84,9 @@ export async function sendTelegramAttachments(
     // When size is known upfront, skip oversized attachments before downloading.
     if (
       meta.sizeBytes !== undefined &&
-      meta.sizeBytes > config.maxAttachmentBytes
+      meta.sizeBytes >
+        (config.maxAttachmentBytes.telegram ??
+          config.maxAttachmentBytes.default)
     ) {
       log.warn(
         { attachmentId: meta.id, sizeBytes: meta.sizeBytes },
@@ -107,7 +109,11 @@ export async function sendTelegramAttachments(
       const sizeBytes = meta.sizeBytes ?? payload.sizeBytes ?? buffer.length;
 
       // Check size after hydration for ID-only payloads where size was unknown.
-      if (sizeBytes > config.maxAttachmentBytes) {
+      if (
+        sizeBytes >
+        (config.maxAttachmentBytes.telegram ??
+          config.maxAttachmentBytes.default)
+      ) {
         log.warn(
           { attachmentId: meta.id, sizeBytes },
           "Skipping oversized outbound attachment (detected after download)",

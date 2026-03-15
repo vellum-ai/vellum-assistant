@@ -9,7 +9,12 @@ describe("config: hardcoded defaults", () => {
     expect(config.runtimeMaxRetries).toBe(2);
     expect(config.runtimeInitialBackoffMs).toBe(500);
     expect(config.maxWebhookPayloadBytes).toBe(1024 * 1024);
-    expect(config.maxAttachmentBytes).toBe(20 * 1024 * 1024);
+    expect(config.maxAttachmentBytes).toEqual({
+      telegram: 50 * 1024 * 1024,
+      slack: 100 * 1024 * 1024,
+      whatsapp: 16 * 1024 * 1024,
+      default: 50 * 1024 * 1024,
+    });
     expect(config.maxAttachmentConcurrency).toBe(3);
     expect(config.runtimeProxyEnabled).toBe(false);
     expect(config.runtimeProxyRequireAuth).toBe(true);

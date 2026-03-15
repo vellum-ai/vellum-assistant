@@ -296,13 +296,17 @@ export function createWhatsAppWebhookHandler(
           const eligible = eventAttachments.filter((att) => {
             if (
               att.fileSize !== undefined &&
-              att.fileSize > config.maxAttachmentBytes
+              att.fileSize >
+                (config.maxAttachmentBytes.whatsapp ??
+                  config.maxAttachmentBytes.default)
             ) {
               tlog.warn(
                 {
                   fileId: att.fileId,
                   fileSize: att.fileSize,
-                  limit: config.maxAttachmentBytes,
+                  limit:
+                    config.maxAttachmentBytes.whatsapp ??
+                    config.maxAttachmentBytes.default,
                 },
                 "Skipping oversized WhatsApp attachment",
               );
