@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -48,6 +48,37 @@ function createTestArchive(
     );
     if (proc.exitCode !== 0) {
       throw new Error(`Failed to create test archive: ${new TextDecoder().decode(proc.stderr).trim()}`);
+    }
+    return Buffer.from(readFileSync(archivePath));
+  } finally {
+    try { rmSync(stagingDir, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
+}
+
+/**
+ * Create a tar.gz archive containing a symlink entrypoint that points to an external path.
+ * This simulates a malicious bundle that attempts symlink escape.
+ */
+function createSymlinkArchive(
+  entrypoint: string,
+  symlinkTarget: string,
+): Buffer {
+  const stagingDir = join(tmpdir(), `ces-test-symlink-archive-${randomUUID()}`);
+  try {
+    const entrypointPath = join(stagingDir, entrypoint);
+    mkdirSync(join(stagingDir, entrypoint, ".."), { recursive: true });
+    // Create a symlink at the entrypoint path pointing to the external target
+    symlinkSync(symlinkTarget, entrypointPath);
+
+    const archivePath = join(stagingDir, "bundle.tar.gz");
+    // Use -h flag to follow symlinks during archive creation would defeat the
+    // purpose; instead we archive the symlink itself using default tar behavior
+    const proc = Bun.spawnSync(
+      ["tar", "czf", archivePath, "-C", stagingDir, entrypoint],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+    if (proc.exitCode !== 0) {
+      throw new Error(`Failed to create symlink test archive: ${new TextDecoder().decode(proc.stderr).trim()}`);
     }
     return Buffer.from(readFileSync(archivePath));
   } finally {
@@ -562,5 +593,136 @@ describe("publishBundle — manifest validation", () => {
     );
     expect(result.success).toBe(false);
     expect(result.error).toContain("Invalid secure command manifest");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Publisher: symlink escape prevention
+// ---------------------------------------------------------------------------
+
+describe("publishBundle — symlink escape prevention", () => {
+  test("rejects bundle with symlink entrypoint pointing outside bundle", () => {
+    // Create a tar.gz with a symlink entrypoint: bin/test-cli -> /usr/bin/curl
+    const symlinkBytes = createSymlinkArchive("bin/test-cli", "/usr/bin/curl");
+    const symlinkDigest = computeDigest(symlinkBytes);
+
+    const manifest = buildSecureManifest({
+      bundleDigest: symlinkDigest,
+    });
+
+    const result = publishBundle({
+      bundleBytes: symlinkBytes,
+      expectedDigest: symlinkDigest,
+      bundleId: "test-cli",
+      version: "1.0.0",
+      sourceUrl: "https://releases.example.com/test-cli/v1.0.0/bundle.tar.gz",
+      secureCommandManifest: manifest,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("symlink");
+  });
+
+  test("rejects bundle with non-entrypoint symlink pointing outside bundle", () => {
+    // Create an archive where a non-entrypoint file is a symlink to an external path.
+    // The entrypoint itself is a real file, but the bundle contains a sneaky symlink.
+    const stagingDir = join(tmpdir(), `ces-test-mixed-symlink-${randomUUID()}`);
+    try {
+      // Create a real entrypoint
+      const entrypointPath = join(stagingDir, "bin/test-cli");
+      mkdirSync(join(stagingDir, "bin"), { recursive: true });
+      writeFileSync(entrypointPath, "#!/usr/bin/env bash\necho hello\n", { mode: 0o755 });
+
+      // Create a symlink that escapes
+      symlinkSync("/etc/passwd", join(stagingDir, "bin/evil-link"));
+
+      const archivePath = join(stagingDir, "bundle.tar.gz");
+      const proc = Bun.spawnSync(
+        ["tar", "czf", archivePath, "-C", stagingDir, "bin"],
+        { stdout: "pipe", stderr: "pipe" },
+      );
+      expect(proc.exitCode).toBe(0);
+
+      const bundleBytes = Buffer.from(readFileSync(archivePath));
+      const digest = computeDigest(bundleBytes);
+
+      const manifest = buildSecureManifest({
+        bundleDigest: digest,
+      });
+
+      const result = publishBundle({
+        bundleBytes,
+        expectedDigest: digest,
+        bundleId: "test-cli",
+        version: "1.0.0",
+        sourceUrl: "https://releases.example.com/test-cli/v1.0.0/bundle.tar.gz",
+        secureCommandManifest: manifest,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("symlink");
+      expect(result.error).toContain("outside the bundle directory");
+    } finally {
+      try { rmSync(stagingDir, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+  });
+
+  test("accepts bundle with internal symlinks (not escaping)", () => {
+    // Create an archive with a symlink that points within the bundle
+    const stagingDir = join(tmpdir(), `ces-test-internal-symlink-${randomUUID()}`);
+    try {
+      mkdirSync(join(stagingDir, "bin"), { recursive: true });
+      writeFileSync(join(stagingDir, "bin/test-cli"), "#!/usr/bin/env bash\necho hello\n", { mode: 0o755 });
+      // Create a symlink within the bundle: bin/alias -> test-cli (relative)
+      symlinkSync("test-cli", join(stagingDir, "bin/alias"));
+
+      const archivePath = join(stagingDir, "bundle.tar.gz");
+      const proc = Bun.spawnSync(
+        ["tar", "czf", archivePath, "-C", stagingDir, "bin"],
+        { stdout: "pipe", stderr: "pipe" },
+      );
+      expect(proc.exitCode).toBe(0);
+
+      const bundleBytes = Buffer.from(readFileSync(archivePath));
+      const digest = computeDigest(bundleBytes);
+
+      const manifest = buildSecureManifest({
+        bundleDigest: digest,
+      });
+
+      const result = publishBundle({
+        bundleBytes,
+        expectedDigest: digest,
+        bundleId: "test-cli",
+        version: "1.0.0",
+        sourceUrl: "https://releases.example.com/test-cli/v1.0.0/bundle.tar.gz",
+        secureCommandManifest: manifest,
+      });
+
+      expect(result.success).toBe(true);
+    } finally {
+      try { rmSync(stagingDir, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+  });
+
+  test("no files are left in toolstore when symlink escape is detected", () => {
+    const symlinkBytes = createSymlinkArchive("bin/test-cli", "/usr/bin/curl");
+    const symlinkDigest = computeDigest(symlinkBytes);
+
+    const manifest = buildSecureManifest({
+      bundleDigest: symlinkDigest,
+    });
+
+    publishBundle({
+      bundleBytes: symlinkBytes,
+      expectedDigest: symlinkDigest,
+      bundleId: "test-cli",
+      version: "1.0.0",
+      sourceUrl: "https://releases.example.com/test-cli/v1.0.0/bundle.tar.gz",
+      secureCommandManifest: manifest,
+    });
+
+    // The bundle should not be published
+    expect(isBundlePublished(symlinkDigest)).toBe(false);
   });
 });

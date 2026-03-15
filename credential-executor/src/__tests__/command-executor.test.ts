@@ -19,7 +19,7 @@
  */
 
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, writeFileSync, existsSync, readFileSync, rmSync, chmodSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync, readFileSync, rmSync, chmodSync, symlinkSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -41,6 +41,7 @@ import { TemporaryGrantStore } from "../grants/temporary-store.js";
 import {
   publishBundle,
   getBundleManifestPath,
+  getBundleDir,
 } from "../toolstore/publish.js";
 import { getCesToolStoreDir, getCesDataRoot } from "../paths.js";
 import { computeDigest } from "../toolstore/integrity.js";
@@ -1584,8 +1585,6 @@ describe("executeAuthenticatedCommand — credential_process defense-in-depth", 
       },
     });
 
-    // Publish the bundle by directly writing the manifest to bypass the validator.
-    // We need to simulate a scenario where a tampered manifest somehow got published.
     const { digest } = publishTestBundle(
       manifest,
       "local",
@@ -1689,5 +1688,72 @@ describe("executeAuthenticatedCommand — credential_process defense-in-depth", 
 
     expect(result.success).toBe(false);
     expect(result.error).toContain("shell metacharacters");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Entrypoint symlink escape tests (defense-in-depth)
+// ---------------------------------------------------------------------------
+
+describe("executeAuthenticatedCommand — symlink escape prevention", () => {
+  test("rejects entrypoint that is a symlink resolving outside the bundle directory", async () => {
+    // Publish a valid bundle first, then tamper with the on-disk entrypoint
+    // by replacing it with a symlink. This tests the executor's defense-in-depth
+    // check — the publisher should also reject symlink entrypoints, but the
+    // executor must independently verify.
+    const manifest = buildManifest({
+      egressMode: EgressMode.NoNetwork,
+      entrypoint: "bin/test-cli",
+      commandProfiles: {
+        "list": {
+          description: "List resources",
+          allowedArgvPatterns: [
+            {
+              name: "list-all",
+              tokens: ["list", "--format", "<format>"],
+            },
+          ],
+          deniedSubcommands: [],
+        },
+      },
+    });
+    const { digest } = publishTestBundle(
+      manifest,
+      "local",
+      '#!/bin/sh\necho "should not run"\n',
+    );
+
+    // Tamper: replace the real entrypoint with a symlink to an external binary
+    const toolstoreDir = getCesToolStoreDir("local");
+    const bundleDir = getBundleDir(toolstoreDir, digest);
+    const entrypointPath = join(bundleDir, "bin/test-cli");
+
+    // The published entrypoint is read-only (0o555), need to make writable to tamper
+    chmodSync(entrypointPath, 0o755);
+    unlinkSync(entrypointPath);
+    symlinkSync("/usr/bin/env", entrypointPath);
+
+    const deps = buildDeps();
+    addCommandGrant(
+      deps.persistentStore,
+      "local_static:test/api_key",
+      digest,
+      "list",
+    );
+
+    const request: ExecuteCommandRequest = {
+      bundleDigest: digest,
+      profileName: "list",
+      credentialHandle: "local_static:test/api_key",
+      argv: ["list", "--format", "json"],
+      workspaceDir: testWorkspaceDir,
+      purpose: "Test symlink escape prevention",
+    };
+
+    const result = await executeAuthenticatedCommand(request, deps);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("symlink");
+    expect(result.error).toContain("outside the bundle directory");
   });
 });
