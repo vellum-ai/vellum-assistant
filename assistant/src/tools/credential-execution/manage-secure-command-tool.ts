@@ -147,21 +147,8 @@ class ManageSecureCommandToolImpl implements Tool {
       }
     }
 
-    // Build the CES RPC request. The CES `manage_secure_command_tool` RPC
-    // schema accepts the tool registration fields; the bundle metadata
-    // (bundleId, version, sourceUrl, sha256, profiles) is passed via the
-    // commandTemplate field as structured JSON that CES parses internally.
-    const commandTemplate =
-      action === "register"
-        ? JSON.stringify({
-            bundleId: input.bundleId,
-            version: input.version,
-            sourceUrl: input.sourceUrl,
-            sha256: input.sha256,
-            profiles: input.profiles,
-          })
-        : undefined;
-
+    // Build the CES RPC request. Bundle metadata fields are sent directly
+    // as proper schema fields on the RPC payload.
     try {
       const response = await cesClient.call("manage_secure_command_tool", {
         action,
@@ -169,9 +156,19 @@ class ManageSecureCommandToolImpl implements Tool {
         ...(input.credentialHandle
           ? { credentialHandle: input.credentialHandle as string }
           : {}),
-        ...(commandTemplate ? { commandTemplate } : {}),
         ...(input.description
           ? { description: input.description as string }
+          : {}),
+        ...(action === "register"
+          ? {
+              bundleId: input.bundleId as string,
+              version: input.version as string,
+              sourceUrl: input.sourceUrl as string,
+              sha256: input.sha256 as string,
+              ...(input.profiles
+                ? { profiles: input.profiles as string[] }
+                : {}),
+            }
           : {}),
       });
 

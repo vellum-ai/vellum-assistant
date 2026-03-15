@@ -23,6 +23,8 @@ import {
   type HandshakeAck,
   type HandshakeRequest,
   type MakeAuthenticatedRequest,
+  type ManageSecureCommandTool,
+  type ManageSecureCommandToolResponse,
   type RpcEnvelope,
   type RunAuthenticatedCommand,
   type RunAuthenticatedCommandResponse,
@@ -483,4 +485,152 @@ export function registerCommandExecutionHandler(
 ): void {
   registry[CesRpcMethod.RunAuthenticatedCommand] =
     createRunAuthenticatedCommandHandler(options) as RpcMethodHandler;
+}
+
+// ---------------------------------------------------------------------------
+// manage_secure_command_tool handler factory
+// ---------------------------------------------------------------------------
+
+/**
+ * Dependencies for the `manage_secure_command_tool` handler.
+ */
+export interface ManageSecureCommandToolHandlerDeps {
+  /**
+   * Download bundle bytes from the given HTTPS URL.
+   * Implementations should enforce size limits and timeouts.
+   */
+  downloadBundle: (sourceUrl: string) => Promise<Buffer | Uint8Array>;
+
+  /**
+   * Publish a bundle into the CES-private toolstore.
+   * Typically delegates to `publishBundle()` from `./toolstore/publish.js`.
+   */
+  publishBundle: (request: import("./toolstore/publish.js").PublishRequest) => import("./toolstore/publish.js").PublishResult;
+
+  /**
+   * Unregister/remove a tool from the tool registry by name.
+   * Returns true if the tool was found and removed.
+   */
+  unregisterTool: (toolName: string) => boolean;
+
+  /**
+   * Register a tool in the tool registry after successful publication.
+   * Called with the tool name, credential handle, description, and the
+   * bundle digest for runtime lookup.
+   */
+  registerTool: (entry: {
+    toolName: string;
+    credentialHandle: string;
+    description: string;
+    bundleDigest: string;
+  }) => void;
+}
+
+/**
+ * Create an RPC handler for the `manage_secure_command_tool` method.
+ *
+ * This handler:
+ * 1. For "register" actions: validates required bundle metadata fields,
+ *    downloads the bundle from `sourceUrl`, publishes it into the
+ *    immutable toolstore with digest verification, and registers
+ *    the tool entry.
+ * 2. For "unregister" actions: removes the tool from the registry.
+ */
+export function createManageSecureCommandToolHandler(
+  deps: ManageSecureCommandToolHandlerDeps,
+): RpcMethodHandler<ManageSecureCommandTool, ManageSecureCommandToolResponse> {
+  return async (request) => {
+    if (request.action === "unregister") {
+      const removed = deps.unregisterTool(request.toolName);
+      if (!removed) {
+        return {
+          success: false,
+          error: {
+            code: "TOOL_NOT_FOUND",
+            message: `Tool "${request.toolName}" is not registered.`,
+          },
+        };
+      }
+      return { success: true };
+    }
+
+    // action === "register"
+    const missing: string[] = [];
+    if (!request.bundleId) missing.push("bundleId");
+    if (!request.version) missing.push("version");
+    if (!request.sourceUrl) missing.push("sourceUrl");
+    if (!request.sha256) missing.push("sha256");
+    if (!request.credentialHandle) missing.push("credentialHandle");
+    if (missing.length > 0) {
+      return {
+        success: false,
+        error: {
+          code: "MISSING_FIELDS",
+          message: `Register action requires: ${missing.join(", ")}`,
+        },
+      };
+    }
+
+    // Download the bundle
+    let bundleBytes: Buffer | Uint8Array;
+    try {
+      bundleBytes = await deps.downloadBundle(request.sourceUrl!);
+    } catch (err) {
+      return {
+        success: false,
+        error: {
+          code: "DOWNLOAD_FAILED",
+          message: `Failed to download bundle from ${request.sourceUrl}: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      };
+    }
+
+    // Publish into the immutable toolstore (includes digest verification)
+    const publishResult = deps.publishBundle({
+      bundleBytes,
+      expectedDigest: request.sha256!,
+      bundleId: request.bundleId!,
+      version: request.version!,
+      sourceUrl: request.sourceUrl!,
+      // The secure command manifest is embedded in the bundle; for now
+      // pass a minimal manifest with declared profiles.
+      secureCommandManifest: {
+        commandProfiles: Object.fromEntries(
+          (request.profiles ?? []).map((p) => [p, { command: request.toolName }]),
+        ),
+      } as import("./commands/profiles.js").SecureCommandManifest,
+    });
+
+    if (!publishResult.success) {
+      return {
+        success: false,
+        error: {
+          code: "PUBLISH_FAILED",
+          message: publishResult.error ?? "Unknown publish error",
+        },
+      };
+    }
+
+    // Register the tool entry for runtime lookup
+    deps.registerTool({
+      toolName: request.toolName,
+      credentialHandle: request.credentialHandle!,
+      description: request.description ?? "",
+      bundleDigest: request.sha256!,
+    });
+
+    return { success: true };
+  };
+}
+
+/**
+ * Convenience helper to register the `manage_secure_command_tool` handler
+ * into an RPC handler registry.
+ */
+export function registerManageSecureCommandToolHandler(
+  registry: RpcHandlerRegistry,
+  deps: ManageSecureCommandToolHandlerDeps,
+): void {
+  registry[CesRpcMethod.ManageSecureCommandTool] =
+    createManageSecureCommandToolHandler(deps) as RpcMethodHandler;
 }

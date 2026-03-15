@@ -19,10 +19,13 @@ export {
   createRunAuthenticatedCommandHandler,
   registerCommandExecutionHandler,
   createMakeAuthenticatedRequestHandler,
+  createManageSecureCommandToolHandler,
+  registerManageSecureCommandToolHandler,
   buildHandlersWithHttp,
 } from "./server.js";
 export type {
   CesServerOptions,
+  ManageSecureCommandToolHandlerDeps,
   RpcHandlerRegistry,
   RpcMethodHandler,
   RunAuthenticatedCommandHandlerOptions,

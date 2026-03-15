@@ -152,10 +152,18 @@ export const ManageSecureCommandToolSchema = z.object({
   toolName: z.string(),
   /** CES credential handle the tool should use (required for register). */
   credentialHandle: z.string().optional(),
-  /** Command template with `{{credential}}` placeholders (required for register). */
-  commandTemplate: z.string().optional(),
   /** Human-readable description of the tool (required for register). */
   description: z.string().optional(),
+  /** Bundle identifier for the secure command package (required for register). */
+  bundleId: z.string().optional(),
+  /** Semantic version of the bundle to install (required for register). */
+  version: z.string().optional(),
+  /** HTTPS URL from which CES will download the bundle (required for register). */
+  sourceUrl: z.string().optional(),
+  /** SHA-256 hex digest of the bundle for integrity verification (required for register). */
+  sha256: z.string().optional(),
+  /** Declared credential profiles the bundle requires (e.g. ["aws", "github"]). */
+  profiles: z.array(z.string()).optional(),
 });
 export type ManageSecureCommandTool = z.infer<
   typeof ManageSecureCommandToolSchema
