@@ -28,11 +28,11 @@ Instead of creating a new tool, consider:
 
 The following three CES tools are the only approved exception to the no-new-tools policy:
 
-| Tool                     | Purpose                                                                                                          |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| `ces_run_command`        | Execute a shell command with credential env vars injected by CES across a hard process boundary                  |
-| `ces_authenticated_http` | Execute an authenticated HTTP request with credentials injected by CES; returns response body and status only    |
-| `ces_browser_fill`       | Fill a browser form field with a credential value via CES; the value never appears in assistant-side tool output |
+| Tool                         | Purpose                                                                                                                                                    |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run_authenticated_command`  | Execute a shell command with credential env vars injected by CES across a hard process boundary                                                            |
+| `make_authenticated_request` | Execute an authenticated HTTP request with credentials injected by CES; returns response body and status only                                              |
+| `manage_secure_command_tool` | Register and manage secure command tool bundles in the CES toolstore; handles bundle lifecycle (registration, unregistration) for manifest-driven commands |
 
 These tools exist as `class ... implements Tool` registrations because:
 
@@ -45,7 +45,7 @@ These tools exist as `class ... implements Tool` registrations because:
 - CES is a **separate package and image** — no direct source imports from `assistant/` to `credential-executor/` or vice versa
 - **Grants and audit logs are CES-owned** durable state — the assistant never reads or writes CES grant or audit tables directly
 - `host_bash` is **outside the strong CES secrecy guarantee** — it does not enforce credential isolation
-- Secure generic authenticated HTTP **must not** run through `run_authenticated_command` — use `ces_authenticated_http` instead, which enforces domain validation and produces structured audit logs
+- Secure generic authenticated HTTP **must not** run through `run_authenticated_command` — use `make_authenticated_request` instead, which enforces domain validation and produces structured audit logs
 - Managed rollout requires a **third runtime image** (alongside assistant and gateway) and `vembda` pod-template changes
 
 See [`assistant/docs/credential-execution-service.md`](../../docs/credential-execution-service.md) for the full ADR.
