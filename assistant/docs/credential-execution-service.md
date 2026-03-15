@@ -237,14 +237,14 @@ Local deployments do not require image changes. Enabling `ces-tools` causes the 
 
 ### Guarantees by deployment mode
 
-| Guarantee                                  | Local                                                               | Managed                                                                              |
-| ------------------------------------------ | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| Process-boundary credential isolation      | Strong (separate child process)                                     | Strong (separate container)                                                          |
-| Credential value never in assistant memory | Strong                                                              | Strong                                                                               |
-| Grant persistence survives restarts        | Strong (filesystem-backed under `~/.vellum/protected/`)             | Strong (dedicated `/home/ces/.ces-data` volume)                                      |
-| Network egress enforcement via proxy       | Moderate (relies on process env vars; host networking is available) | Strong (Calico network policy enforces sandbox egress rules)                         |
-| Secret scrubbing in HTTP responses         | Defense-in-depth only                                               | Defense-in-depth only                                                                |
-| `host_bash` restriction                    | Policy-only (trust rules can deny, but the tool exists)             | Policy-only (same; managed deployments should deny `host_bash` for untrusted agents) |
+| Guarantee                                  | Local                                                               | Managed                                                                                                                         |
+| ------------------------------------------ | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Process-boundary credential isolation      | Strong (separate child process)                                     | Strong (separate container)                                                                                                     |
+| Credential value never in assistant memory | Strong                                                              | Strong                                                                                                                          |
+| Grant persistence survives restarts        | Strong (filesystem-backed under `~/.vellum/protected/`)             | Strong (dedicated `/home/ces/.ces-data` volume)                                                                                 |
+| Network egress enforcement via proxy       | Moderate (relies on process env vars; host networking is available) | Moderate (cooperative via env vars; per-container Calico egress restriction is a design goal but not yet enforced — see Risk 7) |
+| Secret scrubbing in HTTP responses         | Defense-in-depth only                                               | Defense-in-depth only                                                                                                           |
+| `host_bash` restriction                    | Policy-only (trust rules can deny, but the tool exists)             | Policy-only (same; managed deployments should deny `host_bash` for untrusted agents)                                            |
 
 ## Rollback
 
@@ -311,11 +311,11 @@ Secret scrubbing in HTTP response bodies and command stdout/stderr uses exact-ma
 
 **Mitigation**: The primary protection is the process-boundary isolation — the assistant never receives credential values in the first place. Response filtering is a supplementary layer for APIs that echo secrets back. Do not rely on scrubbing as the sole secret-leakage prevention.
 
-### 3. Local egress proxy enforcement is process-level, not network-level
+### 3. Egress proxy enforcement is process-level, not network-level
 
-In local deployments, the egress proxy relies on `HTTP_PROXY`/`HTTPS_PROXY` environment variables. A subprocess that ignores proxy env vars (e.g., a binary that uses its own HTTP stack or raw sockets) can bypass the proxy.
+The egress proxy relies on `HTTP_PROXY`/`HTTPS_PROXY` environment variables. A subprocess that ignores proxy env vars (e.g., a binary that uses its own HTTP stack or raw sockets) can bypass the proxy. This applies to both local and managed deployments — see Risk 7 for details on the managed case.
 
-**Mitigation**: In managed deployments, Calico network policies enforce sandbox egress rules at the network level, independent of process behavior. For local deployments, the process-level enforcement is accepted as a reasonable trade-off — the user running the assistant locally already has full host access.
+**Mitigation**: For local deployments, the process-level enforcement is accepted as a reasonable trade-off — the user running the assistant locally already has full host access. For managed deployments, per-container Calico network policies restricting CES egress to the proxy sidecar only are a design goal (see Risk 7 mitigation). Until those policies are in place, the denied-binary list and manifest validation reduce the surface for non-cooperating binaries.
 
 ### 4. No runtime sandboxing beyond process isolation
 
