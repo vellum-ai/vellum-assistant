@@ -15,7 +15,6 @@ struct AgentPanelContent: View {
     @State private var selectedInstalledSkillId: String?
     @State private var skillToDelete: SkillInfo?
     @State private var selectedCategory: SkillCategory?
-    @State private var expandedDetailSkillId: String?
     @State private var globalSkillSearchQuery = ""
 
     init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, daemonClient: DaemonClient) {
@@ -199,8 +198,6 @@ struct AgentPanelContent: View {
     }
 
     private func skillCard(_ skill: SkillInfo) -> some View {
-        let isExpanded = expandedDetailSkillId == skill.id
-
         return VStack(alignment: .leading, spacing: 0) {
             // Top row: icon + info + remove button
             HStack(alignment: .top, spacing: VSpacing.md) {
@@ -239,34 +236,21 @@ struct AgentPanelContent: View {
                 .buttonStyle(.plain)
             }
 
-            // Details toggle
+            // Details navigation
             HStack {
                 Spacer()
                 VButton(
                     label: "Details",
-                    rightIcon: isExpanded ? "chevron.up" : "chevron.down",
+                    rightIcon: "chevron.right",
                     style: .outlined
                 ) {
                     withAnimation(VAnimation.fast) {
-                        if isExpanded {
-                            expandedDetailSkillId = nil
-                        } else {
-                            expandedDetailSkillId = skill.id
-                            skillsManager.fetchSkillBody(skillId: skill.id)
-                        }
+                        selectedInstalledSkillId = skill.id
+                        skillsManager.fetchSkillBody(skillId: skill.id)
                     }
                 }
             }
             .padding(.top, VSpacing.xs)
-
-            // Expanded details content
-            if isExpanded {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    skillBody(for: skill.id)
-                }
-                .padding(.top, VSpacing.sm)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.md)
