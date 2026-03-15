@@ -7,7 +7,6 @@ metadata:
   vellum:
     display-name: "Spotify OAuth Setup"
     user-invocable: true
-    credential-setup-for: "spotify"
     includes: ["collaborative-oauth-flow"]
 ---
 

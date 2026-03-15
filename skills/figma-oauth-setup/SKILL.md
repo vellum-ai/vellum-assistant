@@ -7,7 +7,6 @@ metadata:
   vellum:
     display-name: "Figma OAuth Setup"
     user-invocable: true
-    credential-setup-for: "figma"
     includes: ["collaborative-oauth-flow"]
 ---
 

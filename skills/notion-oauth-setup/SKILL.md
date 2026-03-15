@@ -7,7 +7,6 @@ metadata:
   vellum:
     display-name: "Notion OAuth Setup"
     user-invocable: true
-    credential-setup-for: "notion"
     includes: ["collaborative-oauth-flow"]
 ---
 
