@@ -309,7 +309,7 @@ extension AppDelegate {
         let sendThreadLogsItem = NSMenuItem(title: "Send Logs for Current Thread", action: #selector(sendCurrentThreadLogsToSentry), keyEquivalent: "")
         sendThreadLogsItem.target = self
         sendThreadLogsItem.image = VIcon.upload.nsImage
-        sendThreadLogsItem.isEnabled = mainWindow?.threadManager.activeThread?.sessionId != nil
+        sendThreadLogsItem.isEnabled = mainWindow?.threadManager.activeThread?.sessionId != nil && !LogExporter.isManagedAssistant
         menu.addItem(sendThreadLogsItem)
 
         if MacOSClientFeatureFlagManager.shared.isEnabled("developer-menu-items") {

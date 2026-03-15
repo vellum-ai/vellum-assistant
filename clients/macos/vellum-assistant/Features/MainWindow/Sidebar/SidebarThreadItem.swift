@@ -195,11 +195,12 @@ struct SidebarThreadItem: View {
             Divider()
 
             Button {
-                AppDelegate.shared?.showLogReportWindow(scope: .thread(conversationId: thread.sessionId ?? "", threadTitle: thread.title))
+                guard let sessionId = thread.sessionId else { return }
+                AppDelegate.shared?.showLogReportWindow(scope: .thread(conversationId: sessionId, threadTitle: thread.title))
             } label: {
                 Label { Text("Send Logs for Thread") } icon: { VIconView(.upload, size: 14) }
             }
-            .disabled(thread.sessionId == nil)
+            .disabled(thread.sessionId == nil || LogExporter.isManagedAssistant)
         }
         .pointerCursor()
         .onHover { hovering in

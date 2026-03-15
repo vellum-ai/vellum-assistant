@@ -26,6 +26,14 @@ private let log = Logger(
 @MainActor
 enum LogExporter {
 
+    /// Whether the currently connected assistant is a managed (platform-hosted) instance.
+    /// When true, thread-scoped exports are not available because the platform API
+    /// does not yet support conversation-scoped log retrieval.
+    nonisolated static var isManagedAssistant: Bool {
+        guard let id = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return false }
+        return LockfileAssistant.loadByName(id)?.isManaged == true
+    }
+
     /// Collects logs, archives them, and sends to Sentry as an attachment for developer debugging.
     /// Includes report metadata (reason, message) from the log report form.
     static func sendLogsToSentry(formData: LogReportFormData) {
@@ -219,10 +227,7 @@ enum LogExporter {
         // 3. Assistant logs — platform API for managed, local gateway for self-hosted
         let home = NSHomeDirectory()
         let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        let isManagedAssistant: Bool = {
-            guard let id = connectedId else { return false }
-            return LockfileAssistant.loadByName(id)?.isManaged == true
-        }()
+        let isManagedAssistant = Self.isManagedAssistant
 
         if isManagedAssistant, let assistantId = connectedId,
            let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
