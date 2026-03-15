@@ -98,6 +98,14 @@ export class ToolExecutor {
         context.forcePromptSideEffects = true;
       }
 
+      // Secure command tool installation always requires fresh per-invocation
+      // approval — no persistent grants. This is unconditional (not gated on
+      // CES lockdown or trust class) because installing secure tools is
+      // inherently high-impact.
+      if (name === "manage_secure_command_tool") {
+        context.forcePromptSideEffects = true;
+      }
+
       // A consumed scoped grant is a complete authorization — skip the
       // interactive permission/prompt flow so non-interactive sessions
       // don't auto-deny prompt-gated tools and burn the one-time grant.
