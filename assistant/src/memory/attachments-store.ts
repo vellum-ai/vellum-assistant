@@ -6,7 +6,7 @@
  */
 
 import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
@@ -64,7 +64,7 @@ export function writeAttachmentToDisk(
 ): string {
   const dir = join(getWorkspaceDir(), "data", "attachments");
   mkdirSync(dir, { recursive: true });
-  const destFilename = `${uuid()}-${filename}`;
+  const destFilename = `${uuid()}-${basename(filename)}`;
   const destPath = join(dir, destFilename);
   const buffer = Buffer.from(dataBase64, "base64");
   writeFileSync(destPath, buffer);
