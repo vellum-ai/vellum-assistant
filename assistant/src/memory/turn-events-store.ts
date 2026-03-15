@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, or } from "drizzle-orm";
+import { and, asc, eq, gt, notLike, or } from "drizzle-orm";
 
 import { getDb } from "./db.js";
 import { messages } from "./schema.js";
@@ -24,6 +24,9 @@ export function queryUnreportedTurnEvents(
     .where(
       and(
         eq(messages.role, "user"),
+        // Exclude tool-result rows persisted with role "user" — these are
+        // system-generated and should not count as user turns.
+        notLike(messages.content, '%"type":"tool_result"%'),
         afterId
           ? or(
               gt(messages.createdAt, afterCreatedAt),
