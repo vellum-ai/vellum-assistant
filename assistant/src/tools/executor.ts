@@ -104,12 +104,16 @@ export class ToolExecutor {
       // inherently high-impact.
       if (name === "manage_secure_command_tool") {
         context.forcePromptSideEffects = true;
+        context.requireFreshApproval = true;
       }
 
       // A consumed scoped grant is a complete authorization — skip the
       // interactive permission/prompt flow so non-interactive sessions
       // don't auto-deny prompt-gated tools and burn the one-time grant.
-      if (!gateResult.grantConsumed) {
+      // Exception: requireFreshApproval tools always go through the
+      // permission check even when a grant was consumed — the grant does
+      // not substitute for an interactive human review.
+      if (!gateResult.grantConsumed || context.requireFreshApproval) {
         // Check permissions via the extracted PermissionChecker
         const permResult = await this.permissionChecker.checkPermission(
           name,

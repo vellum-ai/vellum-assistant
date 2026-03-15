@@ -147,6 +147,14 @@ export interface ToolContext {
   memoryScopeId?: string;
   /** When true, tools with private side-effects should always prompt for confirmation. */
   forcePromptSideEffects?: boolean;
+  /**
+   * When true, the tool requires a fresh interactive approval for every
+   * invocation — no cached grants, temporary overrides, persistent
+   * "Always Allow" rules, or non-interactive auto-approve shortcuts may
+   * bypass the prompt. Used by `manage_secure_command_tool` to ensure
+   * a human reviews each secure bundle installation.
+   */
+  requireFreshApproval?: boolean;
   /** Approval callback for proxy policy decisions that require user confirmation. */
   proxyApprovalCallback?: ProxyApprovalCallback;
   /** Optional principal identifier propagated to sub-tool confirmation flows. */
