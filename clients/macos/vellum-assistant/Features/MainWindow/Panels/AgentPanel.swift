@@ -11,7 +11,6 @@ struct AgentPanelContent: View {
     let daemonClient: DaemonClient
 
     @StateObject private var skillsManager: SkillsManager
-    @State private var expandedSkillId: String?
     @State private var selectedInstalledSkillId: String?
     @State private var skillToDelete: SkillInfo?
     @State private var selectedCategory: SkillCategory?
@@ -242,7 +241,7 @@ struct AgentPanelContent: View {
                 Spacer()
                 VButton(
                     label: "Details",
-                    rightIcon: "chevron.right",
+                    rightIcon: VIcon.chevronRight.rawValue,
                     style: .outlined
                 ) {
                     withAnimation(VAnimation.fast) {
@@ -504,7 +503,7 @@ struct AgentPanelContent: View {
                 Text(error)
                     .font(VFont.caption)
                     .foregroundColor(VColor.systemNegativeStrong)
-            } else if let filesResponse = skillsManager.selectedSkillFiles {
+            } else if let filesResponse = skillsManager.selectedSkillFiles, !filesResponse.files.isEmpty {
                 VStack(spacing: 0) {
                     ForEach(filesResponse.files, id: \.path) { file in
                         skillFileRow(file)
