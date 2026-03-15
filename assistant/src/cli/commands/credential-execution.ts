@@ -134,7 +134,7 @@ proposal type, status, timestamps, allowed purposes).
 
 Examples:
   $ assistant credential-execution grants list
-  $ assistant credential-execution grants list --handle local_static:github:token
+  $ assistant credential-execution grants list --handle local_static:github/token
   $ assistant credential-execution grants list --status active --json`,
     )
     .action(
@@ -264,7 +264,7 @@ code, credential handle, grant ID, success/failure).
 Examples:
   $ assistant credential-execution audit list
   $ assistant credential-execution audit list --limit 50
-  $ assistant credential-execution audit list --handle local_static:github:token
+  $ assistant credential-execution audit list --handle local_static:github/token
   $ assistant credential-execution audit list --grant abc123 --json`,
     )
     .action(
