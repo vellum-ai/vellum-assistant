@@ -483,6 +483,7 @@ export async function runDaemon(): Promise<void> {
             title: notification.title,
             body: notification.body,
           },
+          dedupeKey: `watcher:notification:${Date.now()}`,
         });
       },
       (params) => {
@@ -500,6 +501,7 @@ export async function runDaemon(): Promise<void> {
             title: params.title,
             body: params.body,
           },
+          dedupeKey: `watcher:escalation:${Date.now()}`,
         });
       },
       (info) => {
