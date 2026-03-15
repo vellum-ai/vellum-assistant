@@ -6,7 +6,6 @@ metadata:
   emoji: "🌍"
   vellum:
     display-name: "Public Ingress"
-    user-invocable: true
 ---
 
 You are setting up and managing a public ingress tunnel so that external services (Telegram webhooks, OAuth callbacks, etc.) can reach the local Vellum gateway. This skill uses ngrok to create a secure tunnel and persists the public URL as `ingress.publicBaseUrl`.

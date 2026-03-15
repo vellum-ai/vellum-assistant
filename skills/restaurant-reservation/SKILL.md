@@ -6,7 +6,6 @@ metadata:
   emoji: "🍽️"
   vellum:
     display-name: "Restaurant Reservation Booking"
-    user-invocable: true
     includes: ["browser"]
 ---
 

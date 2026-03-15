@@ -602,8 +602,8 @@ extension SkillsDraftRequest {
 public typealias SkillsCreateMessage = SkillsCreateRequest
 
 extension SkillsCreateRequest {
-    public init(skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String, userInvocable: Bool? = nil, overwrite: Bool? = nil) {
-        self.init(type: "skills_create", skillId: skillId, name: name, description: description, emoji: emoji, bodyMarkdown: bodyMarkdown, userInvocable: userInvocable, overwrite: overwrite)
+    public init(skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String, overwrite: Bool? = nil) {
+        self.init(type: "skills_create", skillId: skillId, name: name, description: description, emoji: emoji, bodyMarkdown: bodyMarkdown, overwrite: overwrite)
     }
 }
 
@@ -924,7 +924,7 @@ extension SkillsListResponseSkill: Identifiable {}
 extension SkillsListResponseSkill {
     /// Returns a copy with a different `state`, preserving all other fields including `id`.
     public func withState(_ newState: String) -> Self {
-        Self(id: id, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: newState, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, userInvocable: userInvocable, clawhub: clawhub, provenance: provenance)
+        Self(id: id, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: newState, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, clawhub: clawhub, provenance: provenance)
     }
 }
 

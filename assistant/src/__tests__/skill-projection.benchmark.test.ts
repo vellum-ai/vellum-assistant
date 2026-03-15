@@ -54,7 +54,6 @@ mock.module("../config/skills.js", () => ({
       directoryPath: `/tmp/fake-skills/${id}`,
       skillFilePath: `/tmp/fake-skills/${id}/SKILL.md`,
       bundled: false,
-      userInvocable: false,
     })),
   getSkillsDir: () => "/tmp/fake-skills",
   getBundledSkillsDir: () => "/tmp/fake-bundled-skills",

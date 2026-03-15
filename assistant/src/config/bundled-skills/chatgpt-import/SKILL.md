@@ -6,7 +6,6 @@ metadata:
   emoji: "📥"
   vellum:
     display-name: "ChatGPT Import"
-    user-invocable: true
 ---
 
 Import ChatGPT conversation history into Vellum so users can keep their conversation context and memory when switching from ChatGPT.

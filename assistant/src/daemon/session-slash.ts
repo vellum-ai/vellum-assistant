@@ -11,15 +11,8 @@ import {
   loadRawConfig,
   saveRawConfig,
 } from "../config/loader.js";
-import { resolveSkillStates } from "../config/skill-state.js";
-import { loadSkillCatalog } from "../config/skills.js";
 import { initializeProviders } from "../providers/registry.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
-import {
-  buildInvocableSlashCatalog,
-  resolveSlashSkillCommand,
-  rewriteKnownSlashCommandPrompt,
-} from "../skills/slash-commands.js";
 import { getLocalIPv4 } from "../util/network-info.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { silentlyWithLog } from "../util/silently.js";
@@ -28,7 +21,6 @@ import type { PairingStore } from "./pairing-store.js";
 
 export type SlashResolution =
   | { kind: "passthrough"; content: string }
-  | { kind: "rewritten"; content: string; skillId: string }
   | { kind: "unknown"; message: string; qrFilename?: string };
 
 // ── /pair command — module-level pairing context ────────────────────
@@ -398,30 +390,6 @@ export async function resolveSlash(
       kind: "unknown",
       message: lines.join("\n"),
     };
-  }
-
-  const config = getConfig();
-  const catalog = loadSkillCatalog();
-  const resolved = resolveSkillStates(catalog, config);
-  const invocable = buildInvocableSlashCatalog(catalog, resolved);
-  const resolution = resolveSlashSkillCommand(content, invocable);
-
-  if (resolution.kind === "known") {
-    const skill = invocable.get(resolution.skillId.toLowerCase());
-    return {
-      kind: "rewritten",
-      content: rewriteKnownSlashCommandPrompt({
-        rawInput: content,
-        skillId: resolution.skillId,
-        skillName: skill?.name ?? resolution.skillId,
-        trailingArgs: resolution.trailingArgs,
-      }),
-      skillId: resolution.skillId,
-    };
-  }
-
-  if (resolution.kind === "unknown") {
-    return { kind: "unknown", message: resolution.message };
   }
 
   return { kind: "passthrough", content };

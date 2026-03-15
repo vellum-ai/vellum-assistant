@@ -6,7 +6,6 @@ metadata:
   emoji: "📦"
   vellum:
     display-name: "Amazon"
-    user-invocable: true
 ---
 
 You can shop on Amazon (and Amazon Fresh for groceries) for the user using the bundled Amazon scripts.

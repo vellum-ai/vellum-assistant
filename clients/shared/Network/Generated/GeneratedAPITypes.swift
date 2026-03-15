@@ -3651,17 +3651,15 @@ public struct SkillsCreateRequest: Codable, Sendable {
     public let description: String
     public let emoji: String?
     public let bodyMarkdown: String
-    public let userInvocable: Bool?
     public let overwrite: Bool?
 
-    public init(type: String, skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String, userInvocable: Bool? = nil, overwrite: Bool? = nil) {
+    public init(type: String, skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String, overwrite: Bool? = nil) {
         self.type = type
         self.skillId = skillId
         self.name = name
         self.description = description
         self.emoji = emoji
         self.bodyMarkdown = bodyMarkdown
-        self.userInvocable = userInvocable
         self.overwrite = overwrite
     }
 }
@@ -3875,11 +3873,10 @@ public struct SkillsListResponseSkill: Codable, Sendable {
     public let installedVersion: String?
     public let latestVersion: String?
     public let updateAvailable: Bool
-    public let userInvocable: Bool
     public let clawhub: SkillsListResponseSkillClawhub?
     public let provenance: SkillsListResponseSkillProvenance?
 
-    public init(id: String, name: String, description: String, emoji: String? = nil, homepage: String? = nil, source: String, state: String, installedVersion: String? = nil, latestVersion: String? = nil, updateAvailable: Bool, userInvocable: Bool, clawhub: SkillsListResponseSkillClawhub? = nil, provenance: SkillsListResponseSkillProvenance? = nil) {
+    public init(id: String, name: String, description: String, emoji: String? = nil, homepage: String? = nil, source: String, state: String, installedVersion: String? = nil, latestVersion: String? = nil, updateAvailable: Bool, clawhub: SkillsListResponseSkillClawhub? = nil, provenance: SkillsListResponseSkillProvenance? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -3890,7 +3887,6 @@ public struct SkillsListResponseSkill: Codable, Sendable {
         self.installedVersion = installedVersion
         self.latestVersion = latestVersion
         self.updateAvailable = updateAvailable
-        self.userInvocable = userInvocable
         self.clawhub = clawhub
         self.provenance = provenance
     }

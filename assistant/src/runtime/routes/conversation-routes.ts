@@ -979,9 +979,6 @@ export async function handleSendMessage(
   }
 
   const resolvedContent = slashResult.content;
-  if (slashResult.kind === "rewritten") {
-    session.setPreactivatedSkillIds([slashResult.skillId]);
-  }
 
   let messageId: string;
   try {
@@ -992,9 +989,6 @@ export async function handleSendMessage(
       requestId,
     );
   } catch (err) {
-    // Reset preactivated skill IDs so a stale activation doesn't leak
-    // into the next message if persistence fails.
-    session.setPreactivatedSkillIds(undefined);
     throw err;
   }
 

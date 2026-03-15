@@ -6,7 +6,6 @@ metadata:
   emoji: "\U0001F4AC"
   vellum:
     display-name: "Messaging"
-    user-invocable: true
 ---
 
 You are a unified messaging assistant with access to multiple platforms (Slack, Gmail, Telegram, and more). Use the messaging tools to help users read, search, organize, draft, and send messages across all connected platforms.

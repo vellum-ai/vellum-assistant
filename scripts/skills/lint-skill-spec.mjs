@@ -170,10 +170,7 @@ const STANDARD_FIELDS = new Set([
 /**
  * Known vellum-specific extension fields that should be migrated to metadata.vellum.
  */
-const VELLUM_EXTENSION_FIELDS = new Set([
-  "user-invocable",
-  "user_invocable",
-]);
+const VELLUM_EXTENSION_FIELDS = new Set([]);
 
 /**
  * Fields that should be migrated to the compatibility field.

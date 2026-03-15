@@ -1024,10 +1024,6 @@ export class DaemonServer {
 
     const resolvedContent = slashResult.content;
 
-    if (slashResult.kind === "rewritten") {
-      session.setPreactivatedSkillIds([slashResult.skillId]);
-    }
-
     const requestId = crypto.randomUUID();
     let messageId: string;
     try {

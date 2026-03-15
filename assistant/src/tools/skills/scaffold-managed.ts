@@ -92,10 +92,6 @@ export async function executeScaffoldManagedSkill(
       typeof input.emoji === "string"
         ? sanitizeFrontmatterValue(input.emoji)
         : undefined,
-    userInvocable:
-      typeof input.user_invocable === "boolean"
-        ? input.user_invocable
-        : undefined,
     overwrite: input.overwrite === true,
     addToIndex: input.add_to_index !== false,
     includes,

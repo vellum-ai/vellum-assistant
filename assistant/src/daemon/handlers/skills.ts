@@ -245,7 +245,6 @@ export interface SkillListItem {
   source: "bundled" | "managed" | "workspace" | "clawhub" | "extra";
   state: "enabled" | "disabled" | "available";
   updateAvailable: boolean;
-  userInvocable: boolean;
   provenance: SkillProvenance;
 }
 
@@ -271,7 +270,6 @@ export function listSkills(_ctx: SkillOperationContext): SkillListItem[] {
     source: r.summary.source,
     state: r.state as "enabled" | "disabled" | "available",
     updateAvailable: false,
-    userInvocable: r.summary.userInvocable,
     provenance: resolveProvenance(r.summary),
   }));
 
@@ -312,7 +310,6 @@ function findSkillById(
     degraded: r.degraded,
     missingRequirements: r.missingRequirements,
     updateAvailable: false,
-    userInvocable: r.summary.userInvocable,
     provenance: resolveProvenance(r.summary),
   };
   return { item, summary: r.summary };
@@ -841,7 +838,6 @@ export interface CreateSkillParams {
   description: string;
   emoji?: string;
   bodyMarkdown: string;
-  userInvocable?: boolean;
   overwrite?: boolean;
 }
 
@@ -856,7 +852,6 @@ export async function createSkill(
       description: params.description,
       emoji: params.emoji,
       bodyMarkdown: params.bodyMarkdown,
-      userInvocable: params.userInvocable,
       overwrite: params.overwrite,
     });
 

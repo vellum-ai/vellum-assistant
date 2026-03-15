@@ -111,18 +111,6 @@ describe("buildSkillMarkdown", () => {
     expect(parsed.metadata.vellum.emoji).toBe("🧪");
   });
 
-  test("includes user-invocable=false in metadata.vellum", () => {
-    const result = buildSkillMarkdown({
-      name: "Internal",
-      description: "Not user invocable",
-      bodyMarkdown: "Body.",
-      userInvocable: false,
-    });
-    const fmMatch = result.match(/^---\n([\s\S]*?)\n---/);
-    const parsed = parseYaml(fmMatch![1]);
-    expect(parsed.metadata.vellum["user-invocable"]).toBe(false);
-  });
-
   test("escapes double quotes in name and description", () => {
     const result = buildSkillMarkdown({
       name: 'Say "hi"',
@@ -780,7 +768,6 @@ describe("YAML metadata round-trip", () => {
       description: "Tests all vellum fields round-trip correctly",
       bodyMarkdown: "Full metadata body.",
       emoji: "🔬",
-      userInvocable: false,
       includes: ["child-a", "child-b"],
     });
 
@@ -795,7 +782,6 @@ describe("YAML metadata round-trip", () => {
       "Tests all vellum fields round-trip correctly",
     );
     expect(skill!.emoji).toBe("🔬");
-    expect(skill!.userInvocable).toBe(false);
     expect(skill!.includes).toEqual(["child-a", "child-b"]);
   });
 
@@ -815,7 +801,6 @@ describe("YAML metadata round-trip", () => {
         '  emoji: "🧪"',
         "  vellum:",
         '    display-name: "YAML Nested Skill"',
-        "    user-invocable: false",
         "    includes:",
         '      - "child-a"',
         '      - "child-b"',
@@ -834,7 +819,6 @@ describe("YAML metadata round-trip", () => {
     expect(skill!.name).toBe("yaml-nested-skill");
     expect(skill!.description).toBe("Hand-authored YAML nested metadata test");
     expect(skill!.displayName).toBe("YAML Nested Skill");
-    expect(skill!.userInvocable).toBe(false);
     expect(skill!.emoji).toBe("🧪");
     expect(skill!.includes).toEqual(["child-a", "child-b"]);
   });

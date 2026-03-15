@@ -6,7 +6,6 @@ metadata:
   emoji: "👥"
   vellum:
     display-name: "Contacts"
-    user-invocable: true
     feature-flag: "contacts"
 ---
 

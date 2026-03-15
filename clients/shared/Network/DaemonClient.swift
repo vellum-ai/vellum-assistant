@@ -1384,8 +1384,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
     /// Create a new managed skill.
-    public func createSkill(skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String, userInvocable: Bool? = nil, overwrite: Bool? = nil) throws {
-        try send(SkillsCreateMessage(skillId: skillId, name: name, description: description, emoji: emoji, bodyMarkdown: bodyMarkdown, userInvocable: userInvocable, overwrite: overwrite))
+    public func createSkill(skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String, overwrite: Bool? = nil) throws {
+        try send(SkillsCreateMessage(skillId: skillId, name: name, description: description, emoji: emoji, bodyMarkdown: bodyMarkdown, overwrite: overwrite))
     }
 
     // MARK: - Queue Management

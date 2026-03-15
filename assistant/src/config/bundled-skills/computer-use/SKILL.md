@@ -6,7 +6,6 @@ metadata:
   emoji: "🖥️"
   vellum:
     display-name: "Computer Use"
-    user-invocable: false
 ---
 
 This skill provides the computer_use_* action tools for controlling
