@@ -22,8 +22,16 @@ import { createServer as createNetServer, type Socket } from "node:net";
 import { dirname } from "node:path";
 import { Readable, Writable } from "node:stream";
 
-import { CES_PROTOCOL_VERSION } from "@vellumai/ces-contracts";
+import { CES_PROTOCOL_VERSION, CesRpcMethod } from "@vellumai/ces-contracts";
 
+import { AuditStore } from "./audit/store.js";
+import { PersistentGrantStore } from "./grants/persistent-store.js";
+import {
+  createListAuditRecordsHandler,
+  createListGrantsHandler,
+  createRevokeGrantHandler,
+} from "./grants/rpc-handlers.js";
+import { TemporaryGrantStore } from "./grants/temporary-store.js";
 import {
   getBootstrapSocketPath,
   getCesAuditDir,
@@ -32,7 +40,14 @@ import {
   getCesToolStoreDir,
   getHealthPort,
 } from "./paths.js";
-import { CesRpcServer, type RpcHandlerRegistry } from "./server.js";
+import {
+  buildHandlersWithHttp,
+  CesRpcServer,
+  registerCommandExecutionHandler,
+  type RpcHandlerRegistry,
+} from "./server.js";
+import type { ManagedSubjectResolverOptions } from "./subjects/managed.js";
+import type { ManagedMaterializerOptions } from "./materializers/managed-platform.js";
 
 // ---------------------------------------------------------------------------
 // Logging (managed always logs to stderr)
@@ -61,10 +76,110 @@ function ensureDataDirs(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Stub RPC handlers (real implementations added in subsequent PRs)
+// Build RPC handler registry (managed mode)
 // ---------------------------------------------------------------------------
 
-const handlers: RpcHandlerRegistry = {};
+function buildHandlers(sessionId: string): RpcHandlerRegistry {
+  // -- Grant stores ----------------------------------------------------------
+  const persistentGrantStore = new PersistentGrantStore(
+    getCesGrantsDir("managed"),
+  );
+  persistentGrantStore.init();
+
+  const temporaryGrantStore = new TemporaryGrantStore();
+
+  // -- Audit store -----------------------------------------------------------
+  const auditStore = new AuditStore(getCesAuditDir("managed"));
+  auditStore.init();
+
+  // -- Managed credential options --------------------------------------------
+  // In managed mode, credentials are obtained from the platform via its
+  // token-materialization endpoint. The platform URL and API key are provided
+  // through environment variables set by the orchestration layer.
+  const platformBaseUrl = process.env["PLATFORM_BASE_URL"] ?? "";
+  const assistantApiKey = process.env["ASSISTANT_API_KEY"] ?? "";
+
+  const managedSubjectOptions: ManagedSubjectResolverOptions | undefined =
+    platformBaseUrl && assistantApiKey
+      ? { platformBaseUrl, assistantApiKey }
+      : undefined;
+
+  const managedMaterializerOptions: ManagedMaterializerOptions | undefined =
+    platformBaseUrl && assistantApiKey
+      ? { platformBaseUrl, assistantApiKey }
+      : undefined;
+
+  if (!managedSubjectOptions) {
+    warn(
+      "PLATFORM_BASE_URL and/or ASSISTANT_API_KEY not set. " +
+        "Managed credential materialisation will not be available.",
+    );
+  }
+
+  // -- Build handler registry ------------------------------------------------
+
+  // In managed mode there is no local secure-key backend. The HTTP handler
+  // uses managed subject resolution and managed materialisation instead.
+  // The localMaterialiser and localSubjectDeps are required by HttpExecutorDeps
+  // but will only be reached for local_static/local_oauth handles (which are
+  // not expected in managed deployments). We stub them to fail closed.
+  const stubLocalMaterialiser = {
+    async materialise() {
+      return {
+        ok: false as const,
+        error: "Local credential materialisation is not available in managed mode.",
+      };
+    },
+    reset() {},
+  };
+
+  const handlers = buildHandlersWithHttp(
+    {
+      persistentGrantStore,
+      temporaryGrantStore,
+      localMaterialiser: stubLocalMaterialiser as any,
+      localSubjectDeps: {
+        metadataStore: { getByServiceField: () => undefined } as any,
+        oauthConnections: { getById: () => undefined },
+      },
+      managedSubjectOptions,
+      managedMaterializerOptions,
+      sessionId,
+    },
+  );
+
+  // Register run_authenticated_command handler
+  registerCommandExecutionHandler(handlers, {
+    executorDeps: {
+      persistentStore: persistentGrantStore,
+      temporaryStore: temporaryGrantStore,
+      materializeCredential: async (_handle) => ({
+        ok: false as const,
+        error:
+          "Command credential materialisation in managed mode is not yet available.",
+      }),
+      cesMode: "managed",
+    },
+    defaultWorkspaceDir: "/workspace",
+  });
+
+  // Register grant management handlers
+  handlers[CesRpcMethod.ListGrants] = createListGrantsHandler({
+    persistentGrantStore,
+    sessionId,
+  }) as typeof handlers[string];
+
+  handlers[CesRpcMethod.RevokeGrant] = createRevokeGrantHandler({
+    persistentGrantStore,
+  }) as typeof handlers[string];
+
+  // Register audit record handler
+  handlers[CesRpcMethod.ListAuditRecords] = createListAuditRecordsHandler({
+    auditStore,
+  }) as typeof handlers[string];
+
+  return handlers;
+}
 
 // ---------------------------------------------------------------------------
 // Health server
@@ -244,6 +359,10 @@ async function main(): Promise<void> {
   }
 
   rpcConnected = true;
+
+  // Build the handler registry with all available RPC implementations
+  const sessionId = `ces-managed-${Date.now()}`;
+  const handlers = buildHandlers(sessionId);
 
   const server = new CesRpcServer({
     input: connection.readable,
