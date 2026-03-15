@@ -103,6 +103,20 @@ async function handleGenerateAvatar(description: string): Promise<Response> {
       "avatar",
       "avatar-image.png",
     );
+
+    // Notify all connected SSE clients so every macOS/iOS instance
+    // reloads the avatar image immediately.
+    assistantEventHub
+      .publish(
+        buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+          type: "avatar_updated",
+          avatarPath,
+        }),
+      )
+      .catch((err) => {
+        log.warn({ err }, "Failed to publish avatar_updated event");
+      });
+
     return Response.json({ ok: true, avatarPath });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
