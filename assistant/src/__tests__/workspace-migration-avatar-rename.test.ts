@@ -56,8 +56,14 @@ describe("001-avatar-rename migration", () => {
     avatarRenameMigration.run(WORKSPACE_DIR);
 
     expect(renameSyncFn).toHaveBeenCalledTimes(2);
-    expect(renameSyncFn.mock.calls[0]).toEqual([OLD_IMAGE, NEW_IMAGE]);
-    expect(renameSyncFn.mock.calls[1]).toEqual([OLD_TRAITS, NEW_TRAITS]);
+    expect(renameSyncFn.mock.calls[0] as unknown[]).toEqual([
+      OLD_IMAGE,
+      NEW_IMAGE,
+    ]);
+    expect(renameSyncFn.mock.calls[1] as unknown[]).toEqual([
+      OLD_TRAITS,
+      NEW_TRAITS,
+    ]);
   });
 
   test("no-op when new files already exist", () => {
@@ -97,7 +103,10 @@ describe("001-avatar-rename migration", () => {
     avatarRenameMigration.run(WORKSPACE_DIR);
 
     expect(renameSyncFn).toHaveBeenCalledTimes(1);
-    expect(renameSyncFn.mock.calls[0]).toEqual([OLD_IMAGE, NEW_IMAGE]);
+    expect(renameSyncFn.mock.calls[0] as unknown[]).toEqual([
+      OLD_IMAGE,
+      NEW_IMAGE,
+    ]);
   });
 
   test("partial rename — only traits exist", () => {
@@ -111,6 +120,9 @@ describe("001-avatar-rename migration", () => {
     avatarRenameMigration.run(WORKSPACE_DIR);
 
     expect(renameSyncFn).toHaveBeenCalledTimes(1);
-    expect(renameSyncFn.mock.calls[0]).toEqual([OLD_TRAITS, NEW_TRAITS]);
+    expect(renameSyncFn.mock.calls[0] as unknown[]).toEqual([
+      OLD_TRAITS,
+      NEW_TRAITS,
+    ]);
   });
 });
