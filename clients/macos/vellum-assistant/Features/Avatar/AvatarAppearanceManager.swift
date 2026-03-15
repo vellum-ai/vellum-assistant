@@ -1,6 +1,9 @@
 import AppKit
 import Foundation
 import VellumAssistantShared
+import os
+
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AvatarAppearanceManager")
 
 /// Manages the assistant's avatar image. Provides a custom avatar when uploaded,
 /// or falls back to a colored circle with the assistant's initial letter.
@@ -77,6 +80,12 @@ final class AvatarAppearanceManager {
 
     static let shared = AvatarAppearanceManager()
 
+    /// Character component definitions fetched from the daemon on launch.
+    /// Used to validate trait selections against the daemon's source of truth.
+    /// nil until the first successful fetch; the client still works with
+    /// hardcoded enums as fallback.
+    private var daemonComponents: AvatarComponentService.ComponentsResponse?
+
     private var fileMonitor: DispatchSourceFileSystemObject?
     private var traitsFileMonitor: DispatchSourceFileSystemObject?
     private var identityObserver: NSObjectProtocol?
@@ -121,6 +130,14 @@ final class AvatarAppearanceManager {
         watchAvatarFile()
         watchTraitsFile()
 
+        // Fire-and-forget: fetch character component definitions from the
+        // daemon so future PRs can validate trait selections against the
+        // daemon's source of truth. The app still works with hardcoded
+        // enums if the daemon is unreachable.
+        Task { [weak self] in
+            await self?.fetchComponentsFromDaemon()
+        }
+
         // Refresh assistantName and invalidate cached fallback avatars when
         // the user renames their assistant so the initial-letter avatar
         // reflects the new name.
@@ -141,6 +158,22 @@ final class AvatarAppearanceManager {
                 self.cachedFullFallbackName = nil
             }
         }
+    }
+
+    // MARK: - Daemon Component Fetch
+
+    /// Fetches the canonical character component definitions from the daemon.
+    /// On success, stores them in `daemonComponents` for future validation.
+    /// Fails silently — the client continues to work with hardcoded enums.
+    private func fetchComponentsFromDaemon() async {
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+              let assistant = LockfileAssistant.loadByName(assistantId) else {
+            log.info("No connected assistant — skipping daemon component fetch")
+            return
+        }
+
+        let port = assistant.resolvedDaemonPort()
+        daemonComponents = await AvatarComponentService.fetch(port: port)
     }
 
     // MARK: - Custom Avatar
