@@ -151,7 +151,7 @@ Open: `https://console.cloud.google.com/auth/clients/create?project=PROJECT_ID`
 
 A modal should appear with the **Client ID** and **Client Secret**. Tell the user to keep it open.
 
-If the secret doesn't appear, guide them to click the credential name on the Credentials page to find it.
+> **Heads up:** Google sometimes has a slight delay, so the modal may only show your Client ID without the Client Secret. If that happens, don't worry — click the **Download JSON** button (downward arrow icon) on the modal. Open the downloaded file and you'll find your `client_secret` in there. It's a little annoying, but it works every time.
 
 ---
 
