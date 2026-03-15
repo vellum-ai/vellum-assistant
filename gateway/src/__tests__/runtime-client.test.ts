@@ -44,7 +44,12 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeInitialBackoffMs: 500,
     maxWebhookPayloadBytes: 1048576,
     logFile: { dir: undefined, retentionDays: 30 },
-    maxAttachmentBytes: 20971520,
+    maxAttachmentBytes: {
+      telegram: 50 * 1024 * 1024,
+      slack: 100 * 1024 * 1024,
+      whatsapp: 16 * 1024 * 1024,
+      default: 50 * 1024 * 1024,
+    },
     maxAttachmentConcurrency: 3,
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
     trustProxy: false,
@@ -209,6 +214,45 @@ describe("downloadAttachment", () => {
 
     const calledUrl = (fetchMock.mock.calls[0] as unknown[])[0] as string;
     expect(calledUrl).toContain("/attachments/att-1");
+  });
+
+  test("transparently hydrates file-backed attachments from /content endpoint", async () => {
+    const binaryContent = Buffer.from("fake-binary-content");
+    const attachmentMeta = {
+      id: "att-fb-1",
+      filename: "video.mov",
+      mimeType: "video/quicktime",
+      sizeBytes: binaryContent.length,
+      fileBacked: true,
+      // data is absent — file-backed attachment
+    };
+
+    let callCount = 0;
+    fetchMock = mock(async (input) => {
+      const calledUrl =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      callCount++;
+      if (calledUrl.endsWith("/content")) {
+        // Return raw binary for the /content endpoint
+        return new Response(new Uint8Array(binaryContent), { status: 200 });
+      }
+      // Return the JSON metadata (no data field)
+      return new Response(JSON.stringify(attachmentMeta), { status: 200 });
+    });
+
+    const config = makeConfig();
+    const result = await downloadAttachment(config, "att-fb-1");
+
+    expect(result.id).toBe("att-fb-1");
+    expect(result.fileBacked).toBe(true);
+    // data should be hydrated with base64-encoded binary content
+    expect(result.data).toBe(binaryContent.toString("base64"));
+    // Should have made two calls: one for metadata, one for /content
+    expect(callCount).toBe(2);
   });
 
   test("throws on 404 not found", async () => {

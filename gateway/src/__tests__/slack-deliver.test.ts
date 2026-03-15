@@ -33,7 +33,12 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     defaultAssistantId: undefined,
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
     logFile: { dir: undefined, retentionDays: 30 },
-    maxAttachmentBytes: 20971520,
+    maxAttachmentBytes: {
+      telegram: 50 * 1024 * 1024,
+      slack: 100 * 1024 * 1024,
+      whatsapp: 16 * 1024 * 1024,
+      default: 50 * 1024 * 1024,
+    },
     maxAttachmentConcurrency: 3,
     maxWebhookPayloadBytes: 1048576,
     port: 7830,
@@ -979,7 +984,14 @@ describe("slack attachment delivery", () => {
 
   test("skips oversized attachment and sends failure notice", async () => {
     const handler = createSlackDeliverHandler(
-      makeConfig({ maxAttachmentBytes: 50 }),
+      makeConfig({
+        maxAttachmentBytes: {
+          telegram: 50,
+          slack: 50,
+          whatsapp: 50,
+          default: 50,
+        },
+      }),
       undefined,
       makeCaches(),
     );
