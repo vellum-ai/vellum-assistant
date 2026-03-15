@@ -1,6 +1,10 @@
 import type { Command } from "commander";
 
 import {
+  fetchManagedCatalog,
+  type ManagedCredentialDescriptor,
+} from "../../credential-execution/managed-catalog.js";
+import {
   disconnectOAuthProvider,
   getConnectionByProvider,
   listConnections,
@@ -147,6 +151,44 @@ function printCredentialHuman(output: Record<string, unknown>): void {
   }
 }
 
+/**
+ * Build a structured output object for a platform-managed credential descriptor.
+ * Never includes token values — only handle references and non-secret metadata.
+ */
+function buildManagedCredentialOutput(
+  descriptor: ManagedCredentialDescriptor,
+): Record<string, unknown> {
+  return {
+    ok: true,
+    source: "platform",
+    handle: descriptor.handle,
+    provider: descriptor.provider,
+    connectionId: descriptor.connectionId,
+    accountInfo: descriptor.accountInfo,
+    grantedScopes: descriptor.grantedScopes,
+    status: descriptor.status,
+  };
+}
+
+/**
+ * Print a human-readable view of a platform-managed credential to the logger.
+ */
+function printManagedCredentialHuman(
+  output: Record<string, unknown>,
+): void {
+  log.info(`  [platform-managed] ${output.provider}`);
+  log.info(`    Handle:      ${output.handle}`);
+  log.info(`    Status:      ${output.status}`);
+  if (output.accountInfo) log.info(`    Account:     ${output.accountInfo}`);
+  if (
+    Array.isArray(output.grantedScopes) &&
+    (output.grantedScopes as string[]).length > 0
+  )
+    log.info(
+      `    Scopes:      ${(output.grantedScopes as string[]).join(", ")}`,
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Command registration
 // ---------------------------------------------------------------------------
@@ -257,16 +299,50 @@ Examples:
           }),
         );
 
-        writeOutput(cmd, { ok: true, credentials });
+        // Fetch platform-managed credentials (best-effort — errors do not
+        // break local listing). Filter by search query if provided.
+        const managedResult = await fetchManagedCatalog();
+        let managedOutputs: Record<string, unknown>[] = [];
+        if (managedResult.ok && managedResult.descriptors.length > 0) {
+          let descriptors = managedResult.descriptors;
+          if (opts.search) {
+            const query = opts.search.toLowerCase();
+            descriptors = descriptors.filter(
+              (d) =>
+                d.provider.toLowerCase().includes(query) ||
+                d.handle.toLowerCase().includes(query) ||
+                (d.accountInfo ?? "").toLowerCase().includes(query),
+            );
+          }
+          managedOutputs = descriptors.map(buildManagedCredentialOutput);
+        }
+
+        writeOutput(cmd, {
+          ok: true,
+          credentials,
+          managedCredentials: managedOutputs,
+        });
 
         if (!shouldOutputJson(cmd)) {
-          if (credentials.length === 0) {
+          const totalCount = credentials.length + managedOutputs.length;
+          if (totalCount === 0) {
             log.info("No credentials found");
           } else {
-            log.info(`${credentials.length} credential(s):\n`);
-            for (const cred of credentials) {
-              printCredentialHuman(cred);
-              log.info("");
+            if (credentials.length > 0) {
+              log.info(`${credentials.length} local credential(s):\n`);
+              for (const cred of credentials) {
+                printCredentialHuman(cred);
+                log.info("");
+              }
+            }
+            if (managedOutputs.length > 0) {
+              log.info(
+                `${managedOutputs.length} platform-managed credential(s):\n`,
+              );
+              for (const managed of managedOutputs) {
+                printManagedCredentialHuman(managed);
+                log.info("");
+              }
             }
           }
         }
