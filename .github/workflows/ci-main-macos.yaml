@@ -18,8 +18,28 @@ on:
       - '.github/workflows/ci-main-macos.yaml'
 
 jobs:
+  changes:
+    name: Detect Path Changes
+    runs-on: ubuntu-latest
+    outputs:
+      clients: ${{ steps.filter.outputs.clients }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            clients:
+              - 'clients/**'
+              - '.github/workflows/ci-main-macos.yaml'
+
   lint-unused:
     name: Lint Unused Code
+    needs: [changes]
+    if: needs.changes.outputs.clients == 'true'
     runs-on: macos-15
     timeout-minutes: 20
     defaults:
@@ -56,6 +76,8 @@ jobs:
 
   test:
     name: macOS Tests
+    needs: [changes]
+    if: needs.changes.outputs.clients == 'true'
     runs-on: macos-15
     timeout-minutes: 10
     steps:
@@ -149,12 +171,12 @@ jobs:
         with:
           name: macos-app-dist
           path: clients/macos/dist/${{ env.APP_DISPLAY_NAME }}.app
-          retention-days: 90
+          retention-days: 30
           if-no-files-found: error
 
   notify-macos:
     name: Slack Notification (macOS)
-    needs: [lint-unused, test, build-app]
+    needs: [changes, lint-unused, test, build-app]
     if: always()
     continue-on-error: true
     runs-on: ubuntu-latest
@@ -167,11 +189,18 @@ jobs:
         run: |
           GITHUB_USER="${{ github.actor }}"
 
-          if [[ "${{ needs.lint-unused.result }}" == "failure" || "${{ needs.test.result }}" == "failure" || "${{ needs.build-app.result }}" == "failure" ]]; then
+          # lint-unused and test are conditionally skipped when only non-client paths change
+          CLIENTS_CHANGED="${{ needs.changes.outputs.clients }}"
+
+          if [[ "${{ needs.build-app.result }}" == "failure" ]]; then
             STATUS="failure"
-          elif [[ "${{ needs.lint-unused.result }}" == "cancelled" || "${{ needs.test.result }}" == "cancelled" || "${{ needs.build-app.result }}" == "cancelled" ]]; then
+          elif [[ "$CLIENTS_CHANGED" == "true" && ("${{ needs.lint-unused.result }}" == "failure" || "${{ needs.test.result }}" == "failure") ]]; then
+            STATUS="failure"
+          elif [[ "${{ needs.build-app.result }}" == "cancelled" ]]; then
             STATUS="cancelled"
-          elif [[ "${{ needs.lint-unused.result }}" == "skipped" || "${{ needs.test.result }}" == "skipped" || "${{ needs.build-app.result }}" == "skipped" ]]; then
+          elif [[ "$CLIENTS_CHANGED" == "true" && ("${{ needs.lint-unused.result }}" == "cancelled" || "${{ needs.test.result }}" == "cancelled") ]]; then
+            STATUS="cancelled"
+          elif [[ "${{ needs.build-app.result }}" == "skipped" ]]; then
             STATUS="skipped"
           else
             STATUS="success"
