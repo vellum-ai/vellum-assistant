@@ -77,8 +77,8 @@ After the user chooses, write the selection to `data/avatar/character-traits.jso
 ```
 
 ```bash
-mkdir -p "$(assistant workspace-dir)/data/avatar"
-cat > "$(assistant workspace-dir)/data/avatar/character-traits.json" << 'TRAITS'
+mkdir -p "$VELLUM_WORKSPACE_DIR/data/avatar"
+cat > "$VELLUM_WORKSPACE_DIR/data/avatar/character-traits.json" << 'TRAITS'
 { "bodyShape": "<value>", "eyeStyle": "<value>", "color": "<value>" }
 TRAITS
 ```
@@ -86,7 +86,7 @@ TRAITS
 Then remove the custom image file if it exists, since native character mode takes precedence:
 
 ```bash
-rm -f "$(assistant workspace-dir)/data/avatar/avatar-image.png"
+rm -f "$VELLUM_WORKSPACE_DIR/data/avatar/avatar-image.png"
 ```
 
 The client will detect the traits file and render the animated character.
@@ -98,14 +98,14 @@ The user provides a file path to an image they want to use as their avatar.
 Copy the image to the avatar location:
 
 ```bash
-mkdir -p "$(assistant workspace-dir)/data/avatar"
-cp "<user-provided-path>" "$(assistant workspace-dir)/data/avatar/avatar-image.png"
+mkdir -p "$VELLUM_WORKSPACE_DIR/data/avatar"
+cp "<user-provided-path>" "$VELLUM_WORKSPACE_DIR/data/avatar/avatar-image.png"
 ```
 
 Then remove the character traits file, since a custom image overrides the native character:
 
 ```bash
-rm -f "$(assistant workspace-dir)/data/avatar/character-traits.json"
+rm -f "$VELLUM_WORKSPACE_DIR/data/avatar/character-traits.json"
 ```
 
 Tell the user their avatar has been updated. The client will pick up the new image automatically.
@@ -123,7 +123,7 @@ curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/settings/avatar/generate" \
 This generates an image using AI and saves it to `data/avatar/avatar-image.png`. After the image is generated, remove the character traits file:
 
 ```bash
-rm -f "$(assistant workspace-dir)/data/avatar/character-traits.json"
+rm -f "$VELLUM_WORKSPACE_DIR/data/avatar/character-traits.json"
 ```
 
 The generated avatar will appear automatically in the client.
