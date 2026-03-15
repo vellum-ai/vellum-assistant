@@ -352,10 +352,6 @@ describe("CURRENT_POLICY_EPOCH sync", () => {
       label: "gateway",
       path: resolve(PROJECT_ROOT, "gateway/src/auth/policy.ts"),
     },
-    {
-      label: "cli",
-      path: resolve(PROJECT_ROOT, "cli/src/lib/policy.ts"),
-    },
   ];
 
   function extractEpoch(filePath: string): number {
@@ -387,7 +383,7 @@ describe("CURRENT_POLICY_EPOCH sync", () => {
         "",
         summary,
         "",
-        "All three locations must have the same value.",
+        "All locations must have the same value.",
         "The canonical source is assistant/src/runtime/auth/policy.ts.",
       ].join("\n");
       expect(mismatches, message).toEqual([]);

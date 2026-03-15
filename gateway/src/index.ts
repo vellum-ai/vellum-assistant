@@ -499,9 +499,11 @@ async function main() {
 
     // ── Channel verification sessions ──
     {
+      // Bootstrap endpoint — may be replaced with an SSH-based exchange in the
+      // future so that remote clients never need an exposed HTTP endpoint.
       path: "/v1/guardian/init",
       method: "POST",
-      auth: "edge",
+      auth: "none",
       handler: (req) => channelVerificationSessionProxy.handleGuardianInit(req),
     },
     {
@@ -805,7 +807,7 @@ async function main() {
       }
 
       // ── Route table dispatch ──
-      const response = router(req, url, resolveClientIp);
+      const response = router(req, url, resolveClientIp, svr);
       if (response !== null) return response;
 
       return Response.json(
