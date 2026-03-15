@@ -8,6 +8,28 @@ import Combine
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ThreadManager")
 private let archivedSessionsKey = "archivedSessionIds"
 
+// MARK: - Conversation Client Protocol
+
+/// Abstraction for fetching individual conversations, decoupled from DaemonClient.
+@MainActor
+protocol ConversationClientProtocol {
+    func fetchConversationById(_ conversationId: String) async -> ConversationsListResponse.Session?
+}
+
+/// Fetches conversation data via GatewayHTTPClient.
+@MainActor
+struct ConversationClient: ConversationClientProtocol {
+    nonisolated init() {}
+
+    func fetchConversationById(_ conversationId: String) async -> ConversationsListResponse.Session? {
+        let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? conversationId
+        let result: (SingleConversationResponse?, GatewayHTTPClient.Response)? = try? await GatewayHTTPClient.get(
+            path: "conversations/\(encoded)", timeout: 10
+        )
+        return result?.0?.session
+    }
+}
+
 @MainActor
 final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     @AppStorage("restoreRecentThreads") private(set) var restoreRecentThreads = true
@@ -81,6 +103,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// Tracks access order for LRU eviction. Most-recently-accessed ID is at the end.
     private var vmAccessOrder: [UUID] = []
     private let daemonClient: DaemonClient
+    private let conversationClient: any ConversationClientProtocol
     private let sessionRestorer: ThreadSessionRestorer
     private let activityNotificationService: ActivityNotificationService?
     /// Queued renames for threads that don't yet have a sessionId.
@@ -192,8 +215,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         return getOrCreateViewModel(for: activeThreadId)
     }
 
-    init(daemonClient: DaemonClient, activityNotificationService: ActivityNotificationService? = nil, isFirstLaunch: Bool = false) {
+    init(daemonClient: DaemonClient, conversationClient: any ConversationClientProtocol = ConversationClient(), activityNotificationService: ActivityNotificationService? = nil, isFirstLaunch: Bool = false) {
         self.daemonClient = daemonClient
+        self.conversationClient = conversationClient
         self.activityNotificationService = activityNotificationService
         self.sessionRestorer = ThreadSessionRestorer(daemonClient: daemonClient)
         // On first launch (post-onboarding), skip session restoration — there are
@@ -762,8 +786,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             return true
         }
 
-        // Slow path: fetch the conversation from the daemon and insert it locally
-        guard let session = await daemonClient.fetchConversationById(sessionId) else {
+        // Slow path: fetch the conversation via the gateway and insert it locally
+        guard let session = await conversationClient.fetchConversationById(sessionId) else {
             return false
         }
 

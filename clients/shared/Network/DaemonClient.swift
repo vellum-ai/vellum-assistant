@@ -815,21 +815,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
     }
 
-    // MARK: - Single Conversation Lookup
-
-    /// Fetch a single conversation by its daemon ID.
-    /// Delegates to HTTPTransport for remote connections, or calls the local daemon HTTP server.
-    /// Returns `nil` if the conversation doesn't exist (404) or the request fails.
-    public func fetchConversationById(_ conversationId: String) async -> ConversationsListResponse.Session? {
-        if let httpTransport {
-            return await httpTransport.fetchConversationById(conversationId)
-        }
-
-        let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? conversationId
-        let response: SingleConversationResponse? = await executeLocalRequest(path: "v1/conversations/\(encoded)", timeout: 10)
-        return response?.session
-    }
-
     // MARK: - BTW Side-Chain
 
     /// Send a /btw side-chain question and stream the response text.
