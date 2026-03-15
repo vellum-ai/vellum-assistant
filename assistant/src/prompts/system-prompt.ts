@@ -285,7 +285,7 @@ function buildAttachmentSection(): string {
     "",
     'Example: `<vellum-attachment source="sandbox" path="scratch/chart.png" />`',
     "",
-    "Limits: 20 MB per attachment. Tool outputs that produce image or file content blocks are also automatically converted into attachments.",
+    "Limits: 50 MB per attachment. Tool outputs that produce image or file content blocks are also automatically converted into attachments.",
     "",
     "### Inline Images and GIFs",
     "Embed images/GIFs inline using markdown: `![description](URL)`. Do NOT wrap in code fences.",
