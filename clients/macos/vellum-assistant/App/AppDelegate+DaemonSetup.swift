@@ -207,9 +207,9 @@ extension AppDelegate {
             )
         }
 
-        // Automatically surface threads created by scheduled task runs so
+        // Automatically surface conversations created by scheduled task runs so
         // the user sees them in the sidebar without restarting the app.
-        daemonClient.onTaskRunThreadCreated = { [weak self] msg in
+        daemonClient.onTaskRunConversationCreated = { [weak self] msg in
             guard let self, !self.isBootstrapping else { return }
             self.ensureMainWindowExists()
             self.mainWindow?.threadManager.createTaskRunThread(
@@ -219,8 +219,8 @@ extension AppDelegate {
             )
         }
 
-        // Schedule threads — created when the scheduler fires and creates a conversation.
-        daemonClient.onScheduleThreadCreated = { [weak self] msg in
+        // Schedule conversations — created when the scheduler fires and creates a conversation.
+        daemonClient.onScheduleConversationCreated = { [weak self] msg in
             guard let self, !self.isBootstrapping else { return }
             self.ensureMainWindowExists()
             self.mainWindow?.threadManager.createScheduleThread(
@@ -230,11 +230,11 @@ extension AppDelegate {
             )
         }
 
-        // Notification threads — created when the notification pipeline delivers
+        // Notification conversations — created when the notification pipeline delivers
         // to the vellum channel with start_new_conversation strategy.
-        daemonClient.onNotificationThreadCreated = { [weak self] msg in
+        daemonClient.onNotificationConversationCreated = { [weak self] msg in
             guard let self, !self.isBootstrapping else { return }
-            self.handleNotificationThreadCreated(msg)
+            self.handleNotificationConversationCreated(msg)
         }
 
         // Forward dictation responses from the daemon to VoiceInputManager

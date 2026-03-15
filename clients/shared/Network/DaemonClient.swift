@@ -351,8 +351,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon emits a generic `notification_intent` payload.
     public var onNotificationIntent: ((NotificationIntentMessage) -> Void)?
 
-    /// Called when a notification delivery creates a new vellum conversation thread.
-    public var onNotificationThreadCreated: ((NotificationThreadCreated) -> Void)?
+    /// Called when a notification delivery creates a new vellum conversation.
+    public var onNotificationConversationCreated: ((NotificationConversationCreated) -> Void)?
 
     /// Called when the daemon sends a `trust_rules_list_response` message.
     public var onTrustRulesListResponse: (([TrustRuleItem]) -> Void)?
@@ -520,10 +520,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     public var onError: ((ErrorMessage) -> Void)?
 
     /// Called when a task run creates a conversation so the client can show it as a visible chat thread.
-    public var onTaskRunThreadCreated: ((TaskRunThreadCreated) -> Void)?
+    public var onTaskRunConversationCreated: ((TaskRunConversationCreated) -> Void)?
 
     /// Called when a schedule creates a conversation so the client can show it as a visible chat thread.
-    public var onScheduleThreadCreated: ((ScheduleThreadCreated) -> Void)?
+    public var onScheduleConversationCreated: ((ScheduleConversationCreated) -> Void)?
 
     /// Called when the daemon requests pairing approval from macOS.
     public var onPairingApprovalRequest: ((PairingApprovalRequestMessage) -> Void)?
