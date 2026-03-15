@@ -641,7 +641,7 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 | **3. `skill_load` tool**           | `executeSkillLoad()` in `tools/skills/load.ts`           | If the model attempts to load a flagged-off skill by name, the tool returns an error: `"skill is currently unavailable (disabled by feature flag)"`.                                                        |
 | **4. Runtime tool projection**     | `projectSkillTools()` in `daemon/session-skill-tools.ts` | Even if a skill was previously active in a session (has `<loaded_skill>` markers in history), the per-turn projection drops it when the flag is OFF. Already-registered tools are unregistered.             |
 | **5. Included child skills**       | `executeSkillLoad()` in `tools/skills/load.ts`           | When a parent skill includes children via the `includes` directive, each child is independently checked against its feature flag. Flagged-off children are silently excluded from the loaded skill content. |
-| **6. Skill install gate**          | `installSkill()` in `daemon/handlers/skills.ts`           | When a client requests skill installation, the function checks the skill's feature flag before proceeding. If the flag is OFF, the install is rejected with an error.                                       |
+| **6. Skill install gate**          | `installSkill()` in `daemon/handlers/skills.ts`          | When a client requests skill installation, the function checks the skill's feature flag before proceeding. If the flag is OFF, the install is rejected with an error.                                       |
 
 All six enforcement points derive the flag key via `skillFlagKey(skill)` — which returns `undefined` for ungated skills, short-circuiting the check — and then call `isAssistantFeatureFlagEnabled(flagKey, config)` for consistency.
 
@@ -1012,23 +1012,20 @@ When a user message enters the daemon (via `processMessage` or the queue drain p
 graph TB
     INPUT["User input"]
     PARSE{"parseSlashCandidate"}
-    RESOLVE{"resolveSlashSkillCommand"}
     NONE["Normal flow<br/>persist + agent loop"]
-    KNOWN["Rewrite to skill prompt<br/>persist + agent loop"]
     UNKNOWN["Deterministic response<br/>list available commands<br/>no agent loop"]
 
     INPUT --> PARSE
     PARSE -->|"Not a slash candidate"| NONE
-    PARSE -->|"Valid candidate"| RESOLVE
-    RESOLVE -->|"Known skill ID"| KNOWN
-    RESOLVE -->|"Unknown ID"| UNKNOWN
+    PARSE -->|"Built-in command"| UNKNOWN
+    PARSE -->|"Unknown slash token"| NONE
 ```
 
 Key behaviors:
 
-- **Known**: Content is rewritten via `rewriteKnownSlashCommandPrompt` to instruct the model to invoke the skill. Trailing arguments are preserved.
-- **Unknown**: A deterministic `assistant_text_delta` + `message_complete` is emitted listing available slash commands. No message persistence or model call occurs.
-- **Queue**: Queued messages receive the same slash resolution. Unknown slash commands in the queue emit their response and continue draining without stalling.
+- **Built-in commands**: Tokens matching built-in commands (e.g. `/commands`, `/settings`) are handled directly. A deterministic `assistant_text_delta` + `message_complete` is emitted. No message persistence or model call occurs.
+- **Unknown slash tokens**: Slash-like input that does not match a built-in command passes through to the normal agent loop.
+- **Queue**: Queued messages receive the same slash resolution.
 
 ---
 
@@ -1901,44 +1898,44 @@ Connected channels are resolved at signal emission time: vellum is always includ
 
 ## Storage Summary
 
-| What                                         | Where                                                             | Format                              | ORM/Driver                         | Retention                                                  |
-| -------------------------------------------- | ----------------------------------------------------------------- | ----------------------------------- | ---------------------------------- | ---------------------------------------------------------- |
-| API key                                      | macOS Keychain                                                    | Encrypted binary                    | `/usr/bin/security` CLI            | Permanent                                                  |
-| Credential secrets                           | macOS Keychain (or encrypted file fallback)                       | Encrypted binary                    | `secure-keys.ts` wrapper           | Permanent (until deleted via tool)                         |
-| Credential metadata                          | `~/.vellum/workspace/data/credentials/metadata.json`              | JSON                                | Atomic file write                  | Permanent (until deleted via tool)                         |
-| Integration OAuth tokens                     | macOS Keychain (or encrypted file fallback, via `secure-keys.ts`) | Encrypted binary                    | `TokenManager` auto-refresh        | Until disconnected or revoked                              |
-| User preferences                             | UserDefaults                                                      | plist                               | Foundation                         | Permanent                                                  |
-| Session logs                                 | `~/Library/.../logs/session-*.json`                               | JSON per session                    | Swift Codable                      | Unbounded                                                  |
-| Conversations & messages                     | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite + WAL                        | Drizzle ORM (Bun)                  | Permanent                                                  |
-| Memory segments                              | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent                                                  |
-| Extracted facts                              | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent, deduped                                         |
-| Embeddings                                   | `~/.vellum/workspace/data/db/assistant.db`                        | JSON float arrays                   | Drizzle ORM                        | Permanent                                                  |
-| Async job queue                              | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Completed jobs persist                                     |
-| Attachments                                  | `~/.vellum/workspace/data/db/assistant.db`                        | Base64 in SQLite                    | Drizzle ORM                        | Permanent                                                  |
-| Sandbox filesystem                           | `~/.vellum/workspace`                                             | Real filesystem tree                | Node FS APIs                       | Persistent across sessions                                 |
-| Tool permission rules                        | `~/.vellum/protected/trust.json`                                  | JSON                                | File I/O                           | Permanent                                                  |
-| Web users & assistants                       | PostgreSQL                                                        | Relational                          | Drizzle ORM (pg)                   | Permanent                                                  |
-| Trace events                                 | In-memory (TraceStore)                                            | Structured events                   | Swift ObservableObject             | Max 5,000 per session, ephemeral                           |
-| Media embed settings                         | `~/.vellum/workspace/config.json` (`ui.mediaEmbeds`)              | JSON                                | `WorkspaceConfigIO` (atomic merge) | Permanent                                                  |
-| Media embed MIME cache                       | In-memory (`ImageMIMEProbe`)                                      | `NSCache` (500 entries)             | HTTP HEAD                          | Ephemeral; cleared on app restart                          |
-| Tasks & task runs                            | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent                                                  |
-| Work items (Task Queue)                      | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; archived items retained                         |
-| Recurrence schedules & runs                  | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; supports cron and RRULE syntax                  |
-| Watchers & events                            | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent, cascade on watcher delete                       |
-| Proxy CA cert + key                          | `{dataDir}/proxy-ca/`                                             | PEM files (ca.pem, ca-key.pem)      | openssl CLI                        | Permanent (10-year validity)                               |
-| Proxy leaf certs                             | `{dataDir}/proxy-ca/issued/`                                      | PEM files per hostname              | openssl CLI, cached                | 1-year validity, re-issued on CA change                    |
-| Proxy sessions                               | In-memory (SessionManager)                                        | Map<ProxySessionId, ManagedSession> | Manual lifecycle                   | Ephemeral; 5min idle timeout, cleared on shutdown          |
-| Call sessions, events, pending questions     | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent, cascade on session delete                       |
-| Active call controllers                      | In-memory (CallState)                                             | Map<callSessionId, CallController>  | Manual lifecycle                   | Ephemeral; cleared on call end or destroy                  |
-| Guardian bindings                            | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; revoked bindings retained                       |
-| Channel verification sessions                | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; consumed/expired sessions retained              |
-| Guardian approval requests                   | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; decision outcome retained                       |
-| Contact invites                              | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; token hash stored, raw token never persisted    |
-| Contacts & channels                          | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; revoked/blocked contacts retained               |
-| Notification events                          | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; deduplicated by dedupeKey                       |
-| Notification decisions                       | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; FK to notification_events                       |
-| Notification deliveries                      | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; FK to notification_decisions                    |
-| Notification preferences                     | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; per-assistant conversational preferences        |
+| What                                     | Where                                                             | Format                              | ORM/Driver                         | Retention                                               |
+| ---------------------------------------- | ----------------------------------------------------------------- | ----------------------------------- | ---------------------------------- | ------------------------------------------------------- |
+| API key                                  | macOS Keychain                                                    | Encrypted binary                    | `/usr/bin/security` CLI            | Permanent                                               |
+| Credential secrets                       | macOS Keychain (or encrypted file fallback)                       | Encrypted binary                    | `secure-keys.ts` wrapper           | Permanent (until deleted via tool)                      |
+| Credential metadata                      | `~/.vellum/workspace/data/credentials/metadata.json`              | JSON                                | Atomic file write                  | Permanent (until deleted via tool)                      |
+| Integration OAuth tokens                 | macOS Keychain (or encrypted file fallback, via `secure-keys.ts`) | Encrypted binary                    | `TokenManager` auto-refresh        | Until disconnected or revoked                           |
+| User preferences                         | UserDefaults                                                      | plist                               | Foundation                         | Permanent                                               |
+| Session logs                             | `~/Library/.../logs/session-*.json`                               | JSON per session                    | Swift Codable                      | Unbounded                                               |
+| Conversations & messages                 | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite + WAL                        | Drizzle ORM (Bun)                  | Permanent                                               |
+| Memory segments                          | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent                                               |
+| Extracted facts                          | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent, deduped                                      |
+| Embeddings                               | `~/.vellum/workspace/data/db/assistant.db`                        | JSON float arrays                   | Drizzle ORM                        | Permanent                                               |
+| Async job queue                          | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Completed jobs persist                                  |
+| Attachments                              | `~/.vellum/workspace/data/db/assistant.db`                        | Base64 in SQLite                    | Drizzle ORM                        | Permanent                                               |
+| Sandbox filesystem                       | `~/.vellum/workspace`                                             | Real filesystem tree                | Node FS APIs                       | Persistent across sessions                              |
+| Tool permission rules                    | `~/.vellum/protected/trust.json`                                  | JSON                                | File I/O                           | Permanent                                               |
+| Web users & assistants                   | PostgreSQL                                                        | Relational                          | Drizzle ORM (pg)                   | Permanent                                               |
+| Trace events                             | In-memory (TraceStore)                                            | Structured events                   | Swift ObservableObject             | Max 5,000 per session, ephemeral                        |
+| Media embed settings                     | `~/.vellum/workspace/config.json` (`ui.mediaEmbeds`)              | JSON                                | `WorkspaceConfigIO` (atomic merge) | Permanent                                               |
+| Media embed MIME cache                   | In-memory (`ImageMIMEProbe`)                                      | `NSCache` (500 entries)             | HTTP HEAD                          | Ephemeral; cleared on app restart                       |
+| Tasks & task runs                        | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent                                               |
+| Work items (Task Queue)                  | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; archived items retained                      |
+| Recurrence schedules & runs              | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; supports cron and RRULE syntax               |
+| Watchers & events                        | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent, cascade on watcher delete                    |
+| Proxy CA cert + key                      | `{dataDir}/proxy-ca/`                                             | PEM files (ca.pem, ca-key.pem)      | openssl CLI                        | Permanent (10-year validity)                            |
+| Proxy leaf certs                         | `{dataDir}/proxy-ca/issued/`                                      | PEM files per hostname              | openssl CLI, cached                | 1-year validity, re-issued on CA change                 |
+| Proxy sessions                           | In-memory (SessionManager)                                        | Map<ProxySessionId, ManagedSession> | Manual lifecycle                   | Ephemeral; 5min idle timeout, cleared on shutdown       |
+| Call sessions, events, pending questions | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent, cascade on session delete                    |
+| Active call controllers                  | In-memory (CallState)                                             | Map<callSessionId, CallController>  | Manual lifecycle                   | Ephemeral; cleared on call end or destroy               |
+| Guardian bindings                        | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; revoked bindings retained                    |
+| Channel verification sessions            | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; consumed/expired sessions retained           |
+| Guardian approval requests               | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; decision outcome retained                    |
+| Contact invites                          | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; token hash stored, raw token never persisted |
+| Contacts & channels                      | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; revoked/blocked contacts retained            |
+| Notification events                      | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; deduplicated by dedupeKey                    |
+| Notification decisions                   | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; FK to notification_events                    |
+| Notification deliveries                  | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; FK to notification_decisions                 |
+| Notification preferences                 | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; per-assistant conversational preferences     |
 
 ### Sensitive Tool Output Placeholder Substitution
 

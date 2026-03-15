@@ -36,7 +36,7 @@ const log = getLogger("ces-approval-bridge");
  * Maps the existing confirmation transport decisions to CES grant semantics:
  * - `allow`          -> approved (single-use grant, no TTL)
  * - `allow_10m`      -> approved (temporary grant, 10-minute TTL)
- * - `allow_thread`   -> approved (session-scoped grant, no TTL but session-bound)
+ * - `allow_conversation` -> approved (session-scoped grant, no TTL but session-bound)
  * - `always_allow`   -> approved (persistent grant, no expiry)
  * - `deny`           -> denied
  * - `always_deny`    -> denied
@@ -50,7 +50,7 @@ export interface CesApprovalDecision {
   grantType:
     | "allow_once"
     | "allow_10m"
-    | "allow_thread"
+    | "allow_conversation"
     | "always_allow"
     | undefined;
   /** The original user decision from the confirmation transport. */
@@ -75,14 +75,14 @@ function mapUserDecisionToCesDecision(
         grantType: "allow_10m",
         userDecision: decision,
       };
-    case "allow_thread":
-      // Thread-scoped grants don't have a wall-clock TTL — they are bound
+    case "allow_conversation":
+      // Conversation-scoped grants don't have a wall-clock TTL — they are bound
       // to the session lifetime. CES handles the session binding; we pass
       // no TTL so the grant remains active until the session ends.
       return {
         grantDecision: "approved",
         ttl: undefined,
-        grantType: "allow_thread",
+        grantType: "allow_conversation",
         userDecision: decision,
       };
     case "always_allow":
@@ -225,7 +225,7 @@ export async function bridgeCesApproval(
     "host", // CES operations target the host
     false, // Persistent decisions are managed by CES, not trust.json
     options?.signal,
-    ["allow_10m", "allow_thread"], // Offer temporary approval options
+    ["allow_10m", "allow_conversation"], // Offer temporary approval options
   );
 
   // Detect prompter timeout: the PermissionPrompter resolves timeouts as

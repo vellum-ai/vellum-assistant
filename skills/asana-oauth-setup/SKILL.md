@@ -6,7 +6,6 @@ metadata:
   emoji: "🔑"
   vellum:
     display-name: "Asana OAuth Setup"
-    user-invocable: true
     includes: ["collaborative-oauth-flow"]
 ---
 

@@ -105,6 +105,7 @@ export { migrateDropLoopbackPortColumn } from "./160-drop-loopback-port-column.j
 export { migrateDropOrphanedMediaTables } from "./161-drop-orphaned-media-tables.js";
 export { migrateGuardianTimestampsEpochMs } from "./162-guardian-timestamps-epoch-ms.js";
 export { migrateRenameConversationTypeColumn } from "./164-rename-conversation-type-column.js";
+export { migrateRenameInboxThreadStateTable } from "./165-rename-inbox-thread-state-table.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

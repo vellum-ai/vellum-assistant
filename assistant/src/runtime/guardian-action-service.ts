@@ -21,7 +21,7 @@ import type { ApprovalAction } from "./channel-approval-types.js";
 export const VALID_GUARDIAN_ACTIONS: ReadonlySet<string> = new Set<string>([
   "approve_once",
   "approve_10m",
-  "approve_thread",
+  "approve_conversation",
   "approve_always",
   "reject",
 ]);
@@ -73,7 +73,7 @@ export async function processGuardianDecision(
     return {
       ok: false,
       error: "invalid_action",
-      message: `Invalid action: ${action}. Must be one of: approve_once, approve_10m, approve_thread, approve_always, reject`,
+      message: `Invalid action: ${action}. Must be one of: approve_once, approve_10m, approve_conversation, approve_always, reject`,
     };
   }
 

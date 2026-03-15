@@ -18,7 +18,7 @@ Approvals are **orthogonal to message sending**. The assistant asks for approval
 
 - **Discovery**: Clients discover pending approvals via SSE events (`confirmation_request`, `secret_request`) which include a `requestId`.
 - **Resolution**: Clients respond via standalone endpoints keyed by `requestId`:
-  - `POST /v1/confirm` — `{ requestId, decision, selectedPattern?, selectedScope? }`. Valid decisions: `"allow"`, `"allow_10m"`, `"allow_thread"`, `"deny"`, `"always_allow"`, `"always_deny"`, `"always_allow_high_risk"`. For persistent decisions (`always_allow`, `always_deny`, `always_allow_high_risk`), `selectedPattern` and `selectedScope` are validated against the server-provided allowlist/scope options from the original confirmation request before trust rules are persisted.
+  - `POST /v1/confirm` — `{ requestId, decision, selectedPattern?, selectedScope? }`. Valid decisions: `"allow"`, `"allow_10m"`, `"allow_conversation"`, `"deny"`, `"always_allow"`, `"always_deny"`, `"always_allow_high_risk"`. For persistent decisions (`always_allow`, `always_deny`, `always_allow_high_risk`), `selectedPattern` and `selectedScope` are validated against the server-provided allowlist/scope options from the original confirmation request before trust rules are persisted.
   - `POST /v1/secret` — `{ requestId, value, delivery }`
   - `POST /v1/trust-rules` — `{ requestId, pattern, scope, decision, allowHighRisk? }`. Validates pattern/scope against server-provided options. Does not resolve the confirmation itself.
 - **Tracking**: The `pending-interactions` tracker (`assistant/src/runtime/pending-interactions.ts`) maps `requestId → session`. Use `register()` to track, `resolve()` to consume, `getByConversation()` to query.

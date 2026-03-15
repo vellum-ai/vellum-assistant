@@ -9,8 +9,7 @@
       "metadata": {
         "emoji": "📬",
         "vellum": {
-          "display-name": "Email CLI Ops",
-          "user-invocable": "true"
+          "display-name": "Email CLI Ops"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -23,7 +22,6 @@
         "emoji": "🔑",
         "vellum": {
           "display-name": "Airtable OAuth Setup",
-          "user-invocable": "true",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -38,8 +36,7 @@
       "metadata": {
         "emoji": "📦",
         "vellum": {
-          "display-name": "Amazon",
-          "user-invocable": "true"
+          "display-name": "Amazon"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -51,8 +48,7 @@
       "metadata": {
         "emoji": "🗺️",
         "vellum": {
-          "display-name": "API Mapping",
-          "user-invocable": "true"
+          "display-name": "API Mapping"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -65,7 +61,6 @@
         "emoji": "🔑",
         "vellum": {
           "display-name": "Asana OAuth Setup",
-          "user-invocable": "true",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -80,8 +75,7 @@
       "metadata": {
         "emoji": "🔍",
         "vellum": {
-          "display-name": "CLI Discovery",
-          "user-invocable": "false"
+          "display-name": "CLI Discovery"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -118,7 +112,6 @@
         "emoji": "🔑",
         "vellum": {
           "display-name": "Discord OAuth Setup",
-          "user-invocable": "true",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -133,8 +126,7 @@
       "metadata": {
         "emoji": "📝",
         "vellum": {
-          "display-name": "Document Writer",
-          "user-invocable": "true"
+          "display-name": "Document Writer"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -147,7 +139,6 @@
         "emoji": "🍕",
         "vellum": {
           "display-name": "DoorDash",
-          "user-invocable": "true",
           "cli": {
             "command": "doordash",
             "entry": "scripts/doordash-entry.ts"
@@ -164,7 +155,6 @@
         "emoji": "🔑",
         "vellum": {
           "display-name": "Dropbox OAuth Setup",
-          "user-invocable": "true",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -179,8 +169,7 @@
       "metadata": {
         "emoji": "🗣️",
         "vellum": {
-          "display-name": "ElevenLabs Voice",
-          "user-invocable": "true"
+          "display-name": "ElevenLabs Voice"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -193,7 +182,6 @@
         "emoji": "📧",
         "vellum": {
           "display-name": "Email Setup",
-          "user-invocable": "true",
           "feature-flag": "email-channel"
         }
       },
@@ -207,7 +195,6 @@
         "emoji": "🔑",
         "vellum": {
           "display-name": "Figma OAuth Setup",
-          "user-invocable": "true",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -232,7 +219,6 @@
         "emoji": "🔑",
         "vellum": {
           "display-name": "GitHub OAuth Setup",
-          "user-invocable": "true",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -248,7 +234,6 @@
         "emoji": "🔑",
         "vellum": {
           "display-name": "Google OAuth Setup",
-          "user-invocable": "true",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -263,8 +248,7 @@
       "metadata": {
         "emoji": "🔐",
         "vellum": {
-          "display-name": "Guardian Verify Setup",
-          "user-invocable": "true"
+          "display-name": "Guardian Verify Setup"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -277,7 +261,6 @@
         "emoji": "🔑",
         "vellum": {
           "display-name": "HubSpot OAuth Setup",
-          "user-invocable": "true",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -292,8 +275,7 @@
       "metadata": {
         "emoji": "🔍",
         "vellum": {
-          "display-name": "Influencer Research",
-          "user-invocable": "true"
+          "display-name": "Influencer Research"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -306,7 +288,6 @@
         "emoji": "🔑",
         "vellum": {
           "display-name": "Linear OAuth Setup",
-          "user-invocable": "true",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -321,8 +302,7 @@
       "metadata": {
         "emoji": "🍎",
         "vellum": {
-          "display-name": "macOS Automation",
-          "user-invocable": "false"
+          "display-name": "macOS Automation"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -334,8 +314,7 @@
       "metadata": {
         "emoji": "🔌",
         "vellum": {
-          "display-name": "MCP Setup",
-          "user-invocable": "false"
+          "display-name": "MCP Setup"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -347,8 +326,7 @@
       "metadata": {
         "emoji": "📝",
         "vellum": {
-          "display-name": "Notion",
-          "user-invocable": "false"
+          "display-name": "Notion"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -361,7 +339,6 @@
         "emoji": "🔑",
         "vellum": {
           "display-name": "Notion OAuth Setup",
-          "user-invocable": "true",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -377,7 +354,6 @@
         "emoji": "🔑",
         "vellum": {
           "display-name": "OAuth Setup",
-          "user-invocable": "true",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -392,8 +368,7 @@
       "metadata": {
         "emoji": "🌍",
         "vellum": {
-          "display-name": "Public Ingress",
-          "user-invocable": "true"
+          "display-name": "Public Ingress"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -406,7 +381,6 @@
         "emoji": "🍽️",
         "vellum": {
           "display-name": "Restaurant Reservation Booking",
-          "user-invocable": "true",
           "includes": [
             "browser"
           ]
@@ -433,8 +407,7 @@
       "metadata": {
         "emoji": "⬆️",
         "vellum": {
-          "display-name": "Self Upgrade",
-          "user-invocable": "true"
+          "display-name": "Self Upgrade"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -446,8 +419,7 @@
       "metadata": {
         "emoji": "🧩",
         "vellum": {
-          "display-name": "Skills Catalog",
-          "user-invocable": "true"
+          "display-name": "Skills Catalog"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -460,7 +432,6 @@
         "emoji": "💬",
         "vellum": {
           "display-name": "Slack App Setup",
-          "user-invocable": "true",
           "includes": [
             "guardian-verify-setup"
           ]
@@ -476,7 +447,6 @@
         "emoji": "📊",
         "vellum": {
           "display-name": "Slack Digest Setup",
-          "user-invocable": "true",
           "includes": [
             "slack",
             "schedule"
@@ -493,7 +463,6 @@
         "emoji": "🔑",
         "vellum": {
           "display-name": "Slack OAuth Setup",
-          "user-invocable": "true",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -509,7 +478,6 @@
         "emoji": "🔑",
         "vellum": {
           "display-name": "Spotify OAuth Setup",
-          "user-invocable": "true",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -524,8 +492,7 @@
       "metadata": {
         "emoji": "🌅",
         "vellum": {
-          "display-name": "Start the Day",
-          "user-invocable": "true"
+          "display-name": "Start the Day"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -538,7 +505,6 @@
         "emoji": "🤖",
         "vellum": {
           "display-name": "Telegram Setup",
-          "user-invocable": "true",
           "includes": [
             "public-ingress"
           ]
@@ -566,7 +532,6 @@
         "emoji": "🔑",
         "vellum": {
           "display-name": "Todoist OAuth Setup",
-          "user-invocable": "true",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -582,7 +547,6 @@
         "emoji": "📱",
         "vellum": {
           "display-name": "Twilio Setup",
-          "user-invocable": "true",
           "includes": [
             "public-ingress"
           ]
@@ -598,7 +562,6 @@
         "emoji": "🔑",
         "vellum": {
           "display-name": "Twitter / X OAuth Setup",
-          "user-invocable": "true",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -613,8 +576,7 @@
       "metadata": {
         "emoji": "🧪",
         "vellum": {
-          "display-name": "TypeScript Evaluation",
-          "user-invocable": "false"
+          "display-name": "TypeScript Evaluation"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -626,8 +588,7 @@
       "metadata": {
         "emoji": "🎨",
         "vellum": {
-          "display-name": "Avatar",
-          "user-invocable": "true"
+          "display-name": "Avatar"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -655,7 +616,6 @@
         "emoji": "🎙️",
         "vellum": {
           "display-name": "Voice Setup",
-          "user-invocable": "true",
           "includes": [
             "elevenlabs-voice"
           ]

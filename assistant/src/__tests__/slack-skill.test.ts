@@ -128,10 +128,6 @@ describe("slack skill SKILL.md", () => {
     expect(skillMd).toContain("name: slack");
   });
 
-  test("is user-invocable", () => {
-    expect(skillMd).toContain("user-invocable: true");
-  });
-
   test("mentions privacy rules", () => {
     expect(skillMd).toContain("isPrivate");
     expect(skillMd).toContain("MUST NEVER be shared");

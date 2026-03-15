@@ -57,7 +57,6 @@ extension HTTPTransport {
                         description: msg.description,
                         emoji: msg.emoji,
                         bodyMarkdown: msg.bodyMarkdown,
-                        userInvocable: msg.userInvocable,
                         overwrite: msg.overwrite
                     )
                 }

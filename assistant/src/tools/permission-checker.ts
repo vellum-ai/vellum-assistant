@@ -176,7 +176,7 @@ export class PermissionChecker {
         }
 
         // Temporary approval override: if the guardian has enabled a
-        // conversation-scoped "allow all" mode (allow_10m or allow_thread),
+        // conversation-scoped "allow all" mode (allow_10m or allow_conversation),
         // skip the interactive prompt and auto-approve. Only applies to
         // guardian actors — untrusted actors cannot leverage this to bypass
         // guardian-required gates (those are enforced in pre-execution gates).
@@ -222,10 +222,10 @@ export class PermissionChecker {
 
         // Offer temporary approval options to guardians.
         const temporaryOptionsAvailable:
-          | Array<"allow_10m" | "allow_thread">
+          | Array<"allow_10m" | "allow_conversation">
           | undefined =
           context.trustClass === "guardian"
-            ? ["allow_10m", "allow_thread"]
+            ? ["allow_10m", "allow_conversation"]
             : undefined;
 
         emitLifecycleEvent({
@@ -402,7 +402,7 @@ export class PermissionChecker {
         }
 
         // Activate temporary approval mode when the user chooses a
-        // time-limited or thread-scoped override. Subsequent tool
+        // time-limited or conversation-scoped override. Subsequent tool
         // invocations in this conversation will auto-approve without
         // prompting (checked above in the temporary override block).
         if (response.decision === "allow_10m") {
@@ -411,11 +411,11 @@ export class PermissionChecker {
             { toolName: name, conversationId: context.conversationId },
             "Activated timed (10m) temporary approval mode",
           );
-        } else if (response.decision === "allow_thread") {
+        } else if (response.decision === "allow_conversation") {
           setThreadMode(context.conversationId);
           log.info(
             { toolName: name, conversationId: context.conversationId },
-            "Activated thread-scoped temporary approval mode",
+            "Activated conversation-scoped temporary approval mode",
           );
         }
 

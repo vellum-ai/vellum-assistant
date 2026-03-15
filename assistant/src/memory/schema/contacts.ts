@@ -93,8 +93,8 @@ export const assistantIngressInvites = sqliteTable(
   },
 );
 
-export const assistantInboxThreadState = sqliteTable(
-  "assistant_inbox_thread_state",
+export const assistantInboxConversationState = sqliteTable(
+  "assistant_inbox_conversation_state",
   {
     conversationId: text("conversation_id")
       .primaryKey()

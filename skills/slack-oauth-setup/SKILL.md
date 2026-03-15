@@ -6,7 +6,6 @@ metadata:
   emoji: "🔑"
   vellum:
     display-name: "Slack OAuth Setup"
-    user-invocable: true
     includes: ["collaborative-oauth-flow"]
 ---
 

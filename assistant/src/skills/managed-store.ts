@@ -52,7 +52,6 @@ interface BuildSkillMarkdownInput {
   description: string;
   bodyMarkdown: string;
   emoji?: string;
-  userInvocable?: boolean;
   includes?: string[];
 }
 
@@ -71,13 +70,9 @@ export function buildSkillMarkdown(input: BuildSkillMarkdownInput): string {
   // metadata:
   //   vellum:
   //     emoji: "..."
-  //     user-invocable: false
   const vellum: Record<string, unknown> = {};
   if (input.emoji) {
     vellum.emoji = input.emoji;
-  }
-  if (input.userInvocable === false) {
-    vellum["user-invocable"] = false;
   }
   if (input.includes && input.includes.length > 0) {
     vellum.includes = input.includes;
@@ -197,7 +192,6 @@ interface CreateManagedSkillParams {
   description: string;
   bodyMarkdown: string;
   emoji?: string;
-  userInvocable?: boolean;
   overwrite?: boolean;
   addToIndex?: boolean;
   includes?: string[];
@@ -258,7 +252,6 @@ export function createManagedSkill(
     description: params.description,
     bodyMarkdown: params.bodyMarkdown,
     emoji: params.emoji,
-    userInvocable: params.userInvocable,
     includes: params.includes,
   });
 

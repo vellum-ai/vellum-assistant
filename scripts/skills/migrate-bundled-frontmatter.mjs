@@ -193,20 +193,6 @@ function migrateSkill(dirName, skillDir) {
     changes.push(`display-name: "${originalName}"`);
   }
 
-  // user-invocable: only if explicitly set in frontmatter
-  if (fields["user-invocable"] !== undefined) {
-    const val = fields["user-invocable"].trim().toLowerCase();
-    vellum["user-invocable"] = val !== "false";
-    if (val === "false") {
-      changes.push(`user-invocable: false (preserved)`);
-    }
-  } else if (
-    existingMetadata?.vellum?.["user-invocable"] !== undefined
-  ) {
-    vellum["user-invocable"] = existingMetadata.vellum["user-invocable"];
-  }
-  // If not explicitly set anywhere, omit (runtime defaults to true)
-
   // includes: only if present
   let includesValue;
   if (fields.includes) {
@@ -240,7 +226,6 @@ function migrateSkill(dirName, skillDir) {
     const HANDLED_KEYS = new Set([
       "emoji",
       "display-name",
-      "user-invocable",
       "disable-model-invocation",
       "includes",
       "credential-setup-for",

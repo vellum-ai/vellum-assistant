@@ -36,42 +36,19 @@ enum AvatarTransforms {
         return remapT.concatenating(bodyTransform)
     }
 
-    /// Resolves the face center for a body/eye combination, checking for
-    /// per-combo overrides before falling back to the body's default.
+    /// Resolves the face center for a body/eye combination, checking the
+    /// component store for per-combo overrides before falling back to the
+    /// body's default.
     static func resolveFaceCenter(
         bodyShape: AvatarBodyShape,
         eyeStyle: AvatarEyeStyle
     ) -> CGPoint {
-        let key = "\(bodyShape.rawValue)-\(eyeStyle.rawValue)"
-        return faceCenterOverrides[key] ?? bodyShape.faceCenter
+        if let override = AvatarComponentStore.shared.faceCenterOverride(
+            bodyId: bodyShape.rawValue,
+            eyeId: eyeStyle.rawValue
+        ) {
+            return override
+        }
+        return bodyShape.faceCenter
     }
-
-    /// Per-combo face-center overrides for when the default body faceCenter doesn't produce
-    /// the best result for a specific eye style.  Key format: "bodyRawValue-eyeRawValue".
-    ///
-    /// Ghost (native faceCenter y=167, 28%) — non-native eyes pulled slightly lower to ~34%
-    /// so they sit better within the ghost's rounded head rather than at the very top.
-    ///
-    /// Sprout (native faceCenter y=415, 66%) — non-native eyes pulled slightly higher to ~61%
-    /// so they sit better within the sprout's leaf area rather than at the very bottom.
-    private static let faceCenterOverrides: [String: CGPoint] = [
-        // Ghost body — shift non-native eyes from y=167 -> y=200
-        "ghost-grumpy":  CGPoint(x: 321, y: 200),
-        "ghost-angry":   CGPoint(x: 321, y: 200),
-        "ghost-curious":  CGPoint(x: 321, y: 200),
-        "ghost-goofy":   CGPoint(x: 321, y: 200),
-        "ghost-bashful":  CGPoint(x: 321, y: 200),
-        "ghost-gentle":  CGPoint(x: 321, y: 200),
-        "ghost-quirky":  CGPoint(x: 321, y: 200),
-        "ghost-dazed":   CGPoint(x: 321, y: 200),
-        // Sprout body — shift non-native eyes from y=415 -> y=385
-        "sprout-grumpy":   CGPoint(x: 264, y: 385),
-        "sprout-angry":    CGPoint(x: 264, y: 385),
-        "sprout-goofy":    CGPoint(x: 264, y: 385),
-        "sprout-surprised": CGPoint(x: 264, y: 385),
-        "sprout-bashful":  CGPoint(x: 264, y: 385),
-        "sprout-gentle":   CGPoint(x: 264, y: 385),
-        "sprout-quirky":   CGPoint(x: 264, y: 385),
-        "sprout-dazed":    CGPoint(x: 264, y: 385),
-    ]
 }

@@ -6,7 +6,6 @@ metadata:
   emoji: "📱"
   vellum:
     display-name: "Twilio Setup"
-    user-invocable: true
     includes: ["public-ingress"]
 ---
 

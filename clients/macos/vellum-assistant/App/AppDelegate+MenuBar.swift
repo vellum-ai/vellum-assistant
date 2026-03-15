@@ -309,7 +309,7 @@ extension AppDelegate {
         let sendThreadLogsItem = NSMenuItem(title: "Send Logs for Current Thread", action: #selector(sendCurrentThreadLogsToSentry), keyEquivalent: "")
         sendThreadLogsItem.target = self
         sendThreadLogsItem.image = VIcon.upload.nsImage
-        sendThreadLogsItem.isEnabled = mainWindow?.threadManager.activeThread?.sessionId != nil
+        sendThreadLogsItem.isEnabled = mainWindow?.threadManager.activeThread?.sessionId != nil && !isCurrentAssistantManaged
         menu.addItem(sendThreadLogsItem)
 
         if MacOSClientFeatureFlagManager.shared.isEnabled("developer-menu-items") {
@@ -482,13 +482,6 @@ extension AppDelegate {
     }
 
     @objc public func sendLogsToSentry() {
-        // If the window is already showing, just bring it forward.
-        if let existing = logReportWindow, existing.isVisible {
-            existing.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
-
         // Defer window creation until after the status menu finishes dismissing,
         // otherwise macOS can swallow the makeKeyAndOrderFront during menu teardown.
         DispatchQueue.main.async { [weak self] in
@@ -500,13 +493,6 @@ extension AppDelegate {
         guard let thread = mainWindow?.threadManager.activeThread,
               let sessionId = thread.sessionId else { return }
 
-        // If the window is already showing, just bring it forward.
-        if let existing = logReportWindow, existing.isVisible {
-            existing.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
-
         // Defer window creation until after the status menu finishes dismissing,
         // otherwise macOS can swallow the makeKeyAndOrderFront during menu teardown.
         DispatchQueue.main.async { [weak self] in
@@ -515,6 +501,13 @@ extension AppDelegate {
     }
 
     func showLogReportWindow(scope: LogExportScope = .global) {
+        // If the window is already showing, just bring it forward.
+        if let existing = logReportWindow, existing.isVisible {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
         let dismiss: () -> Void = { [weak self] in
             self?.dismissLogReportWindow()
         }

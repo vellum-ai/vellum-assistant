@@ -415,11 +415,6 @@ export async function drainQueue(
 
   const resolvedContent = slashResult.content;
 
-  // Preactivate skill tools when slash resolution identifies a known skill
-  if (slashResult.kind === "rewritten") {
-    session.preactivatedSkillIds = [slashResult.skillId];
-  }
-
   // Guardian verification intent interception for queued messages.
   // Preserve the original user content for persistence; only the agent
   // loop receives the rewritten instruction.
@@ -738,11 +733,6 @@ export async function processMessage(
   }
 
   const resolvedContent = slashResult.content;
-
-  // Preactivate skill tools when slash resolution identifies a known skill
-  if (slashResult.kind === "rewritten") {
-    session.preactivatedSkillIds = [slashResult.skillId];
-  }
 
   // Guardian verification intent interception — force direct guardian
   // verification requests into the guardian-verify-setup skill flow on

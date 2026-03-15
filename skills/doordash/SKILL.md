@@ -6,7 +6,6 @@ metadata:
   emoji: "🍕"
   vellum:
     display-name: "DoorDash"
-    user-invocable: true
     cli:
       command: "doordash"
       entry: "scripts/doordash-entry.ts"

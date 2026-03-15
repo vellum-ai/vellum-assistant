@@ -6,7 +6,6 @@ metadata:
   emoji: "💬"
   vellum:
     display-name: "Slack App Setup"
-    user-invocable: true
     includes: ["guardian-verify-setup"]
 ---
 

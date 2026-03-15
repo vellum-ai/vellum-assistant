@@ -6,7 +6,6 @@ metadata:
   emoji: "\u2699\uFE0F"
   vellum:
     display-name: "Settings"
-    user-invocable: true
 ---
 
 Tools for managing assistant settings: voice configuration (TTS voice, PTT activation key, conversation timeout), system settings navigation, and in-app settings tab navigation.

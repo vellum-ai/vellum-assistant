@@ -421,8 +421,8 @@ export async function startCli(): Promise<void> {
     if (req.temporaryOptionsAvailable?.includes("allow_10m")) {
       process.stdout.write(`\u2502 [t] Allow 10m\n`);
     }
-    if (req.temporaryOptionsAvailable?.includes("allow_thread")) {
-      process.stdout.write(`\u2502 [T] Allow Thread\n`);
+    if (req.temporaryOptionsAvailable?.includes("allow_conversation")) {
+      process.stdout.write(`\u2502 [T] Allow Conversation\n`);
     }
     process.stdout.write(`\u2502 [d] Deny once\n`);
     if (req.allowlistOptions.length > 0 && req.scopeOptions.length > 0) {
@@ -488,9 +488,9 @@ export async function startCli(): Promise<void> {
 
       if (
         trimmed === "T" &&
-        req.temporaryOptionsAvailable?.includes("allow_thread")
+        req.temporaryOptionsAvailable?.includes("allow_conversation")
       ) {
-        sendConfirmation(req.requestId, "allow_thread");
+        sendConfirmation(req.requestId, "allow_conversation");
         return;
       }
 

@@ -229,7 +229,6 @@ function makeSkill(id: string, featureFlag?: string): SkillSummary {
     description: `Skill ${id}`,
     directoryPath: `/skills/${id}`,
     skillFilePath: `/skills/${id}/SKILL.md`,
-    userInvocable: true,
 
     source: "managed",
     featureFlag,

@@ -6,7 +6,6 @@ metadata:
   emoji: "🗺️"
   vellum:
     display-name: "API Mapping"
-    user-invocable: true
 ---
 
 You can record and analyze the API surface of any web service using the `map` CLI.
