@@ -8,7 +8,7 @@ import type { AssistantEntry } from "./assistant-config";
 import { FIREWALL_TAG, GATEWAY_PORT } from "./constants";
 import type { Species } from "./constants";
 import { leaseGuardianToken } from "./guardian-token";
-import { generateRandomSuffix } from "./random-name";
+import { generateInstanceName } from "./random-name";
 import { exec, execOutput } from "./step-runner";
 
 export async function getActiveProject(): Promise<string> {
@@ -467,12 +467,7 @@ export async function hatchGcp(
     const project = process.env.GCP_PROJECT ?? (await getActiveProject());
     let instanceName: string;
 
-    if (name) {
-      instanceName = name;
-    } else {
-      const suffix = generateRandomSuffix();
-      instanceName = `${species}-${suffix}`;
-    }
+    instanceName = generateInstanceName(species, name);
 
     console.log(`\ud83e\udd5a Creating new assistant: ${instanceName}`);
     console.log(`   Species: ${species}`);
@@ -500,8 +495,7 @@ export async function hatchGcp(
         console.log(
           `\u26a0\ufe0f  Instance name ${instanceName} already exists, generating a new name...`,
         );
-        const suffix = generateRandomSuffix();
-        instanceName = `${species}-${suffix}`;
+        instanceName = generateInstanceName(species);
       }
     }
 
@@ -654,10 +648,7 @@ export async function hatchGcp(
       }
 
       try {
-        const tokenData = await leaseGuardianToken(
-          runtimeUrl,
-          instanceName,
-        );
+        const tokenData = await leaseGuardianToken(runtimeUrl, instanceName);
         gcpEntry.bearerToken = tokenData.accessToken;
         saveAssistantEntry(gcpEntry);
       } catch (err) {
