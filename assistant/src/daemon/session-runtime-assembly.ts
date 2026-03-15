@@ -376,14 +376,20 @@ export function resolveChannelCapabilities(
 /**
  * Returns true when the chat type indicates a group/multi-party conversation
  * (Telegram group/supergroup, Slack channel/group/mpim, etc.).
+ *
+ * Slack "channel" is intentionally classified as group chat: channels are
+ * inherently multi-party spaces where group etiquette (e.g. only respond when
+ * addressed) applies — even for low-traffic or announcement-style channels.
+ * The etiquette helps the assistant avoid responding to every message in a
+ * channel where it is a passive participant.
  */
 export function isGroupChatType(chatType?: string): boolean {
   if (!chatType) return false;
   switch (chatType) {
-    case "group":
-    case "supergroup":
-    case "channel":
-    case "mpim":
+    case "group": // Telegram group
+    case "supergroup": // Telegram supergroup
+    case "channel": // Slack channel — multi-party by definition
+    case "mpim": // Slack multi-party direct message
       return true;
     default:
       return false;
