@@ -10,6 +10,7 @@ on:
       - 'clients/.periphery.yml'
       - 'clients/.periphery_baseline.json'
       - 'clients/scripts/periphery-scan.sh'
+      - 'packages/ces-contracts/**'
       - '.github/workflows/pr-macos.yaml'
 
 concurrency:
