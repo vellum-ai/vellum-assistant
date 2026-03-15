@@ -598,7 +598,7 @@ export function createManageSecureCommandToolHandler(
         commandProfiles: Object.fromEntries(
           (request.profiles ?? []).map((p) => [p, { command: request.toolName }]),
         ),
-      } as import("./commands/profiles.js").SecureCommandManifest,
+      } as unknown as import("./commands/profiles.js").SecureCommandManifest,
     });
 
     if (!publishResult.success) {
