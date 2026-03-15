@@ -102,6 +102,17 @@ export class PermissionChecker {
           "Private conversation: side-effect tools require explicit approval";
       }
 
+      // requireFreshApproval independently promotes allow → prompt so that
+      // cached grants, persistent trust rules, and auto-approve shortcuts
+      // cannot bypass the interactive prompt. This is separate from the
+      // forcePromptSideEffects path above to ensure requireFreshApproval
+      // is self-sufficient without relying on SIDE_EFFECT_TOOLS membership.
+      if (context.requireFreshApproval && result.decision === "allow") {
+        result.decision = "prompt";
+        result.reason =
+          "Fresh approval required: per-invocation human review enforced";
+      }
+
       if (result.decision === "deny") {
         const durationMs = Date.now() - startTime;
         emitLifecycleEvent({
@@ -227,11 +238,13 @@ export class PermissionChecker {
 
         const persistentDecisionsAllowed = !context.requireFreshApproval;
 
-        // Offer temporary approval options to guardians.
+        // Offer temporary approval options to guardians. Suppressed when
+        // requireFreshApproval is true — temporary overrides would be
+        // misleading since future invocations still require fresh approval.
         const temporaryOptionsAvailable:
           | Array<"allow_10m" | "allow_conversation">
           | undefined =
-          context.trustClass === "guardian"
+          context.trustClass === "guardian" && !context.requireFreshApproval
             ? ["allow_10m", "allow_conversation"]
             : undefined;
 
