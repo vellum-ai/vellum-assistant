@@ -81,9 +81,12 @@ mkdir -p "$VELLUM_WORKSPACE_DIR/data/avatar"
 cat > "$VELLUM_WORKSPACE_DIR/data/avatar/character-traits.json" << 'TRAITS'
 { "bodyShape": "<value>", "eyeStyle": "<value>", "color": "<value>" }
 TRAITS
+
+# Trigger daemon-side PNG rendering from the traits
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/avatar/render-from-traits"
 ```
 
-The client will detect the traits file and render the animated character.
+The client will detect the traits file and render the animated character. The daemon also generates a static PNG for use as dock icon and by other clients.
 
 ## Mode 2: Upload a Custom Image
 
@@ -137,12 +140,12 @@ The generated avatar will appear automatically in the client.
 
 `character-traits.json` and `avatar-image.png` represent different avatar modes:
 
-- **Native character** — `character-traits.json` is the source of truth. The client auto-generates `avatar-image.png` as a static representation, so both files coexist.
+- **Native character** — `character-traits.json` is the source of truth. The daemon auto-generates `avatar-image.png` as a static representation, so both files coexist.
 - **Custom image** — `avatar-image.png` is user-provided (uploaded or AI-generated). No traits file exists.
 
 The client checks for character traits first — if `character-traits.json` exists, it renders the animated character. Otherwise, it falls back to `avatar-image.png` for custom images.
 
 Enforcement rules:
 
-- **Setting native character traits** → write `character-traits.json` only. The client auto-generates the PNG.
+- **Setting native character traits** → write `character-traits.json` and call `POST /v1/avatar/render-from-traits`. The daemon auto-generates the PNG.
 - **Uploading or generating a custom image** → write `avatar-image.png` and remove `character-traits.json`.
