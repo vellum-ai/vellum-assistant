@@ -11,6 +11,7 @@ import {
   validateManifest,
   validateCommand,
   matchesArgvPattern,
+  extractShellBinary,
 } from "../commands/validator.js";
 
 // ---------------------------------------------------------------------------
@@ -779,6 +780,163 @@ describe("credential_process helperCommand denied binary validation", () => {
     );
     expect(result.valid).toBe(true);
     expect(result.errors).toHaveLength(0);
+  });
+
+  // -- Shell semantics bypass prevention ------------------------------------
+
+  test("rejects single-quoted denied binary ('curl')", () => {
+    const result = validateManifest(
+      buildManifest({
+        authAdapter: {
+          type: AuthAdapterType.CredentialProcess,
+          helperCommand: "'curl' https://example.com",
+          envVarName: "AWS_CREDENTIALS",
+        },
+      }),
+    );
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some(
+        (e) =>
+          e.includes("credential_process") &&
+          e.includes("denied binary") &&
+          e.includes('"curl"'),
+      ),
+    ).toBe(true);
+  });
+
+  test("rejects double-quoted denied binary (\"curl\")", () => {
+    const result = validateManifest(
+      buildManifest({
+        authAdapter: {
+          type: AuthAdapterType.CredentialProcess,
+          helperCommand: '"curl" https://example.com',
+          envVarName: "AWS_CREDENTIALS",
+        },
+      }),
+    );
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some(
+        (e) =>
+          e.includes("credential_process") &&
+          e.includes("denied binary") &&
+          e.includes('"curl"'),
+      ),
+    ).toBe(true);
+  });
+
+  test("rejects denied binary after env var assignment (AWS_PROFILE=x curl)", () => {
+    const result = validateManifest(
+      buildManifest({
+        authAdapter: {
+          type: AuthAdapterType.CredentialProcess,
+          helperCommand: "AWS_PROFILE=x curl https://example.com",
+          envVarName: "AWS_CREDENTIALS",
+        },
+      }),
+    );
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some(
+        (e) =>
+          e.includes("credential_process") &&
+          e.includes("denied binary") &&
+          e.includes('"curl"'),
+      ),
+    ).toBe(true);
+  });
+
+  test("rejects denied binary after multiple env var assignments", () => {
+    const result = validateManifest(
+      buildManifest({
+        authAdapter: {
+          type: AuthAdapterType.CredentialProcess,
+          helperCommand: "AWS_PROFILE=default FOO=bar python3 script.py",
+          envVarName: "AWS_CREDENTIALS",
+        },
+      }),
+    );
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some(
+        (e) =>
+          e.includes("credential_process") &&
+          e.includes("denied binary") &&
+          e.includes('"python3"'),
+      ),
+    ).toBe(true);
+  });
+
+  test("rejects denied binary with env assignment and quotes combined", () => {
+    const result = validateManifest(
+      buildManifest({
+        authAdapter: {
+          type: AuthAdapterType.CredentialProcess,
+          helperCommand: "AWS_PROFILE='prod' 'bash' -c 'echo creds'",
+          envVarName: "AWS_CREDENTIALS",
+        },
+      }),
+    );
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some(
+        (e) =>
+          e.includes("credential_process") &&
+          e.includes("denied binary") &&
+          e.includes('"bash"'),
+      ),
+    ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractShellBinary
+// ---------------------------------------------------------------------------
+
+describe("extractShellBinary", () => {
+  test("extracts plain binary name", () => {
+    expect(extractShellBinary("curl https://example.com")).toBe("curl");
+  });
+
+  test("extracts absolute path binary", () => {
+    expect(extractShellBinary("/usr/bin/python3 script.py")).toBe("/usr/bin/python3");
+  });
+
+  test("strips single quotes from binary", () => {
+    expect(extractShellBinary("'curl' https://example.com")).toBe("curl");
+  });
+
+  test("strips double quotes from binary", () => {
+    expect(extractShellBinary('"curl" https://example.com')).toBe("curl");
+  });
+
+  test("skips single env var assignment", () => {
+    expect(extractShellBinary("AWS_PROFILE=x curl https://example.com")).toBe("curl");
+  });
+
+  test("skips multiple env var assignments", () => {
+    expect(extractShellBinary("AWS_PROFILE=default FOO=bar curl https://example.com")).toBe("curl");
+  });
+
+  test("skips env var assignment with quoted value", () => {
+    expect(extractShellBinary("AWS_PROFILE='prod' curl https://example.com")).toBe("curl");
+  });
+
+  test("skips env var assignment with double-quoted value", () => {
+    expect(extractShellBinary('AWS_PROFILE="prod account" curl https://example.com')).toBe("curl");
+  });
+
+  test("handles env assignment + quoted binary combined", () => {
+    expect(extractShellBinary("AWS_PROFILE='prod' 'bash' -c 'echo test'")).toBe("bash");
+  });
+
+  test("handles binary with no arguments", () => {
+    expect(extractShellBinary("aws-vault")).toBe("aws-vault");
+  });
+
+  test("handles leading whitespace", () => {
+    expect(extractShellBinary("  curl https://example.com")).toBe("curl");
   });
 });
 
