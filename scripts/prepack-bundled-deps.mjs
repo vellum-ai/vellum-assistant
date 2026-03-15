@@ -54,7 +54,10 @@ for (const [name, specifier] of Object.entries(deps)) {
 
   console.log(`Materializing ${name} from ${sourcePath}`);
   rmSync(nmPath, { recursive: true, force: true });
-  cpSync(sourcePath, nmPath, { recursive: true });
+  cpSync(sourcePath, nmPath, {
+    recursive: true,
+    filter: (src) => !src.includes("/node_modules/") && !src.endsWith("/node_modules"),
+  });
   materialized++;
 }
 
