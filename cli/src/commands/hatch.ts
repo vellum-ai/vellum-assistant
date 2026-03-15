@@ -39,8 +39,8 @@ import {
   VALID_SPECIES,
 } from "../lib/constants";
 import type { RemoteHost, Species } from "../lib/constants";
+import { readCredential } from "../lib/credential-reader";
 import { hatchDocker } from "../lib/docker";
-import { mintLocalBearerToken } from "../lib/jwt";
 import { hatchGcp } from "../lib/gcp";
 import type { PollResult, WatchHatchingResult } from "../lib/gcp";
 import {
@@ -795,9 +795,12 @@ async function hatchLocal(
     delete process.env.BASE_DATA_DIR;
   }
 
-  // Mint a JWT from the signing key so the CLI can authenticate with the
-  // daemon/gateway (which requires auth by default).
-  const bearerToken = mintLocalBearerToken(resources.instanceDir);
+  // Read the bootstrapped actor HTTP token from the encrypted credential store
+  // so the CLI can authenticate with the daemon/gateway.
+  const bearerToken = readCredential(
+    resources.instanceDir,
+    "credential/bootstrapped_actor/http_token",
+  );
 
   const localEntry: AssistantEntry = {
     assistantId: instanceName,
