@@ -146,8 +146,8 @@ struct WakeUpStepView: View {
                 .frame(maxWidth: .infinity)
                 .clipShape(UnevenRoundedRectangle(
                     topLeadingRadius: 0,
-                    bottomLeadingRadius: 10,
-                    bottomTrailingRadius: 10,
+                    bottomLeadingRadius: VRadius.window,
+                    bottomTrailingRadius: VRadius.window,
                     topTrailingRadius: 0
                 ))
                 .opacity(showCharacters ? 1 : 0)
