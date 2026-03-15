@@ -13,11 +13,17 @@
  * - `managed-main.ts` — managed mode (Unix socket transport, sidecar)
  */
 
-export { CesRpcServer, createCesServer } from "./server.js";
+export {
+  CesRpcServer,
+  createCesServer,
+  createRunAuthenticatedCommandHandler,
+  registerCommandExecutionHandler,
+} from "./server.js";
 export type {
   CesServerOptions,
   RpcHandlerRegistry,
   RpcMethodHandler,
+  RunAuthenticatedCommandHandlerOptions,
 } from "./server.js";
 
 export {
@@ -81,3 +87,12 @@ export type {
   TokenRefreshFn,
   LocalMaterialiserDeps,
 } from "./materializers/local.js";
+
+export { executeAuthenticatedCommand } from "./commands/executor.js";
+export type {
+  ExecuteCommandRequest,
+  ExecuteCommandResult,
+  CommandExecutorDeps,
+  MaterializeCredentialFn,
+  MaterializeCredentialResult,
+} from "./commands/executor.js";

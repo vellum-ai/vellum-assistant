@@ -18,14 +18,22 @@ import type { Readable, Writable } from "node:stream";
 
 import {
   CES_PROTOCOL_VERSION,
-  type CesRpcMethod,
+  CesRpcMethod,
   CesRpcSchemas,
   type HandshakeAck,
   type HandshakeRequest,
   type RpcEnvelope,
+  type RunAuthenticatedCommand,
+  type RunAuthenticatedCommandResponse,
   type TransportMessage,
   TransportMessageSchema,
 } from "@vellumai/ces-contracts";
+
+import {
+  executeAuthenticatedCommand,
+  type CommandExecutorDeps,
+  type ExecuteCommandRequest,
+} from "./commands/executor.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -306,4 +314,128 @@ export class CesRpcServer {
  */
 export function createCesServer(options: CesServerOptions): CesRpcServer {
   return new CesRpcServer(options);
+}
+
+// ---------------------------------------------------------------------------
+// run_authenticated_command handler factory
+// ---------------------------------------------------------------------------
+
+/**
+ * Options for creating the `run_authenticated_command` RPC handler.
+ */
+export interface RunAuthenticatedCommandHandlerOptions {
+  /** Dependencies for the command executor. */
+  executorDeps: CommandExecutorDeps;
+  /**
+   * Default workspace directory for commands that don't specify one.
+   * Typically the assistant's workspace root.
+   */
+  defaultWorkspaceDir: string;
+}
+
+/**
+ * Create an RPC handler for the `run_authenticated_command` method.
+ *
+ * This handler:
+ * 1. Parses the `command` string into a bundleDigest, profileName, and argv.
+ *    The expected format is: `<bundleDigest>/<profileName> <argv...>`
+ * 2. Delegates to `executeAuthenticatedCommand` for the full security pipeline.
+ * 3. Returns a `RunAuthenticatedCommandResponse` with the execution result.
+ *
+ * If the command string doesn't match the expected format (i.e. it's a
+ * plain shell command), the handler returns a structured error since only
+ * manifest-driven secure commands are supported.
+ */
+export function createRunAuthenticatedCommandHandler(
+  options: RunAuthenticatedCommandHandlerOptions,
+): RpcMethodHandler<RunAuthenticatedCommand, RunAuthenticatedCommandResponse> {
+  return async (request) => {
+    // Parse the command string into bundle-digest/profile and argv
+    const parseResult = parseCommandString(request.command);
+    if (!parseResult.ok) {
+      return {
+        success: false,
+        error: { code: "INVALID_COMMAND", message: parseResult.error },
+      };
+    }
+
+    const execRequest: ExecuteCommandRequest = {
+      bundleDigest: parseResult.bundleDigest,
+      profileName: parseResult.profileName,
+      credentialHandle: request.credentialHandle,
+      argv: parseResult.argv,
+      workspaceDir: request.cwd ?? options.defaultWorkspaceDir,
+      purpose: request.purpose,
+      grantId: request.grantId,
+    };
+
+    const result = await executeAuthenticatedCommand(
+      execRequest,
+      options.executorDeps,
+    );
+
+    return {
+      success: result.success,
+      exitCode: result.exitCode,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      error: result.error
+        ? { code: "EXECUTION_ERROR", message: result.error }
+        : undefined,
+      auditId: result.auditId,
+    };
+  };
+}
+
+/**
+ * Parse a CES command string into bundle digest, profile name, and argv.
+ *
+ * Expected format: `<bundleDigest>/<profileName> [argv...]`
+ *
+ * Examples:
+ * - `abc123def.../api-read api /repos/owner/repo --method GET`
+ * - `abc123def.../list-repos`
+ */
+function parseCommandString(
+  command: string,
+): { ok: true; bundleDigest: string; profileName: string; argv: string[] }
+  | { ok: false; error: string } {
+  const trimmed = command.trim();
+  if (!trimmed) {
+    return { ok: false, error: "Command string is empty" };
+  }
+
+  // Split on first space to separate the bundle/profile reference from argv
+  const firstSpaceIdx = trimmed.indexOf(" ");
+  const ref = firstSpaceIdx === -1 ? trimmed : trimmed.slice(0, firstSpaceIdx);
+  const argvStr = firstSpaceIdx === -1 ? "" : trimmed.slice(firstSpaceIdx + 1).trim();
+
+  // Parse the reference: <bundleDigest>/<profileName>
+  const slashIdx = ref.indexOf("/");
+  if (slashIdx === -1 || slashIdx === 0 || slashIdx === ref.length - 1) {
+    return {
+      ok: false,
+      error: `Invalid command reference "${ref}". Expected format: "<bundleDigest>/<profileName> [argv...]"`,
+    };
+  }
+
+  const bundleDigest = ref.slice(0, slashIdx);
+  const profileName = ref.slice(slashIdx + 1);
+
+  // Parse argv — split on whitespace (simple tokenization)
+  const argv = argvStr ? argvStr.split(/\s+/).filter((s) => s.length > 0) : [];
+
+  return { ok: true, bundleDigest, profileName, argv };
+}
+
+/**
+ * Convenience helper to register the `run_authenticated_command` handler
+ * into an RPC handler registry.
+ */
+export function registerCommandExecutionHandler(
+  registry: RpcHandlerRegistry,
+  options: RunAuthenticatedCommandHandlerOptions,
+): void {
+  registry[CesRpcMethod.RunAuthenticatedCommand] =
+    createRunAuthenticatedCommandHandler(options) as RpcMethodHandler;
 }
