@@ -1647,19 +1647,17 @@ jobs:
         working-directory: credential-executor
 
       - name: Install linked package dependencies
-        run: cd packages/ces-contracts && bun install --frozen-lockfile
+        run: |
+          for pkg in ces-contracts credential-storage egress-proxy; do
+            cd packages/$pkg && bun install --frozen-lockfile && cd ../..;
+          done
 
       - name: Typecheck
         run: bun run typecheck
         working-directory: credential-executor
 
       - name: Test
-        run: |
-          if find src/ -name '*.test.*' -o -name '*.spec.*' | grep -q .; then
-            bun run test
-          else
-            echo "No test files found, skipping"
-          fi
+        run: bun test
         working-directory: credential-executor
 
   build-ios:
