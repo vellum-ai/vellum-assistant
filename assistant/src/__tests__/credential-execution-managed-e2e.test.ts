@@ -69,8 +69,8 @@ describe("managed env contract constants", () => {
     expect(CES_ASSISTANT_DATA_READONLY_MOUNT).toBe("/assistant-data-ro");
   });
 
-  test("CES_PRIVATE_DATA_DIR is /home/ces/.ces-data", () => {
-    expect(CES_PRIVATE_DATA_DIR).toBe("/home/ces/.ces-data");
+  test("CES_PRIVATE_DATA_DIR is /ces-data", () => {
+    expect(CES_PRIVATE_DATA_DIR).toBe("/ces-data");
   });
 });
 
@@ -119,11 +119,11 @@ describe("three-container pod contract", () => {
     expect(CES_ASSISTANT_DATA_READONLY_MOUNT).toBe("/assistant-data-ro");
   });
 
-  test("CES private data directory is a separate volume at /home/ces/.ces-data", () => {
+  test("CES private data directory is a separate volume at /ces-data", () => {
     // The stateful_template.yaml gives the CES sidecar its own PVC at
-    // /home/ces/.ces-data, separate from the assistant-data PVC. This ensures
+    // /ces-data, separate from the assistant-data PVC. This ensures
     // CES grant/audit data is isolated.
-    expect(CES_PRIVATE_DATA_DIR).toBe("/home/ces/.ces-data");
+    expect(CES_PRIVATE_DATA_DIR).toBe("/ces-data");
   });
 });
 

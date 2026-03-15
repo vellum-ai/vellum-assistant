@@ -351,11 +351,11 @@ describe("CES data paths", () => {
     expect(root).toMatch(/protected[/\\]credential-executor$/);
   });
 
-  test("managed mode data root defaults to /home/ces/.ces-data", () => {
+  test("managed mode data root defaults to /ces-data", () => {
     const savedDir = process.env["CES_DATA_DIR"];
     delete process.env["CES_DATA_DIR"];
     try {
-      expect(getCesDataRoot("managed")).toBe("/home/ces/.ces-data");
+      expect(getCesDataRoot("managed")).toBe("/ces-data");
     } finally {
       if (savedDir !== undefined) process.env["CES_DATA_DIR"] = savedDir;
     }
