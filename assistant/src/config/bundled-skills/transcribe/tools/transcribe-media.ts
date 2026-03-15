@@ -16,6 +16,7 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
+import { silentlyWithLog } from "../../../../util/silently.js";
 import {
   FFMPEG_TRANSCODE_TIMEOUT_MS,
   FFPROBE_TIMEOUT_MS,
@@ -239,7 +240,10 @@ async function transcribeViaApi(
     return parts.join(" ");
   } finally {
     const { rm } = await import("node:fs/promises");
-    await rm(chunkDir, { recursive: true, force: true }).catch(() => {});
+    await silentlyWithLog(
+      rm(chunkDir, { recursive: true, force: true }),
+      "transcribe chunk cleanup",
+    );
   }
 }
 
@@ -332,7 +336,10 @@ async function transcribeViaLocal(
     return parts.join(" ");
   } finally {
     const { rm } = await import("node:fs/promises");
-    await rm(chunkDir, { recursive: true, force: true }).catch(() => {});
+    await silentlyWithLog(
+      rm(chunkDir, { recursive: true, force: true }),
+      "transcribe chunk cleanup",
+    );
   }
 }
 

@@ -345,12 +345,11 @@ export function failMemoryJob(
 
 export function resetRunningJobsToPending(): number {
   const db = getDb();
-  const result = db
-    .update(memoryJobs)
+  db.update(memoryJobs)
     .set({ status: "pending", updatedAt: Date.now() })
     .where(eq(memoryJobs.status, "running"))
     .run();
-  return result.changes;
+  return rawChanges();
 }
 
 /**

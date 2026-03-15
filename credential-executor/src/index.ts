@@ -31,6 +31,13 @@ export {
 } from "./paths.js";
 export type { CesMode } from "./paths.js";
 
+export { PersistentGrantStore, TemporaryGrantStore } from "./grants/index.js";
+export type {
+  PersistentGrant,
+  TemporaryGrant,
+  TemporaryGrantKind,
+} from "./grants/index.js";
+
 export { computeDigest, verifyDigest } from "./toolstore/integrity.js";
 export type { DigestVerificationResult } from "./toolstore/integrity.js";
 

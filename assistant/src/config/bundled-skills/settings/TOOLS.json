@@ -27,28 +27,6 @@
       "execution_target": "host"
     },
     {
-      "name": "set_avatar",
-      "description": "Generate a custom avatar image from a text description. Saves the result as the assistant's avatar.",
-      "category": "system",
-      "risk": "low",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "description": {
-            "type": "string",
-            "description": "A text description of the desired avatar appearance, e.g. \"a friendly purple cat with green eyes wearing a tiny hat\"."
-          },
-          "reason": {
-            "type": "string",
-            "description": "Brief non-technical explanation of what you are creating and why, shown to the user as a status update. Use simple language a non-technical person would understand."
-          }
-        },
-        "required": ["description"]
-      },
-      "executor": "tools/set-avatar.ts",
-      "execution_target": "host"
-    },
-    {
       "name": "open_system_settings",
       "description": "Open a specific macOS System Settings pane (e.g. Microphone or Speech Recognition privacy). Use this to guide the user through granting permissions that can only be toggled in System Settings.",
       "category": "system",
