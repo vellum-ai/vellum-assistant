@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, notLike, or } from "drizzle-orm";
+import { and, asc, eq, gt, or, sql } from "drizzle-orm";
 
 import { getDb } from "./db.js";
 import { messages } from "./schema.js";
@@ -26,8 +26,10 @@ export function queryUnreportedTurnEvents(
         eq(messages.role, "user"),
         // Exclude tool-result rows persisted with role "user" — these are
         // system-generated and should not count as user turns.
-        notLike(messages.content, '%"type":"tool_result"%'),
-        notLike(messages.content, '%"type":"web_search_tool_result"%'),
+        // Use ESCAPE '\' so underscores are matched literally, not as
+        // single-character wildcards.
+        sql`${messages.content} NOT LIKE '%"type":"tool\_result"%' ESCAPE '\'`,
+        sql`${messages.content} NOT LIKE '%"type":"web\_search\_tool\_result"%' ESCAPE '\'`,
         afterId
           ? or(
               gt(messages.createdAt, afterCreatedAt),
