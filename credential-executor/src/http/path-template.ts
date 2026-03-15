@@ -55,6 +55,21 @@ const NUMERIC_RE = /^[0-9]+$/;
 const HEX_LONG_RE = /^[0-9a-f]{16,}$/i;
 
 // ---------------------------------------------------------------------------
+// Spoofed placeholder detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Literal strings that, if present in a decoded URL segment, indicate an
+ * attempt to inject a wildcard placeholder via percent-encoding.
+ *
+ * Legitimate URLs never contain these exact strings as path segments.
+ * Rejecting them prevents an attacker from crafting a URL like
+ * `https://api.example.com/%7B:num%7D/resource` that would be stored as
+ * a literal during grant approval but decoded to a wildcard during matching.
+ */
+const PLACEHOLDER_LITERALS = new Set(["{:num}", "{:uuid}", "{:hex}"]);
+
+// ---------------------------------------------------------------------------
 // Placeholder types
 // ---------------------------------------------------------------------------
 
@@ -90,10 +105,32 @@ export function derivePathTemplate(rawUrl: string): string {
   const scheme = parsed.protocol.replace(/:$/, "");
   const host = parsed.hostname + (parsed.port ? `:${parsed.port}` : "");
 
-  // Split path into segments, dropping empty segments from leading/trailing slashes
-  const segments = parsed.pathname
+  // Split path into segments, dropping empty segments from leading/trailing slashes.
+  // Decode each segment before classification so that derivation and matching
+  // operate on the same decoded form (closing a prior asymmetry where
+  // derivePathTemplate used raw segments but urlMatchesTemplate decoded them).
+  const rawSegments = parsed.pathname
     .split("/")
     .filter((s) => s.length > 0);
+
+  const segments = rawSegments.map((seg) => {
+    const decoded = safeDecodeSegment(seg);
+    // If decoding fails, keep the raw segment — it will be stored as a
+    // literal and can never match anything meaningful (fail closed).
+    return decoded ?? seg;
+  });
+
+  // Guard: reject URLs whose decoded segments match known placeholder
+  // patterns. Legitimate URLs never contain literal "{:num}" etc. as path
+  // segments; their presence indicates an attempt to inject wildcards via
+  // percent-encoding (e.g. %7B:num%7D).
+  for (const seg of segments) {
+    if (PLACEHOLDER_LITERALS.has(seg)) {
+      throw new Error(
+        `Refusing to derive path template: segment "${seg}" is a reserved placeholder literal`,
+      );
+    }
+  }
 
   const templatedSegments = segments.map(classifySegment);
 
