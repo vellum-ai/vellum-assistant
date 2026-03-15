@@ -50,7 +50,11 @@ if [ "$UPDATE_BASELINE" = true ]; then
 fi
 
 # Determine which baseline to compare against
-if [ -n "$REFERENCE_BASELINE" ] && [ -f "$REFERENCE_BASELINE" ]; then
+if [ -n "$REFERENCE_BASELINE" ]; then
+  if [ ! -f "$REFERENCE_BASELINE" ]; then
+    echo "Error: Reference baseline not found at $REFERENCE_BASELINE"
+    exit 1
+  fi
   COMPARE_FILE="$REFERENCE_BASELINE"
   echo "Using reference baseline: $REFERENCE_BASELINE"
 elif [ -f "$BASELINE_FILE" ]; then
