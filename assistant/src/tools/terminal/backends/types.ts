@@ -14,6 +14,13 @@ export interface WrapOptions {
    * - 'proxied': network access is allowed so the process can reach the local credential proxy.
    */
   networkMode?: "off" | "proxied";
+
+  /**
+   * Absolute paths that should be blocked from read access inside the sandbox.
+   * Used by CES shell lockdown to prevent untrusted shell commands from reading
+   * protected credential data, bootstrap sockets, and toolstore paths.
+   */
+  denyReadPaths?: string[];
 }
 
 /**

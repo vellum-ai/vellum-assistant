@@ -5,6 +5,7 @@ on:
     types: [labeled, synchronize, opened, reopened]
     paths:
       - 'assistant/**'
+      - 'packages/ces-contracts/**'
       - 'scripts/skills/**'
       - 'meta/feature-flags/**'
       - '.github/workflows/pr-assistant.yaml'
@@ -41,6 +42,9 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Install linked package dependencies
+        run: cd ../packages/ces-contracts && bun install --frozen-lockfile
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
@@ -115,6 +119,9 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Install linked package dependencies
+        run: cd ../packages/ces-contracts && bun install --frozen-lockfile
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
