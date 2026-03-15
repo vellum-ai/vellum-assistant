@@ -151,8 +151,11 @@ export interface ToolContext {
    * When true, the tool requires a fresh interactive approval for every
    * invocation — no cached grants, temporary overrides, persistent
    * "Always Allow" rules, or non-interactive auto-approve shortcuts may
-   * bypass the prompt. Used by `manage_secure_command_tool` to ensure
-   * a human reviews each secure bundle installation.
+   * bypass the prompt. This flag is independently sufficient: it
+   * promotes allow → prompt decisions on its own and suppresses
+   * temporary override options in the prompt UI. Used by
+   * `manage_secure_command_tool` to ensure a human reviews each secure
+   * bundle installation.
    */
   requireFreshApproval?: boolean;
   /** Approval callback for proxy policy decisions that require user confirmation. */

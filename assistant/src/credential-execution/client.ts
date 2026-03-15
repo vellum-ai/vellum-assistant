@@ -338,7 +338,7 @@ export function createCesClient(
     async updateAssistantApiKey(
       assistantApiKey: string,
     ): Promise<{ updated: boolean }> {
-      return this.call(CesRpcMethod.UpdateManagedCredential, {
+      return client.call(CesRpcMethod.UpdateManagedCredential, {
         assistantApiKey,
       });
     },
