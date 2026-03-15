@@ -1,15 +1,15 @@
 /**
- * End-to-end managed CES tests.
+ * Managed CES contract and wiring tests.
  *
- * Verifies the managed (three-container pod) CES sidecar integration:
+ * Validates the contract surface and feature-flag gating for the managed
+ * (three-container pod) CES sidecar integration:
  *
  * 1. Pod creation contract: assistant, gateway, and credential-executor
  *    containers share the bootstrap socket emptyDir and assistant-data
  *    read-only mount.
  *
- * 2. Bootstrap handshake success: the process manager connects to the
- *    managed CES sidecar via the bootstrap socket and completes the
- *    handshake, returning a functional CesClient.
+ * 2. Bootstrap handshake contract: the protocol version and session ID
+ *    fields required by the managed sidecar handshake are present.
  *
  * 3. Secure HTTP execution: make_authenticated_request RPC method is
  *    available in the CES contract for managed sidecar mode.
