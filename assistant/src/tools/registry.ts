@@ -223,8 +223,13 @@ export function getAllToolDefinitions(): ToolDefinition[] {
 }
 
 export async function initializeTools(): Promise<void> {
-  const { loadEagerModules, eagerModuleToolNames, explicitTools } =
-    await import("./tool-manifest.js");
+  const {
+    loadEagerModules,
+    eagerModuleToolNames,
+    explicitTools,
+    getCesToolsIfEnabled,
+    cesTools,
+  } = await import("./tool-manifest.js");
 
   // Capture tool names already in the registry before any manifest
   // registrations.  In production this is empty; in tests a non-skill tool
@@ -251,6 +256,12 @@ export async function initializeTools(): Promise<void> {
     registerTool(tool);
   }
 
+  // CES tools — registered only when the CES feature flag is enabled.
+  const activeCesTools = getCesToolsIfEnabled();
+  for (const tool of activeCesTools) {
+    registerTool(tool);
+  }
+
   registerUiSurfaceTools();
   registerAppTools();
 
@@ -267,6 +278,7 @@ export async function initializeTools(): Promise<void> {
       ...eagerModuleToolNames,
       ...explicitTools.map((t: Tool) => t.name),
       ...hostTools.map((t: Tool) => t.name),
+      ...cesTools.map((t: Tool) => t.name),
       ...allComputerUseTools.map((t: Tool) => t.name),
       ...allUiSurfaceTools.map((t: Tool) => t.name),
       ...coreAppProxyTools.map((t: Tool) => t.name),
