@@ -52,9 +52,10 @@ import {
 import { deleteBundleFromToolstore, publishBundle } from "./toolstore/publish.js";
 import { validateSourceUrl } from "./toolstore/manifest.js";
 import { buildCesEgressHooks } from "./commands/egress-hooks.js";
-import { resolveManagedSubject, type ManagedSubjectResolverOptions } from "./subjects/managed.js";
-import { materializeManagedToken, type ManagedMaterializerOptions } from "./materializers/managed-platform.js";
+import { resolveManagedSubject } from "./subjects/managed.js";
+import { materializeManagedToken } from "./materializers/managed-platform.js";
 import { HandleType, parseHandle } from "@vellumai/ces-contracts";
+import { buildLazyGetters, type ApiKeyRef } from "./managed-lazy-getters.js";
 
 // ---------------------------------------------------------------------------
 // Logging (managed always logs to stderr)
@@ -86,15 +87,6 @@ function ensureDataDirs(): void {
 // Build RPC handler registry (managed mode)
 // ---------------------------------------------------------------------------
 
-/**
- * Mutable reference to the assistant API key. Allows the handshake callback
- * to inject the key provisioned at runtime (which arrives after handlers are
- * built). Handlers read `.current` at call time, not at registration time.
- */
-interface ApiKeyRef {
-  current: string;
-}
-
 function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef): RpcHandlerRegistry {
   // -- Grant stores ----------------------------------------------------------
   const persistentGrantStore = new PersistentGrantStore(
@@ -118,32 +110,13 @@ function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef): RpcHan
   const platformBaseUrl = process.env["PLATFORM_BASE_URL"] ?? "";
   const assistantId = process.env["PLATFORM_ASSISTANT_ID"] ?? "";
 
-  /**
-   * Resolve the current API key. Prefers the handshake-provided key
-   * (via apiKeyRef) over the env var, since in managed mode the env var
-   * may not be set (chicken-and-egg: key is provisioned after hatch).
-   */
-  const getAssistantApiKey = (): string =>
-    apiKeyRef.current || process.env["ASSISTANT_API_KEY"] || "";
-
-  /**
-   * Build managed options lazily at call time so the handshake-provided
-   * API key is available even though handlers are registered before
-   * the handshake completes.
-   */
-  const getManagedSubjectOptions = (): ManagedSubjectResolverOptions | undefined => {
-    const key = getAssistantApiKey();
-    return platformBaseUrl && key && assistantId
-      ? { platformBaseUrl, assistantApiKey: key, assistantId }
-      : undefined;
-  };
-
-  const getManagedMaterializerOptions = (): ManagedMaterializerOptions | undefined => {
-    const key = getAssistantApiKey();
-    return platformBaseUrl && key && assistantId
-      ? { platformBaseUrl, assistantApiKey: key, assistantId }
-      : undefined;
-  };
+  const { getAssistantApiKey, getManagedSubjectOptions, getManagedMaterializerOptions } =
+    buildLazyGetters({
+      platformBaseUrl,
+      assistantId,
+      apiKeyRef,
+      envApiKey: process.env["ASSISTANT_API_KEY"] || "",
+    });
 
   if (!platformBaseUrl || !assistantId) {
     warn(
