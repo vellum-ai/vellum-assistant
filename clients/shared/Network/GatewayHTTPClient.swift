@@ -1,4 +1,8 @@
 import Foundation
+#if os(macOS)
+import CryptoKit
+import IOKit
+#endif
 
 /// Authenticated HTTP client for gateway and platform proxy requests.
 ///
@@ -43,8 +47,7 @@ public enum GatewayHTTPClient {
     /// - Returns: A `Response` with the raw data and HTTP status code.
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
     public static func get(path: String, timeout: TimeInterval = 30) async throws -> Response {
-        let request = try buildRequest(path: path, method: "GET", timeout: timeout)
-        return try await execute(request)
+        return try await executeWithRetry(path: path, method: "GET", timeout: timeout)
     }
 
     /// Performs an authenticated GET request and decodes the JSON response into the given type.
@@ -83,9 +86,9 @@ public enum GatewayHTTPClient {
     /// - Returns: A `Response` with the raw data and HTTP status code.
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
     public static func post(path: String, body: Data? = nil, timeout: TimeInterval = 30) async throws -> Response {
-        var request = try buildRequest(path: path, method: "POST", timeout: timeout)
-        request.httpBody = body
-        return try await execute(request)
+        return try await executeWithRetry(path: path, method: "POST", timeout: timeout) { request in
+            request.httpBody = body
+        }
     }
 
     /// Performs an authenticated DELETE request against the gateway.
@@ -97,9 +100,9 @@ public enum GatewayHTTPClient {
     /// - Returns: A `Response` with the raw data and HTTP status code.
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
     public static func delete(path: String, body: Data? = nil, timeout: TimeInterval = 30) async throws -> Response {
-        var request = try buildRequest(path: path, method: "DELETE", timeout: timeout)
-        request.httpBody = body
-        return try await execute(request)
+        return try await executeWithRetry(path: path, method: "DELETE", timeout: timeout) { request in
+            request.httpBody = body
+        }
     }
 
     /// Performs an authenticated streaming GET request against the gateway.
@@ -113,7 +116,8 @@ public enum GatewayHTTPClient {
     /// - Returns: A tuple of `(URLSession.AsyncBytes, URLResponse)` for streaming consumption.
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
     public static func stream(path: String, timeout: TimeInterval = 30) async throws -> (URLSession.AsyncBytes, URLResponse) {
-        var request = try buildRequest(path: path, method: "GET", timeout: timeout)
+        let connection = try resolveConnection()
+        var request = try buildRequest(path: path, method: "GET", timeout: timeout, connection: connection)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         return try await URLSession.shared.bytes(for: request)
     }
@@ -128,14 +132,25 @@ public enum GatewayHTTPClient {
     }
     #endif
 
-    /// Resolves the base URL and auth header for the current connection.
+    /// Resolved connection metadata used for request construction and auth retry.
+    private struct ConnectionInfo {
+        let baseURL: String
+        let authHeader: (field: String, value: String)
+        /// Non-nil when the connection targets a platform-managed assistant,
+        /// so paths are prefixed with `assistants/{id}/`.
+        let managedAssistantId: String?
+
+        var isManaged: Bool { managedAssistantId != nil }
+    }
+
+    /// Resolves the base URL, auth header, and managed assistant ID for the current connection.
     ///
     /// - macOS: Uses the lockfile-based `LockfileAssistant` for full resolution
     ///   (managed, remote, and local assistants).
     /// - iOS: Uses UserDefaults for managed assistants (`managed_assistant_id` +
     ///   `managed_platform_base_url`) and QR-paired assistants (`gateway_base_url`),
     ///   with tokens from the Keychain via `SessionTokenManager` / `ActorTokenManager`.
-    private static func resolveConnection() throws -> (baseURL: String, authHeader: (field: String, value: String)) {
+    private static func resolveConnection() throws -> ConnectionInfo {
         #if os(macOS)
         guard let assistant = resolveConnectedAssistant() else {
             throw ClientError.noConnectedAssistant
@@ -146,7 +161,7 @@ public enum GatewayHTTPClient {
                 throw ClientError.notAuthenticated
             }
             let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
-            return (baseURL, ("X-Session-Token", token))
+            return ConnectionInfo(baseURL: baseURL, authHeader: ("X-Session-Token", token), managedAssistantId: assistant.assistantId)
         } else {
             guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
                 throw ClientError.notAuthenticated
@@ -155,10 +170,10 @@ public enum GatewayHTTPClient {
                 guard let runtimeUrl = assistant.runtimeUrl else {
                     throw ClientError.invalidURL
                 }
-                return (runtimeUrl, ("Authorization", "Bearer \(token)"))
+                return ConnectionInfo(baseURL: runtimeUrl, authHeader: ("Authorization", "Bearer \(token)"), managedAssistantId: nil)
             } else {
                 let port = assistant.gatewayPort ?? LockfilePaths.resolveGatewayPort(connectedAssistantId: assistant.assistantId)
-                return ("http://127.0.0.1:\(port)", ("Authorization", "Bearer \(token)"))
+                return ConnectionInfo(baseURL: "http://127.0.0.1:\(port)", authHeader: ("Authorization", "Bearer \(token)"), managedAssistantId: nil)
             }
         }
 
@@ -171,7 +186,7 @@ public enum GatewayHTTPClient {
             guard let token = SessionTokenManager.getToken(), !token.isEmpty else {
                 throw ClientError.notAuthenticated
             }
-            return (platformBaseURL, ("X-Session-Token", token))
+            return ConnectionInfo(baseURL: platformBaseURL, authHeader: ("X-Session-Token", token), managedAssistantId: managedAssistantId)
         }
 
         // QR-paired assistant: gateway URL with bearer token auth.
@@ -180,7 +195,7 @@ public enum GatewayHTTPClient {
             guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
                 throw ClientError.notAuthenticated
             }
-            return (gatewayBaseURL, ("Authorization", "Bearer \(token)"))
+            return ConnectionInfo(baseURL: gatewayBaseURL, authHeader: ("Authorization", "Bearer \(token)"), managedAssistantId: nil)
         }
 
         throw ClientError.noConnectedAssistant
@@ -189,19 +204,18 @@ public enum GatewayHTTPClient {
         #endif
     }
 
-    /// Builds an authenticated `URLRequest`, automatically resolving the
-    /// connected assistant, gateway base URL, and auth credentials.
+    /// Builds an authenticated `URLRequest` from the given connection info.
     ///
     /// - Managed (`cloud == "vellum"`): platform proxy URL with `X-Session-Token`
+    ///   and `assistants/{id}/` prefix in the path.
     /// - Remote non-managed (GCP/AWS): `runtimeUrl` with `Authorization: Bearer`
     /// - Local: `http://127.0.0.1:{gatewayPort}` with `Authorization: Bearer`
     private static func buildRequest(
         path: String,
         method: String,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        connection: ConnectionInfo
     ) throws -> URLRequest {
-        let (baseURL, authHeader) = try resolveConnection()
-
         let pathComponent: String
         let queryComponent: String
         if let queryIndex = path.firstIndex(of: "?") {
@@ -211,8 +225,10 @@ public enum GatewayHTTPClient {
             pathComponent = path
             queryComponent = ""
         }
+
+        let assistantPrefix = connection.managedAssistantId.map { "assistants/\($0)/" } ?? ""
         let trailingSlash = pathComponent.hasSuffix("/") ? "" : "/"
-        guard let url = URL(string: "\(baseURL)/v1/\(pathComponent)\(trailingSlash)\(queryComponent)") else {
+        guard let url = URL(string: "\(connection.baseURL)/v1/\(assistantPrefix)\(pathComponent)\(trailingSlash)\(queryComponent)") else {
             throw ClientError.invalidURL
         }
 
@@ -220,7 +236,7 @@ public enum GatewayHTTPClient {
         request.httpMethod = method
         request.timeoutInterval = timeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(authHeader.value, forHTTPHeaderField: authHeader.field)
+        request.setValue(connection.authHeader.value, forHTTPHeaderField: connection.authHeader.field)
 
         if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
             request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
@@ -235,4 +251,88 @@ public enum GatewayHTTPClient {
         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
         return Response(data: data, statusCode: statusCode)
     }
+
+    // MARK: - Auth Retry
+
+    /// Executes a request with automatic 401 retry for non-managed (bearer token) connections.
+    /// On a 401 response, attempts to refresh credentials via `ActorCredentialRefresher`
+    /// and retries the request once with fresh auth headers.
+    private static func executeWithRetry(
+        path: String,
+        method: String,
+        timeout: TimeInterval,
+        configure: ((_ request: inout URLRequest) -> Void)? = nil
+    ) async throws -> Response {
+        let connection = try resolveConnection()
+        var request = try buildRequest(path: path, method: method, timeout: timeout, connection: connection)
+        configure?(&request)
+        let response = try await execute(request)
+
+        guard response.statusCode == 401, !connection.isManaged else {
+            return response
+        }
+
+        guard await refreshBearerCredentials(connection: connection) else {
+            return response
+        }
+
+        // Rebuild with fresh credentials from the Keychain.
+        let freshConnection = try resolveConnection()
+        var retryRequest = try buildRequest(path: path, method: method, timeout: timeout, connection: freshConnection)
+        configure?(&retryRequest)
+        return try await execute(retryRequest)
+    }
+
+    /// Attempts a bearer-token credential refresh.
+    /// Returns `true` when the refresh succeeds and the request should be retried.
+    private static func refreshBearerCredentials(connection: ConnectionInfo) async -> Bool {
+        #if os(macOS)
+        let platform = "macos"
+        let deviceId = computeMacOSDeviceId()
+        #elseif os(iOS)
+        let platform = "ios"
+        let deviceId = APIKeyManager.shared.getAPIKey(provider: "pairing-device-id") ?? ""
+        #else
+        return false
+        #endif
+
+        let result = await ActorCredentialRefresher.refresh(
+            baseURL: connection.baseURL,
+            bearerToken: ActorTokenManager.getToken(),
+            platform: platform,
+            deviceId: deviceId
+        )
+        if case .success = result { return true }
+        return false
+    }
+
+    // MARK: - macOS Device ID
+
+    #if os(macOS)
+    /// Compute a stable device ID from the IOPlatformUUID.
+    private static func computeMacOSDeviceId() -> String {
+        let platformUUID = getMacOSPlatformUUID() ?? UUID().uuidString
+        let salt = "vellum-assistant-host-id"
+        let input = Data((platformUUID + salt).utf8)
+        let hash = SHA256.hash(data: input)
+        return hash.compactMap { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Read the IOPlatformUUID from the IORegistry (macOS hardware identifier).
+    private static func getMacOSPlatformUUID() -> String? {
+        let service = IOServiceGetMatchingService(
+            kIOMainPortDefault,
+            IOServiceMatching("IOPlatformExpertDevice")
+        )
+        guard service != 0 else { return nil }
+        defer { IOObjectRelease(service) }
+
+        let key = kIOPlatformUUIDKey as CFString
+        guard let uuid = IORegistryEntryCreateCFProperty(service, key, kCFAllocatorDefault, 0)?
+            .takeRetainedValue() as? String else {
+            return nil
+        }
+        return uuid
+    }
+    #endif
 }

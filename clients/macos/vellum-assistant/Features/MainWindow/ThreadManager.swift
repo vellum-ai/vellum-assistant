@@ -103,7 +103,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// Tracks access order for LRU eviction. Most-recently-accessed ID is at the end.
     private var vmAccessOrder: [UUID] = []
     private let daemonClient: DaemonClient
-    private let conversationClient: any ConversationClientProtocol
+    private let conversationClient = ConversationClient()
     private let sessionRestorer: ThreadSessionRestorer
     private let activityNotificationService: ActivityNotificationService?
     /// Queued renames for threads that don't yet have a sessionId.
@@ -215,9 +215,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         return getOrCreateViewModel(for: activeThreadId)
     }
 
-    init(daemonClient: DaemonClient, conversationClient: any ConversationClientProtocol = ConversationClient(), activityNotificationService: ActivityNotificationService? = nil, isFirstLaunch: Bool = false) {
+    init(daemonClient: DaemonClient, activityNotificationService: ActivityNotificationService? = nil, isFirstLaunch: Bool = false) {
         self.daemonClient = daemonClient
-        self.conversationClient = conversationClient
         self.activityNotificationService = activityNotificationService
         self.sessionRestorer = ThreadSessionRestorer(daemonClient: daemonClient)
         // On first launch (post-onboarding), skip session restoration — there are
