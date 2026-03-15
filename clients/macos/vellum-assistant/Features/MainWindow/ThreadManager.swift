@@ -428,7 +428,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     /// Create a visible thread bound to an existing task run conversation.
-    /// Called when the daemon broadcasts `task_run_thread_created` so the user
+    /// Called when the daemon broadcasts `task_run_conversation_created` so the user
     /// can see task execution messages streaming in real-time.
     func createTaskRunThread(conversationId: String, workItemId: String, title: String) {
         // Avoid creating a duplicate thread if one already exists for this conversation
@@ -459,7 +459,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     /// Create a visible thread bound to a schedule-created conversation.
-    /// Called when the daemon broadcasts `schedule_thread_created` so the user
+    /// Called when the daemon broadcasts `schedule_conversation_created` so the user
     /// sees scheduled threads in the sidebar without a full refresh.
     func createScheduleThread(conversationId: String, scheduleJobId: String, title: String) {
         // Avoid creating a duplicate thread if one already exists for this conversation
@@ -487,7 +487,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     /// Create a visible thread bound to a notification-created conversation.
-    /// Called when the daemon broadcasts `notification_thread_created` so the user
+    /// Called when the daemon broadcasts `notification_conversation_created` so the user
     /// can see notification threads and deep-link into them.
     func createNotificationThread(conversationId: String, title: String, sourceEventName: String) {
         // Avoid creating a duplicate thread if one already exists for this conversation
@@ -502,7 +502,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         viewModel.sessionId = conversationId
         // Do NOT set isHistoryLoaded here — notification threads have a
         // pre-existing seed message persisted by conversation-pairing before
-        // the notification_thread_created event is emitted. Leaving
+        // the notification_conversation_created event is emitted. Leaving
         // isHistoryLoaded false allows ThreadSessionRestorer.loadHistoryIfNeeded
         // to fetch that seed message when the thread is first selected.
         // The handleAssistantMessageArrival guard dropping updates is correct

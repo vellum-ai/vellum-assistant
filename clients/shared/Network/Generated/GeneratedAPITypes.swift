@@ -2735,13 +2735,13 @@ public struct NotificationIntentResult: Codable, Sendable {
     }
 }
 
-/// Server push — broadcast when a notification creates a new vellum conversation thread.
-public struct NotificationThreadCreated: Codable, Sendable {
+/// Server push — broadcast when a notification creates a new vellum conversation.
+public struct NotificationConversationCreated: Codable, Sendable {
     public let type: String
     public let conversationId: String
     public let title: String
     public let sourceEventName: String
-    /// When set, this thread was created for a guardian-sensitive notification
+    /// When set, this conversation was created for a guardian-sensitive notification
     /// and should only be surfaced by clients bound to this guardian identity.
     public let targetGuardianPrincipalId: String?
 
@@ -3194,7 +3194,7 @@ public struct SchedulesListResponseSchedule: Codable, Sendable {
 }
 
 /// Server push — broadcast when a schedule creates a conversation, so the client can show it as a chat thread.
-public struct ScheduleThreadCreated: Codable, Sendable {
+public struct ScheduleConversationCreated: Codable, Sendable {
     public let type: String
     public let conversationId: String
     public let scheduleJobId: String
@@ -4195,7 +4195,7 @@ public struct SurfaceAction: Codable, Sendable {
 }
 
 /// Server push — broadcast when a task run creates a conversation, so the client can show it as a chat thread.
-public struct TaskRunThreadCreated: Codable, Sendable {
+public struct TaskRunConversationCreated: Codable, Sendable {
     public let type: String
     public let conversationId: String
     public let workItemId: String

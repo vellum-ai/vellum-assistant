@@ -2115,7 +2115,7 @@ public enum ServerMessage: Decodable, Sendable {
     case toolOutputChunk(ToolOutputChunkMessage)
     case toolResult(ToolResultMessage)
     case notificationIntent(NotificationIntentMessage)
-    case notificationThreadCreated(NotificationThreadCreated)
+    case notificationConversationCreated(NotificationConversationCreated)
     case watchStarted(WatchStartedMessage)
     case watchCompleteRequest(WatchCompleteRequestMessage)
     case traceEvent(TraceEventMessage)
@@ -2175,8 +2175,8 @@ public enum ServerMessage: Decodable, Sendable {
     case workItemPreflightResponse(WorkItemPreflightResponse)
     case workItemApprovePermissionsResponse(WorkItemApprovePermissionsResponse)
     case workItemCancelResponse(WorkItemCancelResponse)
-    case taskRunThreadCreated(TaskRunThreadCreated)
-    case scheduleThreadCreated(ScheduleThreadCreated)
+    case taskRunConversationCreated(TaskRunConversationCreated)
+    case scheduleConversationCreated(ScheduleConversationCreated)
     case subagentSpawned(SubagentSpawned)
     case subagentStatusChanged(SubagentStatusChanged)
     indirect case subagentEvent(SubagentEventMessage)
@@ -2365,9 +2365,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "notification_intent":
             let message = try NotificationIntentMessage(from: decoder)
             self = .notificationIntent(message)
-        case "notification_thread_created":
-            let message = try NotificationThreadCreated(from: decoder)
-            self = .notificationThreadCreated(message)
+        case "notification_conversation_created":
+            let message = try NotificationConversationCreated(from: decoder)
+            self = .notificationConversationCreated(message)
         case "watch_started":
             let message = try WatchStartedMessage(from: decoder)
             self = .watchStarted(message)
@@ -2530,12 +2530,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "work_item_cancel_response":
             let message = try WorkItemCancelResponse(from: decoder)
             self = .workItemCancelResponse(message)
-        case "task_run_thread_created":
-            let message = try TaskRunThreadCreated(from: decoder)
-            self = .taskRunThreadCreated(message)
-        case "schedule_thread_created":
-            let message = try ScheduleThreadCreated(from: decoder)
-            self = .scheduleThreadCreated(message)
+        case "task_run_conversation_created":
+            let message = try TaskRunConversationCreated(from: decoder)
+            self = .taskRunConversationCreated(message)
+        case "schedule_conversation_created":
+            let message = try ScheduleConversationCreated(from: decoder)
+            self = .scheduleConversationCreated(message)
         case "subagent_spawned":
             let message = try SubagentSpawned(from: decoder)
             self = .subagentSpawned(message)
