@@ -2,7 +2,7 @@
  * Tests for cascading approval decisions to matching pending confirmations.
  *
  * When a user resolves one confirmation with a broad decision (allow_10m,
- * allow_thread, always_allow, always_deny), other pending confirmations in
+ * allow_conversation, always_allow, always_deny), other pending confirmations in
  * the same conversation that match are auto-resolved.
  */
 import { mkdtempSync, rmSync } from "node:fs";
@@ -389,7 +389,7 @@ describe("approval cascading", () => {
     expect(resolvedIds).toEqual(["req-1", "req-2", "req-3"]);
   });
 
-  test("allow_thread cascades to all pending in same conversation", () => {
+  test("allow_conversation cascades to all pending in same conversation", () => {
     const emitted: ServerMessage[] = [];
     const session = makeSession((msg) => emitted.push(msg), CONV_ID);
 
@@ -416,7 +416,7 @@ describe("approval cascading", () => {
       makeConfirmationDetails(["bash:echo c"]),
     );
 
-    session.handleConfirmationResponse("req-a", "allow_thread");
+    session.handleConfirmationResponse("req-a", "allow_conversation");
 
     const confirmMsgs = emitted.filter(
       (m) =>

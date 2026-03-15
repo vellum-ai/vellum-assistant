@@ -2192,7 +2192,7 @@ describe("Memory regressions", () => {
   test("addMessage inherits private conversation scope on memory segments", async () => {
     const conv = createConversation({
       title: "Private thread",
-      threadType: "private",
+      conversationType: "private",
     });
     expect(conv.memoryScopeId).toMatch(/^private:/);
 
@@ -2218,7 +2218,7 @@ describe("Memory regressions", () => {
   test("addMessage uses default scope for standard conversations", async () => {
     const conv = createConversation({
       title: "Standard thread",
-      threadType: "standard",
+      conversationType: "standard",
     });
     expect(conv.memoryScopeId).toBe("default");
 
@@ -2245,7 +2245,7 @@ describe("Memory regressions", () => {
   test("extract_items job payload includes scopeId from private conversation", async () => {
     const conv = createConversation({
       title: "Private scope job test",
-      threadType: "private",
+      conversationType: "private",
     });
     expect(conv.memoryScopeId).toMatch(/^private:/);
 
@@ -2271,7 +2271,7 @@ describe("Memory regressions", () => {
   test("extract_items job payload defaults scopeId to default for standard conversations", async () => {
     const conv = createConversation({
       title: "Standard scope job test",
-      threadType: "standard",
+      conversationType: "standard",
     });
     expect(conv.memoryScopeId).toBe("default");
 
@@ -2305,7 +2305,7 @@ describe("Memory regressions", () => {
         title: null,
         createdAt: now,
         updatedAt: now,
-        threadType: "standard",
+        conversationType: "standard",
         memoryScopeId: "default",
       })
       .run();
@@ -2362,7 +2362,7 @@ describe("Memory regressions", () => {
         title: null,
         createdAt: now,
         updatedAt: now,
-        threadType: "standard",
+        conversationType: "standard",
         memoryScopeId: "default",
       })
       .run();
@@ -2454,7 +2454,7 @@ describe("Memory regressions", () => {
         title: null,
         createdAt: now,
         updatedAt: now,
-        threadType: "standard",
+        conversationType: "standard",
         memoryScopeId: "default",
       })
       .run();
@@ -2518,7 +2518,7 @@ describe("Memory regressions", () => {
         title: null,
         createdAt: now,
         updatedAt: now,
-        threadType: "standard",
+        conversationType: "standard",
         memoryScopeId: "default",
       })
       .run();
@@ -2592,7 +2592,7 @@ describe("Memory regressions", () => {
 
   test("private conversation summary inherits private scope_id", async () => {
     const db = getDb();
-    const conv = createConversation({ threadType: "private" });
+    const conv = createConversation({ conversationType: "private" });
     const scopeId = getConversationMemoryScopeId(conv.id);
     expect(scopeId).toMatch(/^private:/);
 
@@ -2655,7 +2655,7 @@ describe("Memory regressions", () => {
     const now = Date.now();
 
     // Create a private conversation and build its summary
-    const privConv = createConversation({ threadType: "private" });
+    const privConv = createConversation({ conversationType: "private" });
     const privScope = getConversationMemoryScopeId(privConv.id);
 
     db.insert(messages)
@@ -2764,7 +2764,7 @@ describe("Memory regressions", () => {
     // 1. Create a private conversation and add a message with a distinctive fact
     const privConv = createConversation({
       title: "Private e2e test",
-      threadType: "private",
+      conversationType: "private",
     });
     const privScope = getConversationMemoryScopeId(privConv.id);
     expect(privScope).toMatch(/^private:/);
@@ -2799,7 +2799,7 @@ describe("Memory regressions", () => {
     // 3. Create a standard conversation for the "standard thread" perspective
     const stdConv = createConversation({
       title: "Standard e2e test",
-      threadType: "standard",
+      conversationType: "standard",
     });
     const stdScope = getConversationMemoryScopeId(stdConv.id);
     expect(stdScope).toBe("default");
@@ -2867,7 +2867,7 @@ describe("Memory regressions", () => {
     // 1. Create a standard conversation and add a fact to default scope
     const stdConv = createConversation({
       title: "Default scope source",
-      threadType: "standard",
+      conversationType: "standard",
     });
     const stdScope = getConversationMemoryScopeId(stdConv.id);
     expect(stdScope).toBe("default");
@@ -2903,7 +2903,7 @@ describe("Memory regressions", () => {
     // 2. Create a private conversation
     const privConv = createConversation({
       title: "Private fallback test",
-      threadType: "private",
+      conversationType: "private",
     });
     const privScope = getConversationMemoryScopeId(privConv.id);
     expect(privScope).toMatch(/^private:/);
@@ -2953,7 +2953,7 @@ describe("Memory regressions", () => {
     // Create a private conversation with a message
     const conv = createConversation({
       title: "Backfill scope test",
-      threadType: "private",
+      conversationType: "private",
     });
     expect(conv.memoryScopeId).toMatch(/^private:/);
 

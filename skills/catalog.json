@@ -138,11 +138,7 @@
       "metadata": {
         "emoji": "🍕",
         "vellum": {
-          "display-name": "DoorDash",
-          "cli": {
-            "command": "doordash",
-            "entry": "scripts/doordash-entry.ts"
-          }
+          "display-name": "DoorDash"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"

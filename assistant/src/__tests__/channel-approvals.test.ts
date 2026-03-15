@@ -136,7 +136,7 @@ describe("getChannelApprovalPrompt", () => {
     expect(result!.actions.map((a) => a.id)).toEqual([
       "approve_once",
       "approve_10m",
-      "approve_thread",
+      "approve_conversation",
       "approve_always",
       "reject",
     ]);
@@ -177,7 +177,7 @@ describe("getChannelApprovalPrompt", () => {
     expect(result!.actions.map((a) => a.id)).toEqual([
       "approve_once",
       "approve_10m",
-      "approve_thread",
+      "approve_conversation",
       "approve_always",
       "reject",
     ]);
@@ -194,7 +194,7 @@ describe("getChannelApprovalPrompt", () => {
     expect(result!.actions.map((a) => a.id)).toEqual([
       "approve_once",
       "approve_10m",
-      "approve_thread",
+      "approve_conversation",
       "approve_always",
       "reject",
     ]);

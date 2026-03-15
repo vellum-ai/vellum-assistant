@@ -28,7 +28,7 @@ import * as attachmentsStore from "../memory/attachments-store.js";
 import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
 import {
   deleteMessageById,
-  getConversationThreadType,
+  getConversationType,
   getMessages,
   purgePrivateConversations,
 } from "../memory/conversation-crud.js";
@@ -100,7 +100,6 @@ import {
   switchSession,
   undoLastMessage,
 } from "./handlers/sessions.js";
-import { installCliLaunchers } from "./install-cli-launchers.js";
 import type { ServerMessage } from "./message-protocol.js";
 import {
   initializeProvidersAndTools,
@@ -160,14 +159,6 @@ export async function runDaemon(): Promise<void> {
     installTemplates();
     ensurePromptFiles();
 
-    try {
-      installCliLaunchers();
-    } catch (err) {
-      log.warn(
-        { err },
-        "CLI launcher installation failed — continuing startup",
-      );
-    }
     initializeDb();
     // Seed well-known OAuth provider configurations (insert-if-not-exists)
     seedOAuthProviders();
@@ -652,8 +643,8 @@ export async function runDaemon(): Promise<void> {
           data: a.dataBase64,
         })),
       deriveDefaultStrictSideEffects: (conversationId) => {
-        const threadType = getConversationThreadType(conversationId);
-        return threadType === "private";
+        const conversationType = getConversationType(conversationId);
+        return conversationType === "private";
       },
     });
     try {

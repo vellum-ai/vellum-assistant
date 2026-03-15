@@ -1,7 +1,9 @@
 import {
   existsSync,
+  lstatSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
 } from "node:fs";
@@ -303,12 +305,7 @@ function findSkillById(
     emoji: r.summary.emoji,
     homepage: r.summary.homepage,
     source: r.summary.source,
-    state: (r.state === "degraded" ? "enabled" : r.state) as
-      | "enabled"
-      | "disabled"
-      | "available",
-    degraded: r.degraded,
-    missingRequirements: r.missingRequirements,
+    state: r.state as "enabled" | "disabled" | "available",
     updateAvailable: false,
     provenance: resolveProvenance(r.summary),
   };
@@ -339,6 +336,27 @@ export interface SkillFileEntry {
 
 const SKIP_DIRS = new Set(["node_modules", "__pycache__", ".git"]);
 
+/**
+ * Returns true if `filePath` is a symlink whose resolved real path escapes
+ * `rootDir`. Symlinks that stay within `rootDir` are allowed; only those that
+ * point outside are considered unsafe. Dangling symlinks are treated as escaping.
+ */
+function isEscapingSymlink(filePath: string, rootDir: string): boolean {
+  try {
+    if (!lstatSync(filePath).isSymbolicLink()) return false;
+    const real = realpathSync(filePath);
+    const normalizedRoot = realpathSync(rootDir);
+    return (
+      real !== normalizedRoot &&
+      !real.startsWith(normalizedRoot + "/") &&
+      !real.startsWith(normalizedRoot + "\\")
+    );
+  } catch {
+    // If we can't resolve (e.g. dangling symlink), treat as escaping.
+    return true;
+  }
+}
+
 function readDirRecursive(dir: string, rootDir: string): SkillFileEntry[] {
   const entries: SkillFileEntry[] = [];
   let dirents;
@@ -350,6 +368,8 @@ function readDirRecursive(dir: string, rootDir: string): SkillFileEntry[] {
   for (const dirent of dirents) {
     if (dirent.name.startsWith(".")) continue;
     const fullPath = join(dir, dirent.name);
+    // Skip symlinks that escape the skill directory root
+    if (isEscapingSymlink(fullPath, rootDir)) continue;
     if (dirent.isDirectory()) {
       if (SKIP_DIRS.has(dirent.name)) continue;
       entries.push(...readDirRecursive(fullPath, rootDir));

@@ -190,7 +190,7 @@ export function applyGuardianDecision(
   const effectiveDecision: ApprovalDecisionResult =
     decision.action === "approve_always" ||
     decision.action === "approve_10m" ||
-    decision.action === "approve_thread"
+    decision.action === "approve_conversation"
       ? { ...decision, action: "approve_once" }
       : decision;
 
@@ -321,7 +321,7 @@ export function mintCanonicalRequestGrant(params: {
 const VALID_CANONICAL_ACTIONS: ReadonlySet<ApprovalAction> = new Set([
   "approve_once",
   "approve_10m",
-  "approve_thread",
+  "approve_conversation",
   "approve_always",
   "reject",
 ]);
@@ -493,11 +493,11 @@ export async function applyCanonicalGuardianDecision(
 
   // 3. Downgrade approve_always and temporary modes to approve_once for
   // guardian-on-behalf requests. Guardians cannot grant broad allow modes
-  // (permanent, timed, or thread-scoped) on behalf of requesters.
+  // (permanent, timed, or conversation-scoped) on behalf of requesters.
   const effectiveAction: ApprovalAction =
     action === "approve_always" ||
     action === "approve_10m" ||
-    action === "approve_thread"
+    action === "approve_conversation"
       ? "approve_once"
       : action;
 

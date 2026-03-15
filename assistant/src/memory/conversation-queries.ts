@@ -33,7 +33,7 @@ export function listConversations(
   const db = getDb();
   const where = includeBackground
     ? undefined
-    : sql`${conversations.threadType} NOT IN ('background', 'private')`;
+    : sql`${conversations.conversationType} NOT IN ('background', 'private')`;
   const query = db
     .select()
     .from(conversations)
@@ -48,7 +48,7 @@ export function countConversations(includeBackground = false): number {
   const db = getDb();
   const where = includeBackground
     ? undefined
-    : sql`${conversations.threadType} NOT IN ('background', 'private')`;
+    : sql`${conversations.conversationType} NOT IN ('background', 'private')`;
   const [{ total }] = db
     .select({ total: count() })
     .from(conversations)
@@ -62,7 +62,9 @@ export function getLatestConversation(): ConversationRow | null {
   const row = db
     .select()
     .from(conversations)
-    .where(sql`${conversations.threadType} NOT IN ('background', 'private')`)
+    .where(
+      sql`${conversations.conversationType} NOT IN ('background', 'private')`,
+    )
     .orderBy(desc(conversations.updatedAt))
     .limit(1)
     .get();
@@ -164,7 +166,7 @@ export function searchConversations(
         FROM messages_fts f
         JOIN messages m ON m.id = f.message_id
         JOIN conversations c ON c.id = m.conversation_id
-        WHERE messages_fts MATCH ? AND c.thread_type NOT IN ('background', 'private')
+        WHERE messages_fts MATCH ? AND c.conversation_type NOT IN ('background', 'private')
         LIMIT 1000
       `,
         ftsMatch,
@@ -189,7 +191,7 @@ export function searchConversations(
       SELECT DISTINCT m.conversation_id
       FROM messages m
       JOIN conversations c ON c.id = m.conversation_id
-      WHERE m.content LIKE ? ESCAPE '\\' AND c.thread_type NOT IN ('background', 'private')
+      WHERE m.content LIKE ? ESCAPE '\\' AND c.conversation_type NOT IN ('background', 'private')
       LIMIT 1000
     `,
       likePattern,
@@ -203,7 +205,7 @@ export function searchConversations(
     .from(conversations)
     .where(
       and(
-        sql`${conversations.threadType} NOT IN ('background', 'private')`,
+        sql`${conversations.conversationType} NOT IN ('background', 'private')`,
         sql`${conversations.title} LIKE ${titlePattern} ESCAPE '\\'`,
       ),
     )

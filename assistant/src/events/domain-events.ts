@@ -23,7 +23,7 @@ export interface ToolDomainEvents {
     decision:
       | "allow"
       | "allow_10m"
-      | "allow_thread"
+      | "allow_conversation"
       | "always_allow"
       | "always_allow_high_risk"
       | "deny"

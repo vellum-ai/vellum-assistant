@@ -121,7 +121,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   }),
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
-  getConversationThreadType: () => "standard",
+  getConversationType: () => "standard",
 }));
 
 mock.module("../daemon/media-visibility-policy.js", () => ({

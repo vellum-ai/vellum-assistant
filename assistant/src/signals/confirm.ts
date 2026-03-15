@@ -20,7 +20,7 @@ const log = getLogger("signal:confirm");
 const VALID_DECISIONS: ReadonlySet<string> = new Set<string>([
   "allow",
   "allow_10m",
-  "allow_thread",
+  "allow_conversation",
   "always_allow",
   "always_allow_high_risk",
   "deny",

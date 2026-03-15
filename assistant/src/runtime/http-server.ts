@@ -845,7 +845,8 @@ export class RuntimeHttpServer {
                 title: c.title ?? "Untitled",
                 createdAt: c.createdAt,
                 updatedAt: c.updatedAt,
-                threadType: c.threadType === "private" ? "private" : "standard",
+                threadType:
+                  c.conversationType === "private" ? "private" : "standard",
                 source: c.source ?? "user",
                 ...(c.scheduleJobId ? { scheduleJobId: c.scheduleJobId } : {}),
                 ...(binding
@@ -1007,7 +1008,9 @@ export class RuntimeHttpServer {
               createdAt: conversation.createdAt,
               updatedAt: conversation.updatedAt,
               threadType:
-                conversation.threadType === "private" ? "private" : "standard",
+                conversation.conversationType === "private"
+                  ? "private"
+                  : "standard",
               source: conversation.source ?? "user",
               ...(conversation.scheduleJobId
                 ? { scheduleJobId: conversation.scheduleJobId }

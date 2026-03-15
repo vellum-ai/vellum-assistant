@@ -145,7 +145,7 @@ struct AssistantTransferSection: View {
             case .createdNew(let assistant):
                 platformAssistant = assistant
             }
-            let lockfileSuccess = LockfileAssistant.upsertManagedEntry(
+            let lockfileSuccess = LockfileAssistant.ensureManagedEntry(
                 assistantId: platformAssistant.id,
                 runtimeUrl: AuthService.shared.baseURL,
                 hatchedAt: platformAssistant.created_at ?? ISO8601DateFormatter().string(from: Date())

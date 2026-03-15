@@ -114,7 +114,7 @@ export interface GuardianReplyResult {
 const VALID_ACTIONS: ReadonlySet<string> = new Set([
   "approve_once",
   "approve_10m",
-  "approve_thread",
+  "approve_conversation",
   "approve_always",
   "reject",
 ]);
@@ -560,7 +560,7 @@ export async function routeGuardianReply(
     if (
       decisionAction === "approve_always" ||
       decisionAction === "approve_10m" ||
-      decisionAction === "approve_thread"
+      decisionAction === "approve_conversation"
     ) {
       decisionAction = "approve_once";
     }

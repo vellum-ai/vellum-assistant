@@ -463,7 +463,7 @@ export function createProxyApprovalCallback(
     }
 
     // Proxied network requests require per-invocation approval and must
-    // not be auto-approved by temporary overrides (allow_10m / allow_thread).
+    // not be auto-approved by temporary overrides (allow_10m / allow_conversation).
     // Unlike regular tool invocations, these represent outbound network
     // actions that should always receive explicit confirmation.
 

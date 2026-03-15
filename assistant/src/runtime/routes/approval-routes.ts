@@ -48,7 +48,7 @@ export async function handleConfirm(
   const validConfirmDecisions = [
     "allow",
     "allow_10m",
-    "allow_thread",
+    "allow_conversation",
     "deny",
     "always_allow",
     "always_deny",
