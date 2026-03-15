@@ -237,7 +237,7 @@ let filePathColumnEnsured = false;
 /**
  * Store a file-backed attachment by path reference, without reading the file
  * into memory. This avoids OOM risk for large recordings that exceed the
- * normal 20 MB upload limit.
+ * normal 50 MB upload limit.
  *
  * The file stays on disk; the attachment row stores an empty dataBase64 and
  * records the on-disk path in a `file_path` column (added via runtime
