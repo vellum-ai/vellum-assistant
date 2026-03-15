@@ -1045,7 +1045,10 @@ async function startLearnSession(durationSeconds: number): Promise<void> {
           error?: string;
         };
 
-        if (status.ok && status.status === "completed") {
+        if (
+          status.ok &&
+          (status.status === "completed" || status.status === "completing")
+        ) {
           resolve();
           return;
         }
