@@ -229,6 +229,7 @@ describe("manage_secure_command_tool input validation", () => {
       isReady: () => true,
       handshake: async () => ({ accepted: true }),
       call: async () => ({ success: true }),
+      updateAssistantApiKey: async () => ({ updated: true }),
       close: () => {},
     },
   };

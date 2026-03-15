@@ -17,7 +17,7 @@ import { randomUUID } from "node:crypto";
 import {
   CES_PROTOCOL_VERSION,
   type CesRpcContract,
-  type CesRpcMethod,
+  CesRpcMethod,
   CesRpcSchemas,
   type HandshakeAck,
   type RpcEnvelope,
@@ -109,6 +109,15 @@ export interface CesClient {
     method: M,
     request: CesRpcContract[M]["request"],
   ): Promise<CesRpcContract[M]["response"]>;
+
+  /**
+   * Push an updated assistant API key to CES.
+   *
+   * In managed mode the API key is provisioned after hatch, so the initial
+   * handshake may have been sent without one. This method pushes the key
+   * to CES after it arrives, without requiring a re-handshake.
+   */
+  updateAssistantApiKey(assistantApiKey: string): Promise<{ updated: boolean }>;
 
   /** Whether the client has completed a successful handshake. */
   isReady(): boolean;
@@ -324,6 +333,14 @@ export function createCesClient(
       }
 
       return respParseResult.data as CesRpcContract[M]["response"];
+    },
+
+    async updateAssistantApiKey(
+      assistantApiKey: string,
+    ): Promise<{ updated: boolean }> {
+      return this.call(CesRpcMethod.UpdateManagedCredential, {
+        assistantApiKey,
+      });
     },
 
     isReady(): boolean {

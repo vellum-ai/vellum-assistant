@@ -2,6 +2,7 @@
  * Shared types for the runtime HTTP server and its route handlers.
  */
 import type { ChannelId, InterfaceId } from "../channels/types.js";
+import type { CesClient } from "../credential-execution/client.js";
 import type { SkillOperationContext } from "../daemon/handlers/skills.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type {
@@ -224,6 +225,8 @@ export interface RuntimeHttpServerOptions {
   getWatchDeps?: () => import("./routes/watch-routes.js").WatchDeps;
   /** Provider for recording dependencies (recording routes). */
   getRecordingDeps?: () => import("./routes/recording-routes.js").RecordingDeps;
+  /** Accessor for the CES client, used to push API key updates to CES after hatch. */
+  getCesClient?: () => CesClient | undefined;
 }
 
 export interface RuntimeAttachmentMetadata {

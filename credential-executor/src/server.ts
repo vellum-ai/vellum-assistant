@@ -90,6 +90,8 @@ export interface CesServerOptions {
   signal?: AbortSignal;
   /** Callback invoked when the handshake completes with the negotiated session ID and optional API key. */
   onHandshakeComplete?: (sessionId: string, assistantApiKey?: string) => void;
+  /** Callback invoked when the assistant pushes an updated API key after hatch. */
+  onApiKeyUpdate?: (assistantApiKey: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,6 +118,16 @@ export class CesRpcServer {
     this.logger = options.logger ?? console;
     this.signal = options.signal;
     this.onHandshakeComplete = options.onHandshakeComplete;
+
+    // Auto-register the update_managed_credential handler if a callback is provided.
+    if (options.onApiKeyUpdate) {
+      const onUpdate = options.onApiKeyUpdate;
+      this.handlers[CesRpcMethod.UpdateManagedCredential] = (request: unknown) => {
+        const { assistantApiKey } = request as { assistantApiKey: string };
+        onUpdate(assistantApiKey);
+        return { updated: true };
+      };
+    }
   }
 
   /**

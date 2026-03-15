@@ -3,6 +3,7 @@ import {
   getConfig,
   invalidateConfigCache,
 } from "../../config/loader.js";
+import type { CesClient } from "../../credential-execution/client.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
@@ -32,7 +33,10 @@ function isManagedProxyCredential(service: string, field: string): boolean {
   );
 }
 
-export async function handleAddSecret(req: Request): Promise<Response> {
+export async function handleAddSecret(
+  req: Request,
+  getCesClient?: () => CesClient | undefined,
+): Promise<Response> {
   const body = (await req.json()) as {
     type?: string;
     name?: string;
@@ -102,6 +106,22 @@ export async function handleAddSecret(req: Request): Promise<Response> {
       upsertCredentialMetadata(service, field, {});
       if (isManagedProxyCredential(service, field)) {
         await initializeProviders(getConfig());
+        // Push the API key to CES so managed credential materialization
+        // works even though the handshake ran before the key was available.
+        const cesClient = getCesClient?.();
+        if (cesClient?.isReady()) {
+          try {
+            await cesClient.updateAssistantApiKey(value);
+            log.info(
+              "Pushed assistant API key to CES after managed proxy credential update",
+            );
+          } catch (err) {
+            log.warn(
+              { error: err instanceof Error ? err.message : String(err) },
+              "Failed to push assistant API key to CES (non-fatal)",
+            );
+          }
+        }
       }
       log.info({ service, field }, "Credential added via HTTP");
       return Response.json({ success: true, type, name }, { status: 201 });
@@ -218,12 +238,19 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function secretRouteDefinitions(): RouteDefinition[] {
+export interface SecretRouteDeps {
+  /** Accessor for the CES client, used to push API key updates after hatch. */
+  getCesClient?: () => CesClient | undefined;
+}
+
+export function secretRouteDefinitions(
+  deps?: SecretRouteDeps,
+): RouteDefinition[] {
   return [
     {
       endpoint: "secrets",
       method: "POST",
-      handler: async ({ req }) => handleAddSecret(req),
+      handler: async ({ req }) => handleAddSecret(req, deps?.getCesClient),
     },
     {
       endpoint: "secrets",
