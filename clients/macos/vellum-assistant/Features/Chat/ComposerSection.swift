@@ -32,13 +32,6 @@ struct ComposerSection: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if let watchSession, watchSession.state == .capturing {
-                WatchProgressView(session: watchSession, onStop: onStopWatch)
-                    .padding(.horizontal, VSpacing.lg)
-                    .padding(.bottom, VSpacing.sm)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-
             ComposerView(
                 inputText: $inputText,
                 hasAPIKey: hasAPIKey,
