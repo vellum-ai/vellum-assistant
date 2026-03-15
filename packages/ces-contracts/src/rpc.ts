@@ -121,11 +121,9 @@ const WorkspaceOutputSchema = z.object({
 export const RunAuthenticatedCommandSchema = z.object({
   /** CES credential handle to use for environment injection. */
   credentialHandle: z.string(),
-  /** The command to execute. */
+  /** Secure command reference in format '<bundleDigest>/<profileName> [argv...]'. Only manifest-driven secure commands are supported. */
   command: z.string(),
-  /** Optional environment variable name mappings for credential injection. */
-  envMappings: z.record(z.string(), z.string()).optional(),
-  /** Optional working directory. */
+  /** Optional path used for resolving workspace input/output staging, not as the actual execution working directory (CES always runs commands in the scratch directory). */
   cwd: z.string().optional(),
   /** Workspace files to stage as read-only inputs in the CES scratch directory. */
   inputs: z.array(WorkspaceInputSchema).optional(),

@@ -40,17 +40,13 @@ class RunAuthenticatedCommandTool implements Tool {
           },
           command: {
             type: "string",
-            description: "The command to execute.",
-          },
-          envMappings: {
-            type: "object",
-            additionalProperties: { type: "string" },
             description:
-              "Optional mapping of environment variable names to credential field paths for injection.",
+              "Secure command reference in format '<bundleDigest>/<profileName> [argv...]'. Only manifest-driven secure commands are supported.",
           },
           cwd: {
             type: "string",
-            description: "Optional working directory for command execution.",
+            description:
+              "Optional path used for resolving workspace input/output staging, not as the actual execution working directory (CES always runs commands in the scratch directory).",
           },
           purpose: {
             type: "string",
@@ -129,7 +125,6 @@ class RunAuthenticatedCommandTool implements Tool {
     const credentialHandle = input.credentialHandle as string;
     const command = input.command as string;
     const purpose = input.purpose as string;
-    const envMappings = input.envMappings as Record<string, string> | undefined;
     const cwd = input.cwd as string | undefined;
     const inputs = input.inputs as Array<{ workspacePath: string }> | undefined;
     const outputs = input.outputs as
@@ -142,7 +137,6 @@ class RunAuthenticatedCommandTool implements Tool {
         credentialHandle,
         command,
         purpose,
-        ...(envMappings ? { envMappings } : {}),
         ...(cwd ? { cwd } : {}),
         ...(inputs ? { inputs } : {}),
         ...(outputs ? { outputs } : {}),

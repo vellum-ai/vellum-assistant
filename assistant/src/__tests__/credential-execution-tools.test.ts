@@ -38,7 +38,6 @@ describe("CES tool schema shapes", () => {
     expect(schema.required).toContain("command");
     expect(schema.required).toContain("purpose");
     // Should include optional fields
-    expect(schema.properties).toHaveProperty("envMappings");
     expect(schema.properties).toHaveProperty("cwd");
     expect(schema.properties).toHaveProperty("grantId");
   });
