@@ -23,6 +23,14 @@ import type {
 } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import { ContextWindowManager } from "../context/window-manager.js";
+import type { CesClient } from "../credential-execution/client.js";
+import { createCesClient } from "../credential-execution/client.js";
+import { isCesToolsEnabled } from "../credential-execution/feature-gates.js";
+import {
+  type CesProcessManager,
+  CesUnavailableError,
+  createCesProcessManager,
+} from "../credential-execution/process-manager.js";
 import { EventBus } from "../events/bus.js";
 import type { AssistantDomainEvents } from "../events/domain-events.js";
 import { createToolAuditListener } from "../events/tool-audit-listener.js";
@@ -48,6 +56,7 @@ import type { AuthContext } from "../runtime/auth/types.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import * as approvalOverrides from "../runtime/session-approval-overrides.js";
 import { ToolExecutor } from "../tools/executor.js";
+import { getLogger } from "../util/logger.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
 import type { CuObservationResult } from "./host-cu-proxy.js";
@@ -116,6 +125,8 @@ export interface SessionMemoryPolicy {
   strictSideEffects: boolean;
 }
 
+const log = getLogger("session");
+
 export const DEFAULT_MEMORY_POLICY: Readonly<SessionMemoryPolicy> =
   Object.freeze({
     scopeId: "default",
@@ -166,6 +177,8 @@ export class Session {
   /** @internal */ hostBashProxy?: HostBashProxy;
   /** @internal */ hostCuProxy?: HostCuProxy;
   /** @internal */ hostFileProxy?: HostFileProxy;
+  /** @internal */ cesProcessManager?: CesProcessManager;
+  /** @internal */ cesClient?: CesClient;
   /** @internal */ readonly queue = new MessageQueue();
   /** @internal */ currentActiveSurfaceId?: string;
   /** @internal */ currentPage?: string;
@@ -312,6 +325,46 @@ export class Session {
 
     const config = getConfig();
     this.streamThinking = config.thinking.streamThinking ?? false;
+
+    // CES (Credential Execution Service) lifecycle — conditionally start the
+    // CES process and perform the RPC handshake when CES tools are enabled.
+    // The initialization is async; cesClient is set once the handshake
+    // completes. Tools reading context.cesClient tolerate it being undefined
+    // until then (they return a graceful error).
+    if (isCesToolsEnabled(config)) {
+      const pm = createCesProcessManager({ assistantConfig: config });
+      this.cesProcessManager = pm;
+      void (async () => {
+        try {
+          const transport = await pm.start();
+          const client = createCesClient(transport);
+          const { accepted, reason } = await client.handshake();
+          if (accepted) {
+            this.cesClient = client;
+            log.info("CES client initialized and handshake accepted");
+          } else {
+            log.warn(
+              { reason },
+              "CES handshake rejected — CES tools will be unavailable",
+            );
+            client.close();
+          }
+        } catch (err) {
+          if (err instanceof CesUnavailableError) {
+            log.info(
+              { reason: err.message },
+              "CES is not available — CES tools will be unavailable",
+            );
+          } else {
+            log.warn(
+              { error: err instanceof Error ? err.message : String(err) },
+              "Failed to initialize CES client — CES tools will be unavailable",
+            );
+          }
+        }
+      })();
+    }
+
     const resolveTools = createResolveToolsCallback(toolDefs, this);
 
     const configuredMaxTokens = maxTokens;
@@ -445,6 +498,15 @@ export class Session {
     this.hostBashProxy?.dispose();
     this.hostCuProxy?.dispose();
     this.hostFileProxy?.dispose();
+    // Gracefully shut down the CES client and process manager
+    if (this.cesClient) {
+      this.cesClient.close();
+      this.cesClient = undefined;
+    }
+    if (this.cesProcessManager) {
+      void this.cesProcessManager.stop();
+      this.cesProcessManager = undefined;
+    }
     disposeSession(this);
   }
 

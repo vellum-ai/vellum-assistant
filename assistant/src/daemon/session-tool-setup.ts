@@ -7,6 +7,7 @@
  */
 
 import { isHttpAuthDisabled } from "../config/env.js";
+import type { CesClient } from "../credential-execution/client.js";
 import { getBindingByConversation } from "../memory/external-conversation-store.js";
 import {
   generateAllowlistOptions,
@@ -108,6 +109,8 @@ export interface ToolSetupContext extends SurfaceSessionContext {
   hostBashProxy?: import("./host-bash-proxy.js").HostBashProxy;
   /** Optional proxy for delegating host_file_read/write/edit execution to a connected client. */
   hostFileProxy?: import("./host-file-proxy.js").HostFileProxy;
+  /** CES RPC client for credential execution operations. Injected when CES tools are enabled and the CES process is available. */
+  cesClient?: CesClient;
 }
 
 // ── buildToolDefinitions ─────────────────────────────────────────────
@@ -187,6 +190,7 @@ export function createToolExecutor(
       toolUseId,
       hostBashProxy: ctx.hostBashProxy,
       hostFileProxy: ctx.hostFileProxy,
+      cesClient: ctx.cesClient,
       onToolLifecycleEvent: handleToolLifecycleEvent,
       sendToClient: (msg) => {
         // Tool context's sendToClient uses a loose { type: string; [key: string]: unknown }
