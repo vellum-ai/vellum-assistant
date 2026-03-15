@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { RiskLevel } from "../permissions/types.js";
 import { makeAuthenticatedRequestTool } from "../tools/credential-execution/make-authenticated-request.js";
 import { manageSecureCommandTool } from "../tools/credential-execution/manage-secure-command-tool.js";
 import { runAuthenticatedCommandTool } from "../tools/credential-execution/run-authenticated-command.js";
@@ -61,7 +62,7 @@ describe("CES tool schema shapes", () => {
 
   test("all CES tools are high risk", () => {
     for (const tool of cesTools) {
-      expect(tool.defaultRiskLevel).toBe("high");
+      expect(tool.defaultRiskLevel).toBe(RiskLevel.High);
     }
   });
 
