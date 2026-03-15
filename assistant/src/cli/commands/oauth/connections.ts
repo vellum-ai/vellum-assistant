@@ -182,9 +182,14 @@ Examples:
           let managedEntries: Array<Record<string, unknown>> = [];
           if (managedResult.ok && managedResult.descriptors.length > 0) {
             let descriptors = managedResult.descriptors;
-            // Apply provider filter if specified
+            // Apply provider filter if specified.  Managed descriptors use
+            // plain slugs (e.g. "google") while the CLI --provider flag uses
+            // the canonical "integration:google" format.  Strip the prefix
+            // before comparing so both forms match.
             if (opts.provider) {
-              const filterKey = opts.provider.toLowerCase();
+              const filterKey = opts.provider
+                .replace(/^integration:/, "")
+                .toLowerCase();
               descriptors = descriptors.filter(
                 (d) => d.provider.toLowerCase() === filterKey,
               );
