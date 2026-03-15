@@ -11,7 +11,7 @@ struct ToolConfirmationKeyboardModel {
     enum Action: Equatable {
         case allowOnce
         case allow10m
-        case allowThread
+        case allowConversation
         case alwaysAllow
         case dontAllow
     }
