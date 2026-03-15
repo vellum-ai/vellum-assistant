@@ -8,6 +8,24 @@ import {
 } from "../../security/secure-keys.js";
 import { log } from "../logger.js";
 
+// ---------------------------------------------------------------------------
+// CES shell lockdown guard
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true when the current process is running inside an untrusted shell
+ * (CES shell lockdown active). CLI commands that store or delete API keys
+ * must check this and fail deterministically.
+ */
+function isUntrustedShell(): boolean {
+  return process.env.VELLUM_UNTRUSTED_SHELL === "1";
+}
+
+/** Error message for commands blocked by CES shell lockdown. */
+const UNTRUSTED_SHELL_ERROR =
+  "This command is not available in untrusted shell mode. " +
+  "API key management is restricted when running under CES shell lockdown.";
+
 export function registerKeysCommand(program: Command): void {
   const keys = program
     .command("keys")
@@ -75,6 +93,12 @@ Examples:
   $ assistant keys set fireworks fw-abc123`,
     )
     .action(async (provider: string, key: string) => {
+      // CES shell lockdown: deny key storage in untrusted shells.
+      if (isUntrustedShell()) {
+        log.error(UNTRUSTED_SHELL_ERROR);
+        process.exit(1);
+      }
+
       if (await setSecureKeyAsync(provider, key)) {
         log.info(`Stored API key for "${provider}"`);
       } else {
@@ -100,6 +124,12 @@ Examples:
   $ assistant keys delete anthropic`,
     )
     .action(async (provider: string) => {
+      // CES shell lockdown: deny key deletion in untrusted shells.
+      if (isUntrustedShell()) {
+        log.error(UNTRUSTED_SHELL_ERROR);
+        process.exit(1);
+      }
+
       const result = await deleteSecureKeyAsync(provider);
       if (result === "deleted") {
         log.info(`Deleted API key for "${provider}"`);

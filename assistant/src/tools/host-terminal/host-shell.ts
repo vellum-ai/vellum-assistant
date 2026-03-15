@@ -1,11 +1,28 @@
+/**
+ * Host shell tool — `host_bash`.
+ *
+ * Unlike the sandboxed `bash` tool, `host_bash` runs commands directly on the
+ * host machine without the OS-level sandbox. Under CES shell lockdown for
+ * untrusted actors, `host_bash` remains available as a user-approved escape
+ * hatch — the guardian must explicitly approve each invocation. It is NOT part
+ * of the strong CES secrecy guarantee because it runs unsandboxed and could
+ * access protected paths or credential material on disk.
+ *
+ * To mitigate risk, when CES shell lockdown is active for untrusted sessions:
+ * - Persistent approvals are disabled (every invocation requires fresh approval).
+ * - The VELLUM_UNTRUSTED_SHELL=1 env flag is set so CLI commands self-deny
+ *   raw-token/secret reveal flows.
+ */
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute } from "node:path";
 
 import { getConfig } from "../../config/loader.js";
+import { isCesShellLockdownEnabled } from "../../credential-execution/feature-gates.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
+import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
 import { formatShellOutput } from "../shared/shell-output.js";
@@ -33,6 +50,9 @@ class HostShellTool implements Tool {
   name = "host_bash";
   description = "Execute a shell command on the host machine";
   category = "host-terminal";
+  // host_bash is a weaker-tier escape hatch under CES lockdown. It remains
+  // Medium risk by default but persistent approvals are disabled for
+  // untrusted sessions (see execute()).
   defaultRiskLevel = RiskLevel.Medium;
 
   getDefinition(): ToolDefinition {
@@ -137,12 +157,32 @@ class HostShellTool implements Tool {
     const timeoutSec = Math.max(1, Math.min(requestedSec, shellMaxTimeoutSec));
     const timeoutMs = timeoutSec * 1000;
 
+    // CES shell lockdown: host_bash is the weaker-tier escape hatch. When
+    // lockdown is active for untrusted actors, persistent approvals are
+    // disabled (every invocation requires fresh guardian approval) and the
+    // VELLUM_UNTRUSTED_SHELL flag is injected to self-deny raw-secret CLI
+    // commands. This does NOT provide the strong CES secrecy guarantee —
+    // the subprocess runs unsandboxed and could access protected paths.
+    const hostLockdownActive =
+      isCesShellLockdownEnabled(config) &&
+      isUntrustedTrustClass(context.trustClass);
+
+    // Disable persistent approvals for untrusted sessions under CES lockdown.
+    // The permission checker reads this from the context, so we set it before
+    // we reach the execution path. This is a signal — the permission checker
+    // consumes it upstream, but we also set forcePromptSideEffects to ensure
+    // every invocation prompts.
+    if (hostLockdownActive) {
+      context.forcePromptSideEffects = true;
+    }
+
     log.info(
       {
         command: redactSecrets(command),
         cwd: workingDir,
         timeoutSec,
         sessionId: context.sessionId,
+        hostLockdownActive,
       },
       "Executing host shell command",
     );
@@ -152,9 +192,16 @@ class HostShellTool implements Tool {
       const stderrChunks: Buffer[] = [];
       let timedOut = false;
 
+      const hostEnv = buildHostShellEnv();
+      // Inject VELLUM_UNTRUSTED_SHELL=1 so assistant CLI commands self-deny
+      // raw-token/secret reveal flows when invoked from an untrusted shell.
+      if (hostLockdownActive) {
+        hostEnv.VELLUM_UNTRUSTED_SHELL = "1";
+      }
+
       const child = spawn("bash", ["-c", "--", command], {
         cwd: workingDir,
-        env: buildHostShellEnv(),
+        env: hostEnv,
         stdio: ["ignore", "pipe", "pipe"],
       });
 
