@@ -33,5 +33,6 @@ Commands:
   skills                                   Browse and install skills from the Vellum catalog
   browser                                  Browser automation, extension relay, and Chrome CDP management
   usage                                    Query LLM token usage and cost data
+  shotgun                                  Start and monitor screen-watch (shotgun) sessions via IPC
   sequence [options]                       Manage email sequences
 `;
