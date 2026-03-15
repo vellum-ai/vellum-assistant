@@ -253,6 +253,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "daemon/handlers/config-model.ts", // model config handler API key lookup
       "daemon/session-slash.ts", // session slash command API key lookup
       "daemon/session-process.ts", // session process API key lookup
+      "daemon/lifecycle.ts", // CLI edge token persistence at startup
       "tools/claude-code/claude-code.ts", // Claude Code tool API key lookup
     ]);
 
