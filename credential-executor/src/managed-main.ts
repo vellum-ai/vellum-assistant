@@ -17,7 +17,7 @@
  * All RPC traffic flows exclusively over the accepted Unix socket stream.
  */
 
-import { mkdirSync, unlinkSync } from "node:fs";
+import { mkdirSync, readFileSync, unlinkSync } from "node:fs";
 import { createServer as createNetServer, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 import { Readable, Writable } from "node:stream";
@@ -137,7 +137,25 @@ function buildHandlers(sessionIdRef: SessionIdRef): RpcHandlerRegistry {
     process.env["CES_ASSISTANT_DATA_MOUNT"] ?? "/assistant-data-ro";
   const mountedVellumRoot = join(assistantDataMount, ".vellum");
 
-  const secureKeyBackend = createLocalSecureKeyBackend(mountedVellumRoot);
+  // The assistant writes its machine entropy to `protected/entropy.key` so
+  // the CES sidecar can derive the same AES decryption key. Without this,
+  // key derivation would use the sidecar's own hostname/user/homedir which
+  // differ from the assistant container's values.
+  let assistantEntropy: string | undefined;
+  const entropyPath = join(mountedVellumRoot, "protected", "entropy.key");
+  try {
+    assistantEntropy = readFileSync(entropyPath, "utf-8");
+    log(`Read assistant entropy from ${entropyPath}`);
+  } catch {
+    warn(
+      `Could not read assistant entropy from ${entropyPath}. ` +
+        "local_static credential decryption may fail if machine entropy differs.",
+    );
+  }
+
+  const secureKeyBackend = createLocalSecureKeyBackend(mountedVellumRoot, {
+    entropyOverride: assistantEntropy,
+  });
   const localMaterialiser = new LocalMaterialiser({ secureKeyBackend });
 
   const credentialMetadataPath = join(

@@ -76,7 +76,7 @@ export function _setStorePath(path: string | null): void {
 // Machine entropy for key derivation
 // ---------------------------------------------------------------------------
 
-function getMachineEntropy(): string {
+export function getMachineEntropy(): string {
   const parts: string[] = [];
   try {
     parts.push(hostname());
@@ -152,9 +152,34 @@ function readStore(): StoreFile | null {
   }
 }
 
+/**
+ * Well-known filename for the persisted machine entropy.
+ * Written alongside `keys.enc` so the CES sidecar (which mounts the
+ * assistant data volume read-only) can derive the same AES key.
+ */
+const ENTROPY_FILENAME = "entropy.key";
+
+/**
+ * Persist the current machine entropy next to the key store so the managed
+ * CES sidecar can read it and derive the same decryption key.
+ */
+function persistEntropy(protectedDir: string): void {
+  try {
+    const entropyPath = join(protectedDir, ENTROPY_FILENAME);
+    const tmpPath = entropyPath + `.tmp.${process.pid}`;
+    writeFileSync(tmpPath, getMachineEntropy(), { mode: 0o600 });
+    chmodSync(tmpPath, 0o600);
+    renameSync(tmpPath, entropyPath);
+  } catch {
+    // Best-effort — local mode doesn't need this file, and managed mode
+    // will log a clear error if it's missing.
+  }
+}
+
 function writeStore(store: StoreFile): void {
   const path = getStorePath();
-  ensureDir(dirname(path));
+  const protectedDir = dirname(path);
+  ensureDir(protectedDir);
   // Atomic write: write to temp file then rename to avoid partial/corrupt writes.
   // Use pid suffix to prevent cross-process collisions while ensuring same-process
   // retries overwrite the stale temp file (avoids orphaned temp files on failure).
@@ -162,6 +187,9 @@ function writeStore(store: StoreFile): void {
   writeFileSync(tmpPath, JSON.stringify(store, null, 2), { mode: 0o600 });
   chmodSync(tmpPath, 0o600);
   renameSync(tmpPath, path);
+
+  // Keep entropy.key in sync so the managed CES sidecar can decrypt.
+  persistEntropy(protectedDir);
 }
 
 function getOrCreateStore(): StoreFile {
