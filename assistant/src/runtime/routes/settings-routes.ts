@@ -100,7 +100,7 @@ async function handleGenerateAvatar(description: string): Promise<Response> {
       getWorkspaceDir(),
       "data",
       "avatar",
-      "custom-avatar.png",
+      "avatar-image.png",
     );
     return Response.json({ ok: true, avatarPath });
   } catch (err) {
@@ -176,7 +176,9 @@ async function handleOAuthConnectStart(body: {
     if (dbApp) {
       clientId = dbApp.clientId;
       if (!clientSecret) {
-        clientSecret = await getSecureKeyAsync(dbApp.clientSecretCredentialPath);
+        clientSecret = await getSecureKeyAsync(
+          dbApp.clientSecretCredentialPath,
+        );
       }
     }
   }

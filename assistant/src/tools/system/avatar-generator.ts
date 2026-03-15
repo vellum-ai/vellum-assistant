@@ -16,7 +16,7 @@ const TOOL_NAME = "set_avatar";
 
 /** Canonical path where the custom avatar PNG is stored. */
 function getAvatarPath(): string {
-  return join(getWorkspaceDir(), "data", "avatar", "custom-avatar.png");
+  return join(getWorkspaceDir(), "data", "avatar", "avatar-image.png");
 }
 
 export const setAvatarTool: Tool = {

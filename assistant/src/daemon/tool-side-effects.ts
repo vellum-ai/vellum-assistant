@@ -203,7 +203,7 @@ registerHook(
       getWorkspaceDir(),
       "data",
       "avatar",
-      "custom-avatar.png",
+      "avatar-image.png",
     );
     broadcastToAllClients?.({ type: "avatar_updated", avatarPath });
   },
