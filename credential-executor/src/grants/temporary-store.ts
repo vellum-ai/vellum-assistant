@@ -28,12 +28,15 @@ export interface TemporaryGrant {
   conversationId?: string;
   /** When the grant was created (epoch ms). */
   createdAt: number;
-  /** When the grant expires (epoch ms). Only set for `allow_10m`. */
+  /** When the grant expires (epoch ms). Set for `allow_10m`; optionally set for `allow_once` (e.g. TTL-scoped fallback grants). */
   expiresAt?: number;
 }
 
 /** Default TTL for timed grants (10 minutes). */
 const DEFAULT_TIMED_DURATION_MS = 10 * 60 * 1000;
+
+/** Default TTL for allow_once fallback grants (30 seconds). */
+export const DEFAULT_ONCE_FALLBACK_TTL_MS = 30 * 1000;
 
 // ---------------------------------------------------------------------------
 // Store implementation
@@ -102,6 +105,8 @@ export class TemporaryGrantStore {
     if (kind === "allow_10m") {
       grant.expiresAt =
         Date.now() + (options?.durationMs ?? DEFAULT_TIMED_DURATION_MS);
+    } else if (kind === "allow_once" && options?.durationMs !== undefined) {
+      grant.expiresAt = Date.now() + options.durationMs;
     }
 
     this.store.set(key, grant);
@@ -128,6 +133,11 @@ export class TemporaryGrantStore {
     if (!grant) return false;
 
     if (grant.kind === "allow_once") {
+      // Check TTL if set (e.g. fallback grants for allow_thread)
+      if (grant.expiresAt !== undefined && Date.now() >= grant.expiresAt) {
+        this.store.delete(key);
+        return false;
+      }
       // Consume on first use
       this.store.delete(key);
       return true;
