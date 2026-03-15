@@ -44,7 +44,7 @@ export interface PersistentGrant {
   scope: string;
   /** When the grant was created (epoch ms). */
   createdAt: number;
-  /** The agent session that created this grant. May be absent on legacy grants. */
+  /** The agent session that created this grant. Backfilled to "unknown" on legacy grants. */
   sessionId: string;
   /** When the grant was revoked (epoch ms), or undefined if active. */
   revokedAt?: number;
@@ -100,7 +100,19 @@ export class PersistentGrantStore {
 
     // Validate the existing file is readable and well-formed.
     // If it isn't, mark corrupt and throw (fail closed).
-    this.loadFromDisk();
+    const grants = this.loadFromDisk();
+
+    // Migration: backfill sessionId on legacy grants that pre-date the field.
+    let migrated = false;
+    for (const grant of grants) {
+      if (grant.sessionId == null) {
+        (grant as { sessionId: string }).sessionId = "unknown";
+        migrated = true;
+      }
+    }
+    if (migrated) {
+      this.writeToDisk(grants);
+    }
   }
 
   /**

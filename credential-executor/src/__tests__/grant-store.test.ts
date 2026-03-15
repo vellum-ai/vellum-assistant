@@ -136,6 +136,121 @@ describe("PersistentGrantStore", () => {
     });
   });
 
+  describe("reactivation of revoked grants", () => {
+    test("adding a grant with same ID as revoked returns true and reactivates", () => {
+      const store = new PersistentGrantStore(tmpDir);
+      store.init();
+
+      const grant = makeGrant({ id: "revoke-reactivate" });
+      store.add(grant);
+      store.markRevoked("revoke-reactivate", "test revocation");
+
+      // Revoked grant should not appear in getAll
+      expect(store.getAll()).toHaveLength(0);
+
+      // Re-add with same ID — should reactivate
+      const reactivated = store.add(
+        makeGrant({ id: "revoke-reactivate", pattern: "bun install" }),
+      );
+      expect(reactivated).toBe(true);
+    });
+
+    test("reactivated grant appears in getAll()", () => {
+      const store = new PersistentGrantStore(tmpDir);
+      store.init();
+
+      store.add(makeGrant({ id: "revoke-visible" }));
+      store.markRevoked("revoke-visible");
+      store.add(makeGrant({ id: "revoke-visible" }));
+
+      const all = store.getAll();
+      expect(all).toHaveLength(1);
+      expect(all[0].id).toBe("revoke-visible");
+      expect(all[0].revokedAt).toBeUndefined();
+      expect(all[0].revokedReason).toBeUndefined();
+    });
+
+    test("reactivated grant fields are updated from the new grant", () => {
+      const store = new PersistentGrantStore(tmpDir);
+      store.init();
+
+      store.add(
+        makeGrant({
+          id: "revoke-update",
+          tool: "host_bash",
+          pattern: "npm install",
+          scope: "/old-project",
+          sessionId: "session-1",
+        }),
+      );
+      store.markRevoked("revoke-update", "no longer needed");
+
+      const newGrant = makeGrant({
+        id: "revoke-update",
+        tool: "command",
+        pattern: "bun install",
+        scope: "/new-project",
+        sessionId: "session-2",
+      });
+      store.add(newGrant);
+
+      const result = store.getById("revoke-update");
+      expect(result).toBeDefined();
+      expect(result!.tool).toBe("command");
+      expect(result!.pattern).toBe("bun install");
+      expect(result!.scope).toBe("/new-project");
+      expect(result!.sessionId).toBe("session-2");
+      expect(result!.revokedAt).toBeUndefined();
+      expect(result!.revokedReason).toBeUndefined();
+    });
+
+    test("reactivated grant round-trips through serialization", () => {
+      const store = new PersistentGrantStore(tmpDir);
+      store.init();
+
+      store.add(makeGrant({ id: "revoke-persist" }));
+      store.markRevoked("revoke-persist", "reason");
+      store.add(makeGrant({ id: "revoke-persist", pattern: "bun test" }));
+
+      // Load from a fresh store instance to verify serialization
+      const store2 = new PersistentGrantStore(tmpDir);
+      const grants = store2.getAll();
+      expect(grants).toHaveLength(1);
+      expect(grants[0].id).toBe("revoke-persist");
+      expect(grants[0].pattern).toBe("bun test");
+      expect(grants[0].revokedAt).toBeUndefined();
+      expect(grants[0].revokedReason).toBeUndefined();
+    });
+  });
+
+  describe("legacy sessionId migration", () => {
+    test("backfills sessionId on legacy grants during init", () => {
+      // Write a grants file with a grant missing sessionId (legacy format)
+      const legacyGrant = {
+        id: "legacy-grant",
+        tool: "host_bash",
+        pattern: "npm install",
+        scope: "/project",
+        createdAt: Date.now(),
+      };
+      writeFileSync(
+        join(tmpDir, "grants.json"),
+        JSON.stringify({ version: 1, grants: [legacyGrant] }, null, 2),
+      );
+
+      const store = new PersistentGrantStore(tmpDir);
+      store.init();
+
+      const grants = store.getAll();
+      expect(grants).toHaveLength(1);
+      expect(grants[0].sessionId).toBe("unknown");
+
+      // Verify it was persisted
+      const raw = JSON.parse(readFileSync(join(tmpDir, "grants.json"), "utf-8"));
+      expect(raw.grants[0].sessionId).toBe("unknown");
+    });
+  });
+
   describe("getById and has", () => {
     test("returns grant by ID", () => {
       const store = new PersistentGrantStore(tmpDir);

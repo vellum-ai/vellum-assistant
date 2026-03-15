@@ -42,7 +42,7 @@ import type { RpcMethodHandler } from "../server.js";
 function projectGrant(grant: PersistentGrant): PersistentGrantRecord {
   return {
     grantId: grant.id,
-    sessionId: grant.sessionId ?? "unknown",
+    sessionId: grant.sessionId,
     credentialHandle: grant.scope,
     proposalType:
       grant.tool === "http" || grant.tool === "command"
