@@ -432,6 +432,40 @@ describe("OAuth token materialisation", () => {
     expect(result.error).toMatch(/disconnected/);
   });
 
+  test("fails when token is expired and hasRefreshToken is false", async () => {
+    const conn = buildOAuthConnection({
+      id: "conn-expired-no-refresh",
+      providerKey: "integration:google",
+      // Token expired 10 minutes ago
+      expiresAt: Date.now() - 10 * 60 * 1000,
+      hasRefreshToken: false,
+    });
+    const deps = createResolverDeps({ oauthConnections: [conn] });
+    const handle = localOAuthHandle(
+      "integration:google",
+      "conn-expired-no-refresh",
+    );
+
+    const resolved = resolveLocalSubject(handle, deps);
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+
+    const backend = createMemoryBackend({
+      [oauthConnectionAccessTokenPath("conn-expired-no-refresh")]:
+        "old-expired-token",
+    });
+    const materialiser = new LocalMaterialiser({
+      secureKeyBackend: backend,
+    });
+
+    const result = await materialiser.materialise(resolved.subject);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatch(/expired/);
+    expect(result.error).toMatch(/no refresh.*token.*available/i);
+  });
+
   test("materialises a token with null expiresAt (no expiry info)", async () => {
     const conn = buildOAuthConnection({
       id: "conn-noexpiry",

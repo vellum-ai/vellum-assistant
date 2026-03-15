@@ -181,11 +181,15 @@ export class LocalMaterialiser {
     }
 
     // 2. Check if the token is expired and needs refresh
-    if (
-      isTokenExpired(connection.expiresAt) &&
-      connection.hasRefreshToken
-    ) {
-      return this.refreshAndMaterialise(subject, connectionId);
+    if (isTokenExpired(connection.expiresAt)) {
+      if (connection.hasRefreshToken) {
+        return this.refreshAndMaterialise(subject, connectionId);
+      }
+      return {
+        ok: false,
+        error: `Token for OAuth connection "${connectionId}" is expired and no refresh ` +
+          `token is available. Re-authorization required.`,
+      };
     }
 
     // 3. Token is valid — return it
