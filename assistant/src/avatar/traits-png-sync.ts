@@ -32,7 +32,13 @@ export function syncTraitsToPng(): boolean {
     return false;
   }
 
-  if (!traits.bodyShape || !traits.eyeStyle || !traits.color) {
+  if (
+    !traits ||
+    typeof traits !== "object" ||
+    !traits.bodyShape ||
+    !traits.eyeStyle ||
+    !traits.color
+  ) {
     log.warn({ traits }, "Invalid character traits — missing required fields");
     return false;
   }
