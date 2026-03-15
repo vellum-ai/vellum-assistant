@@ -118,7 +118,7 @@ mock.module("../hooks/manager.js", () => ({
 }));
 
 mock.module("../memory/conversation-crud.js", () => ({
-  getConversationThreadType: () => "default",
+  getConversationType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationUsage: () => {},
   getMessages: () => [],

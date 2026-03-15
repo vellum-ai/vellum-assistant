@@ -155,7 +155,7 @@ export function runWorkItemInBackground(workItemId: string): RunWorkItemResult {
             session = await getOrCreateSession(conversationId);
 
             broadcast({
-              type: "task_run_thread_created",
+              type: "task_run_conversation_created",
               conversationId,
               workItemId,
               title: workItem.title,

@@ -8,19 +8,21 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { validateConversationActions } from "../notifications/decision-engine.js";
 import type {
   ConversationCandidate,
   ConversationCandidateSet,
 } from "../notifications/conversation-candidates.js";
+import { validateConversationActions } from "../notifications/decision-engine.js";
 import type {
-  NotificationChannel,
   ConversationAction,
+  NotificationChannel,
 } from "../notifications/types.js";
 
 // -- Helpers -----------------------------------------------------------------
 
-function makeCandidate(overrides?: Partial<ConversationCandidate>): ConversationCandidate {
+function makeCandidate(
+  overrides?: Partial<ConversationCandidate>,
+): ConversationCandidate {
   return {
     conversationId: "conv-default",
     title: "Test Thread",

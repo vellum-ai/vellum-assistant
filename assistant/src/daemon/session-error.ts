@@ -174,7 +174,7 @@ function classifyCore(
       return {
         code: "CONTEXT_TOO_LARGE",
         userMessage:
-          "This conversation is too long. Please start a new thread.",
+          "This conversation is too long. Please start a new conversation.",
         retryable: false,
         errorCategory: "context_too_large",
       };
@@ -209,7 +209,7 @@ function classifyCore(
         return {
           code: "CONTEXT_TOO_LARGE",
           userMessage:
-            "This conversation is too long. Please start a new thread.",
+            "This conversation is too long. Please start a new conversation.",
           retryable: false,
           errorCategory: "context_too_large",
         };
@@ -286,7 +286,8 @@ function classifyByMessage(
   if (isContextTooLarge(message)) {
     return {
       code: "CONTEXT_TOO_LARGE",
-      userMessage: "This conversation is too long. Please start a new thread.",
+      userMessage:
+        "This conversation is too long. Please start a new conversation.",
       retryable: false,
       errorCategory: "context_too_large",
     };

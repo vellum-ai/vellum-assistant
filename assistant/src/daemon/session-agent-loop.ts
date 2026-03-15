@@ -428,7 +428,7 @@ export async function runAgentLoopImpl(
         ctx.messages.pop();
         deleteMessageById(userMessageId);
       }
-      // Replace loading placeholder so the thread isn't stuck as "Generating title..."
+      // Replace loading placeholder so the conversation isn't stuck as "Generating title..."
       const currentConv = getConversation(ctx.conversationId);
       if (
         isReplaceableTitle(currentConv?.title ?? null) &&
@@ -1285,7 +1285,7 @@ export async function runAgentLoopImpl(
             const denyText =
               "The conversation has grown too long for the model to process, " +
               "and compression was declined. Please start a new conversation " +
-              "or manually shorten the thread to continue.";
+              "or manually shorten the conversation to continue.";
             const loopChannelMeta = {
               ...provenanceFromTrustContext(ctx.trustContext),
               userMessageChannel: capturedTurnChannelContext.userMessageChannel,

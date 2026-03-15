@@ -26,8 +26,8 @@ describe("isAttachmentVisible", () => {
     isPrivate: true,
   };
 
-  describe("standard thread attachments", () => {
-    test("visible from a standard thread", () => {
+  describe("standard conversation attachments", () => {
+    test("visible from a standard conversation", () => {
       const ctx: AttachmentContext = {
         conversationId: "conv-other",
         isPrivate: false,
@@ -35,7 +35,7 @@ describe("isAttachmentVisible", () => {
       expect(isAttachmentVisible(standardAttachment, ctx)).toBe(true);
     });
 
-    test("visible from a different standard thread", () => {
+    test("visible from a different standard conversation", () => {
       const ctx: AttachmentContext = {
         conversationId: "conv-standard-002",
         isPrivate: false,
@@ -43,7 +43,7 @@ describe("isAttachmentVisible", () => {
       expect(isAttachmentVisible(standardAttachment, ctx)).toBe(true);
     });
 
-    test("visible from a private thread", () => {
+    test("visible from a private conversation", () => {
       const ctx: AttachmentContext = {
         conversationId: "conv-private-xyz",
         isPrivate: true,
@@ -64,8 +64,8 @@ describe("isAttachmentVisible", () => {
     });
   });
 
-  describe("private thread attachments", () => {
-    test("visible from the same private thread", () => {
+  describe("private conversation attachments", () => {
+    test("visible from the same private conversation", () => {
       const ctx: AttachmentContext = {
         conversationId: privateAttachmentA.conversationId,
         isPrivate: true,
@@ -73,7 +73,7 @@ describe("isAttachmentVisible", () => {
       expect(isAttachmentVisible(privateAttachmentA, ctx)).toBe(true);
     });
 
-    test("NOT visible from a different private thread", () => {
+    test("NOT visible from a different private conversation", () => {
       const ctx: AttachmentContext = {
         conversationId: privateAttachmentB.conversationId,
         isPrivate: true,
@@ -81,7 +81,7 @@ describe("isAttachmentVisible", () => {
       expect(isAttachmentVisible(privateAttachmentA, ctx)).toBe(false);
     });
 
-    test("NOT visible from a standard thread", () => {
+    test("NOT visible from a standard conversation", () => {
       const ctx: AttachmentContext = {
         conversationId: "conv-standard-001",
         isPrivate: false,
@@ -97,7 +97,7 @@ describe("isAttachmentVisible", () => {
       expect(isAttachmentVisible(privateAttachmentA, ctx)).toBe(false);
     });
 
-    test("NOT visible from standard thread even with same conversationId", () => {
+    test("NOT visible from standard conversation even with same conversationId", () => {
       // Edge case: same conversationId but the context is not marked as private
       const ctx: AttachmentContext = {
         conversationId: privateAttachmentA.conversationId,
@@ -151,7 +151,7 @@ describe("filterVisibleAttachments", () => {
     expect(result).toEqual([standardAtt]);
   });
 
-  test("includes matching private attachment when in same private thread", () => {
+  test("includes matching private attachment when in same private conversation", () => {
     const ctx: AttachmentContext = {
       conversationId: "conv-priv-a",
       isPrivate: true,

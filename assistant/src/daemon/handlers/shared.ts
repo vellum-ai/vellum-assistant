@@ -128,7 +128,7 @@ export interface SessionCreateOptions {
   /** Whether this turn can block on interactive approval prompts. */
   isInteractive?: boolean;
   memoryScopeId?: string;
-  isPrivateThread?: boolean;
+  isPrivateConversation?: boolean;
   strictPrivateSideEffects?: boolean;
   /** Channel command intent metadata (e.g. Telegram /start). */
   commandIntent?: { type: string; payload?: string; languageCode?: string };

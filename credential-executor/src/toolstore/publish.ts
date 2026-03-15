@@ -27,7 +27,7 @@
  *    workspace directory or use non-HTTPS schemes are rejected.
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getCesToolStoreDir, type CesMode } from "../paths.js";
@@ -302,9 +302,44 @@ export function publishBundle(request: PublishRequest): PublishResult {
   mkdirSync(stagingDir, { recursive: true });
 
   try {
-    // Write bundle content
+    // Write bundle content (raw archive bytes for digest verification)
     const stagingBundlePath = join(stagingDir, BUNDLE_FILENAME);
     writeFileSync(stagingBundlePath, bundleBytes, { mode: 0o444 });
+
+    // Extract the tar.gz archive into the staging directory.
+    // The archive is expected to contain the runnable bundle contents,
+    // including the entrypoint declared in the manifest.
+    const extractProc = Bun.spawnSync(
+      ["tar", "xzf", stagingBundlePath, "-C", stagingDir],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+    if (extractProc.exitCode !== 0) {
+      const stderr = extractProc.stderr
+        ? new TextDecoder().decode(extractProc.stderr).trim()
+        : "unknown error";
+      throw new Error(
+        `Bundle extraction failed (exit code ${extractProc.exitCode}): ${stderr}`,
+      );
+    }
+
+    // Remove the raw archive — the extracted contents replace it
+    try {
+      unlinkSync(stagingBundlePath);
+    } catch {
+      // Best effort — the file may have been overwritten by extraction
+    }
+
+    // Validate that the declared entrypoint exists after extraction
+    const extractedEntrypoint = join(stagingDir, secureCommandManifest.entrypoint);
+    if (!existsSync(extractedEntrypoint)) {
+      throw new Error(
+        `Entrypoint "${secureCommandManifest.entrypoint}" not found in extracted bundle contents. ` +
+        `The archive must contain the declared entrypoint path.`,
+      );
+    }
+
+    // Make the entrypoint executable
+    chmodSync(extractedEntrypoint, 0o555);
 
     // Build and write toolstore manifest
     const toolstoreManifest: ToolstoreManifest = {

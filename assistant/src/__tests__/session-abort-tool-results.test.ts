@@ -77,7 +77,7 @@ mock.module("../security/secret-allowlist.js", () => ({
 let persistedMessages: Array<{ role: string; content: string }> = [];
 
 mock.module("../memory/conversation-crud.js", () => ({
-  getConversationThreadType: () => "default",
+  getConversationType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},

@@ -1,7 +1,8 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { randomUUID } from "node:crypto";
 
 import {
   type SecureCommandManifest,
@@ -26,20 +27,42 @@ import {
 // Test fixtures
 // ---------------------------------------------------------------------------
 
-/** Sample bundle bytes (just some arbitrary content for testing). */
-const SAMPLE_BUNDLE_BYTES = Buffer.from(
-  "#!/usr/bin/env bash\necho hello\n",
-  "utf-8",
-);
+/**
+ * Create a tar.gz archive containing a shell script at the given entrypoint path.
+ * Returns the archive bytes.
+ */
+function createTestArchive(
+  entrypoint: string,
+  scriptContent = "#!/usr/bin/env bash\necho hello\n",
+): Buffer {
+  const stagingDir = join(tmpdir(), `ces-test-archive-${randomUUID()}`);
+  try {
+    const entrypointPath = join(stagingDir, entrypoint);
+    mkdirSync(join(stagingDir, entrypoint, ".."), { recursive: true });
+    writeFileSync(entrypointPath, scriptContent, { mode: 0o755 });
+
+    const archivePath = join(stagingDir, "bundle.tar.gz");
+    const proc = Bun.spawnSync(
+      ["tar", "czf", archivePath, "-C", stagingDir, entrypoint],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+    if (proc.exitCode !== 0) {
+      throw new Error(`Failed to create test archive: ${new TextDecoder().decode(proc.stderr).trim()}`);
+    }
+    return Buffer.from(readFileSync(archivePath));
+  } finally {
+    try { rmSync(stagingDir, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
+}
+
+/** Sample bundle bytes as a valid tar.gz archive containing bin/test-cli. */
+const SAMPLE_BUNDLE_BYTES = createTestArchive("bin/test-cli");
 
 /** The correct SHA-256 digest of SAMPLE_BUNDLE_BYTES. */
 const SAMPLE_BUNDLE_DIGEST = computeDigest(SAMPLE_BUNDLE_BYTES);
 
-/** A different set of bytes to test digest mismatches. */
-const TAMPERED_BUNDLE_BYTES = Buffer.from(
-  "#!/usr/bin/env bash\nrm -rf /\n",
-  "utf-8",
-);
+/** A different archive to test digest mismatches. */
+const TAMPERED_BUNDLE_BYTES = createTestArchive("bin/test-cli", "#!/usr/bin/env bash\nrm -rf /\n");
 
 /**
  * Build a minimal valid SecureCommandManifest for testing.
@@ -350,15 +373,20 @@ describe("publishBundle — immutable and deduplicated by digest", () => {
     expect(second.bundlePath).toBe(first.bundlePath);
   });
 
-  test("published bundle content is readable and matches original bytes", () => {
+  test("published bundle contains extracted entrypoint (not raw archive)", () => {
     const result = publishBundle(buildPublishRequest());
     expect(result.success).toBe(true);
 
+    // After extraction, bundle.bin is removed and replaced by extracted contents
     const bundleContentPath = join(result.bundlePath, "bundle.bin");
-    expect(existsSync(bundleContentPath)).toBe(true);
+    expect(existsSync(bundleContentPath)).toBe(false);
 
-    const readBack = readFileSync(bundleContentPath);
-    expect(Buffer.compare(readBack, SAMPLE_BUNDLE_BYTES)).toBe(0);
+    // The entrypoint should exist and be executable
+    const entrypointPath = join(result.bundlePath, "bin", "test-cli");
+    expect(existsSync(entrypointPath)).toBe(true);
+
+    const content = readFileSync(entrypointPath, "utf-8");
+    expect(content).toContain("echo hello");
   });
 
   test("published manifest is readable and has correct fields", () => {
@@ -390,8 +418,8 @@ describe("publishBundle — immutable and deduplicated by digest", () => {
     const firstResult = publishBundle(buildPublishRequest());
     expect(firstResult.success).toBe(true);
 
-    // Publish a second, different bundle
-    const otherBytes = Buffer.from("#!/usr/bin/env bash\necho other\n", "utf-8");
+    // Publish a second, different bundle (real tar.gz archive)
+    const otherBytes = createTestArchive("bin/test-cli", "#!/usr/bin/env bash\necho other\n");
     const otherDigest = computeDigest(otherBytes);
     const otherManifest = buildSecureManifest({
       bundleDigest: otherDigest,

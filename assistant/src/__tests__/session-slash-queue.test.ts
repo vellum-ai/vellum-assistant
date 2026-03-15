@@ -79,7 +79,7 @@ mock.module("../security/secret-allowlist.js", () => ({
 }));
 
 mock.module("../memory/conversation-crud.js", () => ({
-  getConversationThreadType: () => "default",
+  getConversationType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},

@@ -16,14 +16,14 @@ export interface NotificationIntent {
   targetGuardianPrincipalId?: string;
 }
 
-/** Server push — broadcast when a notification creates a new vellum conversation thread. */
-export interface NotificationThreadCreated {
-  type: "notification_thread_created";
+/** Server push — broadcast when a notification creates a new vellum conversation. */
+export interface NotificationConversationCreated {
+  type: "notification_conversation_created";
   conversationId: string;
   title: string;
   sourceEventName: string;
   /**
-   * When set, this thread was created for a guardian-sensitive notification
+   * When set, this conversation was created for a guardian-sensitive notification
    * and should only be surfaced by clients bound to this guardian identity.
    */
   targetGuardianPrincipalId?: string;
@@ -73,4 +73,4 @@ export type _NotificationsClientMessages =
 
 export type _NotificationsServerMessages =
   | NotificationIntent
-  | NotificationThreadCreated;
+  | NotificationConversationCreated;

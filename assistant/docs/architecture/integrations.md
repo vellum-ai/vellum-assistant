@@ -598,6 +598,6 @@ graph TB
 | `assistant/src/tools/assets/materialize.ts`       | `asset_materialize` tool — decode and write attachment to sandbox path                  |
 | `assistant/src/daemon/media-visibility-policy.ts` | Pure policy module — `isAttachmentVisible()`, `filterVisibleAttachments()`              |
 | `assistant/src/memory/schema.ts`                  | `attachments` and `message_attachments` table schemas                                   |
-| `assistant/src/memory/conversation-crud.ts`       | `getConversationThreadType()` — thread type lookup for visibility context               |
+| `assistant/src/memory/conversation-crud.ts`       | `getConversationType()` — conversation type lookup for visibility context               |
 
 ---

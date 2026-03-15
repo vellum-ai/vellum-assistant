@@ -74,7 +74,7 @@ function getBroadcaster(): NotificationBroadcaster {
       const broadcastFn = registeredBroadcastFn;
       broadcasterInstance.setOnConversationCreated((info) => {
         broadcastFn({
-          type: "notification_thread_created",
+          type: "notification_conversation_created",
           conversationId: info.conversationId,
           title: info.title,
           sourceEventName: info.sourceEventName,
