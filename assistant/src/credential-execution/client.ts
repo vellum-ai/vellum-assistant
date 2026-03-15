@@ -205,11 +205,20 @@ export function createCesClient(
         });
       });
 
-      sendLine({
-        type: "handshake_request",
-        protocolVersion: CES_PROTOCOL_VERSION,
-        sessionId,
-      });
+      try {
+        sendLine({
+          type: "handshake_request",
+          protocolVersion: CES_PROTOCOL_VERSION,
+          sessionId,
+        });
+      } catch (err) {
+        const entry = pending.get("handshake");
+        if (entry) {
+          clearTimeout(entry.timer);
+          pending.delete("handshake");
+        }
+        throw err;
+      }
 
       const ack = await ackPromise;
 
@@ -276,7 +285,16 @@ export function createCesClient(
         timestamp: new Date().toISOString(),
       };
 
-      sendLine({ type: "rpc", ...envelope });
+      try {
+        sendLine({ type: "rpc", ...envelope });
+      } catch (err) {
+        const entry = pending.get(id);
+        if (entry) {
+          clearTimeout(entry.timer);
+          pending.delete(id);
+        }
+        throw err;
+      }
 
       const rawResponse = await responsePromise;
 
