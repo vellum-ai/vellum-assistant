@@ -311,6 +311,7 @@ private struct WorkspaceTreeSidebar: View {
                     }
                     .padding(.vertical, VSpacing.xs)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background {
                     GeometryReader { geo in
                         Color.clear
