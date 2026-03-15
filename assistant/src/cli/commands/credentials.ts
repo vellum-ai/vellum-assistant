@@ -29,6 +29,24 @@ import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
 
 // ---------------------------------------------------------------------------
+// CES shell lockdown guard
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true when the current process is running inside an untrusted shell
+ * (CES shell lockdown active). CLI commands that reveal raw secrets must
+ * check this and fail deterministically.
+ */
+function isUntrustedShell(): boolean {
+  return process.env.VELLUM_UNTRUSTED_SHELL === "1";
+}
+
+/** Error message for commands blocked by CES shell lockdown. */
+const UNTRUSTED_SHELL_ERROR =
+  "This command is not available in untrusted shell mode. " +
+  "Raw secret access is restricted when running under CES shell lockdown.";
+
+// ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
 
@@ -173,9 +191,7 @@ function buildManagedCredentialOutput(
 /**
  * Print a human-readable view of a platform-managed credential to the logger.
  */
-function printManagedCredentialHuman(
-  output: Record<string, unknown>,
-): void {
+function printManagedCredentialHuman(output: Record<string, unknown>): void {
   log.info(`  [platform-managed] ${output.provider}`);
   log.info(`    Handle:      ${output.handle}`);
   log.info(`    Status:      ${output.status}`);
@@ -676,6 +692,13 @@ Examples:
         cmd: Command,
       ) => {
         try {
+          // CES shell lockdown: deny raw secret reveal in untrusted shells.
+          if (isUntrustedShell()) {
+            writeOutput(cmd, { ok: false, error: UNTRUSTED_SHELL_ERROR });
+            process.exitCode = 1;
+            return;
+          }
+
           let storageKey: string;
 
           if (opts.service && opts.field) {
