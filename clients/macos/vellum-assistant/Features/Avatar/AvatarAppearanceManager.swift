@@ -211,6 +211,7 @@ final class AvatarAppearanceManager {
         cachedFallbackAvatar = nil
         cachedFullFallbackAvatar = nil
         loadCustomAvatar()
+        loadAvatarComponents()
     }
 
     func clearCustomAvatar() {
@@ -316,8 +317,8 @@ final class AvatarAppearanceManager {
         source.setEventHandler { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                self.loadAvatarComponents()
                 if FileManager.default.fileExists(atPath: self.avatarComponentsURL.path) {
-                    self.loadAvatarComponents()
                     self.watchTraitsFile()
                 }
                 if FileManager.default.fileExists(atPath: self.customAvatarURL.path) {
