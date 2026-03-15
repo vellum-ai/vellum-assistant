@@ -106,14 +106,15 @@ export function derivePathTemplate(rawUrl: string): string {
   const host = parsed.hostname + (parsed.port ? `:${parsed.port}` : "");
 
   // Split path into segments, dropping empty segments from leading/trailing slashes.
-  // Decode each segment before classification so that derivation and matching
-  // operate on the same decoded form (closing a prior asymmetry where
-  // derivePathTemplate used raw segments but urlMatchesTemplate decoded them).
   const rawSegments = parsed.pathname
     .split("/")
     .filter((s) => s.length > 0);
 
-  const segments = rawSegments.map((seg) => {
+  // Decode each segment for classification and placeholder detection, but
+  // preserve the raw (encoded) form for literal segments in the rebuilt
+  // template. This prevents encoded delimiters like %2F from being decoded
+  // into real path separators, which would change URL structure.
+  const decodedSegments = rawSegments.map((seg) => {
     const decoded = safeDecodeSegment(seg);
     // If decoding fails, keep the raw segment — it will be stored as a
     // literal and can never match anything meaningful (fail closed).
@@ -124,7 +125,7 @@ export function derivePathTemplate(rawUrl: string): string {
   // patterns. Legitimate URLs never contain literal "{:num}" etc. as path
   // segments; their presence indicates an attempt to inject wildcards via
   // percent-encoding (e.g. %7B:num%7D).
-  for (const seg of segments) {
+  for (const seg of decodedSegments) {
     if (PLACEHOLDER_LITERALS.has(seg)) {
       throw new Error(
         `Refusing to derive path template: segment "${seg}" is a reserved placeholder literal`,
@@ -132,7 +133,12 @@ export function derivePathTemplate(rawUrl: string): string {
     }
   }
 
-  const templatedSegments = segments.map(classifySegment);
+  const templatedSegments = decodedSegments.map((decoded, i) => {
+    const classified = classifySegment(decoded);
+    // If the segment was replaced with a placeholder, use the placeholder.
+    // Otherwise, use the raw (encoded) segment to preserve URL structure.
+    return classified !== decoded ? classified : rawSegments[i]!;
+  });
 
   const path =
     templatedSegments.length > 0
