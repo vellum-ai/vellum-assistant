@@ -800,6 +800,12 @@ describe("web_search_tool_result structural guard", () => {
     // helper function definition (which canonically defines the check).
     // We use brace depth tracking so nested blocks (if/else, etc.) inside the
     // helper don't prematurely end the allowlisted region.
+    //
+    // Two-phase state: `insideHelperSignature` is true when we've matched the
+    // function name but haven't yet seen the opening `{` (handles multi-line
+    // signatures like `function isToolResultBlock(\n  ...\n): boolean {`).
+    // Once the first `{` is found, we switch to brace-depth tracking.
+    let insideHelperSignature = false;
     let helperBraceDepth = 0;
 
     // Track which lines have already been used to suppress a raw tool_result check.
@@ -813,17 +819,35 @@ describe("web_search_tool_result structural guard", () => {
 
       // Detect entry of known helper functions that define the canonical check
       if (
+        !insideHelperSignature &&
         helperBraceDepth === 0 &&
         /function isToolResult(Block|Content)\b/.test(line)
       ) {
-        // Count opening braces on the declaration line itself (e.g. `function foo() {`)
+        // The opening `{` may be on this line or a subsequent line (multi-line
+        // signatures). Check if there are braces on this line to determine
+        // whether we can start depth tracking immediately.
         const opens = (line.match(/{/g) || []).length;
         const closes = (line.match(/}/g) || []).length;
-        helperBraceDepth = opens - closes;
+        if (opens > 0) {
+          helperBraceDepth = opens - closes;
+        } else {
+          insideHelperSignature = true;
+        }
         continue;
       }
 
-      // Track brace depth while inside a helper function
+      // Still scanning the multi-line function signature for the opening `{`
+      if (insideHelperSignature) {
+        const opens = (line.match(/{/g) || []).length;
+        if (opens > 0) {
+          const closes = (line.match(/}/g) || []).length;
+          helperBraceDepth = opens - closes;
+          insideHelperSignature = false;
+        }
+        continue;
+      }
+
+      // Track brace depth while inside a helper function body
       if (helperBraceDepth > 0) {
         const opens = (line.match(/{/g) || []).length;
         const closes = (line.match(/}/g) || []).length;
