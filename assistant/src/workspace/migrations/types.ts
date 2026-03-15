@@ -1,5 +1,6 @@
 export interface WorkspaceMigration {
-  /** Unique identifier, e.g. "001-avatar-rename". Used as the checkpoint key. */
+  /** Unique identifier, e.g. "001-avatar-rename". Used as the checkpoint key.
+   *  Must be unique across all registered migrations — the runner validates this at startup. */
   id: string;
   /** Human-readable description for logging. */
   description: string;
