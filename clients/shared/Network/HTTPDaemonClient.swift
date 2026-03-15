@@ -3782,7 +3782,7 @@ public final class HTTPTransport {
         }
     }
 
-    func reorderThreads(updates: [ReorderThreadsRequestUpdate], isRetry: Bool = false) async {
+    func reorderConversations(updates: [ReorderConversationsRequestUpdate], isRetry: Bool = false) async {
         guard let url = buildURL(for: .sessionsReorder) else { return }
 
         var request = URLRequest(url: url)
@@ -3814,7 +3814,7 @@ public final class HTTPTransport {
             } else if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                 if case .success = refreshResult {
-                    await reorderThreads(updates: updates, isRetry: true)
+                    await reorderConversations(updates: updates, isRetry: true)
                 }
             } else {
                 log.error("Reorder threads failed (HTTP \(http.statusCode))")

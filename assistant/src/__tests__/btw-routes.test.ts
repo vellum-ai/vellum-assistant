@@ -422,7 +422,7 @@ describe("POST /v1/btw", () => {
     >;
 
     const res = await callHandler(
-      { conversationKey: "my-thread-key", content: "What is 2+2?" },
+      { conversationKey: "my-conversation-key", content: "What is 2+2?" },
       { sendMessageDeps: deps },
     );
     await readStream(res);

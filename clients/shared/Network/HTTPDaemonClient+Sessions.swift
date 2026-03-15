@@ -58,8 +58,8 @@ extension HTTPTransport {
             } else if let msg = message as? DeleteQueuedMessageMessage {
                 Task { await self.deleteQueuedMessage(sessionId: msg.sessionId, requestId: msg.requestId) }
                 return true
-            } else if let msg = message as? ReorderThreadsRequest {
-                Task { await self.reorderThreads(updates: msg.updates) }
+            } else if let msg = message as? ReorderConversationsRequest {
+                Task { await self.reorderConversations(updates: msg.updates) }
                 return true
             }
 

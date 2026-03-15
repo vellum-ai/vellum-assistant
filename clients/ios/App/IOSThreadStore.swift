@@ -911,7 +911,7 @@ class IOSThreadStore: ObservableObject {
             locallyEditedPinSessionIds.insert(sid)
         }
         recompactPinnedDisplayOrders()
-        sendReorderThreads()
+        sendReorderConversations()
         saveConnectedCache()
     }
 
@@ -928,7 +928,7 @@ class IOSThreadStore: ObservableObject {
             locallyEditedPinSessionIds.insert(sid)
         }
         recompactPinnedDisplayOrders()
-        sendReorderThreads()
+        sendReorderConversations()
         saveConnectedCache()
     }
 
@@ -1034,13 +1034,13 @@ class IOSThreadStore: ObservableObject {
         }
     }
 
-    private func sendReorderThreads() {
-        let updates = threads.compactMap { thread -> ReorderThreadsRequestUpdate? in
+    private func sendReorderConversations() {
+        let updates = threads.compactMap { thread -> ReorderConversationsRequestUpdate? in
             guard let sessionId = thread.sessionId, !thread.isArchived, !thread.isPrivate else {
                 return nil
             }
 
-            return ReorderThreadsRequestUpdate(
+            return ReorderConversationsRequestUpdate(
                 sessionId: sessionId,
                 displayOrder: thread.displayOrder.map(Double.init),
                 isPinned: thread.isPinned
@@ -1049,8 +1049,8 @@ class IOSThreadStore: ObservableObject {
         guard !updates.isEmpty else { return }
 
         do {
-            try daemonClient.send(ReorderThreadsRequest(
-                type: "reorder_threads",
+            try daemonClient.send(ReorderConversationsRequest(
+                type: "reorder_conversations",
                 updates: updates
             ))
         } catch {}
