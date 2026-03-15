@@ -21,7 +21,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 ## Cross-Cutting Invariants
 
 - Public ingress is gateway-only; external webhook/API routes are implemented in `gateway/` and forwarded internally.
-- Bundled-skill outbound API calls that require credentials default to proxied execution (`bash` with `network_mode: "proxied"` + `credential_ids`) rather than manual token plumbing.
+- Bundled-skill outbound API calls that require credentials use the Credential Execution Service (CES) tools (`make_authenticated_request`, `run_authenticated_command`) rather than manual token plumbing or proxied shell execution. See `assistant/docs/credential-execution-service.md`.
 - Managed shared-identity channel routing runs in a separate managed-gateway service lane from the per-assistant `gateway/` lane. The deployable managed-gateway runtime is platform-owned; this repo keeps public contracts/fixtures under `gateway-managed/`.
 - Production LLM calls go through the provider abstraction, not provider SDKs in feature code.
 - Notification producers emit through `emitNotificationSignal()` to preserve decisioning and audit invariants. Reminder routing metadata (`routingIntent`, `routingHints`) flows through the signal and is enforced post-decision to control multi-channel fanout. The decision engine produces per-channel conversation actions (`start_new` / `reuse_existing`) validated against a candidate set; `notification_conversation_created` is emitted only on actual creation, not on reuse.
@@ -471,15 +471,9 @@ subgraph "Text Q&A Session"
     SKILL_FACTORY -->|"host tools"| SKILL_HOST_RUNNER
     SKILL_FACTORY -->|"sandbox tools"| SKILL_SANDBOX_RUNNER
 
-    %% Script proxy data flow
-    SESSION_MGR -->|"proxied bash<br/>network_mode"| PROXY_SESSION
-    PROXY_SESSION --> PROXY_SERVER
-    PROXY_SERVER --> PROXY_ROUTER
-    PROXY_ROUTER -->|"mitm: credential_injection"| PROXY_MITM
-    PROXY_MITM --> PROXY_CERTS
-    PROXY_SERVER --> PROXY_POLICY
-    PROXY_POLICY -->|"ask_*"| PROXY_APPROVAL
-    PROXY_APPROVAL --> HANDLERS
+    %% CES data flow
+    SESSION_MGR -->|"CES RPC<br/>(stdio/socket)"| CES_PROCESS
+    CES_PROCESS -->|"credential<br/>materialization"| CES_GRANTS
 
     %% Asset tools data flow
     SESSION_MGR -->|"tool_use"| ASSET_SEARCH
