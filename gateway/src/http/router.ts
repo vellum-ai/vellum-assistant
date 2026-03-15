@@ -61,7 +61,6 @@ export interface RouteDefinition {
 
 export interface RouterDeps {
   authRateLimiter: AuthRateLimiter;
-  trustProxy?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -84,7 +83,7 @@ export function createRouter(
   getClientIp: GetClientIp,
   server?: Server,
 ) => Promise<Response> | Response | null {
-  const { authRateLimiter, trustProxy } = deps;
+  const { authRateLimiter } = deps;
 
   return (
     req: Request,
@@ -114,7 +113,7 @@ export function createRouter(
             authRateLimiter,
             getClientIp,
           );
-          const authError = requireEdgeAuth(req, server, { trustProxy });
+          const authError = requireEdgeAuth(req, server);
           if (authError) return authError;
           return route.handler(req, matchResult.params, getClientIp);
         }
@@ -124,12 +123,7 @@ export function createRouter(
             authRateLimiter,
             getClientIp,
           );
-          const authError = requireEdgeAuthWithScope(
-            req,
-            route.scope!,
-            server,
-            { trustProxy },
-          );
+          const authError = requireEdgeAuthWithScope(req, route.scope!, server);
           if (authError) return authError;
           return route.handler(req, matchResult.params, getClientIp);
         }

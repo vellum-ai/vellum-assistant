@@ -24,12 +24,8 @@ export function createAuthMiddleware(
    * Loopback peers (127.0.0.0/8, ::1) are auto-authenticated without a token.
    * Returns null on success, or a Response to short-circuit with.
    */
-  function requireEdgeAuth(
-    req: Request,
-    server?: Server,
-    opts?: { trustProxy?: boolean },
-  ): Response | null {
-    if (server && isLoopbackPeer(server, req, opts)) {
+  function requireEdgeAuth(req: Request, server?: Server): Response | null {
+    if (server && isLoopbackPeer(server, req)) {
       return null;
     }
     const token = extractBearerToken(req);
@@ -54,9 +50,8 @@ export function createAuthMiddleware(
     req: Request,
     scope: Scope,
     server?: Server,
-    opts?: { trustProxy?: boolean },
   ): Response | null {
-    if (server && isLoopbackPeer(server, req, opts)) {
+    if (server && isLoopbackPeer(server, req)) {
       return null;
     }
     const token = extractBearerToken(req);

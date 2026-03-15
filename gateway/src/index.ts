@@ -695,7 +695,6 @@ async function main() {
 
   const router = createRouter(routes, {
     authRateLimiter,
-    trustProxy: config.trustProxy,
   });
 
   const server = Bun.serve({
