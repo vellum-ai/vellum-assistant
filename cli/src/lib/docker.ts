@@ -1,4 +1,5 @@
 import { spawn as nodeSpawn } from "child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "fs";
 import { createRequire } from "module";
 import { dirname, join } from "path";
@@ -376,6 +377,7 @@ export async function hatchDocker(
   const runtimeUrl = `http://localhost:${gatewayPort}`;
   const dockerEntry: AssistantEntry = {
     assistantId: instanceName,
+    installationId: randomUUID(),
     runtimeUrl,
     cloud: "docker",
     species,
