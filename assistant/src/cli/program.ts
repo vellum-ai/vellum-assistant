@@ -1,7 +1,5 @@
 import { Command } from "commander";
 
-import { getConfig } from "../config/loader.js";
-import { isCesGrantAuditEnabled } from "../credential-execution/feature-gates.js";
 import { registerHooksCommand } from "../hooks/cli.js";
 import { APP_VERSION } from "../version.js";
 import { registerAuditCommand } from "./commands/audit.js";
@@ -44,9 +42,7 @@ export function buildCliProgram(): Command {
   registerConfigCommand(program);
   registerKeysCommand(program);
   registerCredentialsCommand(program);
-  if (isCesGrantAuditEnabled(getConfig())) {
-    registerCredentialExecutionCommand(program);
-  }
+  registerCredentialExecutionCommand(program);
   registerTrustCommand(program);
   registerMemoryCommand(program);
   registerAuditCommand(program);
