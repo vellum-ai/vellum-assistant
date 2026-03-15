@@ -34,11 +34,15 @@ import {
   TransportMessageSchema,
 } from "@vellumai/ces-contracts";
 
+import { resolve } from "node:path";
+
 import {
   executeAuthenticatedCommand,
   type CommandExecutorDeps,
   type ExecuteCommandRequest,
 } from "./commands/executor.js";
+
+import { validateContainedPath } from "./commands/workspace.js";
 
 import {
   executeAuthenticatedHttpRequest,
@@ -415,12 +419,41 @@ export function createRunAuthenticatedCommandHandler(
       };
     }
 
+    // Validate cwd when inputs or outputs are present — the workspace
+    // staging/copyback pipeline resolves paths relative to workspaceDir,
+    // so an unvalidated cwd could let a caller read/write outside the
+    // assistant workspace.
+    const workspaceDir = request.cwd ?? options.defaultWorkspaceDir;
+    const hasWorkspaceIO =
+      (request.inputs && request.inputs.length > 0) ||
+      (request.outputs && request.outputs.length > 0);
+
+    if (hasWorkspaceIO && request.cwd) {
+      const resolvedCwd = resolve(request.cwd);
+      const cwdError = validateContainedPath(
+        resolvedCwd,
+        options.defaultWorkspaceDir,
+        "Command cwd",
+      );
+      if (cwdError) {
+        return {
+          success: false,
+          error: {
+            code: "INVALID_CWD",
+            message:
+              `cwd cannot be used with inputs/outputs when it resolves outside ` +
+              `the workspace directory: ${cwdError}`,
+          },
+        };
+      }
+    }
+
     const execRequest: ExecuteCommandRequest = {
       bundleDigest: parseResult.bundleDigest,
       profileName: parseResult.profileName,
       credentialHandle: request.credentialHandle,
       argv: parseResult.argv,
-      workspaceDir: request.cwd ?? options.defaultWorkspaceDir,
+      workspaceDir,
       inputs: request.inputs,
       outputs: request.outputs,
       purpose: request.purpose,
