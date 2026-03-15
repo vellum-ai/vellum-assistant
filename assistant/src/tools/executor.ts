@@ -83,23 +83,25 @@ export class ToolExecutor {
     const tool = gateResult.tool;
 
     try {
+      // CES shell lockdown: set forcePromptSideEffects BEFORE both the
+      // grantConsumed short-circuit and the permission check. This ensures
+      // the flag is visible to all downstream consumers regardless of
+      // whether a scoped grant was consumed. Previously this was nested
+      // inside the `!grantConsumed` block, meaning untrusted host_bash
+      // calls that arrived with a consumed guardian-approval grant would
+      // skip this assignment entirely — defeating the lockdown.
+      if (
+        name === "host_bash" &&
+        isCesShellLockdownEnabled(getConfig()) &&
+        isUntrustedTrustClass(context.trustClass)
+      ) {
+        context.forcePromptSideEffects = true;
+      }
+
       // A consumed scoped grant is a complete authorization — skip the
       // interactive permission/prompt flow so non-interactive sessions
       // don't auto-deny prompt-gated tools and burn the one-time grant.
       if (!gateResult.grantConsumed) {
-        // CES shell lockdown: set forcePromptSideEffects BEFORE the
-        // permission check so the PermissionChecker sees it and promotes
-        // any "allow" trust-rule decision to "prompt". Previously this
-        // flag was set inside host-shell.ts execute(), which runs AFTER
-        // the permission check and therefore had no effect.
-        if (
-          name === "host_bash" &&
-          isCesShellLockdownEnabled(getConfig()) &&
-          isUntrustedTrustClass(context.trustClass)
-        ) {
-          context.forcePromptSideEffects = true;
-        }
-
         // Check permissions via the extracted PermissionChecker
         const permResult = await this.permissionChecker.checkPermission(
           name,
