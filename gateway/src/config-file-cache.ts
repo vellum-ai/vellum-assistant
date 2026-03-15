@@ -91,7 +91,7 @@ export class ConfigFileCache {
   ): number | undefined {
     const raw = this.getRaw(section, field, opts);
     if (typeof raw === "number" && Number.isFinite(raw)) return raw;
-    if (typeof raw === "string") {
+    if (typeof raw === "string" && raw.trim() !== "") {
       const n = Number(raw);
       return Number.isFinite(n) ? n : undefined;
     }
