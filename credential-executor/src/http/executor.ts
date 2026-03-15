@@ -224,6 +224,7 @@ export async function executeAuthenticatedHttpRequest(
       policyResult,
       request.credentialHandle,
       deps,
+      credential,
     );
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
@@ -493,12 +494,14 @@ function findMatchingTemplate(
  * - Bare wildcard: `"*"` matches everything
  */
 function matchHostPattern(pattern: string, hostname: string): boolean {
-  if (pattern === "*") return true;
-  if (pattern.startsWith("*.")) {
-    const suffix = pattern.slice(1); // e.g. ".fal.ai"
-    return hostname.endsWith(suffix) || hostname === pattern.slice(2);
+  const lPattern = pattern.toLowerCase();
+  const lHostname = hostname.toLowerCase();
+  if (lPattern === "*") return true;
+  if (lPattern.startsWith("*.")) {
+    const suffix = lPattern.slice(1); // e.g. ".fal.ai"
+    return lHostname.endsWith(suffix) || lHostname === lPattern.slice(2);
   }
-  return pattern === hostname;
+  return lPattern === lHostname;
 }
 
 /**
@@ -532,6 +535,7 @@ async function performHttpRequest(
   originalPolicy: PolicyResult & { allowed: true },
   credentialHandle: string,
   deps: HttpExecutorDeps,
+  credential?: MaterialisedCredential,
 ): Promise<RawHttpResponse> {
   const fetchFn = deps.fetch ?? globalThis.fetch;
 
@@ -586,12 +590,13 @@ async function performHttpRequest(
       // Enforce grant policy on the redirect target — the redirect must
       // independently satisfy the same credential handle's grant policy
       // using the method we will actually send.
+      // Sanitise purpose string to avoid leaking query-injected secrets.
       const redirectPolicy = evaluateHttpPolicy(
         {
           credentialHandle,
           method: nextMethod,
           url: redirectUrl,
-          purpose: `redirect from ${currentUrl}`,
+          purpose: `redirect from ${sanitiseUrl(currentUrl)}`,
         },
         deps.persistentGrantStore,
         deps.temporaryGrantStore,
@@ -609,7 +614,20 @@ async function performHttpRequest(
         currentBody = undefined;
       }
 
-      currentUrl = redirectUrl;
+      // Re-apply auth injection for the redirect URL. This is necessary
+      // because query-parameter credentials are URL-specific and would be
+      // lost when the URL changes on redirect.
+      if (credential) {
+        const reAuthenticated = buildAuthenticatedRequest(
+          redirectUrl,
+          currentHeaders,
+          credential,
+        );
+        currentUrl = reAuthenticated.url;
+        currentHeaders = reAuthenticated.headers;
+      } else {
+        currentUrl = redirectUrl;
+      }
       continue;
     }
 
