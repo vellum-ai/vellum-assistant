@@ -358,6 +358,8 @@ export function createCesClient(
       transport.close();
     },
   };
+
+  return client;
 }
 
 // ---------------------------------------------------------------------------

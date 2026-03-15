@@ -7,6 +7,7 @@ import { getBaseDataDir, getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { skillFlagKey } from "../config/skill-state.js";
 import { loadSkillCatalog, type SkillSummary } from "../config/skills.js";
+import { shouldUsePlatformCallbacks } from "../inbound/platform-callback-registration.js";
 import { listConnections } from "../oauth/oauth-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
@@ -345,7 +346,7 @@ function buildInChatConfigurationSection(): string {
     "When the user needs to configure a value (API keys, OAuth credentials, webhook URLs, or any setting that can be changed from the Settings page), **always collect it conversationally in the chat first** rather than directing them to the Settings page.",
     "",
     "**How to collect credentials and secrets:**",
-    ...(getIsContainerized()
+    ...(shouldUsePlatformCallbacks()
       ? [
           "- Secrets and API keys are managed through the platform's credential system. Users connect credentials via OAuth or platform-managed secrets — the `credential_store` prompt flow for API keys is not available in managed deployments.",
           "- For OAuth flows, guide the user to connect through the platform. After connecting, run `assistant oauth connections list` to find the connection ID, and use the `platform_oauth:<connectionId>` handle with CES tools (`make_authenticated_request`, `run_authenticated_command`) for authenticated work.",
@@ -859,7 +860,7 @@ export function buildCliReferenceSection(): string {
     "   - `assistant credentials list` — lists local credentials with their service:field identifiers",
     "   - `assistant oauth connections list` — lists OAuth connections with provider keys",
     "   - `assistant credentials list --search <query>` — filter by service, field, or description",
-    ...(getIsContainerized()
+    ...(shouldUsePlatformCallbacks()
       ? [
           "   In managed deployments, credential handles use the `platform_oauth:<connectionId>` format (shown in the `handle` field of `assistant oauth connections list`). Local credential handles (`local_static`, `local_oauth`) are not available in managed mode.",
         ]
