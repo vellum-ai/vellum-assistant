@@ -13,7 +13,7 @@
  */
 
 export type TemporaryApprovalMode =
-  | { kind: "thread" }
+  | { kind: "conversation" }
   | { kind: "timed"; expiresAt: number };
 
 const DEFAULT_TIMED_DURATION_MS = 10 * 60 * 1000; // 10 minutes
@@ -25,8 +25,8 @@ const store = new Map<string, TemporaryApprovalMode>();
  * Remains active until explicitly cleared or session ends.
  * Replaces any existing mode for the conversation.
  */
-export function setThreadMode(conversationId: string): void {
-  store.set(conversationId, { kind: "thread" });
+export function setConversationMode(conversationId: string): void {
+  store.set(conversationId, { kind: "conversation" });
 }
 
 /**

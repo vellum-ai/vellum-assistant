@@ -155,12 +155,12 @@ In addition to persistent trust rules (`always_allow` / `always_deny`), the appr
 
 **Key source files:**
 
-| File                                        | Purpose                                                                                                            |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `src/runtime/session-approval-overrides.ts` | In-memory store: `setThreadMode`, `setTimedMode`, `getEffectiveMode`, `clearMode`, `hasActiveOverride`, `clearAll` |
-| `src/permissions/types.ts`                  | `UserDecision` type (includes `allow_10m`, `allow_thread`, `temporary_override`), `isAllowDecision()` helper       |
-| `src/runtime/guardian-decision-types.ts`    | `buildDecisionActions()` — controls which temporary options appear in approval prompts                             |
-| `src/tools/permission-checker.ts`           | Permission pipeline integration — checks temporary overrides before prompting                                      |
+| File                                        | Purpose                                                                                                                  |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `src/runtime/session-approval-overrides.ts` | In-memory store: `setConversationMode`, `setTimedMode`, `getEffectiveMode`, `clearMode`, `hasActiveOverride`, `clearAll` |
+| `src/permissions/types.ts`                  | `UserDecision` type (includes `allow_10m`, `allow_thread`, `temporary_override`), `isAllowDecision()` helper             |
+| `src/runtime/guardian-decision-types.ts`    | `buildDecisionActions()` — controls which temporary options appear in approval prompts                                   |
+| `src/tools/permission-checker.ts`           | Permission pipeline integration — checks temporary overrides before prompting                                            |
 
 ### Canonical Guardian Request System
 

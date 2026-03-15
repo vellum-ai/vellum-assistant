@@ -10,7 +10,7 @@ import type { PermissionPrompter } from "../permissions/prompter.js";
 import { addRule } from "../permissions/trust-store.js";
 import {
   getEffectiveMode,
-  setThreadMode,
+  setConversationMode,
   setTimedMode,
 } from "../runtime/session-approval-overrides.js";
 import { getLogger } from "../util/logger.js";
@@ -412,7 +412,7 @@ export class PermissionChecker {
             "Activated timed (10m) temporary approval mode",
           );
         } else if (response.decision === "allow_conversation") {
-          setThreadMode(context.conversationId);
+          setConversationMode(context.conversationId);
           log.info(
             { toolName: name, conversationId: context.conversationId },
             "Activated conversation-scoped temporary approval mode",
