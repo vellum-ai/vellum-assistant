@@ -486,38 +486,41 @@ struct AgentPanelContent: View {
 
     @ViewBuilder
     private var skillFilesSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Files")
-                .font(VFont.bodyBold)
-                .foregroundColor(VColor.contentDefault)
+        if skillsManager.isLoadingSkillFiles || skillsManager.skillFilesError != nil ||
+            (skillsManager.selectedSkillFiles != nil && !skillsManager.selectedSkillFiles!.files.isEmpty) {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                Text("Files")
+                    .font(VFont.bodyBold)
+                    .foregroundColor(VColor.contentDefault)
 
-            if skillsManager.isLoadingSkillFiles {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                        .controlSize(.small)
-                    Spacer()
-                }
-                .padding(.vertical, VSpacing.md)
-            } else if let error = skillsManager.skillFilesError {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.systemNegativeStrong)
-            } else if let filesResponse = skillsManager.selectedSkillFiles, !filesResponse.files.isEmpty {
-                VStack(spacing: 0) {
-                    ForEach(filesResponse.files, id: \.path) { file in
-                        skillFileRow(file)
-                        if file.path != filesResponse.files.last?.path {
-                            Divider()
+                if skillsManager.isLoadingSkillFiles {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                            .controlSize(.small)
+                        Spacer()
+                    }
+                    .padding(.vertical, VSpacing.md)
+                } else if let error = skillsManager.skillFilesError {
+                    Text(error)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.systemNegativeStrong)
+                } else if let filesResponse = skillsManager.selectedSkillFiles, !filesResponse.files.isEmpty {
+                    VStack(spacing: 0) {
+                        ForEach(filesResponse.files, id: \.path) { file in
+                            skillFileRow(file)
+                            if file.path != filesResponse.files.last?.path {
+                                Divider()
+                            }
                         }
                     }
+                    .background(VColor.surfaceOverlay)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.borderBase, lineWidth: 1)
+                    )
                 }
-                .background(VColor.surfaceOverlay)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.borderBase, lineWidth: 1)
-                )
             }
         }
     }

@@ -272,6 +272,7 @@ struct SkillDetailView: View {
                 }
             }
             .buttonStyle(.plain)
+            .disabled(!isText)
 
             if isExpanded, let content = file.content {
                 Text(content)
