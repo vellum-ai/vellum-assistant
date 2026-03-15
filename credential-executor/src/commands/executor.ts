@@ -409,12 +409,9 @@ export async function executeAuthenticatedCommand(
 // Internal: Bundle resolution
 // ---------------------------------------------------------------------------
 
-interface BundleResolutionResult {
-  ok: boolean;
-  manifest?: SecureCommandManifest;
-  toolstoreDir?: string;
-  error?: string;
-}
+type BundleResolutionResult =
+  | { ok: true; manifest: SecureCommandManifest; toolstoreDir: string }
+  | { ok: false; error: string };
 
 function resolveBundle(
   bundleDigest: string,
