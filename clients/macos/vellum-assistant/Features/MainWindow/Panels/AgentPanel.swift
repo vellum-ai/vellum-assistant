@@ -379,23 +379,13 @@ struct AgentPanelContent: View {
                     skillFileContentPane(file: file, content: content)
                 } else {
                     // Empty state when no file is selected or loading
-                    VStack {
-                        Spacer()
-                        VIconView(.fileText, size: 32)
-                            .foregroundColor(VColor.contentTertiary)
-                            .padding(.bottom, VSpacing.sm)
-                        Text("Select a file to view")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.contentTertiary)
-                        Spacer()
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(VColor.surfaceOverlay)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.borderBase, lineWidth: 1)
-                    )
+                    FileViewerEmptyState()
+                        .background(VColor.surfaceOverlay)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.borderBase, lineWidth: 1)
+                        )
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -500,14 +490,7 @@ struct AgentPanelContent: View {
             Divider().background(VColor.borderBase)
 
             // File content
-            ScrollView([.vertical, .horizontal]) {
-                Text(content)
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.contentDefault)
-                    .textSelection(.enabled)
-                    .padding(VSpacing.md)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            ReadOnlyCodeContent(content: content)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .background(VColor.surfaceOverlay)
