@@ -65,7 +65,7 @@ final class AvatarComponentService {
 
     /// Fetches character components from the daemon. Returns `nil` on any
     /// failure (network error, non-200 status, decode error) so callers
-    /// can fall back to hardcoded enums.
+    /// can use safe defaults until the component store is populated.
     static func fetch(port: Int) async -> ComponentsResponse? {
         guard let url = URL(string: "http://localhost:\(port)/v1/avatar/character-components") else {
             log.warning("Invalid URL for character-components endpoint")

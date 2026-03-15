@@ -126,8 +126,9 @@ final class AvatarAppearanceManager {
 
         // Fire-and-forget: fetch character component definitions from the
         // daemon and populate AvatarComponentStore.shared so downstream
-        // code can look up definitions by ID. The app still works with
-        // hardcoded enums if the daemon is unreachable.
+        // code can look up definitions by ID. Avatar rendering requires
+        // the component store to be populated; safe defaults are used
+        // during the pre-fetch window.
         Task { [weak self] in
             await self?.fetchComponentsFromDaemon()
         }
@@ -158,7 +159,7 @@ final class AvatarAppearanceManager {
 
     /// Fetches the canonical character component definitions from the daemon
     /// and populates `AvatarComponentStore.shared` for O(1) lookups.
-    /// Fails silently — the client continues to work with hardcoded enums.
+    /// Fails silently — avatar rendering uses safe defaults until the store is populated.
     private func fetchComponentsFromDaemon() async {
         guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
               let assistant = LockfileAssistant.loadByName(assistantId) else {
