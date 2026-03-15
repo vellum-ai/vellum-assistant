@@ -2222,7 +2222,7 @@ public final class ChatViewModel: ObservableObject {
         }
         // Send succeeded — update the message state
         if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
-            let isApproval = decision == "allow" || decision == "allow_10m" || decision == "allow_thread"
+            let isApproval = decision == "allow" || decision == "allow_10m" || decision == "allow_conversation"
             messages[index].confirmation?.state = isApproval ? .approved : .denied
             if isApproval {
                 messages[index].confirmation?.approvedDecision = decision
@@ -2272,7 +2272,7 @@ public final class ChatViewModel: ObservableObject {
     public func updateConfirmationState(requestId: String, decision: String) {
         if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
             switch decision {
-            case "allow", "allow_10m", "allow_thread":
+            case "allow", "allow_10m", "allow_conversation":
                 messages[index].confirmation?.state = .approved
                 messages[index].confirmation?.approvedDecision = decision
             case "deny":

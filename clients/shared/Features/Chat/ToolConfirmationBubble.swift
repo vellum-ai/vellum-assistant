@@ -57,8 +57,8 @@ public struct ToolConfirmationBubble: View {
         confirmation.temporaryOptionsAvailable.contains("allow_10m")
     }
 
-    private var hasAllowThread: Bool {
-        confirmation.temporaryOptionsAvailable.contains("allow_thread")
+    private var hasAllowConversation: Bool {
+        confirmation.temporaryOptionsAvailable.contains("allow_conversation")
     }
 
     /// The decision value to send when "Always Allow" is clicked.
@@ -81,8 +81,8 @@ public struct ToolConfirmationBubble: View {
             switch confirmation.approvedDecision {
             case "allow_10m":
                 return "\(confirmation.toolCategory) allowed for 10 minutes"
-            case "allow_thread":
-                return "\(confirmation.toolCategory) allowed for this thread"
+            case "allow_conversation":
+                return "\(confirmation.toolCategory) allowed for this conversation"
             default:
                 return "\(confirmation.toolCategory) allowed"
             }
@@ -346,7 +346,7 @@ public struct ToolConfirmationBubble: View {
     private var topLevelActions: [ToolConfirmationKeyboardModel.Action] {
         var actions: [ToolConfirmationKeyboardModel.Action] = []
         if hasAllow10m { actions.append(.allow10m) }
-        if hasAllowThread { actions.append(.allowThread) }
+        if hasAllowConversation { actions.append(.allowConversation) }
         actions.append(.allowOnce)
         if hasRuleOptions && confirmation.persistentDecisionsAllowed {
             actions.append(.alwaysAllow)
@@ -356,7 +356,7 @@ public struct ToolConfirmationBubble: View {
     }
 
     private var hasTemporaryOptions: Bool {
-        hasAllow10m || hasAllowThread
+        hasAllow10m || hasAllowConversation
     }
 
     @ViewBuilder
@@ -378,13 +378,13 @@ public struct ToolConfirmationBubble: View {
                                 isKeyboardSelected: keyboardModel?.selectedAction == .allow10m
                             ) { markCommandExplanationSeen(); onTemporaryAllow?(confirmation.requestId, "allow_10m") }
                         }
-                        if hasAllowThread {
+                        if hasAllowConversation {
                             confirmationButton(
-                                "Allow for this thread",
+                                "Allow for this conversation",
                                 isPrimary: true,
                                 isDanger: false,
-                                isKeyboardSelected: keyboardModel?.selectedAction == .allowThread
-                            ) { markCommandExplanationSeen(); onTemporaryAllow?(confirmation.requestId, "allow_thread") }
+                                isKeyboardSelected: keyboardModel?.selectedAction == .allowConversation
+                            ) { markCommandExplanationSeen(); onTemporaryAllow?(confirmation.requestId, "allow_conversation") }
                         }
                     }
                 }
@@ -631,8 +631,8 @@ public struct ToolConfirmationBubble: View {
             onAllow()
         case .allow10m:
             onTemporaryAllow?(confirmation.requestId, "allow_10m")
-        case .allowThread:
-            onTemporaryAllow?(confirmation.requestId, "allow_thread")
+        case .allowConversation:
+            onTemporaryAllow?(confirmation.requestId, "allow_conversation")
         case .alwaysAllow:
             if confirmation.allowlistOptions.count > 1 {
                 withAnimation(VAnimation.fast) {
