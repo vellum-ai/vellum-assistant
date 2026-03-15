@@ -6,7 +6,7 @@
  * 1. Expires the request and all its deliveries in the store
  * 2. Expires the associated pending question so the call-side timeout fires
  * 3. Sends expiry notices to external delivery destinations (telegram)
- * 4. Adds an expiry message to mac guardian thread conversations
+ * 4. Adds an expiry message to mac guardian conversations
  */
 
 import { addMessage } from "../memory/conversation-crud.js";
@@ -31,7 +31,7 @@ let sweepInProgress = false;
 
 /**
  * Send expiry notices to all delivery destinations for a guardian action
- * request. Handles both vellum/mac thread messages and external channel
+ * request. Handles both vellum/mac conversation messages and external channel
  * replies (telegram, slack).
  *
  * Deliveries must be captured *before* their status is changed to 'expired'
@@ -70,7 +70,7 @@ export async function sendGuardianExpiryNotices(
         delivery.destinationChannel === "vellum" &&
         delivery.destinationConversationId
       ) {
-        // Add expiry message to vellum guardian thread.
+        // Add expiry message to vellum guardian conversation.
         await addMessage(
           delivery.destinationConversationId,
           "assistant",

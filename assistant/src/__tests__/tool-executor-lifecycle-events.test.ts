@@ -571,7 +571,7 @@ describe("ToolExecutor lifecycle events", () => {
       throw new Error("Expected permission_prompt event");
     expect(promptEvent.toolName).toBe("file_edit");
     expect(promptEvent.reason).toBe(
-      "Private thread: side-effect tools require explicit approval",
+      "Private conversation: side-effect tools require explicit approval",
     );
   });
 
@@ -600,7 +600,7 @@ describe("ToolExecutor lifecycle events", () => {
       throw new Error("Expected permission_prompt event");
     expect(promptEvent.toolName).toBe("bash");
     expect(promptEvent.reason).toBe(
-      "Private thread: side-effect tools require explicit approval",
+      "Private conversation: side-effect tools require explicit approval",
     );
     expect(promptEvent.sandboxed).toBe(true);
   });
@@ -660,7 +660,7 @@ describe("ToolExecutor lifecycle events", () => {
       throw new Error("Expected permission_prompt event");
     expect(promptEvent.toolName).toBe("file_edit");
     expect(promptEvent.reason).toBe(
-      "Private thread: side-effect tools require explicit approval",
+      "Private conversation: side-effect tools require explicit approval",
     );
   });
 });

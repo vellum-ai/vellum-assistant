@@ -2,7 +2,7 @@
  * Maps conversation keys to internal conversation IDs.
  *
  * The web UI identifies conversations by an opaque `conversationKey` (e.g.
- * a user ID, a channel thread ID).  This store resolves those keys to the
+ * a user ID, a channel chat ID).  This store resolves those keys to the
  * daemon's internal conversation IDs, creating new conversations on
  * first contact.
  */
@@ -122,7 +122,7 @@ export function getOrCreateConversation(
     }
 
     // Check if the conversationKey itself is an existing conversation ID.
-    // This happens when the client loads a thread from the conversations list
+    // This happens when the client loads a conversation from the conversations list
     // and uses the server's conversationId as its local sessionId / conversationKey.
     const existingConversation = tx
       .select({ id: conversations.id })

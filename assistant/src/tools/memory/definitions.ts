@@ -15,7 +15,7 @@ export const memoryRecallDefinition: ToolDefinition = {
         type: "string",
         enum: ["default", "conversation"],
         description:
-          'Scope to search — "default" searches all memory, "conversation" restricts to current thread',
+          'Scope to search — "default" searches all memory, "conversation" restricts to current conversation',
       },
     },
     required: ["query"],

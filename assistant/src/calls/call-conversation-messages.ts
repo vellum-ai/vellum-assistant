@@ -1,6 +1,6 @@
 /**
  * Persistence + formatting helpers for messages that belong in the
- * dedicated voice conversation thread.
+ * dedicated voice conversation.
  */
 
 import { addMessage } from "../memory/conversation-crud.js";

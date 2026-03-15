@@ -155,12 +155,12 @@ In addition to persistent trust rules (`always_allow` / `always_deny`), the appr
 
 **Key source files:**
 
-| File                                        | Purpose                                                                                                            |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `src/runtime/session-approval-overrides.ts` | In-memory store: `setThreadMode`, `setTimedMode`, `getEffectiveMode`, `clearMode`, `hasActiveOverride`, `clearAll` |
-| `src/permissions/types.ts`                  | `UserDecision` type (includes `allow_10m`, `allow_thread`, `temporary_override`), `isAllowDecision()` helper       |
-| `src/runtime/guardian-decision-types.ts`    | `buildDecisionActions()` — controls which temporary options appear in approval prompts                             |
-| `src/tools/permission-checker.ts`           | Permission pipeline integration — checks temporary overrides before prompting                                      |
+| File                                        | Purpose                                                                                                                  |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `src/runtime/session-approval-overrides.ts` | In-memory store: `setConversationMode`, `setTimedMode`, `getEffectiveMode`, `clearMode`, `hasActiveOverride`, `clearAll` |
+| `src/permissions/types.ts`                  | `UserDecision` type (includes `allow_10m`, `allow_thread`, `temporary_override`), `isAllowDecision()` helper             |
+| `src/runtime/guardian-decision-types.ts`    | `buildDecisionActions()` — controls which temporary options appear in approval prompts                                   |
+| `src/tools/permission-checker.ts`           | Permission pipeline integration — checks temporary overrides before prompting                                            |
 
 ### Canonical Guardian Request System
 
@@ -688,7 +688,7 @@ graph LR
 
     subgraph "~/.vellum/workspace/data/db/assistant.db (SQLite + WAL)"
         direction TB
-        CONV["conversations<br/>───────────────<br/>id, title, timestamps<br/>token counts, estimated cost<br/>context_summary (compaction)<br/>thread_type: 'standard' | 'private'<br/>memory_scope_id: 'default' | 'private:&lt;uuid&gt;'"]
+        CONV["conversations<br/>───────────────<br/>id, title, timestamps<br/>token counts, estimated cost<br/>context_summary (compaction)<br/>conversation_type: 'standard' | 'private'<br/>memory_scope_id: 'default' | 'private:&lt;uuid&gt;'"]
         MSG["messages<br/>───────────────<br/>id, conversation_id (FK)<br/>role: user | assistant<br/>content: JSON array<br/>created_at"]
         TOOL["tool_invocations<br/>───────────────<br/>tool_name, input, result<br/>decision, risk_level<br/>duration_ms"]
         SEG["memory_segments<br/>───────────────<br/>Text chunks for retrieval<br/>Linked to messages<br/>token_estimate per segment"]

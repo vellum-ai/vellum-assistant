@@ -46,7 +46,7 @@
 
 import { randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
-import { mkdirSync, writeFileSync, unlinkSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, unlinkSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import {
   SessionStore,
@@ -62,7 +62,7 @@ import { readPublishedManifest, getBundleContentPath, isBundlePublished } from "
 import { getCesToolStoreDir, type CesMode } from "../paths.js";
 import type { SecureCommandManifest, CommandProfile } from "./profiles.js";
 import { isDeniedBinary, EgressMode } from "./profiles.js";
-import { validateCommand, type CommandValidationResult } from "./validator.js";
+import { validateCommand, extractShellBinary, containsShellMetacharacters, type CommandValidationResult } from "./validator.js";
 import type { AuthAdapterConfig } from "./auth-adapters.js";
 import { AuthAdapterType, validateAuthAdapterConfig } from "./auth-adapters.js";
 import {
@@ -406,6 +406,7 @@ export async function executeAuthenticatedCommand(
   const entrypointPath = resolve(bundleDir, manifest.entrypoint);
 
   // Containment check: entrypoint must resolve inside the bundle directory
+  // (lexical check for path traversal via ../)
   if (!entrypointPath.startsWith(bundleDir + "/") && entrypointPath !== bundleDir) {
     // Stop the proxy session before returning — it may already be running
     if (proxySessionId) {
@@ -420,6 +421,46 @@ export async function executeAuthenticatedCommand(
       success: false,
       error: `Entrypoint "${manifest.entrypoint}" resolves outside the bundle directory. ` +
         `Path traversal is not allowed.`,
+      auditId,
+    };
+  }
+
+  // Symlink escape check: follow symlinks and verify the real path is
+  // still inside the bundle directory. A symlink entrypoint like
+  // `bin/tool -> /usr/bin/curl` passes the lexical check above but
+  // executes outside the bundle boundary.
+  let realEntrypointPath: string;
+  try {
+    realEntrypointPath = realpathSync(entrypointPath);
+  } catch {
+    // realpathSync fails if the file doesn't exist or is a broken symlink
+    if (proxySessionId) {
+      try {
+        await stopSession(proxySessionId, sessionStore);
+      } catch {
+        // Best-effort proxy cleanup
+      }
+    }
+    cleanupAll(scratchDir, tempFilePath);
+    return {
+      success: false,
+      error: `Entrypoint "${manifest.entrypoint}" could not be resolved (broken symlink or missing file).`,
+      auditId,
+    };
+  }
+  if (!realEntrypointPath.startsWith(bundleDir + "/") && realEntrypointPath !== bundleDir) {
+    if (proxySessionId) {
+      try {
+        await stopSession(proxySessionId, sessionStore);
+      } catch {
+        // Best-effort proxy cleanup
+      }
+    }
+    cleanupAll(scratchDir, tempFilePath);
+    return {
+      success: false,
+      error: `Entrypoint "${manifest.entrypoint}" is a symlink that resolves to "${realEntrypointPath}", ` +
+        `which is outside the bundle directory. Symlink escape is not allowed.`,
       auditId,
     };
   }
@@ -845,6 +886,26 @@ async function runCredentialProcess(
   proxyEnv?: ProxyEnvVars,
   noNetworkEnv?: Record<string, string>,
 ): Promise<{ ok: true; stdout: string } | { ok: false; error: string }> {
+  // Defense-in-depth: re-check denied binary and metacharacters at execution
+  // time, mirroring the validator's static checks. If a manifest was tampered
+  // with after validation, this blocks execution before spawning the shell.
+  if (containsShellMetacharacters(helperCommand)) {
+    return {
+      ok: false,
+      error: `Credential process helperCommand contains shell metacharacters. ` +
+        `Command chaining operators are not allowed.`,
+    };
+  }
+
+  const helperBinary = extractShellBinary(helperCommand);
+  if (isDeniedBinary(helperBinary)) {
+    return {
+      ok: false,
+      error: `Credential process helperCommand starts with denied binary "${helperBinary}". ` +
+        `Generic HTTP clients, interpreters, and shell trampolines cannot be used as credential helpers.`,
+    };
+  }
+
   try {
     // Build a minimal environment for the helper. No host env is inherited,
     // but egress proxy or no-network env vars are injected so the helper

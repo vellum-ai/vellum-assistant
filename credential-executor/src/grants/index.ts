@@ -7,7 +7,7 @@
  * - **Persistent store**: Durable grants (e.g. `always_allow`) persisted
  *   to `grants.json` inside the CES-private data root. Survives restarts.
  * - **Temporary store**: Ephemeral grants (`allow_once`, `allow_10m`,
- *   `allow_thread`) held in memory. Never survives a process restart.
+ *   `allow_conversation`) held in memory. Never survives a process restart.
  */
 
 export { PersistentGrantStore } from "./persistent-store.js";

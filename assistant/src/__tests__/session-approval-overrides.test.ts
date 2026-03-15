@@ -7,7 +7,7 @@ import {
   clearMode,
   getEffectiveMode,
   hasActiveOverride,
-  setThreadMode,
+  setConversationMode,
   setTimedMode,
 } from "../runtime/session-approval-overrides.js";
 
@@ -21,24 +21,24 @@ describe("session-approval-overrides", () => {
   });
 
   // -----------------------------------------------------------------------
-  // setThreadMode / getEffectiveMode
+  // setConversationMode / getEffectiveMode
   // -----------------------------------------------------------------------
-  describe("thread mode", () => {
-    test("setThreadMode stores a thread override", () => {
-      setThreadMode("conv-1");
+  describe("conversation mode", () => {
+    test("setConversationMode stores a conversation override", () => {
+      setConversationMode("conv-1");
       const mode = getEffectiveMode("conv-1");
       expect(mode).not.toBeUndefined();
-      expect(mode!.kind).toBe("thread");
+      expect(mode!.kind).toBe("conversation");
     });
 
-    test("thread mode persists across multiple reads", () => {
-      setThreadMode("conv-1");
+    test("conversation mode persists across multiple reads", () => {
+      setConversationMode("conv-1");
       expect(getEffectiveMode("conv-1")).not.toBeUndefined();
       expect(getEffectiveMode("conv-1")).not.toBeUndefined();
     });
 
-    test("thread mode is scoped to a specific conversationId", () => {
-      setThreadMode("conv-1");
+    test("conversation mode is scoped to a specific conversationId", () => {
+      setConversationMode("conv-1");
       expect(getEffectiveMode("conv-1")).not.toBeUndefined();
       expect(getEffectiveMode("conv-2")).toBeUndefined();
     });
@@ -102,8 +102,8 @@ describe("session-approval-overrides", () => {
   // Mode replacement
   // -----------------------------------------------------------------------
   describe("mode replacement", () => {
-    test("setTimedMode replaces an existing thread mode", () => {
-      setThreadMode("conv-1");
+    test("setTimedMode replaces an existing conversation mode", () => {
+      setConversationMode("conv-1");
       setTimedMode("conv-1", 60_000);
 
       const mode = getEffectiveMode("conv-1");
@@ -111,13 +111,13 @@ describe("session-approval-overrides", () => {
       expect(mode!.kind).toBe("timed");
     });
 
-    test("setThreadMode replaces an existing timed mode", () => {
+    test("setConversationMode replaces an existing timed mode", () => {
       setTimedMode("conv-1", 60_000);
-      setThreadMode("conv-1");
+      setConversationMode("conv-1");
 
       const mode = getEffectiveMode("conv-1");
       expect(mode).not.toBeUndefined();
-      expect(mode!.kind).toBe("thread");
+      expect(mode!.kind).toBe("conversation");
     });
   });
 
@@ -125,8 +125,8 @@ describe("session-approval-overrides", () => {
   // clearMode
   // -----------------------------------------------------------------------
   describe("clearMode", () => {
-    test("clearMode removes a thread override", () => {
-      setThreadMode("conv-1");
+    test("clearMode removes a conversation override", () => {
+      setConversationMode("conv-1");
       clearMode("conv-1");
       expect(getEffectiveMode("conv-1")).toBeUndefined();
     });
@@ -152,8 +152,8 @@ describe("session-approval-overrides", () => {
       expect(hasActiveOverride("conv-1")).toBe(false);
     });
 
-    test("returns true for active thread override", () => {
-      setThreadMode("conv-1");
+    test("returns true for active conversation override", () => {
+      setConversationMode("conv-1");
       expect(hasActiveOverride("conv-1")).toBe(true);
     });
 
@@ -169,7 +169,7 @@ describe("session-approval-overrides", () => {
     });
 
     test("returns false after clearMode", () => {
-      setThreadMode("conv-1");
+      setConversationMode("conv-1");
       clearMode("conv-1");
       expect(hasActiveOverride("conv-1")).toBe(false);
     });
@@ -180,9 +180,9 @@ describe("session-approval-overrides", () => {
   // -----------------------------------------------------------------------
   describe("clearAll", () => {
     test("clearAll removes all overrides", () => {
-      setThreadMode("conv-1");
+      setConversationMode("conv-1");
       setTimedMode("conv-2", 60_000);
-      setThreadMode("conv-3");
+      setConversationMode("conv-3");
 
       clearAll();
 

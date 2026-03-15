@@ -219,7 +219,7 @@ describe("parseFrontmatterFields", () => {
       '  emoji: "\uD83D\uDD0C"',
       "  vellum:",
       '    display-name: "Test Skill"',
-      "    disable-model-invocation: true",
+      "    some-custom-field: true",
       "---",
       "Body",
     ].join("\n");
@@ -230,7 +230,7 @@ describe("parseFrontmatterFields", () => {
       emoji: "\uD83D\uDD0C",
       vellum: {
         "display-name": "Test Skill",
-        "disable-model-invocation": true,
+        "some-custom-field": true,
       },
     });
   });

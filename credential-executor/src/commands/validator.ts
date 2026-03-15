@@ -123,7 +123,19 @@ export function validateManifest(
     if (manifest.authAdapter.type === AuthAdapterType.CredentialProcess) {
       const helper = manifest.authAdapter.helperCommand;
       if (helper && helper.trim().length > 0) {
-        const firstWord = helper.trim().split(/\s+/)[0]!;
+        // Reject shell metacharacters that could chain a denied binary
+        // after an allowed one (e.g. "aws-vault exec ; curl ...").
+        // Since helperCommand is executed via `sh -c`, these operators
+        // allow arbitrary command chaining that bypasses the denylist.
+        if (containsShellMetacharacters(helper)) {
+          errors.push(
+            `authAdapter: credential_process helperCommand contains shell metacharacters. ` +
+              `Command chaining operators (;, &&, ||, |) and subshell expansion ($()) ` +
+              `are not allowed in helperCommand because they can bypass the denied binary check.`,
+          );
+        }
+
+        const firstWord = extractShellBinary(helper);
         const basename = pathBasename(firstWord);
         if (isDeniedBinary(firstWord)) {
           errors.push(
@@ -422,6 +434,90 @@ function validateArgvPattern(
   }
 
   return errors;
+}
+
+// ---------------------------------------------------------------------------
+// Shell metacharacter detection (for helperCommand safety)
+// ---------------------------------------------------------------------------
+
+/**
+ * Shell metacharacters that enable command chaining or subshell expansion.
+ * Since helperCommand is executed via `sh -c`, these operators allow an
+ * attacker to chain a denied binary after an allowed one, bypassing the
+ * denylist check on the first token.
+ *
+ * Detected patterns:
+ * - `;`  — command separator
+ * - `&&` — logical AND
+ * - `||` — logical OR
+ * - `|`  — pipe (but not `||`)
+ * - `$(`  — command substitution
+ * - `` ` `` — backtick command substitution
+ */
+const SHELL_METACHAR_RE = /;|&&|\|\||(?<!\|)\|(?!\|)|\$\(|`/;
+
+/**
+ * Returns true if the command string contains shell metacharacters that
+ * could be used for command chaining or subshell expansion.
+ */
+export function containsShellMetacharacters(command: string): boolean {
+  return SHELL_METACHAR_RE.test(command);
+}
+
+// ---------------------------------------------------------------------------
+// Shell binary extraction (for helperCommand denylist checks)
+// ---------------------------------------------------------------------------
+
+/**
+ * Regex matching shell variable assignments (KEY=VALUE) at the start of a
+ * command. These are environment overrides and not the binary. Handles
+ * bare values, single-quoted values, and double-quoted values.
+ */
+const ENV_ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|"[^"]*"|(?:\\.|[^\s])*)\s+/;
+
+/**
+ * Extract the actual binary name from a shell command string, accounting for
+ * leading env-var assignments (KEY=VALUE prefixes) and shell quoting around
+ * the binary token. This is necessary because helperCommand is executed via
+ * `sh -c`, so the shell resolves assignments and quotes before execution.
+ *
+ * Examples:
+ *   "curl https://..."                → "curl"
+ *   "'curl' https://..."              → "curl"
+ *   "AWS_PROFILE=x curl ..."          → "curl"
+ *   "AWS_PROFILE=x FOO=bar curl ..." → "curl"
+ *   "/usr/bin/python3 script.py"      → "/usr/bin/python3"
+ */
+export function extractShellBinary(command: string): string {
+  let remaining = command.trim();
+
+  // Strip leading KEY=VALUE assignments
+  let match: RegExpExecArray | null;
+  while ((match = ENV_ASSIGNMENT_RE.exec(remaining)) !== null) {
+    remaining = remaining.slice(match[0].length);
+  }
+
+  // Extract the first whitespace-delimited token
+  const firstToken = remaining.split(/\s+/)[0] ?? remaining;
+
+  // Strip surrounding quotes (single or double)
+  return stripShellQuotes(firstToken);
+}
+
+/**
+ * Remove surrounding single or double quotes from a token.
+ * Only strips matching pairs at the boundaries (e.g., `'curl'` → `curl`).
+ */
+function stripShellQuotes(token: string): string {
+  if (token.length >= 2) {
+    if (
+      (token.startsWith("'") && token.endsWith("'")) ||
+      (token.startsWith('"') && token.endsWith('"'))
+    ) {
+      return token.slice(1, -1);
+    }
+  }
+  return token;
 }
 
 // ---------------------------------------------------------------------------

@@ -25,22 +25,25 @@ public struct UsageClient: UsageClientProtocol {
     nonisolated public init() {}
 
     public func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? {
-        guard let response = try? await GatewayHTTPClient.get(path: "usage/totals?from=\(from)&to=\(to)", timeout: 10),
-              response.isSuccess else { return nil }
-        return try? JSONDecoder().decode(UsageTotalsResponse.self, from: response.data)
+        let result: (UsageTotalsResponse?, GatewayHTTPClient.Response)? = try? await GatewayHTTPClient.get(
+            path: "usage/totals?from=\(from)&to=\(to)", timeout: 10
+        )
+        return result?.0
     }
 
     public func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse? {
-        guard let response = try? await GatewayHTTPClient.get(path: "usage/daily?from=\(from)&to=\(to)", timeout: 10),
-              response.isSuccess else { return nil }
-        return try? JSONDecoder().decode(UsageDailyResponse.self, from: response.data)
+        let result: (UsageDailyResponse?, GatewayHTTPClient.Response)? = try? await GatewayHTTPClient.get(
+            path: "usage/daily?from=\(from)&to=\(to)", timeout: 10
+        )
+        return result?.0
     }
 
     public func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? {
         let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? groupBy
-        guard let response = try? await GatewayHTTPClient.get(path: "usage/breakdown?from=\(from)&to=\(to)&groupBy=\(encoded)", timeout: 10),
-              response.isSuccess else { return nil }
-        return try? JSONDecoder().decode(UsageBreakdownResponse.self, from: response.data)
+        let result: (UsageBreakdownResponse?, GatewayHTTPClient.Response)? = try? await GatewayHTTPClient.get(
+            path: "usage/breakdown?from=\(from)&to=\(to)&groupBy=\(encoded)", timeout: 10
+        )
+        return result?.0
     }
 }
 

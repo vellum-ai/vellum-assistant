@@ -105,7 +105,7 @@ export function createRecordGrantHandler(
 
     // Only `always_allow` creates a persistent grant. All other approved
     // decisions create only a temporary grant — this prevents allow_once,
-    // allow_10m, and allow_thread from becoming effectively permanent.
+    // allow_10m, and allow_conversation from becoming effectively permanent.
     if (grantType === "always_allow") {
       let pattern: string;
       if (proposal.type === "http") {
@@ -133,8 +133,8 @@ export function createRecordGrantHandler(
     // the next policy check hits the persistent store.
     if (grantType === "allow_10m") {
       deps.temporaryGrantStore.add("allow_10m", decision.proposalHash);
-    } else if (grantType === "allow_thread") {
-      deps.temporaryGrantStore.add("allow_thread", decision.proposalHash, {
+    } else if (grantType === "allow_conversation") {
+      deps.temporaryGrantStore.add("allow_conversation", decision.proposalHash, {
         conversationId: request.conversationId ?? sessionId,
       });
     } else {

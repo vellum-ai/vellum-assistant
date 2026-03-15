@@ -154,7 +154,7 @@ export interface ConfirmationRequest {
   sessionId?: string;
   /** When false, the client should hide "always allow" / trust-rule persistence affordances. */
   persistentDecisionsAllowed?: boolean;
-  /** Which temporary approval options the client should render (e.g. "Allow for 10 minutes", "Allow for this thread"). */
+  /** Which temporary approval options the client should render (e.g. "Allow for 10 minutes", "Allow for this conversation"). */
   temporaryOptionsAvailable?: Array<"allow_10m" | "allow_conversation">;
   /** The tool_use block ID for client-side correlation with specific tool calls. */
   toolUseId?: string;

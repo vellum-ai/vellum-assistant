@@ -131,7 +131,7 @@ export async function pairDeliveryWithConversation(
       const existing = getConversation(targetId);
 
       if (existing && existing.source === "notification") {
-        // Append the seed message to the existing conversation thread
+        // Append the seed message to the existing conversation
         const message = await addMessage(
           existing.id,
           "assistant",
@@ -180,7 +180,7 @@ export async function pairDeliveryWithConversation(
           targetExists: !!existing,
           targetSource: existing?.source,
         },
-        "Thread reuse target invalid — falling back to new conversation",
+        "Conversation reuse target invalid — falling back to new conversation",
       );
 
       const conversation = createConversation({

@@ -948,7 +948,7 @@ export async function handleSendMessage(
       // Defer event publishing to next tick so the HTTP response reaches the
       // client first. This ensures the client's serverToLocalSessionMap is
       // populated before SSE events arrive, preventing dropped events in new
-      // desktop threads.
+      // desktop conversations.
       //
       // session.processing and drainQueue are also deferred so the current
       // slash command's events are emitted before the next queued message

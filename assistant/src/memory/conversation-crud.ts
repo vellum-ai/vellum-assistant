@@ -358,7 +358,7 @@ export function deleteConversation(id: string): DeletedMemoryIds {
 
 /**
  * Delete all private (temporary) conversations and their associated data.
- * Called at daemon startup to clean up ephemeral threads from previous sessions.
+ * Called at daemon startup to clean up ephemeral conversations from previous sessions.
  * Returns the count and aggregated deleted memory IDs for Qdrant cleanup.
  */
 export function purgePrivateConversations(): {

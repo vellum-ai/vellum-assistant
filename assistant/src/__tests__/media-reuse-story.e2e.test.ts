@@ -564,7 +564,7 @@ describe("Private-thread variant: cross-thread media blocking", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("private thread");
+    expect(result.content).toContain("private conversation");
     expect(result.content).toContain("cannot be accessed");
   });
 
@@ -647,7 +647,7 @@ describe("Private-thread variant: cross-thread media blocking", () => {
       context,
     );
     expect(materializeResult.isError).toBe(true);
-    expect(materializeResult.content).toContain("private thread");
+    expect(materializeResult.content).toContain("private conversation");
   });
 
   test("visibility policy unit check: private attachment blocked from standard context", () => {

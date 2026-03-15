@@ -161,7 +161,7 @@ export interface EmitSignalParams<TEventName extends string = string> {
   /**
    * Per-channel conversation affinity hint. Forces the decision engine to
    * reuse the specified conversation for the given channel(s), bypassing
-   * LLM thread-routing judgment. Keyed by channel name, value is conversationId.
+   * LLM conversation-routing judgment. Keyed by channel name, value is conversationId.
    */
   conversationAffinityHint?: Partial<Record<string, string>>;
   /** Optional deduplication key. */

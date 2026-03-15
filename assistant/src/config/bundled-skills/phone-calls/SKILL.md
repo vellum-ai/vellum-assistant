@@ -157,7 +157,7 @@ During an active call, the user can interact with the AI voice agent via the HTT
 When the AI voice agent encounters something it needs user input for, it dispatches an **ASK_GUARDIAN** request to all configured guardian channels (mac desktop, Telegram). The call status changes to `waiting_on_user`.
 
 1. The question is delivered simultaneously to every configured channel. The first channel to respond wins (first-response-wins semantics) -- once one channel provides an answer, the other channels receive a "already answered" notice.
-2. On the mac desktop, a guardian request thread is created with the question. On Telegram, the question text and a request code are delivered via the gateway.
+2. On the mac desktop, a guardian request conversation is created with the question. On Telegram, the question text and a request code are delivered via the gateway.
 3. If DTMF callee verification is enabled, the callee must enter a verification code before the call proceeds (see the **DTMF Callee Verification** section above).
 4. The guardian provides an answer through whichever channel they prefer. The answer is routed to the AI voice agent, which continues the conversation naturally.
 
@@ -189,7 +189,7 @@ When there is **no pending question** but the call is still active, the user can
 
 The instruction is injected into the AI voice agent's conversation context as high-priority input, and the agent adjusts its behavior accordingly.
 
-**Note:** Steering is done via the HTTP API, not the desktop chat thread. The desktop thread only receives pointer/status messages about the call.
+**Note:** Steering is done via the HTTP API, not the desktop chat conversation. The desktop conversation only receives pointer/status messages about the call.
 
 ### Call status values
 

@@ -80,7 +80,7 @@ async function handleBtw(
   // Look up an existing conversation — never create one.  BTW is ephemeral
   // (the file header promises "No messages are persisted"), so we must not
   // call getOrCreateConversation which would insert a DB row.  When no
-  // conversation exists (e.g. greeting generation for a draft thread), we
+  // conversation exists (e.g. greeting generation for a draft conversation), we
   // still get a usable session via getOrCreateSession with the raw key; the
   // session lives only in memory and disappears on restart.
   const mapping = getConversationByKey(conversationKey);

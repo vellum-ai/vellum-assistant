@@ -26,6 +26,13 @@ export const HandshakeRequestSchema = z.object({
   protocolVersion: z.string(),
   /** Opaque session identifier chosen by the initiator. */
   sessionId: z.string(),
+  /**
+   * Optional assistant API key passed from the assistant runtime.
+   * In managed (sidecar) mode the API key is provisioned after hatch,
+   * so the assistant forwards it during the bootstrap handshake so CES
+   * can use it for platform credential materialisation.
+   */
+  assistantApiKey: z.string().optional(),
 });
 export type HandshakeRequest = z.infer<typeof HandshakeRequestSchema>;
 

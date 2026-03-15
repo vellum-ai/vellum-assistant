@@ -10,7 +10,7 @@ import type { PermissionPrompter } from "../permissions/prompter.js";
 import { addRule } from "../permissions/trust-store.js";
 import {
   getEffectiveMode,
-  setThreadMode,
+  setConversationMode,
   setTimedMode,
 } from "../runtime/session-approval-overrides.js";
 import { getLogger } from "../util/logger.js";
@@ -89,7 +89,7 @@ export class PermissionChecker {
         context.signal,
       );
 
-      // Private threads force prompting for side-effect tools even when a
+      // Private conversations force prompting for side-effect tools even when a
       // trust/allow rule would auto-allow. Deny decisions are preserved —
       // only allow → prompt promotion happens here.
       if (
@@ -99,7 +99,7 @@ export class PermissionChecker {
       ) {
         result.decision = "prompt";
         result.reason =
-          "Private thread: side-effect tools require explicit approval";
+          "Private conversation: side-effect tools require explicit approval";
       }
 
       if (result.decision === "deny") {
@@ -412,7 +412,7 @@ export class PermissionChecker {
             "Activated timed (10m) temporary approval mode",
           );
         } else if (response.decision === "allow_conversation") {
-          setThreadMode(context.conversationId);
+          setConversationMode(context.conversationId);
           log.info(
             { toolName: name, conversationId: context.conversationId },
             "Activated conversation-scoped temporary approval mode",

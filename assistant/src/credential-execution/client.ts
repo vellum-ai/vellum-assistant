@@ -80,12 +80,24 @@ const DEFAULT_HANDSHAKE_TIMEOUT_MS = 10_000;
 // Client interface
 // ---------------------------------------------------------------------------
 
+export interface CesClientHandshakeOptions {
+  /**
+   * Optional assistant API key to pass to CES during the handshake.
+   * In managed (sidecar) mode the API key is provisioned after hatch,
+   * so the assistant forwards it here so CES can use it for platform
+   * credential materialisation without relying on env vars.
+   */
+  assistantApiKey?: string;
+}
+
 export interface CesClient {
   /**
    * Perform the handshake with CES. Must be called before any RPC calls.
    * Returns true if the handshake was accepted, false otherwise.
    */
-  handshake(): Promise<{ accepted: boolean; reason?: string }>;
+  handshake(
+    options?: CesClientHandshakeOptions,
+  ): Promise<{ accepted: boolean; reason?: string }>;
 
   /**
    * Send a typed RPC request and wait for the response.
@@ -185,7 +197,9 @@ export function createCesClient(
   // -------------------------------------------------------------------------
 
   return {
-    async handshake(): Promise<{ accepted: boolean; reason?: string }> {
+    async handshake(
+      options?: CesClientHandshakeOptions,
+    ): Promise<{ accepted: boolean; reason?: string }> {
       if (ready) return { accepted: true };
 
       const ackPromise = new Promise<HandshakeAck>((resolve, reject) => {
@@ -210,6 +224,9 @@ export function createCesClient(
           type: "handshake_request",
           protocolVersion: CES_PROTOCOL_VERSION,
           sessionId,
+          ...(options?.assistantApiKey
+            ? { assistantApiKey: options.assistantApiKey }
+            : {}),
         });
       } catch (err) {
         const entry = pending.get("handshake");

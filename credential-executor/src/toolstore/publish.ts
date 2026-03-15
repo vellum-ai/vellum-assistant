@@ -27,8 +27,8 @@
  *    workspace directory or use non-HTTPS schemes are rejected.
  */
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 import { getCesToolStoreDir, type CesMode } from "../paths.js";
 import type { SecureCommandManifest } from "../commands/profiles.js";
@@ -329,8 +329,36 @@ export function publishBundle(request: PublishRequest): PublishResult {
       // Best effort — the file may have been overwritten by extraction
     }
 
+    // Scan for symlinks that escape the bundle directory.
+    // A symlink pointing outside the staging directory could allow the
+    // entrypoint to execute arbitrary binaries on the host.
+    const escapingSymlinks = findEscapingSymlinks(stagingDir);
+    if (escapingSymlinks.length > 0) {
+      throw new Error(
+        `Bundle contains symlinks that point outside the bundle directory: ${escapingSymlinks.join(", ")}. ` +
+        `Symlink escape is not allowed.`,
+      );
+    }
+
     // Validate that the declared entrypoint exists after extraction
     const extractedEntrypoint = join(stagingDir, secureCommandManifest.entrypoint);
+
+    // Check that the entrypoint itself is not a symlink (use lstat to avoid following)
+    try {
+      const entrypointStat = lstatSync(extractedEntrypoint);
+      if (entrypointStat.isSymbolicLink()) {
+        throw new Error(
+          `Entrypoint "${secureCommandManifest.entrypoint}" is a symbolic link. ` +
+          `Symlink entrypoints are not allowed — the entrypoint must be a regular file.`,
+        );
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("Symlink entrypoints")) {
+        throw err;
+      }
+      // lstat failed — the file doesn't exist, fall through to existsSync check
+    }
+
     if (!existsSync(extractedEntrypoint)) {
       throw new Error(
         `Entrypoint "${secureCommandManifest.entrypoint}" not found in extracted bundle contents. ` +
@@ -448,4 +476,54 @@ export function isBundlePublished(
   const bundleDir = getBundleDir(toolstoreDir, digest);
   const manifestPath = getBundleManifestPath(toolstoreDir, digest);
   return existsSync(bundleDir) && existsSync(manifestPath);
+}
+
+// ---------------------------------------------------------------------------
+// Symlink escape detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Recursively scan a directory for symlinks that point outside of it.
+ *
+ * Returns an array of relative paths (from `rootDir`) of symlinks whose
+ * resolved target falls outside `rootDir`.
+ */
+function findEscapingSymlinks(rootDir: string): string[] {
+  const escaping: string[] = [];
+  const realRoot = realpathSync(rootDir);
+
+  function walk(dir: string): void {
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const fullPath = join(dir, entry);
+      let stat;
+      try {
+        stat = lstatSync(fullPath);
+      } catch {
+        continue;
+      }
+
+      if (stat.isSymbolicLink()) {
+        // Resolve the symlink target relative to its parent directory
+        const linkTarget = readlinkSync(fullPath);
+        const resolvedTarget = resolve(dir, linkTarget);
+        // Check if the resolved target is outside the root directory
+        if (!resolvedTarget.startsWith(realRoot + "/") && resolvedTarget !== realRoot) {
+          const relativePath = fullPath.slice(realRoot.length + 1);
+          escaping.push(relativePath);
+        }
+      } else if (stat.isDirectory()) {
+        walk(fullPath);
+      }
+    }
+  }
+
+  walk(realRoot);
+  return escaping;
 }

@@ -427,17 +427,11 @@ struct SettingsDeveloperTab: View {
 
     private func fetchHealthz() async {
         do {
-            let response = try await GatewayHTTPClient.get(
+            let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
                 path: "assistants/\(selectedAssistantId)/healthz",
                 timeout: 10
-            )
-            guard response.statusCode == 200 else {
-                healthz = DaemonHealthz()
-                return
-            }
-            let decoder = JSONDecoder()
-            decoder.keyDecodingStrategy = .convertFromSnakeCase
-            healthz = try decoder.decode(DaemonHealthz.self, from: response.data)
+            ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
+            healthz = decoded ?? DaemonHealthz()
         } catch {
             healthz = DaemonHealthz()
         }

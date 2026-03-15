@@ -1,8 +1,8 @@
 /**
- * Generative copy for guardian question threads.
+ * Generative copy for guardian question conversations.
  *
  * Uses the configured provider to generate an attention-oriented emoji-prefixed
- * thread title and a richer initial message. Falls back to deterministic copy
+ * conversation title and a richer initial message. Falls back to deterministic copy
  * when the provider is unavailable or generation fails/times out.
  */
 
@@ -41,7 +41,7 @@ export function buildFallbackCopy(questionText: string): GuardianCopy {
 }
 
 /**
- * Generate guardian thread copy (title + initial message) via the configured
+ * Generate guardian conversation copy (title + initial message) via the configured
  * LLM provider. Returns deterministic fallback when the provider is unavailable,
  * generation times out, or any error occurs.
  */
@@ -64,7 +64,7 @@ export async function generateGuardianCopy(
 
   try {
     const prompt = [
-      "Generate a thread title and initial message for a guardian question during a live phone call.",
+      "Generate a conversation title and initial message for a guardian question during a live phone call.",
       "",
       `Question: ${questionText}`,
       ...(requestCode ? [`Reference code: ${requestCode}`] : []),
