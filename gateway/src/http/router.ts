@@ -59,6 +59,7 @@ export interface RouteDefinition {
 
 export interface RouterDeps {
   authRateLimiter: AuthRateLimiter;
+  trustProxy?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -79,10 +80,16 @@ export function createRouter(
   req: Request,
   url: URL,
   getClientIp: GetClientIp,
+  server?: import("bun").Server<unknown>,
 ) => Promise<Response> | Response | null {
-  const { authRateLimiter } = deps;
+  const { authRateLimiter, trustProxy } = deps;
 
-  return (req: Request, url: URL, getClientIp: GetClientIp) => {
+  return (
+    req: Request,
+    url: URL,
+    getClientIp: GetClientIp,
+    server?: import("bun").Server<unknown>,
+  ) => {
     for (const route of routes) {
       const matchResult = matchRoute(route, url.pathname, req.method);
       if (!matchResult) continue;
@@ -105,7 +112,7 @@ export function createRouter(
             authRateLimiter,
             getClientIp,
           );
-          const authError = requireEdgeAuth(req);
+          const authError = requireEdgeAuth(req, server, { trustProxy });
           if (authError) return authError;
           return route.handler(req, matchResult.params, getClientIp);
         }
@@ -115,7 +122,12 @@ export function createRouter(
             authRateLimiter,
             getClientIp,
           );
-          const authError = requireEdgeAuthWithScope(req, route.scope!);
+          const authError = requireEdgeAuthWithScope(
+            req,
+            route.scope!,
+            server,
+            { trustProxy },
+          );
           if (authError) return authError;
           return route.handler(req, matchResult.params, getClientIp);
         }

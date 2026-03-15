@@ -2,6 +2,7 @@ import { validateEdgeToken } from "../../auth/token-exchange.js";
 import { resolveScopeProfile } from "../../auth/scopes.js";
 import type { Scope } from "../../auth/types.js";
 import type { AuthRateLimiter } from "../../auth-rate-limiter.js";
+import { isLoopbackPeer } from "../routes/browser-relay-websocket.js";
 
 type GetClientIp = () => string;
 
@@ -18,9 +19,17 @@ export function createAuthMiddleware(
 ) {
   /**
    * Validate a JWT bearer token (aud=vellum-gateway) for client-facing routes.
+   * Loopback peers (127.0.0.0/8, ::1) are auto-authenticated without a token.
    * Returns null on success, or a Response to short-circuit with.
    */
-  function requireEdgeAuth(req: Request): Response | null {
+  function requireEdgeAuth(
+    req: Request,
+    server?: import("bun").Server<unknown>,
+    opts?: { trustProxy?: boolean },
+  ): Response | null {
+    if (server && isLoopbackPeer(server, req, opts)) {
+      return null;
+    }
     const token = extractBearerToken(req);
     if (!token) {
       authRateLimiter.recordFailure(getClientIp());
@@ -36,12 +45,18 @@ export function createAuthMiddleware(
 
   /**
    * Validate a JWT bearer token and check that its scope profile
-   * includes a specific scope. Returns null on success.
+   * includes a specific scope. Loopback peers bypass JWT validation
+   * and are granted all scopes. Returns null on success.
    */
   function requireEdgeAuthWithScope(
     req: Request,
     scope: Scope,
+    server?: import("bun").Server<unknown>,
+    opts?: { trustProxy?: boolean },
   ): Response | null {
+    if (server && isLoopbackPeer(server, req, opts)) {
+      return null;
+    }
     const token = extractBearerToken(req);
     if (!token) {
       authRateLimiter.recordFailure(getClientIp());

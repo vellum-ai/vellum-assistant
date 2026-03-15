@@ -5,8 +5,12 @@
  * disabled, so skills and clients can use gateway URLs exclusively.
  */
 
+import { existsSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
+import { getRootDir } from "../../credential-reader.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
 import { stripHopByHop } from "../../util/strip-hop-by-hop.js";
@@ -134,7 +138,26 @@ export function createChannelVerificationSessionProxyHandler(
     },
 
     async handleGuardianInit(req: Request): Promise<Response> {
-      return proxyToRuntime(req, "/v1/guardian/init", "");
+      const lockPath = join(getRootDir(), "guardian-init.lock");
+      if (existsSync(lockPath)) {
+        log.warn("Guardian init rejected — already bootstrapped");
+        return Response.json(
+          { error: "Bootstrap already completed" },
+          { status: 403 },
+        );
+      }
+
+      const response = await proxyToRuntime(req, "/v1/guardian/init", "");
+
+      if (response.status >= 200 && response.status < 300) {
+        try {
+          writeFileSync(lockPath, new Date().toISOString(), { mode: 0o600 });
+        } catch (err) {
+          log.error({ err }, "Failed to write guardian-init lock file");
+        }
+      }
+
+      return response;
     },
 
     async handleGuardianRefresh(req: Request): Promise<Response> {

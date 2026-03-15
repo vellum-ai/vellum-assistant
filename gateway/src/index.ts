@@ -501,7 +501,7 @@ async function main() {
     {
       path: "/v1/guardian/init",
       method: "POST",
-      auth: "edge",
+      auth: "none",
       handler: (req) => channelVerificationSessionProxy.handleGuardianInit(req),
     },
     {
@@ -693,6 +693,7 @@ async function main() {
 
   const router = createRouter(routes, {
     authRateLimiter,
+    trustProxy: config.trustProxy,
   });
 
   const server = Bun.serve({
@@ -805,7 +806,7 @@ async function main() {
       }
 
       // ── Route table dispatch ──
-      const response = router(req, url, resolveClientIp);
+      const response = router(req, url, resolveClientIp, svr);
       if (response !== null) return response;
 
       return Response.json(

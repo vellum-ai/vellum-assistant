@@ -102,8 +102,7 @@ export async function buildStartupScript(
   instanceName: string,
   cloud: RemoteHost,
 ): Promise<string> {
-  const platformUrl =
-    process.env.VELLUM_PLATFORM_URL ?? "https://vellum.ai";
+  const platformUrl = process.env.VELLUM_PLATFORM_URL ?? "https://vellum.ai";
   const logPath =
     cloud === "custom"
       ? "/tmp/vellum-startup.log"
@@ -681,34 +680,6 @@ async function displayPairingQRCode(
   }
 }
 
-/**
- * Obtain a CLI actor token by calling the daemon's loopback-only bootstrap
- * endpoint. Returns the access token on success, or undefined if the
- * request fails (the daemon may not support the endpoint yet).
- */
-async function bootstrapCliToken(
-  daemonPort: number,
-): Promise<string | undefined> {
-  try {
-    const res = await fetch(
-      `http://127.0.0.1:${daemonPort}/v1/guardian/init`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform: "cli", deviceId: "hatch-cli" }),
-        signal: AbortSignal.timeout(5000),
-      },
-    );
-    if (!res.ok) return undefined;
-    const body = (await res.json()) as { accessToken?: string };
-    return typeof body.accessToken === "string"
-      ? body.accessToken
-      : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 async function hatchLocal(
   species: Species,
   name: string | null,
@@ -822,17 +793,10 @@ async function hatchLocal(
     delete process.env.BASE_DATA_DIR;
   }
 
-  // Bootstrap a CLI actor token directly from the daemon. The daemon's
-  // /v1/guardian/init endpoint is unauthenticated and loopback-only, so the
-  // CLI can call it immediately after the daemon becomes ready. This avoids
-  // coupling to any particular credential backend (keychain vs encrypted file).
-  const bearerToken = await bootstrapCliToken(resources.daemonPort);
-
   const localEntry: AssistantEntry = {
     assistantId: instanceName,
     runtimeUrl,
     localUrl: `http://127.0.0.1:${resources.gatewayPort}`,
-    bearerToken,
     cloud: "local",
     species,
     hatchedAt: new Date().toISOString(),
@@ -859,7 +823,7 @@ async function hatchLocal(
     // mDNS hostnames may not resolve on the local machine, but keep the
     // external runtimeUrl in the QR payload so iOS devices can reach it.
     const localGatewayUrl = `http://127.0.0.1:${resources.gatewayPort}`;
-    await displayPairingQRCode(localGatewayUrl, bearerToken, runtimeUrl);
+    await displayPairingQRCode(localGatewayUrl, undefined, runtimeUrl);
   }
 
   if (keepAlive) {
