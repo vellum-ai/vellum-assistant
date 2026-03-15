@@ -22,7 +22,7 @@ public struct UsageClient: UsageClientProtocol {
         return cs
     }()
 
-    public init() {}
+    nonisolated public init() {}
 
     public func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? {
         guard let response = try? await GatewayHTTPClient.get(path: "usage/totals?from=\(from)&to=\(to)", timeout: 10),
