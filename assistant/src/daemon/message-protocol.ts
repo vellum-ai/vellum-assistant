@@ -13,6 +13,7 @@
  */
 
 // Re-export domain modules (all individual types remain importable)
+export * from "./message-types/acp.js";
 export * from "./message-types/apps.js";
 export * from "./message-types/browser.js";
 export * from "./message-types/computer-use.js";
@@ -41,6 +42,7 @@ export * from "./message-types/work-items.js";
 export * from "./message-types/workspace.js";
 
 // Import domain-level union aliases for composition
+import type { _AcpServerMessages } from "./message-types/acp.js";
 import type {
   _AppsClientMessages,
   _AppsServerMessages,
@@ -192,6 +194,7 @@ export type ServerMessage =
   | _InboxServerMessages
   | _PairingServerMessages
   | _NotificationsServerMessages
+  | _AcpServerMessages
   | SubagentEvent;
 
 // === Contract schema ===
