@@ -879,7 +879,7 @@ jobs:
           for dir in packages/*/; do
             [ -f "${dir}/package.json" ] || continue
             echo "Installing dependencies in ${dir}"
-            (cd "${dir}" && bun install)
+            (cd "${dir}" && bun install --frozen-lockfile 2>/dev/null || bun install)
           done
 
       - name: Build binaries
@@ -1187,7 +1187,7 @@ jobs:
           for dir in packages/*/; do
             [ -f "${dir}/package.json" ] || continue
             echo "Installing dependencies in ${dir}"
-            (cd "${dir}" && bun install)
+            (cd "${dir}" && bun install --frozen-lockfile 2>/dev/null || bun install)
           done
 
       - name: Build Bun binaries (x64)
