@@ -31,5 +31,6 @@ struct ReadOnlyCodeContent: View {
                 .padding(VSpacing.md)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
