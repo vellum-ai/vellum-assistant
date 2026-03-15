@@ -107,7 +107,8 @@ struct TokensGallerySection: View {
                 HStack(spacing: VSpacing.xl) {
                     let radii: [(String, CGFloat)] = [
                         ("xs", VRadius.xs), ("sm", VRadius.sm), ("md", VRadius.md),
-                        ("lg", VRadius.lg), ("xl", VRadius.xl), ("pill", VRadius.pill),
+                        ("window", VRadius.window), ("lg", VRadius.lg), ("xl", VRadius.xl),
+                        ("pill", VRadius.pill),
                     ]
 
                     ForEach(radii, id: \.0) { name, radius in
