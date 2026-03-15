@@ -45,6 +45,10 @@ RUN groupadd --system --gid 1001 ces && \
 # Copy built app from builder
 COPY --from=builder --chown=ces:ces /app /app
 
+# Pre-create /ces-data so the non-root ces user can write to it
+# when no PVC volume is mounted (e.g., direct docker run)
+RUN mkdir -p /ces-data && chown ces:ces /ces-data
+
 USER ces
 
 EXPOSE 8090
