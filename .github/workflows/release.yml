@@ -874,6 +874,7 @@ jobs:
           bun-version: '1.3.9'
 
       - name: Install nested package dependencies
+        working-directory: .
         run: |
           for dir in packages/*/; do
             [ -f "${dir}/package.json" ] || continue
@@ -1181,6 +1182,7 @@ jobs:
           bun-version: '1.3.9'
 
       - name: Install nested package dependencies
+        working-directory: .
         run: |
           for dir in packages/*/; do
             [ -f "${dir}/package.json" ] || continue
