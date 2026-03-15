@@ -36,9 +36,9 @@ import {
 import { NetworkRecorder } from "./lib/shared/network-recorder.js";
 import {
   buildDaemonUrl,
+  readCredentialToken,
   getDataDir,
   getHttpPort,
-  readHttpToken,
 } from "./lib/shared/platform.js";
 import { loadRecording, saveRecording } from "./lib/shared/recording-store.js";
 import type { SessionRecording } from "./lib/shared/recording-types.js";
@@ -1032,7 +1032,7 @@ async function startLearnSession(
   // Step 2: Start learn session via HTTP
   const port = getHttpPort();
   const baseUrl = buildDaemonUrl(port);
-  const token = readHttpToken();
+  const token = readCredentialToken();
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
