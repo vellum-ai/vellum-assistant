@@ -16,6 +16,7 @@
   "dependencies": {
     "@vellumai/assistant": "0.4.55",
     "@vellumai/cli": "0.4.55",
+    "@vellumai/credential-executor": "0.4.55",
     "@vellumai/vellum-gateway": "0.4.55"
   },
   "devDependencies": {

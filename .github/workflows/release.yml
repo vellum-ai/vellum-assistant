@@ -117,6 +117,7 @@ jobs:
           jq --arg v "$VERSION" '
             .dependencies["@vellumai/assistant"] = $v |
             .dependencies["@vellumai/cli"] = $v |
+            .dependencies["@vellumai/credential-executor"] = $v |
             .dependencies["@vellumai/vellum-gateway"] = $v
           ' meta/package.json > tmp && mv tmp meta/package.json
 
@@ -749,14 +750,14 @@ jobs:
           echo "**Version:** \`${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
 
   publish-npm:
-    needs: [bump-and-tag, ci-cli, ci-gateway, ci-assistant, ci-playwright]
+    needs: [bump-and-tag, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
     strategy:
       matrix:
-        package: [assistant, cli, gateway]
+        package: [assistant, cli, credential-executor, gateway]
     steps:
       - uses: actions/checkout@v4
         with:
