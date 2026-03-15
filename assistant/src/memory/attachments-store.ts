@@ -5,11 +5,13 @@
  * data. Provides upload, delete, and message-linkage operations.
  */
 
-import { unlinkSync } from "node:fs";
+import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { getWorkspaceDir } from "../util/platform.js";
 import { getDb, rawAll, rawGet, rawRun } from "./db.js";
 import { attachments, messageAttachments } from "./schema.js";
 
@@ -48,6 +50,26 @@ function formatBytes(bytes: number): string {
 
 /** Hard ceiling on a single uploaded attachment (50 MB, matching assistant limits). */
 export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+
+/** Attachments larger than this are stored on disk instead of inline in SQLite. */
+export const FILE_BACKED_THRESHOLD_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Write decoded base64 data to disk under the workspace attachments directory.
+ * Returns the absolute file path of the written file.
+ */
+export function writeAttachmentToDisk(
+  dataBase64: string,
+  filename: string,
+): string {
+  const dir = join(getWorkspaceDir(), "data", "attachments");
+  mkdirSync(dir, { recursive: true });
+  const destFilename = `${uuid()}-${filename}`;
+  const destPath = join(dir, destFilename);
+  const buffer = Buffer.from(dataBase64, "base64");
+  writeFileSync(destPath, buffer);
+  return destPath;
+}
 
 /**
  * Validate that a string contains only characters from the standard base64

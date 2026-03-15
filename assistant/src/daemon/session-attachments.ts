@@ -1,8 +1,11 @@
 import {
   AttachmentUploadError,
+  FILE_BACKED_THRESHOLD_BYTES,
   linkAttachmentToMessage,
   setAttachmentThumbnail,
   uploadAttachment,
+  uploadFileBackedAttachment,
+  writeAttachmentToDisk,
 } from "../memory/attachments-store.js";
 import {
   check,
@@ -205,13 +208,27 @@ export async function resolveAssistantAttachments(
   if (assistantAttachments.length > 0 && lastAssistantMessageId) {
     for (let i = 0; i < assistantAttachments.length; i++) {
       const draft = assistantAttachments[i];
+      const isFileBacked = draft.sizeBytes > FILE_BACKED_THRESHOLD_BYTES;
       let stored;
       try {
-        stored = uploadAttachment(
-          draft.filename,
-          draft.mimeType,
-          draft.dataBase64,
-        );
+        if (isFileBacked) {
+          const filePath = writeAttachmentToDisk(
+            draft.dataBase64,
+            draft.filename,
+          );
+          stored = uploadFileBackedAttachment(
+            draft.filename,
+            draft.mimeType,
+            filePath,
+            draft.sizeBytes,
+          );
+        } else {
+          stored = uploadAttachment(
+            draft.filename,
+            draft.mimeType,
+            draft.dataBase64,
+          );
+        }
       } catch (err) {
         if (err instanceof AttachmentUploadError) {
           log.warn(
@@ -227,7 +244,9 @@ export async function resolveAssistantAttachments(
       }
       linkAttachmentToMessage(lastAssistantMessageId, stored.id, i);
       const isVideo = draft.mimeType.startsWith("video/");
-      const omitData = isVideo && draft.dataBase64.length > MAX_INLINE_B64_SIZE;
+      const omitData =
+        isFileBacked ||
+        (isVideo && draft.dataBase64.length > MAX_INLINE_B64_SIZE);
 
       // Generate and persist a thumbnail for video attachments.
       let thumbnailData: string | undefined;
