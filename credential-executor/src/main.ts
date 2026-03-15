@@ -225,7 +225,6 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
 
   handlers[CesRpcMethod.ListGrants] = createListGrantsHandler({
     persistentGrantStore,
-    sessionId,
   }) as typeof handlers[string];
 
   handlers[CesRpcMethod.RevokeGrant] = createRevokeGrantHandler({

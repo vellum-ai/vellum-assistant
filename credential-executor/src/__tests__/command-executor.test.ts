@@ -211,6 +211,7 @@ function addCommandGrant(
     pattern: `${bundleId}/${profileName}`,
     scope: credentialHandle,
     createdAt: Date.now(),
+    sessionId: "test-session",
   });
 }
 

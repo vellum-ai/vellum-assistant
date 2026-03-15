@@ -413,6 +413,7 @@ describe("evaluateHttpPolicy", () => {
       pattern: "GET https://api.github.com/repos/owner/repo",
       scope: "local_static:github/api_key",
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const request: HttpPolicyRequest = {
@@ -437,6 +438,7 @@ describe("evaluateHttpPolicy", () => {
       pattern: "POST https://api.example.com/data",
       scope: "local_static:svc/key",
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const request: HttpPolicyRequest = {
@@ -461,6 +463,7 @@ describe("evaluateHttpPolicy", () => {
       pattern: "GET https://api.example.com/users/{:num}/posts",
       scope: "local_static:svc/key",
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const request: HttpPolicyRequest = {
@@ -529,6 +532,7 @@ describe("evaluateHttpPolicy", () => {
       pattern: "GET https://api.example.com/data",
       scope: "local_static:other/key",
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const request: HttpPolicyRequest = {
@@ -549,6 +553,7 @@ describe("evaluateHttpPolicy", () => {
       pattern: "GET https://api.example.com/data",
       scope: "local_static:svc/key",
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const request: HttpPolicyRequest = {
@@ -570,6 +575,7 @@ describe("evaluateHttpPolicy", () => {
       pattern: "GET https://api.example.com/data",
       scope: "local_static:svc/key",
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const request: HttpPolicyRequest = {
@@ -951,6 +957,7 @@ describe("end-to-end: policy evaluation → response filter → audit", () => {
       pattern: "GET https://api.stripe.com/v1/charges/{:num}",
       scope: "local_static:stripe/api_key",
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
     const temporaryStore = new TemporaryGrantStore();
 

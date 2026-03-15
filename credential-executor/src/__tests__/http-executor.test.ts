@@ -319,6 +319,7 @@ describe("HTTP executor: local static secrets", () => {
       pattern: "GET https://api.github.com/repos/owner/repo",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const { fetch: fetchFn, requests } = mockFetchRecorder(
@@ -358,6 +359,7 @@ describe("HTTP executor: local static secrets", () => {
       pattern: "GET https://api.github.com/user",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     // Simulate API echoing back the token in response
@@ -392,6 +394,7 @@ describe("HTTP executor: local static secrets", () => {
       pattern: "GET https://api.github.com/data",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const fetchFn = mockFetch(200, '{"ok": true}', {
@@ -456,6 +459,7 @@ describe("HTTP executor: local OAuth", () => {
       pattern: "GET https://www.googleapis.com/calendar/v3/calendars/primary/events",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const { fetch: fetchFn, requests } = mockFetchRecorder(
@@ -496,6 +500,7 @@ describe("HTTP executor: local OAuth", () => {
       pattern: "GET https://www.googleapis.com/oauth2/v1/tokeninfo",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     // Simulate tokeninfo endpoint echoing the token
@@ -547,6 +552,7 @@ describe("HTTP executor: platform_oauth handles", () => {
       pattern: "GET https://api.slack.com/api/conversations.list",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     // Mock the platform catalog response
@@ -645,6 +651,7 @@ describe("HTTP executor: platform_oauth handles", () => {
       pattern: "GET https://api.slack.com/data",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     // No managedSubjectOptions or managedMaterializerOptions
@@ -777,6 +784,7 @@ describe("HTTP executor: forbidden header rejection", () => {
       pattern: "GET https://api.github.com/user",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const { fetch: fetchFn, requests } = mockFetchRecorder(200, '{"ok": true}');
@@ -808,6 +816,7 @@ describe("HTTP executor: forbidden header rejection", () => {
       pattern: "GET https://api.github.com/user",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const { fetch: fetchFn, requests } = mockFetchRecorder(200, '{"ok": true}');
@@ -838,6 +847,7 @@ describe("HTTP executor: forbidden header rejection", () => {
       pattern: "GET https://api.github.com/user",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const deps = buildDeps(fixture, []);
@@ -887,6 +897,7 @@ describe("HTTP executor: redirect denial", () => {
       pattern: "GET https://api.github.com/repos/owner/repo",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     // Redirect to an evil domain
@@ -925,6 +936,7 @@ describe("HTTP executor: redirect denial", () => {
       pattern: "GET https://api.github.com/repos/owner/repo/result",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     // Also add a grant for the original POST endpoint
@@ -934,6 +946,7 @@ describe("HTTP executor: redirect denial", () => {
       pattern: "POST https://api.github.com/repos/owner/repo/action",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     // POST -> 303 redirect to a GET-only granted endpoint
@@ -990,6 +1003,7 @@ describe("HTTP executor: redirect denial", () => {
       pattern: "GET https://api.github.com/repos/owner/repo",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     // Redirect to the same domain/path that matches the grant
@@ -1056,6 +1070,7 @@ describe("HTTP executor: filtered response behaviour", () => {
       pattern: "GET https://api.example.com/protected",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const fetchFn = mockFetch(401, '{"error": "unauthorized"}', {
@@ -1090,6 +1105,7 @@ describe("HTTP executor: filtered response behaviour", () => {
       pattern: "GET https://api.example.com/data",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const fetchFn = mockFetch(200, '{"ok": true}', {
@@ -1147,6 +1163,7 @@ describe("HTTP executor: audit summary integrity", () => {
       pattern: "GET https://api.github.com/user",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const fetchFn = mockFetch(200, '{"login": "octocat"}');
@@ -1180,6 +1197,7 @@ describe("HTTP executor: audit summary integrity", () => {
       pattern: "GET https://api.github.com/user",
       scope: badHandle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const deps = buildDeps(fixture, []);
@@ -1261,6 +1279,7 @@ describe("HTTP executor: network error handling", () => {
       pattern: "GET https://api.example.com/data",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const fetchFn = asFetch(async () => {
@@ -1294,6 +1313,7 @@ describe("HTTP executor: network error handling", () => {
       pattern: "GET https://api.example.com/data",
       scope: handle,
       createdAt: Date.now(),
+      sessionId: "test-session",
     });
 
     const fetchFn = asFetch(async () => {
