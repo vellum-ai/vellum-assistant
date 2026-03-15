@@ -223,11 +223,11 @@ To dark-launch CES in managed deployments without user impact:
 
 1. **Deploy the CES container image** via the `credential_executor_image` field in `POST /v1/internal/assistant-image-releases/`. The warm-pool manager picks it up and includes it in pod templates. The CES container starts, binds its bootstrap socket and health port (7841), but does nothing until an assistant connects.
 
-2. **Verify sidecar health** using kubelet probes: `/healthz` (liveness) and `/readyz` (readiness, returns 503 until an assistant connects). CES reports its protocol version in both probe responses.
+2. **Verify sidecar health** using kubelet probes: `/healthz` (liveness) and `/readyz` (readiness, always returns 200; includes `rpcConnected` field for observability). CES reports its protocol version in both probe responses.
 
 3. **Enable `ces-tools`** first on a test cohort. The assistant spawns a local CES child process and registers tools. Verify tool registration, grant creation, and audit logging work end-to-end without affecting existing workflows.
 
-4. **Enable `ces-managed-sidecar`** on the same cohort. The assistant switches from child-process transport to the bootstrap Unix socket. CES `/readyz` transitions to 200 once connected.
+4. **Enable `ces-managed-sidecar`** on the same cohort. The assistant switches from child-process transport to the bootstrap Unix socket. CES `/readyz` always returns 200; check the `rpcConnected` field in the response body to verify the assistant has connected.
 
 5. **Progressive rollout**: Widen the cohort by enabling flags on more assistants. Monitor for grant failures, materializer errors, and egress proxy issues.
 
