@@ -20,7 +20,7 @@ const log = getLogger("guardian-question-copy");
 const GENERATION_TIMEOUT_MS = 5_000;
 
 export interface GuardianCopy {
-  threadTitle: string;
+  conversationTitle: string;
   initialMessage: string;
 }
 
@@ -29,7 +29,7 @@ export interface GuardianCopy {
  */
 export function buildFallbackCopy(questionText: string): GuardianCopy {
   return {
-    threadTitle: `\u26A0\uFE0F ${questionText.slice(0, 70)}`,
+    conversationTitle: `\u26A0\uFE0F ${questionText.slice(0, 70)}`,
     initialMessage: [
       "Your assistant needs your input during a phone call.",
       "",
@@ -134,5 +134,5 @@ function parseGeneratedCopy(text: string): GuardianCopy | null {
     return null;
   }
 
-  return { threadTitle: title, initialMessage: message };
+  return { conversationTitle: title, initialMessage: message };
 }
