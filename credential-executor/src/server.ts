@@ -18,14 +18,21 @@ import type { Readable, Writable } from "node:stream";
 
 import {
   CES_PROTOCOL_VERSION,
+  CesRpcMethod as CesRpcMethodEnum,
   type CesRpcMethod,
   CesRpcSchemas,
   type HandshakeAck,
   type HandshakeRequest,
+  type MakeAuthenticatedRequest,
   type RpcEnvelope,
   type TransportMessage,
   TransportMessageSchema,
 } from "@vellumai/ces-contracts";
+
+import {
+  executeAuthenticatedHttpRequest,
+  type HttpExecutorDeps,
+} from "./http/executor.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -292,6 +299,45 @@ export class CesRpcServer {
     const line = JSON.stringify(msg) + "\n";
     this.output.write(line);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Handler factory: make_authenticated_request
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a handler function for the `make_authenticated_request` RPC method.
+ *
+ * Binds the executor to the provided dependencies so it can be registered
+ * in the RPC handler registry.
+ */
+export function createMakeAuthenticatedRequestHandler(
+  deps: HttpExecutorDeps,
+): RpcMethodHandler {
+  return async (request: unknown) => {
+    return executeAuthenticatedHttpRequest(
+      request as MakeAuthenticatedRequest,
+      deps,
+    );
+  };
+}
+
+/**
+ * Build an RPC handler registry that includes the `make_authenticated_request`
+ * handler alongside any additional handlers.
+ *
+ * This is a convenience helper for callers that want to wire up the HTTP
+ * executor without manually constructing the registry.
+ */
+export function buildHandlersWithHttp(
+  httpDeps: HttpExecutorDeps,
+  additionalHandlers?: RpcHandlerRegistry,
+): RpcHandlerRegistry {
+  return {
+    ...additionalHandlers,
+    [CesRpcMethodEnum.MakeAuthenticatedRequest]:
+      createMakeAuthenticatedRequestHandler(httpDeps),
+  };
 }
 
 // ---------------------------------------------------------------------------
