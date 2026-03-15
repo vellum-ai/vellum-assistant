@@ -185,15 +185,34 @@ export function publishBundle(request: PublishRequest): PublishResult {
   // -- Reject workspace-origin paths in the URL ---------------------------
   try {
     const parsedUrl = new URL(sourceUrl);
-    const decodedPathname = decodeURIComponent(parsedUrl.pathname);
-    if (isWorkspaceOriginPath(decodedPathname)) {
+    const rawPathname = parsedUrl.pathname;
+
+    // Always check the raw pathname — this must not be skipped.
+    if (isWorkspaceOriginPath(rawPathname)) {
       return {
         success: false,
         deduplicated: false,
         bundlePath: "",
-        error: `Source URL path "${decodedPathname}" appears to be a workspace-origin path. ` +
+        error: `Source URL path "${rawPathname}" appears to be a workspace-origin path. ` +
           `Workspace-origin binaries are never publishable.`,
       };
+    }
+
+    // Also check the decoded pathname for percent-encoded traversals.
+    try {
+      const decodedPathname = decodeURIComponent(rawPathname);
+      if (decodedPathname !== rawPathname && isWorkspaceOriginPath(decodedPathname)) {
+        return {
+          success: false,
+          deduplicated: false,
+          bundlePath: "",
+          error: `Source URL path "${decodedPathname}" (decoded from "${rawPathname}") appears to be a workspace-origin path. ` +
+            `Workspace-origin binaries are never publishable.`,
+        };
+      }
+    } catch {
+      // decodeURIComponent threw URIError on malformed sequences (e.g. %C0%AF).
+      // The raw pathname was already checked above, so we're safe.
     }
   } catch {
     // URL parsing already validated above
