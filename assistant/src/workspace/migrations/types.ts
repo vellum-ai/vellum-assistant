@@ -5,6 +5,7 @@ export interface WorkspaceMigration {
   /** Human-readable description for logging. */
   description: string;
   /** The migration function. Receives the workspace directory path.
-   *  Must be idempotent — safe to re-run if it was interrupted. */
-  run(workspaceDir: string): void;
+   *  Must be idempotent — safe to re-run if it was interrupted.
+   *  Both synchronous and asynchronous migrations are supported. */
+  run(workspaceDir: string): void | Promise<void>;
 }

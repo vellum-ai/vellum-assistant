@@ -58,10 +58,10 @@ export function saveCheckpoints(
   renameSync(tmpPath, path);
 }
 
-export function runWorkspaceMigrations(
+export async function runWorkspaceMigrations(
   workspaceDir: string,
   migrations: WorkspaceMigration[],
-): void {
+): Promise<void> {
   const seen = new Set<string>();
   for (const m of migrations) {
     if (seen.has(m.id)) {
@@ -98,7 +98,7 @@ export function runWorkspaceMigrations(
     saveCheckpoints(workspaceDir, checkpoints);
 
     try {
-      migration.run(workspaceDir);
+      await migration.run(workspaceDir);
     } catch (error) {
       log.error(
         { migrationId: migration.id, error },
