@@ -100,8 +100,10 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
   const vellumRoot = getVellumRootDir();
   const credentialMetadataPath = join(
     vellumRoot,
+    "workspace",
     "data",
-    "credential-metadata.json",
+    "credentials",
+    "metadata.json",
   );
   const metadataStore = new StaticCredentialMetadataStore(
     credentialMetadataPath,
