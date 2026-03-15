@@ -112,6 +112,7 @@ All inference (both computer-use sessions and ambient analysis) goes through the
 A background screen-watching system that runs alongside the manual session loop:
 - `AmbientAgent` — orchestrates periodic capture → OCR → analyze cycles via HTTP (configurable interval, default 30s)
 - `AmbientAnalyzer.swift` — type definitions only (`AmbientDecision`, `AmbientAnalysisResult`); analysis logic lives in the daemon
+- `KnowledgeStore` — persists observations as JSON in Application Support (max 500 entries)
 
 ### Voice Input
 
@@ -263,3 +264,4 @@ The macOS app pairs with iOS devices via QR code with Mac-side approval. The Con
 ## Data Storage
 
 - Session logs: `~/Library/Application Support/vellum-assistant/logs/session-*.json`
+- Knowledge store: `~/Library/Application Support/vellum-assistant/knowledge.json`

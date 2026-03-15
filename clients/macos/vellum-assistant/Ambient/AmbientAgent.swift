@@ -9,6 +9,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 @MainActor
 public final class AmbientAgent: ObservableObject {
+    let knowledgeStore = KnowledgeStore()
     var daemonClient: DaemonClient?
     weak var appDelegate: AppDelegate?
 
@@ -16,6 +17,8 @@ public final class AmbientAgent: ObservableObject {
     var activeWatchSession: WatchSession?
 
     private var cancellables = Set<AnyCancellable>()
+
+    var knowledge: KnowledgeStore { knowledgeStore }
 
     func pause() {}
     func resume() {}

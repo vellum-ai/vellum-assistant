@@ -430,6 +430,7 @@ Services/             Singleton service containers
 Ambient/              Background screen-watching agent
   AmbientAgent        Periodic capture → OCR → analyze via HTTP
   AmbientAnalyzer     Type definitions (AmbientDecision, AmbientAnalysisResult)
+  KnowledgeStore      Persists observations as JSON
   ScreenOCR           Vision framework OCR
 Features/
   Ambient/            Background screen monitoring UI
