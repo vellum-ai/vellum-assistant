@@ -38,9 +38,9 @@ function collectSourceFiles(dir: string): string[] {
  * or other modules this package should never depend on.
  */
 const FORBIDDEN_IMPORT_PATTERNS = [
-  // Assistant daemon internals
-  /from\s+["'](?:\.\.\/)*(?:assistant|@vellumai\/assistant)\//,
-  /require\s*\(\s*["'](?:\.\.\/)*(?:assistant|@vellumai\/assistant)\//,
+  // Assistant daemon internals (blocks both sub-path and root entrypoint imports)
+  /from\s+["'](?:\.\.\/)*(?:assistant|@vellumai\/assistant)(?:\/|["'])/,
+  /require\s*\(\s*["'](?:\.\.\/)*(?:assistant|@vellumai\/assistant)(?:\/|["'])/,
 
   // CES modules (credential execution service)
   /from\s+["'].*\/ces\//,
