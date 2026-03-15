@@ -38,6 +38,7 @@ import { TemporaryGrantStore } from "./grants/temporary-store.js";
 import { LocalMaterialiser } from "./materializers/local.js";
 import { createLocalSecureKeyBackend } from "./materializers/local-secure-key-backend.js";
 import { createLocalOAuthLookup } from "./materializers/local-oauth-lookup.js";
+import { createLocalTokenRefreshFn } from "./materializers/local-token-refresh.js";
 import { resolveLocalSubject } from "./subjects/local.js";
 import { checkCredentialPolicy } from "./subjects/policy.js";
 import {
@@ -125,6 +126,7 @@ function buildHandlers(sessionIdRef: SessionIdRef): RpcHandlerRegistry {
 
   const localMaterialiser = new LocalMaterialiser({
     secureKeyBackend,
+    tokenRefreshFn: createLocalTokenRefreshFn(vellumRoot, secureKeyBackend),
   });
 
   // -- Build handler registry ------------------------------------------------
