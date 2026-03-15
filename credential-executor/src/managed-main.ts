@@ -210,6 +210,7 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
         };
       },
       auditStore,
+      sessionId,
       cesMode: "managed",
       egressHooks: buildCesEgressHooks(),
     },
