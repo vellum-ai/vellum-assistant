@@ -202,6 +202,10 @@ extension AppDelegate {
     /// or the user isn't authenticated. Always calls through to
     /// `LocalAssistantBootstrapService.bootstrap()` so existing-key re-injection
     /// and stale-key reprovisioning are handled (not just Keychain presence).
+    ///
+    /// Waits up to 60s for the actor token to become available, retrying every
+    /// 10s, so that assistant switches (which clear then re-bootstrap actor
+    /// credentials) don't race with this method.
     func ensureLocalAssistantApiKey() {
         guard !isCurrentAssistantManaged, !isCurrentAssistantRemote else {
             log.debug("Skipping local assistant API key provisioning because current assistant is managed=\(self.isCurrentAssistantManaged, privacy: .public) remote=\(self.isCurrentAssistantRemote, privacy: .public)")
@@ -222,6 +226,21 @@ extension AppDelegate {
         log.info("Starting local assistant API key provisioning for \(assistantId, privacy: .public)")
 
         Task {
+            // Wait for the actor token — GatewayHTTPClient requires it for
+            // auth and will throw immediately if it's not available yet.
+            if ActorTokenManager.getToken()?.isEmpty != false {
+                var token: String?
+                for attempt in 1...6 {
+                    token = await ActorTokenManager.waitForToken(timeout: 10)
+                    if token != nil { break }
+                    log.info("Actor token not yet available (attempt \(attempt)/6), retrying...")
+                }
+                guard token != nil else {
+                    log.warning("No actor token available for local API key provisioning after 60s")
+                    return
+                }
+            }
+
             do {
                 let credentialStorage = KeychainCredentialStorage()
                 let bootstrapService = LocalAssistantBootstrapService(credentialStorage: credentialStorage)
