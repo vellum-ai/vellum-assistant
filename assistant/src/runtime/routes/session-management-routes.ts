@@ -14,9 +14,11 @@
 import {
   batchSetDisplayOrders,
   deleteConversation,
-  getConversation,
 } from "../../memory/conversation-crud.js";
-import { setConversationKeyIfAbsent } from "../../memory/conversation-key-store.js";
+import {
+  resolveConversationId,
+  setConversationKeyIfAbsent,
+} from "../../memory/conversation-key-store.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
@@ -119,8 +121,8 @@ export function sessionManagementRouteDefinitions(
       method: "DELETE",
       policyKey: "conversations",
       handler: async ({ params }) => {
-        const conversation = getConversation(params.id);
-        if (!conversation) {
+        const resolvedId = resolveConversationId(params.id);
+        if (!resolvedId) {
           return httpError(
             "NOT_FOUND",
             `Conversation ${params.id} not found`,
@@ -130,8 +132,8 @@ export function sessionManagementRouteDefinitions(
         // Tear down the in-memory session (abort + dispose) before removing
         // persistence so that a running agent loop doesn't write to a deleted
         // conversation row, tripping FK constraints.
-        deps.destroySession(params.id);
-        const deleted = deleteConversation(params.id);
+        deps.destroySession(resolvedId);
+        const deleted = deleteConversation(resolvedId);
         // Enqueue Qdrant vector cleanup jobs rather than calling directly.
         // Qdrant may not be initialized yet when the HTTP server starts
         // accepting requests, so enqueueing ensures cleanup is retried.
@@ -147,7 +149,7 @@ export function sessionManagementRouteDefinitions(
             targetId: itemId,
           });
         }
-        log.info({ conversationId: params.id }, "Deleted conversation");
+        log.info({ conversationId: resolvedId }, "Deleted conversation");
         return new Response(null, { status: 204 });
       },
     },

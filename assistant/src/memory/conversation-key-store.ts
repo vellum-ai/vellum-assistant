@@ -100,6 +100,34 @@ export function setConversationKeyIfAbsent(
  * Otherwise, creates a new conversation and mapping atomically within a
  * single transaction to prevent race conditions and orphaned rows.
  */
+/**
+ * Resolve a value that may be either a conversation ID or a conversation key
+ * to the daemon's internal conversation ID.
+ *
+ * Returns the internal conversation ID, or `null` if neither lookup succeeds.
+ * Useful for endpoints (regenerate, undo, seen) that receive IDs from clients
+ * which may be conversation keys rather than internal IDs.
+ */
+export function resolveConversationId(idOrKey: string): string | null {
+  const db = getDb();
+
+  // Fast path: check if it's already a valid conversation ID.
+  const direct = db
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(eq(conversations.id, idOrKey))
+    .get();
+  if (direct) return direct.id;
+
+  // Slow path: check if it's a conversation key.
+  const mapping = db
+    .select()
+    .from(conversationKeys)
+    .where(eq(conversationKeys.conversationKey, idOrKey))
+    .get();
+  return mapping?.conversationId ?? null;
+}
+
 export function getOrCreateConversation(
   conversationKey: string,
   opts?: { conversationType?: "standard" | "private" },

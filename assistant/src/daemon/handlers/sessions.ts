@@ -18,6 +18,7 @@ import {
   getConversation,
   updateConversationTitle,
 } from "../../memory/conversation-crud.js";
+import { resolveConversationId } from "../../memory/conversation-key-store.js";
 import {
   GENERATING_TITLE,
   queueGenerateConversationTitle,
@@ -470,9 +471,11 @@ export async function undoLastMessage(
   sessionId: string,
   ctx: HandlerContext,
 ): Promise<{ removedCount: number } | null> {
-  if (!getConversation(sessionId)) {
+  const resolvedId = resolveConversationId(sessionId);
+  if (!resolvedId) {
     return null;
   }
+  sessionId = resolvedId;
   const session = await ctx.getOrCreateSession(sessionId);
   ctx.touchSession(sessionId);
   const removedCount = session.undo();
@@ -506,9 +509,14 @@ export async function regenerateResponse(
   ctx: HandlerContext,
   sendEvent: (event: ServerMessage) => void,
 ): Promise<{ requestId: string } | null> {
-  if (!getConversation(sessionId)) {
+  // The caller may pass a conversation key (e.g. the macOS client's local
+  // session ID) instead of the daemon's internal conversation ID. Resolve
+  // to the internal ID so all downstream lookups succeed.
+  const resolvedId = resolveConversationId(sessionId);
+  if (!resolvedId) {
     return null;
   }
+  sessionId = resolvedId;
   const session = await ctx.getOrCreateSession(sessionId);
   ctx.touchSession(sessionId);
   session.updateClient(sendEvent, false);
