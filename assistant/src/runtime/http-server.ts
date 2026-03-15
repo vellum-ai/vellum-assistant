@@ -850,7 +850,7 @@ export class RuntimeHttpServer {
                 title: c.title ?? "Untitled",
                 createdAt: c.createdAt,
                 updatedAt: c.updatedAt,
-                threadType:
+                conversationType:
                   c.conversationType === "private" ? "private" : "standard",
                 source: c.source ?? "user",
                 ...(c.scheduleJobId ? { scheduleJobId: c.scheduleJobId } : {}),
@@ -1028,7 +1028,7 @@ export class RuntimeHttpServer {
               title: conversation.title ?? "Untitled",
               createdAt: conversation.createdAt,
               updatedAt: conversation.updatedAt,
-              threadType:
+              conversationType:
                 conversation.conversationType === "private"
                   ? "private"
                   : "standard",

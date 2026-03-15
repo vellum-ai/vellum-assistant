@@ -555,7 +555,7 @@ export async function handleSendMessage(
     attachmentIds?: string[];
     sourceChannel?: string;
     interface?: string;
-    threadType?: string;
+    conversationType?: string;
   };
 
   const { conversationKey, content, attachmentIds } = body;
@@ -655,7 +655,7 @@ export async function handleSendMessage(
   }
 
   const conversationType =
-    body.threadType === "private" ? ("private" as const) : undefined;
+    body.conversationType === "private" ? ("private" as const) : undefined;
   const mapping = getOrCreateConversation(conversationKey, {
     conversationType,
   });
