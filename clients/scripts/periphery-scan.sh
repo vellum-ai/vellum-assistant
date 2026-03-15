@@ -199,6 +199,7 @@ if [ "$NEW_COUNT" -gt 0 ]; then
     echo ""
     echo "warning: $NEW_COUNT scan violation(s) not in committed baseline (likely baseline drift)."
     echo "Consider running locally: bash clients/scripts/periphery-scan.sh --update-baseline"
+    SCAN_DRIFT=true
   else
     echo ""
     echo "error: $NEW_COUNT new dead-code violation(s) introduced."
@@ -224,4 +225,8 @@ if [ "$CURRENT" -lt "$BASELINE_COUNT" ]; then
   echo "  bash clients/scripts/periphery-scan.sh --update-baseline"
 fi
 
-echo "Periphery check passed (no new violations)."
+if [ "${SCAN_DRIFT:-false}" = true ]; then
+  echo "Periphery check passed (baseline OK vs main; scan drift noted above)."
+else
+  echo "Periphery check passed (no new violations)."
+fi
