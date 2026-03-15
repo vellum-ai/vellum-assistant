@@ -9,7 +9,6 @@ on:
       - 'clients/Package.swift'
       - 'clients/.periphery.yml'
       - 'clients/.periphery_baseline.json'
-      - 'clients/.periphery_threshold'
       - 'clients/scripts/periphery-scan.sh'
       - '.github/workflows/pr-macos.yaml'
 
@@ -44,8 +43,28 @@ jobs:
       - name: Install Periphery
         run: brew install peripheryapp/periphery/periphery
 
+      - name: Fetch main branch baseline
+        id: main-baseline
+        run: |
+          git fetch origin main --depth=1
+          if git show origin/main:clients/.periphery_baseline.json > /tmp/main_baseline.json 2>/dev/null; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "Main branch baseline found"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "No baseline on main — first-time setup, skipping enforcement"
+          fi
+
       - name: Lint unused code
-        run: bash scripts/periphery-scan.sh
+        if: steps.main-baseline.outputs.found == 'true'
+        run: bash scripts/periphery-scan.sh --reference-baseline /tmp/main_baseline.json
+
+      - name: Generate baseline (first-time setup)
+        if: steps.main-baseline.outputs.found != 'true'
+        run: |
+          echo "No baseline on main yet. Generating initial baseline..."
+          bash scripts/periphery-scan.sh --update-baseline
+          echo "Baseline generated. Once this PR merges, future PRs will be enforced."
 
       - name: Upload baseline artifact
         if: always()

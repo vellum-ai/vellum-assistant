@@ -3,25 +3,29 @@ set -euo pipefail
 
 # Periphery dead-code scanner for the macOS/shared Swift codebase.
 #
-# Enforcement uses a count-based threshold: Periphery scans the codebase and
-# counts total violations. If the count exceeds the committed threshold, the
-# check fails. This is resilient to line-number shifts from merge commits.
+# Enforcement compares the current violation count (USR-based) against a
+# reference baseline. In CI, the workflow fetches the baseline from the main
+# branch so that only NEW violations introduced by the PR cause a failure.
+# Locally, it compares against the committed baseline file.
 #
 # Usage:
-#   periphery-scan.sh                   Scan and enforce threshold (CI default)
-#   periphery-scan.sh --update-baseline Re-generate baseline and update threshold
+#   periphery-scan.sh                              Scan and enforce (CI default)
+#   periphery-scan.sh --update-baseline             Re-generate the baseline file
+#   periphery-scan.sh --reference-baseline <path>   Compare against a specific baseline
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLIENTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BASELINE_FILE="$CLIENTS_DIR/.periphery_baseline.json"
-THRESHOLD_FILE="$CLIENTS_DIR/.periphery_threshold"
 CONFIG_FILE="$CLIENTS_DIR/.periphery.yml"
 
 UPDATE_BASELINE=false
-for arg in "$@"; do
-  case "$arg" in
-    --update-baseline) UPDATE_BASELINE=true ;;
-    *) echo "Unknown argument: $arg"; exit 1 ;;
+REFERENCE_BASELINE=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --update-baseline) UPDATE_BASELINE=true; shift ;;
+    --reference-baseline)
+      REFERENCE_BASELINE="$2"; shift 2 ;;
+    *) echo "Unknown argument: $1"; exit 1 ;;
   esac
 done
 
@@ -41,48 +45,59 @@ if [ "$UPDATE_BASELINE" = true ]; then
     --write-baseline "$BASELINE_FILE" \
     --quiet
   CURRENT=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(len(d.get('v1',{}).get('usrs',[])))" "$BASELINE_FILE")
-  echo "$CURRENT" > "$THRESHOLD_FILE"
   echo "Baseline updated at $BASELINE_FILE ($CURRENT violations)"
   exit 0
 fi
 
-if [ ! -f "$THRESHOLD_FILE" ]; then
-  echo "Error: No threshold file found at $THRESHOLD_FILE"
+# Determine which baseline to compare against
+if [ -n "$REFERENCE_BASELINE" ] && [ -f "$REFERENCE_BASELINE" ]; then
+  COMPARE_FILE="$REFERENCE_BASELINE"
+  echo "Using reference baseline: $REFERENCE_BASELINE"
+elif [ -f "$BASELINE_FILE" ]; then
+  COMPARE_FILE="$BASELINE_FILE"
+  echo "Using committed baseline: $BASELINE_FILE"
+else
+  echo "Error: No baseline file found."
   echo "Run: bash clients/scripts/periphery-scan.sh --update-baseline"
-  echo "Then commit the generated .periphery_threshold"
+  echo "Then commit the generated .periphery_baseline.json"
   exit 1
 fi
 
-ALLOWED=$(cat "$THRESHOLD_FILE")
-echo "Allowed violation threshold: $ALLOWED"
+BASELINE_COUNT=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(len(d.get('v1',{}).get('usrs',[])))" "$COMPARE_FILE")
+echo "Reference baseline violations: $BASELINE_COUNT"
 
 echo "Scanning for unused code..."
+rm -f /tmp/periphery_current.json
 periphery scan \
   --config "$CONFIG_FILE" \
   --write-baseline /tmp/periphery_current.json \
   --quiet || true
 
+if [ ! -f /tmp/periphery_current.json ]; then
+  echo "error: Periphery scan failed — no output produced. Check for build errors."
+  exit 1
+fi
+
 CURRENT=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(len(d.get('v1',{}).get('usrs',[])))" /tmp/periphery_current.json)
-echo "Current violations: $CURRENT (threshold: $ALLOWED)"
+echo "Current violations: $CURRENT (reference: $BASELINE_COUNT)"
 
-if [ "$CURRENT" -gt "$ALLOWED" ]; then
-  DELTA=$((CURRENT - ALLOWED))
-  echo "error: $DELTA new violation(s) introduced. Reduce unused code to at most $ALLOWED violations."
+if [ "$CURRENT" -gt "$BASELINE_COUNT" ]; then
+  DELTA=$((CURRENT - BASELINE_COUNT))
+  echo "error: $DELTA new violation(s) introduced (current: $CURRENT, reference: $BASELINE_COUNT)."
+  echo "Remove the unused code or update the baseline with:"
+  echo "  bash clients/scripts/periphery-scan.sh --update-baseline"
 
-  # Show the diff between committed baseline and current state
-  if [ -f "$BASELINE_FILE" ]; then
-    echo ""
-    echo "New violations not in baseline:"
-    periphery scan \
-      --config "$CONFIG_FILE" \
-      --baseline "$BASELINE_FILE" 2>&1 || true
-  fi
+  echo ""
+  echo "New violations not in baseline:"
+  periphery scan \
+    --config "$CONFIG_FILE" \
+    --baseline "$COMPARE_FILE" 2>&1 || true
 
   exit 1
 fi
 
-if [ "$CURRENT" -lt "$ALLOWED" ]; then
-  echo "Violations decreased from $ALLOWED to $CURRENT. Consider updating the threshold:"
+if [ "$CURRENT" -lt "$BASELINE_COUNT" ]; then
+  echo "Violations decreased from $BASELINE_COUNT to $CURRENT. Consider updating the baseline:"
   echo "  bash clients/scripts/periphery-scan.sh --update-baseline"
 fi
 
