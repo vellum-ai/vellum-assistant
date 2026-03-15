@@ -9,6 +9,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "fs";
+import { randomUUID } from "node:crypto";
 import { homedir } from "os";
 import { join } from "path";
 
