@@ -536,7 +536,10 @@ export class RuntimeHttpServer {
       return httpError("NOT_FOUND", "Not found", 404);
     }
 
-    const endpoint = path.slice("/v1/".length);
+    // Strip trailing slashes so routes match regardless of whether the
+    // caller includes one (e.g. platform proxy paths use Django's trailing-
+    // slash convention: /v1/assistants/{id}/memory-items/ → memory-items/).
+    const endpoint = path.slice("/v1/".length).replace(/\/$/, "");
 
     if (!isHttpAuthDisabled()) {
       const clientIp = extractClientIp(req, server);
