@@ -41,4 +41,6 @@ export interface UserMessageAttachment {
   thumbnailData?: string;
   /** Absolute path to the local file on disk. Present for file-backed attachments (e.g. recordings). */
   filePath?: string;
+  /** True when the attachment is file-backed and clients should hydrate via the /content endpoint. */
+  fileBacked?: boolean;
 }
