@@ -13,6 +13,9 @@ final class SkillsManager: ObservableObject {
     @Published var isLoading = false
     @Published var uninstallResult: SkillsStore.UninstallResult?
     @Published var isUninstalling = false
+    @Published var selectedSkillFiles: SkillDetailFilesHTTPResponse?
+    @Published var isLoadingSkillFiles = false
+    @Published var skillFilesError: String?
 
     // Kept for source compatibility with existing macOS views.
     typealias UninstallResult = SkillsStore.UninstallResult
@@ -29,6 +32,9 @@ final class SkillsManager: ObservableObject {
         skillsStore.$isLoading.assign(to: &$isLoading)
         skillsStore.$uninstallResult.assign(to: &$uninstallResult)
         skillsStore.$isUninstalling.assign(to: &$isUninstalling)
+        skillsStore.$selectedSkillFiles.assign(to: &$selectedSkillFiles)
+        skillsStore.$isLoadingSkillFiles.assign(to: &$isLoadingSkillFiles)
+        skillsStore.$skillFilesError.assign(to: &$skillFilesError)
     }
 
     // MARK: - Delegated Operations
@@ -43,5 +49,13 @@ final class SkillsManager: ObservableObject {
 
     func uninstallSkill(id: String) {
         skillsStore.uninstallSkill(id: id)
+    }
+
+    func fetchSkillFiles(skillId: String) {
+        skillsStore.fetchSkillFiles(skillId: skillId)
+    }
+
+    func clearSkillDetail() {
+        skillsStore.clearSkillDetail()
     }
 }
