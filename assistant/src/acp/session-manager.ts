@@ -18,6 +18,8 @@ interface SessionEntry {
   state: AcpSessionState;
   clientHandler: VellumAcpClientHandler;
   pendingPermissions: Map<string, { resolve: (optionId: string) => void }>;
+  sendToVellum: (msg: ServerMessage) => void;
+  currentPrompt: Promise<unknown> | null;
 }
 
 export class AcpSessionManager {
@@ -76,12 +78,16 @@ export class AcpSessionManager {
       startedAt: Date.now(),
     };
 
-    this.sessions.set(acpSessionId, {
+    const entry: SessionEntry = {
       process,
       state,
       clientHandler,
       pendingPermissions,
-    });
+      sendToVellum,
+      currentPrompt: null,
+    };
+
+    this.sessions.set(acpSessionId, entry);
 
     sendToVellum({
       type: "acp_session_spawned",
@@ -91,47 +97,54 @@ export class AcpSessionManager {
     });
 
     // Fire prompt in the background — don't await
-    process
-      .prompt(acpProtocolSessionId, task)
-      .then((response) => {
-        const entry = this.sessions.get(acpSessionId);
-        if (entry) {
-          entry.state.status = "completed";
-          entry.state.completedAt = Date.now();
-          entry.state.stopReason = response.stopReason;
-        }
-        sendToVellum({
-          type: "acp_session_completed",
-          acpSessionId,
-          stopReason: response.stopReason,
-        });
-      })
-      .catch((err: Error) => {
-        const entry = this.sessions.get(acpSessionId);
-        if (entry) {
-          entry.state.status = "failed";
-          entry.state.completedAt = Date.now();
-          entry.state.error = err.message;
-        }
-        sendToVellum({
-          type: "acp_session_error",
-          acpSessionId,
-          error: err.message,
-        });
-      });
+    entry.currentPrompt = this.firePromptInBackground(
+      acpSessionId,
+      entry,
+      acpProtocolSessionId,
+      task,
+    );
 
     return acpSessionId;
   }
 
   /**
    * Sends a follow-up instruction to an existing session.
+   *
+   * Cancels any in-flight prompt first, then fires the new prompt in the
+   * background with completion/error event handlers (matching spawn's pattern).
    */
   async steer(acpSessionId: string, instruction: string): Promise<void> {
     const entry = this.sessions.get(acpSessionId);
     if (!entry) {
       throw new Error(`ACP session "${acpSessionId}" not found`);
     }
-    await entry.process.prompt(entry.state.acpSessionId, instruction);
+
+    if (entry.state.status !== "running") {
+      throw new Error(
+        `ACP session "${acpSessionId}" is not running (status: ${entry.state.status})`,
+      );
+    }
+
+    // Cancel any in-flight prompt before starting a new one
+    if (entry.currentPrompt) {
+      try {
+        await entry.process.cancel(entry.state.acpSessionId);
+      } catch (err) {
+        log.warn(
+          { acpSessionId, err },
+          "Failed to cancel in-flight prompt before steer",
+        );
+      }
+      entry.currentPrompt = null;
+    }
+
+    // Fire new prompt in the background with event handlers
+    entry.currentPrompt = this.firePromptInBackground(
+      acpSessionId,
+      entry,
+      entry.state.acpSessionId,
+      instruction,
+    );
   }
 
   /**
@@ -195,6 +208,48 @@ export class AcpSessionManager {
       }
     }
     log.warn({ requestId }, "No pending permission found for request ID");
+  }
+
+  /**
+   * Fires a prompt in the background and wires up completion/error event
+   * handlers. Returns the promise so callers can track in-flight state.
+   */
+  private firePromptInBackground(
+    acpSessionId: string,
+    entry: SessionEntry,
+    acpProtocolSessionId: string,
+    message: string,
+  ): Promise<unknown> {
+    return entry.process
+      .prompt(acpProtocolSessionId, message)
+      .then((response) => {
+        const current = this.sessions.get(acpSessionId);
+        if (current) {
+          current.state.status = "completed";
+          current.state.completedAt = Date.now();
+          current.state.stopReason = response.stopReason;
+          current.currentPrompt = null;
+        }
+        entry.sendToVellum({
+          type: "acp_session_completed",
+          acpSessionId,
+          stopReason: response.stopReason,
+        });
+      })
+      .catch((err: Error) => {
+        const current = this.sessions.get(acpSessionId);
+        if (current) {
+          current.state.status = "failed";
+          current.state.completedAt = Date.now();
+          current.state.error = err.message;
+          current.currentPrompt = null;
+        }
+        entry.sendToVellum({
+          type: "acp_session_error",
+          acpSessionId,
+          error: err.message,
+        });
+      });
   }
 
   /**
