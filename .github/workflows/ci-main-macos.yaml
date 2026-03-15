@@ -39,7 +39,7 @@ jobs:
   lint-unused:
     name: Lint Unused Code
     needs: [changes]
-    if: needs.changes.outputs.clients == 'true'
+    if: needs.changes.outputs.clients == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: macos-15
     timeout-minutes: 20
     defaults:
@@ -77,7 +77,7 @@ jobs:
   test:
     name: macOS Tests
     needs: [changes]
-    if: needs.changes.outputs.clients == 'true'
+    if: needs.changes.outputs.clients == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: macos-15
     timeout-minutes: 10
     steps:
