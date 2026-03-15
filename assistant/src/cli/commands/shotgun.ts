@@ -117,13 +117,13 @@ export function registerShotgunCommand(program: Command): void {
     )
     .option(
       "-t, --timeout <ms>",
-      "Timeout in milliseconds waiting for the daemon to respond",
+      "Timeout in milliseconds waiting for the assistant to respond",
       String(DEFAULT_TIMEOUT_MS),
     )
     .addHelpText(
       "after",
       `
-Starts a screen-watch session via IPC signal files. The assistant daemon
+Starts a screen-watch session via IPC signal files. The assistant
 creates a watch session and begins accepting screen observations from the
 desktop client.
 
@@ -200,7 +200,7 @@ Examples:
     .description("Check the status of an active screen-watch session")
     .option(
       "-t, --timeout <ms>",
-      "Timeout in milliseconds waiting for the daemon to respond",
+      "Timeout in milliseconds waiting for the assistant to respond",
       String(DEFAULT_TIMEOUT_MS),
     )
     .addHelpText(

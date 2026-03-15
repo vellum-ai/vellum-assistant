@@ -33,7 +33,6 @@ import {
   loadSession,
 } from "./lib/session.js";
 import { NetworkRecorder } from "./lib/shared/network-recorder.js";
-import { getDataDir } from "./lib/shared/platform.js";
 import { loadRecording, saveRecording } from "./lib/shared/recording-store.js";
 import type { SessionRecording } from "./lib/shared/recording-types.js";
 
@@ -211,56 +210,26 @@ export function registerDoordashCommand(program: Command): void {
           /* best-effort */
         }
 
-        const result = await startLearnSession(duration);
-        if (result.recordingId) {
-          const session = await importFromCredentialStore("doordash.com", {
-            recordingId: result.recordingId,
-          });
+        await startLearnSession(duration);
 
-          // Also extract and save captured queries for self-healing
-          let queriesCaptured = 0;
-          try {
-            const recording = loadRecording(result.recordingId);
-            if (recording) {
-              const queries = extractQueries(recording);
-              if (queries.length > 0) {
-                saveQueries(queries);
-                queriesCaptured = queries.length;
-              }
-            }
-          } catch {
-            // Non-fatal: query extraction is best-effort
-          }
+        const session = await importFromCredentialStore("doordash.com");
 
-          // Best-effort: minimize Chrome window after capturing session
-          try {
-            await minimizeChromeWindow();
-            process.stderr.write("[doordash] Chrome window minimized\n");
-          } catch {
-            // Non-fatal: minimizing is best-effort
-          }
-
-          output(
-            {
-              ok: true,
-              message: "Session refreshed successfully",
-              cookieCount: session.cookies.length,
-              recordingId: result.recordingId,
-              queriesCaptured,
-            },
-            json,
-          );
-        } else {
-          output(
-            {
-              ok: false,
-              error: "Recording completed but no recording ID returned",
-              recordingId: result.recordingId,
-            },
-            json,
-          );
-          process.exitCode = 1;
+        // Best-effort: minimize Chrome window after capturing session
+        try {
+          await minimizeChromeWindow();
+          process.stderr.write("[doordash] Chrome window minimized\n");
+        } catch {
+          // Non-fatal: minimizing is best-effort
         }
+
+        output(
+          {
+            ok: true,
+            message: "Session refreshed successfully",
+            cookieCount: session.cookies.length,
+          },
+          json,
+        );
       } catch (err) {
         outputError(err instanceof Error ? err.message : String(err));
       }
@@ -1011,13 +980,7 @@ export function registerDoordashCommand(program: Command): void {
 // Learn session helper
 // ---------------------------------------------------------------------------
 
-interface LearnResult {
-  recordingId?: string;
-}
-
-async function startLearnSession(
-  durationSeconds: number,
-): Promise<LearnResult> {
+async function startLearnSession(durationSeconds: number): Promise<void> {
   // Step 1: Ensure Chrome is running with CDP
   await ensureChromeWithCdp({
     startUrl: "https://www.doordash.com/consumer/login/",
@@ -1060,7 +1023,7 @@ async function startLearnSession(
   const pollIntervalMs = 2000;
   const startTime = Date.now();
 
-  return new Promise<LearnResult>((resolve, reject) => {
+  return new Promise<void>((resolve, reject) => {
     const pollOnce = async () => {
       if (Date.now() - startTime > timeoutMs) {
         reject(
@@ -1083,7 +1046,7 @@ async function startLearnSession(
         };
 
         if (status.ok && status.status === "completed") {
-          resolve({});
+          resolve();
           return;
         }
 
