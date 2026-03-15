@@ -94,13 +94,6 @@ export function setConversationKeyIfAbsent(
 }
 
 /**
- * Get or create a conversation for the given conversationKey.
- *
- * If a mapping already exists, returns the existing conversation ID.
- * Otherwise, creates a new conversation and mapping atomically within a
- * single transaction to prevent race conditions and orphaned rows.
- */
-/**
  * Resolve a value that may be either a conversation ID or a conversation key
  * to the daemon's internal conversation ID.
  *
@@ -128,6 +121,13 @@ export function resolveConversationId(idOrKey: string): string | null {
   return mapping?.conversationId ?? null;
 }
 
+/**
+ * Get or create a conversation for the given conversationKey.
+ *
+ * If a mapping already exists, returns the existing conversation ID.
+ * Otherwise, creates a new conversation and mapping atomically within a
+ * single transaction to prevent race conditions and orphaned rows.
+ */
 export function getOrCreateConversation(
   conversationKey: string,
   opts?: { conversationType?: "standard" | "private" },

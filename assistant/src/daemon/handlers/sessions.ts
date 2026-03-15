@@ -33,7 +33,6 @@ import { HostFileProxy } from "../host-file-proxy.js";
 import type {
   ConfirmationResponse,
   DeleteQueuedMessage,
-  RegenerateRequest,
   ReorderConversationsRequest,
   SecretResponse,
   ServerMessage,
@@ -45,10 +44,6 @@ import type {
 } from "../message-protocol.js";
 import { normalizeConversationType } from "../message-protocol.js";
 import type { Session } from "../session.js";
-import {
-  buildSessionErrorMessage,
-  classifySessionError,
-} from "../session-error.js";
 import {
   type HandlerContext,
   log,
@@ -542,39 +537,6 @@ export async function regenerateResponse(
     throw err;
   }
   return { requestId };
-}
-
-export async function handleRegenerate(
-  msg: RegenerateRequest,
-  ctx: HandlerContext,
-): Promise<void> {
-  if (!getConversation(msg.sessionId)) {
-    ctx.send({ type: "error", message: "No active session" });
-    return;
-  }
-  const session = await ctx.getOrCreateSession(msg.sessionId);
-
-  const regenerateChannel =
-    parseChannelId(session.getTurnChannelContext()?.assistantMessageChannel) ??
-    "vellum";
-  const sendEvent = makeEventSender({
-    ctx,
-    session,
-    conversationId: msg.sessionId,
-    sourceChannel: regenerateChannel,
-  });
-
-  try {
-    await regenerateResponse(msg.sessionId, ctx, sendEvent);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    ctx.send({
-      type: "error",
-      message: `Failed to regenerate: ${message}`,
-    });
-    const classified = classifySessionError(err, { phase: "regenerate" });
-    ctx.send(buildSessionErrorMessage(msg.sessionId, classified));
-  }
 }
 
 export function handleUsageRequest(

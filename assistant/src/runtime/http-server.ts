@@ -937,9 +937,16 @@ export class RuntimeHttpServer {
         method: "POST",
         handler: async ({ req }) => {
           const body = (await req.json()) as Record<string, unknown>;
-          const conversationId = body.conversationId as string | undefined;
-          if (!conversationId)
+          const rawConversationId = body.conversationId as string | undefined;
+          if (!rawConversationId)
             return httpError("BAD_REQUEST", "Missing conversationId", 400);
+          const conversationId = resolveConversationId(rawConversationId);
+          if (!conversationId)
+            return httpError(
+              "NOT_FOUND",
+              `Unknown conversation: ${rawConversationId}`,
+              404,
+            );
           try {
             markConversationUnread(conversationId);
             return Response.json({ ok: true });

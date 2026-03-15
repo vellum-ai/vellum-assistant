@@ -32,6 +32,7 @@ import {
   getMessages,
   purgePrivateConversations,
 } from "../memory/conversation-crud.js";
+import { resolveConversationId } from "../memory/conversation-key-store.js";
 import { initializeDb } from "../memory/db.js";
 import {
   selectEmbeddingBackend,
@@ -577,12 +578,15 @@ export async function runDaemon(): Promise<void> {
         undoLastMessage: (sessionId) =>
           undoLastMessage(sessionId, server.getHandlerContext()),
         regenerateResponse: (sessionId) => {
+          // Resolve conversation key up front so SSE events are tagged with
+          // the internal conversation ID, not the raw client key.
+          const resolvedId = resolveConversationId(sessionId) ?? sessionId;
           let hubChain: Promise<void> = Promise.resolve();
           const sendEvent = (event: ServerMessage) => {
             const ae = buildAssistantEvent(
               DAEMON_INTERNAL_ASSISTANT_ID,
               event,
-              sessionId,
+              resolvedId,
             );
             hubChain = (async () => {
               await hubChain;
