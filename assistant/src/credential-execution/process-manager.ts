@@ -13,11 +13,10 @@
  * lifecycle; the process manager only manages the transport connection.
  *
  * Feature-flag gate: Managed sidecar mode is controlled by the
- * `ces-managed-sidecar` feature flag. When the flag is off, the process
- * manager skips managed discovery even in containerized environments,
- * ensuring rollback safety. Non-CES internal consumers continue working
- * unchanged because the process manager never alters the local code path
- * when the flag is disabled.
+ * `ces-managed-sidecar` feature flag (checked via the required
+ * AssistantConfig). When the flag is off, the process manager skips
+ * managed discovery even in containerized environments, ensuring
+ * rollback safety.
  *
  * Managed env contract:
  * - CES_BOOTSTRAP_SOCKET  — Path to the bootstrap Unix socket (shared emptyDir)
@@ -70,11 +69,10 @@ export const CES_PRIVATE_DATA_DIR = "/ces-data";
 export interface CesProcessManagerConfig {
   /**
    * Assistant configuration for feature-flag checks.
-   * When provided, the managed sidecar path is gated behind the
-   * `ces-managed-sidecar` feature flag. When omitted, managed mode
-   * is allowed unconditionally (for backward compat with CLI callers).
+   * The managed sidecar path is gated behind the `ces-managed-sidecar`
+   * feature flag via this config.
    */
-  assistantConfig?: AssistantConfig;
+  assistantConfig: AssistantConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -86,9 +84,9 @@ export interface CesProcessManager {
    * Start the CES process (local) or connect to the sidecar (managed).
    * Returns a CesTransport ready for use with createCesClient().
    *
-   * When an AssistantConfig is provided and the `ces-managed-sidecar`
-   * feature flag is off, managed mode is skipped even in containerized
-   * environments — the process manager falls back to local discovery.
+   * When the `ces-managed-sidecar` feature flag is off, managed mode
+   * is skipped even in containerized environments — the process manager
+   * falls back to local discovery.
    *
    * Throws if CES is unavailable.
    */
@@ -109,7 +107,7 @@ export interface CesProcessManager {
 // ---------------------------------------------------------------------------
 
 export function createCesProcessManager(
-  config?: CesProcessManagerConfig,
+  config: CesProcessManagerConfig,
 ): CesProcessManager {
   let childProcess: Subprocess | null = null;
   let managedSocket: Socket | null = null;
@@ -122,13 +120,11 @@ export function createCesProcessManager(
         throw new Error("CES process manager is already running");
       }
 
-      // Feature-flag gate: when the managed sidecar flag is off and we
-      // have a config to check, skip managed discovery entirely.
-      // This ensures rollback safety — disabling the flag leaves existing
-      // non-agent platform consumers intact.
-      const managedAllowed =
-        !config?.assistantConfig ||
-        isCesManagedSidecarEnabled(config.assistantConfig);
+      // Feature-flag gate: when the managed sidecar flag is off, skip
+      // managed discovery entirely. This ensures rollback safety —
+      // disabling the flag leaves existing non-agent platform consumers
+      // intact.
+      const managedAllowed = isCesManagedSidecarEnabled(config.assistantConfig);
 
       if (managedAllowed) {
         discoveryResult = await discoverCes();
