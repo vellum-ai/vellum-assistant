@@ -272,16 +272,12 @@ struct AssistantTransferSection: View {
                 try await Task.sleep(nanoseconds: 1_000_000_000)
             }
 
-            // Step 5 — Switch to local assistant (triggers credential bootstrap)
-            currentStep = "Switching to local assistant..."
-            AppDelegate.shared?.performSwitchAssistant(to: resolvedLocal)
+            // Step 5 — Bootstrap actor token directly against the local daemon
+            // (without calling performSwitchAssistant, which destroys the window)
+            currentStep = "Authenticating with local assistant..."
+            let actorToken = try await bootstrapActorToken(daemonPort: daemonPort)
 
-            // Step 6 — Wait for actor token (bootstrapped by the switch)
-            guard let actorToken = await ActorTokenManager.waitForToken(timeout: 30) else {
-                throw TransferError.notSignedIn
-            }
-
-            // Step 7 — Import to local
+            // Step 6 — Import to local
             currentStep = "Importing data..."
             guard let importURL = URL(string: "http://localhost:\(daemonPort)/v1/migrations/import") else {
                 throw TransferError.invalidURL
@@ -305,10 +301,11 @@ struct AssistantTransferSection: View {
                 throw TransferError.importFailed(message: errorMsg)
             }
 
-            // Step 8 — Close settings (after successful import)
+            // Step 7 — Switch to local assistant now that import succeeded
+            AppDelegate.shared?.performSwitchAssistant(to: resolvedLocal)
             onClose()
 
-            // Step 9 — Retire managed assistant (fire-and-forget with pre-saved auth)
+            // Step 8 — Retire managed assistant (fire-and-forget with pre-saved auth)
             currentStep = "Cleaning up..."
             if let token = savedSessionToken {
                 let retireUrlString = "\(savedPlatformUrl)/v1/assistants/\(managedAssistantId)/retire/"
@@ -353,6 +350,44 @@ struct AssistantTransferSection: View {
         }
 
         return data
+    }
+
+    /// Bootstraps an actor token directly against a local daemon's `/v1/guardian/init`
+    /// endpoint without going through `performSwitchAssistant` (which destroys the window).
+    /// Retries with exponential backoff up to ~30s.
+    private func bootstrapActorToken(daemonPort: Int) async throws -> String {
+        let deviceId = PairingQRCodeSheet.computeHostId()
+        guard let url = URL(string: "http://localhost:\(daemonPort)/v1/guardian/init") else {
+            throw TransferError.invalidURL
+        }
+
+        let body: [String: String] = ["platform": "macos", "deviceId": deviceId]
+        let bodyData = try JSONSerialization.data(withJSONObject: body)
+
+        var delay: UInt64 = 2_000_000_000
+        for attempt in 0..<6 {
+            try Task.checkCancellation()
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.timeoutInterval = 15
+            request.httpBody = bodyData
+
+            if let (data, response) = try? await URLSession.shared.data(for: request),
+               let http = response as? HTTPURLResponse,
+               (200..<300).contains(http.statusCode),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let token = json["accessToken"] as? String ?? json["actorToken"] as? String {
+                return token
+            }
+
+            if attempt < 5 {
+                try await Task.sleep(nanoseconds: delay)
+                delay = min(delay * 2, 10_000_000_000)
+            }
+        }
+
+        throw TransferError.notSignedIn
     }
 
     /// Imports a `.vbundle` archive into the managed assistant via the platform API.
