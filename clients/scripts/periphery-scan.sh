@@ -62,16 +62,29 @@ fi
 # --- CI mode: fetch baseline from origin/main ---
 if [ "$CI_MODE" = true ]; then
   echo "CI mode: fetching baseline from origin/main..."
-  git fetch origin main --depth=1 2>/dev/null || true
-
-  MAIN_BASELINE="/tmp/main_baseline.json"
-  if git show origin/main:clients/.periphery_baseline.json > "$MAIN_BASELINE" 2>/dev/null; then
-    USR_COUNT=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(len(d.get('v1',{}).get('usrs',[])))" "$MAIN_BASELINE")
-    if [ "$USR_COUNT" -gt 0 ]; then
-      REFERENCE_BASELINE="$MAIN_BASELINE"
-      echo "Main branch baseline found ($USR_COUNT violations)"
+  if ! git fetch origin main --depth=1 2>&1; then
+    echo "Warning: Could not fetch origin/main. Falling back to committed baseline."
+    # Don't set REFERENCE_BASELINE; fall through to use BASELINE_FILE
+  else
+    MAIN_BASELINE="/tmp/main_baseline.json"
+    if git show origin/main:clients/.periphery_baseline.json > "$MAIN_BASELINE" 2>/dev/null; then
+      USR_COUNT=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(len(d.get('v1',{}).get('usrs',[])))" "$MAIN_BASELINE")
+      if [ "$USR_COUNT" -gt 0 ]; then
+        REFERENCE_BASELINE="$MAIN_BASELINE"
+        echo "Main branch baseline found ($USR_COUNT violations)"
+      else
+        echo "Main branch baseline is empty — first-time setup."
+        echo "Generating initial baseline..."
+        periphery scan \
+          --config "$CONFIG_FILE" \
+          --write-baseline "$BASELINE_FILE" \
+          --quiet
+        CURRENT=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(len(d.get('v1',{}).get('usrs',[])))" "$BASELINE_FILE")
+        echo "Baseline generated ($CURRENT violations). Once merged, future runs will enforce."
+        exit 0
+      fi
     else
-      echo "Main branch baseline is empty — first-time setup."
+      echo "No baseline on main — first-time setup."
       echo "Generating initial baseline..."
       periphery scan \
         --config "$CONFIG_FILE" \
@@ -81,16 +94,6 @@ if [ "$CI_MODE" = true ]; then
       echo "Baseline generated ($CURRENT violations). Once merged, future runs will enforce."
       exit 0
     fi
-  else
-    echo "No baseline on main — first-time setup."
-    echo "Generating initial baseline..."
-    periphery scan \
-      --config "$CONFIG_FILE" \
-      --write-baseline "$BASELINE_FILE" \
-      --quiet
-    CURRENT=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(len(d.get('v1',{}).get('usrs',[])))" "$BASELINE_FILE")
-    echo "Baseline generated ($CURRENT violations). Once merged, future runs will enforce."
-    exit 0
   fi
 fi
 
