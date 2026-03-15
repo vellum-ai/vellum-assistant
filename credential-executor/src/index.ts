@@ -37,3 +37,29 @@ export type {
   TemporaryGrant,
   TemporaryGrantKind,
 } from "./grants/index.js";
+
+export { computeDigest, verifyDigest } from "./toolstore/integrity.js";
+export type { DigestVerificationResult } from "./toolstore/integrity.js";
+
+export {
+  isValidSha256Hex,
+  validateSourceUrl,
+  isWorkspaceOriginPath,
+} from "./toolstore/manifest.js";
+export type {
+  BundleOrigin,
+  ToolstoreManifest,
+} from "./toolstore/manifest.js";
+
+export {
+  publishBundle,
+  readPublishedManifest,
+  isBundlePublished,
+  getBundleDir,
+  getBundleManifestPath,
+  getBundleContentPath,
+} from "./toolstore/publish.js";
+export type {
+  PublishRequest,
+  PublishResult,
+} from "./toolstore/publish.js";
