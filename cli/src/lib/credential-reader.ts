@@ -1,13 +1,15 @@
 /**
- * Read-only reader for the assistant's encrypted credential store.
+ * Read-only reader for the assistant's credential stores.
  *
- * Reads credentials from the encrypted-at-rest file
- * (<instanceDir>/.vellum/protected/keys.enc). Uses the same AES-256-GCM
- * encryption and PBKDF2 key derivation as the assistant daemon and gateway.
+ * Tries the keychain broker (UDS) first, then falls back to the
+ * encrypted-at-rest file (<instanceDir>/.vellum/protected/keys.enc).
+ * Mirrors the gateway's credential-reader.ts so both code paths resolve
+ * credentials identically regardless of backend (keychain vs file store).
  */
 
-import { createDecipheriv, pbkdf2Sync } from "node:crypto";
+import { createDecipheriv, pbkdf2Sync, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
+import { createConnection } from "node:net";
 import { hostname, userInfo } from "node:os";
 import { join } from "node:path";
 
@@ -15,6 +17,7 @@ const ALGORITHM = "aes-256-gcm";
 const AUTH_TAG_LENGTH = 16;
 const KEY_LENGTH = 32;
 const PBKDF2_ITERATIONS = 100_000;
+const BROKER_TIMEOUT_MS = 5_000;
 
 interface EncryptedEntry {
   iv: string;
@@ -27,6 +30,10 @@ interface StoreFile {
   salt: string;
   entries: Record<string, EncryptedEntry>;
 }
+
+// ---------------------------------------------------------------------------
+// Machine entropy & encrypted store helpers
+// ---------------------------------------------------------------------------
 
 function getMachineEntropy(): string {
   const parts: string[] = [];
@@ -72,19 +79,12 @@ function decrypt(entry: EncryptedEntry, key: Buffer): string {
   return decrypted.toString("utf-8");
 }
 
-/**
- * Read a credential from the encrypted store for a given instance directory.
- *
- * @param instanceDir - The assistant instance directory (e.g. ~/.vellum or a per-instance dir)
- * @param account - The credential key (e.g. "credential/bootstrapped_actor/http_token")
- * @returns The decrypted credential value, or undefined if not found or decryption fails.
- */
-export function readCredential(
-  instanceDir: string,
+function readEncryptedCredential(
+  vellumDir: string,
   account: string,
 ): string | undefined {
   try {
-    const storePath = join(instanceDir, ".vellum", "protected", "keys.enc");
+    const storePath = join(vellumDir, "protected", "keys.enc");
     if (!existsSync(storePath)) return undefined;
 
     const raw = readFileSync(storePath, "utf-8");
@@ -105,4 +105,130 @@ export function readCredential(
   } catch {
     return undefined;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Keychain broker reader (UDS)
+// ---------------------------------------------------------------------------
+
+async function readBrokerCredential(
+  vellumDir: string,
+  account: string,
+): Promise<string | undefined> {
+  const socketPath = join(vellumDir, "keychain-broker.sock");
+  if (!existsSync(socketPath)) return undefined;
+
+  const tokenPath = join(vellumDir, "protected", "keychain-broker.token");
+  let token: string;
+  try {
+    if (!existsSync(tokenPath)) return undefined;
+    token = readFileSync(tokenPath, "utf-8").trim();
+    if (!token) return undefined;
+  } catch {
+    return undefined;
+  }
+
+  const reqId = randomUUID();
+  const request = JSON.stringify({
+    v: 1,
+    id: reqId,
+    method: "key.get",
+    token,
+    params: { account },
+  });
+
+  try {
+    return await new Promise<string | undefined>((resolve) => {
+      let buf = "";
+      let settled = false;
+
+      let socket: ReturnType<typeof createConnection> | undefined;
+
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          try {
+            socket?.destroy();
+          } catch {
+            /* already destroyed or never created */
+          }
+          resolve(undefined);
+        }
+      }, BROKER_TIMEOUT_MS);
+
+      try {
+        socket = createConnection({ path: socketPath });
+      } catch {
+        clearTimeout(timer);
+        settled = true;
+        resolve(undefined);
+        return;
+      }
+
+      socket.on("connect", () => {
+        socket!.write(request + "\n");
+      });
+
+      socket.on("data", (chunk) => {
+        buf += chunk.toString();
+        const idx = buf.indexOf("\n");
+        if (idx !== -1) {
+          clearTimeout(timer);
+          if (settled) return;
+          settled = true;
+          try {
+            const resp = JSON.parse(buf.slice(0, idx));
+            if (
+              resp.ok &&
+              resp.result?.found &&
+              typeof resp.result.value === "string"
+            ) {
+              resolve(resp.result.value);
+            } else {
+              resolve(undefined);
+            }
+          } catch {
+            resolve(undefined);
+          }
+          socket!.destroy();
+        }
+      });
+
+      socket.on("error", () => {
+        clearTimeout(timer);
+        if (!settled) {
+          settled = true;
+          resolve(undefined);
+        }
+      });
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public API — tries broker, then encrypted store
+// ---------------------------------------------------------------------------
+
+/**
+ * Read a credential from the assistant's secure storage.
+ *
+ * Tries the keychain broker (UDS) first — used in production on macOS where
+ * the daemon writes credentials to the system keychain. Falls back to the
+ * encrypted-at-rest file store (keys.enc) for dev mode and environments
+ * without a keychain broker.
+ *
+ * @param instanceDir - The assistant instance directory (e.g. ~/.vellum or a per-instance dir)
+ * @param account - The credential key (e.g. "credential/bootstrapped_actor/http_token")
+ * @returns The decrypted credential value, or undefined if not found.
+ */
+export async function readCredential(
+  instanceDir: string,
+  account: string,
+): Promise<string | undefined> {
+  const vellumDir = join(instanceDir, ".vellum");
+  const brokerValue = await readBrokerCredential(vellumDir, account);
+  if (brokerValue !== undefined) return brokerValue;
+  return readEncryptedCredential(vellumDir, account);
 }

@@ -797,7 +797,7 @@ async function hatchLocal(
 
   // Read the bootstrapped actor HTTP token from the encrypted credential store
   // so the CLI can authenticate with the daemon/gateway.
-  const bearerToken = readCredential(
+  const bearerToken = await readCredential(
     resources.instanceDir,
     "credential/bootstrapped_actor/http_token",
   );
