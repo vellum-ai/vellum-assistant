@@ -251,7 +251,7 @@ function buildHandlers(sessionIdRef: SessionIdRef): RpcHandlerRegistry {
       cesMode: "managed",
       egressHooks: buildCesEgressHooks(),
     },
-    defaultWorkspaceDir: "/workspace",
+    defaultWorkspaceDir: join(mountedVellumRoot, "workspace"),
   });
 
   // Register manage_secure_command_tool handler
