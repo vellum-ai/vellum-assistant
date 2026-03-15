@@ -372,6 +372,10 @@ async function startDaemonWatchFromSource(
     delete env.QDRANT_URL;
   }
 
+  // Write a sentinel PID file before spawning so concurrent hatch() calls
+  // detect the in-progress spawn and wait instead of racing.
+  writeFileSync(pidFile, "starting", "utf-8");
+
   const daemonLogFd = openLogFile("hatch.log");
   const child = spawn("bun", ["--watch", "run", mainPath], {
     detached: true,
@@ -382,8 +386,13 @@ async function startDaemonWatchFromSource(
   child.unref();
   const daemonPid = child.pid;
 
+  // Overwrite sentinel with real PID, or clean up on spawn failure.
   if (daemonPid) {
     writeFileSync(pidFile, String(daemonPid), "utf-8");
+  } else {
+    try {
+      unlinkSync(pidFile);
+    } catch {}
   }
 
   console.log("   Assistant started in watch mode (bun --watch)");
