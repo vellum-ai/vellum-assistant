@@ -180,3 +180,34 @@ export function credentialKey(service: string, field: string): string {
 
 export { StaticCredentialMetadataStore } from "./static-credentials.js";
 export type { StaticCredentialPolicyInput } from "./static-credentials.js";
+
+// ---------------------------------------------------------------------------
+// OAuth runtime primitives
+// ---------------------------------------------------------------------------
+
+export {
+  // Secure-key path conventions
+  oauthConnectionAccessTokenPath,
+  oauthConnectionRefreshTokenPath,
+  oauthAppClientSecretPath,
+  // Token expiry
+  EXPIRY_BUFFER_MS,
+  isTokenExpired,
+  computeExpiresAt,
+  // Circuit breaker
+  REFRESH_FAILURE_THRESHOLD,
+  INITIAL_COOLDOWN_MS,
+  MAX_COOLDOWN_MS,
+  RefreshCircuitBreaker,
+  // Refresh deduplication
+  RefreshDeduplicator,
+  // Credential error classification
+  isCredentialError,
+  // Token persistence helpers
+  persistOAuthTokens,
+  getStoredAccessToken,
+  getStoredRefreshToken,
+  deleteOAuthTokens,
+  persistRefreshedTokens,
+} from "./oauth-runtime.js";
+export type { RefreshBreakerState } from "./oauth-runtime.js";

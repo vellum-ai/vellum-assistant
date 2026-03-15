@@ -8,11 +8,21 @@
  * Writes exclusively to the SQLite tables (oauth_app, oauth_connection)
  * and new-format secure keys (`oauth_app/{id}/...`,
  * `oauth_connection/{id}/...`).
+ *
+ * Token storage key paths and secure-key persistence are delegated to
+ * the shared `@vellumai/credential-storage` package.
  */
+
+import {
+  oauthAppClientSecretPath,
+  persistOAuthTokens,
+  type SecureKeyBackend,
+} from "@vellumai/credential-storage";
 
 import type { OAuth2FlowResult } from "../security/oauth2.js";
 import {
   deleteSecureKeyAsync,
+  getSecureKeyAsync,
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
 import { runPostConnectHook } from "../tools/credentials/post-connect-hooks.js";
@@ -24,6 +34,17 @@ import {
   updateConnection,
   upsertApp,
 } from "./oauth-store.js";
+
+// ---------------------------------------------------------------------------
+// Secure-key backend adapter
+// ---------------------------------------------------------------------------
+
+const secureKeyBackend: SecureKeyBackend = {
+  get: (key: string) => getSecureKeyAsync(key),
+  set: (key: string, value: string) => setSecureKeyAsync(key, value),
+  delete: async (key: string) => deleteSecureKeyAsync(key),
+  list: async () => [],
+};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -97,7 +118,7 @@ export async function storeOAuth2Tokens(
   const app = params.oauthAppId
     ? (getApp(params.oauthAppId) ?? {
         id: params.oauthAppId,
-        clientSecretCredentialPath: `oauth_app/${params.oauthAppId}/client_secret`,
+        clientSecretCredentialPath: oauthAppClientSecretPath(params.oauthAppId),
       })
     : await upsertApp(
         service,
@@ -160,27 +181,11 @@ export async function storeOAuth2Tokens(
     connId = conn.id;
   }
 
-  // 3. Write access_token: oauth_connection/{conn.id}/access_token
-  const tokenStored = await setSecureKeyAsync(
-    `oauth_connection/${connId}/access_token`,
-    tokens.accessToken,
-  );
-  if (!tokenStored) {
-    throw new Error("Failed to store access token in secure storage");
-  }
-
-  // 4. Write or clear refresh_token: oauth_connection/{conn.id}/refresh_token
-  if (tokens.refreshToken) {
-    await setSecureKeyAsync(
-      `oauth_connection/${connId}/refresh_token`,
-      tokens.refreshToken,
-    );
-  } else {
-    // Re-auth grants that omit refresh_token must clear any stale stored
-    // token — otherwise withValidToken() will attempt refresh with invalid
-    // credentials.
-    await deleteSecureKeyAsync(`oauth_connection/${connId}/refresh_token`);
-  }
+  // 3-4. Persist access + refresh tokens via shared helper
+  await persistOAuthTokens(secureKeyBackend, connId, {
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+  });
 
   // Run any provider-specific post-connect actions (e.g. Slack welcome DM)
   await runPostConnectHook({ service, rawTokenResponse });
