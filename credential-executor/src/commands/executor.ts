@@ -645,6 +645,9 @@ function checkGrant(
   persistentStore: PersistentGrantStore,
   temporaryStore: TemporaryGrantStore,
 ): GrantCheckResult {
+  // Build the full legacy command string for exact matching against legacy grants.
+  const legacyCommand = `${request.bundleDigest}/${profileName} ${request.argv.join(" ")}`.trim();
+
   // If an explicit grantId is provided, check it directly — but verify
   // that the grant's scope matches the current request. Without this
   // check, an agent with a valid grant for one command/credential could
@@ -656,7 +659,7 @@ function checkGrant(
       grant &&
       grant.tool === "command" &&
       grant.scope === request.credentialHandle &&
-      grantMatchesCommand(grant.pattern, request.credentialHandle, request.bundleDigest, profileName)
+      grantMatchesCommand(grant.pattern, request.credentialHandle, request.bundleDigest, profileName, legacyCommand)
     ) {
       return { ok: true, grantId: grant.id };
     }
@@ -669,7 +672,7 @@ function checkGrant(
     if (
       grant.tool === "command" &&
       grant.scope === request.credentialHandle &&
-      grantMatchesCommand(grant.pattern, request.credentialHandle, request.bundleDigest, profileName)
+      grantMatchesCommand(grant.pattern, request.credentialHandle, request.bundleDigest, profileName, legacyCommand)
     ) {
       return { ok: true, grantId: grant.id };
     }
@@ -712,13 +715,15 @@ function checkGrant(
  * The legacy format exists because older grants were persisted using
  * `proposal.command` before `allowedCommandPatterns` was introduced.
  * Credential scope is already verified by the caller (`grant.scope === credentialHandle`),
- * so for legacy patterns we only need to confirm the bundleDigest/profileName match.
+ * so for legacy patterns we match the full command string (including argv) to prevent
+ * a grant for one argv from authorizing a different argv on the same profile.
  */
 function grantMatchesCommand(
   pattern: string,
   credentialHandle: string,
   bundleDigest: string,
   profileName: string,
+  legacyCommand: string,
 ): boolean {
   // Canonical format: <credentialHandle>:<bundleDigest>:<profileName>
   if (pattern === `${credentialHandle}:${bundleDigest}:${profileName}`) {
@@ -726,9 +731,8 @@ function grantMatchesCommand(
   }
 
   // Legacy format: <bundleDigest>/<profileName> <argv...>
-  // The pattern starts with "<bundleDigest>/<profileName>" followed by a space or end-of-string.
-  const legacyPrefix = `${bundleDigest}/${profileName}`;
-  if (pattern === legacyPrefix || pattern.startsWith(`${legacyPrefix} `)) {
+  // Match the full legacy command string exactly to prevent approval scope widening.
+  if (pattern === legacyCommand) {
     return true;
   }
 
