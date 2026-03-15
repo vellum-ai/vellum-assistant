@@ -17,7 +17,8 @@ Quick-reference decision guide for choosing the right tool when users ask about 
    - Examples: "remind me at 3pm", "remind me in 5 minutes", "alert me tomorrow at 9am"
 
 2. **Does the request have a recurring pattern?**
-   - YES -> `schedule_create`
+   - YES -> `schedule_create` with `mode: "notify"` (for recurring reminders/alerts) or `mode: "execute"` (if the assistant should act autonomously each recurrence)
+   - Default to `mode: "notify"` for recurring reminder-style requests. Use `mode: "execute"` only when each recurrence should trigger the assistant to perform a task (e.g. "every morning, check my email and summarize it").
    - Examples: "every day at 9am", "weekly on Mondays", "every 2 hours"
 
 3. **Does the request need an alert RIGHT NOW (no delay)?**
