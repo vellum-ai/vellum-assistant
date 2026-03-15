@@ -33,7 +33,7 @@ import type {
   ConfirmationResponse,
   DeleteQueuedMessage,
   RegenerateRequest,
-  ReorderThreadsRequest,
+  ReorderConversationsRequest,
   SecretResponse,
   ServerMessage,
   SessionCreateRequest,
@@ -42,7 +42,7 @@ import type {
   UndoRequest,
   UsageRequest,
 } from "../message-protocol.js";
-import { normalizeThreadType } from "../message-protocol.js";
+import { normalizeConversationType } from "../message-protocol.js";
 import type { Session } from "../session.js";
 import {
   buildSessionErrorMessage,
@@ -233,7 +233,7 @@ export async function handleSessionCreate(
   msg: SessionCreateRequest,
   ctx: HandlerContext,
 ): Promise<void> {
-  const conversationType = normalizeThreadType(msg.threadType);
+  const conversationType = normalizeConversationType(msg.conversationType);
   const title =
     msg.title ?? (msg.initialMessage ? GENERATING_TITLE : "New Conversation");
   const conversation = createConversation({
@@ -257,7 +257,7 @@ export async function handleSessionCreate(
     sessionId: conversation.id,
     title: conversation.title ?? "New Conversation",
     ...(msg.correlationId ? { correlationId: msg.correlationId } : {}),
-    threadType: normalizeThreadType(conversation.conversationType),
+    conversationType: normalizeConversationType(conversation.conversationType),
   });
 
   // Auto-send the initial message if provided, kick-starting the skill.
@@ -363,7 +363,7 @@ export async function switchSession(
 ): Promise<{
   sessionId: string;
   title: string;
-  conversationType: ReturnType<typeof normalizeThreadType>;
+  conversationType: ReturnType<typeof normalizeConversationType>;
 } | null> {
   const conversation = getConversation(sessionId);
   if (!conversation) {
@@ -385,7 +385,7 @@ export async function switchSession(
   return {
     sessionId: conversation.id,
     title: conversation.title ?? "Untitled",
-    conversationType: normalizeThreadType(conversation.conversationType),
+    conversationType: normalizeConversationType(conversation.conversationType),
   };
 }
 
@@ -406,7 +406,7 @@ export async function handleSessionSwitch(
     type: "session_info",
     sessionId: result.sessionId,
     title: result.title,
-    threadType: result.conversationType,
+    conversationType: result.conversationType,
   });
 }
 
@@ -641,8 +641,8 @@ export function handleDeleteQueuedMessage(
   }
 }
 
-export function handleReorderThreads(
-  msg: ReorderThreadsRequest,
+export function handleReorderConversations(
+  msg: ReorderConversationsRequest,
   _ctx: HandlerContext,
 ): void {
   if (!Array.isArray(msg.updates)) {

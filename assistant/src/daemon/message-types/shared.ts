@@ -1,11 +1,11 @@
 // Shared types used across multiple message domains.
 
-export type ThreadType = "standard" | "private";
+export type ConversationType = "standard" | "private";
 
 /** Runtime normalizer — collapses unknown/legacy DB values to 'standard'. */
-export function normalizeThreadType(
+export function normalizeConversationType(
   raw: string | null | undefined,
-): ThreadType {
+): ConversationType {
   return raw === "private" ? "private" : "standard";
 }
 

@@ -1,7 +1,7 @@
 // Session lifecycle, auth, model config, and history types.
 
 import type { ChannelId, InterfaceId } from "../../channels/types.js";
-import type { ThreadType } from "./shared.js";
+import type { ConversationType } from "./shared.js";
 import type { UserMessageAttachment } from "./shared.js";
 
 // === Client → Server ===
@@ -35,7 +35,7 @@ export interface SessionCreateRequest {
   maxResponseTokens?: number;
   correlationId?: string;
   transport?: SessionTransportMetadata;
-  threadType?: ThreadType;
+  conversationType?: ConversationType;
   /** Skill IDs to pre-activate in the new session (loaded before the first message). */
   preactivatedSkillIds?: string[];
   /** If provided, automatically sent as the first user message after session creation. */
@@ -118,8 +118,8 @@ export interface SessionsClearRequest {
   type: "sessions_clear";
 }
 
-export interface ReorderThreadsRequest {
-  type: "reorder_threads";
+export interface ReorderConversationsRequest {
+  type: "reorder_conversations";
   updates: Array<{
     sessionId: string;
     displayOrder: number | null;
@@ -155,7 +155,7 @@ export interface SessionInfo {
   sessionId: string;
   title: string;
   correlationId?: string;
-  threadType?: ThreadType;
+  conversationType?: ConversationType;
 }
 
 export interface SessionTitleUpdated {
@@ -189,7 +189,7 @@ export interface SessionListResponse {
     title: string;
     createdAt?: number;
     updatedAt: number;
-    threadType?: ThreadType;
+    conversationType?: ConversationType;
     source?: string;
     scheduleJobId?: string;
     channelBinding?: ChannelBinding;
@@ -376,9 +376,9 @@ export interface SessionErrorMessage {
   errorCategory?: string;
 }
 
-/** Server push — broadcast when a schedule creates a conversation, so the client can show it as a chat thread. */
-export interface ScheduleThreadCreated {
-  type: "schedule_thread_created";
+/** Server push — broadcast when a schedule creates a conversation. */
+export interface ScheduleConversationCreated {
+  type: "schedule_conversation_created";
   conversationId: string;
   scheduleJobId: string;
   title: string;
@@ -402,7 +402,7 @@ export type _SessionsClientMessages =
   | SessionSwitchRequest
   | SessionRenameRequest
   | SessionsClearRequest
-  | ReorderThreadsRequest;
+  | ReorderConversationsRequest;
 
 export type _SessionsServerMessages =
   | AuthResult
@@ -423,4 +423,4 @@ export type _SessionsServerMessages =
   | SessionsClearResponse
   | ConversationSearchResponse
   | MessageContentResponse
-  | ScheduleThreadCreated;
+  | ScheduleConversationCreated;

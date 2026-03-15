@@ -503,7 +503,7 @@ export async function runDaemon(): Promise<void> {
       },
       (info) => {
         server.broadcast({
-          type: "schedule_thread_created",
+          type: "schedule_conversation_created",
           conversationId: info.conversationId,
           scheduleJobId: info.scheduleJobId,
           title: info.title,

@@ -154,7 +154,7 @@ describe("notification deep-link metadata", () => {
           copy: { title: "Alert", body: "Something happened" },
           deepLinkTarget: {
             conversationId: "conv-123",
-            threadType: "notification",
+            conversationType: "notification",
           },
         },
         { channel: "vellum" },
@@ -167,7 +167,7 @@ describe("notification deep-link metadata", () => {
       expect(msg.body).toBe("Something happened");
       expect(msg.deepLinkMetadata).toEqual({
         conversationId: "conv-123",
-        threadType: "notification",
+        conversationType: "notification",
       });
     });
 
@@ -303,19 +303,19 @@ describe("notification deep-link metadata", () => {
       const adapter = new VellumAdapter((msg) => messages.push(msg));
 
       // Simulates the broadcaster merging pairing.conversationId into deep-link
-      // for a newly created notification thread (start_new path)
+      // for a newly created notification conversation (start_new path)
       await adapter.send(
         {
           sourceEventName: "schedule.notify",
           copy: { title: "Reminder", body: "Take out the trash" },
-          deepLinkTarget: { conversationId: "conv-new-thread-001" },
+          deepLinkTarget: { conversationId: "conv-new-convo-001" },
         },
         { channel: "vellum" },
       );
 
       const msg = messages[0] as unknown as Record<string, unknown>;
       const metadata = msg.deepLinkMetadata as Record<string, unknown>;
-      expect(metadata.conversationId).toBe("conv-new-thread-001");
+      expect(metadata.conversationId).toBe("conv-new-convo-001");
     });
 
     test("deep-link payload includes conversationId for a reused conversation", async () => {
@@ -323,7 +323,7 @@ describe("notification deep-link metadata", () => {
       const adapter = new VellumAdapter((msg) => messages.push(msg));
 
       // Simulates the broadcaster merging pairing.conversationId into deep-link
-      // for a reused notification thread (reuse_existing path)
+      // for a reused notification conversation (reuse_existing path)
       await adapter.send(
         {
           sourceEventName: "schedule.notify",
@@ -331,19 +331,19 @@ describe("notification deep-link metadata", () => {
             title: "Follow-up",
             body: "Still need to take out the trash",
           },
-          deepLinkTarget: { conversationId: "conv-reused-thread-042" },
+          deepLinkTarget: { conversationId: "conv-reused-convo-042" },
         },
         { channel: "vellum" },
       );
 
       const msg = messages[0] as unknown as Record<string, unknown>;
       const metadata = msg.deepLinkMetadata as Record<string, unknown>;
-      expect(metadata.conversationId).toBe("conv-reused-thread-042");
+      expect(metadata.conversationId).toBe("conv-reused-convo-042");
     });
 
-    // ── Reused thread deep-link stability regressions ─────────────────
+    // ── Reused conversation deep-link stability regressions ─────────────────
 
-    test("reused thread preserves the same conversationId across follow-up notifications", async () => {
+    test("reused conversation preserves the same conversationId across follow-up notifications", async () => {
       const messages: ServerMessage[] = [];
       const adapter = new VellumAdapter((msg) => messages.push(msg));
 
@@ -391,7 +391,7 @@ describe("notification deep-link metadata", () => {
       expect(meta2.messageId).toBe("msg-seed-2");
     });
 
-    test("reused thread deep-link messageId changes per delivery for scroll targeting", async () => {
+    test("reused conversation deep-link messageId changes per delivery for scroll targeting", async () => {
       const messages: ServerMessage[] = [];
       const adapter = new VellumAdapter((msg) => messages.push(msg));
 
