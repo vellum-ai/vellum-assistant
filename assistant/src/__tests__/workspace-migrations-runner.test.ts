@@ -69,7 +69,7 @@ describe("runWorkspaceMigrations", () => {
     renameSyncFn.mockClear();
   });
 
-  test("runs migrations in order", () => {
+  test("runs migrations in order", async () => {
     const m1 = makeMigration("001");
     const m2 = makeMigration("002");
     const callOrder: string[] = [];
@@ -80,14 +80,14 @@ describe("runWorkspaceMigrations", () => {
       callOrder.push("002");
     });
 
-    runWorkspaceMigrations(WORKSPACE_DIR, [m1, m2]);
+    await runWorkspaceMigrations(WORKSPACE_DIR, [m1, m2]);
 
     expect(m1.run).toHaveBeenCalledTimes(1);
     expect(m2.run).toHaveBeenCalledTimes(1);
     expect(callOrder).toEqual(["001", "002"]);
   });
 
-  test("skips already-applied migrations", () => {
+  test("skips already-applied migrations", async () => {
     mockCheckpointContents = JSON.stringify({
       applied: {
         "001": { appliedAt: "2025-01-01T00:00:00.000Z" },
@@ -97,43 +97,44 @@ describe("runWorkspaceMigrations", () => {
     const m1 = makeMigration("001");
     const m2 = makeMigration("002");
 
-    runWorkspaceMigrations(WORKSPACE_DIR, [m1, m2]);
+    await runWorkspaceMigrations(WORKSPACE_DIR, [m1, m2]);
 
     expect(m1.run).not.toHaveBeenCalled();
     expect(m2.run).toHaveBeenCalledTimes(1);
   });
 
-  test("writes checkpoint after each migration", () => {
+  test("writes checkpoint after each migration", async () => {
     const m1 = makeMigration("001");
     const m2 = makeMigration("002");
     (m2.run as ReturnType<typeof mock>).mockImplementation(() => {
       throw new Error("migration 002 failed");
     });
 
-    expect(() => runWorkspaceMigrations(WORKSPACE_DIR, [m1, m2])).toThrow(
-      "migration 002 failed",
-    );
+    await expect(
+      runWorkspaceMigrations(WORKSPACE_DIR, [m1, m2]),
+    ).rejects.toThrow("migration 002 failed");
 
     // m1 ran successfully before the error
     expect(m1.run).toHaveBeenCalledTimes(1);
 
-    // Checkpoint was saved after m1 (writeFileSync + renameSync pair)
-    expect(writeFileSyncFn).toHaveBeenCalledTimes(1);
-    expect(renameSyncFn).toHaveBeenCalledTimes(1);
+    // Each migration writes a "started" checkpoint then a "completed" checkpoint.
+    // m1: started + completed = 2 writes. m2: started = 1 write (then it throws).
+    expect(writeFileSyncFn).toHaveBeenCalledTimes(3);
+    expect(renameSyncFn).toHaveBeenCalledTimes(3);
 
-    // Verify the checkpoint contains m1 but not m2
-    const written = (writeFileSyncFn.mock.calls[0] as unknown[])[1] as string;
+    // The last successfully completed checkpoint (m1 completed) is the 2nd write
+    const written = (writeFileSyncFn.mock.calls[1] as unknown[])[1] as string;
     const parsed = JSON.parse(written);
     expect(parsed.applied["001"]).toBeDefined();
-    expect(parsed.applied["002"]).toBeUndefined();
+    expect(parsed.applied["001"].status).toBe("completed");
   });
 
-  test("idempotent on re-run", () => {
+  test("idempotent on re-run", async () => {
     const m1 = makeMigration("001");
     const m2 = makeMigration("002");
 
     // First run — no checkpoint file exists
-    runWorkspaceMigrations(WORKSPACE_DIR, [m1, m2]);
+    await runWorkspaceMigrations(WORKSPACE_DIR, [m1, m2]);
 
     expect(m1.run).toHaveBeenCalledTimes(1);
     expect(m2.run).toHaveBeenCalledTimes(1);
@@ -149,30 +150,30 @@ describe("runWorkspaceMigrations", () => {
     // Simulate reading back the saved checkpoint
     mockCheckpointContents = savedCheckpoint;
 
-    runWorkspaceMigrations(WORKSPACE_DIR, [m1, m2]);
+    await runWorkspaceMigrations(WORKSPACE_DIR, [m1, m2]);
 
     expect(m1.run).not.toHaveBeenCalled();
     expect(m2.run).not.toHaveBeenCalled();
   });
 
-  test("handles missing checkpoint file gracefully", () => {
+  test("handles missing checkpoint file gracefully", async () => {
     // mockCheckpointContents is already null (no file on disk)
     const m1 = makeMigration("001");
     const m2 = makeMigration("002");
 
-    runWorkspaceMigrations(WORKSPACE_DIR, [m1, m2]);
+    await runWorkspaceMigrations(WORKSPACE_DIR, [m1, m2]);
 
     expect(m1.run).toHaveBeenCalledTimes(1);
     expect(m2.run).toHaveBeenCalledTimes(1);
   });
 
-  test("handles malformed checkpoint file", () => {
+  test("handles malformed checkpoint file", async () => {
     mockCheckpointContents = "this is not valid JSON {{{}}}";
 
     const m1 = makeMigration("001");
     const m2 = makeMigration("002");
 
-    runWorkspaceMigrations(WORKSPACE_DIR, [m1, m2]);
+    await runWorkspaceMigrations(WORKSPACE_DIR, [m1, m2]);
 
     // Malformed checkpoint is treated as fresh state — all migrations run
     expect(m1.run).toHaveBeenCalledTimes(1);
