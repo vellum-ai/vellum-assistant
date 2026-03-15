@@ -87,16 +87,26 @@ export type ToolRequestBase = z.infer<typeof ToolRequestBaseSchema>;
 
 /**
  * Base shape for a tool execution response sent from CES back to the
- * assistant.
+ * assistant. Modeled as a discriminated union on `success` so malformed
+ * payloads (e.g. `success: false` without `error`, or `success: true`
+ * with `error`) are rejected at parse time.
  */
-export const ToolResponseBaseSchema = z.object({
-  /** Whether the tool executed successfully. */
-  success: z.boolean(),
-  /** Tool output when `success` is true. */
+const ToolResponseSuccessSchema = z.object({
+  success: z.literal(true),
+  /** Tool output. */
   result: z.unknown().optional(),
-  /** Structured error when `success` is false. */
-  error: RpcErrorSchema.optional(),
 });
+
+const ToolResponseErrorSchema = z.object({
+  success: z.literal(false),
+  /** Structured error describing the failure. */
+  error: RpcErrorSchema,
+});
+
+export const ToolResponseBaseSchema = z.discriminatedUnion("success", [
+  ToolResponseSuccessSchema,
+  ToolResponseErrorSchema,
+]);
 export type ToolResponseBase = z.infer<typeof ToolResponseBaseSchema>;
 
 // ---------------------------------------------------------------------------
