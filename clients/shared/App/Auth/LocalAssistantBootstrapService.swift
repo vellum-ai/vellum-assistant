@@ -202,13 +202,11 @@ public final class LocalAssistantBootstrapService {
 
     /// Inject the assistant API key into the daemon's secret store via the gateway.
     private func injectKeyIntoDaemon(key: String) async throws {
-        let body: [String: String] = [
-            "type": "credential",
-            "name": "vellum:assistant_api_key",
-            "value": key
-        ]
-        let bodyData = try JSONSerialization.data(withJSONObject: body)
-        let response = try await GatewayHTTPClient.post(path: "secrets", body: bodyData, timeout: 10)
+        let response = try await GatewayHTTPClient.post(
+            path: "secrets",
+            json: ["type": "credential", "name": "vellum:assistant_api_key", "value": key],
+            timeout: 10
+        )
         guard response.isSuccess else {
             throw LocalBootstrapError.daemonInjectionFailed
         }
@@ -216,13 +214,11 @@ public final class LocalAssistantBootstrapService {
 
     /// Inject the platform assistant ID into the daemon's secret store via the gateway.
     private func injectPlatformAssistantIdIntoDaemon(id: String) async throws {
-        let body: [String: String] = [
-            "type": "credential",
-            "name": "vellum:platform_assistant_id",
-            "value": id
-        ]
-        let bodyData = try JSONSerialization.data(withJSONObject: body)
-        let response = try await GatewayHTTPClient.post(path: "secrets", body: bodyData, timeout: 10)
+        let response = try await GatewayHTTPClient.post(
+            path: "secrets",
+            json: ["type": "credential", "name": "vellum:platform_assistant_id", "value": id],
+            timeout: 10
+        )
         guard response.isSuccess else {
             throw LocalBootstrapError.daemonInjectionFailed
         }

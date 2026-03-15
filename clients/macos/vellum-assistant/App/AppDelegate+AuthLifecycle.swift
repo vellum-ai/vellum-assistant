@@ -216,10 +216,8 @@ extension AppDelegate {
             return
         }
 
-        let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        guard let assistantId = storedId,
-              let _ = LockfileAssistant.loadByName(assistantId) else {
-            log.warning("Skipping local assistant API key provisioning because connectedAssistantId is missing from lockfile")
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"), !assistantId.isEmpty else {
+            log.warning("Skipping local assistant API key provisioning because connectedAssistantId is not set")
             return
         }
 

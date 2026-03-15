@@ -88,6 +88,19 @@ public enum GatewayHTTPClient {
         return try await execute(request)
     }
 
+    /// Performs an authenticated POST request, serializing a JSON-compatible dictionary as the body.
+    ///
+    /// - Parameters:
+    ///   - path: Path segment after `/v1/`.
+    ///   - json: A JSON-serializable dictionary used as the request body.
+    ///   - timeout: Request timeout in seconds. Defaults to 30.
+    /// - Returns: A `Response` with the raw data and HTTP status code.
+    /// - Throws: `ClientError` if the request cannot be constructed, serialization errors, or network errors.
+    public static func post(path: String, json: [String: Any], timeout: TimeInterval = 30) async throws -> Response {
+        let body = try JSONSerialization.data(withJSONObject: json)
+        return try await post(path: path, body: body, timeout: timeout)
+    }
+
     /// Performs an authenticated DELETE request against the gateway.
     ///
     /// - Parameters:
@@ -100,6 +113,19 @@ public enum GatewayHTTPClient {
         var request = try buildRequest(path: path, method: "DELETE", timeout: timeout)
         request.httpBody = body
         return try await execute(request)
+    }
+
+    /// Performs an authenticated DELETE request, serializing a JSON-compatible dictionary as the body.
+    ///
+    /// - Parameters:
+    ///   - path: Path segment after `/v1/`.
+    ///   - json: A JSON-serializable dictionary used as the request body.
+    ///   - timeout: Request timeout in seconds. Defaults to 30.
+    /// - Returns: A `Response` with the raw data and HTTP status code.
+    /// - Throws: `ClientError` if the request cannot be constructed, serialization errors, or network errors.
+    public static func delete(path: String, json: [String: Any], timeout: TimeInterval = 30) async throws -> Response {
+        let body = try JSONSerialization.data(withJSONObject: json)
+        return try await delete(path: path, body: body, timeout: timeout)
     }
 
     /// Performs an authenticated streaming GET request against the gateway.
