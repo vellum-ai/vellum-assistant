@@ -829,6 +829,8 @@ private struct ChatViewPreviewWrapper: View {
                 onConfirmationDeny: { _ in },
                 onAlwaysAllow: { _, _, _, _ in },
                 onSurfaceAction: { _, _, _ in },
+                watchSession: nil,
+                onStopWatch: {},
                 subagentDetailStore: SubagentDetailStore(),
                 anchorMessageId: $anchorMessageId
             )
