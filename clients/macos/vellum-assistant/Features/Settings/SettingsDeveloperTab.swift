@@ -80,6 +80,16 @@ struct SettingsDeveloperTab: View {
                     sshTerminalSection
                 }
             }
+            // Transfer (local ↔ managed)
+            if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
+               !assistant.isRemote || assistant.isManaged {
+                AssistantTransferSection(
+                    assistant: assistant,
+                    store: store,
+                    authManager: authManager,
+                    onClose: onClose
+                )
+            }
             // Gateway Settings
             GatewaySettingsCard(
                 store: store,
