@@ -187,6 +187,15 @@ function classifyCore(
         errorCategory: "provider_billing",
       };
     }
+    if (error.statusCode === 402) {
+      return {
+        code: "PROVIDER_BILLING",
+        userMessage:
+          "You've run out of credits. Add funds to continue using the assistant.",
+        retryable: false,
+        errorCategory: "credits_exhausted",
+      };
+    }
     if (error.statusCode === 429) {
       return {
         code: "PROVIDER_RATE_LIMIT",
