@@ -44,10 +44,10 @@ describe("ConfigFileCache: getString", () => {
     expect(cache.getString("email", "address")).toBe("a@b.com");
   });
 
-  test("returns undefined for empty string", () => {
+  test("returns empty string as-is", () => {
     writeConfig({ email: { address: "" } });
     const cache = new ConfigFileCache();
-    expect(cache.getString("email", "address")).toBeUndefined();
+    expect(cache.getString("email", "address")).toBe("");
   });
 
   test("returns undefined for non-string value", () => {

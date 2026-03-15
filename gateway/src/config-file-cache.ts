@@ -81,7 +81,7 @@ export class ConfigFileCache {
     opts?: ReadOptions,
   ): string | undefined {
     const raw = this.getRaw(section, field, opts);
-    return typeof raw === "string" ? raw || undefined : undefined;
+    return typeof raw === "string" ? raw : undefined;
   }
 
   getNumber(
