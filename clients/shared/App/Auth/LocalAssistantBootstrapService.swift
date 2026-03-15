@@ -55,7 +55,7 @@ public final class LocalAssistantBootstrapService {
     private let credentialStorage: CredentialStorage?
 
     /// Returns the credential account name for the provisioned credential, scoped to the assistant.
-    static func credentialAccount(for runtimeAssistantId: String) -> String {
+    public static func credentialAccount(for runtimeAssistantId: String) -> String {
         "vellum_assistant_credential_\(runtimeAssistantId)"
     }
 
@@ -200,23 +200,6 @@ public final class LocalAssistantBootstrapService {
             runtimeAssistantId: runtimeAssistantId,
             clientPlatform: clientPlatform
         )
-    }
-
-    /// Clear all managed proxy credentials from the daemon's secret store.
-    /// Intended for sign-out cleanup. Uses direct HTTP calls since the
-    /// GatewayHTTPClient connection may no longer be valid during sign-out.
-    public static func clearDaemonCredentials(daemonBaseURL: String, daemonToken: String) async {
-        for credentialName in ["vellum:assistant_api_key", "vellum:platform_base_url", "vellum:platform_assistant_id"] {
-            guard let url = URL(string: "\(daemonBaseURL)/v1/secrets") else { continue }
-            var request = URLRequest(url: url)
-            request.httpMethod = "DELETE"
-            request.setValue("Bearer \(daemonToken)", forHTTPHeaderField: "Authorization")
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.timeoutInterval = 10
-            let body: [String: String] = ["type": "credential", "name": credentialName]
-            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-            _ = try? await URLSession.shared.data(for: request)
-        }
     }
 
     /// Inject the assistant API key into the daemon's secret store via the gateway.
