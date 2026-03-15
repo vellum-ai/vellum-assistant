@@ -1,3 +1,5 @@
+import { nanoid } from "nanoid";
+
 const ADJECTIVES = [
   "brave",
   "calm",
@@ -129,5 +131,17 @@ function randomElement<T>(arr: T[]): T {
 }
 
 export function generateRandomSuffix(): string {
-  return `${randomElement(ADJECTIVES)}-${randomElement(NOUNS)}`;
+  return `${randomElement(ADJECTIVES)}-${randomElement(NOUNS)}-${nanoid(6)}`;
+}
+
+/**
+ * Generate an instance name for a new assistant. Uses the explicit name if
+ * provided, otherwise produces `<species>-<adjective>-<noun>-<nanoid>`.
+ */
+export function generateInstanceName(
+  species: string,
+  explicitName?: string | null,
+): string {
+  if (explicitName) return explicitName;
+  return `${species}-${generateRandomSuffix()}`;
 }
