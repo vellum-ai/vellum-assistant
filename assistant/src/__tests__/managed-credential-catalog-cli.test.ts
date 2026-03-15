@@ -25,10 +25,8 @@ let mockPlatformBaseUrl = "";
 let mockAssistantApiKey: string | null = null;
 
 /** Simulated platform catalog responses keyed by URL. */
-let mockFetchResponses: Map<
-  string,
-  { status: number; body: unknown }
-> = new Map();
+let mockFetchResponses: Map<string, { status: number; body: unknown }> =
+  new Map();
 
 mock.module("../config/env.js", () => ({
   getPlatformBaseUrl: () => mockPlatformBaseUrl,
@@ -44,9 +42,17 @@ mock.module("../security/secure-keys.js", () => ({
 }));
 
 // Mock global fetch
-const originalFetch = globalThis.fetch;
-globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
-  const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+const _originalFetch = globalThis.fetch;
+globalThis.fetch = async (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => {
+  const url =
+    typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
   const entry = mockFetchResponses.get(url);
   if (!entry) {
     return new Response("Not Found", { status: 404 });
@@ -118,30 +124,27 @@ describe("fetchManagedCatalog", () => {
     mockPlatformBaseUrl = "https://platform.example.com";
     mockAssistantApiKey = "sk-test-key";
 
-    mockFetchResponses.set(
-      "https://platform.example.com/v1/ces/catalog",
-      {
-        status: 200,
-        body: {
-          connections: [
-            {
-              id: "conn_google_123",
-              provider: "google",
-              account_info: "user@gmail.com",
-              granted_scopes: ["email", "calendar"],
-              status: "active",
-            },
-            {
-              id: "conn_slack_456",
-              provider: "slack",
-              account_info: "workspace-bot",
-              granted_scopes: ["chat:write"],
-              status: "active",
-            },
-          ],
-        },
+    mockFetchResponses.set("https://platform.example.com/v1/ces/catalog", {
+      status: 200,
+      body: {
+        connections: [
+          {
+            id: "conn_google_123",
+            provider: "google",
+            account_info: "user@gmail.com",
+            granted_scopes: ["email", "calendar"],
+            status: "active",
+          },
+          {
+            id: "conn_slack_456",
+            provider: "slack",
+            account_info: "workspace-bot",
+            granted_scopes: ["chat:write"],
+            status: "active",
+          },
+        ],
       },
-    );
+    });
 
     const result = await fetchManagedCatalog();
     expect(result.ok).toBe(true);
@@ -165,13 +168,10 @@ describe("fetchManagedCatalog", () => {
     mockPlatformBaseUrl = "https://platform.example.com";
     mockAssistantApiKey = "sk-test-key";
 
-    mockFetchResponses.set(
-      "https://platform.example.com/v1/ces/catalog",
-      {
-        status: 200,
-        body: { connections: [] },
-      },
-    );
+    mockFetchResponses.set("https://platform.example.com/v1/ces/catalog", {
+      status: 200,
+      body: { connections: [] },
+    });
 
     const result = await fetchManagedCatalog();
     expect(result.ok).toBe(true);
@@ -182,13 +182,10 @@ describe("fetchManagedCatalog", () => {
     mockPlatformBaseUrl = "https://platform.example.com";
     mockAssistantApiKey = "sk-test-key";
 
-    mockFetchResponses.set(
-      "https://platform.example.com/v1/ces/catalog",
-      {
-        status: 500,
-        body: { detail: "Internal server error" },
-      },
-    );
+    mockFetchResponses.set("https://platform.example.com/v1/ces/catalog", {
+      status: 500,
+      body: { detail: "Internal server error" },
+    });
 
     const result = await fetchManagedCatalog();
     expect(result.ok).toBe(false);
@@ -200,13 +197,10 @@ describe("fetchManagedCatalog", () => {
     mockPlatformBaseUrl = "https://platform.example.com";
     mockAssistantApiKey = "sk-test-key";
 
-    mockFetchResponses.set(
-      "https://platform.example.com/v1/ces/catalog",
-      {
-        status: 200,
-        body: { unexpected: "shape" },
-      },
-    );
+    mockFetchResponses.set("https://platform.example.com/v1/ces/catalog", {
+      status: 200,
+      body: { unexpected: "shape" },
+    });
 
     const result = await fetchManagedCatalog();
     expect(result.ok).toBe(false);
@@ -217,21 +211,18 @@ describe("fetchManagedCatalog", () => {
     mockPlatformBaseUrl = "https://platform.example.com";
     mockAssistantApiKey = "sk-test-key";
 
-    mockFetchResponses.set(
-      "https://platform.example.com/v1/ces/catalog",
-      {
-        status: 200,
-        body: {
-          connections: [
-            {
-              id: "conn_minimal",
-              provider: "github",
-              // account_info, granted_scopes, status all omitted
-            },
-          ],
-        },
+    mockFetchResponses.set("https://platform.example.com/v1/ces/catalog", {
+      status: 200,
+      body: {
+        connections: [
+          {
+            id: "conn_minimal",
+            provider: "github",
+            // account_info, granted_scopes, status all omitted
+          },
+        ],
       },
-    );
+    });
 
     const result = await fetchManagedCatalog();
     expect(result.ok).toBe(true);
