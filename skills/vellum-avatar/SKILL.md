@@ -84,10 +84,11 @@ mkdir -p "$VELLUM_WORKSPACE_DIR/data/avatar"
 cp "<user-provided-path>" "$VELLUM_WORKSPACE_DIR/data/avatar/avatar-image.png"
 ```
 
-Then remove the character traits file, since a custom image overrides the native character:
+Then remove the native character files, since a custom image overrides the native character:
 
 ```bash
 rm -f "$VELLUM_WORKSPACE_DIR/data/avatar/character-traits.json"
+rm -f "$VELLUM_WORKSPACE_DIR/data/avatar/character-ascii.txt"
 ```
 
 Tell the user their avatar has been updated. The client will pick up the new image automatically.
@@ -102,10 +103,11 @@ curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/settings/avatar/generate" \
   -d '{"description": "<user'\''s description>"}'
 ```
 
-This generates an image using AI and saves it to `data/avatar/avatar-image.png`. After the image is generated, remove the character traits file:
+This generates an image using AI and saves it to `data/avatar/avatar-image.png`. After the image is generated, remove the native character files:
 
 ```bash
 rm -f "$VELLUM_WORKSPACE_DIR/data/avatar/character-traits.json"
+rm -f "$VELLUM_WORKSPACE_DIR/data/avatar/character-ascii.txt"
 ```
 
 The generated avatar will appear automatically in the client.
@@ -133,4 +135,4 @@ The client checks for character traits first — if `character-traits.json` exis
 Enforcement rules:
 
 - **Setting native character traits** → run `assistant avatar character update --body-shape X --eye-style Y --color Z`. This writes `character-traits.json`, auto-generates the PNG, and creates ASCII art in one step.
-- **Uploading or generating a custom image** → write `avatar-image.png` and remove `character-traits.json`.
+- **Uploading or generating a custom image** → write `avatar-image.png` and remove `character-traits.json` and `character-ascii.txt`.

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { getCharacterComponents } from "../../avatar/character-components.js";
 import {
   type CharacterTraits,
-  syncTraitsToPng,
+  syncTraitsToAvatar,
   writeTraitsAndRenderAvatar,
 } from "../../avatar/traits-png-sync.js";
 import { getLogger } from "../../util/logger.js";
@@ -71,7 +71,7 @@ export function avatarRouteDefinitions(): RouteDefinition[] {
 
           success = writeTraitsAndRenderAvatar(body);
         } else {
-          success = syncTraitsToPng();
+          success = syncTraitsToAvatar();
         }
 
         if (!success) {

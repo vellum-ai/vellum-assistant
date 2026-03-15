@@ -87,10 +87,10 @@ export function writeTraitsAndRenderAvatar(traits: CharacterTraits): boolean {
 
 /**
  * Reads character-traits.json from the avatar directory and regenerates
- * avatar-image.png to match. Kept for backward compatibility (e.g. the
- * client-side file watcher triggers this path).
+ * avatar-image.png and character-ascii.txt to match. Kept for backward
+ * compatibility (e.g. the client-side file watcher triggers this path).
  */
-export function syncTraitsToPng(): boolean {
+export function syncTraitsToAvatar(): boolean {
   const traitsPath = join(
     getWorkspaceDir(),
     "data",
