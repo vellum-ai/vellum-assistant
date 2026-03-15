@@ -4,7 +4,7 @@ import { getCharacterComponents } from "../../avatar/character-components.js";
 import {
   type CharacterTraits,
   syncTraitsToPng,
-  writeTraitsAndRenderPng,
+  writeTraitsAndRenderAvatar,
 } from "../../avatar/traits-png-sync.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
@@ -69,7 +69,7 @@ export function avatarRouteDefinitions(): RouteDefinition[] {
             );
           }
 
-          success = writeTraitsAndRenderPng(body);
+          success = writeTraitsAndRenderAvatar(body);
         } else {
           success = syncTraitsToPng();
         }

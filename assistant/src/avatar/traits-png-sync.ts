@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
+import { renderCharacterAscii } from "./ascii-renderer.js";
 import { renderCharacterPng } from "./png-renderer.js";
 
 const log = getLogger("traits-png-sync");
@@ -15,13 +16,13 @@ export interface CharacterTraits {
 }
 
 /**
- * Writes character-traits.json and regenerates avatar-image.png in one
- * atomic operation.  Accepts the trait values directly so callers don't
- * need to touch the filesystem first.
+ * Writes character-traits.json, regenerates avatar-image.png, and updates
+ * character-ascii.txt in one atomic operation.  Accepts the trait values
+ * directly so callers don't need to touch the filesystem first.
  *
- * Returns true if both the traits file and PNG were written successfully.
+ * Returns true if all files were written successfully.
  */
-export function writeTraitsAndRenderPng(traits: CharacterTraits): boolean {
+export function writeTraitsAndRenderAvatar(traits: CharacterTraits): boolean {
   if (!traits.bodyShape || !traits.eyeStyle || !traits.color) {
     log.warn({ traits }, "Invalid character traits — missing required fields");
     return false;
@@ -50,13 +51,24 @@ export function writeTraitsAndRenderPng(traits: CharacterTraits): boolean {
     writeFileSync(pngTmp, pngBuffer);
     renameSync(pngTmp, pngPath);
 
+    // Render and write ASCII art atomically
+    const asciiPath = join(avatarDir, "character-ascii.txt");
+    const asciiArt = renderCharacterAscii(
+      traits.bodyShape,
+      traits.eyeStyle,
+      traits.color,
+    );
+    const asciiTmp = `${asciiPath}.${randomUUID()}.tmp`;
+    writeFileSync(asciiTmp, asciiArt);
+    renameSync(asciiTmp, asciiPath);
+
     log.info(
       {
         bodyShape: traits.bodyShape,
         eyeStyle: traits.eyeStyle,
         color: traits.color,
       },
-      "Wrote character traits and regenerated avatar PNG",
+      "Wrote character traits, regenerated avatar PNG, and updated ASCII art",
     );
     return true;
   } catch (err) {
@@ -86,5 +98,5 @@ export function syncTraitsToPng(): boolean {
     return false;
   }
 
-  return writeTraitsAndRenderPng(traits);
+  return writeTraitsAndRenderAvatar(traits);
 }
