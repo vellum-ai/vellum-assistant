@@ -51,6 +51,7 @@ import {
   registerCommandExecutionHandler,
   registerManageSecureCommandToolHandler,
   type RpcHandlerRegistry,
+  type SessionIdRef,
 } from "./server.js";
 import { publishBundle } from "./toolstore/publish.js";
 import { validateSourceUrl } from "./toolstore/manifest.js";
@@ -85,7 +86,7 @@ function getVellumRootDir(): string {
 // Build RPC handler registry
 // ---------------------------------------------------------------------------
 
-function buildHandlers(sessionId: string): RpcHandlerRegistry {
+function buildHandlers(sessionIdRef: SessionIdRef): RpcHandlerRegistry {
   // -- Grant stores ----------------------------------------------------------
   const persistentGrantStore = new PersistentGrantStore(
     getCesGrantsDir("local"),
@@ -138,7 +139,7 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
         oauthConnections,
       },
       auditStore,
-      sessionId,
+      sessionId: sessionIdRef,
     },
   );
 
@@ -167,12 +168,11 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
         };
       },
       auditStore,
-      sessionId,
+      sessionId: sessionIdRef,
       cesMode: "local",
       egressHooks: buildCesEgressHooks(),
     },
     defaultWorkspaceDir: join(vellumRoot, "workspace"),
-    sessionId,
   });
 
   // Register manage_secure_command_tool handler
@@ -263,9 +263,11 @@ async function main(): Promise<void> {
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
 
-  // Build the handler registry with all available RPC implementations
-  const sessionId = `ces-local-${Date.now()}`;
-  const handlers = buildHandlers(sessionId);
+  // Build the handler registry with all available RPC implementations.
+  // Use a mutable ref so audit records capture the handshake session ID
+  // once it's negotiated (the handshake completes before any RPC call).
+  const sessionIdRef: SessionIdRef = { current: `ces-local-${Date.now()}` };
+  const handlers = buildHandlers(sessionIdRef);
 
   const server = new CesRpcServer({
     input: process.stdin,
@@ -280,6 +282,9 @@ async function main(): Promise<void> {
         process.stderr.write(`[ces-local] ERROR: ${msg} ${args.map(String).join(" ")}\n`),
     },
     signal: controller.signal,
+    onHandshakeComplete: (hsSessionId) => {
+      sessionIdRef.current = hsSessionId;
+    },
   });
 
   await server.serve();

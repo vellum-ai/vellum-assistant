@@ -41,6 +41,7 @@ import type { LocalMaterialiser, MaterialisedCredential } from "../materializers
 import { materializeManagedToken, type ManagedMaterializerOptions } from "../materializers/managed-platform.js";
 import { resolveLocalSubject, type LocalSubjectResolverDeps } from "../subjects/local.js";
 import { resolveManagedSubject, type ManagedSubjectResolverOptions } from "../subjects/managed.js";
+import type { SessionIdRef } from "../server.js";
 
 // ---------------------------------------------------------------------------
 // Auth injection constants
@@ -78,8 +79,8 @@ export interface HttpExecutorDeps {
   managedMaterializerOptions?: ManagedMaterializerOptions;
   /** Audit store for persisting token-free audit records. */
   auditStore: AuditStore;
-  /** Session ID for audit records. */
-  sessionId: string;
+  /** Mutable reference to the session ID for audit records. Updated to the handshake session ID once the RPC handshake completes. */
+  sessionId: SessionIdRef;
   /** Optional custom fetch implementation (for testing). */
   fetch?: typeof globalThis.fetch;
   /** Optional logger. */
@@ -182,7 +183,7 @@ export async function executeAuthenticatedHttpRequest(
     const audit = generateHttpAuditSummary({
       credentialHandle: request.credentialHandle,
       grantId,
-      sessionId: deps.sessionId,
+      sessionId: deps.sessionId.current,
       method: request.method,
       url: request.url,
       success: false,
@@ -229,7 +230,7 @@ export async function executeAuthenticatedHttpRequest(
     const audit = generateHttpAuditSummary({
       credentialHandle: request.credentialHandle,
       grantId,
-      sessionId: deps.sessionId,
+      sessionId: deps.sessionId.current,
       method: request.method,
       url: request.url,
       success: false,
@@ -255,7 +256,7 @@ export async function executeAuthenticatedHttpRequest(
   const audit = generateHttpAuditSummary({
     credentialHandle: request.credentialHandle,
     grantId,
-    sessionId: deps.sessionId,
+    sessionId: deps.sessionId.current,
     method: request.method,
     url: request.url,
     success: true,
