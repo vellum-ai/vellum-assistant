@@ -34,7 +34,7 @@ export function performConversationSearch(params: ConversationSearchParams) {
 }
 
 export interface MessageContentResult {
-  sessionId?: string;
+  conversationId?: string;
   messageId: string;
   text?: string;
   toolCalls?: Array<{
@@ -50,9 +50,9 @@ export interface MessageContentResult {
  */
 export function getMessageContent(
   messageId: string,
-  sessionId?: string,
+  conversationId?: string,
 ): MessageContentResult | null {
-  const dbMessage = getMessageById(messageId, sessionId);
+  const dbMessage = getMessageById(messageId, conversationId);
   if (!dbMessage) return null;
 
   let text: string | undefined;
@@ -79,7 +79,7 @@ export function getMessageContent(
   }
 
   return {
-    sessionId,
+    conversationId,
     messageId,
     ...(text !== undefined ? { text } : {}),
     ...(toolCalls ? { toolCalls } : {}),

@@ -8,8 +8,8 @@ import type { DebouncerMap } from "../../util/debounce.js";
 import { getLogger } from "../../util/logger.js";
 import { estimateBase64Bytes } from "../assistant-attachments.js";
 import type {
+  ConversationTransportMetadata,
   ServerMessage,
-  SessionTransportMetadata,
 } from "../message-protocol.js";
 import { Session } from "../session.js";
 import type { TrustContext } from "../session-runtime-assembly.js";
@@ -115,12 +115,12 @@ export interface ParsedHistoryMessage {
 }
 
 /**
- * Optional overrides for session creation (e.g. interview mode).
+ * Optional overrides for conversation creation (e.g. interview mode).
  */
-export interface SessionCreateOptions {
+export interface ConversationCreateOptions {
   systemPromptOverride?: string;
   maxResponseTokens?: number;
-  transport?: SessionTransportMetadata;
+  transport?: ConversationTransportMetadata;
   assistantId?: string;
   trustContext?: TrustContext;
   /** Normalized auth context for the session. */
@@ -152,7 +152,7 @@ export interface HandlerContext {
   clearAllSessions(): number;
   getOrCreateSession(
     conversationId: string,
-    options?: SessionCreateOptions,
+    options?: ConversationCreateOptions,
   ): Promise<Session>;
   /** Refresh the eviction timestamp for a session that was accessed directly. */
   touchSession(sessionId: string): void;

@@ -284,7 +284,7 @@ mock.module("../workspace/git-service.js", () => ({
 
 mock.module("../daemon/session-error.js", () => ({
   classifySessionError: (_err: unknown, _ctx: unknown) => ({
-    code: "SESSION_PROCESSING_FAILED",
+    code: "CONVERSATION_PROCESSING_FAILED",
     userMessage: "Something went wrong processing your message.",
     retryable: false,
     errorCategory: "processing_failed",
@@ -296,11 +296,11 @@ mock.module("../daemon/session-error.js", () => ({
     return false;
   },
   buildSessionErrorMessage: (
-    sessionId: string,
+    conversationId: string,
     classified: Record<string, unknown>,
   ) => ({
-    type: "session_error",
-    sessionId,
+    type: "conversation_error",
+    conversationId,
     ...classified,
   }),
   isContextTooLarge: (msg: string) =>
@@ -700,7 +700,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
 
       // BUG: Currently a session_error IS emitted instead of retrying.
       // After PR 2 fix, there should be no session_error.
-      const sessionError = events.find((e) => e.type === "session_error");
+      const sessionError = events.find((e) => e.type === "conversation_error");
       expect(sessionError).toBeUndefined();
     },
   );
@@ -807,7 +807,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       // The reducer should be called in the convergence loop
       expect(reducerCalled).toBe(true);
       // Should recover without session_error
-      const sessionError = events.find((e) => e.type === "session_error");
+      const sessionError = events.find((e) => e.type === "conversation_error");
       expect(sessionError).toBeUndefined();
       expect(callCount).toBe(2);
     },
@@ -941,7 +941,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       expect(capturedTargetTokens!).toBe(expectedCorrectedTarget);
 
       // Should recover without session_error
-      const sessionError = events.find((e) => e.type === "session_error");
+      const sessionError = events.find((e) => e.type === "conversation_error");
       expect(sessionError).toBeUndefined();
       expect(callCount).toBe(2);
     },
@@ -1037,7 +1037,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       expect(reducerCalled).toBe(true);
       // Should succeed
       expect(callCount).toBe(1);
-      const sessionError = events.find((e) => e.type === "session_error");
+      const sessionError = events.find((e) => e.type === "conversation_error");
       expect(sessionError).toBeUndefined();
       const complete = events.find((e) => e.type === "message_complete");
       expect(complete).toBeDefined();
@@ -1230,7 +1230,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       expect(emergencyCompactCalled).toBe(true);
 
       // BUG: Currently a session_error IS emitted.
-      const sessionError = events.find((e) => e.type === "session_error");
+      const sessionError = events.find((e) => e.type === "conversation_error");
       expect(sessionError).toBeUndefined();
     },
   );
@@ -1406,7 +1406,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       expect(agentLoopCallCount).toBe(2);
 
       // No session_error should be emitted
-      const sessionError = events.find((e) => e.type === "session_error");
+      const sessionError = events.find((e) => e.type === "conversation_error");
       expect(sessionError).toBeUndefined();
 
       // A context_compacted event should have been emitted
@@ -1575,9 +1575,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
         events.push(msg);
         // Track if context_too_large was ever emitted
         if (
-          msg.type === "session_error" &&
+          msg.type === "conversation_error" &&
           "code" in msg &&
-          msg.code === "SESSION_PROCESSING_FAILED"
+          msg.code === "CONVERSATION_PROCESSING_FAILED"
         ) {
           contextTooLargeEmitted = true;
         }
@@ -1593,7 +1593,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       expect(agentLoopCallCount).toBe(2);
 
       // No session_error
-      const sessionError = events.find((e) => e.type === "session_error");
+      const sessionError = events.find((e) => e.type === "conversation_error");
       expect(sessionError).toBeUndefined();
     },
   );

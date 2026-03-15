@@ -1,4 +1,4 @@
-// Session lifecycle, auth, model config, and history types.
+// Conversation lifecycle, auth, model config, and history types.
 
 import type { ChannelId, InterfaceId } from "../../channels/types.js";
 import type { ConversationType } from "./shared.js";
@@ -6,16 +6,16 @@ import type { UserMessageAttachment } from "./shared.js";
 
 // === Client → Server ===
 
-export interface SessionListRequest {
-  type: "session_list";
-  /** Number of sessions to skip (for pagination). Defaults to 0. */
+export interface ConversationListRequest {
+  type: "conversation_list";
+  /** Number of conversations to skip (for pagination). Defaults to 0. */
   offset?: number;
-  /** Maximum number of sessions to return. Defaults to 50. */
+  /** Maximum number of conversations to return. Defaults to 50. */
   limit?: number;
 }
 
-/** Lightweight session transport metadata for channel identity and natural-language guidance. */
-export interface SessionTransportMetadata {
+/** Lightweight conversation transport metadata for channel identity and natural-language guidance. */
+export interface ConversationTransportMetadata {
   /** Logical channel identifier (e.g. "desktop", "telegram", "mobile"). */
   channelId: ChannelId;
   /** Interface identifier for this transport (e.g. "macos", "ios", "cli"). */
@@ -28,28 +28,28 @@ export interface SessionTransportMetadata {
   chatType?: string;
 }
 
-export interface SessionCreateRequest {
-  type: "session_create";
+export interface ConversationCreateRequest {
+  type: "conversation_create";
   title?: string;
   systemPromptOverride?: string;
   maxResponseTokens?: number;
   correlationId?: string;
-  transport?: SessionTransportMetadata;
+  transport?: ConversationTransportMetadata;
   conversationType?: ConversationType;
-  /** Skill IDs to pre-activate in the new session (loaded before the first message). */
+  /** Skill IDs to pre-activate in the new conversation (loaded before the first message). */
   preactivatedSkillIds?: string[];
-  /** If provided, automatically sent as the first user message after session creation. */
+  /** If provided, automatically sent as the first user message after conversation creation. */
   initialMessage?: string;
 }
 
-export interface SessionSwitchRequest {
-  type: "session_switch";
-  sessionId: string;
+export interface ConversationSwitchRequest {
+  type: "conversation_switch";
+  conversationId: string;
 }
 
-export interface SessionRenameRequest {
-  type: "session_rename";
-  sessionId: string;
+export interface ConversationRenameRequest {
+  type: "conversation_rename";
+  conversationId: string;
   title: string;
 }
 
@@ -64,12 +64,12 @@ export interface PingMessage {
 
 export interface CancelRequest {
   type: "cancel";
-  sessionId?: string;
+  conversationId?: string;
 }
 
 export interface DeleteQueuedMessage {
   type: "delete_queued_message";
-  sessionId: string;
+  conversationId: string;
   requestId: string;
 }
 
@@ -89,7 +89,7 @@ export interface ImageGenModelSetRequest {
 
 export interface MessageContentResponse {
   type: "message_content_response";
-  sessionId: string;
+  conversationId: string;
   messageId: string;
   text?: string;
   toolCalls?: Array<{
@@ -101,27 +101,27 @@ export interface MessageContentResponse {
 
 export interface UndoRequest {
   type: "undo";
-  sessionId: string;
+  conversationId: string;
 }
 
 export interface RegenerateRequest {
   type: "regenerate";
-  sessionId: string;
+  conversationId: string;
 }
 
 export interface UsageRequest {
   type: "usage_request";
-  sessionId: string;
+  conversationId: string;
 }
 
-export interface SessionsClearRequest {
-  type: "sessions_clear";
+export interface ConversationsClearRequest {
+  type: "conversations_clear";
 }
 
 export interface ReorderConversationsRequest {
   type: "reorder_conversations";
   updates: Array<{
-    sessionId: string;
+    conversationId: string;
     displayOrder: number | null;
     isPinned: boolean;
   }>;
@@ -150,17 +150,17 @@ export interface ConversationSearchResponse {
   results: ConversationSearchResultItem[];
 }
 
-export interface SessionInfo {
-  type: "session_info";
-  sessionId: string;
+export interface ConversationInfo {
+  type: "conversation_info";
+  conversationId: string;
   title: string;
   correlationId?: string;
   conversationType?: ConversationType;
 }
 
-export interface SessionTitleUpdated {
-  type: "session_title_updated";
-  sessionId: string;
+export interface ConversationTitleUpdated {
+  type: "conversation_title_updated";
+  conversationId: string;
   title: string;
 }
 
@@ -182,9 +182,9 @@ export interface AssistantAttention {
   lastSeenSignalType?: string;
 }
 
-export interface SessionListResponse {
-  type: "session_list_response";
-  sessions: Array<{
+export interface ConversationListResponse {
+  type: "conversation_list_response";
+  conversations: Array<{
     id: string;
     title: string;
     createdAt?: number;
@@ -199,12 +199,12 @@ export interface SessionListResponse {
     displayOrder?: number;
     isPinned?: boolean;
   }>;
-  /** Whether more sessions exist beyond the returned page. */
+  /** Whether more conversations exist beyond the returned page. */
   hasMore?: boolean;
 }
 
-export interface SessionsClearResponse {
-  type: "sessions_clear_response";
+export interface ConversationsClearResponse {
+  type: "conversations_clear_response";
   cleared: number;
 }
 
@@ -227,12 +227,12 @@ export interface DaemonStatusMessage {
 
 export interface GenerationCancelled {
   type: "generation_cancelled";
-  sessionId?: string;
+  conversationId?: string;
 }
 
 export interface GenerationHandoff {
   type: "generation_handoff";
-  sessionId: string;
+  conversationId: string;
   requestId?: string;
   queuedCount: number;
   attachments?: UserMessageAttachment[];
@@ -280,7 +280,7 @@ export interface HistoryResponseSurface {
 
 export interface HistoryResponse {
   type: "history_response";
-  sessionId: string;
+  conversationId: string;
   messages: Array<{
     id?: string; // Database message ID (for matching surfaces)
     role: string;
@@ -318,7 +318,7 @@ export interface HistoryResponse {
 export interface UndoComplete {
   type: "undo_complete";
   removedCount: number;
-  sessionId?: string;
+  conversationId?: string;
 }
 
 export interface UsageUpdate {
@@ -352,7 +352,7 @@ export interface ContextCompacted {
   summaryModel: string;
 }
 
-export type SessionErrorCode =
+export type ConversationErrorCode =
   | "PROVIDER_NETWORK"
   | "PROVIDER_RATE_LIMIT"
   | "PROVIDER_API"
@@ -360,15 +360,15 @@ export type SessionErrorCode =
   | "PROVIDER_ORDERING"
   | "PROVIDER_WEB_SEARCH"
   | "CONTEXT_TOO_LARGE"
-  | "SESSION_ABORTED"
-  | "SESSION_PROCESSING_FAILED"
+  | "CONVERSATION_ABORTED"
+  | "CONVERSATION_PROCESSING_FAILED"
   | "REGENERATE_FAILED"
   | "UNKNOWN";
 
-export interface SessionErrorMessage {
-  type: "session_error";
-  sessionId: string;
-  code: SessionErrorCode;
+export interface ConversationErrorMessage {
+  type: "conversation_error";
+  conversationId: string;
+  code: ConversationErrorCode;
   userMessage: string;
   retryable: boolean;
   debugDetails?: string;
@@ -386,7 +386,7 @@ export interface ScheduleConversationCreated {
 
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
-export type _SessionsClientMessages =
+export type _ConversationsClientMessages =
   | AuthMessage
   | PingMessage
   | CancelRequest
@@ -397,14 +397,14 @@ export type _SessionsClientMessages =
   | UndoRequest
   | RegenerateRequest
   | UsageRequest
-  | SessionListRequest
-  | SessionCreateRequest
-  | SessionSwitchRequest
-  | SessionRenameRequest
-  | SessionsClearRequest
+  | ConversationListRequest
+  | ConversationCreateRequest
+  | ConversationSwitchRequest
+  | ConversationRenameRequest
+  | ConversationsClearRequest
   | ReorderConversationsRequest;
 
-export type _SessionsServerMessages =
+export type _ConversationsServerMessages =
   | AuthResult
   | PongMessage
   | DaemonStatusMessage
@@ -416,11 +416,11 @@ export type _SessionsServerMessages =
   | UsageUpdate
   | UsageResponse
   | ContextCompacted
-  | SessionErrorMessage
-  | SessionInfo
-  | SessionTitleUpdated
-  | SessionListResponse
-  | SessionsClearResponse
+  | ConversationErrorMessage
+  | ConversationInfo
+  | ConversationTitleUpdated
+  | ConversationListResponse
+  | ConversationsClearResponse
   | ConversationSearchResponse
   | MessageContentResponse
   | ScheduleConversationCreated;

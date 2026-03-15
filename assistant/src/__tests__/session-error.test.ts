@@ -277,21 +277,21 @@ describe("classifySessionError", () => {
   });
 
   describe("abort/cancel errors (non-user-initiated)", () => {
-    it('classifies "aborted" as SESSION_ABORTED', () => {
+    it('classifies "aborted" as CONVERSATION_ABORTED', () => {
       const result = classifySessionError(
         new Error("Request aborted"),
         baseCtx,
       );
-      expect(result.code).toBe("SESSION_ABORTED");
+      expect(result.code).toBe("CONVERSATION_ABORTED");
       expect(result.retryable).toBe(true);
     });
 
-    it('classifies "cancelled" as SESSION_ABORTED', () => {
+    it('classifies "cancelled" as CONVERSATION_ABORTED', () => {
       const result = classifySessionError(
         new Error("Operation cancelled"),
         baseCtx,
       );
-      expect(result.code).toBe("SESSION_ABORTED");
+      expect(result.code).toBe("CONVERSATION_ABORTED");
       expect(result.retryable).toBe(true);
     });
   });
@@ -315,12 +315,12 @@ describe("classifySessionError", () => {
   });
 
   describe("generic errors", () => {
-    it("classifies unknown errors as SESSION_PROCESSING_FAILED with error summary", () => {
+    it("classifies unknown errors as CONVERSATION_PROCESSING_FAILED with error summary", () => {
       const result = classifySessionError(
         new Error("something completely unexpected"),
         baseCtx,
       );
-      expect(result.code).toBe("SESSION_PROCESSING_FAILED");
+      expect(result.code).toBe("CONVERSATION_PROCESSING_FAILED");
       expect(result.retryable).toBe(false);
       expect(result.userMessage).toContain("something completely unexpected");
       expect(result.errorCategory).toBe("processing_failed");
@@ -335,14 +335,14 @@ describe("classifySessionError", () => {
 
     it("handles non-Error values", () => {
       const result = classifySessionError("plain string error", baseCtx);
-      expect(result.code).toBe("SESSION_PROCESSING_FAILED");
+      expect(result.code).toBe("CONVERSATION_PROCESSING_FAILED");
       expect(result.userMessage).toContain("plain string error");
       expect(result.debugDetails).toBe("plain string error");
     });
 
     it("falls back to generic message for empty error", () => {
       const result = classifySessionError(new Error(""), baseCtx);
-      expect(result.code).toBe("SESSION_PROCESSING_FAILED");
+      expect(result.code).toBe("CONVERSATION_PROCESSING_FAILED");
       expect(result.userMessage).toBe(
         "Something went wrong processing your message. Please try again.",
       );
@@ -353,7 +353,7 @@ describe("classifySessionError", () => {
         new Error("\n\nactual error on line 3"),
         baseCtx,
       );
-      expect(result.code).toBe("SESSION_PROCESSING_FAILED");
+      expect(result.code).toBe("CONVERSATION_PROCESSING_FAILED");
       expect(result.userMessage).toContain("actual error on line 3");
     });
   });
@@ -479,7 +479,7 @@ describe("classifySessionError", () => {
 });
 
 describe("buildSessionErrorMessage", () => {
-  it("builds a valid SessionErrorMessage", () => {
+  it("builds a valid ConversationErrorMessage", () => {
     const msg = buildSessionErrorMessage("session-123", {
       code: "PROVIDER_NETWORK",
       userMessage: "Network error",
@@ -488,8 +488,8 @@ describe("buildSessionErrorMessage", () => {
       errorCategory: "provider_network",
     });
 
-    expect(msg.type).toBe("session_error");
-    expect(msg.sessionId).toBe("session-123");
+    expect(msg.type).toBe("conversation_error");
+    expect(msg.conversationId).toBe("session-123");
     expect(msg.code).toBe("PROVIDER_NETWORK");
     expect(msg.userMessage).toBe("Network error");
     expect(msg.retryable).toBe(true);
@@ -505,7 +505,7 @@ describe("buildSessionErrorMessage", () => {
       errorCategory: "processing_failed",
     });
 
-    expect(msg.type).toBe("session_error");
+    expect(msg.type).toBe("conversation_error");
     expect(msg.debugDetails).toBeUndefined();
     expect(msg.errorCategory).toBe("processing_failed");
   });

@@ -436,8 +436,8 @@ export async function runAgentLoopImpl(
       ) {
         updateConversationTitle(ctx.conversationId, UNTITLED_FALLBACK);
         onEvent({
-          type: "session_title_updated",
-          sessionId: ctx.conversationId,
+          type: "conversation_title_updated",
+          conversationId: ctx.conversationId,
           title: UNTITLED_FALLBACK,
         });
       }
@@ -466,8 +466,8 @@ export async function runAgentLoopImpl(
           userMessage: options?.titleText ?? content,
           onTitleUpdated: (title) => {
             onEvent({
-              type: "session_title_updated",
-              sessionId: ctx.conversationId,
+              type: "conversation_title_updated",
+              conversationId: ctx.conversationId,
               title,
             });
           },
@@ -1541,7 +1541,10 @@ export async function runAgentLoopImpl(
           status: "warning",
         },
       );
-      onEvent({ type: "generation_cancelled", sessionId: ctx.conversationId });
+      onEvent({
+        type: "generation_cancelled",
+        conversationId: ctx.conversationId,
+      });
     } else {
       // Resolve attachments (only when not cancelled — this is expensive async I/O)
       const attachmentResult = await resolveAssistantAttachments(
@@ -1589,7 +1592,7 @@ export async function runAgentLoopImpl(
         );
         onEvent({
           type: "generation_cancelled",
-          sessionId: ctx.conversationId,
+          conversationId: ctx.conversationId,
         });
       } else if (yieldedForHandoff) {
         ctx.traceEmitter.emit(
@@ -1603,7 +1606,7 @@ export async function runAgentLoopImpl(
         );
         onEvent({
           type: "generation_handoff",
-          sessionId: ctx.conversationId,
+          conversationId: ctx.conversationId,
           requestId: reqId,
           queuedCount: ctx.getQueueDepth(),
           ...(emittedAttachments.length > 0
@@ -1646,8 +1649,8 @@ export async function runAgentLoopImpl(
         provider: ctx.provider,
         onTitleUpdated: (title) => {
           onEvent({
-            type: "session_title_updated",
-            sessionId: ctx.conversationId,
+            type: "conversation_title_updated",
+            conversationId: ctx.conversationId,
             title,
           });
         },
@@ -1670,7 +1673,10 @@ export async function runAgentLoopImpl(
           status: "warning",
         },
       );
-      onEvent({ type: "generation_cancelled", sessionId: ctx.conversationId });
+      onEvent({
+        type: "generation_cancelled",
+        conversationId: ctx.conversationId,
+      });
     } else {
       ctx.emitActivityState("idle", "error_terminal", "global", reqId);
       const message = err instanceof Error ? err.message : String(err);

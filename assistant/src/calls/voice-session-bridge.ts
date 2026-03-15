@@ -498,7 +498,7 @@ export async function startVoiceTurn(
         (msg: ServerMessage) => {
           if (msg.type === "error") {
             lastError = msg.message;
-          } else if (msg.type === "session_error") {
+          } else if (msg.type === "conversation_error") {
             lastError = msg.userMessage;
           }
           publishToHub(msg);
@@ -514,7 +514,7 @@ export async function startVoiceTurn(
             eventSink.onMessageComplete();
           } else if (msg.type === "error") {
             eventSink.onError(msg.message);
-          } else if (msg.type === "session_error") {
+          } else if (msg.type === "conversation_error") {
             eventSink.onError(msg.userMessage);
           } else if (msg.type === "tool_use_start") {
             eventSink.onToolUse(msg.toolName, msg.input);
