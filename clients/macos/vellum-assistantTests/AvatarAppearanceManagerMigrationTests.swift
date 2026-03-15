@@ -8,7 +8,7 @@ final class AvatarAppearanceManagerMigrationTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tmp) }
 
         let legacyURL = tmp.appendingPathComponent("AppSupport/vellum-assistant/custom-avatar.png")
-        let workspaceURL = tmp.appendingPathComponent(".vellum/workspace/data/avatar/custom-avatar.png")
+        let workspaceURL = tmp.appendingPathComponent(".vellum/workspace/data/avatar/avatar-image.png")
 
         try FileManager.default.createDirectory(at: legacyURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         let testData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
@@ -31,7 +31,7 @@ final class AvatarAppearanceManagerMigrationTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tmp) }
 
         let legacyURL = tmp.appendingPathComponent("AppSupport/vellum-assistant/custom-avatar.png")
-        let workspaceURL = tmp.appendingPathComponent(".vellum/workspace/data/avatar/custom-avatar.png")
+        let workspaceURL = tmp.appendingPathComponent(".vellum/workspace/data/avatar/avatar-image.png")
 
         try FileManager.default.createDirectory(at: legacyURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data([0x01]).write(to: legacyURL)
@@ -59,7 +59,7 @@ final class AvatarAppearanceManagerMigrationTests: XCTestCase {
         }
 
         let legacyURL = tmp.appendingPathComponent("AppSupport/vellum-assistant/custom-avatar.png")
-        let workspaceURL = tmp.appendingPathComponent(".vellum/workspace/data/avatar/custom-avatar.png")
+        let workspaceURL = tmp.appendingPathComponent(".vellum/workspace/data/avatar/avatar-image.png")
 
         // Set up legacy file
         try FileManager.default.createDirectory(at: legacyURL.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -82,7 +82,7 @@ final class AvatarAppearanceManagerMigrationTests: XCTestCase {
 
     func testReturnsNilWhenNeitherFileExists() {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let workspaceURL = tmp.appendingPathComponent(".vellum/workspace/data/avatar/custom-avatar.png")
+        let workspaceURL = tmp.appendingPathComponent(".vellum/workspace/data/avatar/avatar-image.png")
         let legacyURL = tmp.appendingPathComponent("AppSupport/vellum-assistant/custom-avatar.png")
 
         let result = AvatarAppearanceManager.resolveCustomAvatarURL(
@@ -94,7 +94,7 @@ final class AvatarAppearanceManagerMigrationTests: XCTestCase {
 
     func testPathHelpersProduceCorrectURLsForMigration() {
         let workspace = AvatarAppearanceManager.workspaceCustomAvatarURL(homeDirectory: "/Users/test")
-        XCTAssertEqual(workspace.path, "/Users/test/.vellum/workspace/data/avatar/custom-avatar.png")
+        XCTAssertEqual(workspace.path, "/Users/test/.vellum/workspace/data/avatar/avatar-image.png")
 
         let legacy = AvatarAppearanceManager.legacyAppSupportCustomAvatarURL()
         XCTAssertTrue(legacy.path.contains("Application Support/vellum-assistant/custom-avatar.png"))

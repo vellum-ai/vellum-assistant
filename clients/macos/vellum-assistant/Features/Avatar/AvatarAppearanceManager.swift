@@ -83,7 +83,7 @@ final class AvatarAppearanceManager {
     /// Workspace path for custom avatar -- canonical storage location.
     nonisolated static func workspaceCustomAvatarURL(homeDirectory: String = NSHomeDirectory()) -> URL {
         URL(fileURLWithPath: homeDirectory)
-            .appendingPathComponent(".vellum/workspace/data/avatar/custom-avatar.png")
+            .appendingPathComponent(".vellum/workspace/data/avatar/avatar-image.png")
     }
 
     /// Legacy Application Support path (pre-workspace migration). Retained for one-time migration on first launch after upgrade.
@@ -102,7 +102,7 @@ final class AvatarAppearanceManager {
            let baseDataDir = assistant.baseDataDir {
             // baseDataDir is the .vellum root (e.g. ~/.local/share/vellum/assistants/foo/.vellum)
             return URL(fileURLWithPath: baseDataDir)
-                .appendingPathComponent("workspace/data/avatar/custom-avatar.png")
+                .appendingPathComponent("workspace/data/avatar/avatar-image.png")
         }
         return Self.workspaceCustomAvatarURL()
     }
@@ -228,7 +228,7 @@ final class AvatarAppearanceManager {
     // MARK: - Avatar Components Persistence
 
     private var avatarComponentsURL: URL {
-        customAvatarURL.deletingLastPathComponent().appendingPathComponent("avatar-components.json")
+        customAvatarURL.deletingLastPathComponent().appendingPathComponent("character-traits.json")
     }
 
     private struct AvatarComponents: Codable {
