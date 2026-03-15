@@ -194,7 +194,7 @@ export function validateContainedPath(
     let resolved = false;
     while (!resolved) {
       const ancestor = dirname(current);
-      const tail = current.slice(ancestor.length);
+      const tail = resolvedPath.slice(ancestor.length);
       try {
         normalizedPath = realpathSync(ancestor) + tail;
         resolved = true;
