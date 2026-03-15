@@ -15,8 +15,15 @@ export const backfillInstallationIdMigration: WorkspaceMigration = {
   description:
     "Backfill installationId into lockfile from SQLite checkpoint and clean up stale row",
   run(_workspaceDir: string): void {
-    // a. Read existing installation ID from SQLite, or generate a new one
-    const existingId = getMemoryCheckpoint("telemetry:installation_id");
+    // a. Read existing installation ID from SQLite, or generate a new one.
+    //    On fresh installs the memory_checkpoints table may not exist yet
+    //    (workspace migrations run before initializeDb), so treat errors as null.
+    let existingId: string | null = null;
+    try {
+      existingId = getMemoryCheckpoint("telemetry:installation_id");
+    } catch {
+      // Table doesn't exist yet — fresh install, no prior ID to recover.
+    }
     const installationId = existingId || randomUUID();
 
     // b. Read the lockfile from the standard path
@@ -46,7 +53,11 @@ export const backfillInstallationIdMigration: WorkspaceMigration = {
     // d. If already has a truthy installationId, skip lockfile write (idempotent)
     if (entry.installationId) {
       // e is skipped for lockfile write, but still clean up SQLite
-      deleteMemoryCheckpoint("telemetry:installation_id");
+      try {
+        deleteMemoryCheckpoint("telemetry:installation_id");
+      } catch {
+        // Table doesn't exist — nothing to clean up.
+      }
       return;
     }
 
@@ -55,6 +66,10 @@ export const backfillInstallationIdMigration: WorkspaceMigration = {
     writeFileSync(lockPath, JSON.stringify(lockData, null, 2) + "\n");
 
     // f. Delete the stale SQLite row
-    deleteMemoryCheckpoint("telemetry:installation_id");
+    try {
+      deleteMemoryCheckpoint("telemetry:installation_id");
+    } catch {
+      // Table doesn't exist — nothing to clean up.
+    }
   },
 };
