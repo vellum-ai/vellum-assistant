@@ -21,7 +21,7 @@ import { queryUnreportedUsageEvents } from "../memory/llm-usage-store.js";
 import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
 import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
 import { getExternalAssistantId } from "../runtime/auth/external-assistant-id.js";
-import { getInstallationId } from "../runtime/auth/installation-id.js";
+import { getDeviceId } from "../util/device-id.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("usage-telemetry");
@@ -130,7 +130,7 @@ export class UsageTelemetryReporter {
 
       // Build payload
       const payload = {
-        installation_id: getInstallationId(),
+        installation_id: getDeviceId(),
         assistant_id: getExternalAssistantId(),
         events: events.map((e) => ({
           daemon_event_id: e.id,
