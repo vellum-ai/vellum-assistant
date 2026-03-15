@@ -16,6 +16,8 @@ const ensureDirFn = mock(() => {});
 const writeFileSyncFn = mock(() => {});
 const renameSyncFn = mock(() => {});
 const logWarnFn = mock(() => {});
+const logInfoFn = mock(() => {});
+const logErrorFn = mock((..._args: unknown[]) => {});
 
 // ---------------------------------------------------------------------------
 // Mock modules — before importing module under test
@@ -26,14 +28,23 @@ mock.module("../util/fs.js", () => ({
   ensureDir: ensureDirFn,
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    debug: () => {},
-    info: () => {},
-    warn: logWarnFn,
-    error: () => {},
-  }),
-}));
+// Bun's mock.module for "../util/logger.js" doesn't intercept the runner's
+// transitive import due to a Bun limitation. Mocking pino at the package level
+// works because the runner's real getLogger uses a Proxy that lazily creates
+// a pino child logger — so intercepting pino itself captures all log calls.
+const mockChildLogger = {
+  debug: () => {},
+  info: logInfoFn,
+  warn: logWarnFn,
+  error: logErrorFn,
+  child: () => mockChildLogger,
+};
+const mockPinoLogger = Object.assign(() => mockChildLogger, {
+  destination: () => ({}),
+  multistream: () => ({}),
+});
+mock.module("pino", () => ({ default: mockPinoLogger }));
+mock.module("pino-pretty", () => ({ default: () => ({}) }));
 
 mock.module("node:fs", () => ({
   writeFileSync: writeFileSyncFn,
@@ -72,6 +83,8 @@ describe("runWorkspaceMigrations", () => {
     writeFileSyncFn.mockClear();
     renameSyncFn.mockClear();
     logWarnFn.mockClear();
+    logInfoFn.mockClear();
+    logErrorFn.mockClear();
   });
 
   test("runs migrations in order", async () => {
@@ -261,9 +274,20 @@ describe("runWorkspaceMigrations", () => {
     const checkpoints = loadCheckpoints(WORKSPACE_DIR);
     expect(checkpoints).toEqual({ applied: {} });
 
+    // Verify the warn log was emitted for the malformed checkpoint
+    expect(logWarnFn).toHaveBeenCalledWith(
+      expect.stringContaining("malformed"),
+    );
+
     // Also verify the full runner handles it gracefully (migrations run)
+    logWarnFn.mockClear();
     const m1 = makeMigration("001");
     await runWorkspaceMigrations(WORKSPACE_DIR, [m1]);
     expect(m1.run).toHaveBeenCalledTimes(1);
+
+    // The runner calls loadCheckpoints internally, which should warn again
+    expect(logWarnFn).toHaveBeenCalledWith(
+      expect.stringContaining("malformed"),
+    );
   });
 });
