@@ -72,6 +72,22 @@ struct ComposerFocusBridge: NSViewRepresentable {
             candidate = view.superview
         }
         window.composerContainerView = container
+
+        // Prevent the internal NSTextView from intercepting file drops.
+        // SwiftUI's TextField wraps an NSTextView that registers for file URL
+        // drag types by default, causing it to insert file paths as text.
+        // Re-register with only text types so file drops fall through to the
+        // SwiftUI .onDrop handler on the parent ScrollView.
+        Self.unregisterFileDragTypes(in: container)
+    }
+
+    private static func unregisterFileDragTypes(in view: NSView) {
+        if view is NSTextView {
+            view.registerForDraggedTypes([.string, .rtf, .rtfd])
+        }
+        for subview in view.subviews {
+            unregisterFileDragTypes(in: subview)
+        }
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
@@ -164,46 +180,3 @@ struct ComposerFocusBridge: NSViewRepresentable {
     }
 }
 
-// MARK: - Microphone Button
-
-struct MicrophoneButton: View {
-    let isRecording: Bool
-    let size: CGFloat
-    let action: () -> Void
-
-    @State private var isPulsing = false
-    @State private var isHovered = false
-    @FocusState private var isFocused: Bool
-
-    var body: some View {
-        Button(action: action) {
-            ZStack {
-                if isRecording {
-                    Circle()
-                        .fill(VColor.error.opacity(0.2))
-                        .frame(width: 30, height: 30)
-                        .scaleEffect(isPulsing ? 1.3 : 1.0)
-                        .opacity(isPulsing ? 0.0 : 1.0)
-                        .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: false), value: isPulsing)
-                }
-
-                VIconView(.mic, size: 16)
-                    .frame(width: 18, height: 18)
-                    .foregroundColor(isRecording ? VColor.error : VColor.micIcon)
-            }
-        }
-        .buttonStyle(VIconButtonStyle(isHovered: isHovered, isFocused: isFocused, size: size))
-        .focused($isFocused)
-        .onHover { hovering in
-            isHovered = hovering
-        }
-        .pointerCursor()
-        .accessibilityLabel(isRecording ? "Stop recording" : "Start voice input")
-        .onChange(of: isRecording) {
-            isPulsing = isRecording
-        }
-        .onAppear {
-            isPulsing = isRecording
-        }
-    }
-}

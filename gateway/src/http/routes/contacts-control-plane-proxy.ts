@@ -146,6 +146,10 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       return proxyToRuntime(req, "/v1/contacts/invites/redeem", "");
     },
 
+    async handleCallInvite(req: Request, inviteId: string): Promise<Response> {
+      return proxyToRuntime(req, `/v1/contacts/invites/${inviteId}/call`, "");
+    },
+
     async handleRevokeInvite(
       req: Request,
       inviteId: string,

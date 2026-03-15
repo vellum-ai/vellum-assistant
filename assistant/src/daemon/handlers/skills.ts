@@ -1,5 +1,13 @@
-import { existsSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import {
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+} from "node:fs";
+import { join, relative } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import {
@@ -9,12 +17,7 @@ import {
   saveRawConfig,
 } from "../../config/loader.js";
 import { resolveSkillStates, skillFlagKey } from "../../config/skill-state.js";
-import {
-  ensureSkillIcon,
-  loadSkillBySelector,
-  loadSkillCatalog,
-  type SkillSummary,
-} from "../../config/skills.js";
+import { loadSkillCatalog, type SkillSummary } from "../../config/skills.js";
 import {
   createTimeout,
   extractText,
@@ -36,26 +39,30 @@ import {
   validateManagedSkillId,
 } from "../../skills/managed-store.js";
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
-import type {
-  SkillDetailRequest,
-  SkillsCheckUpdatesRequest,
-  SkillsConfigureRequest,
-  SkillsCreateRequest,
-  SkillsDisableRequest,
-  SkillsDraftRequest,
-  SkillsEnableRequest,
-  SkillsInspectRequest,
-  SkillsInstallRequest,
-  SkillsSearchRequest,
-  SkillsUninstallRequest,
-  SkillsUpdateRequest,
-} from "../message-protocol.js";
 import {
   CONFIG_RELOAD_DEBOUNCE_MS,
   ensureSkillEntry,
   type HandlerContext,
   log,
 } from "./shared.js";
+
+// ─── MIME detection helpers ───────────────────────────────────────────────────
+
+const TEXT_MIME_PREFIXES = [
+  "text/",
+  "application/json",
+  "application/javascript",
+  "application/typescript",
+  "application/xml",
+  "application/yaml",
+  "application/x-yaml",
+  "application/toml",
+  "application/x-sh",
+];
+function isTextMime(mimeType: string): boolean {
+  return TEXT_MIME_PREFIXES.some((prefix) => mimeType.startsWith(prefix));
+}
+const MAX_INLINE_SIZE = 2 * 1024 * 1024; // 2 MB
 
 // ─── Shared context for standalone functions ─────────────────────────────────
 
@@ -238,16 +245,17 @@ export interface SkillListItem {
   emoji?: string;
   homepage?: string;
   source: "bundled" | "managed" | "workspace" | "clawhub" | "extra";
-  state: "enabled" | "disabled" | "available";
-  degraded: boolean;
-  missingRequirements?: {
-    bins?: string[];
-    env?: string[];
-    permissions?: string[];
-  };
+  state: "enabled" | "disabled";
   updateAvailable: boolean;
-  userInvocable: boolean;
   provenance: SkillProvenance;
+}
+
+/** Sorting rank for provenance-based ordering: first-party first, local last. */
+function provenanceSortRank(p: SkillProvenance): number {
+  if (p.kind === "first-party") return 0;
+  if (p.kind === "third-party" && p.provider) return 1;
+  if (p.kind === "third-party") return 2;
+  return 3; // local
 }
 
 export function listSkills(_ctx: SkillOperationContext): SkillListItem[] {
@@ -255,23 +263,162 @@ export function listSkills(_ctx: SkillOperationContext): SkillListItem[] {
   const catalog = loadSkillCatalog();
   const resolved = resolveSkillStates(catalog, config);
 
-  return resolved.map((r) => ({
+  const items = resolved.map((r) => ({
     id: r.summary.id,
     name: r.summary.displayName,
     description: r.summary.description,
     emoji: r.summary.emoji,
     homepage: r.summary.homepage,
     source: r.summary.source,
-    state: (r.state === "degraded" ? "enabled" : r.state) as
-      | "enabled"
-      | "disabled"
-      | "available",
-    degraded: r.degraded,
-    missingRequirements: r.missingRequirements,
+    state: r.state,
     updateAvailable: false,
-    userInvocable: r.summary.userInvocable,
     provenance: resolveProvenance(r.summary),
   }));
+
+  // Sort: first-party > third-party with provider > third-party without > local,
+  // alphabetical by name within each tier.
+  items.sort((a, b) => {
+    const rankDiff =
+      provenanceSortRank(a.provenance) - provenanceSortRank(b.provenance);
+    if (rankDiff !== 0) return rankDiff;
+    return a.name.localeCompare(b.name);
+  });
+
+  return items;
+}
+
+/** Look up a single skill by ID from the resolved catalog, returning its SkillListItem. */
+function findSkillById(
+  skillId: string,
+): { item: SkillListItem; summary: SkillSummary } | undefined {
+  const config = getConfig();
+  const catalog = loadSkillCatalog();
+  const resolved = resolveSkillStates(catalog, config);
+  const match = resolved.find((r) => r.summary.id === skillId);
+  if (!match) return undefined;
+
+  const r = match;
+  const item: SkillListItem = {
+    id: r.summary.id,
+    name: r.summary.displayName,
+    description: r.summary.description,
+    emoji: r.summary.emoji,
+    homepage: r.summary.homepage,
+    source: r.summary.source,
+    state: r.state,
+    updateAvailable: false,
+    provenance: resolveProvenance(r.summary),
+  };
+  return { item, summary: r.summary };
+}
+
+export function getSkill(
+  skillId: string,
+  _ctx: SkillOperationContext,
+): { skill: SkillListItem } | { error: string; status: number } {
+  const found = findSkillById(skillId);
+  if (!found) {
+    return { error: `Skill "${skillId}" not found`, status: 404 };
+  }
+  return { skill: found.item };
+}
+
+// ─── Skill file listing ──────────────────────────────────────────────────────
+
+export interface SkillFileEntry {
+  path: string; // relative to skill directory root (e.g. "SKILL.md", "tools/foo.ts")
+  name: string; // basename
+  size: number;
+  mimeType: string;
+  isBinary: boolean;
+  content: string | null; // inline text if ≤ 2 MB and text MIME, else null
+}
+
+const SKIP_DIRS = new Set(["node_modules", "__pycache__", ".git"]);
+
+/**
+ * Returns true if `filePath` is a symlink whose resolved real path escapes
+ * `rootDir`. Symlinks that stay within `rootDir` are allowed; only those that
+ * point outside are considered unsafe. Dangling symlinks are treated as escaping.
+ */
+function isEscapingSymlink(filePath: string, rootDir: string): boolean {
+  try {
+    if (!lstatSync(filePath).isSymbolicLink()) return false;
+    const real = realpathSync(filePath);
+    const normalizedRoot = realpathSync(rootDir);
+    return (
+      real !== normalizedRoot &&
+      !real.startsWith(normalizedRoot + "/") &&
+      !real.startsWith(normalizedRoot + "\\")
+    );
+  } catch {
+    // If we can't resolve (e.g. dangling symlink), treat as escaping.
+    return true;
+  }
+}
+
+function readDirRecursive(dir: string, rootDir: string): SkillFileEntry[] {
+  const entries: SkillFileEntry[] = [];
+  let dirents;
+  try {
+    dirents = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return entries;
+  }
+  for (const dirent of dirents) {
+    if (dirent.name.startsWith(".")) continue;
+    const fullPath = join(dir, dirent.name);
+    // Skip symlinks that escape the skill directory root
+    if (isEscapingSymlink(fullPath, rootDir)) continue;
+    if (dirent.isDirectory()) {
+      if (SKIP_DIRS.has(dirent.name)) continue;
+      entries.push(...readDirRecursive(fullPath, rootDir));
+      continue;
+    }
+    if (!dirent.isFile()) continue;
+    try {
+      const stat = statSync(fullPath);
+      const mimeType = Bun.file(fullPath).type;
+      const isText = isTextMime(mimeType);
+      let content: string | null = null;
+      if (isText && stat.size <= MAX_INLINE_SIZE) {
+        content = readFileSync(fullPath, "utf-8");
+      }
+      entries.push({
+        path: relative(rootDir, fullPath),
+        name: dirent.name,
+        size: stat.size,
+        mimeType,
+        isBinary: !isText,
+        content,
+      });
+    } catch {
+      // Skip files that can't be stat'd
+    }
+  }
+  return entries;
+}
+
+export function getSkillFiles(
+  skillId: string,
+  _ctx: SkillOperationContext,
+):
+  | { skill: SkillListItem; files: SkillFileEntry[] }
+  | { error: string; status: number } {
+  const found = findSkillById(skillId);
+  if (!found) {
+    return { error: `Skill "${skillId}" not found`, status: 404 };
+  }
+
+  const dirPath = found.summary.directoryPath;
+  if (!existsSync(dirPath)) {
+    return { error: `Skill directory not found for "${skillId}"`, status: 404 };
+  }
+
+  const files = readDirRecursive(dirPath, dirPath);
+  files.sort((a, b) => a.path.localeCompare(b.path));
+
+  return { skill: found.item, files };
 }
 
 export function enableSkill(
@@ -584,7 +731,7 @@ export async function draftSkill(
     if (missing.length > 0) {
       let llmGenerated = false;
       try {
-        const provider = getConfiguredProvider();
+        const provider = await getConfiguredProvider();
         if (provider) {
           const { signal, cleanup } = createTimeout(LLM_DRAFT_TIMEOUT_MS);
           try {
@@ -711,8 +858,6 @@ export interface CreateSkillParams {
   description: string;
   emoji?: string;
   bodyMarkdown: string;
-  userInvocable?: boolean;
-  disableModelInvocation?: boolean;
   overwrite?: boolean;
 }
 
@@ -727,8 +872,6 @@ export async function createSkill(
       description: params.description,
       emoji: params.emoji,
       bodyMarkdown: params.bodyMarkdown,
-      userInvocable: params.userInvocable,
-      disableModelInvocation: params.disableModelInvocation,
       overwrite: params.overwrite,
     });
 
@@ -762,184 +905,4 @@ export async function createSkill(
     log.error({ err }, "Failed to create skill");
     return { success: false, error: message };
   }
-}
-
-// ─── HTTP handlers (thin wrappers) ──────────────────────────────────────────
-
-export function handleSkillsList(ctx: HandlerContext): void {
-  const skills = listSkills(ctx);
-  ctx.send({ type: "skills_list_response", skills });
-}
-
-export function handleSkillsEnable(
-  msg: SkillsEnableRequest,
-  ctx: HandlerContext,
-): void {
-  const result = enableSkill(msg.name, ctx);
-  ctx.send({
-    type: "skills_operation_response",
-    operation: "enable",
-    ...result,
-  });
-}
-
-export function handleSkillsDisable(
-  msg: SkillsDisableRequest,
-  ctx: HandlerContext,
-): void {
-  const result = disableSkill(msg.name, ctx);
-  ctx.send({
-    type: "skills_operation_response",
-    operation: "disable",
-    ...result,
-  });
-}
-
-export function handleSkillsConfigure(
-  msg: SkillsConfigureRequest,
-  ctx: HandlerContext,
-): void {
-  const result = configureSkill(
-    msg.name,
-    { env: msg.env, apiKey: msg.apiKey, config: msg.config },
-    ctx,
-  );
-  ctx.send({
-    type: "skills_operation_response",
-    operation: "configure",
-    ...result,
-  });
-}
-
-export async function handleSkillsInstall(
-  msg: SkillsInstallRequest,
-  ctx: HandlerContext,
-): Promise<void> {
-  const result = await installSkill(
-    { slug: msg.slug, version: msg.version },
-    ctx,
-  );
-  ctx.send({
-    type: "skills_operation_response",
-    operation: "install",
-    ...result,
-  });
-}
-
-export async function handleSkillsUninstall(
-  msg: SkillsUninstallRequest,
-  ctx: HandlerContext,
-): Promise<void> {
-  const result = await uninstallSkill(msg.name, ctx);
-  ctx.send({
-    type: "skills_operation_response",
-    operation: "uninstall",
-    ...result,
-  });
-}
-
-export async function handleSkillsUpdate(
-  msg: SkillsUpdateRequest,
-  ctx: HandlerContext,
-): Promise<void> {
-  const result = await updateSkill(msg.name, ctx);
-  ctx.send({
-    type: "skills_operation_response",
-    operation: "update",
-    ...result,
-  });
-}
-
-export async function handleSkillsCheckUpdates(
-  _msg: SkillsCheckUpdatesRequest,
-  ctx: HandlerContext,
-): Promise<void> {
-  const result = await checkSkillUpdates(ctx);
-  ctx.send({
-    type: "skills_operation_response",
-    operation: "check_updates",
-    ...result,
-  });
-}
-
-export async function handleSkillsSearch(
-  msg: SkillsSearchRequest,
-  ctx: HandlerContext,
-): Promise<void> {
-  const result = await searchSkills(msg.query, ctx);
-  ctx.send({
-    type: "skills_operation_response",
-    operation: "search",
-    ...result,
-  });
-}
-
-export async function handleSkillsInspect(
-  msg: SkillsInspectRequest,
-  ctx: HandlerContext,
-): Promise<void> {
-  const result = await inspectSkill(msg.slug, ctx);
-  ctx.send({
-    type: "skills_inspect_response",
-    ...result,
-  });
-}
-
-export async function handleSkillDetail(
-  msg: SkillDetailRequest,
-  ctx: HandlerContext,
-): Promise<void> {
-  const result = loadSkillBySelector(msg.skillId);
-  if (result.skill) {
-    const icon = await ensureSkillIcon(
-      result.skill.directoryPath,
-      result.skill.displayName,
-      result.skill.description,
-    );
-    ctx.send({
-      type: "skill_detail_response",
-      skillId: result.skill.id,
-      body: result.skill.body,
-      ...(icon ? { icon } : {}),
-    });
-  } else {
-    ctx.send({
-      type: "skill_detail_response",
-      skillId: msg.skillId,
-      body: "",
-      error: result.error ?? "Skill not found",
-    });
-  }
-}
-
-export async function handleSkillsDraft(
-  msg: SkillsDraftRequest,
-  ctx: HandlerContext,
-): Promise<void> {
-  const result = await draftSkill({ sourceText: msg.sourceText }, ctx);
-  ctx.send({ type: "skills_draft_response", ...result });
-}
-
-export async function handleSkillsCreate(
-  msg: SkillsCreateRequest,
-  ctx: HandlerContext,
-): Promise<void> {
-  const result = await createSkill(
-    {
-      skillId: msg.skillId,
-      name: msg.name,
-      description: msg.description,
-      emoji: msg.emoji,
-      bodyMarkdown: msg.bodyMarkdown,
-      userInvocable: msg.userInvocable,
-      disableModelInvocation: msg.disableModelInvocation,
-      overwrite: msg.overwrite,
-    },
-    ctx,
-  );
-  ctx.send({
-    type: "skills_operation_response",
-    operation: "create",
-    ...result,
-  });
 }

@@ -66,7 +66,7 @@ afterAll(() => {
 function grantParams(
   overrides: Partial<CreateScopedApprovalGrantParams> = {},
 ): CreateScopedApprovalGrantParams {
-  const futureExpiry = new Date(Date.now() + 60_000).toISOString();
+  const futureExpiry = Date.now() + 60_000;
   return {
     scopeMode: "request_id",
     requestChannel: "telegram",
@@ -119,7 +119,7 @@ describe("scoped-approval-grants / request_id scope", () => {
   });
 
   test("expired grant cannot be consumed", () => {
-    const pastExpiry = new Date(Date.now() - 1_000).toISOString();
+    const pastExpiry = Date.now() - 1_000;
     createScopedApprovalGrant(
       grantParams({
         scopeMode: "request_id",
@@ -307,7 +307,7 @@ describe("scoped-approval-grants / tool_signature scope", () => {
   });
 
   test("expired tool_signature grant cannot be consumed", () => {
-    const pastExpiry = new Date(Date.now() - 1_000).toISOString();
+    const pastExpiry = Date.now() - 1_000;
     const digest = computeToolApprovalDigest("bash", { cmd: "ls" });
     createScopedApprovalGrant(
       grantParams({
@@ -378,7 +378,7 @@ describe("scoped-approval-grants / expiry", () => {
   beforeEach(() => clearTables());
 
   test("expireScopedApprovalGrants transitions active past-TTL grants to expired", () => {
-    const pastExpiry = new Date(Date.now() - 1_000).toISOString();
+    const pastExpiry = Date.now() - 1_000;
     createScopedApprovalGrant(
       grantParams({
         scopeMode: "request_id",
@@ -407,12 +407,12 @@ describe("scoped-approval-grants / expiry", () => {
   });
 
   test("already-consumed grants are not affected by expiry sweep", () => {
-    const _pastExpiry = new Date(Date.now() - 1_000).toISOString();
+    const _pastExpiry = Date.now() - 1_000;
     createScopedApprovalGrant(
       grantParams({
         scopeMode: "request_id",
         requestId: "req-consumed",
-        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        expiresAt: Date.now() + 60_000,
       }),
     );
     consumeScopedApprovalGrantByRequestId("req-consumed", "c1");

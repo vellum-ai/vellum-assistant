@@ -16,6 +16,8 @@ import {
   disableSkill,
   draftSkill,
   enableSkill,
+  getSkill,
+  getSkillFiles,
   inspectSkill,
   installSkill,
   listSkills,
@@ -46,6 +48,23 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       handler: () => {
         const skills = listSkills(ctx());
         return Response.json({ skills });
+      },
+    },
+
+    // GET /v1/skills/:id/files — skill metadata + directory contents
+    {
+      endpoint: "skills/:id/files",
+      method: "GET",
+      policyKey: "skills",
+      handler: ({ params }) => {
+        const result = getSkillFiles(params.id, ctx());
+        if ("error" in result) {
+          if (result.status === 404) {
+            return httpError("NOT_FOUND", result.error, 404);
+          }
+          return httpError("INTERNAL_ERROR", result.error, 500);
+        }
+        return Response.json(result);
       },
     },
 
@@ -242,6 +261,25 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
               result.error,
             )
           ) {
+            return httpError("NOT_FOUND", result.error, 404);
+          }
+          return httpError("INTERNAL_ERROR", result.error, 500);
+        }
+        return Response.json(result);
+      },
+    },
+
+    // GET /v1/skills/:id — single skill metadata
+    // Registered after all literal-segment GET routes (search, inspect, files)
+    // to avoid shadowing them with the parametric :id match.
+    {
+      endpoint: "skills/:id",
+      method: "GET",
+      policyKey: "skills",
+      handler: ({ params }) => {
+        const result = getSkill(params.id, ctx());
+        if ("error" in result) {
+          if (result.status === 404) {
             return httpError("NOT_FOUND", result.error, 404);
           }
           return httpError("INTERNAL_ERROR", result.error, 500);

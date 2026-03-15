@@ -22,7 +22,6 @@ mock.module("node:child_process", () => ({
 const mockConfig = {
   provider: "anthropic",
   model: "test",
-  apiKeys: {},
   maxTokens: 4096,
   dataDir: "/tmp",
   timeouts: {
@@ -699,6 +698,7 @@ describe("host_bash — proxy delegation", () => {
         command: string;
         working_dir?: string;
         timeout_seconds?: number;
+        env?: Record<string, string>;
       };
       sessionId: string;
     }> = [];
@@ -711,6 +711,7 @@ describe("host_bash — proxy delegation", () => {
             command: string;
             working_dir?: string;
             timeout_seconds?: number;
+            env?: Record<string, string>;
           },
           sessionId: string,
           _signal?: AbortSignal,
@@ -843,5 +844,63 @@ describe("host_bash — proxy delegation", () => {
     expect(result.isError).toBe(false);
     expect(result.content.trim()).toBe("no-proxy");
     expect(spawnCalls.length).toBe(1);
+  });
+
+  test("propagates VELLUM_UNTRUSTED_SHELL env to proxy under CES lockdown", async () => {
+    // Enable CES shell lockdown
+    const origFlags = (mockConfig as Record<string, unknown>)
+      .assistantFeatureFlagValues;
+    (mockConfig as Record<string, unknown>).assistantFeatureFlagValues = {
+      "feature_flags.ces-shell-lockdown.enabled": true,
+    };
+
+    try {
+      const proxyResult: ToolExecutionResult = {
+        content: "proxied",
+        isError: false,
+      };
+      const { proxy, calls } = makeMockProxy(proxyResult);
+
+      const ctx: ToolContext = {
+        ...makeContext(),
+        trustClass: "trusted_contact", // untrusted actor
+        hostBashProxy: proxy as unknown as ToolContext["hostBashProxy"],
+      };
+
+      const result = await hostShellTool.execute(
+        { command: "echo lockdown" },
+        ctx,
+      );
+
+      expect(result).toBe(proxyResult);
+      expect(calls.length).toBe(1);
+      expect(calls[0].input.env).toEqual({ VELLUM_UNTRUSTED_SHELL: "1" });
+    } finally {
+      (mockConfig as Record<string, unknown>).assistantFeatureFlagValues =
+        origFlags;
+    }
+  });
+
+  test("does not propagate env to proxy when CES lockdown is inactive", async () => {
+    const proxyResult: ToolExecutionResult = {
+      content: "proxied",
+      isError: false,
+    };
+    const { proxy, calls } = makeMockProxy(proxyResult);
+
+    const ctx: ToolContext = {
+      ...makeContext(),
+      trustClass: "guardian", // trusted actor — no lockdown
+      hostBashProxy: proxy as unknown as ToolContext["hostBashProxy"],
+    };
+
+    const result = await hostShellTool.execute(
+      { command: "echo no-lockdown" },
+      ctx,
+    );
+
+    expect(result).toBe(proxyResult);
+    expect(calls.length).toBe(1);
+    expect(calls[0].input.env).toBeUndefined();
   });
 });

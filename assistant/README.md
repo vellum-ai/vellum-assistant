@@ -16,7 +16,7 @@ CLI / macOS app / iOS app
         │       ├── Google Gemini (secondary)
         │       └── Ollama (local models)
         │
-        ├── Memory System (FTS5 + Qdrant + Entity Graph)
+        ├── Memory System (Qdrant Hybrid Search)
         ├── Skill Tool System (bundled + managed + workspace)
         ├── Swarm Orchestration (DAG scheduler + worker pool)
         ├── Script Proxy (credential injection + MITM)
@@ -99,7 +99,7 @@ assistant/
 │   ├── daemon/               # Daemon server, session management
 │   ├── agent/                # Agent loop and LLM interaction
 │   ├── providers/            # LLM provider integrations (Anthropic, OpenAI, Gemini, Ollama)
-│   ├── memory/               # Conversation store, memory indexer, recall (FTS5 + Qdrant)
+│   ├── memory/               # Conversation store, memory indexer, recall (Qdrant hybrid search)
 │   ├── skills/               # Skill catalog, loading, and tool factory
 │   ├── tools/                # Built-in tool definitions
 │   ├── swarm/                # Swarm orchestration (DAG scheduler, worker pool)
@@ -446,7 +446,7 @@ If no guardian binding exists, escalation fails closed — the message is denied
 
 ## Database
 
-SQLite via Drizzle ORM, stored at `~/.vellum/workspace/data/db/assistant.db`. Key tables include conversations, messages, tool invocations, attachments, memory segments (with FTS5), memory items, entities, reminders, and recurrence schedules (cron + RRULE).
+SQLite via Drizzle ORM, stored at `~/.vellum/workspace/data/db/assistant.db`. Key tables include conversations, messages, tool invocations, attachments, memory segments, memory items, reminders, and recurrence schedules (cron + RRULE).
 
 > **Note:** The recurrence schedule system supports both cron expressions and iCalendar RRULE syntax. Use the `expression` field with an explicit `syntax` discriminator. See [`docs/architecture/scheduling.md`](docs/architecture/scheduling.md) for details.
 

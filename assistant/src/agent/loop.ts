@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/node";
 
+import { estimateToolsTokens } from "../context/token-estimator.js";
 import { truncateOversizedToolResults } from "../context/tool-result-truncation.js";
 import { getHookManager } from "../hooks/manager.js";
 import type {
@@ -35,6 +36,7 @@ export interface CheckpointInfo {
   turnIndex: number;
   toolCount: number;
   hasToolUse: boolean;
+  history: Message[]; // current history snapshot for token estimation
 }
 
 export type CheckpointDecision = "continue" | "yield";
@@ -71,7 +73,13 @@ export type AgentEvent =
       toolUseId: string;
       accumulatedJson: string;
     }
-  | { type: "server_tool_start"; name: string; toolUseId: string }
+  | {
+      type: "server_tool_start";
+      name: string;
+      toolUseId: string;
+      input: Record<string, unknown>;
+    }
+  | { type: "server_tool_complete"; toolUseId: string; isError: boolean }
   | { type: "error"; error: Error }
   | {
       type: "usage";
@@ -166,6 +174,20 @@ export class AgentLoop {
     this.resolveTools = resolveTools ?? null;
     this.resolveSystemPrompt = resolveSystemPrompt ?? null;
     this.toolExecutor = toolExecutor ?? null;
+  }
+
+  /**
+   * Estimate token cost of the tool definitions sent to the provider.
+   *
+   * When `history` is provided and a dynamic `resolveTools` callback
+   * exists, the budget is derived from the resolved tool list for that
+   * turn — matching what `run()` actually sends. Without `history` (or
+   * without a resolver), falls back to the static `this.tools`.
+   */
+  getToolTokenBudget(history?: Message[]): number {
+    const tools =
+      history && this.resolveTools ? this.resolveTools(history) : this.tools;
+    return estimateToolsTokens(tools);
   }
 
   async run(
@@ -305,6 +327,13 @@ export class AgentLoop {
                   type: "server_tool_start",
                   name: event.name,
                   toolUseId: event.toolUseId,
+                  input: event.input,
+                });
+              } else if (event.type === "server_tool_complete") {
+                onEvent({
+                  type: "server_tool_complete",
+                  toolUseId: event.toolUseId,
+                  isError: event.isError,
                 });
               }
             },
@@ -561,6 +590,7 @@ export class AgentLoop {
             turnIndex: toolUseTurns - 1, // 0-based (toolUseTurns was already incremented)
             toolCount: toolUseBlocks.length,
             hasToolUse: true,
+            history,
           });
           if (decision === "yield") {
             break;
@@ -622,40 +652,53 @@ export function escapeAxTreeContent(content: string): string {
  * `MAX_AX_TREES_IN_HISTORY` `<ax-tree>` blocks have been replaced with a
  * short placeholder.  This keeps the conversation context small so that
  * TTFT does not grow linearly with step count in computer-use sessions.
+ *
+ * Counting is per-block, not per-message — a single user message can
+ * contain multiple tool_result blocks each with their own AX tree snapshot.
  */
 export function compactAxTreeHistory(messages: Message[]): Message[] {
-  // Collect indices of user messages that contain an <ax-tree> block
-  const indicesWithAxTree: number[] = [];
+  // Collect (messageIndex, blockIndex) for every tool_result block with <ax-tree>
+  const axBlocks: Array<{ msgIdx: number; blockIdx: number }> = [];
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
     if (msg.role !== "user") continue;
-    for (const block of msg.content) {
+    for (let j = 0; j < msg.content.length; j++) {
+      const block = msg.content[j];
       if (
         block.type === "tool_result" &&
         typeof block.content === "string" &&
         block.content.includes("<ax-tree>")
       ) {
-        indicesWithAxTree.push(i);
-        break;
+        axBlocks.push({ msgIdx: i, blockIdx: j });
       }
     }
   }
 
-  if (indicesWithAxTree.length <= MAX_AX_TREES_IN_HISTORY) {
+  if (axBlocks.length <= MAX_AX_TREES_IN_HISTORY) {
     return messages;
   }
 
-  const toStrip = new Set(indicesWithAxTree.slice(0, -MAX_AX_TREES_IN_HISTORY));
+  // Build a set of "msgIdx:blockIdx" keys for blocks that should be stripped
+  const toStrip = new Set(
+    axBlocks
+      .slice(0, -MAX_AX_TREES_IN_HISTORY)
+      .map((b) => `${b.msgIdx}:${b.blockIdx}`),
+  );
 
   return messages.map((msg, idx) => {
-    if (!toStrip.has(idx)) return msg;
+    // Quick check: does this message have any blocks to strip?
+    const hasStripTarget = msg.content.some((_, j) =>
+      toStrip.has(`${idx}:${j}`),
+    );
+    if (!hasStripTarget) return msg;
+
     return {
       ...msg,
-      content: msg.content.map((block) => {
+      content: msg.content.map((block, j) => {
         if (
+          toStrip.has(`${idx}:${j}`) &&
           block.type === "tool_result" &&
-          typeof block.content === "string" &&
-          block.content.includes("<ax-tree>")
+          typeof block.content === "string"
         ) {
           return {
             ...block,

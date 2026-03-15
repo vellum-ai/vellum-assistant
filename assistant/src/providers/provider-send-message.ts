@@ -40,12 +40,12 @@ let fallbackWarningLogged = false;
  *
  * Returns `null` when no providers are available at all.
  */
-export function resolveConfiguredProvider(): ConfiguredProviderResult | null {
+export async function resolveConfiguredProvider(): Promise<ConfiguredProviderResult | null> {
   const config = getConfig();
 
   if (listProviders().length === 0) {
     try {
-      initializeProviders(config);
+      await initializeProviders(config);
     } catch {
       return null;
     }
@@ -89,8 +89,8 @@ export function resolveConfiguredProvider(): ConfiguredProviderResult | null {
  *
  * Returns `null` when no providers are available.
  */
-export function getConfiguredProvider(): Provider | null {
-  const result = resolveConfiguredProvider();
+export async function getConfiguredProvider(): Promise<Provider | null> {
+  const result = await resolveConfiguredProvider();
   return result?.provider ?? null;
 }
 
@@ -169,52 +169,4 @@ export function extractToolUse(
  */
 export function userMessage(text: string): Message {
   return { role: "user", content: [{ type: "text", text }] };
-}
-
-/**
- * Build a single user message with image + text content.
- */
-export function userMessageWithImage(
-  imageBase64: string,
-  mediaType: string,
-  text: string,
-): Message {
-  return {
-    role: "user",
-    content: [
-      {
-        type: "image",
-        source: {
-          type: "base64",
-          media_type: mediaType,
-          data: imageBase64,
-        },
-      },
-      { type: "text", text },
-    ],
-  };
-}
-
-/**
- * Build a single user message with multiple images followed by a text block.
- * Each image becomes its own content block; the text block comes last.
- */
-export function userMessageWithImages(
-  images: Array<{ base64: string; mediaType: string }>,
-  text: string,
-): Message {
-  return {
-    role: "user",
-    content: [
-      ...images.map((img) => ({
-        type: "image" as const,
-        source: {
-          type: "base64" as const,
-          media_type: img.mediaType,
-          data: img.base64,
-        },
-      })),
-      { type: "text" as const, text },
-    ],
-  };
 }

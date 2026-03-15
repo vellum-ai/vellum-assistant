@@ -17,8 +17,8 @@ import {
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Maximum size in bytes for a single assistant attachment (20 MB). */
-export const MAX_ASSISTANT_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+/** Maximum size in bytes for a single assistant attachment (50 MB). */
+export const MAX_ASSISTANT_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Types

@@ -98,7 +98,7 @@ struct ContactsListView: View {
                 HStack(spacing: 4) {
                     Text(contact.displayName)
                         .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
 
                     roleBadge(contact.role)
                 }
@@ -117,7 +117,7 @@ struct ContactsListView: View {
             if contact.interactionCount > 0 {
                 Text("\(contact.interactionCount)")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
         }
         .padding(.vertical, 2)
@@ -139,7 +139,7 @@ struct ContactsListView: View {
             .font(VFont.caption)
             .foregroundColor(.white)
             .frame(width: 32, height: 32)
-            .background(Circle().fill(VColor.accent))
+            .background(Circle().fill(VColor.primaryBase))
             .accessibilityHidden(true)
     }
 
@@ -177,7 +177,7 @@ struct ContactsListView: View {
         }()
 
         return VIconView(icon, size: 10)
-            .foregroundColor(VColor.textMuted)
+            .foregroundColor(VColor.contentTertiary)
     }
 
     // MARK: - Empty States
@@ -185,16 +185,16 @@ struct ContactsListView: View {
     private var emptyState: some View {
         VStack(spacing: VSpacing.lg) {
             VIconView(.users, size: 48)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .accessibilityHidden(true)
 
             Text("No Contacts")
                 .font(VFont.title)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             Text("Contacts will appear here as people interact with your assistant.")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
         }
@@ -208,7 +208,7 @@ struct ContactsListView: View {
             ProgressView()
             Text("Loading contacts...")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

@@ -80,16 +80,16 @@ struct SharedAppsListView: View {
                 HStack(spacing: VSpacing.xs) {
                     Text(app.name)
                         .font(VFont.bodyBold)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                         .lineLimit(1)
 
                     if app.updateAvailable == true {
                         Text("Update")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.accent)
+                            .foregroundColor(VColor.primaryBase)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(VColor.accent.opacity(0.15))
+                            .background(VColor.primaryBase.opacity(0.15))
                             .cornerRadius(4)
                     }
                 }
@@ -98,7 +98,7 @@ struct SharedAppsListView: View {
                     HStack(spacing: VSpacing.xs) {
                         Text(signer)
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                         trustBadge(app.trustTier)
                     }
                 }
@@ -107,7 +107,7 @@ struct SharedAppsListView: View {
             Spacer()
 
             VIconView(.chevronRight, size: 14)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
         }
         .padding(.vertical, VSpacing.xs)
         .accessibilityElement(children: .combine)
@@ -132,7 +132,7 @@ struct SharedAppsListView: View {
         case "trusted": return .green
         case "verified": return .blue
         case "community": return .orange
-        default: return VColor.textMuted
+        default: return VColor.contentTertiary
         }
     }
 
@@ -148,11 +148,11 @@ struct SharedAppsListView: View {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text(app.name)
                                 .font(VFont.title)
-                                .foregroundColor(VColor.textPrimary)
+                                .foregroundColor(VColor.contentDefault)
                             if let signer = app.signerDisplayName {
                                 Text("by \(signer)")
                                     .font(VFont.caption)
-                                    .foregroundColor(VColor.textSecondary)
+                                    .foregroundColor(VColor.contentSecondary)
                             }
                         }
                     }
@@ -162,7 +162,7 @@ struct SharedAppsListView: View {
                     Section("Description") {
                         Text(description)
                             .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                     }
                 }
 
@@ -172,16 +172,16 @@ struct SharedAppsListView: View {
                     }
                     LabeledContent("Bundle Size") {
                         Text(formattedSize(app.bundleSizeBytes))
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
                     LabeledContent("Installed") {
                         Text(app.installedAt)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
                     if let version = app.version {
                         LabeledContent("Version") {
                             Text(version)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.contentSecondary)
                         }
                     }
                 }
@@ -259,7 +259,7 @@ struct SharedAppsListView: View {
             ProgressView()
             Text("Loading shared apps...")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -267,11 +267,11 @@ struct SharedAppsListView: View {
     private var emptyView: some View {
         VStack(spacing: VSpacing.md) {
             VIconView(.package, size: 48)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .accessibilityHidden(true)
             Text("No shared apps")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .combine)

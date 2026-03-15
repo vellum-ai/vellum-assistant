@@ -25,6 +25,9 @@ const log = getLogger("keychain-broker-client");
 
 const REQUEST_TIMEOUT_MS = 5_000;
 
+/** Cooldown periods (ms) after consecutive connection failures: 30s, 60s, 2min, 5min, then cap at 5min. */
+const RECONNECT_COOLDOWN_MS = [30_000, 60_000, 120_000, 300_000];
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -33,11 +36,18 @@ const REQUEST_TIMEOUT_MS = 5_000;
  *  back); `{ found: false }` means the key doesn't exist in the keychain. */
 export type BrokerGetResult = { found: boolean; value?: string } | null;
 
+/** Result of a `set()` call — distinguishes broker-unreachable from an active
+ *  rejection so callers can log meaningful diagnostics. */
+export type BrokerSetResult =
+  | { status: "ok" }
+  | { status: "unreachable" }
+  | { status: "rejected"; code: string; message: string };
+
 export interface KeychainBrokerClient {
   isAvailable(): boolean;
   ping(): Promise<{ pong: boolean } | null>;
   get(account: string): Promise<BrokerGetResult>;
-  set(account: string, value: string): Promise<boolean>;
+  set(account: string, value: string): Promise<BrokerSetResult>;
   del(account: string): Promise<boolean>;
   list(): Promise<string[]>;
 }
@@ -82,10 +92,12 @@ export function createBrokerClient(): KeychainBrokerClient {
   let socket: Socket | null = null;
   /** Promise that resolves when the in-flight connect() completes. */
   let connectPromise: Promise<Socket> | null = null;
-  let permanentlyUnavailable = false;
+  /** Timestamp when the broker became unavailable, or null if available. */
+  let unavailableSince: number | null = null;
+  /** Number of consecutive connection failures (drives cooldown escalation). */
+  let consecutiveFailures = 0;
   /** Cached token string, or undefined if not yet successfully read. */
   let cachedToken: string | undefined;
-  let hasTriedReconnect = false;
 
   /** Buffer for incoming data — responses are newline-delimited JSON. */
   let inBuffer = "";
@@ -181,7 +193,8 @@ export function createBrokerClient(): KeychainBrokerClient {
 
       sock.on("connect", () => {
         socket = sock;
-        hasTriedReconnect = false;
+        consecutiveFailures = 0;
+        unavailableSince = null;
         resolve(sock);
       });
 
@@ -199,8 +212,26 @@ export function createBrokerClient(): KeychainBrokerClient {
     });
   }
 
+  /** Compute the cooldown duration for the current failure count. The first
+   *  two failures (initial + immediate retry) map to index 0 (30s). */
+  function getCooldownMs(): number {
+    const idx = Math.min(
+      Math.max(consecutiveFailures - 2, 0),
+      RECONNECT_COOLDOWN_MS.length - 1,
+    );
+    return RECONNECT_COOLDOWN_MS[idx];
+  }
+
   async function ensureConnected(): Promise<Socket | null> {
-    if (permanentlyUnavailable) return null;
+    // If in cooldown, check whether the cooldown period has elapsed.
+    if (unavailableSince != null) {
+      if (Date.now() - unavailableSince < getCooldownMs()) {
+        return null;
+      }
+      // Cooldown elapsed — clear and attempt reconnection below.
+      unavailableSince = null;
+    }
+
     if (socket && !socket.destroyed) return socket;
 
     // If a connect() is already in flight, wait for it instead of returning
@@ -218,24 +249,31 @@ export function createBrokerClient(): KeychainBrokerClient {
       const sock = await connectPromise;
       return sock;
     } catch {
-      // First connection failed — try once more
-      if (!hasTriedReconnect) {
-        hasTriedReconnect = true;
+      consecutiveFailures++;
+
+      // First failure triggers one immediate retry (preserves the original
+      // "try once more" behavior).
+      if (consecutiveFailures === 1) {
         connectPromise = connect();
         try {
           return await connectPromise;
         } catch {
-          // Reconnect also failed — mark unavailable
+          consecutiveFailures++;
+          unavailableSince = Date.now();
           log.warn(
-            "Keychain broker reconnect failed, marking unavailable for this process",
+            `Keychain broker reconnect failed, will retry in ${getCooldownMs() / 1000}s`,
           );
-          permanentlyUnavailable = true;
           return null;
         } finally {
           connectPromise = null;
         }
       }
-      permanentlyUnavailable = true;
+
+      // Subsequent failures — enter cooldown.
+      unavailableSince = Date.now();
+      log.warn(
+        `Keychain broker connection failed (attempt ${consecutiveFailures}), will retry in ${getCooldownMs() / 1000}s`,
+      );
       return null;
     } finally {
       connectPromise = null;
@@ -327,7 +365,9 @@ export function createBrokerClient(): KeychainBrokerClient {
 
   return {
     isAvailable(): boolean {
-      if (permanentlyUnavailable) return false;
+      if (unavailableSince != null) {
+        if (Date.now() - unavailableSince < getCooldownMs()) return false;
+      }
       if (!pathExists(getSocketPath())) return false;
       return pathExists(getTokenPath());
     },
@@ -360,12 +400,18 @@ export function createBrokerClient(): KeychainBrokerClient {
       }
     },
 
-    async set(account: string, value: string): Promise<boolean> {
+    async set(account: string, value: string): Promise<BrokerSetResult> {
       try {
         const response = await doRequest("key.set", { account, value });
-        return response?.ok === true;
+        if (!response) return { status: "unreachable" };
+        if (response.ok) return { status: "ok" };
+        return {
+          status: "rejected",
+          code: response.error?.code ?? "UNKNOWN",
+          message: response.error?.message ?? "unknown error",
+        };
       } catch {
-        return false;
+        return { status: "unreachable" };
       }
     },
 

@@ -2,44 +2,87 @@ import SwiftUI
 import VellumAssistantShared
 
 struct DrawerMenuView: View {
+    let authManager: AuthManager
     let onSettings: () -> Void
     let onUsage: () -> Void
     let onDebug: () -> Void
     let onLogOut: () -> Void
+    let onOpenBilling: () -> Void
+
+    @State private var effectiveBalance: String?
+    @State private var isLowBalance = false
+    @State private var isZeroBalance = false
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
             DrawerThemeToggle()
-                .padding(.horizontal, VSpacing.lg)
-                .padding(.vertical, VSpacing.sm)
+                .padding(.horizontal, VSpacing.sm)
 
-            VColor.surfaceBorder.frame(height: 1)
+            VColor.surfaceBase.frame(height: 1)
                 .padding(.vertical, VSpacing.xs)
 
-            SidebarPrimaryRow(icon: VIcon.settings.rawValue, label: String(localized: "Settings"), action: onSettings)
+            if let balance = effectiveBalance {
+                HStack {
+                    Text("$\(balance) remaining")
+                        .font(VFont.bodyMedium)
+                        .foregroundColor(
+                            isZeroBalance ? VColor.systemNegativeStrong :
+                            isLowBalance ? VColor.systemMidStrong :
+                            VColor.contentDefault
+                        )
+                    Spacer()
+                    Button("Add funds") { onOpenBilling() }
+                        .font(VFont.captionMedium)
+                        .foregroundColor(VColor.primaryBase)
+                        .buttonStyle(.plain)
+                }
+                .padding(.horizontal, VSpacing.sm)
 
-            Text("Ask the assistant to help you with any settings you wish to change")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
-                .padding(.horizontal, VSpacing.lg)
-                .padding(.top, VSpacing.xs)
-                .padding(.bottom, VSpacing.xs)
+                VColor.surfaceBase.frame(height: 1)
+                    .padding(.vertical, VSpacing.xs)
+            }
 
-            VColor.surfaceBorder.frame(height: 1)
-                .padding(.vertical, VSpacing.xs)
+            VStack(alignment: .leading, spacing: 0) {
+                SidebarPrimaryRow(icon: VIcon.settings.rawValue, label: String(localized: "Settings"), action: onSettings)
 
-            SidebarPrimaryRow(icon: VIcon.barChart.rawValue, label: String(localized: "Usage"), action: onUsage)
+                Text("Ask the assistant in chat to help you with any settings you wish to alter.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.contentDisabled)
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.top, VSpacing.xs)
 
-            SidebarPrimaryRow(icon: VIcon.bug.rawValue, label: "Debug", action: onDebug)
+                VColor.surfaceBase.frame(height: 1)
+                    .padding(.vertical, VSpacing.sm)
 
-            SidebarPrimaryRow(icon: VIcon.logOut.rawValue, label: String(localized: "Log Out"), action: onLogOut)
+                SidebarPrimaryRow(icon: VIcon.barChart.rawValue, label: String(localized: "Usage"), action: onUsage)
+
+                SidebarPrimaryRow(icon: VIcon.bug.rawValue, label: "Debug", action: onDebug)
+
+                SidebarPrimaryRow(icon: VIcon.logOut.rawValue, label: String(localized: "Log Out"), action: onLogOut)
+            }
         }
-        .padding(.vertical, VSpacing.sm)
-        .background(VColor.surfaceSubtle)
+        .padding(VSpacing.sm)
+        .background(VColor.surfaceLift)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.15), radius: 6, y: -2)
+        .shadow(color: VColor.auxBlack.opacity(0.1), radius: 1.5, x: 0, y: 1)
+        .shadow(color: VColor.auxBlack.opacity(0.1), radius: 6, x: 0, y: 4)
+        .task {
+            await loadBalance()
+        }
+    }
+
+    private func loadBalance() async {
+        guard authManager.isAuthenticated else { return }
+        do {
+            let summary = try await BillingService.shared.getBillingSummary()
+            let balanceString = summary.effective_balance_usd
+            effectiveBalance = balanceString
+            if let value = Double(balanceString) {
+                isZeroBalance = value <= 0
+                isLowBalance = value < 1.0
+            }
+        } catch {
+            // Silently ignore errors — don't show error state in the popup
+        }
     }
 }

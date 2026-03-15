@@ -31,10 +31,12 @@ final class WorkspaceBrowserState {
     var renamingPath: String? = nil
     var renamingText: String = ""
     var pendingSwitchPath: String?
+    var pendingHiddenFilesToggle: Bool?
     var showingDirtyAlert: Bool = false
+    var showHiddenFiles: Bool = UserDefaults.standard.bool(forKey: "showHiddenFiles")
 
     func refreshDirectory(_ dirPath: String, using daemonClient: DaemonClient) async {
-        if let response = await daemonClient.fetchWorkspaceTree(path: dirPath) {
+        if let response = await daemonClient.fetchWorkspaceTree(path: dirPath, showHidden: showHiddenFiles) {
             directoryCache[dirPath] = response.entries
         }
     }
@@ -47,7 +49,7 @@ final class WorkspaceBrowserState {
         editableContent = ""
         fileLoadTask?.cancel()
         let task = Task {
-            let detail = await daemonClient.fetchWorkspaceFile(path: targetPath)
+            let detail = await daemonClient.fetchWorkspaceFile(path: targetPath, showHidden: showHiddenFiles)
             guard !Task.isCancelled, selectedFilePath == targetPath else { return }
             selectedFileDetail = detail
             editableContent = detail?.content ?? ""
@@ -65,14 +67,60 @@ final class WorkspaceBrowserState {
 struct WorkspacePanel: View {
     let daemonClient: DaemonClient
     @State private var state = WorkspaceBrowserState()
+    @State private var sidebarWidth: CGFloat = 300
+    @State private var dragStartWidth: CGFloat?
+    @State private var didPushResizeCursor = false
+
+    private let minSidebarWidth: CGFloat = 140
+    private let maxSidebarWidth: CGFloat = 500
+
+    private let dragCoordinateSpace = "WorkspacePanelDrag"
 
     var body: some View {
-        HSplitView {
-            WorkspaceTreeSidebar(state: state, daemonClient: daemonClient)
-                .frame(minWidth: 200, idealWidth: 250, maxWidth: 300)
+        HStack(spacing: 0) {
+            WorkspaceTreeSidebar(state: state, daemonClient: daemonClient, onToggleHiddenFiles: applyHiddenFilesToggle)
+                .frame(width: sidebarWidth)
+
+            // Invisible resize handle
+            Color.clear
+                .frame(width: 6)
+                .contentShape(Rectangle())
+                .onHover { hovering in
+                    if hovering {
+                        NSCursor.resizeLeftRight.push()
+                        didPushResizeCursor = true
+                    } else if didPushResizeCursor {
+                        NSCursor.pop()
+                        didPushResizeCursor = false
+                    }
+                }
+                .onDisappear {
+                    if didPushResizeCursor {
+                        NSCursor.pop()
+                        didPushResizeCursor = false
+                    }
+                }
+                .gesture(
+                    DragGesture(minimumDistance: 1, coordinateSpace: .named(dragCoordinateSpace))
+                        .onChanged { value in
+                            if dragStartWidth == nil { dragStartWidth = sidebarWidth }
+                            guard let start = dragStartWidth else { return }
+                            let delta = value.location.x - value.startLocation.x
+                            var transaction = Transaction()
+                            transaction.disablesAnimations = true
+                            withTransaction(transaction) {
+                                sidebarWidth = min(max(start + delta, minSidebarWidth), maxSidebarWidth)
+                            }
+                        }
+                        .onEnded { _ in
+                            dragStartWidth = nil
+                        }
+                )
+
             WorkspaceFileViewer(state: state, daemonClient: daemonClient)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .coordinateSpace(name: dragCoordinateSpace)
         .task { await loadRoot() }
         .onDisappear {
             state.fileLoadTask?.cancel()
@@ -84,15 +132,20 @@ struct WorkspacePanel: View {
             isPresented: $state.showingDirtyAlert
         ) {
             Button("Discard", role: .destructive) {
-                guard let targetPath = state.pendingSwitchPath else { return }
-                state.pendingSwitchPath = nil
-                Task { await state.loadFile(path: targetPath, using: daemonClient) }
+                if let targetPath = state.pendingSwitchPath {
+                    state.pendingSwitchPath = nil
+                    Task { await state.loadFile(path: targetPath, using: daemonClient) }
+                } else if let newValue = state.pendingHiddenFilesToggle {
+                    state.pendingHiddenFilesToggle = nil
+                    applyHiddenFilesToggle(newValue)
+                }
             }
             Button("Cancel", role: .cancel) {
                 state.pendingSwitchPath = nil
+                state.pendingHiddenFilesToggle = nil
             }
         } message: {
-            Text("You have unsaved changes. Discard them and switch files?")
+            Text("You have unsaved changes. Discard them?")
         }
         .alert(
             "Delete \"\(state.deleteConfirmName)\"?",
@@ -134,10 +187,35 @@ struct WorkspacePanel: View {
 
     private func loadRoot() async {
         state.isLoadingTree = true
-        if let response = await daemonClient.fetchWorkspaceTree(path: "") {
+        if let response = await daemonClient.fetchWorkspaceTree(path: "", showHidden: state.showHiddenFiles) {
             state.directoryCache[""] = response.entries
         }
         state.isLoadingTree = false
+    }
+
+    private func applyHiddenFilesToggle(_ newValue: Bool) {
+        state.showHiddenFiles = newValue
+        UserDefaults.standard.set(newValue, forKey: "showHiddenFiles")
+        state.directoryCache.removeAll()
+        state.expandedDirs.removeAll()
+        state.selectedFilePath = nil
+        state.selectedFileDetail = nil
+        state.editableContent = ""
+        state.originalContent = ""
+        state.isDirty = false
+        state.isLoadingTree = true
+        let expectedValue = newValue
+        Task {
+            if let response = await daemonClient.fetchWorkspaceTree(path: "", showHidden: newValue) {
+                // Guard against stale response from a rapid toggle
+                guard state.showHiddenFiles == expectedValue else { return }
+                state.directoryCache[""] = response.entries
+            }
+            // Only clear loading if we're still on the expected toggle value
+            if state.showHiddenFiles == expectedValue {
+                state.isLoadingTree = false
+            }
+        }
     }
 
     private func parentDirectory(of path: String) -> String {
@@ -152,15 +230,32 @@ struct WorkspacePanel: View {
 private struct WorkspaceTreeSidebar: View {
     @Bindable var state: WorkspaceBrowserState
     let daemonClient: DaemonClient
+    let onToggleHiddenFiles: (Bool) -> Void
+    @State private var viewportWidth: CGFloat = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("Files")
                     .font(VFont.headline)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 Spacer()
+
+                Button {
+                    if state.isDirty {
+                        state.pendingHiddenFilesToggle = !state.showHiddenFiles
+                        state.showingDirtyAlert = true
+                    } else {
+                        onToggleHiddenFiles(!state.showHiddenFiles)
+                    }
+                } label: {
+                    VIconView(state.showHiddenFiles ? .eye : .eyeOff, size: 12)
+                        .foregroundColor(state.showHiddenFiles ? VColor.contentDefault : VColor.contentSecondary)
+                }
+                .buttonStyle(.plain)
+                .help(state.showHiddenFiles ? "Hide hidden files" : "Show hidden files")
+                .accessibilityLabel(state.showHiddenFiles ? "Hide hidden files" : "Show hidden files")
 
                 Menu {
                     Button {
@@ -179,7 +274,7 @@ private struct WorkspaceTreeSidebar: View {
                     }
                 } label: {
                     VIconView(.plus, size: 12)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
@@ -189,39 +284,53 @@ private struct WorkspaceTreeSidebar: View {
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
 
-            Divider().background(VColor.surfaceBorder)
+            Divider().background(VColor.borderBase)
 
-            if state.isLoadingTree && state.directoryCache.isEmpty {
-                VStack {
-                    Spacer()
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                    Spacer()
-                }
-            } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        if let rootEntries = state.directoryCache[""] {
-                            ForEach(rootEntries) { entry in
-                                WorkspaceTreeRow(
-                                    entry: entry,
-                                    depth: 0,
-                                    state: state,
-                                    daemonClient: daemonClient
-                                )
+            Group {
+                if state.isLoadingTree && state.directoryCache.isEmpty {
+                    VStack {
+                        Spacer()
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                        Spacer()
+                    }
+                } else {
+                    ScrollView([.vertical, .horizontal]) {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            if let rootEntries = state.directoryCache[""] {
+                                ForEach(rootEntries) { entry in
+                                    WorkspaceTreeRow(
+                                        entry: entry,
+                                        depth: 0,
+                                        state: state,
+                                        daemonClient: daemonClient,
+                                        minRowWidth: viewportWidth
+                                    )
+                                }
                             }
                         }
+                        .padding(.vertical, VSpacing.xs)
                     }
-                    .padding(.vertical, VSpacing.xs)
+                    .defaultScrollAnchor(.topLeading)
+                    .background {
+                        GeometryReader { geo in
+                            Color.clear
+                                .onAppear { viewportWidth = geo.size.width }
+                                .onChange(of: geo.size.width) { _, newWidth in
+                                    viewportWidth = newWidth
+                                }
+                        }
+                    }
                 }
             }
+            .frame(maxHeight: .infinity, alignment: .topLeading)
 
             if state.uploadingCount > 0 {
                 HStack(spacing: VSpacing.xs) {
                     ProgressView().controlSize(.small)
                     Text("Uploading \(state.uploadingCount) file\(state.uploadingCount == 1 ? "" : "s")...")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
                 .padding(.horizontal, VSpacing.md)
                 .padding(.vertical, VSpacing.xs)
@@ -230,7 +339,7 @@ private struct WorkspaceTreeSidebar: View {
         .overlay {
             if state.isDropTargeted {
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .strokeBorder(VColor.accent, style: StrokeStyle(lineWidth: 2, dash: [6, 3]))
+                    .strokeBorder(VColor.primaryBase, style: StrokeStyle(lineWidth: 2, dash: [6, 3]))
                     .padding(4)
             }
         }
@@ -238,7 +347,8 @@ private struct WorkspaceTreeSidebar: View {
             handleDrop(providers: providers, targetDir: "", state: state, daemonClient: daemonClient)
             return true
         }
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .alert("New File", isPresented: $state.showingNewFileAlert) {
             TextField("Filename", text: $state.newItemName)
             Button("Cancel", role: .cancel) {}
@@ -322,6 +432,7 @@ private struct WorkspaceTreeRow: View {
     let depth: Int
     @Bindable var state: WorkspaceBrowserState
     let daemonClient: DaemonClient
+    var minRowWidth: CGFloat = 0
 
     private var isExpanded: Bool {
         state.expandedDirs.contains(entry.path)
@@ -339,19 +450,20 @@ private struct WorkspaceTreeRow: View {
                 HStack(spacing: VSpacing.xs) {
                     if entry.isDirectory {
                         VIconView(isExpanded ? .chevronDown : .chevronRight, size: 9)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                             .frame(width: 12)
                     } else {
                         Spacer().frame(width: 12)
                     }
 
                     VIconView(entry.isDirectory ? .folder : .fileText, size: 12)
-                        .foregroundColor(entry.isDirectory ? VColor.iconAccent : VColor.textSecondary)
+                        .foregroundColor(entry.isDirectory ? VColor.primaryBase : VColor.contentSecondary)
 
                     if state.renamingPath == entry.path {
                         TextField("Name", text: $state.renamingText)
                             .textFieldStyle(.plain)
                             .font(VFont.body)
+                            .fixedSize(horizontal: true, vertical: false)
                             .onSubmit {
                                 submitRename()
                             }
@@ -361,22 +473,20 @@ private struct WorkspaceTreeRow: View {
                     } else {
                         Text(entry.name)
                             .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
+                            .foregroundColor(VColor.contentDefault)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
-
-                    Spacer()
                 }
                 .padding(.leading, CGFloat(depth) * 16 + VSpacing.sm)
                 .padding(.trailing, VSpacing.sm)
                 .padding(.vertical, VSpacing.xs)
+                .frame(minWidth: minRowWidth, alignment: .leading)
                 .contentShape(Rectangle())
-                .background(isSelected ? VColor.navActive : Color.clear)
+                .background(isSelected ? VColor.surfaceActive : Color.clear)
             }
             .buttonStyle(.plain)
-            .onDrop(of: entry.isDirectory ? [.fileURL] : [], isTargeted: .none) { providers in
-                guard entry.isDirectory else { return false }
+            .onDrop(of: entry.isDirectory && !isHiddenPath(entry.path) ? [.fileURL] : [], isTargeted: .none) { providers in
+                guard entry.isDirectory, !isHiddenPath(entry.path) else { return false }
                 handleDrop(providers: providers, targetDir: entry.path, state: state, daemonClient: daemonClient)
                 return true
             }
@@ -389,14 +499,16 @@ private struct WorkspaceTreeRow: View {
                             entry: child,
                             depth: depth + 1,
                             state: state,
-                            daemonClient: daemonClient
+                            daemonClient: daemonClient,
+                            minRowWidth: minRowWidth
                         )
                     }
                 }
             }
         }
         .contextMenu {
-            if entry.isDirectory {
+            let hidden = isHiddenPath(entry.path)
+            if entry.isDirectory && !hidden {
                 Button {
                     state.newItemParentPath = entry.path
                     state.newItemName = ""
@@ -413,17 +525,19 @@ private struct WorkspaceTreeRow: View {
                 }
                 Divider()
             }
-            Button(role: .destructive) {
-                state.deleteConfirmPath = entry.path
-                state.deleteConfirmName = entry.name
-            } label: {
-                Label { Text("Delete") } icon: { VIconView(.trash, size: 12) }
-            }
-            Button {
-                state.renamingPath = entry.path
-                state.renamingText = entry.name
-            } label: {
-                Label { Text("Rename") } icon: { VIconView(.pencil, size: 12) }
+            if !hidden {
+                Button(role: .destructive) {
+                    state.deleteConfirmPath = entry.path
+                    state.deleteConfirmName = entry.name
+                } label: {
+                    Label { Text("Delete") } icon: { VIconView(.trash, size: 12) }
+                }
+                Button {
+                    state.renamingPath = entry.path
+                    state.renamingText = entry.name
+                } label: {
+                    Label { Text("Rename") } icon: { VIconView(.pencil, size: 12) }
+                }
             }
         }
     }
@@ -504,7 +618,7 @@ private struct WorkspaceTreeRow: View {
                 state.expandedDirs.insert(entry.path)
                 // Load children if not cached
                 if state.directoryCache[entry.path] == nil {
-                    if let response = await daemonClient.fetchWorkspaceTree(path: entry.path) {
+                    if let response = await daemonClient.fetchWorkspaceTree(path: entry.path, showHidden: state.showHiddenFiles) {
                         state.directoryCache[entry.path] = response.entries
                     }
                 }
@@ -537,31 +651,31 @@ private struct WorkspaceFileViewer: View {
                     Spacer()
                     ProgressView("Loading file...")
                         .font(VFont.body)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     Spacer()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let detail = state.selectedFileDetail {
                 fileContent(detail)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .fill(VColor.surfaceBase)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .strokeBorder(VColor.borderBase, lineWidth: 1)
+                    )
+                    .padding(VSpacing.md)
             } else {
                 emptyState
             }
         }
-        .background(VColor.background)
+        .background(VColor.surfaceOverlay)
     }
 
     private var emptyState: some View {
-        VStack {
-            Spacer()
-            VIconView(.fileText, size: 32)
-                .foregroundColor(VColor.textMuted)
-                .padding(.bottom, VSpacing.sm)
-            Text("Select a file to view")
-                .font(VFont.body)
-                .foregroundColor(VColor.textMuted)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        FileViewerEmptyState()
     }
 
     @ViewBuilder
@@ -582,8 +696,18 @@ private struct WorkspaceFileViewer: View {
     }
 
     private func textViewer(_ detail: WorkspaceFileResponse) -> some View {
-        VStack(spacing: 0) {
-            if state.isDirty {
+        let readOnly = isHiddenPath(detail.path)
+        return VStack(spacing: 0) {
+            if readOnly {
+                HStack {
+                    Spacer()
+                    Text("Read-only")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                        .padding(.trailing, VSpacing.md)
+                        .padding(.vertical, VSpacing.xs)
+                }
+            } else if state.isDirty {
                 HStack {
                     Spacer()
                     Button {
@@ -604,15 +728,20 @@ private struct WorkspaceFileViewer: View {
                 }
             }
 
-            TextEditor(text: $state.editableContent)
-                .font(VFont.mono)
-                .foregroundColor(VColor.textPrimary)
-                .scrollContentBackground(.hidden)
-                .padding(VSpacing.md)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .onChange(of: state.editableContent) { _, newValue in
-                    state.isDirty = newValue != state.originalContent
-                }
+            if readOnly {
+                ReadOnlyCodeContent(content: detail.content ?? "")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                TextEditor(text: $state.editableContent)
+                    .font(VFont.mono)
+                    .foregroundColor(VColor.contentDefault)
+                    .scrollContentBackground(.hidden)
+                    .padding(VSpacing.md)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .onChange(of: state.editableContent) { _, newValue in
+                        state.isDirty = newValue != state.originalContent
+                    }
+            }
         }
     }
 
@@ -638,20 +767,20 @@ private struct WorkspaceFileViewer: View {
             Spacer()
 
             VIconView(.fileText, size: 40)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
 
             VStack(spacing: VSpacing.sm) {
                 Text(detail.name)
                     .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 Text("File too large to preview")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
 
                 Text(formatFileSize(detail.size))
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
 
             Spacer()
@@ -661,12 +790,12 @@ private struct WorkspaceFileViewer: View {
 
     private func imageViewer(_ detail: WorkspaceFileResponse) -> some View {
         Group {
-            if let url = daemonClient.workspaceFileContentURL(path: detail.path) {
+            if let url = daemonClient.workspaceFileContentURL(path: detail.path, showHidden: state.showHiddenFiles) {
                 AuthenticatedImageView(url: url, daemonClient: daemonClient)
             } else {
                 Text("Unable to load image URL")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
@@ -674,12 +803,12 @@ private struct WorkspaceFileViewer: View {
 
     private func videoViewer(_ detail: WorkspaceFileResponse) -> some View {
         Group {
-            if let url = daemonClient.workspaceFileContentURL(path: detail.path) {
+            if let url = daemonClient.workspaceFileContentURL(path: detail.path, showHidden: state.showHiddenFiles) {
                 WorkspaceVideoPlayer(url: url, daemonClient: daemonClient)
             } else {
                 Text("Unable to load video URL")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
@@ -690,24 +819,24 @@ private struct WorkspaceFileViewer: View {
             Spacer()
 
             VIconView(.file, size: 40)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
 
             VStack(spacing: VSpacing.sm) {
                 Text(detail.name)
                     .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 Text(formatFileSize(detail.size))
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
 
                 Text(detail.mimeType)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
 
                 Text("Modified: \(detail.modifiedAt)")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
 
             Spacer()
@@ -721,6 +850,13 @@ private struct WorkspaceFileViewer: View {
         formatter.countStyle = .file
         return formatter.string(fromByteCount: Int64(bytes))
     }
+}
+
+// MARK: - Hidden Path Helper
+
+/// Returns true if any segment of the path starts with a dot (e.g. ".hidden/file.txt" or "dir/.env").
+private func isHiddenPath(_ path: String) -> Bool {
+    path.split(separator: "/").contains { $0.hasPrefix(".") }
 }
 
 // MARK: - Authenticated Image View
@@ -742,10 +878,10 @@ private struct AuthenticatedImageView: View {
             } else if failed {
                 VStack {
                     VIconView(.triangleAlert, size: 24)
-                        .foregroundColor(VColor.warning)
+                        .foregroundColor(VColor.systemNegativeHover)
                     Text("Failed to load image")
                         .font(VFont.body)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -820,10 +956,10 @@ private struct WorkspaceVideoPlayer: View {
             } else if failed {
                 VStack {
                     VIconView(.triangleAlert, size: 24)
-                        .foregroundColor(VColor.warning)
+                        .foregroundColor(VColor.systemNegativeHover)
                     Text("Failed to load video")
                         .font(VFont.body)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {

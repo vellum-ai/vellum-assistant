@@ -22,7 +22,6 @@ mock.module("../util/platform.js", () => ({
 }));
 
 mock.module("../memory/guardian-action-store.js", () => ({
-  getPendingDeliveryByConversation: () => null,
   getGuardianActionRequest: () => null,
   resolveGuardianActionRequest: () => {},
 }));
@@ -54,8 +53,6 @@ mock.module("../config/loader.js", () => ({
       },
     },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
-    apiKeys: {},
-    memory: { retrieval: { injectionStrategy: "inline" } },
     daemon: {
       startupSocketWaitMs: 5000,
       stopTimeoutMs: 5000,
@@ -88,7 +85,7 @@ const addMessageCalls: Array<{
 }> = [];
 
 mock.module("../memory/conversation-crud.js", () => ({
-  getConversationThreadType: () => "default",
+  getConversationType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
@@ -125,26 +122,13 @@ mock.module("../memory/retriever.js", () => ({
     enabled: false,
     degraded: false,
     injectedText: "",
-    lexicalHits: 0,
+
     semanticHits: 0,
     recencyHits: 0,
     injectedTokens: 0,
     latencyMs: 0,
   }),
-  injectMemoryRecallIntoUserMessage: (msg: Message) => msg,
   stripMemoryRecallMessages: (msgs: Message[]) => msgs,
-}));
-
-mock.module("../memory/admin.js", () => ({
-  getMemoryConflictAndCleanupStats: () => ({
-    conflicts: { pending: 0, resolved: 0, oldestPendingAgeMs: null },
-    cleanup: {
-      resolvedBacklog: 0,
-      supersededBacklog: 0,
-      resolvedCompleted24h: 0,
-      supersededCompleted24h: 0,
-    },
-  }),
 }));
 
 mock.module("../context/window-manager.js", () => ({
@@ -174,8 +158,7 @@ mock.module("../config/skills.js", () => ({
       description: "Morning routine skill",
       directoryPath: "/skills/start-the-day",
       skillFilePath: "/skills/start-the-day/SKILL.md",
-      userInvocable: true,
-      disableModelInvocation: false,
+
       source: "managed",
     },
     {
@@ -186,8 +169,7 @@ mock.module("../config/skills.js", () => ({
         "Navigate and interact with web pages using a headless browser",
       directoryPath: "/skills/browser",
       skillFilePath: "/skills/browser/SKILL.md",
-      userInvocable: true,
-      disableModelInvocation: false,
+
       source: "bundled",
     },
   ],
@@ -200,7 +182,6 @@ mock.module("../config/skill-state.js", () => ({
     catalog.map((s) => ({
       summary: s,
       state: "enabled",
-      degraded: false,
     })),
 }));
 
@@ -213,6 +194,9 @@ let agentLoopRunCalled = false;
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     constructor() {}
+    getToolTokenBudget() {
+      return 0;
+    }
     async run(
       messages: Message[],
       onEvent: (event: AgentEvent) => void,
@@ -289,74 +273,18 @@ function makeSession(): Session {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("Session slash command — unknown", () => {
+describe("Session slash command — passthrough for unknown tokens", () => {
   beforeEach(() => {
     agentLoopRunCalled = false;
     addMessageCalls.length = 0;
   });
 
-  test("unknown slash emits deterministic assistant response", async () => {
-    const session = makeSession();
-    const events: ServerMessage[] = [];
-    const onEvent = (msg: ServerMessage) => events.push(msg);
-
-    await session.processMessage("/not-a-skill", [], onEvent);
-
-    // Should have emitted assistant_text_delta with the unknown message
-    const textDeltas = events.filter((e) => e.type === "assistant_text_delta");
-    expect(textDeltas.length).toBe(1);
-    const delta = textDeltas[0] as { text: string };
-    expect(delta.text).toContain("Unknown command `/not-a-skill`");
-    expect(delta.text).toContain("/start-the-day");
-
-    // Should have emitted message_complete
-    const completes = events.filter((e) => e.type === "message_complete");
-    expect(completes.length).toBe(1);
-  });
-
-  test("unknown slash returns a non-empty messageId", async () => {
-    const session = makeSession();
-    const messageId = await session.processMessage(
-      "/not-a-skill",
-      [],
-      () => {},
-    );
-    expect(messageId).toBeTruthy();
-    expect(typeof messageId).toBe("string");
-    expect(messageId.length).toBeGreaterThan(0);
-  });
-
-  test("no agent loop execution occurs for unknown slash", async () => {
-    const session = makeSession();
-    await session.processMessage("/not-a-skill", [], () => {});
-    expect(agentLoopRunCalled).toBe(false);
-  });
-
-  test("unknown slash persists both user and assistant messages", async () => {
+  test("unknown slash-like input passes through to agent loop", async () => {
     const session = makeSession();
     await session.processMessage("/not-a-skill", [], () => {});
 
-    // Should persist exactly two messages: user + assistant
-    const roles = addMessageCalls.map((c) => c.role);
-    expect(roles).toEqual(["user", "assistant"]);
-
-    // The assistant message content should contain the unknown-command text
-    const assistantContent = addMessageCalls[1].content;
-    expect(assistantContent).toContain("Unknown command");
-  });
-
-  test("unknown slash command output includes /browser in available commands", async () => {
-    const session = makeSession();
-    const events: ServerMessage[] = [];
-    const onEvent = (msg: ServerMessage) => events.push(msg);
-
-    await session.processMessage("/not-a-skill", [], onEvent);
-
-    const textDeltas = events.filter((e) => e.type === "assistant_text_delta");
-    expect(textDeltas.length).toBe(1);
-    const delta = textDeltas[0] as { text: string };
-    expect(delta.text).toContain("/browser");
-    expect(delta.text).toContain("/start-the-day");
+    // Should go through the normal agent loop path
+    expect(agentLoopRunCalled).toBe(true);
   });
 
   test("normal messages still go through standard path", async () => {

@@ -5,56 +5,28 @@ import VellumAssistantShared
 struct DrawerThemeToggle: View {
     @AppStorage("themePreference") private var themePreference: String = "system"
 
-    private struct ThemeOption {
-        let value: String
-        let icon: String
-        let tooltip: String
-    }
-
-    private let options: [ThemeOption] = [
-        ThemeOption(value: "system", icon: "circle.lefthalf.filled", tooltip: "System"),
-        ThemeOption(value: "light", icon: "sun.max.fill", tooltip: "Light"),
-        ThemeOption(value: "dark", icon: "moon.fill", tooltip: "Dark"),
-    ]
-
     var body: some View {
         HStack(spacing: VSpacing.xs) {
             Text("Theme")
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .font(VFont.caption)
+                .foregroundColor(VColor.contentDisabled)
             Spacer()
-            HStack(spacing: 2) {
-                ForEach(options, id: \.value) { option in
-                    let isSelected = themePreference == option.value
-                    Button {
-                        themePreference = option.value
+            VSegmentedControl(
+                items: [
+                    (label: "System", icon: VIcon.monitor.rawValue, tag: "system"),
+                    (label: "Light", icon: VIcon.sun.rawValue, tag: "light"),
+                    (label: "Dark", icon: VIcon.moon.rawValue, tag: "dark"),
+                ],
+                selection: Binding(
+                    get: { themePreference },
+                    set: {
+                        themePreference = $0
                         AppDelegate.shared?.applyThemePreference()
-                    } label: {
-                        VIconView(SFSymbolMapping.icon(forSFSymbol: option.icon, fallback: .puzzle), size: 12)
-                            .foregroundColor(
-                                isSelected
-                                    ? VColor.buttonSecondaryText
-                                    : VColor.textMuted
-                            )
-                            .frame(width: 30, height: 24)
-                            .background(
-                                isSelected
-                                    ? VColor.themeToggleSelected
-                                    : Color.clear
-                            )
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                            .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                    .help(option.tooltip)
-                    .accessibilityLabel("\(option.tooltip) theme")
-                    .accessibilityValue(isSelected ? "Selected" : "")
-                }
-            }
-            .padding(3)
-            .background(VColor.themeToggleBackground)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                ),
+                style: .pill
+            )
+            .fixedSize()
         }
     }
 }

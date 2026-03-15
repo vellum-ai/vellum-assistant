@@ -11,19 +11,19 @@ struct ZoomIndicatorView: View {
             if let label {
                 Text(label)
                     .font(VFont.caption)
-                    .foregroundStyle(VColor.textSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
             }
             Text("\(percentage)%")
                 .font(VFont.bodyMedium)
-                .foregroundStyle(VColor.textPrimary)
+                .foregroundStyle(VColor.contentDefault)
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.sm)
-        .background(VColor.surface)
+        .background(VColor.surfaceBase)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                .stroke(VColor.borderBase, lineWidth: 1)
         )
         .accessibilityLabel("Zoom \(percentage) percent")
     }

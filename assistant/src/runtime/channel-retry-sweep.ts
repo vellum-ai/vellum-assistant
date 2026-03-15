@@ -170,6 +170,11 @@ export async function sweepFailedEvents(
       sourceMetadata.uxBrief.trim().length > 0
         ? sourceMetadata.uxBrief.trim()
         : undefined;
+    const metadataChatType =
+      typeof sourceMetadata?.chatType === "string" &&
+      sourceMetadata.chatType.trim().length > 0
+        ? sourceMetadata.chatType.trim()
+        : undefined;
 
     try {
       const { messageId: userMessageId } = await processMessage(
@@ -181,6 +186,7 @@ export async function sweepFailedEvents(
             channelId: sourceChannel,
             hints: metadataHints.length > 0 ? metadataHints : undefined,
             uxBrief: metadataUxBrief,
+            chatType: metadataChatType,
           },
           assistantId,
           trustContext,

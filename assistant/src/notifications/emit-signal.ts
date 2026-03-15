@@ -18,8 +18,8 @@ import { type BroadcastFn, VellumAdapter } from "./adapters/macos.js";
 import { SlackAdapter } from "./adapters/slack.js";
 import { TelegramAdapter } from "./adapters/telegram.js";
 import {
+  type ConversationCreatedInfo,
   NotificationBroadcaster,
-  type ThreadCreatedInfo,
 } from "./broadcaster.js";
 import { enforceRoutingIntent, evaluateSignal } from "./decision-engine.js";
 import { updateDecision } from "./decisions-store.js";
@@ -67,12 +67,12 @@ function getBroadcaster(): NotificationBroadcaster {
     }
     broadcasterInstance = new NotificationBroadcaster(adapters);
 
-    // Wire the thread-created callback so the macOS client is notified
-    // immediately when a vellum notification thread is paired — before
+    // Wire the conversation-created callback so the macOS client is notified
+    // immediately when a vellum notification conversation is paired — before
     // slower channel deliveries (e.g. Telegram) delay the push.
     if (registeredBroadcastFn) {
       const broadcastFn = registeredBroadcastFn;
-      broadcasterInstance.setOnThreadCreated((info) => {
+      broadcasterInstance.setOnConversationCreated((info) => {
         broadcastFn({
           type: "notification_thread_created",
           conversationId: info.conversationId,
@@ -161,16 +161,16 @@ export interface EmitSignalParams<TEventName extends string = string> {
   /**
    * Per-channel conversation affinity hint. Forces the decision engine to
    * reuse the specified conversation for the given channel(s), bypassing
-   * LLM thread-routing judgment. Keyed by channel name, value is conversationId.
+   * LLM conversation-routing judgment. Keyed by channel name, value is conversationId.
    */
   conversationAffinityHint?: Partial<Record<string, string>>;
   /** Optional deduplication key. */
   dedupeKey?: string;
   /**
    * Optional callback invoked immediately when the broadcaster pairs a vellum
-   * thread and emits `notification_thread_created`.
+   * conversation and emits `notification_thread_created`.
    */
-  onThreadCreated?: (info: ThreadCreatedInfo) => void;
+  onConversationCreated?: (info: ConversationCreatedInfo) => void;
   /**
    * When true, rethrow pipeline errors to the caller instead of only logging.
    * Useful for direct user-invoked actions that must fail closed.
@@ -329,8 +329,8 @@ export async function emitNotificationSignal<TEventName extends string>(
       signal,
       decision,
       broadcaster,
-      params.onThreadCreated
-        ? { onThreadCreated: params.onThreadCreated }
+      params.onConversationCreated
+        ? { onConversationCreated: params.onConversationCreated }
         : undefined,
     );
 

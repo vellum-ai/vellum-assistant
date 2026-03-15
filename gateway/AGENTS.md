@@ -35,7 +35,7 @@ All assistant API requests from clients, CLI, skills, and user-facing tooling **
 
 Gateway inbound events use a channel-discriminated union model (`GatewayInboundEvent`) with explicit identity fields:
 
-- **`conversationExternalId`**: Delivery/thread address (e.g., Telegram chat ID, SMS phone number). Used for conversation binding and message routing. **Not** used for trust classification.
+- **`conversationExternalId`**: Delivery/thread address (e.g., Telegram chat ID, phone number). Used for conversation binding and message routing. **Not** used for trust classification.
 - **`actorExternalId`**: Sender identity (e.g., Telegram user ID, WhatsApp phone number). Used for trust classification, guardian binding, and ACL enforcement. **Required** for all public channel ingress.
 - **"conversation"** is canonical vocabulary for delivery addresses. "thread" is reserved for provider-specific fields (Slack `thread_ts`, email thread IDs).
 - **"actor"** is canonical vocabulary for sender identity.

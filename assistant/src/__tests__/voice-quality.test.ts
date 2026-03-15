@@ -10,6 +10,7 @@ import {
   buildElevenLabsVoiceSpec,
   resolveVoiceQualityProfile,
 } from "../calls/voice-quality.js";
+import { DEFAULT_ELEVENLABS_VOICE_ID } from "../config/schemas/elevenlabs.js";
 
 describe("buildElevenLabsVoiceSpec", () => {
   test("returns bare voiceId when no model is set", () => {
@@ -63,7 +64,7 @@ describe("buildElevenLabsVoiceSpec", () => {
 describe("resolveVoiceQualityProfile", () => {
   test("always returns ElevenLabs ttsProvider", () => {
     mockConfig = {
-      elevenlabs: { voiceId: "21m00Tcm4TlvDq8ikWAM" },
+      elevenlabs: { voiceId: DEFAULT_ELEVENLABS_VOICE_ID },
       calls: {
         voice: {
           language: "en-US",

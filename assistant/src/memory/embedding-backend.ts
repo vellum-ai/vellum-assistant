@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { getOllamaBaseUrlEnv } from "../config/env.js";
 import type { AssistantConfig } from "../config/types.js";
+import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { GeminiEmbeddingBackend } from "./embedding-gemini.js";
 import { OllamaEmbeddingBackend } from "./embedding-ollama.js";
@@ -11,14 +12,11 @@ import {
   embeddingInputContentHash,
   type MultimodalEmbeddingInput,
   normalizeEmbeddingInput,
+  type SparseEmbedding,
   type TextEmbeddingInput,
 } from "./embedding-types.js";
 
-export type {
-  EmbeddingInput,
-  MultimodalEmbeddingInput,
-  TextEmbeddingInput,
-};
+export type { EmbeddingInput, MultimodalEmbeddingInput, TextEmbeddingInput };
 export { embeddingInputContentHash, normalizeEmbeddingInput };
 
 const log = getLogger("memory-embeddings");
@@ -236,9 +234,9 @@ export interface EmbeddingBackendSelection {
   reason: string | null;
 }
 
-export function selectEmbeddingBackend(
+export async function selectEmbeddingBackend(
   config: AssistantConfig,
-): EmbeddingBackendSelection {
+): Promise<EmbeddingBackendSelection> {
   const requested = config.memory.embeddings.provider;
   if (requested === "local") {
     return {
@@ -252,13 +250,14 @@ export function selectEmbeddingBackend(
     };
   }
   if (requested === "ollama") {
+    const ollamaKey = (await getSecureKeyAsync("ollama")) ?? undefined;
     return {
       backend: getCachedOrCreate(
         "ollama",
         config.memory.embeddings.ollamaModel,
         () =>
           new OllamaEmbeddingBackend(config.memory.embeddings.ollamaModel, {
-            apiKey: config.apiKeys.ollama,
+            apiKey: ollamaKey,
           }),
       ),
       reason: null,
@@ -286,29 +285,32 @@ export function selectEmbeddingBackend(
           ),
           reason: null,
         };
-      case "openai":
-        if (!config.apiKeys.openai) continue;
+      case "openai": {
+        const openaiKey = await getSecureKeyAsync("openai");
+        if (!openaiKey) continue;
         return {
           backend: getCachedOrCreate(
             "openai",
             config.memory.embeddings.openaiModel,
             () =>
               new OpenAIEmbeddingBackend(
-                config.apiKeys.openai,
+                openaiKey,
                 config.memory.embeddings.openaiModel,
               ),
           ),
           reason: null,
         };
-      case "gemini":
-        if (!config.apiKeys.gemini) continue;
+      }
+      case "gemini": {
+        const geminiKey = await getSecureKeyAsync("gemini");
+        if (!geminiKey) continue;
         return {
           backend: getCachedOrCreate(
             "gemini",
             config.memory.embeddings.geminiModel,
             () =>
               new GeminiEmbeddingBackend(
-                config.apiKeys.gemini,
+                geminiKey,
                 config.memory.embeddings.geminiModel,
                 {
                   taskType: config.memory.embeddings.geminiTaskType,
@@ -319,19 +321,22 @@ export function selectEmbeddingBackend(
           ),
           reason: null,
         };
-      case "ollama":
-        if (!isOllamaConfigured(config)) continue;
+      }
+      case "ollama": {
+        if (!(await isOllamaConfigured(config))) continue;
+        const ollamaKey = (await getSecureKeyAsync("ollama")) ?? undefined;
         return {
           backend: getCachedOrCreate(
             "ollama",
             config.memory.embeddings.ollamaModel,
             () =>
               new OllamaEmbeddingBackend(config.memory.embeddings.ollamaModel, {
-                apiKey: config.apiKeys.ollama,
+                apiKey: ollamaKey,
               }),
           ),
           reason: null,
         };
+      }
     }
   }
 
@@ -342,13 +347,13 @@ export function selectEmbeddingBackend(
   return { backend: null, reason };
 }
 
-export function getMemoryBackendStatus(config: AssistantConfig): {
+export async function getMemoryBackendStatus(config: AssistantConfig): Promise<{
   enabled: boolean;
   degraded: boolean;
   provider: EmbeddingProviderName | null;
   model: string | null;
   reason: string | null;
-} {
+}> {
   if (!config.memory.enabled) {
     return {
       enabled: false,
@@ -358,7 +363,7 @@ export function getMemoryBackendStatus(config: AssistantConfig): {
       reason: "memory.disabled",
     };
   }
-  const selection = selectEmbeddingBackend(config);
+  const selection = await selectEmbeddingBackend(config);
   if (!selection.backend) {
     return {
       enabled: true,
@@ -386,7 +391,7 @@ export async function embedWithBackend(
   model: string;
   vectors: number[][];
 }> {
-  const selection = selectEmbeddingBackend(config);
+  const selection = await selectEmbeddingBackend(config);
   if (!selection.backend) {
     throw new Error(
       selection.reason ?? "No memory embedding backend configured",
@@ -403,7 +408,7 @@ export async function embedWithBackend(
   const fallbacks: EmbeddingBackend[] =
     config.memory.embeddings.provider === "auto" &&
     selection.backend.provider !== "gemini"
-      ? selectFallbackBackends(config, selection.backend.provider)
+      ? await selectFallbackBackends(config, selection.backend.provider)
       : [];
 
   // ── Compute provider-specific vector cache extras ───────────────
@@ -412,7 +417,12 @@ export async function embedWithBackend(
 
   // ── In-memory cache check (primary provider only) ──────────────
   const cached: (number[] | null)[] = inputs.map((input) => {
-    const v = getFromVectorCache(primaryProvider, primaryModel, input, vectorExtras);
+    const v = getFromVectorCache(
+      primaryProvider,
+      primaryModel,
+      input,
+      vectorExtras,
+    );
     if (v && v.length === expectedDim) return v;
     return null;
   });
@@ -443,7 +453,8 @@ export async function embedWithBackend(
 
     // Skip text-only backends for multimodal inputs
     const hasNonText = inputsToEmbed.some(
-      (i) => typeof i !== "string" && normalizeEmbeddingInput(i).type !== "text",
+      (i) =>
+        typeof i !== "string" && normalizeEmbeddingInput(i).type !== "text",
     );
     if (backend.provider !== "gemini" && hasNonText) {
       continue;
@@ -502,7 +513,8 @@ export async function embedWithBackend(
   }
   if (!anyBackendAttempted) {
     const hasMultimodal = inputs.some(
-      (i) => typeof i !== "string" && normalizeEmbeddingInput(i).type !== "text",
+      (i) =>
+        typeof i !== "string" && normalizeEmbeddingInput(i).type !== "text",
     );
     if (hasMultimodal) {
       throw new Error(
@@ -517,39 +529,42 @@ export function logMemoryEmbeddingWarning(err: unknown, context: string): void {
   log.warn({ err }, `Memory embeddings failed (${context})`);
 }
 
-function selectFallbackBackends(
+async function selectFallbackBackends(
   config: AssistantConfig,
   exclude: EmbeddingProviderName,
-): EmbeddingBackend[] {
+): Promise<EmbeddingBackend[]> {
   const backends: EmbeddingBackend[] = [];
   const order: EmbeddingProviderName[] = ["openai", "gemini", "ollama"];
   for (const provider of order) {
     if (provider === exclude) continue;
     switch (provider) {
-      case "openai":
-        if (config.apiKeys.openai) {
+      case "openai": {
+        const openaiKey = await getSecureKeyAsync("openai");
+        if (openaiKey) {
           backends.push(
             getCachedOrCreate(
               "openai",
               config.memory.embeddings.openaiModel,
               () =>
                 new OpenAIEmbeddingBackend(
-                  config.apiKeys.openai,
+                  openaiKey,
                   config.memory.embeddings.openaiModel,
                 ),
             ),
           );
         }
         break;
-      case "gemini":
-        if (config.apiKeys.gemini) {
+      }
+      case "gemini": {
+        const geminiKey = await getSecureKeyAsync("gemini");
+        if (geminiKey) {
           backends.push(
             getCachedOrCreate(
               "gemini",
               config.memory.embeddings.geminiModel,
               () =>
                 new GeminiEmbeddingBackend(
-                  config.apiKeys.gemini,
+                  geminiKey,
                   config.memory.embeddings.geminiModel,
                   {
                     taskType: config.memory.embeddings.geminiTaskType,
@@ -561,8 +576,10 @@ function selectFallbackBackends(
           );
         }
         break;
+      }
       case "ollama":
-        if (isOllamaConfigured(config)) {
+        if (await isOllamaConfigured(config)) {
+          const ollamaKey = (await getSecureKeyAsync("ollama")) ?? undefined;
           backends.push(
             getCachedOrCreate(
               "ollama",
@@ -571,7 +588,7 @@ function selectFallbackBackends(
                 new OllamaEmbeddingBackend(
                   config.memory.embeddings.ollamaModel,
                   {
-                    apiKey: config.apiKeys.ollama,
+                    apiKey: ollamaKey,
                   },
                 ),
             ),
@@ -592,25 +609,97 @@ function selectFallbackBackends(
  * available. We check both the primary and fallback backends so that
  * multimodal jobs are still enqueued when Gemini is reachable via fallback.
  */
-export function selectedBackendSupportsMultimodal(
+export async function selectedBackendSupportsMultimodal(
   config: AssistantConfig,
-): boolean {
-  const { backend } = selectEmbeddingBackend(config);
+): Promise<boolean> {
+  const { backend } = await selectEmbeddingBackend(config);
   if (!backend) return false;
   if (backend.provider === "gemini") return true;
 
   // In auto mode, check if Gemini is available as a fallback backend.
   if (config.memory.embeddings.provider === "auto") {
-    const fallbacks = selectFallbackBackends(config, backend.provider);
+    const fallbacks = await selectFallbackBackends(config, backend.provider);
     return fallbacks.some((fb) => fb.provider === "gemini");
   }
   return false;
 }
 
-function isOllamaConfigured(config: AssistantConfig): boolean {
+async function isOllamaConfigured(config: AssistantConfig): Promise<boolean> {
   return (
     config.provider === "ollama" ||
-    Boolean(config.apiKeys.ollama) ||
+    Boolean(await getSecureKeyAsync("ollama")) ||
     Boolean(getOllamaBaseUrlEnv())
   );
+}
+
+// ── TF-IDF sparse embedding ───────────────────────────────────────
+// Simple tokenizer + TF-IDF sparse encoder. Produces a SparseEmbedding
+// with term indices (hashed to a fixed vocabulary) and TF-IDF weights.
+// Can be upgraded to a learned sparse encoder (e.g. SPLADE) later.
+
+const SPARSE_VOCAB_SIZE = 30_000;
+
+/**
+ * Bump this version whenever the sparse embedding algorithm changes
+ * (e.g. hash function fix, tokenizer change) to trigger re-indexing
+ * of existing sparse vectors via the sentinel mismatch mechanism.
+ */
+export const SPARSE_EMBEDDING_VERSION = 2;
+
+/** Tokenize text into lowercase alphanumeric tokens (Unicode-aware). */
+function tokenize(text: string): string[] {
+  return text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+}
+
+/** Hash a token to a stable index in [0, vocabSize). */
+function tokenHash(token: string, vocabSize: number): number {
+  // FNV-1a 32-bit hash for speed
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < token.length; i++) {
+    hash ^= token.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash % vocabSize;
+}
+
+/**
+ * Generate a TF-IDF-based sparse embedding for the given text.
+ *
+ * Term frequency is computed from the input. IDF is approximated using
+ * sub-linear TF weighting (1 + log(tf)) since we don't have a corpus-level
+ * document frequency table. This still produces useful sparse vectors for
+ * lexical matching via Qdrant's sparse vector support.
+ */
+export function generateSparseEmbedding(text: string): SparseEmbedding {
+  const tokens = tokenize(text);
+  if (tokens.length === 0) {
+    return { indices: [], values: [] };
+  }
+
+  // Count term frequencies per hash bucket
+  const tf = new Map<number, number>();
+  for (const token of tokens) {
+    const idx = tokenHash(token, SPARSE_VOCAB_SIZE);
+    tf.set(idx, (tf.get(idx) ?? 0) + 1);
+  }
+
+  // Convert to sub-linear TF weights: 1 + log(tf)
+  const indices: number[] = [];
+  const values: number[] = [];
+  for (const [idx, count] of tf) {
+    indices.push(idx);
+    values.push(1 + Math.log(count));
+  }
+
+  // L2-normalize the sparse vector so scores are comparable
+  let norm = 0;
+  for (const v of values) norm += v * v;
+  norm = Math.sqrt(norm);
+  if (norm > 0) {
+    for (let i = 0; i < values.length; i++) {
+      values[i] /= norm;
+    }
+  }
+
+  return { indices, values };
 }

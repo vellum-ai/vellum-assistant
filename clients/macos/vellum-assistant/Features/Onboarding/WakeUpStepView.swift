@@ -30,17 +30,13 @@ struct WakeUpStepView: View {
         return NSImage(contentsOf: url)
     }()
 
-    private var primaryButtonTitle: String {
-        onboardingPrimaryButtonTitle(isAuthenticated: authManager?.isAuthenticated == true)
-    }
-
     // MARK: - Body
 
     var body: some View {
         // Title
         Text("Welcome to Vellum")
             .font(.system(size: 32, weight: .regular, design: .serif))
-            .foregroundColor(VColor.textPrimary)
+            .foregroundColor(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.xs)
@@ -48,7 +44,7 @@ struct WakeUpStepView: View {
         // Subtitle
         Text("The safest way to create your\npersonal assistant.")
             .font(.system(size: 16))
-            .foregroundColor(VColor.textSecondary)
+            .foregroundColor(VColor.contentSecondary)
             .multilineTextAlignment(.center)
             .opacity(showSubtext ? 1 : 0)
             .offset(y: showSubtext ? 0 : 8)
@@ -63,7 +59,7 @@ struct WakeUpStepView: View {
                         .progressViewStyle(.circular)
                     Text("Checking...")
                         .font(VFont.monoMedium)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
                 .frame(height: 36)
             } else if authManager?.isSubmitting == true {
@@ -73,26 +69,32 @@ struct WakeUpStepView: View {
                         .progressViewStyle(.circular)
                     Text("Signing in...")
                         .font(VFont.monoMedium)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
                 .frame(height: 36)
             } else {
-                OnboardingButton(title: primaryButtonTitle, style: .primary) {
+                OnboardingButton(title: "Log In", style: .primary) {
                     onContinueWithVellum()
                 }
-                .accessibilityLabel("Sign in")
-            }
+                .accessibilityLabel("Log In")
 
-            OnboardingButton(title: "Self-host", style: .tertiary) {
-                onStartWithAPIKey()
+                Button {
+                    state?.skippedAuth = true
+                    onStartWithAPIKey()
+                } label: {
+                    Text("Skip")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentSecondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Skip")
             }
-            .accessibilityLabel("Self-host")
 
             // Auth error message
             if let error = authManager?.errorMessage {
                 Text(error)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.error)
+                    .foregroundColor(VColor.systemNegativeStrong)
                     .multilineTextAlignment(.center)
             }
         }
@@ -116,16 +118,23 @@ struct WakeUpStepView: View {
 
         Text("\u{00A9} 2026 Vellum Inc.")
             .font(VFont.monoSmall)
-            .foregroundStyle(VColor.textMuted.opacity(0.5))
+            .foregroundStyle(VColor.contentTertiary.opacity(0.5))
             .padding(.bottom, VSpacing.sm)
 
         // Characters peeking up from the bottom — single composed image
         // exported from Figma, displayed edge-to-edge at the window bottom.
+        // Clip bottom corners to match the macOS window corner radius.
         if let characters = Self.welcomeCharacters {
             Image(nsImage: characters)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(maxWidth: .infinity)
+                .clipShape(UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: VRadius.window,
+                    bottomTrailingRadius: VRadius.window,
+                    topTrailingRadius: 0
+                ))
                 .opacity(showCharacters ? 1 : 0)
                 .offset(y: showCharacters ? 0 : 30)
                 .animation(.easeOut(duration: 0.6).delay(0.7), value: showCharacters)
@@ -133,23 +142,4 @@ struct WakeUpStepView: View {
                 .accessibilityHidden(true)
         }
     }
-}
-
-// MARK: - Previews
-
-#Preview("Onboarding context") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        VStack(spacing: 0) {
-            Spacer()
-            Image("VellyLogo")
-                .resizable()
-                .interpolation(.none)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 128, height: 128)
-                .padding(.bottom, VSpacing.xxl)
-            WakeUpStepView(state: OnboardingState())
-        }
-    }
-    .frame(width: 520, height: 580)
 }

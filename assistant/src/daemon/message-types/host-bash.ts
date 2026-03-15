@@ -11,6 +11,8 @@ export interface HostBashRequest {
   command: string;
   working_dir?: string;
   timeout_seconds?: number;
+  /** Extra environment variables to inject into the subprocess (e.g. VELLUM_UNTRUSTED_SHELL). */
+  env?: Record<string, string>;
 }
 
 // --- Domain-level union aliases (consumed by the barrel file) ---

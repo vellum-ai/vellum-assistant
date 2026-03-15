@@ -18,6 +18,7 @@ export async function run(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  const account = input.account as string | undefined;
   const query = input.query as string | undefined;
   const scanId = input.scan_id as string | undefined;
   const senderIds = input.sender_ids as string[] | undefined;
@@ -34,7 +35,10 @@ export async function run(
     }
 
     try {
-      const connection = resolveOAuthConnection("integration:gmail");
+      const connection = await resolveOAuthConnection(
+        "integration:google",
+        account,
+      );
       const allMessageIds: string[] = [];
       let pageToken: string | undefined;
       let truncated = false;
@@ -103,7 +107,10 @@ export async function run(
   } else if (messageId) {
     // Single message path
     try {
-      const connection = resolveOAuthConnection("integration:gmail");
+      const connection = await resolveOAuthConnection(
+        "integration:google",
+        account,
+      );
       await modifyMessage(connection, messageId, { removeLabelIds: ["INBOX"] });
       return ok("Message archived.");
     } catch (e) {
@@ -121,7 +128,10 @@ export async function run(
   }
 
   try {
-    const connection = resolveOAuthConnection("integration:gmail");
+    const connection = await resolveOAuthConnection(
+      "integration:google",
+      account,
+    );
     if (messageIds.length === 1) {
       await modifyMessage(connection, messageIds[0], {
         removeLabelIds: ["INBOX"],

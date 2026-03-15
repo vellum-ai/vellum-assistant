@@ -1,11 +1,14 @@
 import { spawn } from "node:child_process";
+import { dirname } from "node:path";
 
 import { getConfig } from "../../config/loader.js";
+import { isCesShellLockdownEnabled } from "../../credential-execution/feature-gates.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
+import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
-import { getDataDir } from "../../util/platform.js";
+import { getDataDir, getRootDir } from "../../util/platform.js";
 import { resolveCredentialRef } from "../credentials/resolve.js";
 import {
   getOrStartSession,
@@ -29,6 +32,53 @@ function buildCredentialRefTrace(
   unresolvedRefs: string[],
 ) {
   return { rawRefs, resolvedIds, unresolvedRefs };
+}
+
+/**
+ * Build the list of absolute paths that should be blocked from read access
+ * inside the sandbox when CES shell lockdown is active.
+ *
+ * Protected paths include:
+ * - ~/.vellum/protected/ — credential store secrets (also covers local-mode
+ *   CES data root at ~/.vellum/protected/credential-executor/)
+ * - ~/.vellum/workspace/data/db/ — database files that may contain credential metadata
+ * - CES bootstrap socket directory (/run/ces-bootstrap/ or CES_BOOTSTRAP_SOCKET_DIR) —
+ *   prevents untrusted shells from connecting to the CES sidecar directly
+ * - CES managed-mode data root (CES_DATA_DIR, or /ces-data when
+ *   CES_MANAGED_MODE is set) — prevents access to CES-private state in
+ *   managed deployments (local-mode is already covered by the protected/
+ *   entry)
+ */
+function buildCesProtectedPaths(): string[] {
+  const root = getRootDir();
+  const paths = [`${root}/protected`, `${root}/workspace/data/db`];
+
+  // CES bootstrap socket directory — block access to the Unix socket that
+  // accepts RPC commands from the assistant process.
+  const bootstrapSocketDir =
+    process.env["CES_BOOTSTRAP_SOCKET_DIR"] || "/run/ces-bootstrap";
+  paths.push(bootstrapSocketDir);
+
+  // If a full socket path override is set (without the dir env var), block
+  // its parent directory as well.
+  if (
+    !process.env["CES_BOOTSTRAP_SOCKET_DIR"] &&
+    process.env["CES_BOOTSTRAP_SOCKET"]
+  ) {
+    paths.push(dirname(process.env["CES_BOOTSTRAP_SOCKET"]));
+  }
+
+  // CES managed-mode private data root — in managed deployments the CES
+  // data lives outside the Vellum root, so it isn't covered by the
+  // `protected/` entry above.
+  const cesDataDir = process.env["CES_DATA_DIR"];
+  if (cesDataDir) {
+    paths.push(cesDataDir);
+  } else if (process.env["CES_MANAGED_MODE"]) {
+    paths.push("/ces-data");
+  }
+
+  return paths;
 }
 
 const log = getLogger("shell-tool");
@@ -96,8 +146,32 @@ class ShellTool implements Tool {
       return { content: "Error: command contains null bytes", isError: true };
     }
 
+    const config = getConfig();
+    const shellLockdownActive =
+      isCesShellLockdownEnabled(config) &&
+      isUntrustedTrustClass(context.trustClass);
+
     const networkMode: "off" | "proxied" =
       input.network_mode === "proxied" ? "proxied" : "off";
+
+    // -----------------------------------------------------------------------
+    // CES shell lockdown — reject proxied credential sessions for untrusted
+    // actors when the lockdown flag is active. Proxied sessions grant the
+    // subprocess access to credentials through the egress proxy, which
+    // violates the secrecy guarantee.
+    // -----------------------------------------------------------------------
+    if (shellLockdownActive && networkMode === "proxied") {
+      log.warn(
+        { trustClass: context.trustClass },
+        "CES shell lockdown: rejecting proxied credential session for untrusted actor",
+      );
+      return {
+        content:
+          "Error: proxied credential sessions are not available in untrusted shell mode. " +
+          "Use the credential grant workflow to request access through a guardian.",
+        isError: true,
+      };
+    }
 
     const rawCredentialRefs: string[] = [];
     if (Array.isArray(input.credential_ids)) {
@@ -106,6 +180,24 @@ class ShellTool implements Tool {
           rawCredentialRefs.push(id);
         }
       }
+    }
+
+    // -----------------------------------------------------------------------
+    // CES shell lockdown — reject non-empty credential-ref mode for untrusted
+    // actors. Even when network_mode is "off", passing credential_ids could
+    // allow the model to probe stored credential metadata.
+    // -----------------------------------------------------------------------
+    if (shellLockdownActive && rawCredentialRefs.length > 0) {
+      log.warn(
+        { trustClass: context.trustClass, refCount: rawCredentialRefs.length },
+        "CES shell lockdown: rejecting credential-ref mode for untrusted actor",
+      );
+      return {
+        content:
+          "Error: credential references are not available in untrusted shell mode. " +
+          "Use the credential grant workflow to request access through a guardian.",
+        isError: true,
+      };
     }
 
     // Resolve credential refs (UUID or service/field) to canonical UUIDs.
@@ -152,7 +244,6 @@ class ShellTool implements Tool {
       credentialIds.push(...rawCredentialRefs);
     }
 
-    const config = getConfig();
     const { shellDefaultTimeoutSec, shellMaxTimeoutSec } = config.timeouts;
     const requestedSec =
       typeof input.timeout_seconds === "number"
@@ -213,13 +304,26 @@ class ShellTool implements Tool {
       Object.assign(env, proxyEnv);
     }
 
+    // Inject VELLUM_UNTRUSTED_SHELL=1 so assistant CLI commands can self-deny
+    // raw-token/secret reveal flows when invoked from an untrusted shell.
+    if (shellLockdownActive) {
+      env.VELLUM_UNTRUSTED_SHELL = "1";
+    }
+
     const result = await new Promise<ToolExecutionResult>((resolve) => {
       const stdoutChunks: Buffer[] = [];
       const stderrChunks: Buffer[] = [];
       let timedOut = false;
 
+      // CES shell lockdown: build deny-read paths for protected credential
+      // data, the protected dir, and data sub-dirs that contain secrets.
+      const denyReadPaths: string[] | undefined = shellLockdownActive
+        ? buildCesProtectedPaths()
+        : undefined;
+
       const wrapped = wrapCommand(command, context.workingDir, sandboxConfig, {
         networkMode,
+        denyReadPaths,
       });
       const child = spawn(wrapped.command, wrapped.args, {
         cwd: context.workingDir,

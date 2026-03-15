@@ -5,8 +5,8 @@
  * - compaction.summaryCalls: 2-6
  * - compaction.estimatedInputTokens: < previousEstimatedInputTokens
  * - recall.injectedTokens: <= computed dynamic budget
- * - recall.lexicalHits: > 0
  * - recall.recencyHits: > 0
+ * - recall.enabled: true
  */
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -48,6 +48,37 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
+}));
+
+// Stub the local embedding backend so the real ONNX model never loads.
+mock.module("../memory/embedding-local.js", () => ({
+  LocalEmbeddingBackend: class {
+    readonly provider = "local" as const;
+    readonly model: string;
+    constructor(model: string) {
+      this.model = model;
+    }
+    async embed(texts: string[]): Promise<number[][]> {
+      return texts.map(() => new Array(384).fill(0));
+    }
+  },
+}));
+
+// Dynamic Qdrant mock so the benchmark can inject high-scoring results
+let mockQdrantResults: Array<{
+  id: string;
+  score: number;
+  payload: Record<string, unknown>;
+}> = [];
+
+mock.module("../memory/qdrant-client.js", () => ({
+  getQdrantClient: () => ({
+    searchWithFilter: async () => mockQdrantResults,
+    hybridSearch: async () => mockQdrantResults,
+    upsertPoints: async () => {},
+    deletePoints: async () => {},
+  }),
+  initQdrantClient: () => {},
 }));
 
 function makeLongMessages(turns: number): Message[] {
@@ -161,18 +192,15 @@ describe("Memory context benchmark", () => {
   beforeEach(() => {
     const db = getDb();
     db.run("DELETE FROM memory_item_sources");
-    db.run("DELETE FROM memory_item_entities");
-    db.run("DELETE FROM memory_entity_relations");
-    db.run("DELETE FROM memory_entities");
     db.run("DELETE FROM memory_embeddings");
-    db.run("DELETE FROM memory_summaries");
     db.run("DELETE FROM memory_items");
-    db.run("DELETE FROM memory_segment_fts");
+
     db.run("DELETE FROM memory_segments");
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
     db.run("DELETE FROM memory_jobs");
     db.run("DELETE FROM memory_checkpoints");
+    mockQdrantResults = [];
   });
 
   afterAll(() => {
@@ -225,13 +253,7 @@ describe("Memory context benchmark", () => {
         },
         retrieval: {
           ...DEFAULT_CONFIG.memory.retrieval,
-          lexicalTopK: 50,
-          semanticTopK: 20,
           maxInjectTokens: 750,
-          reranking: {
-            ...DEFAULT_CONFIG.memory.retrieval.reranking,
-            enabled: false,
-          },
           dynamicBudget: {
             enabled: true,
             minInjectTokens: 160,
@@ -257,6 +279,23 @@ describe("Memory context benchmark", () => {
         recallConfig.memory.retrieval.dynamicBudget.maxInjectTokens,
     });
 
+    // Seed Qdrant mock with a representative decision segment so
+    // the benchmark validates content quality, not just pipeline completion.
+    mockQdrantResults = [
+      {
+        id: "emb-bench-decision",
+        score: 0.9,
+        payload: {
+          target_type: "segment",
+          target_id: "seg-bench-0",
+          text: "Decision 0: use Bun test fixtures for memory regressions and recall ranking checks.",
+          kind: "segment",
+          created_at: now,
+          last_seen_at: now,
+        },
+      },
+    ];
+
     const recall = await buildMemoryRecall(
       "What decisions did we make about Bun tests and retrieval diagnostics?",
       conversationId,
@@ -264,13 +303,13 @@ describe("Memory context benchmark", () => {
       { maxInjectTokensOverride: recallBudget },
     );
 
-    // In CI, Qdrant/embedding providers are unavailable, so semantic search
-    // fails and the retriever marks the result as degraded.  The benchmark
-    // cares about compaction and lexical recall quality, not embedding
-    // availability, so we do not assert on `recall.degraded`.
-    expect(recall.lexicalHits).toBeGreaterThan(0);
+    // Recency search finds conversation-scoped segments.
     expect(recall.recencyHits).toBeGreaterThan(0);
+    expect(recall.enabled).toBe(true);
+    // With Qdrant mock returning a high-scoring result, content should be injected.
     expect(recall.selectedCount).toBeGreaterThan(0);
+    expect(recall.injectedText).toContain("Bun test fixtures");
+    expect(recall.injectedTokens).toBeGreaterThan(0);
     expect(recall.injectedTokens).toBeLessThanOrEqual(recallBudget);
     expect(recallBudget).toBeGreaterThanOrEqual(
       recallConfig.memory.retrieval.dynamicBudget.minInjectTokens,
@@ -278,6 +317,5 @@ describe("Memory context benchmark", () => {
     expect(recallBudget).toBeLessThanOrEqual(
       recallConfig.memory.retrieval.dynamicBudget.maxInjectTokens,
     );
-    expect(recall.injectedText).toContain("Bun test fixtures");
   });
 });

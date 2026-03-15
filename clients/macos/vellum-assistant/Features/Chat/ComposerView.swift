@@ -11,7 +11,7 @@ private let composerLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com
 
 struct ComposerView: View {
     private let composerMaxHeight: CGFloat = 200
-    private let composerActionButtonSize: CGFloat = 34
+    private let composerActionButtonSize: CGFloat = 32
 
     // MARK: - ComposerMode
 
@@ -78,6 +78,7 @@ struct ComposerView: View {
     @State private var preDictationText: String = ""
     /// Live amplitude from VoiceInputManager, bypassing ChatViewModel's 100ms coalescing.
     @State private var liveAmplitude: Float = 0
+    @State private var isComposerDropTargeted = false
 
     /// The portion of the suggestion that extends beyond the current input.
     private var ghostSuffix: String? {
@@ -162,7 +163,7 @@ struct ComposerView: View {
                 .foregroundColor(.clear)
             + Text(ghostSuffix)
                 .font(font)
-                .foregroundColor(VColor.textSecondary.opacity(0.55)))
+                .foregroundColor(VColor.contentSecondary.opacity(0.55)))
                 .lineSpacing(4)
                 .lineLimit(1...)
                 .allowsHitTesting(false)
@@ -183,8 +184,8 @@ struct ComposerView: View {
         .textFieldStyle(.plain)
         .font(font)
         .lineSpacing(4)
-        .foregroundColor(hasSlashHighlight ? .clear : VColor.textPrimary)
-        .tint(VColor.accent)
+        .foregroundColor(hasSlashHighlight ? .clear : VColor.contentDefault)
+        .tint(VColor.primaryBase)
         .focused($composerFocus)
         .disabled(!hasAPIKey)
         .onSubmit { handleComposerSubmit() }
@@ -231,11 +232,11 @@ struct ComposerView: View {
                 composerTextOverlays(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
                 composerInputField(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
             }
-            .frame(maxWidth: .infinity, minHeight: composerCompactHeight, alignment: .leading)
-            .padding(.trailing, 70)
+            .frame(maxWidth: .infinity, minHeight: composerActionButtonSize, alignment: .leading)
         }
         .scrollBounceBehavior(.basedOnSize)
-        .frame(minHeight: composerCompactHeight, maxHeight: inputText.isEmpty ? composerCompactHeight : composerMaxHeight)
+        .defaultScrollAnchor(.bottom)
+        .frame(minHeight: composerActionButtonSize, maxHeight: inputText.isEmpty ? composerActionButtonSize : composerMaxHeight)
         .accessibilityLabel("Message")
         .frame(maxWidth: .infinity)
         .background(
@@ -277,7 +278,12 @@ struct ComposerView: View {
                 updateSlashState()
             }
         }
-        .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: nil) { providers in
+        .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isComposerDropTargeted) { providers in
+            // Reset overlay immediately — SwiftUI's isTargeted binding may not
+            // reset reliably when AppKit's NSDraggingDestination (e.g. the
+            // NSTextView inside the composer) intercepts the drag session.
+            isComposerDropTargeted = false
+
             let group = DispatchGroup()
             // Collect URLs on the main queue to avoid concurrent Array mutation
             // from loadObject callbacks that may fire on different threads.
@@ -289,7 +295,7 @@ struct ComposerView: View {
                         || provider.hasItemConformingToTypeIdentifier(UTType.png.identifier)
                         || provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier)
                     group.enter()
-                    _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                    _ = provider.loadObject(ofClass: URL.self) { url, error in
                         DispatchQueue.main.async {
                             if let url, FileManager.default.fileExists(atPath: url.path) {
                                 urls.append(url)
@@ -308,10 +314,20 @@ struct ComposerView: View {
                                     DispatchQueue.main.async {
                                         if let data {
                                             onDropImageData(data, suggestedName)
+                                        } else if let url, url.isFileURL {
+                                            // Image data load failed — fall back to
+                                            // the file URL (may be a file promise).
+                                            urls.append(url)
                                         }
                                         group.leave()
                                     }
                                 }
+                            } else if let url, url.isFileURL {
+                                // File promise (e.g. Music.app, Voice Memos) with
+                                // no image data fallback. Try the URL anyway — the
+                                // attachment loader will report errors if inaccessible.
+                                urls.append(url)
+                                group.leave()
                             } else {
                                 group.leave()
                             }
@@ -390,37 +406,41 @@ struct ComposerView: View {
             }
             content()
         }
-        .padding(.top, VSpacing.md)
-        .padding(.bottom, VSpacing.md)
-        .padding(.leading, VSpacing.lg)
-        .padding(.trailing, VSpacing.lg)
+        .padding(.vertical, VSpacing.sm)
+        .padding(.leading, VSpacing.md)
+        .padding(.trailing, VSpacing.sm)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.composerBackground)
+                .fill(VColor.surfaceOverlay)
         )
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(
-                    isComposerFocused ? VColor.surfaceBorder : VColor.surfaceBorder.opacity(0.95),
-                    lineWidth: isComposerFocused ? 1.5 : 1
-                )
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder.opacity(isComposerFocused ? 0.12 : 0), lineWidth: 3)
-        )
-        .shadow(color: .clear, radius: 0)
+        .overlay {
+            if isComposerDropTargeted {
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .fill(VColor.surfaceActive)
+                    .overlay {
+                        HStack(spacing: VSpacing.sm) {
+                            VIconView(.paperclip, size: 16)
+                                .foregroundColor(VColor.contentSecondary)
+                            Text("Drop files to attach")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.contentSecondary)
+                        }
+                    }
+                    .allowsHitTesting(false)
+            }
+        }
+        .shadow(color: VColor.auxBlack.opacity(0.05), radius: 2, x: 0, y: 2)
     }
 
     @ViewBuilder
     private var textEntryComposer: some View {
         standardComposerShell {
-            composerTextField
-                .frame(minHeight: composerCompactHeight)
-                .overlay(alignment: .bottomTrailing) {
-                    composerActionButtons
-                }
+            HStack(alignment: isSending ? .center : .bottom, spacing: VSpacing.xs) {
+                composerTextField
+                    .frame(minHeight: composerActionButtonSize)
+                composerActionButtons
+            }
         }
     }
 
@@ -428,31 +448,29 @@ struct ComposerView: View {
     private var composerActionButtons: some View {
         HStack(spacing: 2) {
             if isSending && !hasPendingConfirmation {
-                VIconButton(
+                VButton(
                     label: "Stop generation",
-                    icon: VIcon.square.rawValue,
-                    iconOnly: true,
-                    variant: .neutral,
-                    size: composerActionButtonSize,
+                    iconOnly: VIcon.square.rawValue,
+                    style: .contrast,
+                    iconSize: composerActionButtonSize,
                     action: onStop
                 )
             } else {
-                VIconButton(
+                VButton(
                     label: "Attach file",
-                    icon: VIcon.paperclip.rawValue,
-                    iconOnly: true,
-                    size: composerActionButtonSize,
+                    iconOnly: VIcon.paperclip.rawValue,
+                    style: .ghost,
+                    iconSize: composerActionButtonSize,
                     action: { onAttach() }
                 )
                 .disabled(!hasAPIKey)
 
                 if canSend {
-                    VIconButton(
+                    VButton(
                         label: "Send message",
-                        icon: VIcon.arrowUp.rawValue,
-                        iconOnly: true,
-                        variant: .primary,
-                        size: composerActionButtonSize
+                        iconOnly: VIcon.arrowUp.rawValue,
+                        style: .primary,
+                        iconSize: composerActionButtonSize
                     ) {
                         composerFocus = true
                         onSend()
@@ -460,25 +478,31 @@ struct ComposerView: View {
                     .transition(.scale.combined(with: .opacity))
                 } else if inputText.isEmpty && !hasPendingConfirmation {
                     // Empty input: show dictate + voice mode buttons
-                    VIconButton(
+                    VButton(
                         label: "Dictate",
-                        icon: VIcon.mic.rawValue,
-                        iconOnly: true,
-                        size: composerActionButtonSize,
+                        iconOnly: VIcon.mic.rawValue,
+                        style: .ghost,
+                        iconSize: composerActionButtonSize,
                         action: { (onDictateToggle ?? onMicrophoneToggle)() }
                     )
                     .disabled(!hasAPIKey)
                     .transition(.scale.combined(with: .opacity))
 
-                    VoiceModeButton(size: composerActionButtonSize) {
-                        onVoiceModeToggle?()
-                    }
+                    VButton(
+                        label: "Voice mode",
+                        iconOnly: VIcon.audioWaveform.rawValue,
+                        style: .contrast,
+                        iconSize: composerActionButtonSize,
+                        action: { onVoiceModeToggle?() }
+                    )
                     .disabled(!hasAPIKey)
                     .transition(.scale.combined(with: .opacity))
                 } else {
-                    MicrophoneButton(
-                        isRecording: isRecording,
-                        size: composerActionButtonSize,
+                    VButton(
+                        label: isRecording ? "Stop recording" : "Start voice input",
+                        iconOnly: VIcon.mic.rawValue,
+                        style: .ghost,
+                        iconSize: composerActionButtonSize,
                         action: { onMicrophoneToggle() }
                     )
                     .disabled(!hasAPIKey)
@@ -486,7 +510,6 @@ struct ComposerView: View {
                 }
             }
         }
-        .padding(.trailing, -(VSpacing.lg - VSpacing.sm))
         .animation(VAnimation.fast, value: canSend)
     }
 
@@ -499,7 +522,7 @@ struct ComposerView: View {
             VStack(spacing: VSpacing.sm) {
                 // Text field remains visible for live transcription
                 composerTextField
-                    .frame(minHeight: composerCompactHeight)
+                    .frame(minHeight: composerActionButtonSize)
 
                 // Inline recording strip
                 HStack(alignment: .center, spacing: VSpacing.sm) {
@@ -507,7 +530,7 @@ VStreamingWaveform(
                         amplitude: liveAmplitude,
                         isActive: true,
                         style: .scrolling,
-                        foregroundColor: VColor.textMuted,
+                        foregroundColor: VColor.contentTertiary,
                         lineWidth: 2
                     )
                     .padding(.trailing, VSpacing.lg)
@@ -515,12 +538,11 @@ VStreamingWaveform(
                     .frame(maxWidth: .infinity)
 
                     // Cancel: stop dictation and discard transcribed text
-                    VIconButton(
+                    VButton(
                         label: "Cancel dictation",
-                        icon: VIcon.x.rawValue,
-                        iconOnly: true,
-                        variant: .danger,
-                        size: composerActionButtonSize,
+                        iconOnly: VIcon.x.rawValue,
+                        style: .danger,
+                        iconSize: composerActionButtonSize,
                         action: {
                             inputText = preDictationText
                             preDictationText = ""
@@ -529,12 +551,11 @@ VStreamingWaveform(
                     )
 
                     // Accept: stop dictation and keep transcribed text
-                    VIconButton(
+                    VButton(
                         label: "Accept dictation",
-                        icon: VIcon.check.rawValue,
-                        iconOnly: true,
-                        variant: .primary,
-                        size: composerActionButtonSize,
+                        iconOnly: VIcon.check.rawValue,
+                        style: .primary,
+                        iconSize: composerActionButtonSize,
                         action: {
                             preDictationText = ""
                             (onDictateToggle ?? onMicrophoneToggle)()
@@ -564,7 +585,7 @@ VStreamingWaveform(
                     amplitude: voiceConversationAmplitude(manager),
                     isActive: manager.state == .listening || manager.state == .speaking,
                     style: .scrolling,
-                    foregroundColor: VColor.voiceComposerTextPrimary,
+                    foregroundColor: VColor.contentInset,
                     lineWidth: 2
                 )
                 .padding(.trailing, VSpacing.lg)
@@ -573,22 +594,20 @@ VStreamingWaveform(
 
                 // Right: mute/unmute + end button
                 HStack(spacing: VSpacing.xs) {
-                    VIconButton(
+                    VButton(
                         label: manager.state == .listening ? "Mute" : "Unmute",
-                        icon: manager.state == .listening ? VIcon.mic.rawValue : VIcon.micOff.rawValue,
-                        iconOnly: true,
-                        variant: .neutral,
-                        size: composerActionButtonSize,
+                        iconOnly: manager.state == .listening ? VIcon.mic.rawValue : VIcon.micOff.rawValue,
+                        style: .contrast,
+                        iconSize: composerActionButtonSize,
                         action: { manager.toggleListening() }
                     )
                     .disabled(manager.state == .processing)
 
-                    VIconButton(
+                    VButton(
                         label: "End voice mode",
-                        icon: VIcon.phoneCall.rawValue,
-                        iconOnly: true,
-                        variant: .danger,
-                        size: composerActionButtonSize,
+                        iconOnly: VIcon.phoneCall.rawValue,
+                        style: .danger,
+                        iconSize: composerActionButtonSize,
                         action: { onEndVoiceMode?() }
                     )
                 }
@@ -598,7 +617,7 @@ VStreamingWaveform(
             }
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(VColor.voiceComposerBackground)
+                    .fill(VColor.contentEmphasized)
             )
             .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         }
@@ -617,10 +636,10 @@ VStreamingWaveform(
 
     private func voiceConversationWaveformColor(_ manager: VoiceModeManager) -> Color {
         switch manager.state {
-        case .listening: return VColor.accent
-        case .speaking: return VColor.success
-        case .processing: return VColor.textSecondary
-        default: return VColor.accent
+        case .listening: return VColor.primaryBase
+        case .speaking: return VColor.systemPositiveStrong
+        case .processing: return VColor.contentSecondary
+        default: return VColor.primaryBase
         }
     }
 
@@ -634,28 +653,3 @@ VStreamingWaveform(
 
 }
 
-// MARK: - Voice Mode Button
-
-/// Circle button with inverse colors for voice mode entry.
-private struct VoiceModeButton: View {
-    let size: CGFloat
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VIconView(.audioWaveform, size: 13)
-                .frame(width: 20, height: 20)
-                .foregroundColor(VColor.voiceComposerTextPrimary)
-        }
-        .buttonStyle(.plain)
-        .frame(width: size, height: size)
-        .background(
-            Circle()
-                .fill(VColor.voiceComposerBackground)
-                .frame(width: 28, height: 28)
-        )
-        .contentShape(Circle().size(width: size, height: size))
-        .pointerCursor()
-        .accessibilityLabel("Voice mode")
-    }
-}

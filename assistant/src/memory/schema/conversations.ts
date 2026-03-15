@@ -21,7 +21,7 @@ export const conversations = sqliteTable(
       .notNull()
       .default(0),
     contextCompactedAt: integer("context_compacted_at"),
-    threadType: text("thread_type").notNull().default("standard"),
+    conversationType: text("conversation_type").notNull().default("standard"),
     source: text("source").notNull().default("user"),
     memoryScopeId: text("memory_scope_id").notNull().default("default"),
     originChannel: text("origin_channel"),
@@ -31,7 +31,7 @@ export const conversations = sqliteTable(
   },
   (table) => [
     index("idx_conversations_updated_at").on(table.updatedAt),
-    index("idx_conversations_thread_type").on(table.threadType),
+    index("idx_conversations_conversation_type").on(table.conversationType),
   ],
 );
 

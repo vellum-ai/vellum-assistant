@@ -6,10 +6,7 @@ import {
   MemoryRetentionConfigSchema,
 } from "./memory-lifecycle.js";
 import {
-  MemoryConflictsConfigSchema,
-  MemoryEntityConfigSchema,
   MemoryExtractionConfigSchema,
-  MemoryProfileConfigSchema,
   MemorySummarizationConfigSchema,
 } from "./memory-processing.js";
 import { MemoryRetrievalConfigSchema } from "./memory-retrieval.js";
@@ -45,13 +42,6 @@ export const MemoryConfigSchema = z.object({
   ),
   summarization: MemorySummarizationConfigSchema.default(
     MemorySummarizationConfigSchema.parse({}),
-  ),
-  entity: MemoryEntityConfigSchema.default(MemoryEntityConfigSchema.parse({})),
-  conflicts: MemoryConflictsConfigSchema.default(
-    MemoryConflictsConfigSchema.parse({}),
-  ),
-  profile: MemoryProfileConfigSchema.default(
-    MemoryProfileConfigSchema.parse({}),
   ),
 });
 

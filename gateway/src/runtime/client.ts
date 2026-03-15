@@ -90,13 +90,6 @@ function cbOnFailure(): void {
   }
 }
 
-/** Exported for testing — resets circuit breaker to initial state. */
-export function _resetCircuitBreaker(): void {
-  cbState = CircuitState.CLOSED;
-  cbConsecutiveFailures = 0;
-  cbOpenedAt = 0;
-}
-
 /**
  * Build common headers for runtime requests using JWT auth.
  *

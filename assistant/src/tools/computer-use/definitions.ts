@@ -499,13 +499,3 @@ export const allComputerUseTools: Tool[] = [
   computerUseDoneTool,
   computerUseRespondTool,
 ];
-
-/**
- * Tools safe for the legacy fallback path (no skill projection).
- *
- * Excludes `computer_use_observe` because the macOS client doesn't handle it
- * in the legacy code path — it falls back to `.done` which skips sending an
- * observation, causing the daemon to block on `pendingObservation` until timeout.
- */
-export const legacyFallbackComputerUseTools: Tool[] =
-  allComputerUseTools.filter((t) => t.name !== "computer_use_observe");

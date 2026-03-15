@@ -118,7 +118,7 @@ export async function generateAndPersistConversationTitle(
     return { title: conversation.title!, updated: false };
   }
 
-  const provider = params.provider ?? getConfiguredProvider();
+  const provider = params.provider ?? (await getConfiguredProvider());
   if (!provider) {
     // No provider available — fall back to context-derived title or untitled
     const fallback = deriveFallbackTitle(context) ?? UNTITLED_FALLBACK;
@@ -234,7 +234,7 @@ export async function regenerateConversationTitle(
     return { title: conversation?.title ?? UNTITLED_FALLBACK, updated: false };
   }
 
-  const provider = params.provider ?? getConfiguredProvider();
+  const provider = params.provider ?? (await getConfiguredProvider());
   if (!provider) {
     return { title: conversation.title ?? UNTITLED_FALLBACK, updated: false };
   }

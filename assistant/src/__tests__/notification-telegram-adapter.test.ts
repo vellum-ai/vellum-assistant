@@ -62,14 +62,14 @@ describe("TelegramAdapter", () => {
     deliveryCalls.length = 0;
   });
 
-  test("prefers deliveryText and does not append deterministic Thread label", async () => {
+  test("prefers deliveryText and does not append deterministic label", async () => {
     const adapter = new TelegramAdapter();
     const payload = makePayload({
       copy: {
         title: "Check the oven",
         body: "Reminder: Check the oven now!",
         deliveryText: "Check the oven now!",
-        threadTitle: "Oven Reminder",
+        conversationTitle: "Oven Reminder",
       },
     });
 
@@ -84,13 +84,13 @@ describe("TelegramAdapter", () => {
     expect(deliveryCalls[0]?.payload.text as string).not.toContain("Thread:");
   });
 
-  test("falls back to threadSeedMessage when deliveryText is absent", async () => {
+  test("falls back to conversationSeedMessage when deliveryText is absent", async () => {
     const adapter = new TelegramAdapter();
     const payload = makePayload({
       copy: {
         title: "Reminder",
         body: "Check the oven now!",
-        threadSeedMessage: "Please check the oven now.",
+        conversationSeedMessage: "Please check the oven now.",
       },
     });
 
@@ -126,7 +126,7 @@ describe("TelegramAdapter", () => {
         copy: {
           title: "Reminder",
           body: "Check the oven now!",
-          threadSeedMessage: '{"raw":"json"}',
+          conversationSeedMessage: '{"raw":"json"}',
         },
       }),
       makeDestination(),

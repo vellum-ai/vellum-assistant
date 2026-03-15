@@ -575,6 +575,7 @@ export class RelayConnection {
           outcome.fromNumber,
           outcome.friendName,
           outcome.guardianName,
+          !resolved.isInbound,
         );
         return;
       case "name_capture":
@@ -594,7 +595,7 @@ export class RelayConnection {
           (resolved.actorTrust.trustClass === "guardian" ||
             resolved.actorTrust.trustClass === "trusted_contact")
         ) {
-          touchContactInteraction(resolved.actorTrust.memberRecord.contact.id);
+          touchContactInteraction(resolved.actorTrust.memberRecord.channel.id);
         }
         if (this.controller && resolved.actorTrust.trustClass !== "unknown") {
           this.controller.setTrustContext(
@@ -611,7 +612,7 @@ export class RelayConnection {
               resolved.actorTrust.trustClass === "trusted_contact")
           ) {
             touchContactInteraction(
-              resolved.actorTrust.memberRecord.contact.id,
+              resolved.actorTrust.memberRecord.channel.id,
             );
           }
           if (this.controller && resolved.actorTrust.trustClass !== "unknown") {
@@ -772,6 +773,12 @@ export class RelayConnection {
     fromNumber: string;
     callerName?: string;
     skipMemberActivation?: boolean;
+    activationReason?:
+      | "invite_redeemed"
+      | "access_approved"
+      | "trusted_contact_verified";
+    friendName?: string;
+    guardianName?: string;
   }): void {
     const { assistantId, fromNumber, callerName } = params;
 
@@ -808,7 +815,25 @@ export class RelayConnection {
     updateCallSession(this.callSessionId, { status: "in_progress" });
 
     const guardianLabel = this.resolveGuardianLabel();
-    const handoffText = `Great! ${guardianLabel} said I can speak with you. How can I help?`;
+    let handoffText: string;
+
+    if (params.activationReason === "invite_redeemed") {
+      const name = params.friendName;
+      const assistantName = this.resolveAssistantLabel();
+      const gLabel = params.guardianName || guardianLabel;
+      if (name) {
+        handoffText = assistantName
+          ? `Great, I've verified that you are ${name}. It's nice to meet you! I'm ${assistantName}, ${gLabel}'s assistant. How can I help?`
+          : `Great, I've verified that you are ${name}. It's nice to meet you! How can I help?`;
+      } else {
+        handoffText = assistantName
+          ? `Great, I've verified your identity. It's nice to meet you! I'm ${assistantName}, ${gLabel}'s assistant. How can I help?`
+          : `Great, I've verified your identity. It's nice to meet you! How can I help?`;
+      }
+    } else {
+      handoffText = `Great! ${guardianLabel} said I can speak with you. How can I help?`;
+    }
+
     this.sendTextToken(handoffText, true);
 
     recordCallEvent(this.callSessionId, "assistant_spoke", {
@@ -967,14 +992,7 @@ export class RelayConnection {
       }
 
       if (isOutbound) {
-        this.connectionState = "disconnecting";
-        this.sendTextToken(result.ttsMessage!, true);
-
-        updateCallSession(this.callSessionId, {
-          status: "completed",
-          endedAt: Date.now(),
-        });
-
+        // Keep the pointer message back to the initiating conversation
         const successSession = getCallSession(this.callSessionId);
         if (successSession?.initiatedFromConversationId) {
           addPointerMessage(
@@ -993,13 +1011,37 @@ export class RelayConnection {
           });
         }
 
-        setTimeout(() => {
-          this.endSession("Verified — guardian challenge passed");
-        }, getTtsPlaybackDelayMs());
+        // Update trust context on the controller so the LLM knows this is the guardian
+        if (this.controller) {
+          const verifiedActorTrust = resolveActorTrust({
+            assistantId,
+            sourceChannel: "phone",
+            conversationExternalId: fromNumber,
+            actorExternalId: fromNumber,
+          });
+          this.controller.setTrustContext(
+            toTrustContext(verifiedActorTrust, fromNumber),
+          );
+        }
+
+        // Mark session as in-progress and transition to guardian conversation
+        // with verification context so the LLM greets naturally.
+        updateCallSession(this.callSessionId, { status: "in_progress" });
+        if (this.controller) {
+          this.controller
+            .startPostVerificationGreeting()
+            .catch((err) =>
+              log.error(
+                { err, callSessionId: this.callSessionId },
+                "Failed to start post-verification greeting",
+              ),
+            );
+        }
       } else if (result.verificationType === "trusted_contact") {
         this.continueCallAfterTrustedContactActivation({
           assistantId,
           fromNumber,
+          activationReason: "trusted_contact_verified",
         });
       } else {
         // Inbound guardian verification: binding already handled above,
@@ -1096,6 +1138,7 @@ export class RelayConnection {
     fromNumber: string,
     friendName: string | null,
     guardianName: string | null,
+    isOutbound: boolean,
   ): void {
     this.inviteRedemptionActive = true;
     this.inviteRedemptionAssistantId = assistantId;
@@ -1116,14 +1159,21 @@ export class RelayConnection {
 
     const displayFriend = friendName ?? "there";
     const displayGuardian = guardianName ?? "your contact";
-    this.sendTextToken(
-      `Welcome ${displayFriend}. Please enter the 6-digit code that ${displayGuardian} provided you to verify your identity.`,
-      true,
-    );
+
+    let promptText: string;
+    if (isOutbound) {
+      const assistantName = this.resolveAssistantLabel();
+      promptText = assistantName
+        ? `Hi ${displayFriend}, this is ${assistantName}, ${displayGuardian}'s assistant. To get started, please enter the 6-digit code that ${displayGuardian} shared with you.`
+        : `Hi ${displayFriend}, this is ${displayGuardian}'s assistant. To get started, please enter the 6-digit code that ${displayGuardian} shared with you.`;
+    } else {
+      promptText = `Welcome ${displayFriend}. Please enter the 6-digit code that ${displayGuardian} provided you to verify your identity.`;
+    }
+    this.sendTextToken(promptText, true);
 
     log.info(
       { callSessionId: this.callSessionId, assistantId },
-      "Inbound voice invite redemption started",
+      `${isOutbound ? "Outbound" : "Inbound"} voice invite redemption started`,
     );
   }
 
@@ -1358,6 +1408,7 @@ export class RelayConnection {
       assistantId,
       fromNumber,
       callerName: callerName ?? undefined,
+      activationReason: "access_approved",
     });
 
     recordCallEvent(
@@ -1541,6 +1592,9 @@ export class RelayConnection {
         fromNumber: this.inviteRedemptionFromNumber,
         callerName: this.inviteRedemptionFriendName ?? undefined,
         skipMemberActivation: true,
+        activationReason: "invite_redeemed",
+        friendName: this.inviteRedemptionFriendName ?? undefined,
+        guardianName: this.inviteRedemptionGuardianName ?? undefined,
       });
     } else {
       this.inviteRedemptionActive = false;

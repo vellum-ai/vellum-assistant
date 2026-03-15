@@ -119,7 +119,7 @@ describe("setAvatarTool", () => {
   test("atomic write — file is written to .tmp then renamed", async () => {
     await executeAvatar("a friendly cat");
 
-    const expectedPath = "/tmp/test-workspace/data/avatar/custom-avatar.png";
+    const expectedPath = "/tmp/test-workspace/data/avatar/avatar-image.png";
 
     // Verify mkdirSync was called for the directory
     expect(mkdirSyncFn).toHaveBeenCalledTimes(1);

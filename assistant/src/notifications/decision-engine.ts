@@ -22,6 +22,11 @@ import {
 import type { ModelIntent } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import {
+  buildConversationCandidates,
+  type ConversationCandidateSet,
+  serializeCandidatesForPrompt,
+} from "./conversation-candidates.js";
+import {
   buildAccessRequestContractText,
   buildAccessRequestInviteDirective,
   composeFallbackCopy,
@@ -37,16 +42,11 @@ import {
 } from "./guardian-question-mode.js";
 import { getPreferenceSummary } from "./preference-summary.js";
 import type { NotificationSignal, RoutingIntent } from "./signal.js";
-import {
-  buildThreadCandidates,
-  serializeCandidatesForPrompt,
-  type ThreadCandidateSet,
-} from "./thread-candidates.js";
 import type {
+  ConversationAction,
   NotificationChannel,
   NotificationDecision,
   RenderedChannelCopy,
-  ThreadAction,
 } from "./types.js";
 
 const log = getLogger("notification-decision-engine");
@@ -94,20 +94,20 @@ function buildSystemPrompt(
     `Copy guidelines (three distinct outputs):`,
     `- \`title\` and \`body\` are for native notification popups (e.g. vellum desktop/mobile) — keep them short and glanceable (title ≤ 8 words, body ≤ 2 sentences).`,
     `- \`deliveryText\` is the channel-native message for chat channels (e.g. telegram). It must read naturally as a standalone message.`,
-    `  - Do not prepend mechanical labels like "Thread:".`,
+    `  - Do not prepend mechanical labels like "Conversation:".`,
     `  - Do not mention channel or transport names (e.g. Telegram, Slack, email) unless the event context explicitly requires it.`,
     `  - Do not repeat title/body verbatim unless that repetition is truly necessary.`,
     `  - Avoid meta-send phrasing (e.g. "I'd like to send a notification", "May I go ahead with that?"). Write the recipient-facing message directly.`,
     `  - For telegram: 1-2 concise sentences.`,
-    `- \`threadSeedMessage\` is the opening message in the internal notification thread — it can be richer and more contextual.`,
+    `- \`conversationSeedMessage\` is the opening message in the internal notification conversation — it can be richer and more contextual.`,
     `  - For vellum (desktop): 2-4 short sentences with useful context and clear next step if action is required.`,
     `  - Never dump raw JSON. Include only human-readable context.`,
     ``,
-    `Thread reuse guidelines:`,
-    `- For each selected channel, decide whether to start a new conversation thread or reuse an existing one.`,
-    `- Set \`threadActions\` keyed by channel name with \`action\` = "start_new" or "reuse_existing" (with \`conversationId\` from the candidates).`,
-    `- Prefer \`reuse_existing\` when the signal is clearly a continuation or update of an existing notification thread (same event type, related context).`,
-    `- Prefer \`start_new\` when the signal is a distinct event that deserves its own thread.`,
+    `Conversation reuse guidelines:`,
+    `- For each selected channel, decide whether to start a new conversation or reuse an existing one.`,
+    `- Set \`conversationActions\` keyed by channel name with \`action\` = "start_new" or "reuse_existing" (with \`conversationId\` from the candidates).`,
+    `- Prefer \`reuse_existing\` when the signal is clearly a continuation or update of an existing notification conversation (same event type, related context).`,
+    `- Prefer \`start_new\` when the signal is a distinct event that deserves its own conversation.`,
     `- You may ONLY reuse a conversationId that appears in the provided candidate list. Any other ID will be rejected and downgraded to start_new.`,
     `- When no candidates are available for a channel, always use start_new.`,
   );
@@ -115,9 +115,9 @@ function buildSystemPrompt(
   if (candidateContext) {
     sections.push(
       ``,
-      `<thread-candidates>`,
+      `<conversation-candidates>`,
       candidateContext,
-      `</thread-candidates>`,
+      `</conversation-candidates>`,
     );
   }
 
@@ -213,15 +213,15 @@ function buildDecisionTool(availableChannels: NotificationChannel[]) {
                     description:
                       "Channel-native chat message text (for example Telegram). Must stand alone naturally.",
                   },
-                  threadTitle: {
+                  conversationTitle: {
                     type: "string",
                     description:
-                      "Optional thread title for grouped notifications",
+                      "Optional conversation title for grouped notifications",
                   },
-                  threadSeedMessage: {
+                  conversationSeedMessage: {
                     type: "string",
                     description:
-                      "Richer opening message for the notification thread. More contextual than title/body. For vellum: 2-4 sentences. For telegram: 1-2 sentences. Never raw JSON.",
+                      "Richer opening message for the notification conversation. More contextual than title/body. For vellum: 2-4 sentences. For telegram: 1-2 sentences. Never raw JSON.",
                   },
                 },
                 required: ["title", "body"],
@@ -229,10 +229,10 @@ function buildDecisionTool(availableChannels: NotificationChannel[]) {
             ]),
           ),
         },
-        threadActions: {
+        conversationActions: {
           type: "object",
           description:
-            "Per-channel thread action: start a new thread or reuse an existing candidate. Keyed by channel name.",
+            "Per-channel conversation action: start a new conversation or reuse an existing candidate. Keyed by channel name.",
           properties: Object.fromEntries(
             availableChannels.map((ch) => [
               ch,
@@ -243,12 +243,12 @@ function buildDecisionTool(availableChannels: NotificationChannel[]) {
                     type: "string",
                     enum: ["start_new", "reuse_existing"],
                     description:
-                      "Whether to start a new thread or reuse an existing one.",
+                      "Whether to start a new conversation or reuse an existing one.",
                   },
                   conversationId: {
                     type: "string",
                     description:
-                      "Required when action is reuse_existing. Must be a conversationId from the provided thread candidates.",
+                      "Required when action is reuse_existing. Must be a conversationId from the provided conversation candidates.",
                   },
                 },
                 required: ["action"],
@@ -335,7 +335,7 @@ const VALID_CHANNELS = new Set<string>(getDeliverableChannels());
 function validateDecisionOutput(
   input: Record<string, unknown>,
   availableChannels: NotificationChannel[],
-  candidateSet?: ThreadCandidateSet,
+  candidateSet?: ConversationCandidateSet,
 ): NotificationDecision | null {
   if (typeof input.shouldNotify !== "boolean") return null;
   if (typeof input.reasoningSummary !== "string") return null;
@@ -377,11 +377,13 @@ function validateDecisionOutput(
             body: c.body,
             deliveryText:
               typeof c.deliveryText === "string" ? c.deliveryText : undefined,
-            threadTitle:
-              typeof c.threadTitle === "string" ? c.threadTitle : undefined,
-            threadSeedMessage:
-              typeof c.threadSeedMessage === "string"
-                ? c.threadSeedMessage
+            conversationTitle:
+              typeof c.conversationTitle === "string"
+                ? c.conversationTitle
+                : undefined,
+            conversationSeedMessage:
+              typeof c.conversationSeedMessage === "string"
+                ? c.conversationSeedMessage
                 : undefined,
           };
         }
@@ -389,9 +391,9 @@ function validateDecisionOutput(
     }
   }
 
-  // Validate threadActions — strictly against the provided candidate set
-  const threadActions = validateThreadActions(
-    input.threadActions,
+  // Validate conversationActions — strictly against the provided candidate set
+  const conversationActions = validateConversationActions(
+    input.conversationActions,
     validChannels,
     candidateSet,
   );
@@ -406,8 +408,10 @@ function validateDecisionOutput(
     selectedChannels: validChannels,
     reasoningSummary: input.reasoningSummary,
     renderedCopy,
-    threadActions:
-      Object.keys(threadActions).length > 0 ? threadActions : undefined,
+    conversationActions:
+      Object.keys(conversationActions).length > 0
+        ? conversationActions
+        : undefined,
     deepLinkTarget,
     dedupeKey: input.dedupeKey,
     confidence,
@@ -415,10 +419,10 @@ function validateDecisionOutput(
   };
 }
 
-// ── Thread action validation ───────────────────────────────────────────
+// ── Conversation action validation ────────────────────────────────────
 
 /**
- * Validate and sanitize thread actions from LLM output.
+ * Validate and sanitize conversation actions from LLM output.
  *
  * - reuse_existing targets are checked against the candidate set; invalid
  *   targets are downgraded to start_new with a warning.
@@ -426,12 +430,12 @@ function validateDecisionOutput(
  * - Missing actions for selected channels default to start_new (handled
  *   downstream, not materialized here to keep the output compact).
  */
-export function validateThreadActions(
+export function validateConversationActions(
   raw: unknown,
   validChannels: NotificationChannel[],
-  candidateSet?: ThreadCandidateSet,
-): Partial<Record<NotificationChannel, ThreadAction>> {
-  const result: Partial<Record<NotificationChannel, ThreadAction>> = {};
+  candidateSet?: ConversationCandidateSet,
+): Partial<Record<NotificationChannel, ConversationAction>> {
+  const result: Partial<Record<NotificationChannel, ConversationAction>> = {};
 
   if (!raw || typeof raw !== "object") return result;
 
@@ -522,9 +526,9 @@ function ensureGuardianRequestCodeInCopy(
     deliveryText: copy.deliveryText
       ? ensureText(copy.deliveryText)
       : copy.deliveryText,
-    threadSeedMessage: copy.threadSeedMessage
-      ? ensureText(copy.threadSeedMessage)
-      : copy.threadSeedMessage,
+    conversationSeedMessage: copy.conversationSeedMessage
+      ? ensureText(copy.conversationSeedMessage)
+      : copy.conversationSeedMessage,
   };
 }
 
@@ -643,9 +647,9 @@ function ensureAccessRequestInstructionsInCopy(
     deliveryText: copy.deliveryText
       ? ensureText(copy.deliveryText)
       : copy.deliveryText,
-    threadSeedMessage: copy.threadSeedMessage
-      ? ensureText(copy.threadSeedMessage)
-      : copy.threadSeedMessage,
+    conversationSeedMessage: copy.conversationSeedMessage
+      ? ensureText(copy.conversationSeedMessage)
+      : copy.conversationSeedMessage,
   };
 }
 
@@ -665,9 +669,9 @@ function ensureInviteFlowDirectiveInCopy(
     deliveryText: copy.deliveryText
       ? ensureText(copy.deliveryText)
       : copy.deliveryText,
-    threadSeedMessage: copy.threadSeedMessage
-      ? ensureText(copy.threadSeedMessage)
-      : copy.threadSeedMessage,
+    conversationSeedMessage: copy.conversationSeedMessage
+      ? ensureText(copy.conversationSeedMessage)
+      : copy.conversationSeedMessage,
   };
 }
 
@@ -698,20 +702,20 @@ export async function evaluateSignal(
     }
   }
 
-  // Build thread candidate set for reuse decisions. Wrapped in try/catch
+  // Build conversation candidate set for reuse decisions. Wrapped in try/catch
   // so candidate lookup failures do not block the decision path.
-  let candidateSet: ThreadCandidateSet | undefined;
+  let candidateSet: ConversationCandidateSet | undefined;
   try {
-    candidateSet = buildThreadCandidates(availableChannels);
+    candidateSet = buildConversationCandidates(availableChannels);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     log.warn(
       { err: errMsg },
-      "Failed to build thread candidates, proceeding without candidates",
+      "Failed to build conversation candidates, proceeding without candidates",
     );
   }
 
-  const provider = getConfiguredProvider();
+  const provider = await getConfiguredProvider();
   if (!provider) {
     log.warn(
       "Configured provider unavailable for notification decision, using fallback",
@@ -719,7 +723,7 @@ export async function evaluateSignal(
     let decision = buildFallbackDecision(signal, availableChannels);
     decision = enforceGuardianRequestCode(decision, signal);
     decision = enforceAccessRequestInstructions(decision, signal);
-    decision = enforceGuardianCallThreadAffinity(decision, signal);
+    decision = enforceGuardianCallConversationAffinity(decision, signal);
     decision = enforceConversationAffinity(
       decision,
       signal.conversationAffinityHint,
@@ -748,7 +752,7 @@ export async function evaluateSignal(
 
   decision = enforceGuardianRequestCode(decision, signal);
   decision = enforceAccessRequestInstructions(decision, signal);
-  decision = enforceGuardianCallThreadAffinity(decision, signal);
+  decision = enforceGuardianCallConversationAffinity(decision, signal);
   decision = enforceConversationAffinity(
     decision,
     signal.conversationAffinityHint,
@@ -765,9 +769,9 @@ async function classifyWithLLM(
   availableChannels: NotificationChannel[],
   preferenceContext: string | undefined,
   modelIntent: ModelIntent,
-  candidateSet?: ThreadCandidateSet,
+  candidateSet?: ConversationCandidateSet,
 ): Promise<NotificationDecision> {
-  const provider = getConfiguredProvider()!;
+  const provider = (await getConfiguredProvider())!;
   const { signal: abortSignal, cleanup } = createTimeout(DECISION_TIMEOUT_MS);
 
   const candidateContext = candidateSet
@@ -909,19 +913,19 @@ export function enforceRoutingIntent(
   return decision;
 }
 
-// ── Guardian call thread affinity ────────────────────────────────────────
+// ── Guardian call conversation affinity ──────────────────────────────────
 
 /**
- * Force a new vellum thread for the first guardian question in a phone call.
+ * Force a new vellum conversation for the first guardian question in a phone call.
  *
  * When a guardian.question signal carries a callSessionId but has no
  * conversationAffinityHint, this is the first dispatch in a new call and
- * should get its own thread. Without this guard the LLM might reuse a
- * thread from a previous call. For subsequent dispatches within the same
+ * should get its own conversation. Without this guard the LLM might reuse a
+ * conversation from a previous call. For subsequent dispatches within the same
  * call, the affinity hint already exists and enforceConversationAffinity
  * handles routing — so this guard is a no-op.
  */
-export function enforceGuardianCallThreadAffinity(
+export function enforceGuardianCallConversationAffinity(
   decision: NotificationDecision,
   signal: NotificationSignal,
 ): NotificationDecision {
@@ -936,15 +940,17 @@ export function enforceGuardianCallThreadAffinity(
   if (signal.conversationAffinityHint?.vellum) return decision;
 
   const enforced = { ...decision };
-  const threadActions: Partial<Record<NotificationChannel, ThreadAction>> = {
-    ...(decision.threadActions ?? {}),
+  const conversationActions: Partial<
+    Record<NotificationChannel, ConversationAction>
+  > = {
+    ...(decision.conversationActions ?? {}),
   };
-  threadActions.vellum = { action: "start_new" };
-  enforced.threadActions = threadActions;
+  conversationActions.vellum = { action: "start_new" };
+  enforced.conversationActions = conversationActions;
 
   log.info(
     { callSessionId },
-    "Guardian call thread affinity: first question in call — forcing start_new for vellum",
+    "Guardian call conversation affinity: first question in call — forcing start_new for vellum",
   );
 
   return enforced;
@@ -956,7 +962,7 @@ export function enforceGuardianCallThreadAffinity(
  * Enforce conversation affinity on a decision.
  *
  * When the signal carries a conversationAffinityHint (per-channel map of
- * conversationId), override the decision's threadActions for those channels
+ * conversationId), override the decision's conversationActions for those channels
  * to `reuse_existing` with the hinted conversationId. This is a
  * deterministic post-decision guard that prevents the LLM from routing
  * guardian questions for the same call session to different conversations.
@@ -974,22 +980,24 @@ export function enforceConversationAffinity(
   if (entries.length === 0) return decision;
 
   const enforced = { ...decision };
-  const threadActions: Partial<Record<NotificationChannel, ThreadAction>> = {
-    ...(decision.threadActions ?? {}),
+  const conversationActions: Partial<
+    Record<NotificationChannel, ConversationAction>
+  > = {
+    ...(decision.conversationActions ?? {}),
   };
 
   for (const [channel, conversationId] of entries) {
-    threadActions[channel as NotificationChannel] = {
+    conversationActions[channel as NotificationChannel] = {
       action: "reuse_existing",
       conversationId: conversationId!,
     };
   }
 
-  enforced.threadActions = threadActions;
+  enforced.conversationActions = conversationActions;
 
   log.info(
     { affinityHint },
-    "Conversation affinity enforcement: overrode threadActions for hinted channels",
+    "Conversation affinity enforcement: overrode conversationActions for hinted channels",
   );
 
   return enforced;
@@ -1004,14 +1012,14 @@ function persistDecision(
   try {
     const decisionId = uuid();
 
-    // Summarize thread actions for the audit trail
-    const threadActionSummary: Record<string, string> = {};
-    if (decision.threadActions) {
-      for (const [ch, ta] of Object.entries(decision.threadActions)) {
+    // Summarize conversation actions for the audit trail
+    const conversationActionSummary: Record<string, string> = {};
+    if (decision.conversationActions) {
+      for (const [ch, ta] of Object.entries(decision.conversationActions)) {
         if (ta.action === "reuse_existing") {
-          threadActionSummary[ch] = `reuse:${ta.conversationId}`;
+          conversationActionSummary[ch] = `reuse:${ta.conversationId}`;
         } else {
-          threadActionSummary[ch] = "start_new";
+          conversationActionSummary[ch] = "start_new";
         }
       }
     }
@@ -1029,8 +1037,8 @@ function persistDecision(
         dedupeKey: decision.dedupeKey,
         channelCount: decision.selectedChannels.length,
         hasCopy: Object.keys(decision.renderedCopy).length > 0,
-        ...(Object.keys(threadActionSummary).length > 0
-          ? { threadActions: threadActionSummary }
+        ...(Object.keys(conversationActionSummary).length > 0
+          ? { conversationActions: conversationActionSummary }
           : {}),
       },
     });

@@ -1,4 +1,4 @@
-import { arch, platform, release } from "node:os";
+import { arch, hostname, platform, release } from "node:os";
 
 import * as Sentry from "@sentry/node";
 
@@ -47,12 +47,14 @@ export function initSentry(): void {
     dist: COMMIT_SHA,
     environment: APP_VERSION === "0.0.0-dev" ? "development" : "production",
     sendDefaultPii: false,
+    serverName: hostname(),
     initialScope: {
       tags: {
         commit: COMMIT_SHA,
         os_platform: platform(),
         os_release: release(),
         os_arch: arch(),
+        server_name: hostname(),
         runtime: "bun",
         runtime_version:
           typeof Bun !== "undefined" ? Bun.version : process.version,
@@ -89,4 +91,62 @@ export function initSentry(): void {
  */
 export async function closeSentry(): Promise<void> {
   await Sentry.close();
+}
+
+// ── Dynamic session-scoped Sentry tags ──────────────────────────────
+//
+// These tags change per conversation turn and are set on the current
+// Sentry scope before the agent loop runs. Any `Sentry.captureException`
+// call within that async execution chain (e.g. inside agent/loop.ts)
+// will inherit these tags, enabling filtering by conversation, session,
+// user, or assistant in the Sentry dashboard.
+
+/** Tag keys set by {@link setSentrySessionContext}. */
+const SESSION_TAG_KEYS = [
+  "assistant_id",
+  "conversation_id",
+  "session_id",
+  "message_count",
+  "user_identifier",
+] as const;
+
+export interface SentrySessionContext {
+  /** Internal assistant ID (daemon uses 'self'). */
+  assistantId: string;
+  /** Conversation/session identifier. */
+  conversationId: string;
+  /** Number of messages in the conversation at time of the turn. */
+  messageCount: number;
+  /** Stable per-user identifier (guardian principal ID or similar). */
+  userIdentifier?: string;
+}
+
+/**
+ * Set session-scoped tags on the current Sentry scope.
+ *
+ * Call at the start of each agent loop turn so that any exceptions
+ * captured within the turn include conversation/session context.
+ */
+export function setSentrySessionContext(ctx: SentrySessionContext): void {
+  Sentry.setTag("assistant_id", ctx.assistantId);
+  Sentry.setTag("conversation_id", ctx.conversationId);
+  // session_id mirrors conversation_id — in this codebase they are the
+  // same value, but downstream Sentry users may search by either name.
+  Sentry.setTag("session_id", ctx.conversationId);
+  Sentry.setTag("message_count", String(ctx.messageCount));
+  if (ctx.userIdentifier) {
+    Sentry.setTag("user_identifier", ctx.userIdentifier);
+  }
+}
+
+/**
+ * Clear session-scoped tags from the current Sentry scope.
+ *
+ * Call in the finally block after the agent loop completes so tags
+ * from one conversation do not leak into unrelated error captures.
+ */
+export function clearSentrySessionContext(): void {
+  for (const key of SESSION_TAG_KEYS) {
+    Sentry.setTag(key, undefined);
+  }
 }

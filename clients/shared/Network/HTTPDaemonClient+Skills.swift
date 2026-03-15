@@ -57,8 +57,6 @@ extension HTTPTransport {
                         description: msg.description,
                         emoji: msg.emoji,
                         bodyMarkdown: msg.bodyMarkdown,
-                        userInvocable: msg.userInvocable,
-                        disableModelInvocation: msg.disableModelInvocation,
                         overwrite: msg.overwrite
                     )
                 }
@@ -66,6 +64,65 @@ extension HTTPTransport {
             }
 
             return false
+        }
+    }
+}
+
+// MARK: - Skill Detail HTTP Methods
+
+extension HTTPTransport {
+
+    /// Fetch full metadata for a single skill via `GET /v1/skills/:id`.
+    func fetchSkillDetail(skillId: String, isRetry: Bool = false) async -> SkillDetailHTTPResponse? {
+        guard let url = buildURL(for: .skillDetail(id: skillId)) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await fetchSkillDetail(skillId: skillId, isRetry: true)
+                    }
+                    return nil
+                }
+                guard (200...299).contains(http.statusCode) else { return nil }
+            }
+            return try decoder.decode(SkillDetailHTTPResponse.self, from: data)
+        } catch {
+            log.error("fetchSkillDetail failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Fetch the directory contents of a skill via `GET /v1/skills/:id/files`.
+    func fetchSkillFiles(skillId: String, isRetry: Bool = false) async -> SkillDetailFilesHTTPResponse? {
+        guard let url = buildURL(for: .skillFiles(id: skillId)) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await fetchSkillFiles(skillId: skillId, isRetry: true)
+                    }
+                    return nil
+                }
+                guard (200...299).contains(http.statusCode) else { return nil }
+            }
+            return try decoder.decode(SkillDetailFilesHTTPResponse.self, from: data)
+        } catch {
+            log.error("fetchSkillFiles failed: \(error.localizedDescription)")
+            return nil
         }
     }
 }

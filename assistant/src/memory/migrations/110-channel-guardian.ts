@@ -89,7 +89,6 @@ export function createChannelGuardianTables(database: DrizzleDb): void {
   );
 
   // Migration: add assistant_id column to scope approval requests by assistant.
-  // Existing rows default to 'self' for backward compatibility.
   try {
     database.run(
       /*sql*/ `ALTER TABLE channel_guardian_approval_requests ADD COLUMN assistant_id TEXT NOT NULL DEFAULT 'self'`,

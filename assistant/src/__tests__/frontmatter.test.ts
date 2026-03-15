@@ -184,10 +184,10 @@ describe("parseFrontmatterFields", () => {
 
   test("boolean values are parsed as native booleans", () => {
     const result = parseFrontmatterFields(
-      "---\nuser-invocable: false\ndisable-model-invocation: true\n---\n",
+      "---\ndisable-feature: true\nsome-flag: false\n---\n",
     );
-    expect(result!.fields["user-invocable"]).toBe(false);
-    expect(result!.fields["disable-model-invocation"]).toBe(true);
+    expect(result!.fields["disable-feature"]).toBe(true);
+    expect(result!.fields["some-flag"]).toBe(false);
   });
 
   // -- CRLF handling --
@@ -219,7 +219,7 @@ describe("parseFrontmatterFields", () => {
       '  emoji: "\uD83D\uDD0C"',
       "  vellum:",
       '    display-name: "Test Skill"',
-      "    user-invocable: false",
+      "    some-custom-field: true",
       "---",
       "Body",
     ].join("\n");
@@ -230,7 +230,7 @@ describe("parseFrontmatterFields", () => {
       emoji: "\uD83D\uDD0C",
       vellum: {
         "display-name": "Test Skill",
-        "user-invocable": false,
+        "some-custom-field": true,
       },
     });
   });
@@ -242,13 +242,13 @@ describe("parseFrontmatterFields", () => {
       'description: "A test skill"',
       "metadata:",
       "  vellum:",
-      "    os:",
-      "      - darwin",
-      "      - linux",
       "    requires:",
       "      bins:",
       "        - node",
       "        - npm",
+      "      env:",
+      "        - API_KEY",
+      "        - SECRET",
       "---",
       "Body",
     ].join("\n");
@@ -256,8 +256,10 @@ describe("parseFrontmatterFields", () => {
     expect(result).not.toBeNull();
     const meta = result!.fields.metadata as Record<string, unknown>;
     const vellum = meta.vellum as Record<string, unknown>;
-    expect(vellum.os).toEqual(["darwin", "linux"]);
-    expect(vellum.requires).toEqual({ bins: ["node", "npm"] });
+    expect(vellum.requires).toEqual({
+      bins: ["node", "npm"],
+      env: ["API_KEY", "SECRET"],
+    });
   });
 
   test("returns null for invalid YAML frontmatter", () => {

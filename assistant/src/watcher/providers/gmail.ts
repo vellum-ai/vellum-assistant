@@ -115,10 +115,10 @@ class HistoryExpiredError extends Error {
 export const gmailProvider: WatcherProvider = {
   id: "gmail",
   displayName: "Gmail",
-  requiredCredentialService: "integration:gmail",
+  requiredCredentialService: "integration:google",
 
   async getInitialWatermark(credentialService: string): Promise<string> {
-    const connection = resolveOAuthConnection(credentialService);
+    const connection = await resolveOAuthConnection(credentialService);
     const profile = await getProfile(connection);
     if (!profile.historyId) {
       throw new Error("Gmail profile did not return a historyId");
@@ -132,7 +132,7 @@ export const gmailProvider: WatcherProvider = {
     _config: Record<string, unknown>,
     _watcherKey: string,
   ): Promise<FetchResult> {
-    const connection = resolveOAuthConnection(credentialService);
+    const connection = await resolveOAuthConnection(credentialService);
 
     if (!watermark) {
       // No watermark — get initial position, return no items

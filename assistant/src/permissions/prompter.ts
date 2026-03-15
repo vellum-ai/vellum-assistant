@@ -63,7 +63,7 @@ export class PermissionPrompter {
     executionTarget?: ExecutionTarget,
     persistentDecisionsAllowed?: boolean,
     signal?: AbortSignal,
-    temporaryOptionsAvailable?: Array<"allow_10m" | "allow_thread">,
+    temporaryOptionsAvailable?: Array<"allow_10m" | "allow_conversation">,
     toolUseId?: string,
   ): Promise<{
     decision: UserDecision;

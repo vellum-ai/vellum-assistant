@@ -10,6 +10,7 @@ export async function run(
   input: Record<string, unknown>,
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  const account = input.account as string | undefined;
   const to = input.to as string;
   const subject = input.subject as string;
   const body = input.body as string;
@@ -22,7 +23,10 @@ export async function run(
   if (!body) return err("body is required.");
 
   try {
-    const connection = resolveOAuthConnection("integration:gmail");
+    const connection = await resolveOAuthConnection(
+      "integration:google",
+      account,
+    );
     const draft = await createDraft(
       connection,
       to,

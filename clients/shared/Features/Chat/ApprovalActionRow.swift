@@ -27,15 +27,15 @@ public struct ApprovalActionButton: View {
         Button(action: action) {
             Text(label)
                 .font(VFont.caption)
-                .foregroundColor(isPrimary || isDanger ? .white : VColor.textSecondary)
+                .foregroundColor(isPrimary || isDanger ? VColor.auxWhite : VColor.contentSecondary)
                 .padding(.horizontal, VSpacing.sm)
                 .padding(.vertical, VSpacing.xxs + 1)
-                .background(isDanger ? VColor.error : isPrimary ? VColor.buttonPrimary : Color.clear)
+                .background(isDanger ? VColor.systemNegativeStrong : isPrimary ? VColor.primaryBase : Color.clear)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.sm)
                         .stroke(
-                            isKeyboardSelected ? VColor.accent : (isPrimary || isDanger ? Color.clear : VColor.surfaceBorder),
+                            isKeyboardSelected ? VColor.primaryBase : (isPrimary || isDanger ? Color.clear : VColor.borderBase),
                             lineWidth: isKeyboardSelected ? 2 : 1
                         )
                 )
@@ -85,7 +85,7 @@ public struct GuardianApprovalActionRow: View {
                         .controlSize(.small)
                     Text("Submitting...")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
         }

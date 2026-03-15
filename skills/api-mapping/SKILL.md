@@ -6,7 +6,6 @@ metadata:
   emoji: "🗺️"
   vellum:
     display-name: "API Mapping"
-    user-invocable: true
 ---
 
 You can record and analyze the API surface of any web service using the `map` CLI.
@@ -15,7 +14,7 @@ You can record and analyze the API surface of any web service using the `map` CL
 
 **IMPORTANT: Always use `host_bash` (not `bash`) for all `map` commands.** The API mapping CLI needs host access for Chrome CDP, network recording, and browser automation — none of which are available inside the sandbox.
 
-`map` is a standalone CLI tool installed at `~/.vellum/bin/map`. It should already be on your PATH. If `map` is not found, prepend `PATH="$HOME/.vellum/bin:$PATH"` to the command. Do NOT search for the binary or try to discover how the CLI works. Just run the commands as documented below.
+`map` is a CLI tool that should be available on your PATH. Do NOT search for the binary or try to discover how the CLI works. Just run the commands as documented below.
 
 ## Typical Flow
 

@@ -1,6 +1,6 @@
 /**
  * Regression test: guardian verification calls must create a voice channel
- * binding so the conversation never appears as an unbound desktop thread.
+ * binding so the conversation never appears as an unbound desktop conversation.
  */
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -51,9 +51,7 @@ mock.module("../calls/twilio-provider.js", () => ({
   },
 }));
 
-mock.module("../security/secure-keys.js", () => ({
-  getSecureKey: () => null,
-}));
+mock.module("../security/secure-keys.js", () => ({}));
 
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,

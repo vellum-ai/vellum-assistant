@@ -57,7 +57,7 @@ final class OnboardingWindow {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
-        window.backgroundColor = NSColor(VColor.background)
+        window.backgroundColor = NSColor(VColor.surfaceOverlay)
         window.isReleasedWhenClosed = false
 
         window.contentMinSize = NSSize(width: 420, height: 580)
@@ -79,6 +79,11 @@ final class OnboardingWindow {
         // When the user closes the window via the title bar close button,
         // only proceed if onboarding actually completed. Closing before
         // completion should not trigger daemon hatching.
+        // NOTE: We intentionally check only hatchCompleted here, not
+        // authManager.isAuthenticated. A restored auth session does NOT
+        // mean the user finished the onboarding flow — treating it as
+        // "completed" would cause proceedToApp to hatch a local assistant
+        // even though the user never configured one.
         closeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: window,
@@ -87,8 +92,7 @@ final class OnboardingWindow {
             guard let self else { return }
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                let completed = self.state.hatchCompleted || self.authManager.isAuthenticated
-                if completed {
+                if self.state.hatchCompleted {
                     self.onComplete?(self.state)
                 } else {
                     self.onDismiss?()

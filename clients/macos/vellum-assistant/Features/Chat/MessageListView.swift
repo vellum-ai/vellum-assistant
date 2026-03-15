@@ -45,6 +45,7 @@ struct MessageListView: View {
     let messages: [ChatMessage]
     let isSending: Bool
     let isThinking: Bool
+    let isCompacting: Bool
     let assistantActivityPhase: String
     let assistantActivityAnchor: String
     let assistantActivityReason: String?
@@ -101,6 +102,7 @@ struct MessageListView: View {
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
     @State private var identity: IdentityInfo? = IdentityInfo.load()
+    @State private var appearance = AvatarAppearanceManager.shared
     /// Read once at the list level and passed down to each ChatBubble so that
     /// individual bubbles don't each subscribe to the shared ObservableObject.
     @State private var scrollDebounceTask: Task<Void, Never>?
@@ -157,6 +159,12 @@ struct MessageListView: View {
     /// restore began. Ensures anchorTracker.isVisible reflects real geometry
     /// rather than the manual reset applied on thread switch.
     @State private var hasFreshAnchorMeasurement: Bool = false
+    @State private var avatarTargetY: CGFloat = .infinity
+    @State private var avatarDisplayY: CGFloat = .infinity
+    @State private var pendingAvatarY: CGFloat?
+    @State private var avatarSmoothingTask: Task<Void, Never>?
+    @State private var avatarLastAppliedAt: Date?
+    @State private var hasPlayedTailEntryAnimation = false
 
     /// The subset of messages actually shown, honoring the pagination window.
     private var visibleMessages: [ChatMessage] {
@@ -198,6 +206,147 @@ struct MessageListView: View {
             }
         }
         return result
+    }
+
+    private var lastRenderableMessage: ChatMessage? {
+        messages.last(where: {
+            if case .queued = $0.status { return false }
+            return true
+        })
+    }
+
+    private var isLastMessageStreaming: Bool {
+        lastRenderableMessage?.isStreaming == true
+    }
+
+    private var shouldShowConversationTailAvatar: Bool {
+        // Intentionally show the avatar under the latest rendered conversation tail
+        // (user or assistant content), not only after the first assistant bubble.
+        guard !visibleMessages.isEmpty else { return false }
+        return ConversationAvatarFollower.shouldShow(
+            anchorY: avatarTargetY,
+            viewportHeight: scrollViewportHeight
+        )
+    }
+
+    private var shouldPlayTailEntryAnimation: Bool {
+        !hasPlayedTailEntryAnimation && messages.count <= 2
+    }
+
+    private var shouldCoalesceAvatarUpdates: Bool {
+        ConversationAvatarFollower.shouldCoalesce(
+            isSending: isSending,
+            isThinking: isThinking,
+            isLastMessageStreaming: isLastMessageStreaming
+        )
+    }
+
+    private func applyAvatarDisplayY(forAnchorY anchorY: CGFloat) {
+        let y = anchorY + ConversationAvatarFollower.verticalOffset
+        withAnimation(ConversationAvatarFollower.spring) {
+            avatarDisplayY = y
+        }
+    }
+
+    private func updateAvatarFollower(anchorY: CGFloat) {
+        // Only update @State when the visibility boundary is crossed or the value
+        // changes by more than 1pt. Preference changes fire on every scroll frame;
+        // unconditionally setting avatarTargetY would trigger a full view re-render
+        // per frame, creating layout passes that race with the scroll and cause
+        // the "tweaking" jitter.
+        let visibilityChanged: Bool = {
+            let wasVisible = avatarTargetY.isFinite
+                && ConversationAvatarFollower.shouldShow(anchorY: avatarTargetY, viewportHeight: scrollViewportHeight)
+            let nowVisible = anchorY.isFinite
+                && ConversationAvatarFollower.shouldShow(anchorY: anchorY, viewportHeight: scrollViewportHeight)
+            return wasVisible != nowVisible
+        }()
+        if visibilityChanged || abs(avatarTargetY - anchorY) > 1 || !avatarTargetY.isFinite != !anchorY.isFinite {
+            avatarTargetY = anchorY
+        }
+
+        guard anchorY.isFinite else {
+            avatarSmoothingTask?.cancel()
+            avatarSmoothingTask = nil
+            pendingAvatarY = nil
+            avatarLastAppliedAt = nil
+            if avatarDisplayY != .infinity { avatarDisplayY = .infinity }
+            return
+        }
+
+        let now = Date()
+        let delay = ConversationAvatarFollower.smoothingDelay(
+            isSending: isSending,
+            isThinking: isThinking,
+            isLastMessageStreaming: isLastMessageStreaming,
+            lastAppliedAt: avatarLastAppliedAt,
+            now: now
+        )
+
+        if delay <= 0 {
+            avatarSmoothingTask?.cancel()
+            avatarSmoothingTask = nil
+            pendingAvatarY = nil
+            avatarLastAppliedAt = now
+            applyAvatarDisplayY(forAnchorY: anchorY)
+            return
+        }
+
+        pendingAvatarY = anchorY
+        guard avatarSmoothingTask == nil else { return }
+
+        avatarSmoothingTask = Task { @MainActor in
+            do {
+                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            guard let pendingAvatarY else {
+                avatarSmoothingTask = nil
+                return
+            }
+            self.pendingAvatarY = nil
+            avatarLastAppliedAt = Date()
+            applyAvatarDisplayY(forAnchorY: pendingAvatarY)
+            avatarSmoothingTask = nil
+        }
+    }
+
+    @ViewBuilder
+    private var conversationTailAvatar: some View {
+        if shouldShowConversationTailAvatar {
+            if let body = appearance.characterBodyShape,
+               let eyes = appearance.characterEyeStyle,
+               let color = appearance.characterColor {
+                AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color,
+                                   size: ConversationAvatarFollower.avatarSize,
+                                   entryAnimationEnabled: shouldPlayTailEntryAnimation)
+                    .frame(width: ConversationAvatarFollower.avatarSize,
+                           height: ConversationAvatarFollower.avatarSize)
+                    .padding(.horizontal, VSpacing.xl)
+                    .frame(maxWidth: VSpacing.chatColumnMaxWidth, alignment: .leading)
+                    .frame(maxWidth: .infinity)
+                    .offset(y: avatarDisplayY)
+                    .accessibilityHidden(true)
+                    .onAppear {
+                        if shouldPlayTailEntryAnimation {
+                            hasPlayedTailEntryAnimation = true
+                        }
+                    }
+            } else {
+                HStack {
+                    VAvatarImage(image: appearance.chatAvatarImage, size: ConversationAvatarFollower.avatarSize)
+                    Spacer()
+                }
+                .padding(.horizontal, VSpacing.xl)
+                .frame(maxWidth: VSpacing.chatColumnMaxWidth)
+                .frame(maxWidth: .infinity)
+                .offset(y: avatarDisplayY)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+        }
     }
 
     private var shouldShowThreadScrollbar: Bool {
@@ -313,6 +462,17 @@ struct MessageListView: View {
         .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 
+    @ViewBuilder
+    private func compactingIndicatorRow() -> some View {
+        RunningIndicator(
+            label: "Compacting context\u{2026}",
+            showIcon: false
+        )
+        .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+        .id("compacting-indicator")
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -403,6 +563,7 @@ struct MessageListView: View {
                     let lastVisibleIsAssistant = lastVisible?.role == .assistant
                     let canInlineProcessing = wouldShowThinking && lastVisibleIsAssistant
                     let shouldShowThinkingIndicator = wouldShowThinking && !canInlineProcessing
+                    let effectiveStatusText = isCompacting ? "Compacting context\u{2026}" : assistantStatusText
                     ForEach(Array(zip(displayMessages.indices, displayMessages)), id: \.1.id) { index, message in
                         MessageCellView(
                             message: message,
@@ -415,7 +576,7 @@ struct MessageListView: View {
                             subagentsByParent: subagentsByParent,
                             canInlineProcessing: canInlineProcessing,
                             shouldShowThinkingIndicator: shouldShowThinkingIndicator,
-                            assistantStatusText: assistantStatusText,
+                            assistantStatusText: effectiveStatusText,
                             dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
                             activeSurfaceId: activeSurfaceId,
                             mediaEmbedSettings: mediaEmbedSettings,
@@ -453,7 +614,29 @@ struct MessageListView: View {
                     }
 
                     if shouldShowThinkingIndicator && anchoredThinkingIndex == nil {
-                        thinkingIndicatorRow(displayMessages: displayMessages)
+                        if isCompacting {
+                            compactingIndicatorRow()
+                        } else {
+                            thinkingIndicatorRow(displayMessages: displayMessages)
+                        }
+                    }
+
+                    Color.clear
+                        .frame(height: 1)
+                        .id("conversation-tail-anchor")
+                        .background {
+                            GeometryReader { geo in
+                                Color.clear.preference(
+                                    key: ConversationTailAnchorYKey.self,
+                                    value: geo.frame(in: .named("chatScrollView")).maxY
+                                )
+                            }
+                        }
+
+                    if !displayMessages.isEmpty && ConversationAvatarFollower.bottomInset > 0 {
+                        Color.clear
+                            .frame(height: ConversationAvatarFollower.bottomInset)
+                            .accessibilityHidden(true)
                     }
 
                     Color.clear.frame(height: 1)
@@ -536,6 +719,12 @@ struct MessageListView: View {
                 if !hasFreshAnchorMeasurement { hasFreshAnchorMeasurement = true }
                 os_signpost(.end, log: PerfSignposts.log, name: "anchorPreferenceChange")
             }
+            .onPreferenceChange(ConversationTailAnchorYKey.self) { anchorY in
+                updateAvatarFollower(anchorY: anchorY)
+            }
+            .overlay(alignment: .topLeading) {
+                conversationTailAvatar
+            }
             .overlay(alignment: .bottom) {
                 if (!isNearBottom || !hasReceivedScrollEvent) && !anchorTracker.isVisible {
                     Button(action: {
@@ -554,7 +743,7 @@ struct MessageListView: View {
                         .padding(.vertical, VSpacing.sm)
                         .background(.ultraThinMaterial)
                         .clipShape(Capsule())
-                        .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+                        .shadow(color: VColor.auxBlack.opacity(0.15), radius: 4, y: 2)
                     }
                     .buttonStyle(.plain)
                     .background { ScrollWheelPassthrough() }
@@ -618,6 +807,8 @@ struct MessageListView: View {
                 expandSuppressionTask = nil
                 scrollRestoreTask?.cancel()
                 scrollRestoreTask = nil
+                avatarSmoothingTask?.cancel()
+                avatarSmoothingTask = nil
             }
             .onChange(of: isSending) {
                 if isSending {
@@ -635,6 +826,11 @@ struct MessageListView: View {
                     }
                 }
             }
+            .onChange(of: shouldCoalesceAvatarUpdates) {
+                if !shouldCoalesceAvatarUpdates {
+                    updateAvatarFollower(anchorY: pendingAvatarY ?? avatarTargetY)
+                }
+            }
             .onChange(of: streamingScrollTrigger) {
                 if isNearBottom && !isSuppressingBottomScroll {
                     // Throttle pattern: fire immediately then suppress for 200ms.
@@ -644,15 +840,23 @@ struct MessageListView: View {
                         scrollDebounceTask = Task {
                             defer { if !Task.isCancelled { scrollDebounceTask = nil } }
                             guard isNearBottom && !isSuppressingBottomScroll else { return }
-                            withAnimation(VAnimation.fast) {
+                            if isLastMessageStreaming {
                                 proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                            } else {
+                                withAnimation(VAnimation.fast) {
+                                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                                }
                             }
                             try? await Task.sleep(nanoseconds: 200_000_000)
                             // If the task was cancelled during the sleep (user scrolled up), do not fire trailing-edge scroll.
                             guard !Task.isCancelled else { return }
                             if isNearBottom && !isSuppressingBottomScroll {
-                                withAnimation(VAnimation.fast) {
+                                if isLastMessageStreaming {
                                     proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                                } else {
+                                    withAnimation(VAnimation.fast) {
+                                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                                    }
                                 }
                             }
                         }
@@ -754,6 +958,8 @@ struct MessageListView: View {
                 resizeScrollTask = nil
                 expandSuppressionTask?.cancel()
                 expandSuppressionTask = nil
+                avatarSmoothingTask?.cancel()
+                avatarSmoothingTask = nil
                 isPaginationInFlight = false
                 isSuppressingBottomScroll = false
                 isNearBottom = true
@@ -780,6 +986,11 @@ struct MessageListView: View {
                     threadSwitchSuppressionTask = nil
                 }
                 isThreadContentHovered = false
+                avatarTargetY = .infinity
+                avatarDisplayY = .infinity
+                pendingAvatarY = nil
+                avatarLastAppliedAt = nil
+                hasPlayedTailEntryAnimation = false
                 restoreScrollToBottom(proxy: proxy)
             }
             .onChange(of: anchorMessageId) {
@@ -1124,6 +1335,8 @@ private struct ThreadScrollbarVisibilityController: NSViewRepresentable, Equatab
             scrollView.hasHorizontalScroller = false
             scrollView.autohidesScrollers = false
             scrollView.scrollerStyle = .overlay
+            scrollView.scrollerInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+            scrollView.automaticallyAdjustsContentInsets = false
             scrollView.verticalScroller?.controlSize = .small
             scrollView.verticalScroller?.isEnabled = shouldShow
             scrollView.verticalScroller?.isHidden = !shouldShow

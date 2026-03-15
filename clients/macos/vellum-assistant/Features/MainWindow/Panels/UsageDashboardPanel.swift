@@ -11,7 +11,7 @@ struct UsageDashboardPanel: View {
     var body: some View {
         VSidePanel(title: "Usage", onClose: onClose, pinnedContent: {
             timeRangeStrip(store: store)
-            Divider().background(VColor.surfaceBorder)
+            Divider().background(VColor.borderBase)
         }) {
             contentView(store: store)
         }
@@ -44,12 +44,12 @@ struct UsageDashboardPanel: View {
                     } label: {
                         Text(range.rawValue)
                             .font(VFont.captionMedium)
-                            .foregroundColor(store.selectedRange == range ? VColor.textPrimary : VColor.textMuted)
+                            .foregroundColor(store.selectedRange == range ? VColor.contentDefault : VColor.contentTertiary)
                             .padding(.horizontal, VSpacing.sm)
                             .padding(.vertical, VSpacing.xs)
                             .background(
                                 store.selectedRange == range
-                                    ? VColor.surfaceBorder.opacity(0.5)
+                                    ? VColor.borderBase.opacity(0.5)
                                     : Color.clear
                             )
                             .cornerRadius(6)
@@ -129,20 +129,20 @@ struct UsageDashboardPanel: View {
                 HStack(spacing: VSpacing.sm) {
                     Text(bucket.date)
                         .font(VFont.small)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .frame(width: 80, alignment: .leading)
 
                     GeometryReader { geo in
                         let fraction = maxCost > 0 ? bucket.totalEstimatedCostUsd / maxCost : 0
                         RoundedRectangle(cornerRadius: 3)
-                            .fill(Emerald._400)
+                            .fill(VColor.systemPositiveStrong)
                             .frame(width: max(2, geo.size.width * fraction))
                     }
                     .frame(height: 12)
 
                     Text(formatCost(bucket.totalEstimatedCostUsd))
                         .font(VFont.small)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .frame(width: 60, alignment: .trailing)
                 }
             }
@@ -187,12 +187,12 @@ struct UsageDashboardPanel: View {
                 } label: {
                     Text(dimension.rawValue.capitalized)
                         .font(VFont.small)
-                        .foregroundColor(store.selectedGroupBy == dimension ? VColor.textPrimary : VColor.textMuted)
+                        .foregroundColor(store.selectedGroupBy == dimension ? VColor.contentDefault : VColor.contentTertiary)
                         .padding(.horizontal, VSpacing.xs)
                         .padding(.vertical, 2)
                         .background(
                             store.selectedGroupBy == dimension
-                                ? VColor.surfaceBorder.opacity(0.5)
+                                ? VColor.borderBase.opacity(0.5)
                                 : Color.clear
                         )
                         .cornerRadius(4)
@@ -209,15 +209,15 @@ struct UsageDashboardPanel: View {
             HStack(alignment: .top, spacing: VSpacing.sm) {
                 Text("Group")
                     .font(VFont.small)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .frame(width: 130, alignment: .leading)
                 Text("Tokens")
                     .font(VFont.small)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Text("Cost")
                     .font(VFont.small)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .frame(width: 60, alignment: .trailing)
             }
             .padding(.bottom, VSpacing.xxs)
@@ -233,18 +233,18 @@ struct UsageDashboardPanel: View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
             Text(entry.group)
                 .font(VFont.captionMedium)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .frame(width: 130, alignment: .leading)
                 .lineLimit(1)
             Text(UsageFormatting.formatBreakdownSummary(entry))
                 .font(VFont.small)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
             Text(formatCost(entry.totalEstimatedCostUsd))
                 .font(VFont.small)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .frame(width: 60, alignment: .trailing)
         }
     }
@@ -255,10 +255,10 @@ struct UsageDashboardPanel: View {
     private func sectionHeader(_ title: String, icon: String) -> some View {
         HStack(spacing: VSpacing.xs) {
             VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 12)
-                .foregroundColor(Emerald._400)
+                .foregroundColor(VColor.systemPositiveStrong)
             Text(title)
                 .font(VFont.captionMedium)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
         }
     }
 
@@ -267,14 +267,14 @@ struct UsageDashboardPanel: View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
             Text(value)
                 .font(VFont.captionMedium)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
             Text(label)
                 .font(VFont.small)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.sm)
-        .background(VColor.surfaceBorder.opacity(0.15))
+        .background(VColor.borderBase.opacity(0.15))
         .cornerRadius(8)
     }
 
@@ -285,7 +285,7 @@ struct UsageDashboardPanel: View {
                 .controlSize(.small)
             Text("Loading...")
                 .font(VFont.small)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.vertical, VSpacing.md)
@@ -295,10 +295,10 @@ struct UsageDashboardPanel: View {
     private func errorRow(_ message: String) -> some View {
         HStack(spacing: VSpacing.xs) {
             VIconView(.triangleAlert, size: 14)
-                .foregroundColor(Amber._400)
+                .foregroundColor(VColor.systemNegativeHover)
             Text(message)
                 .font(VFont.small)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
         }
         .padding(.vertical, VSpacing.sm)
     }
@@ -329,8 +329,8 @@ struct UsageDashboardPanel: View {
 
 #Preview {
     ZStack {
-        VColor.background.ignoresSafeArea()
-        UsageDashboardPanel(store: UsageDashboardStore(client: DaemonClient()), onClose: {})
+        VColor.surfaceOverlay.ignoresSafeArea()
+        UsageDashboardPanel(store: UsageDashboardStore(), onClose: {})
     }
     .frame(width: 400, height: 600)
 }

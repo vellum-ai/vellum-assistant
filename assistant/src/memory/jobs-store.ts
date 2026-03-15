@@ -3,7 +3,7 @@ import { v4 as uuid } from "uuid";
 
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
-import { getDb, rawAll, rawChanges, rawGet } from "./db.js";
+import { getDb, rawAll, rawChanges } from "./db.js";
 import { memoryJobs } from "./schema.js";
 
 const log = getLogger("memory-jobs-store");
@@ -14,18 +14,14 @@ export type MemoryJobType =
   | "embed_summary"
   | "extract_items"
   | "extract_entities"
-  | "resolve_pending_conflicts_for_message"
-  | "cleanup_resolved_conflicts"
   | "cleanup_stale_superseded_items"
   | "prune_old_conversations"
   | "backfill_entity_relations"
-  | "check_contradictions"
   | "refresh_weekly_summary"
   | "refresh_monthly_summary"
   | "build_conversation_summary"
   | "backfill"
   | "rebuild_index"
-  | "reconcile_fts"
   | "delete_qdrant_vectors"
   | "media_processing"
   | "embed_media"
@@ -81,143 +77,6 @@ export function enqueueMemoryJob(
     })
     .run();
   return id;
-}
-
-/**
- * Ensure there is only one pending relation backfill orchestrator job.
- * If `force=true` arrives while a pending job exists, its payload is upgraded.
- */
-export function enqueueBackfillEntityRelationsJob(force = false): string {
-  const db = getDb();
-  const now = Date.now();
-  const existing = db
-    .select()
-    .from(memoryJobs)
-    .where(
-      and(
-        eq(memoryJobs.type, "backfill_entity_relations"),
-        eq(memoryJobs.status, "pending"),
-      ),
-    )
-    .orderBy(asc(memoryJobs.createdAt))
-    .get();
-
-  if (existing) {
-    if (force) {
-      let payload: Record<string, unknown> = {};
-      try {
-        payload = JSON.parse(existing.payload) as Record<string, unknown>;
-      } catch {
-        payload = {};
-      }
-      if (payload.force !== true) {
-        db.update(memoryJobs)
-          .set({
-            payload: JSON.stringify({ ...payload, force: true }),
-            updatedAt: now,
-          })
-          .where(eq(memoryJobs.id, existing.id))
-          .run();
-      }
-    }
-    return existing.id;
-  }
-
-  return enqueueMemoryJob("backfill_entity_relations", { force });
-}
-
-export function enqueueResolvePendingConflictsForMessageJob(
-  messageId: string,
-  scopeId = "default",
-  dbOverride?: Parameters<ReturnType<typeof getDb>["transaction"]>[0] extends (
-    tx: infer T,
-  ) => unknown
-    ? T
-    : never,
-): string {
-  const normalizedMessageId = messageId.trim();
-  if (!normalizedMessageId) {
-    throw new Error(
-      "enqueueResolvePendingConflictsForMessageJob requires a non-empty messageId",
-    );
-  }
-  const normalizedScopeId = scopeId.trim() || "default";
-  // Dedup check always uses root db since tx doesn't expose raw client
-  const existing = rawGet<{ id: string }>(
-    `
-    SELECT id
-    FROM memory_jobs
-    WHERE type = 'resolve_pending_conflicts_for_message'
-      AND status IN ('pending', 'running')
-      AND json_extract(payload, '$.messageId') = ?
-      AND COALESCE(json_extract(payload, '$.scopeId'), 'default') = ?
-    ORDER BY created_at ASC
-    LIMIT 1
-  `,
-    normalizedMessageId,
-    normalizedScopeId,
-  );
-  if (existing?.id) return existing.id;
-
-  return enqueueMemoryJob(
-    "resolve_pending_conflicts_for_message",
-    {
-      messageId: normalizedMessageId,
-      scopeId: normalizedScopeId,
-    },
-    Date.now(),
-    dbOverride,
-  );
-}
-
-export function enqueueCleanupResolvedConflictsJob(
-  retentionMs?: number,
-): string {
-  const db = getDb();
-  const now = Date.now();
-  const existing = db
-    .select()
-    .from(memoryJobs)
-    .where(
-      and(
-        eq(memoryJobs.type, "cleanup_resolved_conflicts"),
-        inArray(memoryJobs.status, ["pending", "running"]),
-      ),
-    )
-    .orderBy(asc(memoryJobs.createdAt))
-    .get();
-  if (existing) {
-    if (
-      existing.status === "pending" &&
-      typeof retentionMs === "number" &&
-      Number.isFinite(retentionMs) &&
-      retentionMs > 0
-    ) {
-      let payload: Record<string, unknown> = {};
-      try {
-        payload = JSON.parse(existing.payload) as Record<string, unknown>;
-      } catch {
-        payload = {};
-      }
-      if (payload.retentionMs !== retentionMs) {
-        db.update(memoryJobs)
-          .set({
-            payload: JSON.stringify({ ...payload, retentionMs }),
-            updatedAt: now,
-          })
-          .where(eq(memoryJobs.id, existing.id))
-          .run();
-      }
-    }
-    return existing.id;
-  }
-  const payload =
-    typeof retentionMs === "number" &&
-    Number.isFinite(retentionMs) &&
-    retentionMs > 0
-      ? { retentionMs }
-      : {};
-  return enqueueMemoryJob("cleanup_resolved_conflicts", payload);
 }
 
 export function enqueueCleanupStaleSupersededItemsJob(
@@ -317,23 +176,6 @@ export function enqueuePruneOldConversationsJob(
       ? { retentionDays }
       : {};
   return enqueueMemoryJob("prune_old_conversations", payload);
-}
-
-export function enqueueReconcileFtsJob(): string {
-  const db = getDb();
-  const existing = db
-    .select()
-    .from(memoryJobs)
-    .where(
-      and(
-        eq(memoryJobs.type, "reconcile_fts"),
-        inArray(memoryJobs.status, ["pending", "running"]),
-      ),
-    )
-    .orderBy(asc(memoryJobs.createdAt))
-    .get();
-  if (existing) return existing.id;
-  return enqueueMemoryJob("reconcile_fts", {});
 }
 
 export function claimMemoryJobs(limit: number): MemoryJob[] {
@@ -503,16 +345,11 @@ export function failMemoryJob(
 
 export function resetRunningJobsToPending(): number {
   const db = getDb();
-  const runningRows = db
-    .select({ id: memoryJobs.id })
-    .from(memoryJobs)
-    .where(eq(memoryJobs.status, "running"))
-    .all();
   db.update(memoryJobs)
     .set({ status: "pending", updatedAt: Date.now() })
     .where(eq(memoryJobs.status, "running"))
     .run();
-  return runningRows.length;
+  return rawChanges();
 }
 
 /**

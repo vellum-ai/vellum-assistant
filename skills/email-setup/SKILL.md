@@ -6,7 +6,6 @@ metadata:
   emoji: "📧"
   vellum:
     display-name: "Email Setup"
-    user-invocable: true
     feature-flag: "email-channel"
 ---
 
@@ -24,7 +23,7 @@ Before doing anything, check whether you already have an email address configure
 assistant email status
 ```
 
-Inspect `addresses` in the response. If at least one address exists, tell the user the existing address and stop — do NOT create another one.
+Inspect `health.inboxes` in the response. If at least one inbox exists, tell the user the existing address and stop — do NOT create another one.
 
 ## Step 2: Create Your Email
 
@@ -44,7 +43,7 @@ Use the returned `inbox.address` (or `inbox.id` if `address` is empty) as the cr
 assistant email status
 ```
 
-Confirm the created inbox appears in `addresses`.
+Confirm the created inbox appears in `health.inboxes`.
 
 ## Step 4: Confirm Setup
 

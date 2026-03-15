@@ -421,7 +421,7 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
       guardianPrincipalId: "test-principal-id",
       toolName: "bash",
       status: "pending",
-      expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+      expiresAt: Date.now() + 5 * 60_000,
     });
 
     const trustContext = makeTrustedContactTrustContext();
@@ -460,7 +460,7 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
       guardianPrincipalId: "test-principal-id",
       toolName: "bash",
       status: "pending",
-      expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+      expiresAt: Date.now() + 5 * 60_000,
     });
 
     const trustContext = makeTrustedContactTrustContext();
@@ -559,7 +559,7 @@ describe("(c) no-binding flow: trusted contact fails fast without guardian bindi
       guardianPrincipalId: "test-principal-id",
       toolName: "bash",
       status: "pending",
-      expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+      expiresAt: Date.now() + 5 * 60_000,
     });
 
     const trustContext = makeTrustedContactTrustContext();
@@ -670,7 +670,7 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
       guardianPrincipalId: "test-principal-id",
       toolName: "bash",
       status: "pending",
-      expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+      expiresAt: Date.now() + 5 * 60_000,
     });
 
     const trustContext: TrustContext = {
@@ -873,7 +873,7 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
       guardianPrincipalId: "test-principal-id",
       toolName: "bash",
       inputDigest: "sha256:stale",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     // Set a stale inline_wait_active marker
@@ -924,7 +924,7 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
       guardianPrincipalId: "test-principal-id",
       toolName: "bash",
       inputDigest: "sha256:fresh",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     updateCanonicalGuardianRequest(req.id, {
@@ -1080,7 +1080,7 @@ describe("cross-milestone integration checks", () => {
       guardianPrincipalId: "test-principal-id",
       toolName: "bash",
       status: "pending",
-      expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+      expiresAt: Date.now() + 5 * 60_000,
     });
 
     const trustContext = makeTrustedContactTrustContext();

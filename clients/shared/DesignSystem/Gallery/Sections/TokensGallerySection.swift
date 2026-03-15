@@ -14,77 +14,31 @@ struct TokensGallerySection: View {
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
                     Text("Semantic Tokens")
                         .font(VFont.headline)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
 
-                    let semanticColors: [(String, Color)] = [
-                        ("background", VColor.background),
-                        ("backgroundSubtle", VColor.backgroundSubtle),
-                        ("surface", VColor.surface),
-                        ("surfaceBorder", VColor.surfaceBorder),
-                        ("textPrimary", VColor.textPrimary),
-                        ("textSecondary", VColor.textSecondary),
-                        ("textMuted", VColor.textMuted),
-                        ("accent", VColor.accent),
-                        ("accentSubtle", VColor.accentSubtle),
-                        ("success", VColor.success),
-                        ("error", VColor.error),
-                        ("warning", VColor.warning),
-                    ]
+                    let semanticTokens = VSemanticColorToken.allCases
 
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: VSpacing.md), count: 4), spacing: VSpacing.md) {
-                        ForEach(semanticColors, id: \.0) { name, color in
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: VSpacing.md), count: 3), spacing: VSpacing.md) {
+                        ForEach(semanticTokens, id: \.rawValue) { token in
+                            let pair = VColor.pair(for: token)
                             VStack(spacing: VSpacing.xs) {
-                                RoundedRectangle(cornerRadius: VRadius.sm)
-                                    .fill(color)
-                                    .frame(height: 40)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: VRadius.sm)
-                                            .stroke(VColor.surfaceBorder, lineWidth: 1)
-                                    )
-                                Text(name)
+                                HStack(spacing: VSpacing.xs) {
+                                    tokenSwatch(color: pair.lightColor, label: "L")
+                                    tokenSwatch(color: pair.darkColor, label: "D")
+                                }
+                                Text(token.rawValue)
                                     .font(VFont.caption)
-                                    .foregroundColor(VColor.textMuted)
+                                    .foregroundColor(VColor.contentSecondary)
+                                Text("\(pair.lightHex) / \(pair.darkHex)")
+                                    .font(VFont.small)
+                                    .foregroundColor(VColor.contentTertiary)
                             }
                         }
                     }
                 }
             }
 
-            // Color scales
-            VCard {
-                VStack(alignment: .leading, spacing: VSpacing.lg) {
-                    Text("Color Scales")
-                        .font(VFont.headline)
-                        .foregroundColor(VColor.textPrimary)
-
-                    colorScaleRow(name: "Stone", colors: [
-                        Stone._950, Stone._900, Stone._800, Stone._700, Stone._600,
-                        Stone._500, Stone._400, Stone._300, Stone._200, Stone._100
-                    ])
-                    colorScaleRow(name: "Moss", colors: [
-                        Moss._950, Moss._900, Moss._700, Moss._600,
-                        Moss._500, Moss._400, Moss._300, Moss._200, Moss._100
-                    ])
-                    colorScaleRow(name: "Forest", colors: [
-                        Forest._950, Forest._900, Forest._800, Forest._700, Forest._600,
-                        Forest._500, Forest._400, Forest._300, Forest._200, Forest._100
-                    ])
-                    colorScaleRow(name: "Emerald", colors: [
-                        Emerald._950, Emerald._900, Emerald._800, Emerald._700, Emerald._600,
-                        Emerald._500, Emerald._400, Emerald._300, Emerald._200, Emerald._100
-                    ])
-                    colorScaleRow(name: "Danger", colors: [
-                        Danger._950, Danger._900, Danger._800, Danger._700, Danger._600,
-                        Danger._500, Danger._400, Danger._300, Danger._200, Danger._100
-                    ])
-                    colorScaleRow(name: "Amber", colors: [
-                        Amber._950, Amber._900, Amber._800, Amber._700, Amber._600,
-                        Amber._500, Amber._400, Amber._300, Amber._200, Amber._100
-                    ])
-                }
-            }
-
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - Typography
             GallerySectionHeader(
@@ -111,7 +65,7 @@ struct TokensGallerySection: View {
                 }
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - Spacing
             GallerySectionHeader(
@@ -131,17 +85,17 @@ struct TokensGallerySection: View {
                         HStack(spacing: VSpacing.lg) {
                             Text("\(name) (\(Int(value))pt)")
                                 .font(VFont.mono)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.contentSecondary)
                                 .frame(width: 120, alignment: .trailing)
                             RoundedRectangle(cornerRadius: VRadius.xs)
-                                .fill(VColor.accent)
+                                .fill(VColor.primaryBase)
                                 .frame(width: value, height: 16)
                         }
                     }
                 }
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - Radius
             GallerySectionHeader(
@@ -153,30 +107,31 @@ struct TokensGallerySection: View {
                 HStack(spacing: VSpacing.xl) {
                     let radii: [(String, CGFloat)] = [
                         ("xs", VRadius.xs), ("sm", VRadius.sm), ("md", VRadius.md),
-                        ("lg", VRadius.lg), ("xl", VRadius.xl), ("pill", VRadius.pill),
+                        ("window", VRadius.window), ("lg", VRadius.lg), ("xl", VRadius.xl),
+                        ("pill", VRadius.pill),
                     ]
 
                     ForEach(radii, id: \.0) { name, radius in
                         VStack(spacing: VSpacing.md) {
                             RoundedRectangle(cornerRadius: radius)
-                                .fill(VColor.accent.opacity(0.3))
+                                .fill(VColor.primaryBase.opacity(0.3))
                                 .frame(width: 60, height: 60)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: radius)
-                                        .stroke(VColor.accent, lineWidth: 2)
+                                        .stroke(VColor.primaryBase, lineWidth: 2)
                                 )
                             Text(name)
                                 .font(VFont.captionMedium)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.contentSecondary)
                             Text("\(Int(radius))pt")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                         }
                     }
                 }
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - Shadows
             GallerySectionHeader(
@@ -194,19 +149,19 @@ struct TokensGallerySection: View {
                     ForEach(shadows, id: \.0) { name, shadow in
                         VStack(spacing: VSpacing.lg) {
                             RoundedRectangle(cornerRadius: VRadius.md)
-                                .fill(VColor.surface)
+                                .fill(VColor.surfaceBase)
                                 .frame(width: 80, height: 80)
                                 .vShadow(shadow)
                             Text(name)
                                 .font(VFont.captionMedium)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.contentSecondary)
                         }
                     }
                 }
                 .padding(VSpacing.xl)
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - Animations
             GallerySectionHeader(
@@ -230,11 +185,11 @@ struct TokensGallerySection: View {
                         HStack(spacing: VSpacing.lg) {
                             Text(name)
                                 .font(VFont.mono)
-                                .foregroundColor(VColor.textPrimary)
+                                .foregroundColor(VColor.contentDefault)
                                 .frame(width: 80, alignment: .trailing)
                             Text(description)
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                         }
                     }
                 }
@@ -242,32 +197,32 @@ struct TokensGallerySection: View {
         }
     }
 
-    private func colorScaleRow(name: String, colors: [Color]) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.xs) {
-            Text(name)
-                .font(VFont.captionMedium)
-                .foregroundColor(VColor.textSecondary)
-            HStack(spacing: 2) {
-                ForEach(0..<colors.count, id: \.self) { i in
-                    Rectangle()
-                        .fill(colors[i])
-                        .frame(height: 32)
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-        }
-    }
-
     private func typographySample(_ name: String, font: Font) -> some View {
         HStack(spacing: VSpacing.lg) {
             Text(name)
                 .font(VFont.mono)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .frame(width: 140, alignment: .trailing)
             Text("The quick brown fox jumps")
                 .font(font)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
         }
+    }
+
+    private func tokenSwatch(color: Color, label: String) -> some View {
+        RoundedRectangle(cornerRadius: VRadius.sm)
+            .fill(color)
+            .frame(height: 40)
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .stroke(VColor.borderBase, lineWidth: 1)
+            )
+            .overlay(alignment: .topLeading) {
+                Text(label)
+                    .font(VFont.small)
+                    .foregroundColor(VColor.contentTertiary)
+                    .padding(4)
+            }
     }
 }
 #endif

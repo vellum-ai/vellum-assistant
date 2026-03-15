@@ -28,26 +28,19 @@ struct AssistantChannelsDetailView: View {
     // Email copy state
     @State private var emailCopied: Bool = false
 
-    // Outbound verification destination input (keyed by channel)
-    @State private var verificationDestinationText: [String: String] = [:]
-
-    // Countdown timer for outbound verification expiry
-    @State private var countdownNow: Date = Date()
-    @State private var countdownTimer: Timer?
-
-    // Shared label column width for channelStatusRow and channel verification alignment
-    private let labelColumnWidth: CGFloat = 140
-
-    /// True when at least one channel has an active outbound verification session.
-    private var hasAnyOutboundSession: Bool {
-        store.telegramOutboundSessionId != nil ||
-        store.voiceOutboundSessionId != nil ||
-        store.slackOutboundSessionId != nil
-    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Assistant Channels")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.contentDefault)
+                    Text("Once set up, you and others you trust can talk to your assistant in these channels.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                }
+
                 telegramCard
                 slackChannelCard
                 voiceCard
@@ -65,24 +58,9 @@ struct AssistantChannelsDetailView: View {
             store.refreshChannelVerificationStatus(channel: "telegram")
             store.refreshChannelVerificationStatus(channel: "phone")
             store.refreshChannelVerificationStatus(channel: "slack")
-            store.refreshTelegramApprovedMembers()
-            store.refreshSlackApprovedMembers()
             store.fetchSlackChannelConfig()
             if store.twilioHasCredentials {
                 store.refreshTwilioNumbers()
-            }
-            if hasAnyOutboundSession {
-                startCountdownTimer()
-            }
-        }
-        .onDisappear {
-            stopCountdownTimer()
-        }
-        .onChange(of: hasAnyOutboundSession) { _, hasOutbound in
-            if hasOutbound {
-                startCountdownTimer()
-            } else {
-                stopCountdownTimer()
             }
         }
         .onChange(of: store.channelSetupStatus["telegram"]) { _, status in
@@ -116,10 +94,10 @@ struct AssistantChannelsDetailView: View {
             if let email = store.assistantEmail {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(.circleCheck, size: 14)
-                        .foregroundColor(VColor.success)
+                        .foregroundColor(VColor.systemPositiveStrong)
                     Text(email)
                         .font(VFont.mono)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                         .textSelection(.enabled)
                     Spacer()
                     Button {
@@ -132,7 +110,7 @@ struct AssistantChannelsDetailView: View {
                         }
                     } label: {
                         VIconView(emailCopied ? .check : .copy, size: 12)
-                            .foregroundColor(emailCopied ? VColor.success : VColor.textSecondary)
+                            .foregroundColor(emailCopied ? VColor.systemPositiveStrong : VColor.contentSecondary)
                             .frame(width: 28, height: 28)
                             .contentShape(Rectangle())
                     }
@@ -143,10 +121,10 @@ struct AssistantChannelsDetailView: View {
             } else {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(.triangleAlert, size: 12)
-                        .foregroundColor(VColor.warning)
+                        .foregroundColor(VColor.systemNegativeHover)
                     Text("Not configured — run the Email Setup skill to assign an address")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
         }
@@ -158,9 +136,36 @@ struct AssistantChannelsDetailView: View {
         let status = store.channelSetupStatus["telegram"]
         return SettingsCard(title: "Telegram", subtitle: "Message your assistant from Telegram") {
             if status == "ready" {
-                HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
-                    VButton(label: "Disconnect", style: .danger, size: .medium, isDisabled: store.telegramSaveInProgress) {
+                VBadge(style: .label("Connected"), color: VColor.systemPositiveStrong)
+            }
+        } content: {
+            if status == "ready" {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    if let username = store.telegramBotUsername, !username.isEmpty {
+                        if let url = URL(string: "https://t.me/\(username)") {
+                            Link("@\(username)", destination: url)
+                                .font(VFont.body)
+                                .lineLimit(1)
+                                .pointerCursor()
+                        } else {
+                            Text("@\(username)")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.contentDefault)
+                                .lineLimit(1)
+                        }
+                    }
+                    if let botId = store.telegramBotId, !botId.isEmpty {
+                        HStack(spacing: 0) {
+                            Text("Bot ID: ")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.contentTertiary)
+                            Text(botId)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.contentTertiary)
+                                .lineLimit(1)
+                        }
+                    }
+                    VButton(label: "Disconnect", style: .danger, isDisabled: store.telegramSaveInProgress) {
                         store.clearTelegramCredentials()
                         telegramBotTokenText = ""
                         telegramSetupExpanded = false
@@ -170,78 +175,15 @@ struct AssistantChannelsDetailView: View {
             } else if (status == "incomplete" && store.telegramHasBotToken) || telegramSetupExpanded {
                 telegramCredentialEntry
             } else {
-                VButton(label: "Set Up", style: .secondary, size: .medium) {
+                VButton(label: "Set Up", style: .outlined) {
                     telegramSetupExpanded = true
                 }
             }
 
             if let error = store.telegramError {
-                Text(error).font(VFont.caption).foregroundColor(VColor.error)
+                Text(error).font(VFont.caption).foregroundColor(VColor.systemNegativeStrong)
             }
 
-            if status == "ready" || status == "incomplete" {
-                SettingsDivider()
-                channelVerificationView(channel: "telegram")
-            }
-
-            if (status == "ready" || status == "incomplete") && store.telegramVerificationVerified {
-                SettingsDivider()
-                telegramApprovedUsersSection
-            }
-        }
-    }
-
-    // MARK: - Telegram Approved Users
-
-    private var telegramApprovedUsersSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.xs) {
-                Text("Approved Users")
-                VInfoTooltip("Users who have been granted access to interact with your assistant via Telegram.")
-            }
-            .font(VFont.caption)
-            .foregroundColor(VColor.textSecondary)
-
-            if store.telegramApprovedMembersLoading {
-                HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Loading...")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                }
-            } else if store.telegramApprovedMembers.isEmpty {
-                Text("No approved users.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-            } else {
-                ForEach(store.telegramApprovedMembers) { member in
-                    HStack(spacing: VSpacing.sm) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(member.displayName ?? member.username ?? member.externalUserId ?? member.id)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textPrimary)
-                                .lineLimit(1)
-                            if let username = member.username, member.displayName != nil {
-                                Text("@\(username)")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.textMuted)
-                                    .lineLimit(1)
-                            }
-                        }
-                        Spacer()
-                        VButton(label: "Revoke", style: .secondary, size: .medium, isDisabled: store.telegramRevokingMemberIds.contains(member.id)) {
-                            store.revokeTelegramApprovedMember(memberId: member.id)
-                        }
-                    }
-                }
-            }
-
-            if let error = store.telegramApprovedMembersError {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.error)
-            }
         }
     }
 
@@ -251,16 +193,16 @@ struct AssistantChannelsDetailView: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Bot Token")
                 .font(VFont.inputLabel)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
 
             SecureField("Telegram bot token", text: $telegramBotTokenText)
                 .vInputStyle()
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             Text("Get your bot token from @BotFather on Telegram")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
 
             if store.telegramSaveInProgress {
                 HStack(spacing: VSpacing.sm) {
@@ -268,15 +210,15 @@ struct AssistantChannelsDetailView: View {
                         .controlSize(.small)
                     Text("Saving...")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
             } else {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connect", style: .secondary, size: .medium, isDisabled: telegramBotTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                    VButton(label: "Connect", style: .outlined, isDisabled: telegramBotTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                         store.saveTelegramToken(botToken: telegramBotTokenText)
                         telegramBotTokenText = ""
                     }
-                    VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                    VButton(label: "Cancel", style: .outlined) {
                         telegramSetupExpanded = false
                         telegramBotTokenText = ""
                     }
@@ -291,9 +233,37 @@ struct AssistantChannelsDetailView: View {
         let status = store.channelSetupStatus["slack"]
         return SettingsCard(title: "Slack", subtitle: "Message your assistant from Slack") {
             if status == "ready" {
-                HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
-                    VButton(label: "Disconnect", style: .danger, size: .medium, isDisabled: store.slackChannelSaveInProgress) {
+                VBadge(style: .label("Connected"), color: VColor.systemPositiveStrong)
+            }
+        } content: {
+            if status == "ready" {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    if let username = store.slackChannelBotUsername, !username.isEmpty {
+                        Text("@\(username)")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentDefault)
+                            .lineLimit(1)
+                    }
+                    if let botUserId = store.slackChannelBotUserId, !botUserId.isEmpty {
+                        HStack(spacing: 0) {
+                            Text("Bot ID: ")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.contentTertiary)
+                            if let teamId = store.slackChannelTeamId,
+                               let url = URL(string: "slack://user?team=\(teamId)&id=\(botUserId)") {
+                                Link(botUserId, destination: url)
+                                    .font(VFont.caption)
+                                    .lineLimit(1)
+                                    .pointerCursor()
+                            } else {
+                                Text(botUserId)
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.contentTertiary)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                    VButton(label: "Disconnect", style: .danger, isDisabled: store.slackChannelSaveInProgress) {
                         store.clearSlackChannelConfig()
                         slackChannelBotTokenInput = ""
                         slackChannelAppTokenInput = ""
@@ -304,76 +274,15 @@ struct AssistantChannelsDetailView: View {
             } else if (status == "incomplete" && (store.slackChannelHasBotToken || store.slackChannelHasAppToken)) || slackChannelSetupExpanded {
                 slackChannelCredentialEntry
             } else {
-                VButton(label: "Set Up", style: .secondary, size: .medium) {
+                VButton(label: "Set Up", style: .outlined) {
                     slackChannelSetupExpanded = true
                 }
             }
 
             if let error = store.slackChannelError {
-                Text(error).font(VFont.caption).foregroundColor(VColor.error)
+                Text(error).font(VFont.caption).foregroundColor(VColor.systemNegativeStrong)
             }
 
-            if status == "ready" || status == "incomplete" {
-                SettingsDivider()
-                channelVerificationView(channel: "slack")
-
-                SettingsDivider()
-                slackApprovedUsersSection
-            }
-        }
-    }
-
-    // MARK: - Slack Approved Users
-
-    private var slackApprovedUsersSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.xs) {
-                Text("Approved Users")
-                VInfoTooltip("Users who have been granted access to interact with your assistant via Slack.")
-            }
-            .font(VFont.caption)
-            .foregroundColor(VColor.textSecondary)
-
-            if store.slackApprovedMembersLoading {
-                HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Loading...")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                }
-            } else if store.slackApprovedMembers.isEmpty {
-                Text("No approved users.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-            } else {
-                ForEach(store.slackApprovedMembers) { member in
-                    HStack(spacing: VSpacing.sm) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(member.displayName ?? member.username ?? member.externalUserId ?? member.id)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textPrimary)
-                                .lineLimit(1)
-                            if let username = member.username, member.displayName != nil {
-                                Text("@\(username)")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.textMuted)
-                                    .lineLimit(1)
-                            }
-                        }
-                        Spacer()
-                        VButton(label: "Revoke", style: .secondary, size: .medium, isDisabled: store.slackRevokingMemberIds.contains(member.id)) {
-                            store.revokeSlackApprovedMember(memberId: member.id)
-                        }
-                    }
-                }
-            }
-
-            if let error = store.slackApprovedMembersError {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.error)
-            }
         }
     }
 
@@ -383,21 +292,21 @@ struct AssistantChannelsDetailView: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Slack Credentials")
                 .font(VFont.inputLabel)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
 
             SecureField("Bot Token (xoxb-...)", text: $slackChannelBotTokenInput)
                 .vInputStyle()
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             SecureField("App Token (xapp-...)", text: $slackChannelAppTokenInput)
                 .vInputStyle()
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             Text("Create a Slack app with Socket Mode enabled to get these tokens")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
 
             if store.slackChannelSaveInProgress {
                 HStack(spacing: VSpacing.sm) {
@@ -405,14 +314,13 @@ struct AssistantChannelsDetailView: View {
                         .controlSize(.small)
                     Text("Saving...")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
             } else {
                 HStack(spacing: VSpacing.sm) {
                     VButton(
                         label: "Connect",
-                        style: .secondary,
-                        size: .medium,
+                        style: .outlined,
                         isDisabled: slackChannelBotTokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                             || slackChannelAppTokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ) {
@@ -423,7 +331,7 @@ struct AssistantChannelsDetailView: View {
                         slackChannelBotTokenInput = ""
                         slackChannelAppTokenInput = ""
                     }
-                    VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                    VButton(label: "Cancel", style: .outlined) {
                         slackChannelSetupExpanded = false
                         slackChannelBotTokenInput = ""
                         slackChannelAppTokenInput = ""
@@ -439,28 +347,15 @@ struct AssistantChannelsDetailView: View {
         let status = store.channelSetupStatus["phone"]
         return SettingsCard(title: "Phone Calling", subtitle: "Receive and make phone calls via Twilio") {
             if status == "ready" {
-                HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
-                    VButton(label: "Disconnect", style: .danger, size: .medium, isDisabled: store.twilioSaveInProgress) {
-                        store.clearTwilioCredentials()
-                        store.channelSetupStatus["phone"] = "not_configured"
-                    }
-                }
-            } else if (status == "incomplete" && store.twilioHasCredentials) || voiceSetupExpanded {
-                voiceCredentialEntry
-            } else {
-                VButton(label: "Set Up", style: .secondary, size: .medium) {
-                    voiceSetupExpanded = true
-                }
+                VBadge(style: .label("Connected"), color: VColor.systemPositiveStrong)
             }
-
+        } content: {
             // Phone number dropdown: show when credentials are configured
             if (status == "ready" || status == "incomplete") && store.twilioHasCredentials {
-                SettingsDivider()
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Phone Number")
                         .font(VFont.inputLabel)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                     VDropdown(
                         placeholder: "Not Set",
                         selection: Binding(
@@ -476,22 +371,31 @@ struct AssistantChannelsDetailView: View {
                 }
             }
 
+            if status == "ready" {
+                VButton(label: "Disconnect", style: .danger, isDisabled: store.twilioSaveInProgress) {
+                    store.clearTwilioCredentials()
+                    store.channelSetupStatus["phone"] = "not_configured"
+                }
+            } else if (status == "incomplete" && store.twilioHasCredentials) || voiceSetupExpanded {
+                voiceCredentialEntry
+            } else {
+                VButton(label: "Set Up", style: .outlined) {
+                    voiceSetupExpanded = true
+                }
+            }
+
             if let warning = store.twilioWarning {
                 Text(warning)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.warning)
+                    .foregroundColor(VColor.systemNegativeHover)
             }
 
             if let error = store.twilioError {
                 Text(error)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.error)
+                    .foregroundColor(VColor.systemNegativeStrong)
             }
 
-            if (status == "ready" || status == "incomplete") && store.twilioPhoneNumber != nil {
-                SettingsDivider()
-                channelVerificationView(channel: "phone")
-            }
         }
     }
 
@@ -501,17 +405,17 @@ struct AssistantChannelsDetailView: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Account SID and Auth Token")
                 .font(VFont.inputLabel)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
 
             TextField("Account SID", text: $voiceAccountSidText)
                 .vInputStyle()
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             SecureField("Auth Token", text: $voiceAuthTokenText)
                 .vInputStyle()
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             if store.twilioSaveInProgress {
                 HStack(spacing: VSpacing.sm) {
@@ -519,14 +423,13 @@ struct AssistantChannelsDetailView: View {
                         .controlSize(.small)
                     Text("Saving...")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
             } else {
                 HStack(spacing: VSpacing.sm) {
                     VButton(
                         label: "Connect",
-                        style: .secondary,
-                        size: .medium,
+                        style: .outlined,
                         isDisabled: voiceAccountSidText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                             voiceAuthTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ) {
@@ -537,7 +440,7 @@ struct AssistantChannelsDetailView: View {
                         voiceAccountSidText = ""
                         voiceAuthTokenText = ""
                     }
-                    VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                    VButton(label: "Cancel", style: .outlined) {
                         voiceSetupExpanded = false
                         voiceAccountSidText = ""
                         voiceAuthTokenText = ""
@@ -547,44 +450,4 @@ struct AssistantChannelsDetailView: View {
         }
     }
 
-    // MARK: - Channel Verification Row
-
-    @ViewBuilder
-    private func channelVerificationView(channel: String) -> some View {
-        ChannelVerificationFlowView(
-            state: store.channelVerificationState(for: channel),
-            countdownNow: $countdownNow,
-            destinationText: Binding<String>(
-                get: { verificationDestinationText[channel] ?? "" },
-                set: { verificationDestinationText[channel] = $0 }
-            ),
-            onStartOutbound: { dest in store.startOutboundVerification(channel: channel, destination: dest) },
-            onResend: { store.resendOutboundVerification(channel: channel) },
-            onCancelOutbound: { store.cancelOutboundVerification(channel: channel) },
-            onRevoke: { store.revokeChannelVerification(channel: channel) },
-            onStartSession: { rebind in store.startChannelVerification(channel: channel, rebind: rebind) },
-            onCancelSession: { store.cancelVerificationSession(channel: channel) },
-            botUsername: store.telegramBotUsername,
-            phoneNumber: store.twilioPhoneNumber,
-            showLabel: true,
-            labelColumnWidth: labelColumnWidth
-        )
-    }
-
-    // MARK: - Countdown Timer
-
-    private func startCountdownTimer() {
-        guard countdownTimer == nil else { return }
-        countdownNow = Date()
-        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            Task { @MainActor in
-                countdownNow = Date()
-            }
-        }
-    }
-
-    private func stopCountdownTimer() {
-        countdownTimer?.invalidate()
-        countdownTimer = nil
-    }
 }

@@ -5,6 +5,7 @@ on:
     types: [labeled, synchronize, opened, reopened]
     paths:
       - 'gateway/**'
+      - 'meta/feature-flags/**'
       - '.github/workflows/pr-gateway.yaml'
 
 concurrency:
@@ -32,8 +33,14 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Sync feature flag registry
+        run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
+
       - name: Lint
         run: bun run lint
+
+      - name: Lint unused code
+        run: bun run lint:unused
 
       - name: Type check
         run: bun run typecheck

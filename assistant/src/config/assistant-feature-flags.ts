@@ -143,10 +143,3 @@ export function isAssistantFeatureFlagEnabled(
 export function getAssistantFeatureFlagDefaults(): FeatureFlagDefaultsRegistry {
   return loadDefaultsRegistry();
 }
-
-/**
- * Reset the cached defaults registry. Intended for tests only.
- */
-export function _resetDefaultsCache(): void {
-  cachedDefaults = undefined;
-}

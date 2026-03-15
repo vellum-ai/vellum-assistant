@@ -1,3 +1,4 @@
+import VellumAssistantShared
 import XCTest
 @testable import VellumAssistantLib
 
@@ -18,10 +19,10 @@ final class LockfileAssistantManagedTests: XCTestCase {
         super.tearDown()
     }
 
-    // MARK: - upsertManagedEntry: insert when absent
+    // MARK: - ensureManagedEntry: insert when absent
 
-    func testUpsertInsertsWhenLockfileDoesNotExist() {
-        let result = LockfileAssistant.upsertManagedEntry(
+    func testEnsureInsertsWhenLockfileDoesNotExist() {
+        let result = LockfileAssistant.ensureManagedEntry(
             assistantId: "test-id",
             runtimeUrl: "https://platform.vellum.ai",
             hatchedAt: "2024-01-01T00:00:00Z",
@@ -39,13 +40,13 @@ final class LockfileAssistantManagedTests: XCTestCase {
         XCTAssertEqual(assistants[0]["hatchedAt"] as? String, "2024-01-01T00:00:00Z")
     }
 
-    func testUpsertInsertsIntoEmptyLockfile() {
+    func testEnsureInsertsIntoEmptyLockfile() {
         // Pre-create an empty lockfile object.
         let empty: [String: Any] = [:]
         let data = try! JSONSerialization.data(withJSONObject: empty)
         try! data.write(to: URL(fileURLWithPath: lockfilePath))
 
-        let result = LockfileAssistant.upsertManagedEntry(
+        let result = LockfileAssistant.ensureManagedEntry(
             assistantId: "new-id",
             runtimeUrl: "https://platform.vellum.ai",
             hatchedAt: "2024-03-01T00:00:00Z",
@@ -60,19 +61,19 @@ final class LockfileAssistantManagedTests: XCTestCase {
         XCTAssertEqual(assistants[0]["assistantId"] as? String, "new-id")
     }
 
-    // MARK: - upsertManagedEntry: update existing
+    // MARK: - ensureManagedEntry: no-op when entry exists
 
-    func testUpsertUpdatesExistingEntryBySameAssistantId() {
+    func testEnsureSkipsWhenEntryAlreadyExists() {
         // Insert first entry.
-        LockfileAssistant.upsertManagedEntry(
+        LockfileAssistant.ensureManagedEntry(
             assistantId: "test-id",
             runtimeUrl: "https://old.example.com",
             hatchedAt: "2024-01-01T00:00:00Z",
             lockfilePath: lockfilePath
         )
 
-        // Update the same assistantId with new values.
-        let result = LockfileAssistant.upsertManagedEntry(
+        // Call again with the same assistantId but different values.
+        let result = LockfileAssistant.ensureManagedEntry(
             assistantId: "test-id",
             runtimeUrl: "https://new.example.com",
             hatchedAt: "2024-06-01T00:00:00Z",
@@ -83,14 +84,15 @@ final class LockfileAssistantManagedTests: XCTestCase {
         let data = try! Data(contentsOf: URL(fileURLWithPath: lockfilePath))
         let json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
         let assistants = json["assistants"] as! [[String: Any]]
-        XCTAssertEqual(assistants.count, 1, "Should have exactly 1 entry after update, not 2")
-        XCTAssertEqual(assistants[0]["runtimeUrl"] as? String, "https://new.example.com")
-        XCTAssertEqual(assistants[0]["hatchedAt"] as? String, "2024-06-01T00:00:00Z")
+        XCTAssertEqual(assistants.count, 1, "Should have exactly 1 entry — second call is a no-op")
+        // Original values preserved, NOT overwritten.
+        XCTAssertEqual(assistants[0]["runtimeUrl"] as? String, "https://old.example.com")
+        XCTAssertEqual(assistants[0]["hatchedAt"] as? String, "2024-01-01T00:00:00Z")
     }
 
-    // MARK: - upsertManagedEntry: preserves other entries
+    // MARK: - ensureManagedEntry: preserves other entries
 
-    func testUpsertPreservesOtherAssistantEntries() {
+    func testEnsurePreservesOtherAssistantEntries() {
         // Pre-populate with a local entry.
         let existing: [String: Any] = [
             "assistants": [
@@ -106,7 +108,7 @@ final class LockfileAssistantManagedTests: XCTestCase {
         try! data.write(to: URL(fileURLWithPath: lockfilePath))
 
         // Add a managed entry.
-        let result = LockfileAssistant.upsertManagedEntry(
+        let result = LockfileAssistant.ensureManagedEntry(
             assistantId: "managed-id",
             runtimeUrl: "https://platform.vellum.ai",
             hatchedAt: "2024-06-01T00:00:00Z",
@@ -122,7 +124,7 @@ final class LockfileAssistantManagedTests: XCTestCase {
         XCTAssertTrue(assistants.contains(where: { ($0["assistantId"] as? String) == "managed-id" }))
     }
 
-    func testUpsertPreservesNonAssistantLockfileKeys() {
+    func testEnsurePreservesNonAssistantLockfileKeys() {
         // Pre-populate with extra top-level keys.
         let existing: [String: Any] = [
             "version": 1,
@@ -131,7 +133,7 @@ final class LockfileAssistantManagedTests: XCTestCase {
         let data = try! JSONSerialization.data(withJSONObject: existing)
         try! data.write(to: URL(fileURLWithPath: lockfilePath))
 
-        LockfileAssistant.upsertManagedEntry(
+        LockfileAssistant.ensureManagedEntry(
             assistantId: "test-id",
             runtimeUrl: "https://platform.vellum.ai",
             hatchedAt: "2024-01-01T00:00:00Z",
@@ -143,10 +145,10 @@ final class LockfileAssistantManagedTests: XCTestCase {
         XCTAssertEqual(json["version"] as? Int, 1, "Non-assistant keys should be preserved")
     }
 
-    // MARK: - upsertManagedEntry: always sets cloud to "vellum"
+    // MARK: - ensureManagedEntry: always sets cloud to "vellum"
 
-    func testUpsertAlwaysSetsCloudToVellum() {
-        LockfileAssistant.upsertManagedEntry(
+    func testEnsureAlwaysSetsCloudToVellum() {
+        LockfileAssistant.ensureManagedEntry(
             assistantId: "test-id",
             runtimeUrl: "https://platform.vellum.ai",
             hatchedAt: "2024-01-01T00:00:00Z",
@@ -394,16 +396,16 @@ final class LockfileAssistantManagedTests: XCTestCase {
         }
     }
 
-    // MARK: - upsertManagedEntry: multiple different assistants
+    // MARK: - ensureManagedEntry: multiple different assistants
 
-    func testUpsertMultipleDifferentAssistants() {
-        LockfileAssistant.upsertManagedEntry(
+    func testEnsureMultipleDifferentAssistants() {
+        LockfileAssistant.ensureManagedEntry(
             assistantId: "assistant-1",
             runtimeUrl: "https://platform.vellum.ai",
             hatchedAt: "2024-01-01T00:00:00Z",
             lockfilePath: lockfilePath
         )
-        LockfileAssistant.upsertManagedEntry(
+        LockfileAssistant.ensureManagedEntry(
             assistantId: "assistant-2",
             runtimeUrl: "https://platform.vellum.ai",
             hatchedAt: "2024-02-01T00:00:00Z",

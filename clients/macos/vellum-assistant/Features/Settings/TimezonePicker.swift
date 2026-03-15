@@ -63,17 +63,17 @@ struct TimezonePicker: View {
             // Search field
             HStack(spacing: VSpacing.sm) {
                 VIconView(.search, size: 12)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                 TextField("Search timezones...", text: $searchText)
                     .textFieldStyle(.plain)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 if !searchText.isEmpty {
                     Button {
                         searchText = ""
                     } label: {
                         VIconView(.circleX, size: 12)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Clear search")
@@ -81,11 +81,11 @@ struct TimezonePicker: View {
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
-            .background(VColor.inputBackground)
+            .background(VColor.surfaceActive)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    .stroke(VColor.borderBase, lineWidth: 1)
             )
             .padding(.horizontal, VSpacing.md)
             .padding(.top, VSpacing.md)
@@ -97,10 +97,10 @@ struct TimezonePicker: View {
             } label: {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(.monitor, size: 12)
-                        .foregroundColor(VColor.accent)
+                        .foregroundColor(VColor.primaryBase)
                     Text("Use system: \(systemTimezoneIdentifier)")
                         .font(VFont.body)
-                        .foregroundColor(VColor.accent)
+                        .foregroundColor(VColor.primaryBase)
                     Spacer()
                 }
                 .padding(.horizontal, VSpacing.md)
@@ -125,11 +125,11 @@ struct TimezonePicker: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(entry.identifier)
                                         .font(VFont.body)
-                                        .foregroundColor(VColor.textPrimary)
+                                        .foregroundColor(VColor.contentDefault)
                                     if !entry.friendlyName.isEmpty {
                                         Text("\(entry.friendlyName) (\(entry.offset))")
                                             .font(VFont.caption)
-                                            .foregroundColor(VColor.textMuted)
+                                            .foregroundColor(VColor.contentTertiary)
                                     }
                                 }
                                 Spacer()
@@ -145,7 +145,7 @@ struct TimezonePicker: View {
                     if filteredEntries.isEmpty {
                         Text("No matching timezones")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                             .padding(.horizontal, VSpacing.md)
                             .padding(.vertical, VSpacing.md)
                     }
@@ -156,7 +156,7 @@ struct TimezonePicker: View {
             .frame(maxHeight: 300)
         }
         .frame(width: 320)
-        .background(VColor.surface)
+        .background(VColor.surfaceBase)
     }
 }
 

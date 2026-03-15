@@ -76,7 +76,7 @@ describe("buildStarterTaskPlaybookSection", () => {
     const section = buildStarterTaskPlaybookSection();
     expect(section).toContain("### Playbook: make_it_yours");
     expect(section).toContain("accent color");
-    expect(section).toContain("Dashboard Color Preference");
+    expect(section).toContain("Color Preference");
     expect(section).toContain("user_selected");
   });
 

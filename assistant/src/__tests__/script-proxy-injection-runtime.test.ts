@@ -27,17 +27,16 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
   listCredentialMetadata: () => credentialMetadataList,
 }));
 
-// Track getSecureKey return values per storage key
+// Track getSecureKeyAsync return values per storage key
 let secureKeyValues = new Map<string, string | undefined>();
 
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKey: (account: string) => secureKeyValues.get(account),
-  setSecureKey: () => true,
-  deleteSecureKey: () => "deleted",
-  listSecureKeys: () => [],
-  getBackendType: () => "encrypted",
+  getSecureKeyAsync: (account: string) =>
+    Promise.resolve(secureKeyValues.get(account)),
+  setSecureKeyAsync: () => Promise.resolve(true),
+  deleteSecureKeyAsync: () => Promise.resolve("deleted"),
+  listSecureKeysAsync: async () => [],
   _resetBackend: () => {},
-  _setBackend: () => {},
 }));
 
 // Stub ensureLocalCA / certs so tests never run openssl

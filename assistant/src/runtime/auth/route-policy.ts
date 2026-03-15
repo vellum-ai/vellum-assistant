@@ -146,6 +146,8 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "secret", scopes: ["approval.write"] },
   { endpoint: "trust-rules", scopes: ["approval.write"] },
   { endpoint: "host-bash-result", scopes: ["approval.write"] },
+  { endpoint: "host-cu-result", scopes: ["approval.write"] },
+  { endpoint: "host-file-result", scopes: ["approval.write"] },
   { endpoint: "pending-interactions", scopes: ["approval.read"] },
 
   // Guardian actions
@@ -282,6 +284,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "apps/gallery/install", scopes: ["settings.write"] },
   { endpoint: "apps/sign-bundle", scopes: ["settings.write"] },
   { endpoint: "apps/signing-identity", scopes: ["settings.read"] },
+  { endpoint: "apps/dist", scopes: ["settings.read"] },
 
   // Usage / cost telemetry
   { endpoint: "usage/totals", scopes: ["settings.read"] },
@@ -325,6 +328,9 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "model:PUT", scopes: ["settings.write"] },
   { endpoint: "model/image-gen", scopes: ["settings.write"] },
 
+  // Session management
+  { endpoint: "sessions/reorder", scopes: ["chat.write"] },
+
   // Conversation search
   { endpoint: "conversations/search", scopes: ["chat.read"] },
 
@@ -346,6 +352,12 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "skills:POST", scopes: ["settings.write"] },
   { endpoint: "skills:DELETE", scopes: ["settings.write"] },
   { endpoint: "skills:PATCH", scopes: ["settings.write"] },
+
+  // Memory items
+  { endpoint: "memory-items:GET", scopes: ["settings.read"] },
+  { endpoint: "memory-items:POST", scopes: ["settings.write"] },
+  { endpoint: "memory-items:PATCH", scopes: ["settings.write"] },
+  { endpoint: "memory-items:DELETE", scopes: ["settings.write"] },
 
   // Trust rule CRUD management
   { endpoint: "trust-rules/manage:GET", scopes: ["settings.read"] },
@@ -371,15 +383,13 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Surface actions
   { endpoint: "surface-actions", scopes: ["chat.write"] },
   { endpoint: "surfaces/undo", scopes: ["chat.write"] },
+  { endpoint: "surfaces", scopes: ["chat.read"] },
 
   // Conversation deletion (channel-facing)
   { endpoint: "channels/conversation:DELETE", scopes: ["chat.write"] },
 
   // Delivery ack
   { endpoint: "channels/delivery-ack", scopes: ["internal.write"] },
-
-  // MCP
-  { endpoint: "mcp/reload", scopes: ["settings.write"] },
 
   // Migrations
   { endpoint: "migrations/validate", scopes: ["settings.write"] },
@@ -390,6 +400,8 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Settings (voice, avatar, client settings)
   { endpoint: "settings/voice", scopes: ["settings.write"] },
   { endpoint: "settings/avatar/generate", scopes: ["settings.write"] },
+  { endpoint: "avatar/character-components", scopes: ["settings.read"] },
+  { endpoint: "avatar/render-from-traits", scopes: ["settings.write"] },
   { endpoint: "settings/client", scopes: ["settings.write"] },
 
   // Schedules
@@ -409,6 +421,10 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
 
   // OAuth / integrations
   { endpoint: "integrations/oauth/start", scopes: ["settings.write"] },
+
+  // Ingress config
+  { endpoint: "integrations/ingress/config:GET", scopes: ["settings.read"] },
+  { endpoint: "integrations/ingress/config", scopes: ["settings.write"] },
 
   // Workspace files
   { endpoint: "workspace-files", scopes: ["settings.read"] },

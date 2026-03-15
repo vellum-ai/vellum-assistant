@@ -33,7 +33,7 @@ struct AssistantBackupsSection: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             Text("Backups")
                 .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             if assistant.isManaged || assistant.isRemote {
                 managedBackupContent
@@ -44,18 +44,18 @@ struct AssistantBackupsSection: View {
             if let error = errorMessage {
                 Text(error)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.error)
+                    .foregroundColor(VColor.systemNegativeStrong)
             }
 
             if let success = successMessage {
                 Text(success)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.success)
+                    .foregroundColor(VColor.systemPositiveStrong)
             }
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceSubtle)
+        .vCard(background: VColor.surfaceOverlay)
         .frame(maxWidth: .infinity, alignment: .leading)
         .task {
             if assistant.isManaged || assistant.isRemote {
@@ -71,16 +71,16 @@ struct AssistantBackupsSection: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Export or restore assistant data as a .vbundle archive.")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
         }
 
         HStack(spacing: VSpacing.md) {
-            VButton(label: isExporting ? "Exporting..." : "Create Backup", style: .secondary) {
+            VButton(label: isExporting ? "Exporting..." : "Create Backup", style: .outlined) {
                 Task { await exportLocalBackup() }
             }
             .disabled(isExporting || isImporting)
 
-            VButton(label: isImporting ? "Restoring..." : "Restore from Backup", style: .secondary) {
+            VButton(label: isImporting ? "Restoring..." : "Restore from Backup", style: .outlined) {
                 selectAndRestoreLocalBackup()
             }
             .disabled(isExporting || isImporting)
@@ -92,7 +92,7 @@ struct AssistantBackupsSection: View {
                     .controlSize(.small)
                 Text(isExporting ? "Creating backup..." : "Restoring backup...")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
         }
     }
@@ -104,16 +104,16 @@ struct AssistantBackupsSection: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Create and restore cloud backups for this assistant.")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
         }
 
         HStack(spacing: VSpacing.md) {
-            VButton(label: isCreatingBackup ? "Creating..." : "Create Backup", style: .secondary) {
+            VButton(label: isCreatingBackup ? "Creating..." : "Create Backup", style: .outlined) {
                 Task { await createManagedBackup() }
             }
             .disabled(isCreatingBackup || isLoadingBackups)
 
-            VButton(label: isLoadingBackups ? "Loading..." : "Refresh", style: .secondary) {
+            VButton(label: isLoadingBackups ? "Loading..." : "Refresh", style: .outlined) {
                 Task { await loadManagedBackups() }
             }
             .disabled(isLoadingBackups || isCreatingBackup)
@@ -125,7 +125,7 @@ struct AssistantBackupsSection: View {
                     .controlSize(.small)
                 Text(isCreatingBackup ? "Creating backup..." : "Loading backups...")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
         }
 
@@ -139,29 +139,29 @@ struct AssistantBackupsSection: View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text("Available Backups")
                 .font(VFont.inputLabel)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
 
             ForEach(managedBackups, id: \.snapshotName) { backup in
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(backup.snapshotName)
                             .font(VFont.mono)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                             .lineLimit(1)
                         Text(backup.createdAt)
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
                     Spacer()
                     if backup.readyToUse {
-                        VButton(label: "Restore", style: .secondary) {
+                        VButton(label: "Restore", style: .outlined) {
                             pendingManagedRestore = backup
                             showingManagedRestoreConfirmation = true
                         }
                     } else {
                         Text("Not ready")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
                 }
                 .padding(.vertical, VSpacing.xs)
@@ -271,21 +271,17 @@ struct AssistantBackupsSection: View {
         isLoadingBackups = true
         defer { isLoadingBackups = false }
 
-        guard let request = buildManagedRequest(path: "backups", method: "GET") else {
-            errorMessage = "Unable to build platform request"
-            return
-        }
-
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200 else {
+            let (decoded, _): (ManagedBackupsResponse?, _) = try await GatewayHTTPClient.get(
+                path: "assistants/\(assistant.assistantId)/backups"
+            )
+            guard let decoded else {
                 errorMessage = "Failed to load backups"
                 return
             }
-
-            let decoded = try JSONDecoder().decode(ManagedBackupsResponse.self, from: data)
             managedBackups = decoded.backups
+        } catch let error as GatewayHTTPClient.ClientError {
+            errorMessage = error.localizedDescription
         } catch {
             errorMessage = "Failed to load backups: \(error.localizedDescription)"
         }
@@ -296,26 +292,18 @@ struct AssistantBackupsSection: View {
         isCreatingBackup = true
         defer { isCreatingBackup = false }
 
-        guard var request = buildManagedRequest(path: "backups", method: "POST") else {
-            errorMessage = "Unable to build platform request"
-            return
-        }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                errorMessage = "Invalid response"
-                return
-            }
-            if httpResponse.statusCode >= 200 && httpResponse.statusCode < 300 {
-                    successMessage = "Backup created successfully"
-                    await loadManagedBackupsQuietly()
-                    // Clear any error from the backups fetch so it doesn't appear alongside the success
-                    if successMessage != nil { errorMessage = nil }
+            let response = try await GatewayHTTPClient.post(path: "assistants/\(assistant.assistantId)/backups")
+            if response.isSuccess {
+                successMessage = "Backup created successfully"
+                await loadManagedBackupsQuietly()
+                // Clear any error from the backups fetch so it doesn't appear alongside the success
+                if successMessage != nil { errorMessage = nil }
             } else {
-                errorMessage = "Failed to create backup (HTTP \(httpResponse.statusCode))"
+                errorMessage = "Failed to create backup (HTTP \(response.statusCode))"
             }
+        } catch let error as GatewayHTTPClient.ClientError {
+            errorMessage = error.localizedDescription
         } catch {
             errorMessage = "Failed to create backup: \(error.localizedDescription)"
         }
@@ -329,26 +317,17 @@ struct AssistantBackupsSection: View {
             pendingManagedRestore = nil
         }
 
-        guard var request = buildManagedRequest(
-            path: "backups/\(backup.snapshotName)/restore",
-            method: "POST"
-        ) else {
-            errorMessage = "Unable to build platform request"
-            return
-        }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                errorMessage = "Invalid response"
-                return
-            }
-            if httpResponse.statusCode >= 200 && httpResponse.statusCode < 300 {
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/\(assistant.assistantId)/backups/\(backup.snapshotName)/restore"
+            )
+            if response.isSuccess {
                 successMessage = "Restore initiated. The assistant may be briefly unavailable."
             } else {
-                errorMessage = "Restore failed (HTTP \(httpResponse.statusCode))"
+                errorMessage = "Restore failed (HTTP \(response.statusCode))"
             }
+        } catch let error as GatewayHTTPClient.ClientError {
+            errorMessage = error.localizedDescription
         } catch {
             errorMessage = "Restore failed: \(error.localizedDescription)"
         }
@@ -359,21 +338,6 @@ struct AssistantBackupsSection: View {
     private func clearMessages() {
         errorMessage = nil
         successMessage = nil
-    }
-
-    private func buildManagedRequest(path: String, method: String) -> URLRequest? {
-        let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
-        guard let token = SessionTokenManager.getToken(), !token.isEmpty else { return nil }
-        let trailingSlash = path.hasSuffix("/") ? "" : "/"
-        guard let url = URL(string: "\(baseURL)/v1/assistants/\(assistant.assistantId)/\(path)\(trailingSlash)") else { return nil }
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.timeoutInterval = 30
-        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
-        if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
-            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
-        }
-        return request
     }
 }
 

@@ -6,7 +6,6 @@ metadata:
   emoji: "\U0001F500"
   vellum:
     display-name: "Orchestration"
-    user-invocable: true
 ---
 
 Use `swarm_delegate` when facing complex multi-part tasks that benefit from parallel execution. The tool decomposes an objective into independent specialist subtasks, runs them concurrently, and synthesises the results.

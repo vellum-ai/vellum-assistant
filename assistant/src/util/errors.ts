@@ -20,9 +20,6 @@ export enum ErrorCode {
   // WASM integrity check failures
   INTEGRITY_ERROR = "INTEGRITY_ERROR",
 
-  // Rate limit exceeded
-  RATE_LIMIT_ERROR = "RATE_LIMIT_ERROR",
-
   // Secret detected in inbound content
   INGRESS_BLOCKED = "INGRESS_BLOCKED",
 

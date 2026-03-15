@@ -37,7 +37,6 @@ let mockVersionHashErrors: Set<string> = new Set();
 
 mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => mockCatalog,
-  checkSkillRequirements: () => ({ eligible: true, missing: {} }),
 }));
 
 mock.module("../skills/active-skill-tools.js", () => {
@@ -250,8 +249,7 @@ function makeSkill(id: string, dir?: string): SkillSummary {
     description: `Skill ${id}`,
     directoryPath: dir ?? `/skills/${id}`,
     skillFilePath: `/skills/${id}/SKILL.md`,
-    userInvocable: true,
-    disableModelInvocation: false,
+
     source: "managed",
   };
 }

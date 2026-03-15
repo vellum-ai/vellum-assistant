@@ -147,7 +147,7 @@ export function deleteWorkItem(id: string): void {
 
 // ── Queue Removal ───────────────────────────────────────────────────
 
-export interface RemoveWorkItemResult {
+interface RemoveWorkItemResult {
   success: boolean;
   title: string;
   message: string;
@@ -177,7 +177,7 @@ export function removeWorkItemFromQueue(id: string): RemoveWorkItemResult {
 
 // ── Selectors / Helpers ─────────────────────────────────────────────
 
-export interface WorkItemSelector {
+interface WorkItemSelector {
   workItemId?: string;
   taskId?: string;
   title?: string;
@@ -356,9 +356,9 @@ export function resolveWorkItem(
 
 // ── Entity Identification ───────────────────────────────────────────
 
-export type EntityType = "task_template" | "work_item" | "unknown";
+type EntityType = "task_template" | "work_item" | "unknown";
 
-export interface EntityIdentification {
+interface EntityIdentification {
   type: EntityType;
   id: string;
   title?: string;

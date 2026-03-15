@@ -13,6 +13,8 @@ struct AvatarRevealStepView: View {
     @State private var isGenerating = true
     @State private var generationFailed = false
     @State private var avatarImage: NSImage?
+    // Precomputed transparency flag — avoids expensive bitmap analysis during animation frames.
+    @State private var avatarIsTransparent = false
     @State private var showAvatar = false
     @State private var showText = false
     @State private var showButton = false
@@ -45,24 +47,24 @@ struct AvatarRevealStepView: View {
                 if isGenerating {
                     Text("Creating your avatar\u{2026}")
                         .font(.system(size: 24, weight: .regular, design: .serif))
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                         .transition(.opacity)
 
                     Text("This may take a few seconds")
                         .font(.system(size: 14))
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .transition(.opacity)
                 } else {
                     Text(generationFailed ? "Meet \(assistantName)!" : "Here's your avatar!")
                         .font(.system(size: 24, weight: .regular, design: .serif))
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                         .opacity(showText ? 1 : 0)
                         .offset(y: showText ? 0 : 8)
 
                     if generationFailed {
                         Text("We'll use this for now -- you can generate a custom avatar later.")
                             .font(.system(size: 14))
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                             .multilineTextAlignment(.center)
                             .opacity(showText ? 1 : 0)
                             .offset(y: showText ? 0 : 8)
@@ -78,12 +80,12 @@ struct AvatarRevealStepView: View {
                 Button(action: { onContinue() }) {
                     Text("Continue")
                         .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(.white)
+                        .foregroundColor(VColor.auxWhite)
                         .frame(maxWidth: 280)
                         .padding(.vertical, VSpacing.lg)
                         .background(
                             RoundedRectangle(cornerRadius: VRadius.lg)
-                                .fill(VColor.onboardingStepBackground)
+                                .fill(VColor.primaryBase)
                         )
                 }
                 .buttonStyle(.plain)
@@ -109,7 +111,7 @@ struct AvatarRevealStepView: View {
     private var loadingPlaceholder: some View {
         ZStack {
             Circle()
-                .fill(Forest._600.opacity(pulseOpacity))
+                .fill(VColor.primaryBase.opacity(pulseOpacity))
                 .frame(width: 160, height: 160)
                 .onAppear {
                     withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
@@ -119,7 +121,7 @@ struct AvatarRevealStepView: View {
 
             Text(String(assistantName.prefix(1)).uppercased())
                 .font(.system(size: 64, weight: .semibold))
-                .foregroundColor(.white.opacity(0.6))
+                .foregroundColor(VColor.auxWhite.opacity(0.6))
         }
     }
 
@@ -128,12 +130,8 @@ struct AvatarRevealStepView: View {
     private var revealedAvatar: some View {
         Group {
             if let image = avatarImage {
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 160, height: 160)
-                    .clipShape(Circle())
-                    .shadow(color: Forest._600.opacity(0.3), radius: 12, y: 4)
+                VAvatarImage(image: image, size: 160, isTransparent: avatarIsTransparent, showBorder: false)
+                    .shadow(color: VColor.primaryBase.opacity(0.3), radius: 12, y: 4)
                     .scaleEffect(showAvatar ? 1.0 : 0.8)
                     .opacity(showAvatar ? 1 : 0)
             }
@@ -158,10 +156,12 @@ struct AvatarRevealStepView: View {
                     // Connection failed — show fallback avatar immediately
                     // instead of falling through to the generate request.
                     await MainActor.run {
-                        avatarImage = AvatarAppearanceManager.buildInitialLetterAvatar(
+                        let fallback = AvatarAppearanceManager.buildInitialLetterAvatar(
                             name: assistantName,
                             size: 160
                         )
+                        avatarImage = fallback
+                        avatarIsTransparent = VAvatarImage.imageHasTransparency(fallback)
                         generationFailed = true
 
                         withAnimation(.spring(duration: 0.6, bounce: 0.2)) {
@@ -232,14 +232,18 @@ struct AvatarRevealStepView: View {
                 if success {
                     // Reload avatar from disk
                     AvatarAppearanceManager.shared.reloadAvatar()
-                    avatarImage = AvatarAppearanceManager.shared.fullAvatarImage
+                    let image = AvatarAppearanceManager.shared.fullAvatarImage
+                    avatarImage = image
+                    avatarIsTransparent = VAvatarImage.imageHasTransparency(image)
                     generationFailed = false
                 } else {
                     // Use fallback initial-letter avatar
-                    avatarImage = AvatarAppearanceManager.buildInitialLetterAvatar(
+                    let fallback = AvatarAppearanceManager.buildInitialLetterAvatar(
                         name: assistantName,
                         size: 160
                     )
+                    avatarImage = fallback
+                    avatarIsTransparent = VAvatarImage.imageHasTransparency(fallback)
                     generationFailed = true
                 }
 
@@ -283,23 +287,4 @@ struct AvatarRevealStepView: View {
             return false
         }
     }
-}
-
-#Preview("Loading") {
-    ZStack {
-        RadialGradient(
-            colors: [Stone._100, Stone._200],
-            center: .center,
-            startRadius: 0,
-            endRadius: 500
-        )
-        .ignoresSafeArea()
-
-        AvatarRevealStepView(
-            assistantName: "Velly",
-            daemonClient: DaemonClient(),
-            onContinue: {}
-        )
-    }
-    .frame(width: 460, height: 620)
 }

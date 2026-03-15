@@ -17,7 +17,7 @@ export async function run(
   }
 
   try {
-    const connection = getSlackConnection();
+    const connection = await getSlackConnection();
     await deleteMessage(connection, channel, timestamp);
     return ok(`Message deleted.`);
   } catch (e) {

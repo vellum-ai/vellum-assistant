@@ -58,11 +58,28 @@ enum HostCuActionRunner {
     /// Default max steps shown in the overlay when the daemon doesn't provide one.
     private static let defaultMaxSteps = 50
 
+    /// Per-session verifier state so safety checks (loop detection, step limits,
+    /// "Enter after typing") accumulate across requests within the same session.
+    private static var verifiers: [String: ActionVerifier] = [:]
+
+    /// Per-session previous AX elements for computing diffs between steps.
+    private static var previousAXElements: [String: [AXElement]] = [:]
+
+    /// Remove session state when a session ends.
+    static func clearSession(_ sessionId: String) {
+        verifiers.removeValue(forKey: sessionId)
+        previousAXElements.removeValue(forKey: sessionId)
+    }
+
     static func perform(_ request: HostCuRequest, overlayProxy: HostCuSessionProxy? = nil) async -> HostCuResultPayload {
         let enumerator = AccessibilityTreeEnumerator()
         let screenCapture = ScreenCapture()
         let executor = ActionExecutor()
-        let verifier = ActionVerifier()
+        let verifier = verifiers[request.sessionId] ?? {
+            let v = ActionVerifier()
+            verifiers[request.sessionId] = v
+            return v
+        }()
 
         // Map tool name + input to an AgentAction
         let agentAction = mapToAgentAction(toolName: request.toolName, input: request.input, reasoning: request.reasoning)
@@ -81,36 +98,41 @@ enum HostCuActionRunner {
                     screenCapture: screenCapture,
                     executionResult: nil,
                     executionError: "Could not resolve element coordinates for action",
-                    stepNumber: request.stepNumber
+                    stepNumber: request.stepNumber,
+                    sessionId: request.sessionId
                 )
-                return buildResultPayload(requestId: request.requestId, observation: obs, proxy: overlayProxy)
+                return buildResultPayload(requestId: request.requestId, sessionId: request.sessionId, observation: obs, proxy: overlayProxy)
             }
 
             // Handle done/respond completion signals — transition overlay and skip execution
             if resolvedAction.type == .done {
                 let summary = resolvedAction.summary ?? "Task completed"
                 overlayProxy?.state = .completed(summary: summary, steps: request.stepNumber)
+                clearSession(request.sessionId)
                 let obs = await buildObservation(
                     enumerator: enumerator,
                     screenCapture: screenCapture,
                     executionResult: nil,
                     executionError: nil,
-                    stepNumber: request.stepNumber
+                    stepNumber: request.stepNumber,
+                    sessionId: request.sessionId
                 )
-                return buildResultPayload(requestId: request.requestId, observation: obs, proxy: overlayProxy)
+                return buildResultPayload(requestId: request.requestId, sessionId: request.sessionId, observation: obs, proxy: overlayProxy)
             }
 
             if resolvedAction.type == .respond {
                 let answer = resolvedAction.text ?? resolvedAction.summary ?? ""
                 overlayProxy?.state = .responded(answer: answer, steps: request.stepNumber)
+                clearSession(request.sessionId)
                 let obs = await buildObservation(
                     enumerator: enumerator,
                     screenCapture: screenCapture,
                     executionResult: nil,
                     executionError: nil,
-                    stepNumber: request.stepNumber
+                    stepNumber: request.stepNumber,
+                    sessionId: request.sessionId
                 )
-                return buildResultPayload(requestId: request.requestId, observation: obs, proxy: overlayProxy)
+                return buildResultPayload(requestId: request.requestId, sessionId: request.sessionId, observation: obs, proxy: overlayProxy)
             }
 
             // Update overlay state to running before execution
@@ -125,28 +147,19 @@ enum HostCuActionRunner {
             let verifyResult = verifier.verify(resolvedAction)
             switch verifyResult {
             case .allowed:
-                verifier.resetBlockCount()
+                break
 
             case .needsConfirmation(let reason):
-                // In the host CU proxy context, auto-approve low-risk actions
-                // (AppleScript). Higher-risk actions are blocked since there's
-                // no interactive confirmation UI in this path.
-                let isLowRisk = resolvedAction.type == .runAppleScript
-                if isLowRisk {
-                    log.info("[\(request.stepNumber)] Auto-approved: \(reason)")
-                    verifier.recordConfirmedAction(resolvedAction)
-                    verifier.resetBlockCount()
-                } else {
-                    log.warning("[\(request.stepNumber)] Needs confirmation (blocked in proxy): \(reason)")
-                    let obs = await buildObservation(
-                        enumerator: enumerator,
-                        screenCapture: screenCapture,
-                        executionResult: nil,
-                        executionError: "BLOCKED: \(reason) (confirmation not available in proxy mode)",
-                        stepNumber: request.stepNumber
-                    )
-                    return buildResultPayload(requestId: request.requestId, observation: obs, proxy: overlayProxy)
-                }
+                log.warning("[\(request.stepNumber)] Needs confirmation (blocked in proxy): \(reason)")
+                let obs = await buildObservation(
+                    enumerator: enumerator,
+                    screenCapture: screenCapture,
+                    executionResult: nil,
+                    executionError: "BLOCKED: \(reason) (confirmation not available in proxy mode)",
+                    stepNumber: request.stepNumber,
+                    sessionId: request.sessionId
+                )
+                return buildResultPayload(requestId: request.requestId, sessionId: request.sessionId, observation: obs, proxy: overlayProxy)
 
             case .blocked(let reason):
                 log.warning("[\(request.stepNumber)] BLOCKED: \(reason)")
@@ -155,9 +168,10 @@ enum HostCuActionRunner {
                     screenCapture: screenCapture,
                     executionResult: nil,
                     executionError: "BLOCKED: \(reason)",
-                    stepNumber: request.stepNumber
+                    stepNumber: request.stepNumber,
+                    sessionId: request.sessionId
                 )
-                return buildResultPayload(requestId: request.requestId, observation: obs, proxy: overlayProxy)
+                return buildResultPayload(requestId: request.requestId, sessionId: request.sessionId, observation: obs, proxy: overlayProxy)
             }
 
             // EXECUTE
@@ -188,10 +202,11 @@ enum HostCuActionRunner {
             screenCapture: screenCapture,
             executionResult: executionResult,
             executionError: executionError,
-            stepNumber: request.stepNumber
+            stepNumber: request.stepNumber,
+            sessionId: request.sessionId
         )
 
-        return buildResultPayload(requestId: request.requestId, observation: obs, proxy: overlayProxy)
+        return buildResultPayload(requestId: request.requestId, sessionId: request.sessionId, observation: obs, proxy: overlayProxy)
     }
 
     // MARK: - Tool Name Mapping
@@ -230,7 +245,8 @@ enum HostCuActionRunner {
             ?? extractInt(from: input, key: "scrollAmount")
             ?? extractInt(from: input, key: "scroll_amount")
         let summary = input["summary"]?.value as? String
-        let waitDuration = extractInt(from: input, key: "duration")
+        let waitDuration = extractInt(from: input, key: "duration_ms")
+            ?? extractInt(from: input, key: "duration")
             ?? extractInt(from: input, key: "waitDuration")
             ?? extractInt(from: input, key: "wait_duration")
         let appName = input["app_name"]?.value as? String
@@ -330,6 +346,8 @@ enum HostCuActionRunner {
     /// Internal observation data before packaging into the result payload.
     private struct ObservationData {
         let axTree: String?
+        let axDiff: String?
+        let currentElements: [AXElement]?
         let screenshot: String?
         let screenshotWidthPx: Int?
         let screenshotHeightPx: Int?
@@ -346,9 +364,12 @@ enum HostCuActionRunner {
         screenCapture: ScreenCaptureProviding,
         executionResult: String?,
         executionError: String?,
-        stepNumber: Int
+        stepNumber: Int,
+        sessionId: String
     ) async -> ObservationData {
         var axTreeText: String?
+        var axDiffText: String?
+        var currentElements: [AXElement]?
         var screenshotBase64: String?
         var screenshotWidthPx: Int?
         var screenshotHeightPx: Int?
@@ -363,8 +384,14 @@ enum HostCuActionRunner {
                 appName: result.appName
             )
             let flat = AccessibilityTreeEnumerator.flattenElements(result.elements)
+            currentElements = flat
             let interactiveCount = flat.filter { AccessibilityTreeEnumerator.interactiveRoles.contains($0.role) }.count
             log.info("[\(stepNumber)] AX tree: \(result.appName) — \"\(result.windowTitle)\" — \(flat.count) elements (\(interactiveCount) interactive)")
+
+            // Compute AX diff against previous step's elements
+            if let previousFlat = previousAXElements[sessionId] {
+                axDiffText = AXTreeDiff.diff(previousFlat: previousFlat, currentFlat: flat)
+            }
 
             // Enumerate secondary windows on first step
             if stepNumber <= 1 {
@@ -409,6 +436,8 @@ enum HostCuActionRunner {
 
         return ObservationData(
             axTree: axTreeText,
+            axDiff: axDiffText,
+            currentElements: currentElements,
             screenshot: screenshotBase64,
             screenshotWidthPx: screenshotWidthPx,
             screenshotHeightPx: screenshotHeightPx,
@@ -421,15 +450,20 @@ enum HostCuActionRunner {
     }
 
     /// Package observation data into a `HostCuResultPayload`.
-    /// Drains any pending user guidance from the proxy.
-    private static func buildResultPayload(requestId: String, observation: ObservationData, proxy: HostCuSessionProxy? = nil) -> HostCuResultPayload {
+    /// Drains any pending user guidance from the proxy and updates previous AX state.
+    private static func buildResultPayload(requestId: String, sessionId: String, observation: ObservationData, proxy: HostCuSessionProxy? = nil) -> HostCuResultPayload {
         let guidance = proxy?.pendingUserGuidance
         proxy?.pendingUserGuidance = nil
+
+        // Update previous AX elements for next step's diff
+        if let elements = observation.currentElements {
+            previousAXElements[sessionId] = elements
+        }
 
         return HostCuResultPayload(
             requestId: requestId,
             axTree: observation.axTree,
-            axDiff: nil, // Diff requires tracking previous state across requests; handled server-side
+            axDiff: observation.axDiff,
             screenshot: observation.screenshot,
             screenshotWidthPx: observation.screenshotWidthPx,
             screenshotHeightPx: observation.screenshotHeightPx,

@@ -477,7 +477,7 @@ final class VoiceModeManager: ObservableObject {
     enum PermissionDecision {
         case allow
         case allowTenMinutes
-        case allowThread
+        case allowConversation
         case alwaysAllow
         case denied
         case ambiguous
@@ -487,7 +487,7 @@ final class VoiceModeManager: ObservableObject {
             switch self {
             case .allow: return "allow"
             case .allowTenMinutes: return "allow_10m"
-            case .allowThread: return "allow_thread"
+            case .allowConversation: return "allow_conversation"
             case .alwaysAllow: return "always_allow"
             case .denied: return "deny"
             case .ambiguous: return "deny"
@@ -510,10 +510,12 @@ final class VoiceModeManager: ObservableObject {
             return .allowTenMinutes
         }
 
-        // "allow for this thread" / "this thread" / "for the thread"
-        let threadPatterns = ["this thread", "the thread", "for thread", "allow thread"]
-        if threadPatterns.contains(where: { lower.contains($0) }) && !hasNegative {
-            return .allowThread
+        // "allow for this conversation" / "this conversation" / "for the conversation"
+        // Also accept "thread" as a legacy synonym for backward compatibility.
+        let conversationPatterns = ["this conversation", "the conversation", "for conversation", "allow conversation",
+                                    "this thread", "the thread", "for thread", "allow thread"]
+        if conversationPatterns.contains(where: { lower.contains($0) }) && !hasNegative {
+            return .allowConversation
         }
 
         // "always allow" / "always approve"
@@ -544,7 +546,7 @@ final class VoiceModeManager: ObservableObject {
         }
 
         switch decision {
-        case .allow, .allowTenMinutes, .allowThread, .alwaysAllow:
+        case .allow, .allowTenMinutes, .allowConversation, .alwaysAllow:
             log.info("Voice mode: permissions \(decision.decisionString, privacy: .public) via voice")
             for requestId in pendingPermissionIds {
                 chatViewModel.respondToConfirmation(requestId: requestId, decision: decision.decisionString)
@@ -564,7 +566,7 @@ final class VoiceModeManager: ObservableObject {
             log.info("Voice mode: unclear permission response — \(text, privacy: .public)")
             state = .speaking
             voiceService.resetStreamingTTS()
-            voiceService.feedTextDelta("Sorry, I didn't quite catch that. You can say yes, no, allow for 10 minutes, allow for this thread, or always allow.")
+            voiceService.feedTextDelta("Sorry, I didn't quite catch that. You can say yes, no, allow for 10 minutes, allow for this conversation, or always allow.")
             voiceService.finishTextStream { [weak self] in
                 guard let self else { return }
                 self.voiceService.stopBargeInMonitor()

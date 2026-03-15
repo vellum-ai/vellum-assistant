@@ -382,8 +382,3 @@ export function getEmailService(): EmailService {
   }
   return instance;
 }
-
-/** @internal Test-only: reset singleton. */
-export function _resetEmailService(): void {
-  instance = null;
-}

@@ -399,4 +399,68 @@ describe("Verification control messages are deterministic (guard)", () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  test("handleChannelInbound does not allow blocked members to bootstrap with /start gv_<token>", async () => {
+    const { createHash, randomBytes } = await import("node:crypto");
+    const { handleChannelInbound } =
+      await import("../runtime/routes/inbound-message-handler.js");
+    const { createOutboundSession } =
+      await import("../runtime/channel-verification-service.js");
+    const { upsertContactChannel } =
+      await import("../contacts/contacts-write.js");
+
+    const blockedIdentity = {
+      sourceChannel: "telegram",
+      externalUserId: "user-blocked-bootstrap",
+      externalChatId: "chat-blocked-bootstrap",
+      displayName: "Blocked Bootstrap User",
+      status: "blocked",
+      policy: "deny",
+    } as const;
+    upsertContactChannel(blockedIdentity);
+
+    const bootstrapToken = randomBytes(16).toString("hex");
+    const bootstrapTokenHash = createHash("sha256")
+      .update(bootstrapToken)
+      .digest("hex");
+
+    createOutboundSession({
+      channel: "telegram",
+      identityBindingStatus: "pending_bootstrap",
+      destinationAddress: blockedIdentity.externalUserId,
+      bootstrapTokenHash,
+    });
+
+    let processMessageCalled = false;
+    const processMessage = async () => {
+      processMessageCalled = true;
+      return { messageId: "msg-1" };
+    };
+
+    const req = new Request("http://localhost/channels/inbound", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceChannel: "telegram",
+        interface: "telegram",
+        conversationExternalId: blockedIdentity.externalChatId,
+        externalMessageId: `msg-blocked-bootstrap-${Date.now()}`,
+        content: `/start gv_${bootstrapToken}`,
+        actorExternalId: blockedIdentity.externalUserId,
+        actorDisplayName: blockedIdentity.displayName,
+        sourceMetadata: {
+          commandIntent: { type: "start", payload: `gv_${bootstrapToken}` },
+        },
+      }),
+    });
+
+    const response = await handleChannelInbound(req, processMessage);
+    const body = (await response.json()) as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.denied).toBe(true);
+    expect(body.reason).toBe("member_blocked");
+    expect(body.verificationOutcome).toBeUndefined();
+    expect(processMessageCalled).toBe(false);
+  });
 });

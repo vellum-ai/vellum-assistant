@@ -80,7 +80,7 @@ struct ChannelsGuardianSection: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 VIconView(.shieldCheck, size: 14)
-                    .foregroundColor(VColor.success)
+                    .foregroundColor(VColor.systemPositiveStrong)
                 Text(guardian.displayName)
                     .font(.body)
             }
@@ -119,7 +119,7 @@ struct ChannelsGuardianSection: View {
                 showRevokeConfirmation = true
             } label: {
                 VIconView(.circleX, size: 14)
-                    .foregroundColor(VColor.error)
+                    .foregroundColor(VColor.systemNegativeStrong)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Revoke channel \(channel.address)")
@@ -154,10 +154,10 @@ struct ChannelsGuardianSection: View {
     private func policyBadge(_ policy: String) -> some View {
         let (color, label): (Color, String) = {
             switch policy {
-            case "allow": return (VColor.success, "Allow")
-            case "deny": return (VColor.error, "Deny")
-            case "escalate": return (VColor.warning, "Escalate")
-            default: return (VColor.textMuted, policy.capitalized)
+            case "allow": return (VColor.systemPositiveStrong, "Allow")
+            case "deny": return (VColor.systemNegativeStrong, "Deny")
+            case "escalate": return (VColor.systemNegativeHover, "Escalate")
+            default: return (VColor.contentTertiary, policy.capitalized)
             }
         }()
         Text(label)
@@ -174,10 +174,10 @@ struct ChannelsGuardianSection: View {
     private func statusBadge(_ status: String) -> some View {
         let (color, label): (Color, String) = {
             switch status {
-            case "active": return (VColor.success, "Active")
-            case "revoked": return (VColor.error, "Revoked")
-            case "pending": return (VColor.warning, "Pending")
-            default: return (VColor.textMuted, status.capitalized)
+            case "active": return (VColor.systemPositiveStrong, "Active")
+            case "revoked": return (VColor.systemNegativeStrong, "Revoked")
+            case "pending": return (VColor.systemNegativeHover, "Pending")
+            default: return (VColor.contentTertiary, status.capitalized)
             }
         }()
         Text(label)

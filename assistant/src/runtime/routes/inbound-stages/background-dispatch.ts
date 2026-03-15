@@ -77,6 +77,8 @@ export interface BackgroundProcessingParams {
   sourceLanguageCode?: string;
   /** External message ID (e.g. Slack message ts) used for reaction indicators. */
   externalMessageId?: string;
+  /** Chat type from the gateway (e.g. "private", "group", "supergroup"). */
+  chatType?: string;
 }
 
 /**
@@ -105,6 +107,7 @@ export function processChannelMessageInBackground(
     commandIntent,
     sourceLanguageCode,
     externalMessageId,
+    chatType,
   } = params;
 
   (async () => {
@@ -193,6 +196,7 @@ export function processChannelMessageInBackground(
             channelId: sourceChannel,
             hints: metadataHints.length > 0 ? metadataHints : undefined,
             uxBrief: metadataUxBrief,
+            chatType,
           },
           assistantId,
           trustContext: trustCtx,

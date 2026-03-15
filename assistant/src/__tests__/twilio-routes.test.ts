@@ -120,11 +120,10 @@ mock.module("../util/logger.js", () => ({
 const mockConfigObj = {
   model: "test",
   provider: "test",
-  apiKeys: {},
   memory: { enabled: false },
   rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
   secretDetection: { enabled: false },
-  elevenlabs: { voiceId: "21m00Tcm4TlvDq8ikWAM" },
+  elevenlabs: { voiceId: DEFAULT_ELEVENLABS_VOICE_ID },
   calls: {
     voice: {
       language: "en-US",
@@ -144,7 +143,6 @@ mock.module("../config/loader.js", () => ({
 }));
 
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKey: (key: string) => mockSecureKeyStore[key],
   setSecureKeyAsync: async (key: string, value: string) => {
     mockSecureKeyStore[key] = value;
     return true;
@@ -322,6 +320,7 @@ import {
   handleStatusCallback,
   handleVoiceWebhook,
 } from "../calls/twilio-routes.js";
+import { DEFAULT_ELEVENLABS_VOICE_ID } from "../config/schemas/elevenlabs.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { conversations } from "../memory/schema.js";
 import {

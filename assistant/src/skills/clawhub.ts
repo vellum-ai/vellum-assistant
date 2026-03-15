@@ -160,14 +160,14 @@ export function verifyAndRecordSkillHash(slug: string): void {
   saveIntegrityManifest(manifest);
 }
 
-export interface ClawhubInstallResult {
+interface ClawhubInstallResult {
   success: boolean;
   skillName?: string;
   version?: string;
   error?: string;
 }
 
-export interface ClawhubSearchResultItem {
+interface ClawhubSearchResultItem {
   name: string;
   slug: string;
   description: string;
@@ -180,17 +180,17 @@ export interface ClawhubSearchResultItem {
   source: "vellum" | "clawhub";
 }
 
-export interface ClawhubSearchResult {
+interface ClawhubSearchResult {
   skills: ClawhubSearchResultItem[];
 }
 
-export interface ClawhubUpdateResult {
+interface ClawhubUpdateResult {
   success: boolean;
   updatedVersion?: string;
   error?: string;
 }
 
-export interface ClawhubUpdateCheckItem {
+interface ClawhubUpdateCheckItem {
   name: string;
   installedVersion: string;
   latestVersion: string;

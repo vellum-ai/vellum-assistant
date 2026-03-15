@@ -43,7 +43,6 @@ mock.module("../config/loader.js", () => {
 
     provider: "anthropic",
     providerOrder: ["anthropic"],
-    apiKeys: { anthropic: "test-key" },
     calls: {
       enabled: true,
       provider: "twilio",
@@ -255,6 +254,25 @@ function resetTables() {
     "conversations",
   );
   ensuredConvIds = new Set();
+}
+
+/**
+ * Poll until a condition is met, with a timeout. Yields the event loop
+ * between checks so fire-and-forget async work (guardian dispatch, etc.)
+ * can complete even on slow CI runners where setTimeout callbacks may
+ * be delayed by synchronous DB operations.
+ */
+async function pollUntil(
+  predicate: () => boolean,
+  timeoutMs = 2000,
+  intervalMs = 5,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline)
+      throw new Error(`pollUntil timed out after ${timeoutMs}ms`);
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
 }
 
 /**
@@ -1389,223 +1407,232 @@ describe("call-controller", () => {
 
   test("consultation timeout: fires generated turn with GUARDIAN_TIMEOUT instruction instead of hardcoded text", async () => {
     // Use a short consultation timeout so we can wait for it in the test
-    mockConsultationTimeoutMs = 50;
+    mockConsultationTimeoutMs = 200;
 
     // Trigger ASK_GUARDIAN to start a consultation
     mockStartVoiceTurn.mockImplementation(
       createMockVoiceTurn(["Let me check. [ASK_GUARDIAN: What time works?]"]),
     );
     const { session, relay, controller } = setupController();
-    await controller.handleCallerUtterance("Book me in");
-    expect(controller.getState()).toBe("idle");
-    expect(controller.getPendingConsultationQuestionId()).not.toBeNull();
+    try {
+      await controller.handleCallerUtterance("Book me in");
+      expect(controller.getState()).toBe("idle");
+      expect(controller.getPendingConsultationQuestionId()).not.toBeNull();
 
-    // Set up mock to capture what content the timeout turn receives
-    const turnContents: string[] = [];
-    mockStartVoiceTurn.mockImplementation(
-      async (opts: {
-        content: string;
-        onTextDelta: (t: string) => void;
-        onComplete: () => void;
-      }) => {
-        turnContents.push(opts.content);
-        opts.onTextDelta(
-          "I'm sorry, I wasn't able to reach them. Would you like a callback?",
-        );
-        opts.onComplete();
-        return { turnId: `run-${turnContents.length}`, abort: () => {} };
-      },
-    );
+      // Set up mock to capture what content the timeout turn receives
+      const turnContents: string[] = [];
+      mockStartVoiceTurn.mockImplementation(
+        async (opts: {
+          content: string;
+          onTextDelta: (t: string) => void;
+          onComplete: () => void;
+        }) => {
+          turnContents.push(opts.content);
+          opts.onTextDelta(
+            "I'm sorry, I wasn't able to reach them. Would you like a callback?",
+          );
+          opts.onComplete();
+          return { turnId: `run-${turnContents.length}`, abort: () => {} };
+        },
+      );
 
-    // Wait for the short consultation timeout to fire
-    await new Promise((r) => setTimeout(r, 200));
+      // Poll until the consultation timeout fires and generates a turn
+      await pollUntil(() => turnContents.length > 0);
 
-    // A generated turn should have been fired with the GUARDIAN_TIMEOUT instruction.
-    // The instruction starts with '[' so flushPendingInstructions passes it through
-    // without wrapping it in [USER_INSTRUCTION:].
-    expect(turnContents.length).toBe(1);
-    expect(turnContents[0]).toContain("[GUARDIAN_TIMEOUT]");
-    expect(turnContents[0]).toContain("What time works?");
+      // A generated turn should have been fired with the GUARDIAN_TIMEOUT instruction.
+      // The instruction starts with '[' so flushPendingInstructions passes it through
+      // without wrapping it in [USER_INSTRUCTION:].
+      expect(turnContents.length).toBe(1);
+      expect(turnContents[0]).toContain("[GUARDIAN_TIMEOUT]");
+      expect(turnContents[0]).toContain("What time works?");
 
-    // No hardcoded timeout text should appear in relay tokens
-    const allText = relay.sentTokens.map((t) => t.token).join("");
-    expect(allText).not.toContain(
-      "I'm sorry, I wasn't able to get that information in time",
-    );
-    expect(allText).toContain("callback");
+      // No hardcoded timeout text should appear in relay tokens
+      const allText = relay.sentTokens.map((t) => t.token).join("");
+      expect(allText).not.toContain(
+        "I'm sorry, I wasn't able to get that information in time",
+      );
+      expect(allText).toContain("callback");
 
-    // Session should be back in progress
-    const updatedSession = getCallSession(session.id);
-    expect(updatedSession!.status).toBe("in_progress");
-
-    controller.destroy();
+      // Session should be back in progress
+      const updatedSession = getCallSession(session.id);
+      expect(updatedSession!.status).toBe("in_progress");
+    } finally {
+      controller.destroy();
+    }
   });
 
   test("consultation timeout: timeout instruction fires even when controller is idle", async () => {
     // Use a short consultation timeout so we can wait for it in the test
-    mockConsultationTimeoutMs = 50;
+    mockConsultationTimeoutMs = 200;
 
     // Trigger ASK_GUARDIAN to start a consultation
     mockStartVoiceTurn.mockImplementation(
       createMockVoiceTurn(["Let me check. [ASK_GUARDIAN: What time works?]"]),
     );
     const { controller } = setupController();
-    await controller.handleCallerUtterance("Book me in");
-    expect(controller.getState()).toBe("idle");
-    expect(controller.getPendingConsultationQuestionId()).not.toBeNull();
+    try {
+      await controller.handleCallerUtterance("Book me in");
+      expect(controller.getState()).toBe("idle");
+      expect(controller.getPendingConsultationQuestionId()).not.toBeNull();
 
-    // Set up mock to capture what content the timeout turn receives
-    const turnContents: string[] = [];
-    mockStartVoiceTurn.mockImplementation(
-      async (opts: {
-        content: string;
-        onTextDelta: (t: string) => void;
-        onComplete: () => void;
-      }) => {
-        turnContents.push(opts.content);
-        opts.onTextDelta("Got it, I was unable to reach them.");
-        opts.onComplete();
-        return { turnId: `run-${turnContents.length}`, abort: () => {} };
-      },
-    );
+      // Set up mock to capture what content the timeout turn receives
+      const turnContents: string[] = [];
+      mockStartVoiceTurn.mockImplementation(
+        async (opts: {
+          content: string;
+          onTextDelta: (t: string) => void;
+          onComplete: () => void;
+        }) => {
+          turnContents.push(opts.content);
+          opts.onTextDelta("Got it, I was unable to reach them.");
+          opts.onComplete();
+          return { turnId: `run-${turnContents.length}`, abort: () => {} };
+        },
+      );
 
-    // Wait for the short consultation timeout to fire
-    await new Promise((r) => setTimeout(r, 200));
+      // Poll until the consultation timeout fires and generates a turn
+      await pollUntil(() => turnContents.length > 0);
 
-    // The timeout instruction turn should have fired
-    const timeoutTurns = turnContents.filter((c) =>
-      c.includes("[GUARDIAN_TIMEOUT]"),
-    );
-    expect(timeoutTurns.length).toBe(1);
-    expect(timeoutTurns[0]).toContain("What time works?");
+      // The timeout instruction turn should have fired
+      const timeoutTurns = turnContents.filter((c) =>
+        c.includes("[GUARDIAN_TIMEOUT]"),
+      );
+      expect(timeoutTurns.length).toBe(1);
+      expect(timeoutTurns[0]).toContain("What time works?");
 
-    // Consultation should be cleared after timeout
-    expect(controller.getPendingConsultationQuestionId()).toBeNull();
-
-    controller.destroy();
+      // Consultation should be cleared after timeout
+      expect(controller.getPendingConsultationQuestionId()).toBeNull();
+    } finally {
+      controller.destroy();
+    }
   });
 
   test("consultation timeout: marks linked guardian action request as timed out", async () => {
-    mockConsultationTimeoutMs = 50;
+    mockConsultationTimeoutMs = 200;
 
     // Trigger ASK_GUARDIAN to start a consultation
     mockStartVoiceTurn.mockImplementation(
       createMockVoiceTurn(["Let me check. [ASK_GUARDIAN: What time works?]"]),
     );
     const { session, controller } = setupController();
-    await controller.handleCallerUtterance("Book me in");
-    expect(controller.getState()).toBe("idle");
-    expect(controller.getPendingConsultationQuestionId()).not.toBeNull();
+    try {
+      await controller.handleCallerUtterance("Book me in");
+      expect(controller.getState()).toBe("idle");
+      expect(controller.getPendingConsultationQuestionId()).not.toBeNull();
 
-    // Give the async dispatchGuardianQuestion a tick to create the request
-    await new Promise((r) => setTimeout(r, 10));
+      // Poll until the async dispatchGuardianQuestion creates the request
+      // (the dispatch is fire-and-forget and may take longer on slow CI)
+      await pollUntil(
+        () => !!getPendingCanonicalRequestByCallSessionId(session.id),
+      );
 
-    // Verify a guardian action request was created
-    const pendingRequest = getPendingCanonicalRequestByCallSessionId(
-      session.id,
-    );
-    expect(pendingRequest).not.toBeNull();
-    expect(pendingRequest!.status).toBe("pending");
+      // Verify a guardian action request was created
+      const pendingRequest = getPendingCanonicalRequestByCallSessionId(
+        session.id,
+      );
+      expect(pendingRequest).not.toBeNull();
+      expect(pendingRequest!.status).toBe("pending");
 
-    // Set up mock for the timeout-generated turn
-    mockStartVoiceTurn.mockImplementation(
-      createMockVoiceTurn([
-        "I'm sorry, I couldn't reach them. Would you like a callback?",
-      ]),
-    );
+      // Set up mock for the timeout-generated turn
+      mockStartVoiceTurn.mockImplementation(
+        createMockVoiceTurn([
+          "I'm sorry, I couldn't reach them. Would you like a callback?",
+        ]),
+      );
 
-    // Wait for the consultation timeout
-    await new Promise((r) => setTimeout(r, 200));
+      // Poll until the consultation timeout fires and expires the request
+      await pollUntil(() => {
+        const req = getCanonicalGuardianRequest(pendingRequest!.id);
+        return req?.status === "expired";
+      });
 
-    // The canonical guardian request should now be expired
-    const timedOutRequest = getCanonicalGuardianRequest(pendingRequest!.id);
-    expect(timedOutRequest).not.toBeNull();
-    expect(timedOutRequest!.status).toBe("expired");
-
-    // Event should be recorded
-    const events = getCallEvents(session.id);
-    const timeoutEvents = events.filter(
-      (e) => e.eventType === "guardian_consultation_timed_out",
-    );
-    expect(timeoutEvents.length).toBe(1);
-
-    controller.destroy();
+      // Event should be recorded
+      const events = getCallEvents(session.id);
+      const timeoutEvents = events.filter(
+        (e) => e.eventType === "guardian_consultation_timed_out",
+      );
+      expect(timeoutEvents.length).toBe(1);
+    } finally {
+      controller.destroy();
+    }
   });
 
   // ── Guardian unavailable skip after timeout ────────────────────────
 
   test("ASK_GUARDIAN after timeout: skips wait and injects GUARDIAN_UNAVAILABLE instruction", async () => {
-    mockConsultationTimeoutMs = 50;
+    mockConsultationTimeoutMs = 200;
 
     // Step 1: Trigger ASK_GUARDIAN to start a consultation
     mockStartVoiceTurn.mockImplementation(
       createMockVoiceTurn(["Let me check. [ASK_GUARDIAN: What time works?]"]),
     );
     const { session, controller } = setupController();
-    await controller.handleCallerUtterance("Book me in");
-    expect(controller.getState()).toBe("idle");
-    expect(controller.getPendingConsultationQuestionId()).not.toBeNull();
+    try {
+      await controller.handleCallerUtterance("Book me in");
+      expect(controller.getState()).toBe("idle");
+      expect(controller.getPendingConsultationQuestionId()).not.toBeNull();
 
-    // Step 2: Set up mock for timeout-generated turn
-    mockStartVoiceTurn.mockImplementation(
-      createMockVoiceTurn([
-        "I'm sorry, I couldn't reach them. Would you like a callback?",
-      ]),
-    );
+      // Step 2: Set up mock for timeout-generated turn
+      mockStartVoiceTurn.mockImplementation(
+        createMockVoiceTurn([
+          "I'm sorry, I couldn't reach them. Would you like a callback?",
+        ]),
+      );
 
-    // Wait for the consultation timeout
-    await new Promise((r) => setTimeout(r, 200));
-    expect(controller.getState()).toBe("idle");
+      // Poll until the consultation timeout fires and clears the pending consultation
+      await pollUntil(() => !controller.getPendingConsultationQuestionId());
+      expect(controller.getState()).toBe("idle");
 
-    // Step 3: Model tries ASK_GUARDIAN again in a subsequent turn
-    const turnContents: string[] = [];
-    let turnCount = 0;
-    mockStartVoiceTurn.mockImplementation(
-      async (opts: {
-        content: string;
-        onTextDelta: (t: string) => void;
-        onComplete: () => void;
-      }) => {
-        turnCount++;
-        turnContents.push(opts.content);
-        if (turnCount === 1) {
-          // First turn: model emits ASK_GUARDIAN again
-          opts.onTextDelta(
-            "Let me check on that. [ASK_GUARDIAN: What about 3pm?]",
-          );
-        } else {
-          // Second turn: model should handle the GUARDIAN_UNAVAILABLE instruction
-          opts.onTextDelta(
-            "Unfortunately I can't reach them. Anything else I can help with?",
-          );
-        }
-        opts.onComplete();
-        return { turnId: `run-${turnCount}`, abort: () => {} };
-      },
-    );
+      // Step 3: Model tries ASK_GUARDIAN again in a subsequent turn
+      const turnContents: string[] = [];
+      let turnCount = 0;
+      mockStartVoiceTurn.mockImplementation(
+        async (opts: {
+          content: string;
+          onTextDelta: (t: string) => void;
+          onComplete: () => void;
+        }) => {
+          turnCount++;
+          turnContents.push(opts.content);
+          if (turnCount === 1) {
+            // First turn: model emits ASK_GUARDIAN again
+            opts.onTextDelta(
+              "Let me check on that. [ASK_GUARDIAN: What about 3pm?]",
+            );
+          } else {
+            // Second turn: model should handle the GUARDIAN_UNAVAILABLE instruction
+            opts.onTextDelta(
+              "Unfortunately I can't reach them. Anything else I can help with?",
+            );
+          }
+          opts.onComplete();
+          return { turnId: `run-${turnCount}`, abort: () => {} };
+        },
+      );
 
-    await controller.handleCallerUtterance("Can we try another time?");
+      await controller.handleCallerUtterance("Can we try another time?");
 
-    // Give the queued instruction flush time to fire
-    await new Promise((r) => setTimeout(r, 10));
+      // Give the queued instruction flush time to fire
+      await new Promise((r) => setTimeout(r, 10));
 
-    // The second turn should contain the GUARDIAN_UNAVAILABLE instruction
-    expect(turnCount).toBeGreaterThanOrEqual(2);
-    expect(turnContents.some((c) => c.includes("[GUARDIAN_UNAVAILABLE]"))).toBe(
-      true,
-    );
-    // Controller remains idle; no new consultation created
-    expect(controller.getState()).toBe("idle");
-    expect(controller.getPendingConsultationQuestionId()).toBeNull();
+      // The second turn should contain the GUARDIAN_UNAVAILABLE instruction
+      expect(turnCount).toBeGreaterThanOrEqual(2);
+      expect(
+        turnContents.some((c) => c.includes("[GUARDIAN_UNAVAILABLE]")),
+      ).toBe(true);
+      // Controller remains idle; no new consultation created
+      expect(controller.getState()).toBe("idle");
+      expect(controller.getPendingConsultationQuestionId()).toBeNull();
 
-    // The skip should be recorded as an event
-    const events = getCallEvents(session.id);
-    const skipEvents = events.filter(
-      (e) => e.eventType === "guardian_unavailable_skipped",
-    );
-    expect(skipEvents.length).toBe(1);
-
-    controller.destroy();
+      // The skip should be recorded as an event
+      const events = getCallEvents(session.id);
+      const skipEvents = events.filter(
+        (e) => e.eventType === "guardian_unavailable_skipped",
+      );
+      expect(skipEvents.length).toBe(1);
+    } finally {
+      controller.destroy();
+    }
   });
 
   // ── Structured tool-approval ASK_GUARDIAN_APPROVAL ──────────────────
@@ -1867,32 +1894,31 @@ describe("call-controller", () => {
   });
 
   test("timeout + late answer: after timeout, a late answer is rejected as stale", async () => {
-    mockConsultationTimeoutMs = 50;
+    mockConsultationTimeoutMs = 200;
 
     // Trigger ASK_GUARDIAN to start a consultation
     mockStartVoiceTurn.mockImplementation(
       createMockVoiceTurn(["Let me check. [ASK_GUARDIAN: What time works?]"]),
     );
     const { controller } = setupController();
-    await controller.handleCallerUtterance("Book me in");
-    expect(controller.getPendingConsultationQuestionId()).not.toBeNull();
+    try {
+      await controller.handleCallerUtterance("Book me in");
+      expect(controller.getPendingConsultationQuestionId()).not.toBeNull();
 
-    // Set up mock for the timeout-generated turn
-    mockStartVoiceTurn.mockImplementation(
-      createMockVoiceTurn(["Sorry, I could not reach them."]),
-    );
+      // Set up mock for the timeout-generated turn
+      mockStartVoiceTurn.mockImplementation(
+        createMockVoiceTurn(["Sorry, I could not reach them."]),
+      );
 
-    // Wait for the consultation timeout to expire the consultation
-    await new Promise((r) => setTimeout(r, 200));
+      // Poll until the consultation timeout clears the pending consultation
+      await pollUntil(() => !controller.getPendingConsultationQuestionId());
 
-    // Consultation should be cleared by the timeout
-    expect(controller.getPendingConsultationQuestionId()).toBeNull();
-
-    // A late answer should be rejected
-    const lateResult = await controller.handleUserAnswer("3pm is fine");
-    expect(lateResult).toBe(false);
-
-    controller.destroy();
+      // A late answer should be rejected
+      const lateResult = await controller.handleUserAnswer("3pm is fine");
+      expect(lateResult).toBe(false);
+    } finally {
+      controller.destroy();
+    }
   });
 
   test("caller follow-up processed normally while consultation pending", async () => {

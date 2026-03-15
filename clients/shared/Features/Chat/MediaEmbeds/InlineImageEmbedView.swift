@@ -64,7 +64,7 @@ public struct InlineImageEmbedView: View {
     /// image is still downloading.
     private var placeholderSkeleton: some View {
         RoundedRectangle(cornerRadius: 8)
-            .fill(VColor.surface)
+            .fill(VColor.surfaceBase)
             .frame(maxWidth: .infinity)
             .frame(height: 120)
     }

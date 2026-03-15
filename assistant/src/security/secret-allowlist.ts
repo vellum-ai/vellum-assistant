@@ -131,7 +131,7 @@ export interface AllowlistValidationError {
  * Validate all regex patterns in an allowlist config without loading them.
  * Returns an array of validation errors (empty = all valid).
  */
-export function validateAllowlist(
+function validateAllowlist(
   config: AllowlistConfig,
 ): AllowlistValidationError[] {
   const errors: AllowlistValidationError[] = [];

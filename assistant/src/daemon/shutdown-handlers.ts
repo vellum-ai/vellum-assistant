@@ -24,6 +24,7 @@ export interface ShutdownDeps {
   memoryWorker: { stop(): void };
   qdrantManager: QdrantManager;
   mcpManager: McpServerManager | null;
+  telemetryReporter: { stop(): Promise<void> } | null;
   cleanupPidFile: () => void;
 }
 
@@ -85,6 +86,20 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
       await getEnrichmentService().shutdown();
     } catch (err) {
       log.warn({ err }, "Enrichment service shutdown failed (non-fatal)");
+    }
+
+    if (deps.telemetryReporter) {
+      try {
+        const timeout = new Promise<void>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("Telemetry flush timed out")),
+            3_000,
+          ),
+        );
+        await Promise.race([deps.telemetryReporter.stop(), timeout]);
+      } catch (err) {
+        log.warn({ err }, "Telemetry reporter shutdown failed (non-fatal)");
+      }
     }
 
     if (deps.runtimeHttp) await deps.runtimeHttp.stop();

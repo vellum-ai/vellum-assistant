@@ -16,15 +16,17 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | macOS keychain broker | [`assistant/docs/architecture/keychain-broker.md`](assistant/docs/architecture/keychain-broker.md) |
 | Trusted contact access design | [`assistant/docs/trusted-contact-access.md`](assistant/docs/trusted-contact-access.md) |
 | Trusted contacts operator runbook | [`assistant/docs/runbook-trusted-contacts.md`](assistant/docs/runbook-trusted-contacts.md) |
+| Credential Execution Service (CES) | [`assistant/docs/credential-execution-service.md`](assistant/docs/credential-execution-service.md) |
 
 ## Cross-Cutting Invariants
 
 - Public ingress is gateway-only; external webhook/API routes are implemented in `gateway/` and forwarded internally.
-- Bundled-skill outbound API calls that require credentials default to proxied execution (`bash` with `network_mode: "proxied"` + `credential_ids`) rather than manual token plumbing.
+- Bundled-skill outbound API calls that require credentials use the Credential Execution Service (CES) tools (`make_authenticated_request`, `run_authenticated_command`) rather than manual token plumbing or proxied shell execution. See `assistant/docs/credential-execution-service.md`.
 - Managed shared-identity channel routing runs in a separate managed-gateway service lane from the per-assistant `gateway/` lane. The deployable managed-gateway runtime is platform-owned; this repo keeps public contracts/fixtures under `gateway-managed/`.
 - Production LLM calls go through the provider abstraction, not provider SDKs in feature code.
-- Notification producers emit through `emitNotificationSignal()` to preserve decisioning and audit invariants. Reminder routing metadata (`routingIntent`, `routingHints`) flows through the signal and is enforced post-decision to control multi-channel fanout. The decision engine produces per-channel thread actions (`start_new` / `reuse_existing`) validated against a candidate set; `notification_thread_created` is emitted only on actual creation, not on reuse.
+- Notification producers emit through `emitNotificationSignal()` to preserve decisioning and audit invariants. Reminder routing metadata (`routingIntent`, `routingHints`) flows through the signal and is enforced post-decision to control multi-channel fanout. The decision engine produces per-channel conversation actions (`start_new` / `reuse_existing`) validated against a candidate set; `notification_thread_created` is emitted only on actual creation, not on reuse.
 - Memory extraction/recall must enforce actor-role provenance gates for untrusted actors.
+- **Credential Execution Service (CES)** is a separate top-level package (`credential-executor/`) and a separate managed container image that enforces hard process-boundary isolation for credential-bearing operations. The assistant communicates with CES exclusively via RPC (stdio JSON-RPC locally, Unix socket in managed). CES exposes three tools (`run_authenticated_command`, `make_authenticated_request`, `manage_secure_command_tool`) as a deliberate exception to the skill-first tool direction — these require hard isolation that skills cannot provide. Shared contract types, credential-storage abstractions, and egress-proxy session management live in three private packages under `packages/` (`@vellumai/ces-contracts`, `@vellumai/credential-storage`, `@vellumai/egress-proxy`) — these are the only allowed shared-code path; direct source imports between `assistant/` and `credential-executor/` remain banned. Secure commands are manifest-driven: each bundle declares an auth adapter (`env_var`, `temp_file`, or `credential_process`), an egress mode (`proxy_required` or `no_network`), and allowed argv patterns; generic HTTP clients, interpreters, and shell trampolines are structurally denied as entrypoints. CES-owned durable state (grants and audit logs) is never read or written by the assistant directly. `host_bash` is outside the strong CES secrecy guarantee. Response/output filtering (header stripping, body clamping, secret scrubbing) is defense-in-depth, not the primary protection. Managed rollout requires a third runtime image alongside the assistant and gateway images, with corresponding `vembda` pod-template changes; rollout is gated by five feature flags (`ces-tools`, `ces-shell-lockdown`, `ces-secure-install`, `ces-grant-audit`, `ces-managed-sidecar`), all defaulting to off. See [`assistant/docs/credential-execution-service.md`](assistant/docs/credential-execution-service.md).
 - Trusted contact ingress ACL is channel-agnostic; identity binding adapts per channel (chat ID, E.164 phone, external user ID) without channel-specific branching.
 - macOS managed sign-in connects the desktop app to a platform-hosted assistant via Django assistant-scoped proxy endpoints (`/v1/assistants/{id}/...`). The `HTTPDaemonClient` operates in `platformAssistantProxy` route mode with `X-Session-Token` auth. Managed lockfile entries have `cloud: "vellum"`. Startup guardrails skip local daemon hatching and actor credential bootstrap. See [`clients/ARCHITECTURE.md`](clients/ARCHITECTURE.md) for the full flow.
 - **Assistant feature flags** control skill availability at runtime. The canonical key format is `feature_flags.<flagId>.enabled`; the legacy `skills.<id>.enabled` format is no longer supported. All declared flags live in the unified registry at `meta/feature-flags/feature-flag-registry.json`, scoped by `scope` (`assistant` or `macos`). Labels come from the registry. Bundled copies exist at `assistant/src/config/feature-flag-registry.json` and `gateway/src/feature-flag-registry.json`. The gateway owns the `/v1/feature-flags` REST API (see [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md)); the daemon resolves effective flag state via the assistant feature-flag resolver (see [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md)). When a flag is OFF, the corresponding skill is excluded from all exposure surfaces: client skill lists, system prompt catalog, `skill_load`, runtime tool projection, and included child skills. Guard tests enforce that all flag keys in code use the canonical format and that all referenced flags are declared in the unified registry.
@@ -47,7 +49,6 @@ Each named instance gets its own directory tree under `~/.vellum/instances/<name
 │   │       ├── vellum.pid        # Daemon PID
 │   │       ├── gateway.pid       # Gateway PID
 │   │       ├── outbound-proxy.pid
-│   │       ├── http-token        # Bearer token for gateway auth
 │   │       ├── session-token
 │   │       └── workspace/
 │   │           ├── config.json
@@ -204,11 +205,8 @@ subgraph "Text Q&A Session"
         subgraph "Memory System"
             CONV_STORE["ConversationStore<br/>Drizzle ORM CRUD"]
             INDEXER["Memory Indexer<br/>segment + extract"]
-            RECALL["Memory Recall<br/>FTS5 + Qdrant + Entity Graph + RRF<br/>Trust + Freshness + Scope"]
-            CONFLICT_STORE["ConflictStore<br/>pending/resolved clarification state"]
-            CLARIFICATION_RESOLVER["ClarificationResolver<br/>heuristics + timeout-bounded LLM fallback"]
-            PROFILE_COMPILER["ProfileCompiler<br/>canonical trusted profile<br/>strict token-cap trimming"]
-            JOBS_WORKER["MemoryJobsWorker<br/>poll every 1.5s"]
+            RECALL["Memory Recall<br/>Hybrid Search (dense + sparse RRF)<br/>Tier Classification + Staleness<br/>Scope Filtering + Two-Layer Injection"]
+            JOBS_WORKER["MemoryJobsWorker<br/>poll every 1.5s<br/>embed, extract, cleanup_stale"]
         end
 
         subgraph "SQLite Database (~/.vellum/workspace/data/db/assistant.db)"
@@ -216,13 +214,8 @@ subgraph "Text Q&A Session"
             DB_MSG["messages"]
             DB_TOOL["tool_invocations"]
             DB_SEG["memory_segments"]
-            DB_FTS["memory_segment_fts (FTS5)"]
             DB_ITEMS["memory_items"]
             DB_SRC["memory_item_sources"]
-            DB_CONFLICTS["memory_item_conflicts"]
-            DB_ENT["memory_entities"]
-            DB_REL["memory_entity_relations"]
-            DB_ITEM_ENT["memory_item_entities"]
             DB_SUM["memory_summaries"]
             DB_EMB["memory_embeddings"]
             DB_JOBS["memory_jobs"]
@@ -281,9 +274,9 @@ subgraph "Text Q&A Session"
         end
 
         subgraph "Asset Tools"
-            ASSET_SEARCH["asset_search<br/>cross-thread metadata query"]
+            ASSET_SEARCH["asset_search<br/>cross-conversation metadata query"]
             ASSET_MATERIALIZE["asset_materialize<br/>decode + write to sandbox"]
-            VISIBILITY_POLICY["MediaVisibilityPolicy<br/>private thread gate"]
+            VISIBILITY_POLICY["MediaVisibilityPolicy<br/>private conversation gate"]
         end
 
     end
@@ -343,8 +336,8 @@ subgraph "Text Q&A Session"
     CLS -->|"computerUse"| PERCEIVE
     CLS -->|"textQA"| TEXT_SESS
 
-    %% Text Q&A → CU escalation
-    TEXT_SESS -.->|"computer_use_request_control<br/>(explicit user request)"| PERCEIVE
+    %% Text Q&A → CU via HostCuProxy
+    TEXT_SESS -.->|"computer_use_* actions<br/>forwarded via HostCuProxy"| PERCEIVE
 
     %% Computer Use loop
     PERCEIVE -->|"CuObservationMessage<br/>(HTTP POST)"| HTTP_RT
@@ -380,7 +373,7 @@ subgraph "Text Q&A Session"
     SESSION_MGR --> GEMINI
     SESSION_MGR --> OLLAMA
     SESSION_MGR --> CONV_STORE
-    SESSION_MGR --> PROFILE_COMPILER
+    SESSION_MGR --> RECALL
     HANDLERS -->|"session_create.transport"| PLAYBOOK_MGR
     PLAYBOOK_MGR --> PLAYBOOK_REG
     PLAYBOOK_MGR -->|"inject <channel_onboarding_playbook><br/>runtime context"| SESSION_MGR
@@ -390,19 +383,13 @@ subgraph "Text Q&A Session"
     CONV_STORE --> DB_MSG
     CONV_STORE --> DB_TOOL
     CONV_STORE --> DB_ATTACH
-    PROFILE_COMPILER --> DB_ITEMS
     INDEXER --> DB_SEG
-    INDEXER --> DB_FTS
     INDEXER --> DB_ITEMS
     INDEXER --> DB_SRC
     INDEXER --> DB_JOBS
     JOBS_WORKER --> DB_JOBS
     JOBS_WORKER --> DB_EMB
-    JOBS_WORKER --> DB_ENT
-    JOBS_WORKER --> DB_REL
-    JOBS_WORKER --> DB_ITEM_ENT
     JOBS_WORKER --> DB_SUM
-    RECALL --> DB_FTS
     RECALL --> DB_EMB
 
     %% Gateway flow — Telegram path
@@ -484,15 +471,9 @@ subgraph "Text Q&A Session"
     SKILL_FACTORY -->|"host tools"| SKILL_HOST_RUNNER
     SKILL_FACTORY -->|"sandbox tools"| SKILL_SANDBOX_RUNNER
 
-    %% Script proxy data flow
-    SESSION_MGR -->|"proxied bash<br/>network_mode"| PROXY_SESSION
-    PROXY_SESSION --> PROXY_SERVER
-    PROXY_SERVER --> PROXY_ROUTER
-    PROXY_ROUTER -->|"mitm: credential_injection"| PROXY_MITM
-    PROXY_MITM --> PROXY_CERTS
-    PROXY_SERVER --> PROXY_POLICY
-    PROXY_POLICY -->|"ask_*"| PROXY_APPROVAL
-    PROXY_APPROVAL --> HANDLERS
+    %% CES data flow
+    SESSION_MGR -->|"CES RPC<br/>(stdio/socket)"| CES_PROCESS
+    CES_PROCESS -->|"credential<br/>materialization"| CES_GRANTS
 
     %% Asset tools data flow
     SESSION_MGR -->|"tool_use"| ASSET_SEARCH

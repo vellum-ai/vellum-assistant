@@ -6,6 +6,9 @@ on:
     branches: [main]
     paths:
       - 'assistant/**'
+      - 'credential-executor/**'
+      - 'packages/**'
+      - 'meta/feature-flags/**'
       - '.github/workflows/ci-main-assistant.yaml'
 
 jobs:
@@ -35,6 +38,12 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Install linked package dependencies
+        run: cd ../packages/ces-contracts && bun install --frozen-lockfile
+
+      - name: Sync feature flag registry
+        run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
 
       - name: Lint
         run: bun run lint
@@ -66,6 +75,12 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Install linked package dependencies
+        run: cd ../packages/ces-contracts && bun install --frozen-lockfile
+
+      - name: Sync feature flag registry
+        run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
+
       - name: Type check
         run: bunx tsc --noEmit
 
@@ -95,6 +110,12 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Install linked package dependencies
+        run: cd ../packages/ces-contracts && bun install --frozen-lockfile
+
+      - name: Sync feature flag registry
+        run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
 
       - name: Restore test durations cache
         uses: actions/cache/restore@v4

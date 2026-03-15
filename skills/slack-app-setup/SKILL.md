@@ -6,7 +6,6 @@ metadata:
   emoji: "💬"
   vellum:
     display-name: "Slack App Setup"
-    user-invocable: true
     includes: ["guardian-verify-setup"]
 ---
 
@@ -105,10 +104,10 @@ Collect the app token securely:
 After collection, validate the app token format:
 
 ```bash
-APP_TOKEN=$(assistant credentials reveal slack_channel:app_token)
+APP_TOKEN=$(assistant credentials reveal --service slack_channel --field app_token)
 if [[ "$APP_TOKEN" != xapp-* ]]; then
   echo "ERROR: App token must start with xapp-"
-  assistant credentials delete slack_channel:app_token
+  assistant credentials delete --service slack_channel --field app_token
   exit 1
 fi
 echo "App token format valid"
@@ -127,7 +126,7 @@ After installation, collect the bot token securely:
 ## Step 4: Validate Bot Token & Store Workspace Metadata
 
 ```bash
-BOT_TOKEN=$(assistant credentials reveal slack_channel:bot_token)
+BOT_TOKEN=$(assistant credentials reveal --service slack_channel --field bot_token)
 AUTH_RESPONSE=$(curl -sf -X POST "https://slack.com/api/auth.test" \
   -H "Authorization: Bearer $BOT_TOKEN")
 echo "$AUTH_RESPONSE" | jq .
@@ -174,8 +173,8 @@ Summarize:
 To disconnect Slack:
 
 ```bash
-assistant credentials delete slack_channel:bot_token
-assistant credentials delete slack_channel:app_token
+assistant credentials delete --service slack_channel --field bot_token
+assistant credentials delete --service slack_channel --field app_token
 assistant config set slack.teamId ""
 assistant config set slack.teamName ""
 assistant config set slack.botUserId ""

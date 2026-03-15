@@ -5,6 +5,11 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate+MenuBar")
 
+extension Notification.Name {
+    /// Posted when the user triggers Edit > Find (Cmd+F) from the menu bar.
+    static let activateChatSearch = Notification.Name("activateChatSearch")
+}
+
 extension AppDelegate {
 
     // MARK: - Menu Bar
@@ -68,6 +73,27 @@ extension AppDelegate {
         let fileMenuItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
         fileMenuItem.submenu = fileMenu
         mainMenu.insertItem(fileMenuItem, at: 1)
+
+        // Edit menu — provides Cmd+F "Find" so the shortcut works regardless of focus state.
+        if mainMenu.indexOfItem(withTitle: "Edit") < 0 {
+            let editMenu = NSMenu(title: "Edit")
+
+            // Standard edit actions so Cmd+C/V/X/A work in text fields
+            editMenu.addItem(NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
+            editMenu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
+            editMenu.addItem(NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
+            editMenu.addItem(NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
+            editMenu.addItem(NSMenuItem.separator())
+
+            let findItem = NSMenuItem(title: "Find...", action: #selector(activateChatSearch), keyEquivalent: "f")
+            findItem.keyEquivalentModifierMask = .command
+            findItem.target = self
+            editMenu.addItem(findItem)
+
+            let editMenuItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
+            editMenuItem.submenu = editMenu
+            mainMenu.insertItem(editMenuItem, at: 2)
+        }
     }
 
     // MARK: - Menu Item Validation
@@ -121,7 +147,7 @@ extension AppDelegate {
         let dotX = iconSize - dotSize - dotPadding
         let dotY = dotPadding
         let dotRect = NSRect(x: dotX, y: dotY, width: dotSize, height: dotSize)
-        NSColor.black.withAlphaComponent(0.5).setFill()
+        NSColor(VColor.auxBlack).withAlphaComponent(0.5).setFill()
         NSBezierPath(ovalIn: dotRect.insetBy(dx: -0.5, dy: -0.5)).fill()
         dotColor.withAlphaComponent(dotAlpha).setFill()
         NSBezierPath(ovalIn: dotRect).fill()
@@ -269,41 +295,48 @@ extension AppDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
-        let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettingsWindow(_:)), keyEquivalent: ",")
-        settingsItem.target = self
-        settingsItem.image = VIcon.settings.nsImage
-        menu.addItem(settingsItem)
-
-        menu.addItem(NSMenuItem.separator())
-
         let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
         updateItem.target = self
         updateItem.isEnabled = updateManager.canCheckForUpdates
         updateItem.image = VIcon.circleArrowDown.nsImage
         menu.addItem(updateItem)
 
-        let onboardingItem = NSMenuItem(title: "Replay Onboarding", action: #selector(replayOnboarding), keyEquivalent: "")
-        onboardingItem.target = self
-        menu.addItem(onboardingItem)
-
-        #if DEBUG
-        menu.addItem(NSMenuItem.separator())
-        let galleryItem = NSMenuItem(title: "Component Gallery", action: #selector(showComponentGallery), keyEquivalent: "")
-        galleryItem.target = self
-        menu.addItem(galleryItem)
-        #endif
-
         let sendLogsItem = NSMenuItem(title: "Send Logs to Vellum", action: #selector(sendLogsToSentry), keyEquivalent: "")
         sendLogsItem.target = self
         sendLogsItem.image = VIcon.upload.nsImage
         menu.addItem(sendLogsItem)
 
+        let sendThreadLogsItem = NSMenuItem(title: "Send Logs for Current Thread", action: #selector(sendCurrentThreadLogsToSentry), keyEquivalent: "")
+        sendThreadLogsItem.target = self
+        sendThreadLogsItem.image = VIcon.upload.nsImage
+        sendThreadLogsItem.isEnabled = mainWindow?.threadManager.activeThread?.sessionId != nil && !isCurrentAssistantManaged
+        menu.addItem(sendThreadLogsItem)
+
+        if MacOSClientFeatureFlagManager.shared.isEnabled("developer-menu-items") {
+            menu.addItem(NSMenuItem.separator())
+
+            let onboardingItem = NSMenuItem(title: "Replay Onboarding", action: #selector(replayOnboarding), keyEquivalent: "")
+            onboardingItem.target = self
+            menu.addItem(onboardingItem)
+
+            #if DEBUG
+            let galleryItem = NSMenuItem(title: "Component Gallery", action: #selector(showComponentGallery), keyEquivalent: "")
+            galleryItem.target = self
+            menu.addItem(galleryItem)
+            #endif
+        }
+
+        menu.addItem(NSMenuItem.separator())
+
+        let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettingsWindow(_:)), keyEquivalent: ",")
+        settingsItem.target = self
+        settingsItem.image = VIcon.settings.nsImage
+        menu.addItem(settingsItem)
+
         let restartItem = NSMenuItem(title: "Restart", action: #selector(performRestart), keyEquivalent: "")
         restartItem.target = self
         restartItem.image = VIcon.refreshCw.nsImage
         menu.addItem(restartItem)
-
-        menu.addItem(NSMenuItem.separator())
 
         let logoutItem = NSMenuItem(title: "Sign Out", action: #selector(performLogout), keyEquivalent: "")
         logoutItem.target = self
@@ -372,6 +405,10 @@ extension AppDelegate {
         UserDefaults.standard.set(false, forKey: "sidebarExpanded")
     }
 
+    @objc func activateChatSearch() {
+        NotificationCenter.default.post(name: .activateChatSearch, object: mainWindow?.threadManager.activeThreadId)
+    }
+
     @objc func openAppCollection() {
         guard !isBootstrapping else { return }
         showMainWindow()
@@ -428,14 +465,16 @@ extension AppDelegate {
                 guard !Task.isCancelled else { return }
                 if case .appsListResponse(let response) = message {
                     self.cachedApps = response.apps
-                    // Sync daemon apps into the sidebar list so pre-existing apps appear
-                    let daemonItems = response.apps.map {
-                        AppListManager.AppItem_Daemon(
-                            id: $0.id, name: $0.name, description: $0.description,
-                            icon: $0.icon, appType: nil, createdAt: $0.createdAt
-                        )
+                    // Only sync if daemon returned apps — empty response may indicate an error
+                    if !response.apps.isEmpty {
+                        let daemonItems = response.apps.map {
+                            AppListManager.AppItem_Daemon(
+                                id: $0.id, name: $0.name, description: $0.description,
+                                icon: $0.icon, appType: nil, createdAt: $0.createdAt
+                            )
+                        }
+                        self.mainWindow?.appListManager.syncFromDaemon(daemonItems)
                     }
-                    self.mainWindow?.appListManager.syncFromDaemon(daemonItems)
                     return
                 }
             }
@@ -443,13 +482,6 @@ extension AppDelegate {
     }
 
     @objc public func sendLogsToSentry() {
-        // If the window is already showing, just bring it forward.
-        if let existing = logReportWindow, existing.isVisible {
-            existing.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
-
         // Defer window creation until after the status menu finishes dismissing,
         // otherwise macOS can swallow the makeKeyAndOrderFront during menu teardown.
         DispatchQueue.main.async { [weak self] in
@@ -457,7 +489,25 @@ extension AppDelegate {
         }
     }
 
-    private func showLogReportWindow() {
+    @objc func sendCurrentThreadLogsToSentry() {
+        guard let thread = mainWindow?.threadManager.activeThread,
+              let sessionId = thread.sessionId else { return }
+
+        // Defer window creation until after the status menu finishes dismissing,
+        // otherwise macOS can swallow the makeKeyAndOrderFront during menu teardown.
+        DispatchQueue.main.async { [weak self] in
+            self?.showLogReportWindow(scope: .thread(conversationId: sessionId, threadTitle: thread.title))
+        }
+    }
+
+    func showLogReportWindow(scope: LogExportScope = .global) {
+        // If the window is already showing, just bring it forward.
+        if let existing = logReportWindow, existing.isVisible {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
         let dismiss: () -> Void = { [weak self] in
             self?.dismissLogReportWindow()
         }
@@ -465,6 +515,8 @@ extension AppDelegate {
         let view = LogReportFormView(
             onSend: { [weak self] formData in
                 self?.dismissLogReportWindow()
+                var formData = formData
+                formData.scope = scope
                 LogExporter.sendLogsToSentry(formData: formData)
             },
             onCancel: dismiss
@@ -478,8 +530,13 @@ extension AppDelegate {
             defer: false
         )
         window.contentViewController = hostingController
-        window.title = "Send Logs to Vellum"
-        window.backgroundColor = NSColor(VColor.backgroundSubtle)
+        switch scope {
+        case .global:
+            window.title = "Send Logs to Vellum"
+        case .thread:
+            window.title = "Send Logs for Thread"
+        }
+        window.backgroundColor = NSColor(VColor.surfaceOverlay)
         window.isReleasedWhenClosed = false
         window.center()
 

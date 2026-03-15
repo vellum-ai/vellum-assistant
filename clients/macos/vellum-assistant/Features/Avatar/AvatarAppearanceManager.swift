@@ -1,6 +1,9 @@
 import AppKit
 import Foundation
 import VellumAssistantShared
+import os
+
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AvatarAppearanceManager")
 
 /// Manages the assistant's avatar image. Provides a custom avatar when uploaded,
 /// or falls back to a colored circle with the assistant's initial letter.
@@ -9,6 +12,11 @@ import VellumAssistantShared
 final class AvatarAppearanceManager {
     /// User-uploaded custom avatar image, persisted to disk.
     private(set) var customAvatarImage: NSImage?
+
+    /// The avatar component choices used to build the current character avatar (nil if uploaded image).
+    private(set) var characterBodyShape: AvatarBodyShape?
+    private(set) var characterEyeStyle: AvatarEyeStyle?
+    private(set) var characterColor: AvatarColor?
 
     /// Cached fallback avatar to avoid rebuilding on every access.
     /// @ObservationIgnored so that populating the cache inside a computed getter
@@ -73,12 +81,13 @@ final class AvatarAppearanceManager {
     static let shared = AvatarAppearanceManager()
 
     private var fileMonitor: DispatchSourceFileSystemObject?
+    private var traitsFileMonitor: DispatchSourceFileSystemObject?
     private var identityObserver: NSObjectProtocol?
 
     /// Workspace path for custom avatar -- canonical storage location.
     nonisolated static func workspaceCustomAvatarURL(homeDirectory: String = NSHomeDirectory()) -> URL {
         URL(fileURLWithPath: homeDirectory)
-            .appendingPathComponent(".vellum/workspace/data/avatar/custom-avatar.png")
+            .appendingPathComponent(".vellum/workspace/data/avatar/avatar-image.png")
     }
 
     /// Legacy Application Support path (pre-workspace migration). Retained for one-time migration on first launch after upgrade.
@@ -97,7 +106,7 @@ final class AvatarAppearanceManager {
            let baseDataDir = assistant.baseDataDir {
             // baseDataDir is the .vellum root (e.g. ~/.local/share/vellum/assistants/foo/.vellum)
             return URL(fileURLWithPath: baseDataDir)
-                .appendingPathComponent("workspace/data/avatar/custom-avatar.png")
+                .appendingPathComponent("workspace/data/avatar/avatar-image.png")
         }
         return Self.workspaceCustomAvatarURL()
     }
@@ -111,7 +120,18 @@ final class AvatarAppearanceManager {
             fallback: "V"
         )
         loadCustomAvatar()
+        loadAvatarComponents()
         watchAvatarFile()
+        watchTraitsFile()
+
+        // Fire-and-forget: fetch character component definitions from the
+        // daemon and populate AvatarComponentStore.shared so downstream
+        // code can look up definitions by ID. Avatar rendering requires
+        // the component store to be populated; safe defaults are used
+        // during the pre-fetch window.
+        Task { [weak self] in
+            await self?.fetchComponentsFromDaemon()
+        }
 
         // Refresh assistantName and invalidate cached fallback avatars when
         // the user renames their assistant so the initial-letter avatar
@@ -132,6 +152,24 @@ final class AvatarAppearanceManager {
                 self.cachedFullFallbackAvatar = nil
                 self.cachedFullFallbackName = nil
             }
+        }
+    }
+
+    // MARK: - Daemon Component Fetch
+
+    /// Fetches the canonical character component definitions from the daemon
+    /// and populates `AvatarComponentStore.shared` for O(1) lookups.
+    /// Fails silently — avatar rendering uses safe defaults until the store is populated.
+    private func fetchComponentsFromDaemon() async {
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+              let assistant = LockfileAssistant.loadByName(assistantId) else {
+            log.info("No connected assistant — skipping daemon component fetch")
+            return
+        }
+
+        let port = assistant.resolvedDaemonPort()
+        if let response = await AvatarComponentService.fetch(port: port) {
+            AvatarComponentStore.shared.load(response)
         }
     }
 
@@ -166,13 +204,15 @@ final class AvatarAppearanceManager {
         ) else {
             customAvatarImage = nil
             cachedChatAvatar = nil
+            updateDockIcon()
             return
         }
         cachedChatAvatar = nil
         customAvatarImage = NSImage(contentsOf: url)
+        updateDockIcon()
     }
 
-    func setCustomAvatar(_ image: NSImage) {
+    func saveAvatar(_ image: NSImage, bodyShape: AvatarBodyShape? = nil, eyeStyle: AvatarEyeStyle? = nil, color: AvatarColor? = nil) {
         let url = customAvatarURL
         let dir = url.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -184,6 +224,13 @@ final class AvatarAppearanceManager {
         try? pngData.write(to: url)
         cachedChatAvatar = nil
         customAvatarImage = image
+
+        // Persist component choices (nil clears them for uploaded images)
+        characterBodyShape = bodyShape
+        characterEyeStyle = eyeStyle
+        characterColor = color
+        saveAvatarComponents()
+        updateDockIcon()
     }
 
     /// Reloads the custom avatar from disk. Called when the daemon notifies
@@ -194,15 +241,56 @@ final class AvatarAppearanceManager {
         cachedFallbackAvatar = nil
         cachedFullFallbackAvatar = nil
         loadCustomAvatar()
+        loadAvatarComponents()
     }
 
     func clearCustomAvatar() {
         try? FileManager.default.removeItem(at: customAvatarURL)
         try? FileManager.default.removeItem(at: Self.legacyAppSupportCustomAvatarURL())
+        try? FileManager.default.removeItem(at: avatarComponentsURL)
         customAvatarImage = nil
+        characterBodyShape = nil
+        characterEyeStyle = nil
+        characterColor = nil
         cachedChatAvatar = nil
         cachedFallbackAvatar = nil
         cachedFullFallbackAvatar = nil
+        updateDockIcon()
+    }
+
+    // MARK: - Avatar Components Persistence
+
+    private var avatarComponentsURL: URL {
+        customAvatarURL.deletingLastPathComponent().appendingPathComponent("character-traits.json")
+    }
+
+    private struct AvatarComponents: Codable {
+        let bodyShape: String
+        let eyeStyle: String
+        let color: String
+    }
+
+    private func saveAvatarComponents() {
+        guard let body = characterBodyShape, let eyes = characterEyeStyle, let color = characterColor else {
+            try? FileManager.default.removeItem(at: avatarComponentsURL)
+            return
+        }
+        let components = AvatarComponents(bodyShape: body.rawValue, eyeStyle: eyes.rawValue, color: color.rawValue)
+        guard let data = try? JSONEncoder().encode(components) else { return }
+        try? data.write(to: avatarComponentsURL)
+    }
+
+    private func loadAvatarComponents() {
+        guard let data = try? Data(contentsOf: avatarComponentsURL),
+              let components = try? JSONDecoder().decode(AvatarComponents.self, from: data) else {
+            characterBodyShape = nil
+            characterEyeStyle = nil
+            characterColor = nil
+            return
+        }
+        characterBodyShape = AvatarBodyShape(rawValue: components.bodyShape)
+        characterEyeStyle = AvatarEyeStyle(rawValue: components.eyeStyle)
+        characterColor = AvatarColor(rawValue: components.color)
     }
 
     // MARK: - File Watching
@@ -232,6 +320,8 @@ final class AvatarAppearanceManager {
                 self?.loadCustomAvatar()
                 if flags.contains(.delete) || flags.contains(.rename) {
                     self?.watchAvatarFile()
+                    self?.loadAvatarComponents()
+                    self?.watchTraitsFile()
                 }
             }
         }
@@ -259,6 +349,10 @@ final class AvatarAppearanceManager {
         source.setEventHandler { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                self.loadAvatarComponents()
+                if FileManager.default.fileExists(atPath: self.avatarComponentsURL.path) {
+                    self.watchTraitsFile()
+                }
                 if FileManager.default.fileExists(atPath: self.customAvatarURL.path) {
                     self.loadCustomAvatar()
                     self.watchAvatarFile()
@@ -272,6 +366,104 @@ final class AvatarAppearanceManager {
 
         fileMonitor = source
         source.resume()
+    }
+
+    /// Watch character-traits.json for external changes (e.g. assistant writes new traits).
+    private func watchTraitsFile() {
+        traitsFileMonitor?.cancel()
+        traitsFileMonitor = nil
+
+        let path = avatarComponentsURL.path
+        let fd = open(path, O_EVTONLY)
+
+        if fd < 0 {
+            // File doesn't exist yet — fall back to watching the directory for its creation.
+            // This mirrors the watchAvatarFile() → watchAvatarDirectory() pattern.
+            // We store the directory watcher in traitsFileMonitor (not fileMonitor) to
+            // avoid clobbering the avatar file/directory watcher.
+            let dirPath = (avatarComponentsURL.path as NSString).deletingLastPathComponent
+            let dirFd = open(dirPath, O_EVTONLY)
+            guard dirFd >= 0 else { return }
+
+            let dirSource = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: dirFd,
+                eventMask: .write,
+                queue: .global(qos: .utility)
+            )
+
+            dirSource.setEventHandler { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if FileManager.default.fileExists(atPath: self.avatarComponentsURL.path) {
+                        self.loadAvatarComponents()
+                        self.watchTraitsFile()
+                    }
+                }
+            }
+
+            dirSource.setCancelHandler {
+                close(dirFd)
+            }
+
+            traitsFileMonitor = dirSource
+            dirSource.resume()
+            return
+        }
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .delete, .rename],
+            queue: .global(qos: .utility)
+        )
+
+        source.setEventHandler { [weak self] in
+            let flags = source.data
+            Task { @MainActor [weak self] in
+                self?.loadAvatarComponents()
+                if flags.contains(.delete) || flags.contains(.rename) {
+                    self?.watchTraitsFile()
+                }
+            }
+        }
+
+        source.setCancelHandler {
+            close(fd)
+        }
+
+        traitsFileMonitor = source
+        source.resume()
+    }
+
+    // MARK: - Dock Icon
+
+    /// Updates the application dock icon to match the current avatar.
+    /// When a custom avatar exists, renders it inside a macOS-style squircle mask.
+    /// When cleared, reverts to the default bundle icon.
+    private func updateDockIcon() {
+        guard let avatar = customAvatarImage else {
+            NSApplication.shared.applicationIconImage = nil
+            NSApp.dockTile.display()
+            return
+        }
+
+        let size: CGFloat = 512
+        let square = Self.resizedImage(avatar, to: size)
+        let iconSize = NSSize(width: size, height: size)
+        let icon = NSImage(size: iconSize)
+        icon.lockFocus()
+
+        let rect = NSRect(origin: .zero, size: iconSize)
+        let radius = size * 0.23
+        let path = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
+        path.addClip()
+
+        square.draw(in: rect, from: NSRect(origin: .zero, size: square.size),
+                    operation: .copy, fraction: 1.0)
+
+        icon.unlockFocus()
+
+        NSApplication.shared.applicationIconImage = icon
+        NSApp.dockTile.display()
     }
 
     // MARK: - Image Utilities
@@ -318,16 +510,16 @@ final class AvatarAppearanceManager {
         let image = NSImage(size: NSSize(width: size, height: size))
         image.lockFocus()
 
-        // Draw circle with accent color (Forest._600 equivalent)
+        // Draw circle with accent color (VColor.primaryBase equivalent)
         let path = NSBezierPath(ovalIn: NSRect(x: 0, y: 0, width: size, height: size))
-        NSColor(Forest._600).setFill()
+        NSColor(VColor.primaryBase).setFill()
         path.fill()
 
         // Draw initial letter
         let initial = String(name.prefix(1)).uppercased()
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: size * 0.45, weight: .semibold),
-            .foregroundColor: NSColor.white
+            .foregroundColor: NSColor(VColor.auxWhite)
         ]
         let attrStr = NSAttributedString(string: initial, attributes: attrs)
         let textSize = attrStr.size()

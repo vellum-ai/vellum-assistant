@@ -6,7 +6,6 @@ metadata:
   emoji: "📅"
   vellum:
     display-name: "Google Calendar"
-    user-invocable: true
 ---
 
 You are a Google Calendar assistant with full access to the user's calendar. Use the Calendar tools to help them view, create, and manage events.

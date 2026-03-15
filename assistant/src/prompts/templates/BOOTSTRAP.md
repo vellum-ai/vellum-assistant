@@ -66,10 +66,8 @@ Do NOT delete this file until ALL of the following are true:
 
 - You have a name (given by user or self-chosen)
 - You've figured out your vibe and adopted it
-- 2 suggestions shown (via `ui_show` or as text if UI unavailable)
-- The user selected one, deferred both, or typed an alternate direction
 
-Once every condition is met, delete this file. You're done here.
+Once every condition is met, delete this file. You're done here. If you still haven't shown the 2 suggestions from step 6, do that in the same turn before or after deleting.
 
 ---
 

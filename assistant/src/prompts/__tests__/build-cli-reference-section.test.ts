@@ -1,6 +1,7 @@
 /**
  * Tests for buildCliReferenceSection — verifies the CLI reference section
- * included in the system prompt has the expected structure and caching behaviour.
+ * included in the system prompt has the expected structure, CES tool guidance,
+ * and caching behaviour.
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
@@ -29,21 +30,71 @@ describe("buildCliReferenceSection", () => {
 
   test("mentions bash as the way to invoke the CLI", () => {
     const result = buildCliReferenceSection();
-    expect(result).toContain("available via `bash`");
+    expect(result).toContain("use the `bash` tool");
   });
 
-  test("routes account and auth work through documented assistant CLI commands", () => {
+  // -----------------------------------------------------------------------
+  // CES tool guidance — new credential workflow
+  // -----------------------------------------------------------------------
+
+  test("teaches handle discovery via assistant credentials list", () => {
     const result = buildCliReferenceSection();
-    expect(result).toContain(
-      "prefer real `assistant` CLI workflows over any legacy account-record abstraction",
-    );
-    expect(result).toContain("assistant credentials");
-    expect(result).toContain(
+    expect(result).toContain("assistant credentials list");
+  });
+
+  test("teaches handle discovery via assistant oauth connections list", () => {
+    const result = buildCliReferenceSection();
+    expect(result).toContain("assistant oauth connections list");
+  });
+
+  test("teaches make_authenticated_request CES tool", () => {
+    const result = buildCliReferenceSection();
+    expect(result).toContain("make_authenticated_request");
+  });
+
+  test("teaches run_authenticated_command CES tool", () => {
+    const result = buildCliReferenceSection();
+    expect(result).toContain("run_authenticated_command");
+  });
+
+  test("teaches manage_secure_command_tool CES tool", () => {
+    const result = buildCliReferenceSection();
+    expect(result).toContain("manage_secure_command_tool");
+  });
+
+  test("warns against revealing raw secrets", () => {
+    const result = buildCliReferenceSection();
+    expect(result).toContain("Never reveal raw secrets");
+  });
+
+  test("warns that host_bash is outside CES secrecy boundary", () => {
+    const result = buildCliReferenceSection();
+    expect(result).toContain("outside the CES secrecy boundary");
+  });
+
+  // -----------------------------------------------------------------------
+  // Deprecated patterns must NOT appear
+  // -----------------------------------------------------------------------
+
+  test("does not teach token-reveal via oauth connections token", () => {
+    const result = buildCliReferenceSection();
+    // The old pattern was: assistant oauth connections token <provider-key>
+    // for fetching raw tokens. This must not appear in the guidance.
+    expect(result).not.toContain(
       "assistant oauth connections token <provider-key>",
     );
-    expect(result).toContain("assistant mcp auth <name>");
-    expect(result).toContain("assistant platform status");
   });
+
+  test("does not recommend using credential_store for direct API calls", () => {
+    const result = buildCliReferenceSection();
+    // The old pattern was: "Direct API calls via host_bash — Use curl/httpie
+    // with API tokens from credential_store". This is replaced by CES tools.
+    expect(result).not.toContain("API tokens from credential_store");
+  });
+
+  // -----------------------------------------------------------------------
+  // Caching
+  // -----------------------------------------------------------------------
 
   test("result is cached — calling twice returns the same string", () => {
     const first = buildCliReferenceSection();

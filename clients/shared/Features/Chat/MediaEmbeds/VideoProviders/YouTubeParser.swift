@@ -15,10 +15,11 @@ public struct VideoParseResult {
 /// Parses YouTube URLs in various formats and produces a canonical embed URL.
 ///
 /// Supported patterns:
-/// - `youtube.com/watch?v=ID`  (with optional www/m subdomain)
+/// - `youtube.com/watch?v=ID`  (with optional www/m/music subdomain)
 /// - `youtu.be/ID`             (short-link)
 /// - `youtube.com/shorts/ID`
 /// - `youtube.com/embed/ID`
+/// - `music.youtube.com/watch?v=ID`
 ///
 /// Only `https` URLs are accepted.
 public enum YouTubeParser {
@@ -26,7 +27,10 @@ public enum YouTubeParser {
     private static let youtubeHosts: Set<String> = [
         "youtube.com",
         "www.youtube.com",
-        "m.youtube.com"
+        "m.youtube.com",
+        "music.youtube.com",
+        "youtube-nocookie.com",
+        "www.youtube-nocookie.com",
     ]
 
     public static func parse(_ url: URL) -> VideoParseResult? {

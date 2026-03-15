@@ -49,7 +49,7 @@ struct PrivateThreadPersistenceTests {
         #expect(updatedThread.kind == .private)
 
         // Now simulate a fresh restore: build a session list response
-        // that includes this session with threadType "private", and verify
+        // that includes this session with conversationType "private", and verify
         // the restorer creates it with .private kind.
         let restorer = ThreadSessionRestorer(daemonClient: dc)
         let delegate = MockThreadRestorerDelegate(daemonClient: dc)
@@ -67,7 +67,7 @@ struct PrivateThreadPersistenceTests {
                     "title": "Private Thread",
                     "createdAt": 4000,
                     "updatedAt": 5000,
-                    "threadType": "private"
+                    "conversationType": "private"
                 ]
             ]
         ]
@@ -110,7 +110,7 @@ struct PrivateThreadPersistenceTests {
                     "title": "Standard Thread",
                     "createdAt": 2000,
                     "updatedAt": 3000,
-                    "threadType": "standard"
+                    "conversationType": "standard"
                 ]
             ]
         ]
@@ -141,9 +141,9 @@ struct PrivateThreadPersistenceTests {
         let sessionListJSON: [String: Any] = [
             "type": "session_list_response",
             "sessions": [
-                ["id": "s-private-1", "title": "Private A", "createdAt": 4000, "updatedAt": 5000, "threadType": "private"],
-                ["id": "s-standard-1", "title": "Standard B", "createdAt": 3000, "updatedAt": 4000, "threadType": "standard"],
-                ["id": "s-private-2", "title": "Private C", "createdAt": 2000, "updatedAt": 3000, "threadType": "private"],
+                ["id": "s-private-1", "title": "Private A", "createdAt": 4000, "updatedAt": 5000, "conversationType": "private"],
+                ["id": "s-standard-1", "title": "Standard B", "createdAt": 3000, "updatedAt": 4000, "conversationType": "standard"],
+                ["id": "s-private-2", "title": "Private C", "createdAt": 2000, "updatedAt": 3000, "conversationType": "private"],
             ]
         ]
         let data = try! JSONSerialization.data(withJSONObject: sessionListJSON)
@@ -158,10 +158,10 @@ struct PrivateThreadPersistenceTests {
 
     // MARK: - Legacy Daemon Payload Fallback
 
-    /// Older daemon versions do not include the threadType field in session
+    /// Older daemon versions do not include the conversationType field in session
     /// list responses. Verify that these sessions default to .standard.
     @Test @MainActor
-    func legacyPayloadWithoutThreadTypeDefaultsToStandard() {
+    func legacyPayloadWithoutConversationTypeDefaultsToStandard() {
         let dc = DaemonClient()
         let restorer = ThreadSessionRestorer(daemonClient: dc)
         let delegate = MockThreadRestorerDelegate(daemonClient: dc)
@@ -171,7 +171,7 @@ struct PrivateThreadPersistenceTests {
         delegate.threads = [defaultThread]
         delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
 
-        // JSON with no threadType key at all — simulates an older daemon
+        // JSON with no conversationType key at all — simulates an older daemon
         let legacyJSON: [String: Any] = [
             "type": "session_list_response",
             "sessions": [
@@ -187,8 +187,8 @@ struct PrivateThreadPersistenceTests {
         #expect(delegate.threads[0].sessionId == "legacy-1")
     }
 
-    /// Verifies that a session list mixing legacy (no threadType) and modern
-    /// (with threadType) sessions restores correctly.
+    /// Verifies that a session list mixing legacy (no conversationType) and modern
+    /// (with conversationType) sessions restores correctly.
     @Test @MainActor
     func mixedLegacyAndModernPayloadsRestoreCorrectly() {
         let dc = DaemonClient()
@@ -200,9 +200,9 @@ struct PrivateThreadPersistenceTests {
         delegate.threads = [defaultThread]
         delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
 
-        // Build sessions array manually: first has threadType, second doesn't
+        // Build sessions array manually: first has conversationType, second doesn't
         let sessions: [[String: Any]] = [
-            ["id": "modern-1", "title": "Modern Private", "createdAt": 4000, "updatedAt": 5000, "threadType": "private"],
+            ["id": "modern-1", "title": "Modern Private", "createdAt": 4000, "updatedAt": 5000, "conversationType": "private"],
             ["id": "legacy-1", "title": "Legacy Chat", "createdAt": 3000, "updatedAt": 4000],
         ]
         let dict: [String: Any] = ["type": "session_list_response", "sessions": sessions]
@@ -219,7 +219,7 @@ struct PrivateThreadPersistenceTests {
     // MARK: - ThreadManager.createPrivateThread Immediate Persistence
 
     /// Verifies that createPrivateThread() immediately sends a session_create
-    /// with threadType "private" — the thread is persisted on the daemon side
+    /// with conversationType "private" — the thread is persisted on the daemon side
     /// before the user sends any messages.
     @Test @MainActor
     func privateThreadPersistsImmediatelyViaSessionCreate() {
@@ -235,10 +235,10 @@ struct PrivateThreadPersistenceTests {
 
         let vm = manager.activeViewModel!
         #expect(vm.isBootstrapping)
-        #expect(vm.threadType == "private")
+        #expect(vm.conversationType == "private")
 
         // The session_create is dispatched asynchronously via Task; the
-        // correlation ID and threadType are set synchronously, confirming
+        // correlation ID and conversationType are set synchronously, confirming
         // the intent to persist immediately.
         #expect(vm.bootstrapCorrelationId != nil)
     }

@@ -6,7 +6,6 @@ metadata:
   emoji: "🗣️"
   vellum:
     display-name: "ElevenLabs Voice"
-    user-invocable: true
 ---
 
 ## Overview
@@ -19,14 +18,14 @@ Pick a voice that matches the your identity and the user's preferences. Offer to
 
 ### Female voices
 
-| Voice     | Style                      | Voice ID               |
-| --------- | -------------------------- | ---------------------- |
-| Rachel    | Calm, warm, conversational | `21m00Tcm4TlvDq8ikWAM` |
-| Sarah     | Soft, young, approachable  | `EXAVITQu4vr4xnSDxMaL` |
-| Charlotte | Warm, Swedish-accented     | `XB0fDUnXU5powFXDhCwa` |
-| Alice     | Confident, British         | `Xb7hH8MSUJpSbSDYk0k2` |
-| Matilda   | Warm, friendly, young      | `XrExE9yKIg1WjnnlVkGX` |
-| Lily      | Warm, British              | `pFZP5JQG7iQjIQuC4Bku` |
+| Voice     | Style                              | Voice ID               |
+| --------- | ---------------------------------- | ---------------------- |
+| Amelia    | Expressive, enthusiastic, British  | `ZF6FPAbjXT4488VcRRnw` |
+| Sarah     | Soft, young, approachable          | `EXAVITQu4vr4xnSDxMaL` |
+| Charlotte | Warm, Swedish-accented             | `XB0fDUnXU5powFXDhCwa` |
+| Alice     | Confident, British                 | `Xb7hH8MSUJpSbSDYk0k2` |
+| Matilda   | Warm, friendly, young              | `XrExE9yKIg1WjnnlVkGX` |
+| Lily      | Warm, British                      | `pFZP5JQG7iQjIQuC4Bku` |
 
 ### Male voices
 
@@ -75,21 +74,21 @@ Users with an ElevenLabs API key can go beyond the curated list above.
 ### Check for an existing key
 
 ```bash
-assistant credentials inspect elevenlabs:api_key --json
+assistant credentials inspect --service elevenlabs --field api_key --json
 ```
 
 ### Browse the voice library
 
 ```bash
 curl -s "https://api.elevenlabs.io/v2/voices?category=premade&page_size=50" \
-  -H "xi-api-key: $(assistant credentials reveal elevenlabs:api_key)" | python3 -m json.tool
+  -H "xi-api-key: $(assistant credentials reveal --service elevenlabs --field api_key)" | python3 -m json.tool
 ```
 
 ### Search for a specific style
 
 ```bash
 curl -s "https://api.elevenlabs.io/v2/voices?search=warm+female&page_size=10" \
-  -H "xi-api-key: $(assistant credentials reveal elevenlabs:api_key)" | python3 -m json.tool
+  -H "xi-api-key: $(assistant credentials reveal --service elevenlabs --field api_key)" | python3 -m json.tool
 ```
 
 ### Custom and cloned voices

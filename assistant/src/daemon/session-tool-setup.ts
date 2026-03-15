@@ -7,6 +7,7 @@
  */
 
 import { isHttpAuthDisabled } from "../config/env.js";
+import type { CesClient } from "../credential-execution/client.js";
 import { getBindingByConversation } from "../memory/external-conversation-store.js";
 import {
   generateAllowlistOptions,
@@ -22,7 +23,7 @@ import {
 import { isAllowDecision } from "../permissions/types.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
-import { getEffectiveMode } from "../runtime/session-approval-overrides.js";
+import { getEffectiveMode } from "../runtime/conversation-approval-overrides.js";
 import { coreAppProxyTools } from "../tools/apps/definitions.js";
 import { registerSessionSender } from "../tools/browser/browser-screencast.js";
 import type { ToolExecutor } from "../tools/executor.js";
@@ -108,6 +109,8 @@ export interface ToolSetupContext extends SurfaceSessionContext {
   hostBashProxy?: import("./host-bash-proxy.js").HostBashProxy;
   /** Optional proxy for delegating host_file_read/write/edit execution to a connected client. */
   hostFileProxy?: import("./host-file-proxy.js").HostFileProxy;
+  /** CES RPC client for credential execution operations. Injected when CES tools are enabled and the CES process is available. */
+  cesClient?: CesClient;
 }
 
 // ── buildToolDefinitions ─────────────────────────────────────────────
@@ -187,6 +190,7 @@ export function createToolExecutor(
       toolUseId,
       hostBashProxy: ctx.hostBashProxy,
       hostFileProxy: ctx.hostFileProxy,
+      cesClient: ctx.cesClient,
       onToolLifecycleEvent: handleToolLifecycleEvent,
       sendToClient: (msg) => {
         // Tool context's sendToClient uses a loose { type: string; [key: string]: unknown }
@@ -208,7 +212,13 @@ export function createToolExecutor(
       proxyToolResolver: (
         toolName: string,
         proxyInput: Record<string, unknown>,
-      ) => surfaceProxyResolver(ctx, toolName, proxyInput),
+      ) =>
+        surfaceProxyResolver(
+          ctx,
+          toolName,
+          proxyInput,
+          ctx.abortController?.signal,
+        ),
       proxyApprovalCallback: createProxyApprovalCallback(prompter, ctx),
       requestSecret: async (params) => {
         return secretPrompter.prompt(
@@ -453,7 +463,7 @@ export function createProxyApprovalCallback(
     }
 
     // Proxied network requests require per-invocation approval and must
-    // not be auto-approved by temporary overrides (allow_10m / allow_thread).
+    // not be auto-approved by temporary overrides (allow_10m / allow_conversation).
     // Unlike regular tool invocations, these represent outbound network
     // actions that should always receive explicit confirmation.
 

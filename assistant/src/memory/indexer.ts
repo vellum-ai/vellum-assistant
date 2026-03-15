@@ -5,24 +5,17 @@ import { getConfig } from "../config/loader.js";
 import type { MemoryConfig } from "../config/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { getLogger } from "../util/logger.js";
-import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
 import { getDb } from "./db.js";
 import { selectedBackendSupportsMultimodal } from "./embedding-backend.js";
-import {
-  enqueueMemoryJob,
-  enqueueResolvePendingConflictsForMessageJob,
-} from "./jobs-store.js";
+import { enqueueMemoryJob } from "./jobs-store.js";
 import {
   extractMediaBlocks,
   extractTextFromStoredMessageContent,
 } from "./message-content.js";
-import { bumpMemoryVersion } from "./recall-cache.js";
 import { memorySegments } from "./schema.js";
 import { segmentText } from "./segmenter.js";
 
 const log = getLogger("memory-indexer");
-const SUMMARY_JOB_CHECKPOINT_KEY = "memory:summary_jobs:last_scheduled_at";
-const SUMMARY_SCHEDULE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 export interface IndexMessageInput {
   messageId: string;
@@ -34,8 +27,8 @@ export interface IndexMessageInput {
   /**
    * Trust class of the actor who produced this message, captured at
    * persist time. When `'guardian'` or `undefined` (legacy), extraction
-   * and conflict resolution jobs run. Otherwise, the message is segmented
-   * and embedded but no profile mutations are triggered.
+   * jobs run. Otherwise, the message is segmented and embedded but no
+   * profile mutations are triggered.
    */
   provenanceTrustClass?: TrustClass;
 }
@@ -45,14 +38,14 @@ export interface IndexMessageResult {
   enqueuedJobs: number;
 }
 
-export function indexMessageNow(
+export async function indexMessageNow(
   input: IndexMessageInput,
   config: MemoryConfig,
-): IndexMessageResult {
+): Promise<IndexMessageResult> {
   if (!config.enabled) return { indexedSegments: 0, enqueuedJobs: 0 };
 
   // Provenance-based trust gating: only guardian and legacy (undefined) actors
-  // are trusted for extraction and conflict resolution.
+  // are trusted for extraction.
   const isTrustedActor =
     input.provenanceTrustClass === "guardian" ||
     input.provenanceTrustClass === undefined;
@@ -75,12 +68,10 @@ export function indexMessageNow(
   const shouldExtract =
     input.role === "user" ||
     (input.role === "assistant" && config.extraction.extractFromAssistant);
-  const shouldResolveConflicts =
-    input.role === "user" && config.conflicts.enabled;
-
   // Check if the resolved embedding backend supports multimodal input.
   // Only enqueue embed_attachment jobs when it does (currently Gemini only).
-  const supportsMultimodal = selectedBackendSupportsMultimodal(getConfig());
+  const supportsMultimodal =
+    await selectedBackendSupportsMultimodal(getConfig());
   const mediaBlocks = supportsMultimodal
     ? extractMediaBlocks(input.content).filter((b) => b.type === "image")
     : [];
@@ -152,13 +143,6 @@ export function indexMessageNow(
         tx,
       );
     }
-    if (shouldResolveConflicts && isTrustedActor) {
-      enqueueResolvePendingConflictsForMessageJob(
-        input.messageId,
-        input.scopeId ?? "default",
-        tx,
-      );
-    }
     enqueueMemoryJob(
       "build_conversation_summary",
       { conversationId: input.conversationId },
@@ -173,27 +157,18 @@ export function indexMessageNow(
     );
   }
 
-  // Invalidate recall cache when synchronous segment writes changed content,
-  // so lexical/recency retrieval doesn't serve stale results during worker lag.
-  if (segments.length - skippedEmbedJobs > 0) {
-    bumpMemoryVersion();
-  }
-
-  if (!isTrustedActor && (shouldExtract || shouldResolveConflicts)) {
+  if (!isTrustedActor && shouldExtract) {
     log.info(
-      `Skipping extraction/conflict jobs for untrusted actor (trustClass=${input.provenanceTrustClass})`,
+      `Skipping extraction jobs for untrusted actor (trustClass=${input.provenanceTrustClass})`,
     );
   }
-
-  enqueueSummaryRollupJobsIfDue();
 
   const extractionGated = !isTrustedActor;
   const enqueuedJobs =
     segments.length -
     skippedEmbedJobs +
     mediaBlocks.length +
-    (shouldExtract && !extractionGated ? 2 : 1) +
-    (shouldResolveConflicts && !extractionGated ? 1 : 0);
+    (shouldExtract && !extractionGated ? 2 : 1);
   return {
     indexedSegments: segments.length,
     enqueuedJobs,
@@ -220,19 +195,6 @@ export function getRecentSegmentsForConversation(
     .orderBy(desc(memorySegments.createdAt))
     .limit(limit)
     .all();
-}
-
-function enqueueSummaryRollupJobsIfDue(): void {
-  const now = Date.now();
-  const raw = getMemoryCheckpoint(SUMMARY_JOB_CHECKPOINT_KEY);
-  const last = raw ? Number.parseInt(raw, 10) : 0;
-  if (Number.isFinite(last) && now - last < SUMMARY_SCHEDULE_INTERVAL_MS)
-    return;
-
-  enqueueMemoryJob("refresh_weekly_summary", {});
-  enqueueMemoryJob("refresh_monthly_summary", {});
-  setMemoryCheckpoint(SUMMARY_JOB_CHECKPOINT_KEY, String(now));
-  log.debug("Scheduled periodic global summary jobs");
 }
 
 function buildSegmentId(messageId: string, segmentIndex: number): string {

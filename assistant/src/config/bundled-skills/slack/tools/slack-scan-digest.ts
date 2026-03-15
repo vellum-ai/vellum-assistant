@@ -264,7 +264,7 @@ export async function run(
   const format = (input.format as string) ?? "text";
 
   try {
-    const connection = getSlackConnection();
+    const connection = await getSlackConnection();
     const oldestTs = String((Date.now() - hoursBack * 60 * 60 * 1000) / 1000);
 
     let channelsToScan: SlackConversation[];

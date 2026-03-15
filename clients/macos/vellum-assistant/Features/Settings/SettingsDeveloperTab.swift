@@ -44,6 +44,12 @@ struct SettingsDeveloperTab: View {
     @State private var showingRestartConfirmation: Bool = false
     @State private var isRestarting: Bool = false
 
+    // -- Inline upgrade state --
+    @State private var isUpgradingInline = false
+    @State private var showingInlineUpgradeConfirmation = false
+    @State private var inlineUpgradeError: String?
+    @State private var inlineUpgradeSuccess: String?
+
     // -- Sentry testing state --
     @State private var lastSentryStatus: String?
     @State private var sentryDismissTask: Task<Void, Never>?
@@ -56,8 +62,10 @@ struct SettingsDeveloperTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            // Platform URL
-            platformUrlSection
+            // Platform URL (dev mode only)
+            if store.isDevMode {
+                platformUrlSection
+            }
             // Assistant Info
             assistantInfoSection
             // Switch Assistant
@@ -72,6 +80,14 @@ struct SettingsDeveloperTab: View {
                     sshTerminalSection
                 }
             }
+            // Transfer (local ↔ managed)
+            if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
+               !assistant.isRemote || assistant.isManaged {
+                AssistantTransferSection(
+                    assistant: assistant,
+                    onClose: onClose
+                )
+            }
             // Gateway Settings
             GatewaySettingsCard(
                 store: store,
@@ -81,7 +97,7 @@ struct SettingsDeveloperTab: View {
             // Upgrade (managed/remote only)
             if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
                assistant.isManaged || assistant.isRemote {
-                AssistantUpgradeSection(assistant: assistant, currentVersion: healthz?.version)
+                AssistantUpgradeSection(currentVersion: healthz?.version)
             }
             // Hatch New Assistant
             hatchNewAssistantSection
@@ -119,10 +135,7 @@ struct SettingsDeveloperTab: View {
                 }
             }
             Task { await loadHatchFlag() }
-            if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
-               assistant.isManaged || assistant.isRemote {
-                Task { await fetchHealthz() }
-            }
+            Task { await fetchHealthz() }
 
             // Advanced dev setup
             macOSFlagStates = MacOSClientFeatureFlagManager.shared.allFlagStates()
@@ -152,6 +165,14 @@ struct SettingsDeveloperTab: View {
                 Text("This will stop the assistant daemon, remove local data, and return to initial setup. This action cannot be undone.")
             }
         }
+        .alert("Upgrade Assistant", isPresented: $showingInlineUpgradeConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Upgrade") {
+                Task { await performInlineUpgrade() }
+            }
+        } message: {
+            Text("Upgrade the assistant to match the desktop app version? The assistant will be briefly unavailable during the upgrade.")
+        }
         .alert("Restart Assistant", isPresented: $showingRestartConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Restart") {
@@ -171,10 +192,10 @@ struct SettingsDeveloperTab: View {
                     .progressViewStyle(.circular)
                 Text("Restarting assistant...")
                     .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 Text("The assistant will be briefly unavailable.")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
             .padding(VSpacing.xxl)
             .frame(minWidth: 260)
@@ -187,10 +208,10 @@ struct SettingsDeveloperTab: View {
                     .progressViewStyle(.circular)
                 Text("Retiring assistant...")
                     .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 Text("Stopping the daemon and removing local data.")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
             .padding(VSpacing.xxl)
             .frame(minWidth: 260)
@@ -213,10 +234,10 @@ struct SettingsDeveloperTab: View {
                 TextField("https://platform.vellum.ai", text: $platformUrlText)
                     .vInputStyle()
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .focused($isPlatformUrlFocused)
 
-                VButton(label: "Save", style: .primary, size: .medium, isDisabled: platformUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                VButton(label: "Save", style: .primary, isDisabled: platformUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                     store.savePlatformBaseUrl(platformUrlText)
                     isPlatformUrlFocused = false
                 }
@@ -261,7 +282,7 @@ struct SettingsDeveloperTab: View {
             if let message = devModeMessage {
                 Text(message)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.accent)
+                    .foregroundColor(VColor.primaryBase)
                     .transition(.opacity)
             }
 
@@ -269,20 +290,76 @@ struct SettingsDeveloperTab: View {
                 DeveloperDaemonStatusRows(daemonClient: daemonClient)
             }
 
-            if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
-               assistant.isManaged || assistant.isRemote {
-                healthzInfoRows
-            }
+            healthzInfoRows
         }
     }
 
     // MARK: - Healthz Info
 
+    private var desktopAppVersion: String? {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+    }
+
+    private var assistantVersionBehind: Bool {
+        guard let assistantVersion = healthz?.version, !assistantVersion.isEmpty,
+              let appVersion = desktopAppVersion, !appVersion.isEmpty else {
+            return false
+        }
+        return assistantVersion.compare(appVersion, options: .numeric) == .orderedAscending
+    }
+
     @ViewBuilder
     private var healthzInfoRows: some View {
         if let healthz {
             if let version = healthz.version, !version.isEmpty {
-                infoRow(label: "Version", value: version, mono: true)
+                HStack(alignment: .top) {
+                    Text("Version")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                        .frame(width: 100, alignment: .leading)
+
+                    Text(version)
+                        .font(VFont.mono)
+                        .foregroundColor(assistantVersionBehind ? VColor.systemNegativeStrong : VColor.contentDefault)
+                        .textSelection(.enabled)
+
+                    if assistantVersionBehind {
+                        if isUpgradingInline {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            VButton(label: "Upgrade", style: .primary) {
+                                showingInlineUpgradeConfirmation = true
+                            }
+                            .disabled(isUpgradingInline)
+                        }
+                    }
+
+                    Spacer()
+                }
+
+                if assistantVersionBehind, let appVersion = desktopAppVersion {
+                    HStack(spacing: VSpacing.xs) {
+                        Text("Desktop is on")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentTertiary)
+                        Text(appVersion)
+                            .font(VFont.mono)
+                            .foregroundColor(VColor.primaryBase)
+                    }
+                }
+
+                if let error = inlineUpgradeError {
+                    Text(error)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.systemNegativeStrong)
+                }
+
+                if let success = inlineUpgradeSuccess {
+                    Text(success)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.systemPositiveStrong)
+                }
             }
 
             if let disk = healthz.disk {
@@ -290,16 +367,16 @@ struct SettingsDeveloperTab: View {
                     HStack(alignment: .center) {
                         Text("Disk")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                             .frame(width: 100, alignment: .leading)
                         Text("\(formatMb(disk.usedMb)) used of \(formatMb(disk.totalMb))")
                             .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                         Spacer()
                     }
                     ProgressView(value: Double(disk.usedMb), total: Double(max(disk.totalMb, 1)))
                         .progressViewStyle(.linear)
-                        .tint(Double(disk.usedMb) / Double(max(disk.totalMb, 1)) > 0.9 ? VColor.error : VColor.accent)
+                        .tint(Double(disk.usedMb) / Double(max(disk.totalMb, 1)) > 0.9 ? VColor.systemNegativeStrong : VColor.primaryBase)
                 }
             }
 
@@ -316,7 +393,7 @@ struct SettingsDeveloperTab: View {
                     .controlSize(.small)
                 Text("Loading health metrics...")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
         }
     }
@@ -328,39 +405,50 @@ struct SettingsDeveloperTab: View {
         return String(format: "%.0f MB", mb)
     }
 
-    private func fetchHealthz() async {
-        guard let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) else { return }
-        let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
-        guard let token = SessionTokenManager.getToken(), !token.isEmpty else { return }
-        guard let url = URL(string: "\(baseURL)/v1/assistants/\(assistant.assistantId)/healthz/") else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.timeoutInterval = 10
-        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
-        if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
-            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
-        }
+    private func performInlineUpgrade() async {
+        inlineUpgradeError = nil
+        inlineUpgradeSuccess = nil
+        isUpgradingInline = true
+        defer { isUpgradingInline = false }
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else { return }
-            let decoder = JSONDecoder()
-            decoder.keyDecodingStrategy = .convertFromSnakeCase
-            healthz = try decoder.decode(DaemonHealthz.self, from: data)
-        } catch {}
+            let response = try await GatewayHTTPClient.post(path: "assistants/upgrade")
+            if response.isSuccess {
+                inlineUpgradeSuccess = "Upgrade initiated. The assistant may be briefly unavailable."
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                await fetchHealthz()
+            } else {
+                inlineUpgradeError = "Upgrade failed (HTTP \(response.statusCode))"
+            }
+        } catch let error as GatewayHTTPClient.ClientError {
+            inlineUpgradeError = error.localizedDescription
+        } catch {
+            inlineUpgradeError = "Upgrade failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func fetchHealthz() async {
+        do {
+            let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
+                path: "assistants/\(selectedAssistantId)/healthz",
+                timeout: 10
+            ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
+            healthz = decoded ?? DaemonHealthz()
+        } catch {
+            healthz = DaemonHealthz()
+        }
     }
 
     private func infoRow(label: String, value: String, mono: Bool = false) -> some View {
         HStack(alignment: .top) {
             Text(label)
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .frame(width: 100, alignment: .leading)
 
             Text(value)
                 .font(mono ? VFont.mono : VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .textSelection(.enabled)
 
             Spacer()
@@ -372,22 +460,22 @@ struct SettingsDeveloperTab: View {
         HStack(alignment: .top) {
             Text("Home")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .frame(width: 100, alignment: .leading)
 
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text(home.displayLabel)
                     .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 ForEach(Array(home.displayDetails.enumerated()), id: \.offset) { _, detail in
                     HStack(spacing: VSpacing.xs) {
                         Text(detail.label + ":")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                         Text(detail.value)
                             .font(VFont.mono)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                             .textSelection(.enabled)
                     }
                 }
@@ -408,12 +496,12 @@ struct SettingsDeveloperTab: View {
                         VStack(alignment: .leading, spacing: VSpacing.xxs) {
                             Text(displayLabel(for: assistant))
                                 .font(VFont.bodyMedium)
-                                .foregroundColor(VColor.textPrimary)
+                                .foregroundColor(VColor.contentDefault)
                             Text(displayNames[assistant.assistantId] != nil
                                 ? "\(assistant.assistantId) · \(assistant.home.displayLabel)"
                                 : assistant.home.displayLabel)
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                         }
                         Spacer()
                         if transitioningStates.contains(assistant.assistantId) {
@@ -436,7 +524,7 @@ struct SettingsDeveloperTab: View {
                 HStack {
                     Text("Active")
                         .font(VFont.inputLabel)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                     Spacer()
                     VDropdown(
                         placeholder: "",
@@ -533,7 +621,7 @@ struct SettingsDeveloperTab: View {
             title: "Restart Assistant",
             subtitle: "The assistant will be briefly unavailable during restart."
         ) {
-            VButton(label: "Restart", style: .secondary, size: .medium) {
+            VButton(label: "Restart", style: .outlined) {
                 showingRestartConfirmation = true
             }
         }
@@ -543,7 +631,7 @@ struct SettingsDeveloperTab: View {
         guard let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) else { return }
 
         if assistant.isManaged || assistant.isRemote {
-            await performManagedRestart(assistant: assistant)
+            await performManagedRestart()
         } else {
             await performLocalRestart()
         }
@@ -552,20 +640,8 @@ struct SettingsDeveloperTab: View {
         await fetchHealthz()
     }
 
-    private func performManagedRestart(assistant: LockfileAssistant) async {
-        let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
-        guard let token = SessionTokenManager.getToken(), !token.isEmpty else { return }
-        guard let url = URL(string: "\(baseURL)/v1/assistants/restart/") else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 30
-        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
-        if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
-            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
-        }
-
-        _ = try? await URLSession.shared.data(for: request)
+    private func performManagedRestart() async {
+        _ = try? await GatewayHTTPClient.post(path: "assistants/restart")
     }
 
     private func performLocalRestart() async {
@@ -585,7 +661,7 @@ struct SettingsDeveloperTab: View {
             title: "SSH Terminal",
             subtitle: "Open a terminal session to the assistant's host machine."
         ) {
-            VButton(label: "Open Terminal", style: .secondary, size: .medium) {
+            VButton(label: "Open Terminal", style: .outlined) {
                 openTerminalWindow()
             }
         }
@@ -596,17 +672,8 @@ struct SettingsDeveloperTab: View {
     private func openTerminalWindow() {
         guard let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
               assistant.isManaged else { return }
-        guard let token = SessionTokenManager.getToken(), !token.isEmpty else { return }
 
-        let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
-        let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
-
-        Self.terminalWindow.open(
-            assistant: assistant,
-            baseURL: baseURL,
-            token: token,
-            organizationId: orgId
-        )
+        Self.terminalWindow.open(assistant: assistant)
     }
 
     // MARK: - Retire Assistant
@@ -618,7 +685,7 @@ struct SettingsDeveloperTab: View {
                 ? "Stops the current assistant and switches to another."
                 : "Stops the daemon, removes local data, and returns to initial setup."
         ) {
-            VButton(label: "Retire", style: .danger, size: .medium) {
+            VButton(label: "Retire", style: .danger) {
                 showingRetireConfirmation = true
             }
         }
@@ -654,7 +721,7 @@ struct SettingsDeveloperTab: View {
     private var hatchNewAssistantSection: some View {
         if isHatchFlagEnabled {
             SettingsCard(title: "Hatch New Assistant", subtitle: "Starts the initial setup flow to create a new assistant.") {
-                VButton(label: "Hatch...", style: .primary, size: .medium) {
+                VButton(label: "Hatch...", style: .primary) {
                     showingHatchConfirmation = true
                 }
                 .alert("Hatch New Assistant", isPresented: $showingHatchConfirmation) {
@@ -698,15 +765,15 @@ struct SettingsDeveloperTab: View {
             if let error = assistantFlagsError {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.triangleAlert, size: 12)
-                        .foregroundColor(VColor.warning)
+                        .foregroundColor(VColor.systemNegativeHover)
                     Text(error)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.error)
+                        .foregroundColor(VColor.systemNegativeStrong)
                 }
             } else if assistantFlags.isEmpty && !isLoadingAssistantFlags {
                 Text("No assistant feature flags available.")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             } else {
                 ForEach(assistantFlags) { flag in
                     assistantFlagRow(flag: flag)
@@ -761,11 +828,11 @@ struct SettingsDeveloperTab: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text(flag.displayName)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                 if let description = flag.description, !description.isEmpty {
                     Text(description)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
             Spacer()
@@ -783,7 +850,7 @@ struct SettingsDeveloperTab: View {
             if macOSFlagStates.isEmpty {
                 Text("No macOS feature flags available.")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             } else {
                 ForEach(Array(macOSFlagStates.enumerated()), id: \.element.id) { index, entry in
                     macOSFlagRow(index: index, entry: entry)
@@ -809,11 +876,11 @@ struct SettingsDeveloperTab: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text(entry.label)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                 if !entry.description.isEmpty {
                     Text(entry.description)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
             Spacer()
@@ -830,7 +897,7 @@ struct SettingsDeveloperTab: View {
     private var environmentVariablesSection: some View {
         if daemonClient != nil {
             SettingsCard(title: "Environment Variables", subtitle: "View env vars for both the app and daemon processes") {
-                VButton(label: "View", style: .secondary, size: .medium) {
+                VButton(label: "View", style: .outlined) {
                         appEnvVars = ProcessInfo.processInfo.environment
                             .sorted(by: { $0.key < $1.key })
                             .map { ($0.key, $0.value) }
@@ -856,71 +923,71 @@ struct SettingsDeveloperTab: View {
             if !isSentryEnabled {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.triangleAlert, size: 12)
-                        .foregroundColor(VColor.warning)
+                        .foregroundColor(VColor.systemNegativeHover)
                     Text("Usage data collection is disabled. Non-fatal events will be silently dropped unless you enable \"Collect usage data\" in the Privacy tab.")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.warning)
+                        .foregroundColor(VColor.systemNegativeHover)
                 }
             }
 
             if let status = lastSentryStatus {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.circleCheck, size: 12)
-                        .foregroundColor(VColor.success)
+                        .foregroundColor(VColor.systemPositiveStrong)
                     Text(status)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.success)
+                        .foregroundColor(VColor.systemPositiveStrong)
                 }
                 .transition(.opacity)
             }
 
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    VButton(label: "Trigger Fatal Crash", style: .danger, size: .medium) {
+                    VButton(label: "Trigger Fatal Crash", style: .danger) {
                         fatalError("Sentry test crash")
                     }
                     Text("Calls fatalError() — will terminate the app immediately.")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
 
                 SettingsDivider()
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    VButton(label: "Send Test Error", style: .secondary, size: .medium) {
+                    VButton(label: "Send Test Error", style: .outlined) {
                         sendSentryTestEvent(level: .error, label: "error")
                     }
                     Text("Captures a Sentry event with level .error")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
 
                 SettingsDivider()
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    VButton(label: "Send Test Warning", style: .secondary, size: .medium) {
+                    VButton(label: "Send Test Warning", style: .outlined) {
                         sendSentryTestEvent(level: .warning, label: "warning")
                     }
                     Text("Captures a Sentry event with level .warning")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
 
                 SettingsDivider()
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    VButton(label: "Send Test Message", style: .secondary, size: .medium) {
+                    VButton(label: "Send Test Message", style: .outlined) {
                         sendSentryTestEvent(level: .info, label: "info message")
                     }
                     Text("Captures a Sentry event with level .info")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
 
                 SettingsDivider()
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    VButton(label: "Test Performance Transaction", style: .secondary, size: .medium) {
+                    VButton(label: "Test Performance Transaction", style: .outlined) {
                         guard isSentryEnabled else {
                             showSentryStatus("Sentry is disabled — transaction not sent.")
                             return
@@ -942,7 +1009,7 @@ struct SettingsDeveloperTab: View {
                     }
                     Text("Starts and finishes a Sentry transaction. Only ~10% are sampled and sent.")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
         }
@@ -1002,16 +1069,16 @@ private struct DeveloperDaemonStatusRows: View {
         HStack(alignment: .center) {
             Text(label)
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .frame(width: 100, alignment: .leading)
 
             Circle()
-                .fill(isHealthy ? VColor.success : VColor.error)
+                .fill(isHealthy ? VColor.systemPositiveStrong : VColor.systemNegativeStrong)
                 .frame(width: 8, height: 8)
 
             Text(detail)
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             Spacer()
         }

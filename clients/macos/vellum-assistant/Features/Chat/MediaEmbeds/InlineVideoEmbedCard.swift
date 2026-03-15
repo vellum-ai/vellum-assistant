@@ -3,9 +3,9 @@ import VellumAssistantShared
 
 /// Card for a video embed that transitions through click-to-play states.
 ///
-/// Shows a play-button placeholder, then builds an embed URL with autoplay
-/// parameters via `VideoEmbedURLBuilder` and displays the video inside an
-/// `InlineVideoWebView`. The card expands to 16:9 aspect ratio when playing.
+/// Shows a thumbnail placeholder with a play button overlay, then builds an
+/// embed URL with autoplay parameters via `VideoEmbedURLBuilder` and displays
+/// the video inside an `InlineVideoWebView`. The card uses 16:9 aspect ratio.
 struct InlineVideoEmbedCard: View {
     let provider: String
     let videoID: String
@@ -28,7 +28,7 @@ struct InlineVideoEmbedCard: View {
         case .playing, .initializing:
             return 315
         case .placeholder:
-            return 180
+            return 315
         case .failed:
             return 60
         }
@@ -37,16 +37,17 @@ struct InlineVideoEmbedCard: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.surface)
+                .fill(VColor.surfaceOverlay)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.surfaceBorder.opacity(0.4), lineWidth: 0.5)
+                        .stroke(VColor.borderBase.opacity(0.4), lineWidth: 0.5)
                 )
 
             stateContent
         }
         .frame(maxWidth: .infinity)
         .frame(height: cardHeight)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .animation(.easeInOut(duration: 0.25), value: cardHeight)
         .onDisappear {
             // Only reset states that own an active WKWebView.
@@ -75,18 +76,47 @@ struct InlineVideoEmbedCard: View {
     }
 
     private var placeholderView: some View {
-        VStack(spacing: VSpacing.sm) {
-            VIconView(.play, size: 44)
-                .foregroundStyle(VColor.textSecondary)
+        ZStack {
+            // Video thumbnail background
+            if let thumbnailURL = VideoThumbnailURL.thumbnailURL(provider: provider, videoID: videoID) {
+                AsyncImage(url: thumbnailURL) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    case .failure:
+                        fallbackPlaceholder
+                    case .empty:
+                        // Loading state — show dark background
+                        VColor.auxBlack
+                    @unknown default:
+                        fallbackPlaceholder
+                    }
+                }
+            } else {
+                fallbackPlaceholder
+            }
 
-            Text(provider.capitalized)
-                .font(VFont.caption)
-                .foregroundStyle(VColor.textSecondary)
+            // Play button overlay
+            Circle()
+                .fill(VColor.auxBlack.opacity(0.7))
+                .frame(width: 56, height: 56)
+                .overlay(
+                    VIconView(.play, size: 22)
+                        .foregroundColor(VColor.auxWhite)
+                        .offset(x: 2)
+                )
         }
         .contentShape(Rectangle())
         .onTapGesture {
             stateManager.requestPlay()
         }
+    }
+
+    private var fallbackPlaceholder: some View {
+        VColor.auxBlack.opacity(0.8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     /// Single view for both .initializing and .playing so SwiftUI preserves
@@ -108,15 +138,15 @@ struct InlineVideoEmbedCard: View {
     private func failedView(_ message: String) -> some View {
         HStack(spacing: VSpacing.sm) {
             VIconView(.play, size: 16)
-                .foregroundStyle(VColor.textSecondary)
+                .foregroundStyle(VColor.contentSecondary)
 
             Text(provider.capitalized)
                 .font(VFont.caption)
-                .foregroundStyle(VColor.textSecondary)
+                .foregroundStyle(VColor.contentSecondary)
 
             Text(embedURL.absoluteString)
                 .font(VFont.caption)
-                .foregroundStyle(VColor.accent)
+                .foregroundStyle(VColor.primaryBase)
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
@@ -129,28 +159,4 @@ struct InlineVideoEmbedCard: View {
 }
 
 #if DEBUG
-#Preview("InlineVideoEmbedCard") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        VStack(spacing: VSpacing.lg) {
-            InlineVideoEmbedCard(
-                provider: "youtube",
-                videoID: "dQw4w9WgXcQ",
-                embedURL: URL(string: "https://www.youtube.com/embed/dQw4w9WgXcQ")!
-            )
-            InlineVideoEmbedCard(
-                provider: "vimeo",
-                videoID: "76979871",
-                embedURL: URL(string: "https://player.vimeo.com/video/76979871")!
-            )
-            InlineVideoEmbedCard(
-                provider: "loom",
-                videoID: "abc123def456",
-                embedURL: URL(string: "https://www.loom.com/embed/abc123def456")!
-            )
-        }
-        .padding()
-    }
-    .frame(width: 400, height: 640)
-}
 #endif

@@ -58,6 +58,8 @@ export interface ContactChannelPayload {
   verifiedAt?: number;
   verifiedVia?: string;
   lastSeenAt?: number;
+  interactionCount?: number;
+  lastInteraction?: number;
   revokedReason?: string;
   blockedReason?: string;
 }

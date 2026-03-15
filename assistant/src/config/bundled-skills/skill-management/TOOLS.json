@@ -29,14 +29,6 @@
             "type": "string",
             "description": "Optional emoji icon for the skill."
           },
-          "user_invocable": {
-            "type": "boolean",
-            "description": "Whether users can invoke this skill directly (default: true)."
-          },
-          "disable_model_invocation": {
-            "type": "boolean",
-            "description": "Whether to prevent the model from auto-invoking this skill (default: false)."
-          },
           "overwrite": {
             "type": "boolean",
             "description": "Whether to overwrite an existing skill with the same ID (default: false)."

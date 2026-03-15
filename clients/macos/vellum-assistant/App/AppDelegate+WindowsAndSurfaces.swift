@@ -142,9 +142,7 @@ extension AppDelegate {
             guard let self else { return }
             Task { @MainActor in
                 // Auto-approve low/medium risk tool confirmations during CU sessions
-                // or voice-initiated text_qa sessions pending escalation
-                let isVoiceAutoApprove = msg.sessionId.map { self.autoApproveEscalationSessionIds.contains($0) } ?? false
-                if (self.currentSession?.autoApproveTools == true || isVoiceAutoApprove),
+                if self.currentSession?.autoApproveTools == true,
                    msg.riskLevel == "low" || msg.riskLevel == "medium" {
                     do {
                         try self.daemonClient.sendConfirmationResponse(
@@ -419,7 +417,8 @@ extension AppDelegate {
     /// Check whether the local gateway is healthy by hitting its /healthz endpoint.
     /// Port resolution: env var > lockfile > default 7830.
     func isGatewayHealthy() async -> Bool {
-        let port = LockfilePaths.resolveGatewayPort()
+        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let port = LockfilePaths.resolveGatewayPort(connectedAssistantId: connectedId)
         guard let url = URL(string: "http://localhost:\(port)/healthz") else { return false }
         var request = URLRequest(url: url)
         request.timeoutInterval = 2
@@ -443,19 +442,14 @@ extension AppDelegate {
             return
         }
         let filtered = assistants.filter { ($0["assistantId"] as? String) != assistantId }
-        if filtered.isEmpty {
-            try? FileManager.default.removeItem(at: LockfilePaths.primary)
-            log.info("Removed lockfile (no entries remain after force-removing '\(assistantId, privacy: .private)')")
-        } else {
-            var updated = json
-            updated["assistants"] = filtered
-            do {
-                let data = try JSONSerialization.data(withJSONObject: updated, options: [.prettyPrinted, .sortedKeys])
-                try data.write(to: LockfilePaths.primary)
-                log.info("Removed stale entry '\(assistantId, privacy: .private)' from lockfile")
-            } catch {
-                log.error("Failed to update lockfile after removing '\(assistantId, privacy: .private)': \(error)")
-            }
+        var updated = json
+        updated["assistants"] = filtered
+        do {
+            let data = try JSONSerialization.data(withJSONObject: updated, options: [.prettyPrinted, .sortedKeys])
+            try data.write(to: LockfilePaths.primary)
+            log.info("Removed stale entry '\(assistantId, privacy: .private)' from lockfile")
+        } catch {
+            log.error("Failed to update lockfile after removing '\(assistantId, privacy: .private)': \(error)")
         }
     }
 
@@ -624,9 +618,10 @@ extension AppDelegate {
     public func showAboutPanel() {
         var options: [NSApplication.AboutPanelOptionKey: Any] = [:]
 
+        let creditsString = NSMutableAttributedString()
+
         #if DEBUG
         let bundlePath = Bundle.main.bundlePath
-        let creditsString = NSMutableAttributedString()
 
         let headerAttributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
@@ -639,9 +634,25 @@ extension AppDelegate {
             .foregroundColor: NSColor.secondaryLabelColor
         ]
         creditsString.append(NSAttributedString(string: bundlePath, attributes: pathAttributes))
+        creditsString.append(NSAttributedString(string: "\n", attributes: pathAttributes))
+        #endif
+
+        let archLabel: String
+        #if arch(arm64)
+        archLabel = "Apple Silicon (arm64)"
+        #elseif arch(x86_64)
+        archLabel = "Intel (x86_64)"
+        #else
+        archLabel = "Unknown architecture"
+        #endif
+
+        let archAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .regular),
+            .foregroundColor: NSColor.secondaryLabelColor
+        ]
+        creditsString.append(NSAttributedString(string: archLabel, attributes: archAttributes))
 
         options[.credits] = creditsString
-        #endif
 
         NSApp.activate(ignoringOtherApps: true)
         NSApp.orderFrontStandardAboutPanel(options: options)

@@ -16,6 +16,7 @@ private let log = Logger(
 /// - `~/Library/Application Support/vellum-assistant/logs/`  — per-session JSON logs
 /// - `~/Library/Application Support/vellum-assistant/debug-state.json` — live debug snapshot (includes session error debug details)
 /// - Daemon logs, audit data, and sanitized config via `POST /v1/export` gateway HTTP API
+/// - Workspace files via `POST /v1/export` — full workspace contents (config, skills, prompts, hooks, DB dump, logs)
 /// - `~/.config/vellum/logs/` — CLI XDG logs (hatch.log, retire.log, etc.)
 /// - `~/.vellum.lock.json` — sanitized lockfile with assistant entries and resource ports (credentials stripped)
 /// - `user-defaults.json` — snapshot of app-relevant UserDefaults keys
@@ -24,6 +25,14 @@ private let log = Logger(
 /// - `config-snapshot.json` — sanitized workspace config (API key values redacted, structure preserved)
 @MainActor
 enum LogExporter {
+
+    /// Whether the currently connected assistant is a managed (platform-hosted) instance.
+    /// When true, thread-scoped exports are not available because the platform API
+    /// does not yet support conversation-scoped log retrieval.
+    nonisolated static var isManagedAssistant: Bool {
+        guard let id = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return false }
+        return LockfileAssistant.loadByName(id)?.isManaged == true
+    }
 
     /// Collects logs, archives them, and sends to Sentry as an attachment for developer debugging.
     /// Includes report metadata (reason, message) from the log report form.
@@ -49,7 +58,13 @@ enum LogExporter {
             let archiveName = defaultArchiveName()
             let attachment = Attachment(path: archiveURL.path, filename: archiveName)
             let event = Event(level: .info)
-            let errorTitle = "\(formData.reason.displayName) log report"
+            let errorTitle: String
+            switch formData.scope {
+            case .thread(_, let threadTitle, _, _):
+                errorTitle = "\(formData.reason.displayName) log report (thread: \(threadTitle))"
+            case .global:
+                errorTitle = "\(formData.reason.displayName) log report"
+            }
             event.message = SentryMessage(formatted: errorTitle)
             // Set error so Sentry displays the error message (not "No error message provided").
             event.error = NSError(
@@ -61,18 +76,76 @@ enum LogExporter {
                 "source": "log_report",
                 "report_reason": formData.reason.rawValue,
             ]
+            if case .thread(let conversationId, _, _, _) = formData.scope {
+                tags["conversation_id"] = conversationId
+                tags["export_scope"] = "thread"
+            } else {
+                tags["export_scope"] = "global"
+            }
             // When routing to the brain project, tag the event so it's clear
             // it originated from the macOS client (not the daemon itself).
             if formData.reason == .assistantBehavior {
                 tags["client"] = "macos"
             }
+
+            // Surface active session state as tags so the Sentry event itself
+            // is useful for triage without downloading the log archive.
+            var extra: [String: Any] = [:]
+            let threadManager = AppDelegate.shared?.mainWindow?.threadManager
+            if let activeThread = threadManager?.activeThread {
+                extra["thread_title"] = activeThread.title
+                if let sessionId = activeThread.sessionId {
+                    tags["session_id"] = sessionId
+                    // conversation_id mirrors session_id — the daemon tags its
+                    // Sentry events with both names for the same value. Setting
+                    // it here enables cross-project search: find the daemon error
+                    // that corresponds to a macOS log report by querying
+                    // conversation_id in the vellum-assistant-brain Sentry project.
+                    // For thread-scoped exports, conversation_id was already set
+                    // to the reported thread's ID above — don't overwrite it with
+                    // the active thread's session ID.
+                    if case .global = formData.scope {
+                        tags["conversation_id"] = sessionId
+                    }
+                }
+            }
+            var errorCategoryString: String?
+            if let vm = threadManager?.activeViewModel {
+                extra["message_count"] = vm.messages.count
+                if let sessionError = vm.sessionError {
+                    let category = "\(sessionError.category)"
+                    tags["session_error_category"] = category
+                    errorCategoryString = category
+                    if let debugDetails = sessionError.debugDetails {
+                        extra["session_error_debug_details"] = debugDetails
+                    }
+                }
+                if let sessionId = vm.sessionId {
+                    // Prefer the view model's sessionId (most up-to-date)
+                    tags["session_id"] = sessionId
+                    // For thread-scoped exports, conversation_id reflects the
+                    // reported thread, not the active one — skip the overwrite.
+                    if case .global = formData.scope {
+                        tags["conversation_id"] = sessionId
+                    }
+                }
+            }
+            if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") {
+                tags["assistant_id"] = assistantId
+            }
+            if !extra.isEmpty {
+                event.extra = extra
+            }
+
             event.tags = tags
-            // Group all reports by reason so different user messages don't
-            // fragment into separate Sentry issues.
-            event.fingerprint = ["log_report", formData.reason.rawValue]
+            // Group reports by reason and error category so different root
+            // causes (e.g. providerApi vs contextTooLarge) create separate
+            // Sentry issues instead of being mixed into one.
+            let categoryComponent = errorCategoryString ?? "none"
+            event.fingerprint = ["log_report", formData.reason.rawValue, categoryComponent]
 
             // User-provided context (message, email, category) is sent via
-            // Sentry's UserFeedback API, linked to the event. This keeps PII
+            // Sentry's Feedback API, linked to the event. This keeps PII
             // out of event tags/extras and lets us use Sentry's built-in
             // feedback UI for triage.
             let feedback = MetricKitManager.UserFeedbackData(
@@ -154,16 +227,13 @@ enum LogExporter {
         // 3. Assistant logs — platform API for managed, local gateway for self-hosted
         let home = NSHomeDirectory()
         let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        let isManagedAssistant: Bool = {
-            guard let id = connectedId else { return false }
-            return LockfileAssistant.loadByName(id)?.isManaged == true
-        }()
+        let isManagedAssistant = Self.isManagedAssistant
 
         if isManagedAssistant, let assistantId = connectedId,
            let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
             await fetchPlatformLogs(into: tempDir, assistantId: assistantId, organizationId: orgId)
         } else {
-            await fetchDaemonExports(into: tempDir)
+            await fetchDaemonExports(into: tempDir, scope: formData?.scope ?? .global)
         }
 
         // 4. XDG CLI logs — ~/.config/vellum/logs/ (hatch.log, retire.log, etc.)
@@ -199,7 +269,7 @@ enum LogExporter {
 
         // 9. Report metadata — reason and message from the log report form.
         // Email is excluded from the archive since it's already sent via
-        // Sentry's UserFeedback API (linked to the event).
+        // Sentry's Feedback API (linked to the event).
         if let formData {
             var metadata: [String: String] = [
                 "reason": formData.reason.rawValue,
@@ -217,9 +287,12 @@ enum LogExporter {
             }
         }
 
-        // 10. Sanitized workspace config — client-side fallback if daemon export didn't include it
+        // 10. Sanitized workspace config — client-side fallback if daemon export didn't include it.
+        //     The daemon archive extracts into daemon-exports/, so check both locations.
         let configSnapshotPath = tempDir.appendingPathComponent("config-snapshot.json")
-        if !fileManager.fileExists(atPath: configSnapshotPath.path) {
+        let daemonConfigPath = tempDir.appendingPathComponent("daemon-exports/config-snapshot.json")
+        if !fileManager.fileExists(atPath: configSnapshotPath.path)
+            && !fileManager.fileExists(atPath: daemonConfigPath.path) {
             writeSanitizedWorkspaceConfig(to: configSnapshotPath)
         }
 
@@ -292,11 +365,13 @@ enum LogExporter {
 
     // MARK: - Daemon HTTP Helpers
 
-    /// Calls POST /v1/export on the gateway to fetch audit data and daemon
-    /// log files, then writes them into `directory`. Silently skips if the
-    /// gateway is unreachable or returns an error.
-    private nonisolated static func fetchDaemonExports(into directory: URL) async {
-        let baseURL = LockfilePaths.resolveGatewayUrl()
+    /// Calls POST /v1/export on the gateway to download a tar.gz archive of
+    /// audit data, daemon logs, workspace files, and config snapshot.
+    /// Extracts the archive into `directory/daemon-exports/`.
+    /// Silently skips if the gateway is unreachable or returns an error.
+    private nonisolated static func fetchDaemonExports(into directory: URL, scope: LogExportScope) async {
+        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let baseURL = LockfilePaths.resolveGatewayUrl(connectedAssistantId: connectedId)
 
         guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
             log.warning("No actor token available — skipping daemon exports")
@@ -309,7 +384,18 @@ enum LogExporter {
         request.timeoutInterval = 30
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["auditLimit": 10000])
+
+        var body: [String: Any] = ["auditLimit": 10000]
+        if case .thread(let conversationId, _, let startTime, let endTime) = scope {
+            body["conversationId"] = conversationId
+            if let startTime {
+                body["startTime"] = Int(startTime.timeIntervalSince1970 * 1000)
+            }
+            if let endTime {
+                body["endTime"] = Int(endTime.timeIntervalSince1970 * 1000)
+            }
+        }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -320,44 +406,7 @@ enum LogExporter {
                 return
             }
 
-            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                log.warning("Export API returned unexpected format")
-                return
-            }
-
-            // Write audit rows as a standalone JSON file
-            if let auditRows = json["auditRows"] {
-                if let auditData = try? JSONSerialization.data(
-                    withJSONObject: auditRows,
-                    options: [.prettyPrinted]
-                ) {
-                    try? auditData.write(to: directory.appendingPathComponent("audit-data.json"))
-                }
-            }
-
-            // Write each daemon log file into a daemon-logs/ subdirectory
-            if let logFiles = json["logFiles"] as? [String: String] {
-                let logsDir = directory.appendingPathComponent("daemon-logs", isDirectory: true)
-                try? FileManager.default.createDirectory(at: logsDir, withIntermediateDirectories: true)
-                for (filename, content) in logFiles {
-                    let sanitized = (filename as NSString).lastPathComponent
-                    try? content.write(
-                        to: logsDir.appendingPathComponent(sanitized),
-                        atomically: true,
-                        encoding: .utf8
-                    )
-                }
-            }
-
-            // Write sanitized config snapshot from the daemon
-            if let configSnapshot = json["configSnapshot"] {
-                if let configData = try? JSONSerialization.data(
-                    withJSONObject: configSnapshot,
-                    options: [.prettyPrinted, .sortedKeys]
-                ) {
-                    try? configData.write(to: directory.appendingPathComponent("config-snapshot.json"))
-                }
-            }
+            try await extractTarGzResponse(data: data, into: directory, subdirectory: "daemon-exports")
         } catch {
             log.warning("Export API request failed: \(error.localizedDescription)")
         }
@@ -367,7 +416,7 @@ enum LogExporter {
 
     /// Fetches logs from the platform API for managed assistants, downloads
     /// the tar.gz response, extracts it into `directory/platform-logs/`.
-    /// Silently skips on any failure (non-fatal, mirrors `fetchDaemonExports`).
+    /// Silently skips on any failure.
     private nonisolated static func fetchPlatformLogs(
         into directory: URL,
         assistantId: String,
@@ -400,50 +449,130 @@ enum LogExporter {
                 return
             }
 
-            let fileManager = FileManager.default
-            let tarPath = fileManager.temporaryDirectory
-                .appendingPathComponent("platform-logs-\(UUID().uuidString).tar.gz")
-            try data.write(to: tarPath)
-
-            defer {
-                try? fileManager.removeItem(at: tarPath)
-            }
-
-            let extractDir = directory.appendingPathComponent("platform-logs", isDirectory: true)
-            try fileManager.createDirectory(at: extractDir, withIntermediateDirectories: true)
-
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
-                process.arguments = [
-                    "xzf",
-                    tarPath.path,
-                    "-C", extractDir.path,
-                ]
-
-                let pipe = Pipe()
-                process.standardError = pipe
-
-                process.terminationHandler = { proc in
-                    if proc.terminationStatus == 0 {
-                        continuation.resume()
-                    } else {
-                        let stderr = String(
-                            data: pipe.fileHandleForReading.readDataToEndOfFile(),
-                            encoding: .utf8
-                        ) ?? ""
-                        continuation.resume(throwing: ExportError.tarFailed(stderr))
-                    }
-                }
-
-                do {
-                    try process.run()
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+            try await extractTarGzResponse(data: data, into: directory, subdirectory: "platform-logs")
         } catch {
             log.warning("Platform log export request failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Writes tar.gz `data` to a temporary file and extracts it into
+    /// `directory/<subdirectory>/` using `/usr/bin/tar`.
+    /// Validates archive member paths before extraction to prevent path traversal.
+    private nonisolated static func extractTarGzResponse(
+        data: Data,
+        into directory: URL,
+        subdirectory: String
+    ) async throws {
+        let fileManager = FileManager.default
+        let tarPath = fileManager.temporaryDirectory
+            .appendingPathComponent("\(subdirectory)-\(UUID().uuidString).tar.gz")
+        try data.write(to: tarPath)
+
+        defer {
+            try? fileManager.removeItem(at: tarPath)
+        }
+
+        // Validate archive contents — reject paths with ".." components or absolute paths
+        try await validateTarContents(at: tarPath)
+
+        let extractDir = directory.appendingPathComponent(subdirectory, isDirectory: true)
+        try fileManager.createDirectory(at: extractDir, withIntermediateDirectories: true)
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+            process.arguments = [
+                "xzf",
+                tarPath.path,
+                "-C", extractDir.path,
+            ]
+
+            let pipe = Pipe()
+            process.standardError = pipe
+
+            process.terminationHandler = { proc in
+                if proc.terminationStatus == 0 {
+                    continuation.resume()
+                } else {
+                    let stderr = String(
+                        data: pipe.fileHandleForReading.readDataToEndOfFile(),
+                        encoding: .utf8
+                    ) ?? ""
+                    continuation.resume(throwing: ExportError.tarFailed(stderr))
+                }
+            }
+
+            do {
+                try process.run()
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+
+    /// Lists tar archive members and rejects any with path traversal (`..`) or absolute paths.
+    private nonisolated static func validateTarContents(at tarPath: URL) async throws {
+        let entries = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+            process.arguments = ["tzf", tarPath.path]
+
+            let pipe = Pipe()
+            process.standardOutput = pipe
+
+            let errPipe = Pipe()
+            process.standardError = errPipe
+
+            do {
+                try process.run()
+            } catch {
+                continuation.resume(throwing: error)
+                return
+            }
+
+            // Drain both pipes concurrently to prevent deadlock.
+            // Sequential reads can block if tar fills one pipe buffer (~64 KB)
+            // while we're waiting on the other.
+            nonisolated(unsafe) var stdoutData = Data()
+            nonisolated(unsafe) var stderrData = Data()
+            let group = DispatchGroup()
+
+            group.enter()
+            DispatchQueue.global(qos: .utility).async {
+                stdoutData = pipe.fileHandleForReading.readDataToEndOfFile()
+                group.leave()
+            }
+
+            group.enter()
+            DispatchQueue.global(qos: .utility).async {
+                stderrData = errPipe.fileHandleForReading.readDataToEndOfFile()
+                group.leave()
+            }
+
+            group.wait()
+
+            process.waitUntilExit()
+
+            if process.terminationStatus == 0 {
+                let output = String(data: stdoutData, encoding: .utf8) ?? ""
+                continuation.resume(returning: output)
+            } else {
+                let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+                continuation.resume(throwing: ExportError.tarFailed("Failed to list archive: \(stderr)"))
+            }
+        }
+
+        for entry in entries.split(separator: "\n") {
+            let path = String(entry)
+            if path.hasPrefix("/") {
+                log.warning("Rejecting archive with absolute path: \(path)")
+                throw ExportError.unsafeArchivePath(path)
+            }
+            let components = (path as NSString).pathComponents
+            if components.contains("..") {
+                log.warning("Rejecting archive with path traversal: \(path)")
+                throw ExportError.unsafeArchivePath(path)
+            }
         }
     }
 
@@ -680,6 +809,7 @@ enum LogExporter {
     enum ExportError: LocalizedError {
         case noLogsFound
         case tarFailed(String)
+        case unsafeArchivePath(String)
 
         var errorDescription: String? {
             switch self {
@@ -687,6 +817,8 @@ enum LogExporter {
                 return "No log files were found to export."
             case .tarFailed(let detail):
                 return "Failed to create archive: \(detail)"
+            case .unsafeArchivePath(let path):
+                return "Archive contains unsafe path: \(path)"
             }
         }
     }

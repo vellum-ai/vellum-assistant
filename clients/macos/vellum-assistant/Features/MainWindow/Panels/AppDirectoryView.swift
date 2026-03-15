@@ -18,7 +18,8 @@ struct AppDirectoryView: View {
 
     @State private var localApps: [AppItem] = []
     @State private var sharedApps: [SharedAppItem] = []
-    @State private var pendingResponses = 0
+    @State private var fetchAppsTask: Task<Void, Never>?
+    @State private var fetchAppsGeneration = 0
 
     /// Cache of lazily-loaded preview screenshots keyed by local app ID.
     /// Empty string is used as a sentinel for "fetched but no preview available".
@@ -42,35 +43,35 @@ struct AppDirectoryView: View {
                 HStack(spacing: 0) {
                     Text("Directory")
                         .font(VFont.panelTitle)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
 
                     Spacer(minLength: VSpacing.lg)
 
                     if !displayItems.isEmpty || !searchText.isEmpty {
                         HStack(spacing: VSpacing.xs) {
                             VIconView(.search, size: 11)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
 
                             TextField("Search apps...", text: $searchText)
                                 .textFieldStyle(.plain)
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textPrimary)
+                                .foregroundColor(VColor.contentDefault)
 
                             if !searchText.isEmpty {
                                 Button(action: { searchText = "" }) {
                                     VIconView(.circleX, size: 10)
-                                        .foregroundColor(VColor.textMuted)
+                                        .foregroundColor(VColor.contentTertiary)
                                 }
                                 .buttonStyle(.plain)
                             }
                         }
                         .padding(.horizontal, VSpacing.sm)
                         .frame(height: 26)
-                        .background(VColor.surface)
+                        .background(VColor.surfaceBase)
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                         .overlay(
                             RoundedRectangle(cornerRadius: VRadius.sm)
-                                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                                .stroke(VColor.borderBase, lineWidth: 1)
                         )
                         .frame(maxWidth: 280)
                     }
@@ -81,7 +82,7 @@ struct AppDirectoryView: View {
                 .padding(.bottom, VSpacing.xl)
                 .padding(.trailing, VSpacing.xxl)
 
-                Divider().background(VColor.surfaceBorder)
+                Divider().background(VColor.borderBase)
                     .padding(.bottom, VSpacing.xl)
 
                 // Content
@@ -123,9 +124,11 @@ struct AppDirectoryView: View {
             .padding(.horizontal, VSpacing.xxl)
             .frame(maxWidth: .infinity)
         }
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
         .onAppear { fetchApps() }
         .onDisappear {
+            fetchAppsTask?.cancel()
+            fetchAppsTask = nil
             for task in previewTasks.values { task.cancel() }
             previewTasks.removeAll()
         }
@@ -153,7 +156,7 @@ struct AppDirectoryView: View {
                             .clipped()
                     } else {
                         ZStack {
-                            VColor.backgroundSubtle
+                            VColor.surfaceBase
 
                             Text(item.icon ?? "\u{1F4F1}")
                                 .font(.system(size: 40))
@@ -176,16 +179,16 @@ struct AppDirectoryView: View {
                     HStack(spacing: VSpacing.xs) {
                         Text(item.name)
                             .font(VFont.bodyBold)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                             .lineLimit(1)
 
                         if item.appType == "site" {
                             Text("Site")
                                 .font(VFont.small)
-                                .foregroundColor(Emerald._400)
+                                .foregroundColor(VColor.systemPositiveStrong)
                                 .padding(.horizontal, VSpacing.xs)
                                 .padding(.vertical, 1)
-                                .background(Emerald._900.opacity(0.5))
+                                .background(VColor.systemPositiveStrong.opacity(0.5))
                                 .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
                         }
 
@@ -195,42 +198,42 @@ struct AppDirectoryView: View {
                                 Text("Shared")
                                     .font(VFont.small)
                             }
-                            .foregroundColor(Forest._400)
+                            .foregroundColor(VColor.systemPositiveWeak)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
-                            .background(Forest._900.opacity(0.5))
+                            .background(VColor.borderActive.opacity(0.5))
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                         }
                     }
 
                     Text(item.dateLabel)
                         .font(VFont.small)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
                 .padding(VSpacing.md)
             }
-            .background(isHovered ? VColor.ghostHover : VColor.surface)
+            .background(isHovered ? VColor.surfaceBase : VColor.surfaceBase)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    .stroke(VColor.borderBase, lineWidth: 1)
             )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
+        .shadow(color: VColor.auxBlack.opacity(0.06), radius: 4, y: 2)
         .overlay(alignment: .topTrailing) {
             if isHovered, let localId = item.localAppId, onPinApp != nil {
                 Button {
                     onPinApp?(localId, item.name, item.icon, item.appType)
                 } label: {
                     VIconView(.pin, size: 11)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                         .rotationEffect(.degrees(-45))
                         .frame(width: 28, height: 28)
-                        .background(VColor.surface.opacity(0.9))
+                        .background(VColor.surfaceBase.opacity(0.9))
                         .clipShape(Circle())
-                        .overlay(Circle().stroke(VColor.surfaceBorder, lineWidth: 1))
+                        .overlay(Circle().stroke(VColor.borderBase, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
                 .padding(VSpacing.sm)
@@ -261,65 +264,44 @@ struct AppDirectoryView: View {
     // MARK: - Data Fetching
 
     private func fetchApps() {
+        fetchAppsTask?.cancel()
+
         isLoading = true
-        pendingResponses = 2
+        fetchAppsGeneration += 1
+        let generation = fetchAppsGeneration
 
-        Task { @MainActor in
-            // Save the previous onError handler so we can restore it once our
-            // requests complete, avoiding swallowing unrelated daemon errors.
-            let previousOnError = daemonClient.onError
-
-            daemonClient.onAppsListResponse = { response in
-                self.localApps = response.apps
-                self.pendingResponses -= 1
-                if self.pendingResponses <= 0 {
-                    daemonClient.onError = previousOnError
-                    self.buildDisplayItems()
-                    self.isLoading = false
+        let task = Task { @MainActor in
+            defer {
+                if fetchAppsGeneration == generation {
+                    fetchAppsTask = nil
                 }
             }
 
-            daemonClient.onSharedAppsListResponse = { response in
-                self.sharedApps = response.apps
-                self.pendingResponses -= 1
-                if self.pendingResponses <= 0 {
-                    daemonClient.onError = previousOnError
-                    self.buildDisplayItems()
-                    self.isLoading = false
+            async let localResult: [AppItem] = {
+                do {
+                    return try await AppsLoader.load(using: daemonClient)
+                } catch {
+                    return []
                 }
-            }
+            }()
 
-            daemonClient.onError = { error in
-                if self.isLoading {
-                    self.pendingResponses -= 1
-                    if self.pendingResponses <= 0 {
-                        daemonClient.onError = previousOnError
-                        self.buildDisplayItems()
-                        self.isLoading = false
-                    }
-                } else {
-                    previousOnError?(error)
+            async let sharedResult: [SharedAppItem] = {
+                do {
+                    return try await SharedAppsLoader.load(using: daemonClient)
+                } catch {
+                    return []
                 }
-            }
+            }()
 
-            do {
-                try daemonClient.sendAppsList()
-            } catch {
-                pendingResponses -= 1
-            }
+            let (fetchedLocal, fetchedShared) = await (localResult, sharedResult)
+            guard fetchAppsGeneration == generation else { return }
 
-            do {
-                try daemonClient.sendSharedAppsList()
-            } catch {
-                pendingResponses -= 1
-            }
-
-            if pendingResponses <= 0 {
-                daemonClient.onError = previousOnError
-                buildDisplayItems()
-                isLoading = false
-            }
+            localApps = fetchedLocal
+            sharedApps = fetchedShared
+            buildDisplayItems()
+            isLoading = false
         }
+        fetchAppsTask = task
     }
 
     /// Fetch preview for a local app when its card appears on screen.
@@ -470,13 +452,3 @@ private struct DirectoryAppItem: Identifiable {
     let sharedUUID: String?
 }
 
-struct AppDirectoryView_Previews: PreviewProvider {
-    static var previews: some View {
-        AppDirectoryView(
-            daemonClient: DaemonClient(),
-            onBack: {},
-            onOpenApp: { _ in }
-        )
-        .frame(width: 900, height: 600)
-    }
-}

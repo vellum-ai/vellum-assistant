@@ -26,7 +26,7 @@ public struct ApprovalStatusRow: View {
 
             Text(label)
                 .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
 
             Spacer()
         }
@@ -37,13 +37,13 @@ public struct ApprovalStatusRow: View {
         switch outcome {
         case .approved:
             VIconView(.circleCheck, size: 12)
-                .foregroundColor(VColor.success)
+                .foregroundColor(VColor.systemPositiveStrong)
         case .denied:
             VIconView(.circleX, size: 12)
-                .foregroundColor(VColor.error)
+                .foregroundColor(VColor.systemNegativeStrong)
         case .stale, .timedOut:
             VIconView(.clock, size: 12)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
         }
     }
 }

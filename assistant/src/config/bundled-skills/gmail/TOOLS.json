@@ -42,6 +42,10 @@
           "reason": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the Gmail account to use. Required when multiple Gmail accounts are connected. If omitted, uses the most recently connected account."
           }
         },
         "required": ["confidence"]
@@ -89,6 +93,10 @@
           "reason": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the Gmail account to use. Required when multiple Gmail accounts are connected. If omitted, uses the most recently connected account."
           }
         },
         "required": ["confidence"]
@@ -115,6 +123,10 @@
           "reason": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the Gmail account to use. Required when multiple Gmail accounts are connected. If omitted, uses the most recently connected account."
           }
         },
         "required": ["message_id", "confidence"]
@@ -141,6 +153,10 @@
           "reason": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the Gmail account to use. Required when multiple Gmail accounts are connected. If omitted, uses the most recently connected account."
           }
         },
         "required": ["message_id", "confidence"]
@@ -183,6 +199,10 @@
           "reason": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the Gmail account to use. Required when multiple Gmail accounts are connected. If omitted, uses the most recently connected account."
           }
         },
         "required": ["to", "subject", "body"]
@@ -209,6 +229,10 @@
           "reason": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the Gmail account to use. Required when multiple Gmail accounts are connected. If omitted, uses the most recently connected account."
           }
         },
         "required": ["draft_id", "confidence"]
@@ -244,6 +268,10 @@
           "reason": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the Gmail account to use. Required when multiple Gmail accounts are connected. If omitted, uses the most recently connected account."
           }
         },
         "required": ["action", "message_id"]
@@ -278,6 +306,10 @@
           "reason": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the Gmail account to use. Required when multiple Gmail accounts are connected. If omitted, uses the most recently connected account."
           }
         },
         "required": ["message_id", "to", "confidence"]
@@ -309,6 +341,10 @@
           "reason": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the Gmail account to use. Required when multiple Gmail accounts are connected. If omitted, uses the most recently connected account."
           }
         },
         "required": ["action", "confidence"]
@@ -378,6 +414,10 @@
           "reason": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the Gmail account to use. Required when multiple Gmail accounts are connected. If omitted, uses the most recently connected account."
           }
         },
         "required": ["action", "confidence"]
@@ -429,6 +469,10 @@
           "reason": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the Gmail account to use. Required when multiple Gmail accounts are connected. If omitted, uses the most recently connected account."
           }
         },
         "required": ["action", "confidence"]
@@ -463,6 +507,10 @@
           "reason": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the Gmail account to use. Required when multiple Gmail accounts are connected. If omitted, uses the most recently connected account."
           }
         }
       },
@@ -496,6 +544,10 @@
           "reason": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the Gmail account to use. Required when multiple Gmail accounts are connected. If omitted, uses the most recently connected account."
           }
         }
       },

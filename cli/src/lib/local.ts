@@ -207,7 +207,25 @@ async function startDaemonFromSource(
   // --- Lifecycle guard: prevent split-brain daemon state ---
   if (existsSync(pidFile)) {
     try {
-      const pid = parseInt(readFileSync(pidFile, "utf-8").trim(), 10);
+      const content = readFileSync(pidFile, "utf-8").trim();
+
+      // Another caller is already spawning the daemon — wait for it
+      // instead of racing to spawn a duplicate.
+      if (content === "starting") {
+        console.log(
+          "   Assistant is starting — waiting for it to become ready...",
+        );
+        if (await waitForDaemonReady(resources.daemonPort, 60000)) {
+          console.log("   Assistant is ready\n");
+          return;
+        }
+        // The other spawn may have failed; clean up and proceed to spawn.
+        try {
+          unlinkSync(pidFile);
+        } catch {}
+      }
+
+      const pid = parseInt(content, 10);
       if (!isNaN(pid)) {
         try {
           process.kill(pid, 0);
@@ -249,6 +267,10 @@ async function startDaemonFromSource(
     delete env.QDRANT_URL;
   }
 
+  // Write a sentinel PID file before spawning so concurrent hatch() calls
+  // detect the in-progress spawn and wait instead of racing.
+  writeFileSync(pidFile, "starting", "utf-8");
+
   const daemonLogFd = openLogFile("hatch.log");
   const child = spawn("bun", ["run", daemonMainPath], {
     detached: true,
@@ -260,6 +282,10 @@ async function startDaemonFromSource(
 
   if (child.pid) {
     writeFileSync(pidFile, String(child.pid), "utf-8");
+  } else {
+    try {
+      unlinkSync(pidFile);
+    } catch {}
   }
 }
 
@@ -284,7 +310,25 @@ async function startDaemonWatchFromSource(
   // If a daemon is already running, skip spawning a new one.
   if (existsSync(pidFile)) {
     try {
-      const pid = parseInt(readFileSync(pidFile, "utf-8").trim(), 10);
+      const content = readFileSync(pidFile, "utf-8").trim();
+
+      // Another caller is already spawning the daemon — wait for it
+      // instead of racing to spawn a duplicate.
+      if (content === "starting") {
+        console.log(
+          "   Assistant is starting — waiting for it to become ready...",
+        );
+        if (await waitForDaemonReady(resources.daemonPort, 60000)) {
+          console.log("   Assistant is ready\n");
+          return;
+        }
+        // The other spawn may have failed; clean up and proceed to spawn.
+        try {
+          unlinkSync(pidFile);
+        } catch {}
+      }
+
+      const pid = parseInt(content, 10);
       if (!isNaN(pid)) {
         try {
           process.kill(pid, 0); // Check if alive
@@ -328,6 +372,10 @@ async function startDaemonWatchFromSource(
     delete env.QDRANT_URL;
   }
 
+  // Write a sentinel PID file before spawning so concurrent hatch() calls
+  // detect the in-progress spawn and wait instead of racing.
+  writeFileSync(pidFile, "starting", "utf-8");
+
   const daemonLogFd = openLogFile("hatch.log");
   const child = spawn("bun", ["--watch", "run", mainPath], {
     detached: true,
@@ -338,8 +386,13 @@ async function startDaemonWatchFromSource(
   child.unref();
   const daemonPid = child.pid;
 
+  // Overwrite sentinel with real PID, or clean up on spawn failure.
   if (daemonPid) {
     writeFileSync(pidFile, String(daemonPid), "utf-8");
+  } else {
+    try {
+      unlinkSync(pidFile);
+    } catch {}
   }
 
   console.log("   Assistant started in watch mode (bun --watch)");
@@ -528,46 +581,77 @@ export async function discoverPublicUrl(
 ): Promise<string | undefined> {
   const effectivePort = port ?? GATEWAY_PORT;
 
-  // Discover local and cloud addresses in parallel so the cloud metadata
-  // timeout (1s) doesn't block startup when a local address is immediately
-  // available.
+  // Start cloud metadata lookup (may take up to 1s on non-cloud hosts).
   const cloudIpPromise = discoverCloudExternalIp();
 
-  // Resolve local address synchronously (no I/O).
-  const localUrl = discoverLocalUrl(effectivePort);
+  // Resolve local address synchronously (no I/O) — does not log.
+  const localResult = discoverLocalUrl(effectivePort);
 
-  const cloudIp = await cloudIpPromise;
+  // Race: if cloud IP resolves quickly, prefer it; otherwise return the
+  // local URL immediately instead of blocking on the full metadata timeout.
+  const cloudIp = await Promise.race([
+    cloudIpPromise,
+    // Give cloud metadata a short grace period (150ms) before falling back
+    // to the local address. This is enough for on-cloud hosts where the
+    // metadata endpoint responds in single-digit ms, but avoids the full
+    // 1s timeout on non-cloud machines.
+    new Promise<undefined>((resolve) =>
+      setTimeout(() => resolve(undefined), 150),
+    ),
+  ]);
+
   if (cloudIp) {
     console.log(`   Discovered external IP: ${cloudIp}`);
     return `http://${cloudIp}:${effectivePort}`;
   }
 
-  return localUrl;
+  // Log the local address source only when we actually use it.
+  if (localResult.source === "hostname") {
+    console.log(`   Discovered macOS local hostname: ${localResult.label}`);
+  } else if (localResult.source === "lan") {
+    console.log(`   Discovered LAN IP: ${localResult.label}`);
+  }
+
+  return localResult.url;
 }
 
 /**
  * Resolve a LAN-reachable URL without any async I/O. Returns the best local
- * address or falls back to localhost.
+ * address or falls back to localhost. Does not emit any logs — the caller
+ * decides whether to log based on which result is actually used.
  */
-function discoverLocalUrl(effectivePort: number): string {
+function discoverLocalUrl(effectivePort: number): {
+  url: string;
+  source: "hostname" | "lan" | "localhost";
+  label?: string;
+} {
   // On macOS, prefer the .local hostname (Bonjour/mDNS) so other devices on
   // the same network can reach the gateway by name.
   if (platform() === "darwin") {
     const localHostname = getMacLocalHostname();
     if (localHostname) {
-      console.log(`   Discovered macOS local hostname: ${localHostname}`);
-      return `http://${localHostname}:${effectivePort}`;
+      return {
+        url: `http://${localHostname}:${effectivePort}`,
+        source: "hostname",
+        label: localHostname,
+      };
     }
   }
 
   const lanIp = getLocalLanIPv4();
   if (lanIp) {
-    console.log(`   Discovered LAN IP: ${lanIp}`);
-    return `http://${lanIp}:${effectivePort}`;
+    return {
+      url: `http://${lanIp}:${effectivePort}`,
+      source: "lan",
+      label: lanIp,
+    };
   }
 
   // Final fallback to localhost when no LAN address could be discovered.
-  return `http://localhost:${effectivePort}`;
+  return {
+    url: `http://localhost:${effectivePort}`,
+    source: "localhost",
+  };
 }
 
 /**
@@ -684,6 +768,20 @@ export function getLocalLanIPv4(): string | undefined {
   return undefined;
 }
 
+/**
+ * Check whether watch-mode startup is possible. Watch mode requires source
+ * files (bun --watch only works with .ts sources, not compiled binaries).
+ * Returns true when assistant source can be resolved, false otherwise.
+ *
+ * Use this before stopping a running assistant for a watch-mode restart — if
+ * watch mode isn't available (e.g. packaged desktop app without source), the
+ * caller should keep the existing process alive rather than killing it and
+ * failing.
+ */
+export function isWatchModeAvailable(): boolean {
+  return resolveAssistantIndexPath() !== undefined;
+}
+
 // NOTE: startLocalDaemon() is the CLI-side daemon lifecycle manager.
 // It should eventually converge with
 // assistant/src/daemon/daemon-control.ts::startDaemon which is the
@@ -692,18 +790,14 @@ export async function startLocalDaemon(
   watch: boolean = false,
   resources: LocalInstanceResources,
 ): Promise<void> {
-  if (process.env.VELLUM_DESKTOP_APP && !watch) {
-    // When running inside the desktop app, the CLI owns the daemon lifecycle.
-    // Find the vellum-daemon binary adjacent to the CLI binary.
+  // Check for a compiled daemon binary adjacent to the CLI executable.
+  // This covers both the desktop app (VELLUM_DESKTOP_APP) and the case where
+  // the user runs the compiled CLI directly from the terminal (e.g. via a
+  // /usr/local/bin/vellum symlink into the app bundle).
+  const daemonBinary = join(dirname(process.execPath), "vellum-daemon");
+  if (existsSync(daemonBinary) && !watch) {
     // In watch mode, skip the bundled binary and use source (bun --watch
     // only works with source files, not compiled binaries).
-    const daemonBinary = join(dirname(process.execPath), "vellum-daemon");
-    if (!existsSync(daemonBinary)) {
-      throw new Error(
-        `vellum-daemon binary not found at ${daemonBinary}.\n` +
-          "  Ensure the daemon binary is bundled alongside the CLI in the app bundle.",
-      );
-    }
 
     const pidFile = resources.pidFile;
 
@@ -713,7 +807,26 @@ export async function startLocalDaemon(
     let daemonAlive = false;
     if (existsSync(pidFile)) {
       try {
-        const pid = parseInt(readFileSync(pidFile, "utf-8").trim(), 10);
+        const content = readFileSync(pidFile, "utf-8").trim();
+
+        // Another caller is already spawning the daemon — wait for it
+        // instead of racing to spawn a duplicate.
+        if (content === "starting") {
+          console.log(
+            "   Assistant is starting — waiting for it to become ready...",
+          );
+          if (await waitForDaemonReady(resources.daemonPort, 60000)) {
+            console.log("   Assistant is ready\n");
+            ensureBunInstalled();
+            return;
+          }
+          // The other spawn may have failed; clean up and proceed to spawn.
+          try {
+            unlinkSync(pidFile);
+          } catch {}
+        }
+
+        const pid = parseInt(content, 10);
         if (!isNaN(pid)) {
           try {
             process.kill(pid, 0); // Check if alive
@@ -762,17 +875,24 @@ export async function startLocalDaemon(
       // macOS app the CLI inherits a huge environment (XPC_SERVICE_NAME,
       // __CFBundleIdentifier, CLAUDE_CODE_ENTRYPOINT, etc.) that can cause
       // the daemon to take 50+ seconds to start instead of ~1s.
-      const bunBinDir = join(homedir(), ".bun", "bin");
+      const home = homedir();
+      const bunBinDir = join(home, ".bun", "bin");
+      const localBinDir = join(home, ".local", "bin");
       const basePath =
         process.env.PATH || "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+      const extraDirs = [bunBinDir, localBinDir].filter(
+        (d) => !basePath.split(":").includes(d),
+      );
       const daemonEnv: Record<string, string> = {
-        HOME: process.env.HOME || homedir(),
-        PATH: `${bunBinDir}:${basePath}`,
+        HOME: process.env.HOME || home,
+        PATH: [...extraDirs, basePath].filter(Boolean).join(":"),
       };
       // Forward optional config env vars the daemon may need
       for (const key of [
         "ANTHROPIC_API_KEY",
+        "APP_VERSION",
         "BASE_DATA_DIR",
+        "PLATFORM_BASE_URL",
         "QDRANT_HTTP_PORT",
         "QDRANT_URL",
         "RUNTIME_HTTP_PORT",
@@ -795,6 +915,11 @@ export async function startLocalDaemon(
         delete daemonEnv.QDRANT_URL;
       }
 
+      // Write a sentinel PID file before spawning so concurrent hatch() calls
+      // see the file and fall through to the isDaemonResponsive() port check
+      // instead of racing to spawn a duplicate daemon.
+      writeFileSync(pidFile, "starting", "utf-8");
+
       const daemonLogFd = openLogFile("hatch.log");
       const child = spawn(daemonBinary, [], {
         cwd: dirname(daemonBinary),
@@ -806,10 +931,13 @@ export async function startLocalDaemon(
       child.unref();
       const daemonPid = child.pid;
 
-      // Write PID file immediately so the health monitor can find the process
-      // and concurrent hatch() calls see it as alive.
+      // Overwrite sentinel with real PID, or clean up on spawn failure.
       if (daemonPid) {
         writeFileSync(pidFile, String(daemonPid), "utf-8");
+      } else {
+        try {
+          unlinkSync(pidFile);
+        } catch {}
       }
     }
 
@@ -943,18 +1071,11 @@ export async function startGateway(
 
   let gateway;
 
-  if (process.env.VELLUM_DESKTOP_APP && !watch) {
-    // Desktop app: spawn the compiled gateway binary directly (mirrors daemon pattern).
-    // In watch mode, skip the bundled binary and use source (bun --watch
-    // only works with source files, not compiled binaries).
-    const gatewayBinary = join(dirname(process.execPath), "vellum-gateway");
-    if (!existsSync(gatewayBinary)) {
-      throw new Error(
-        `vellum-gateway binary not found at ${gatewayBinary}.\n` +
-          "  Ensure the gateway binary is bundled alongside the CLI in the app bundle.",
-      );
-    }
-
+  const gatewayBinary = join(dirname(process.execPath), "vellum-gateway");
+  if (existsSync(gatewayBinary) && !watch) {
+    // Use the compiled gateway binary when available (desktop app or compiled
+    // CLI invoked from the terminal). In watch mode, skip the bundled binary
+    // and use source (bun --watch only works with source files).
     const gatewayLogFd = openLogFile("hatch.log");
     gateway = spawn(gatewayBinary, [], {
       detached: true,

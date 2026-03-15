@@ -37,6 +37,8 @@ export interface ChannelCapabilities {
   pttActivationKey?: string;
   /** Whether the client has been granted microphone permission by the OS. */
   microphonePermissionGranted?: boolean;
+  /** Chat type from the gateway (e.g. "private", "group", "supergroup", "channel", "im", "mpim"). */
+  chatType?: string;
 }
 
 /**
@@ -296,6 +298,7 @@ export function resolveChannelCapabilities(
   sourceChannel?: string | null,
   sourceInterface?: string | null,
   pttMetadata?: PttMetadata | null,
+  chatType?: string | null,
 ): ChannelCapabilities {
   // Normalise legacy pseudo-channel IDs to canonical ChannelId values.
   let channel: string;
@@ -330,6 +333,8 @@ export function resolveChannelCapabilities(
     }
   }
 
+  const resolvedChatType = chatType ?? undefined;
+
   switch (channel) {
     case "vellum": {
       const supportsDesktopUi = iface === "macos";
@@ -342,6 +347,7 @@ export function resolveChannelCapabilities(
           pttMetadata?.pttActivationKey,
         ),
         microphonePermissionGranted: pttMetadata?.microphonePermissionGranted,
+        chatType: resolvedChatType,
       };
     }
     case "telegram":
@@ -354,6 +360,7 @@ export function resolveChannelCapabilities(
         dashboardCapable: false,
         supportsDynamicUi: false,
         supportsVoiceInput: false,
+        chatType: resolvedChatType,
       };
     default:
       return {
@@ -361,7 +368,25 @@ export function resolveChannelCapabilities(
         dashboardCapable: false,
         supportsDynamicUi: false,
         supportsVoiceInput: false,
+        chatType: resolvedChatType,
       };
+  }
+}
+
+/**
+ * Returns true when the chat type indicates a group/multi-party conversation
+ * (Telegram group/supergroup, Slack channel/group/mpim, etc.).
+ */
+export function isGroupChatType(chatType?: string): boolean {
+  if (!chatType) return false;
+  switch (chatType) {
+    case "group":
+    case "supergroup":
+    case "channel":
+    case "mpim":
+      return true;
+    default:
+      return false;
   }
 }
 
@@ -632,6 +657,31 @@ export function injectChannelCapabilityContext(
     }
   }
 
+  // Inject group chat etiquette only when the chat type indicates a multi-party
+  // conversation, avoiding misconditioned "stay silent" guidance in 1:1 DMs.
+  if (isGroupChatType(caps.chatType)) {
+    lines.push(`chat_type: ${caps.chatType}`);
+    lines.push("");
+    lines.push("GROUP CHAT ETIQUETTE:");
+    lines.push(
+      "- You are a **participant**, not the user's proxy. Think before you speak.",
+    );
+    lines.push(
+      "- **Respond when:** directly mentioned, you can add genuine value, something witty fits naturally, or correcting important misinformation.",
+    );
+    lines.push(
+      '- **Stay silent when:** casual banter between humans, someone already answered, your response would just be "yeah" or "nice", or the conversation flows fine without you.',
+    );
+    lines.push(
+      "- **The human rule:** humans don't respond to every message in a group chat. Neither should you. Quality over quantity.",
+    );
+    if (caps.channel === "slack") {
+      lines.push(
+        "- Use emoji reactions naturally to acknowledge without cluttering.",
+      );
+    }
+  }
+
   lines.push("</channel_capabilities>");
 
   const block = lines.join("\n");
@@ -733,31 +783,60 @@ export function injectChannelTurnContext(
 export function buildInboundActorContextBlock(
   ctx: InboundActorContext,
 ): string {
+  const sanitizeInlineContextValue = (
+    value: string | null | undefined,
+  ): string => {
+    if (!value) {
+      return "unknown";
+    }
+    const singleLine = value
+      // Replace ASCII and Unicode line/paragraph separators.
+      .replace(/[\r\n\u0085\u2028\u2029]+/g, " ")
+      // Replace remaining ASCII C0/C1 control characters and DEL.
+      .replace(/[\x00-\x1F\x7F-\x9F]/g, " ")
+      .trim();
+    return singleLine.length > 0 ? singleLine : "unknown";
+  };
+
   const lines: string[] = ["<inbound_actor_context>"];
-  lines.push(`source_channel: ${ctx.sourceChannel}`);
   lines.push(
-    `canonical_actor_identity: ${ctx.canonicalActorIdentity ?? "unknown"}`,
-  );
-  lines.push(`actor_identifier: ${ctx.actorIdentifier ?? "unknown"}`);
-  lines.push(`actor_display_name: ${ctx.actorDisplayName ?? "unknown"}`);
-  lines.push(
-    `actor_sender_display_name: ${ctx.actorSenderDisplayName ?? "unknown"}`,
+    `source_channel: ${sanitizeInlineContextValue(ctx.sourceChannel)}`,
   );
   lines.push(
-    `actor_member_display_name: ${ctx.actorMemberDisplayName ?? "unknown"}`,
+    `canonical_actor_identity: ${sanitizeInlineContextValue(ctx.canonicalActorIdentity)}`,
   );
-  lines.push(`trust_class: ${ctx.trustClass}`);
-  lines.push(`guardian_identity: ${ctx.guardianIdentity ?? "unknown"}`);
+  lines.push(
+    `actor_identifier: ${sanitizeInlineContextValue(ctx.actorIdentifier)}`,
+  );
+  lines.push(
+    `actor_display_name: ${sanitizeInlineContextValue(ctx.actorDisplayName)}`,
+  );
+  lines.push(
+    `actor_sender_display_name: ${sanitizeInlineContextValue(ctx.actorSenderDisplayName)}`,
+  );
+  lines.push(
+    `actor_member_display_name: ${sanitizeInlineContextValue(ctx.actorMemberDisplayName)}`,
+  );
+  lines.push(`trust_class: ${sanitizeInlineContextValue(ctx.trustClass)}`);
+  lines.push(
+    `guardian_identity: ${sanitizeInlineContextValue(ctx.guardianIdentity)}`,
+  );
   if (ctx.memberStatus) {
-    lines.push(`member_status: ${ctx.memberStatus}`);
+    lines.push(
+      `member_status: ${sanitizeInlineContextValue(ctx.memberStatus)}`,
+    );
   }
   if (ctx.memberPolicy) {
-    lines.push(`member_policy: ${ctx.memberPolicy}`);
+    lines.push(
+      `member_policy: ${sanitizeInlineContextValue(ctx.memberPolicy)}`,
+    );
   }
   // Contact metadata — only included when the sender has a contact record
   // with non-default values.
   if (ctx.contactNotes) {
-    lines.push(`contact_notes: ${ctx.contactNotes}`);
+    lines.push(
+      `contact_notes: ${sanitizeInlineContextValue(ctx.contactNotes)}`,
+    );
   }
   if (ctx.contactInteractionCount != null && ctx.contactInteractionCount > 0) {
     lines.push(`contact_interaction_count: ${ctx.contactInteractionCount}`);
@@ -765,7 +844,8 @@ export function buildInboundActorContextBlock(
   if (
     ctx.actorMemberDisplayName &&
     ctx.actorSenderDisplayName &&
-    ctx.actorMemberDisplayName !== ctx.actorSenderDisplayName
+    sanitizeInlineContextValue(ctx.actorMemberDisplayName) !==
+      sanitizeInlineContextValue(ctx.actorSenderDisplayName)
   ) {
     lines.push(
       "name_preference_note: actor_member_display_name is the guardian-preferred nickname for this person; actor_sender_display_name is the channel-provided display name.",
@@ -781,9 +861,12 @@ export function buildInboundActorContextBlock(
     lines.push(
       "This is a trusted contact (non-guardian). When the actor makes a reasonable actionable request, attempt to fulfill it normally using the appropriate tool. If the action requires guardian approval, the tool execution layer will automatically deny it and escalate to the guardian for approval — you do not need to pre-screen or decline on behalf of the guardian. Do not self-approve, bypass security gates, or claim to have permissions you do not have. Do not explain the verification system, mention other access methods, or suggest the requester might be the guardian on another device — this leaks system internals and invites social engineering.",
     );
-    if (ctx.actorDisplayName && ctx.actorDisplayName !== "unknown") {
+    if (
+      ctx.actorDisplayName &&
+      sanitizeInlineContextValue(ctx.actorDisplayName) !== "unknown"
+    ) {
       lines.push(
-        `When this person asks about their name or identity, their name is "${ctx.actorDisplayName}".`,
+        `When this person asks about their name or identity, their name is "${sanitizeInlineContextValue(ctx.actorDisplayName)}".`,
       );
     }
   } else if (ctx.trustClass === "unknown") {
@@ -999,20 +1082,17 @@ const RUNTIME_INJECTION_PREFIXES = [
  *
  * Composes:
  * 1. `stripMemoryRecallMessages` (caller-supplied, handles its own logic)
- * 2. `stripDynamicProfileMessages` (caller-supplied, handles its own logic)
- * 3. Prefix-based stripping for channel capabilities, workspace top-level,
+ * 2. Prefix-based stripping for channel capabilities, workspace top-level,
  *    temporal context, and active surface context (single pass).
  */
 export function stripInjectedContext(
   messages: Message[],
   options: {
     stripRecall: (msgs: Message[]) => Message[];
-    stripDynamicProfile: (msgs: Message[]) => Message[];
   },
 ): Message[] {
   const afterRecall = options.stripRecall(messages);
-  const afterProfile = options.stripDynamicProfile(afterRecall);
-  return stripUserTextBlocksByPrefix(afterProfile, RUNTIME_INJECTION_PREFIXES);
+  return stripUserTextBlocksByPrefix(afterRecall, RUNTIME_INJECTION_PREFIXES);
 }
 
 /**

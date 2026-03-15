@@ -26,7 +26,7 @@ extension AppDelegate {
         }
     }
 
-    func showAuthWindow() {
+    func showAuthWindow(reusingWindow existingWindow: NSWindow? = nil) {
         if let existing = authWindow {
             existing.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -48,29 +48,51 @@ extension AppDelegate {
         )
 
         let hostingController = NSHostingController(rootView: authView)
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 620),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentViewController = hostingController
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.isMovableByWindowBackground = true
-        window.backgroundColor = NSColor(VColor.background)
-        window.isReleasedWhenClosed = false
-        window.contentMinSize = NSSize(width: 420, height: 580)
 
-        let startWidth: CGFloat = 460
-        let startHeight: CGFloat = 620
-        if let visibleFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame {
-            let x = visibleFrame.midX - startWidth / 2
-            let y = visibleFrame.midY - startHeight / 2
-            window.setFrame(NSRect(x: x, y: y, width: startWidth, height: startHeight), display: true)
+        let window: NSWindow
+        if let existingWindow {
+            window = existingWindow
+            window.contentViewController = hostingController
+            window.isMovableByWindowBackground = true
+            window.backgroundColor = NSColor(VColor.surfaceOverlay)
+            window.contentMinSize = NSSize(width: 420, height: 580)
+            window.setFrameAutosaveName("")
+
+            let targetWidth: CGFloat = 460
+            let targetHeight: CGFloat = 620
+            let currentFrame = window.frame
+            let newFrame = NSRect(
+                x: currentFrame.midX - targetWidth / 2,
+                y: currentFrame.midY - targetHeight / 2,
+                width: targetWidth,
+                height: targetHeight
+            )
+            window.setFrame(newFrame, display: true, animate: true)
         } else {
-            window.setContentSize(NSSize(width: startWidth, height: startHeight))
-            window.center()
+            window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 460, height: 620),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                backing: .buffered,
+                defer: false
+            )
+            window.contentViewController = hostingController
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.isMovableByWindowBackground = true
+            window.backgroundColor = NSColor(VColor.surfaceOverlay)
+            window.isReleasedWhenClosed = false
+            window.contentMinSize = NSSize(width: 420, height: 580)
+
+            let startWidth: CGFloat = 460
+            let startHeight: CGFloat = 620
+            if let visibleFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame {
+                let x = visibleFrame.midX - startWidth / 2
+                let y = visibleFrame.midY - startHeight / 2
+                window.setFrame(NSRect(x: x, y: y, width: startWidth, height: startHeight), display: true)
+            } else {
+                window.setContentSize(NSSize(width: startWidth, height: startHeight))
+                window.center()
+            }
         }
 
         NSApp.activateAsDockAppIfNeeded()
@@ -111,11 +133,31 @@ extension AppDelegate {
         }
     }
 
-    @objc func performLogout() {
+    @objc public func performLogout() {
         Task {
+            // Capture assistant ID before logout clears it from UserDefaults
+            let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+
             await authManager.logout()
 
-            mainWindow?.close()
+            // Clear managed proxy credentials from the running daemon
+            if let token = ActorTokenManager.getToken(), !token.isEmpty {
+                let assistantId = connectedAssistantId ?? ""
+                let port = LockfileAssistant.loadByName(assistantId)?.daemonPort ?? 7821
+                let daemonBaseURL = "http://localhost:\(port)"
+                await LocalAssistantBootstrapService.clearDaemonCredentials(
+                    daemonBaseURL: daemonBaseURL,
+                    daemonToken: token
+                )
+            }
+
+            // Clear the locally-cached credential from Keychain
+            if let assistantId = connectedAssistantId {
+                let credentialAccount = LocalAssistantBootstrapService.credentialAccount(for: assistantId)
+                _ = KeychainCredentialStorage().delete(account: credentialAccount)
+            }
+
+            let detachedWindow = mainWindow?.detachWindow()
             mainWindow = nil
             conversationBadgeCancellable?.cancel()
             conversationBadgeCancellable = nil
@@ -167,7 +209,7 @@ extension AppDelegate {
 
             hasSetupApp = false
             hasSetupDaemon = false
-            showAuthWindow()
+            showAuthWindow(reusingWindow: detachedWindow)
         }
     }
 
@@ -182,7 +224,7 @@ extension AppDelegate {
     /// and stale-key reprovisioning are handled (not just Keychain presence).
     ///
     /// Waits up to 60s for the actor token to become available, retrying every
-    /// 5s, so that assistant switches (which clear then re-bootstrap actor
+    /// 10s, so that assistant switches (which clear then re-bootstrap actor
     /// credentials) don't race with this method.
     func ensureLocalAssistantApiKey() {
         guard !isCurrentAssistantManaged, !isCurrentAssistantRemote else {
@@ -194,49 +236,35 @@ extension AppDelegate {
             return
         }
 
-        let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        guard let assistantId = storedId,
-              let assistant = LockfileAssistant.loadByName(assistantId) else {
-            log.warning("Skipping local assistant API key provisioning because connectedAssistantId is missing from lockfile")
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"), !assistantId.isEmpty else {
+            log.warning("Skipping local assistant API key provisioning because connectedAssistantId is not set")
             return
         }
 
-        // Resolve daemon HTTP endpoint from lockfile, with env override and fallback
-        let daemonPort = assistant.daemonPort
-            ?? Int(ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "")
-            ?? 7821
-        let daemonBaseURL = "http://localhost:\(daemonPort)"
-        log.info("Starting local assistant API key provisioning for \(assistant.assistantId, privacy: .public) at \(daemonBaseURL, privacy: .public)")
+        log.info("Starting local assistant API key provisioning for \(assistantId, privacy: .public)")
 
         Task {
-            // Wait for actor token with retries — initial bootstrap may take
-            // longer than a single waitForToken timeout when the daemon is
-            // still coming up or credentials are being rotated after a switch.
-            let daemonToken: String
-            if let token = ActorTokenManager.getToken(), !token.isEmpty {
-                daemonToken = token
-            } else {
+            // Wait for the actor token — GatewayHTTPClient requires it for
+            // auth and will throw immediately if it's not available yet.
+            if ActorTokenManager.getToken()?.isEmpty != false {
                 var token: String?
                 for attempt in 1...6 {
                     token = await ActorTokenManager.waitForToken(timeout: 10)
                     if token != nil { break }
                     log.info("Actor token not yet available (attempt \(attempt)/6), retrying...")
                 }
-                guard let resolved = token else {
+                guard token != nil else {
                     log.warning("No actor token available for local API key provisioning after 60s")
                     return
                 }
-                daemonToken = resolved
             }
 
             do {
                 let credentialStorage = KeychainCredentialStorage()
                 let bootstrapService = LocalAssistantBootstrapService(credentialStorage: credentialStorage)
                 let outcome = try await bootstrapService.bootstrap(
-                    runtimeAssistantId: assistant.assistantId,
-                    clientPlatform: "macos",
-                    daemonBaseURL: daemonBaseURL,
-                    daemonToken: daemonToken
+                    runtimeAssistantId: assistantId,
+                    clientPlatform: "macos"
                 )
                 switch outcome {
                 case .registeredWithExistingKey(let id):
@@ -272,10 +300,6 @@ extension AppDelegate {
         // Close and recreate the main window to reset thread/session state
         mainWindow?.close()
         mainWindow = nil
-
-        // Cancel any in-progress bootstrap tasks from the previous assistant
-        bootstrapRetryTask?.cancel()
-        bootstrapRetryTask = nil
 
         // 3. Persist the new assistant selection
         UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")
@@ -391,10 +415,11 @@ extension AppDelegate {
                 self.removeLockfileEntry(assistantId: name)
             }
 
-            // Stop processes after retire succeeds (or user chose Force Remove).
-            // This keeps the daemon alive if the user cancels a failed retire.
+            // Disconnect the client from the (now-dead) daemon.
+            // The retire CLI already stopped the daemon process; an
+            // additional assistantCli.stop() here would block the main
+            // thread and always fail because the process is already gone.
             daemonClient.disconnect()
-            assistantCli.stop()
         } else {
             assistantCli.stop()
         }
@@ -438,14 +463,7 @@ extension AppDelegate {
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
         UserDefaults.standard.removeObject(forKey: "lastActivePanel")
 
-        // Kill the daemon process so ensureDaemonRunning() actually spawns
-        // a fresh instance during re-onboarding (equivalent to `vellum sleep`).
         daemonClient.disconnect()
-        assistantCli.stop()
-        // Cancel any in-progress bootstrap retry so it doesn't race with the
-        // new onboarding flow.
-        bootstrapRetryTask?.cancel()
-        bootstrapRetryTask = nil
         actorTokenBootstrapTask?.cancel()
         actorTokenBootstrapTask = nil
         ActorTokenManager.deleteToken()

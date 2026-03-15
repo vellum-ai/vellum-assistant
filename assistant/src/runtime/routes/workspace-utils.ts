@@ -7,10 +7,16 @@ import { getWorkspaceDir } from "../../util/platform.js";
  * Resolves a user-provided relative path to an absolute path within the workspace.
  * Returns the resolved absolute path, or undefined if the path escapes the workspace root.
  */
-export function resolveWorkspacePath(relativePath: string): string | undefined {
+export function resolveWorkspacePath(
+  relativePath: string,
+  options?: { allowHidden?: boolean },
+): string | undefined {
   // Reject paths containing hidden (dot-prefixed) segments like .env, .git, .hidden/foo
   const segments = relativePath.split(/[/\\]/);
-  if (segments.some((s) => s.startsWith(".") && s !== "." && s !== "..")) {
+  if (
+    !options?.allowHidden &&
+    segments.some((s) => s.startsWith(".") && s !== "." && s !== "..")
+  ) {
     return undefined;
   }
 

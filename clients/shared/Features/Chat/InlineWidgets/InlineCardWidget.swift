@@ -29,12 +29,12 @@ public struct InlineCardWidget: View {
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(data.title)
                     .font(VFont.headline)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 if let subtitle = data.subtitle {
                     Text(subtitle)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
             }
 
@@ -42,7 +42,7 @@ public struct InlineCardWidget: View {
             if !data.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text(markdownBody)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .textSelection(.enabled)
             }
 
@@ -63,17 +63,17 @@ public struct InlineCardWidget: View {
                 VStack(alignment: .leading, spacing: VSpacing.xxs) {
                     Text(item.label)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     Text(item.value)
                         .font(VFont.bodyMedium)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                 }
             }
         }
         .padding(VSpacing.md)
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.backgroundSubtle.opacity(0.5))
+                .fill(VColor.surfaceOverlay.opacity(0.5))
         )
     }
 
@@ -87,24 +87,4 @@ public struct InlineCardWidget: View {
 }
 
 #if DEBUG
-#Preview("InlineCardWidget") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        InlineCardWidget(data: CardSurfaceData(
-            title: "Weather in New York",
-            subtitle: "Next 7 days",
-            body: "Partly cloudy with temperatures ranging from 45°F to 62°F. Rain expected on Wednesday.",
-            metadata: [
-                (label: "High", value: "62°F"),
-                (label: "Low", value: "45°F"),
-                (label: "Humidity", value: "65%"),
-                (label: "Wind", value: "12 mph NW"),
-            ],
-            template: nil,
-            templateData: nil
-        ))
-        .padding()
-    }
-    .frame(width: 400, height: 300)
-}
 #endif

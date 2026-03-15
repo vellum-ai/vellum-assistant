@@ -31,6 +31,7 @@ struct SidebarThreadItem: View {
     private var interactionState: ThreadInteractionState { threadManager.interactionState(for: thread.id) }
     // Reserve trailing space when hovered for archive button overlay.
     private var hasTrailingIcon: Bool { isHovered || sidebar.threadPendingDeletion == thread.id }
+    private var isPendingDeletion: Bool { sidebar.threadPendingDeletion == thread.id }
     private var canMarkUnread: Bool {
         !thread.hasUnseenLatestAssistantMessage &&
             thread.sessionId != nil &&
@@ -56,7 +57,7 @@ struct SidebarThreadItem: View {
                         }
                     } label: {
                         VIconView(.pin, size: 13)
-                            .foregroundColor(thread.isPinned ? VColor.textMuted : VColor.textSecondary)
+                            .foregroundColor(thread.isPinned ? VColor.contentTertiary : VColor.contentSecondary)
                             .rotationEffect(.degrees(-45))
                             .frame(width: 20, height: 20)
                             .contentShape(Rectangle())
@@ -71,22 +72,22 @@ struct SidebarThreadItem: View {
                             .frame(width: 20, height: 20)
                     case .waitingForInput:
                         VIconView(.circleAlert, size: 12)
-                            .foregroundColor(VColor.warning)
+                            .foregroundColor(VColor.systemNegativeHover)
                             .frame(width: 20, height: 20)
                     case .error:
                         VIconView(.circleAlert, size: 12)
-                            .foregroundColor(VColor.error)
+                            .foregroundColor(VColor.systemNegativeStrong)
                             .frame(width: 20, height: 20)
                             .transition(.opacity)
                     case .idle:
                         if thread.hasUnseenLatestAssistantMessage {
-                            VBadge(style: .dot, color: VColor.warning)
+                            VBadge(style: .dot, color: VColor.systemNegativeHover)
                                 .accessibilityLabel("Unread")
                                 .frame(width: 20, height: 20)
                                 .transition(.opacity)
                         } else if thread.isPinned {
                             VIconView(.pin, size: 13)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                                 .rotationEffect(.degrees(-45))
                                 .frame(width: 20, height: 20)
                                 .transition(.opacity)
@@ -98,29 +99,30 @@ struct SidebarThreadItem: View {
                 }
                 if thread.kind == .private {
                     VIconView(.lock, size: 13)
-                        .foregroundColor(VColor.accent.opacity(0.7))
+                        .foregroundColor(VColor.primaryBase.opacity(0.7))
                 }
                 Text(thread.title)
                     .font(.system(size: 13))
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .help(thread.title)
+
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, VSpacing.xs)
-            .padding(.trailing, hasTrailingIcon ? (VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs) : VSpacing.sm)
+            .padding(.trailing, isPendingDeletion ? SidebarLayoutMetrics.archiveConfirmTrailingPadding : hasTrailingIcon ? SidebarLayoutMetrics.archiveIconTrailingPadding : VSpacing.sm)
             .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
             .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
             .background {
                 if isSelected {
-                    VColor.navActive
+                    VColor.surfaceActive
                 } else if isHovered {
-                    VColor.navHover
+                    VColor.surfaceBase
                 } else if thread.kind == .private {
-                    VColor.accent.opacity(0.04)
+                    VColor.primaryBase.opacity(0.04)
                 } else {
-                    VColor.navHover.opacity(0)
+                    VColor.surfaceBase.opacity(0)
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
@@ -138,10 +140,11 @@ struct SidebarThreadItem: View {
         }
         .overlay(alignment: .trailing) {
             if sidebar.threadPendingDeletion == thread.id {
-                VButton(label: "Confirm", style: .danger, size: .small) {
+                VButton(label: "Confirm", style: .dangerOutline, size: .pill) {
                     threadManager.archiveThread(id: thread.id)
                     sidebar.threadPendingDeletion = nil
                 }
+                .fixedSize()
                 .padding(.trailing, VSpacing.xs)
                 .accessibilityLabel("Confirm archive \(thread.title)")
             } else if isHovered {
@@ -149,7 +152,7 @@ struct SidebarThreadItem: View {
                     sidebar.threadPendingDeletion = thread.id
                 } label: {
                     VIconView(.archive, size: 13)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .frame(width: 20, height: 20)
                         .contentShape(Rectangle())
                 }
@@ -158,7 +161,7 @@ struct SidebarThreadItem: View {
                 .accessibilityLabel("Archive \(thread.title)")
             }
         }
-        .padding(.horizontal, VSpacing.sm)
+        .padding(.horizontal, 0)
         .contextMenu {
             Button {
                 withAnimation(VAnimation.standard) {
@@ -188,6 +191,16 @@ struct SidebarThreadItem: View {
                 Label { Text("Mark as unread") } icon: { VIconView(.circle, size: 14) }
             }
             .disabled(!canMarkUnread)
+
+            Divider()
+
+            Button {
+                guard let sessionId = thread.sessionId else { return }
+                AppDelegate.shared?.showLogReportWindow(scope: .thread(conversationId: sessionId, threadTitle: thread.title))
+            } label: {
+                Label { Text("Send Logs for Thread") } icon: { VIconView(.upload, size: 14) }
+            }
+            .disabled(thread.sessionId == nil || LogExporter.isManagedAssistant)
         }
         .pointerCursor()
         .onHover { hovering in
@@ -202,7 +215,7 @@ struct SidebarThreadItem: View {
             HStack(spacing: VSpacing.xs) {
                 if thread.isPinned {
                     VIconView(.pin, size: 13)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .rotationEffect(.degrees(-45))
                         .frame(width: 20, height: 20)
                 } else {
@@ -210,52 +223,18 @@ struct SidebarThreadItem: View {
                 }
                 Text(thread.title)
                     .font(.system(size: 13))
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
             }
             .padding(.leading, VSpacing.xs)
             .padding(.trailing, VSpacing.sm)
             .padding(.vertical, VSpacing.sm)
             .frame(width: 220, alignment: .leading)
-            .background(VColor.surface.opacity(0.9))
+            .background(VColor.surfaceBase.opacity(0.9))
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         }
     }
 }
 
 #if DEBUG
-#Preview("SidebarThreadItem") {
-    let dc = DaemonClient()
-    let tm = ThreadManager(daemonClient: dc)
-    let ws = MainWindowState()
-    let sidebar = SidebarInteractionState()
-
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        VStack(spacing: 0) {
-            SidebarThreadItem(
-                thread: ThreadModel(title: "Hello world", isPinned: true),
-                threadManager: tm,
-                windowState: ws,
-                sidebar: sidebar,
-                selectThread: {}
-            )
-            SidebarThreadItem(
-                thread: ThreadModel(title: "Draft email to team"),
-                threadManager: tm,
-                windowState: ws,
-                sidebar: sidebar,
-                selectThread: {}
-            )
-            SidebarThreadItem(
-                thread: ThreadModel(title: "Private thread", kind: .private),
-                threadManager: tm,
-                windowState: ws,
-                sidebar: sidebar,
-                selectThread: {}
-            )
-        }
-    }
-    .frame(width: 240, height: 150)
-}
 #endif

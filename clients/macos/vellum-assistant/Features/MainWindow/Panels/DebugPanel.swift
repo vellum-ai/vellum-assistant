@@ -11,7 +11,7 @@ struct DebugPanel: View {
         VSidePanel(title: "Debug", onClose: onClose, pinnedContent: {
             if let sessionId = activeSessionId {
                 metricsStrip(sessionId: sessionId)
-                Divider().background(VColor.surfaceBorder)
+                Divider().background(VColor.borderBase)
 
                 // Render timeline in pinned area so it owns its own ScrollView
                 // without nesting inside VSidePanel's scrollable content slot.
@@ -78,7 +78,7 @@ struct DebugPanel: View {
                         icon: "exclamationmark.triangle.fill",
                         label: "Failures",
                         value: "\(failures)",
-                        color: Danger._500
+                        color: VColor.systemNegativeStrong
                     )
                 }
 
@@ -90,9 +90,9 @@ struct DebugPanel: View {
                         value: !memory.enabled ? "Disabled"
                             : memoryDegraded ? "Degraded"
                             : "Healthy",
-                        color: !memory.enabled ? VColor.textMuted
-                            : memoryDegraded ? Amber._400
-                            : Emerald._400
+                        color: !memory.enabled ? VColor.contentTertiary
+                            : memoryDegraded ? VColor.systemNegativeHover
+                            : VColor.systemPositiveStrong
                     )
                     if let provider = memory.provider {
                         metric(
@@ -106,34 +106,9 @@ struct DebugPanel: View {
                             icon: "exclamationmark.triangle",
                             label: "Degradation Reason",
                             value: reason,
-                            color: Amber._400
+                            color: VColor.systemNegativeHover
                         )
                     }
-                    metric(
-                        icon: "memorychip",
-                        label: "Pending Conflicts",
-                        value: formatWhole(memory.conflictsPending)
-                    )
-                    metric(
-                        icon: "checkmark.seal",
-                        label: "Resolved Conflicts",
-                        value: formatWhole(memory.conflictsResolved)
-                    )
-                    metric(
-                        icon: VIcon.history.rawValue,
-                        label: "Oldest Pending",
-                        value: formatDurationMs(memory.oldestPendingConflictAgeMs)
-                    )
-                    metric(
-                        icon: "tray.full",
-                        label: "Cleanup Backlog",
-                        value: "R \(formatWhole(memory.cleanupResolvedJobsPending)) / S \(formatWhole(memory.cleanupSupersededJobsPending))"
-                    )
-                    metric(
-                        icon: "sparkles",
-                        label: "Cleanup 24h",
-                        value: "R \(formatWhole(memory.cleanupResolvedJobsCompleted24h)) / S \(formatWhole(memory.cleanupSupersededJobsCompleted24h))"
-                    )
                 }
             }
             .padding(.horizontal, VSpacing.xl)
@@ -142,18 +117,18 @@ struct DebugPanel: View {
     }
 
     @ViewBuilder
-    private func metric(icon: String, label: String, value: String, color: Color = Emerald._400) -> some View {
+    private func metric(icon: String, label: String, value: String, color: Color = VColor.systemPositiveStrong) -> some View {
         VStack(spacing: VSpacing.xxs) {
             HStack(spacing: VSpacing.xs) {
                 VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 10)
                     .foregroundColor(color)
                 Text(value)
                     .font(VFont.captionMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
             }
             Text(label)
                 .font(VFont.small)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
         }
     }
 
@@ -175,29 +150,6 @@ struct DebugPanel: View {
         return String(format: "%.0fms", ms)
     }
 
-    private func formatWhole(_ value: Int) -> String {
-        "\(value)"
-    }
-
-    private func formatWhole(_ value: Double) -> String {
-        "\(Int(value.rounded()))"
-    }
-
-    private func formatDurationMs(_ value: Int?) -> String {
-        guard let value else { return "n/a" }
-        return formatDurationMs(Double(value))
-    }
-
-    private func formatDurationMs(_ value: Double?) -> String {
-        guard let value else { return "n/a" }
-        if value < 60_000 {
-            return String(format: "%.0fs", value / 1000)
-        }
-        if value < 3_600_000 {
-            return String(format: "%.0fm", value / 60_000)
-        }
-        return String(format: "%.1fh", value / 3_600_000)
-    }
 }
 
 #Preview {

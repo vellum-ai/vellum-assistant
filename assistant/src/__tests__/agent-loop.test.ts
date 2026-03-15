@@ -869,11 +869,13 @@ describe("AgentLoop", () => {
     await loop.run([userMessage], () => {}, undefined, undefined, onCheckpoint);
 
     expect(checkpoints).toHaveLength(1);
-    expect(checkpoints[0]).toEqual({
+    expect(checkpoints[0]).toMatchObject({
       turnIndex: 0,
       toolCount: 1,
       hasToolUse: true,
     });
+    // history should contain the full conversation at checkpoint time
+    expect(checkpoints[0].history.length).toBeGreaterThanOrEqual(3);
   });
 
   // 17. Returning 'continue' lets the loop proceed normally
@@ -1204,7 +1206,7 @@ describe("AgentLoop", () => {
   // Dynamic tool resolver (resolveTools) tests
   // ---------------------------------------------------------------------------
 
-  // 25. Without resolveTools, static tools are used (backward compatible)
+  // 25. Without resolveTools, static tools are used
   test("without resolveTools, static tools are passed to provider", async () => {
     const { provider, calls } = createMockProvider([textResponse("Hi")]);
     const loop = new AgentLoop(provider, "system", {}, dummyTools);

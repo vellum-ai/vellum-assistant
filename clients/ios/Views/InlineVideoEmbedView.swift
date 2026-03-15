@@ -43,20 +43,20 @@ struct InlineVideoEmbedView: View {
             // Provider attribution bar
             HStack(spacing: VSpacing.xs) {
                 VIconView(.video, size: 10)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                 Text(provider.capitalized)
                     .font(VFont.small)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                 Spacer()
             }
             .padding(.horizontal, VSpacing.sm)
             .padding(.vertical, VSpacing.xs)
         }
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                .stroke(VColor.borderBase, lineWidth: 1)
         )
         .frame(maxWidth: .infinity)
     }
@@ -66,15 +66,45 @@ struct InlineVideoEmbedView: View {
             stateManager.requestPlay()
         } label: {
             ZStack {
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(Color.black.opacity(0.8)) // Intentional: always-dark video placeholder
-                    .frame(height: 200)
+                if let thumbnailURL = VideoThumbnailURL.thumbnailURL(provider: provider, videoID: videoID) {
+                    AsyncImage(url: thumbnailURL) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(height: 200)
+                                .clipped()
+                        case .failure:
+                            fallbackPlaceholder
+                        case .empty:
+                            Color.black.opacity(0.8)
+                                .frame(height: 200)
+                        @unknown default:
+                            fallbackPlaceholder
+                        }
+                    }
+                } else {
+                    fallbackPlaceholder
+                }
 
-                VIconView(.circlePlay, size: 48)
-                    .foregroundColor(.white.opacity(0.9))
+                Circle()
+                    .fill(Color.black.opacity(0.7))
+                    .frame(width: 56, height: 56)
+                    .overlay(
+                        VIconView(.play, size: 22)
+                            .foregroundColor(.white)
+                            .offset(x: 2)
+                    )
             }
         }
         .buttonStyle(.plain)
+    }
+
+    private var fallbackPlaceholder: some View {
+        RoundedRectangle(cornerRadius: VRadius.md)
+            .fill(Color.black.opacity(0.8))
+            .frame(height: 200)
     }
 
     private var videoWebView: some View {
@@ -91,10 +121,10 @@ struct InlineVideoEmbedView: View {
     private func failedView(_ message: String) -> some View {
         VStack(spacing: VSpacing.sm) {
             VIconView(.triangleAlert, size: 24)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
             Text("Failed to load video")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
             Button("Open in Safari") {
                 UIApplication.shared.open(embedURL)
             }

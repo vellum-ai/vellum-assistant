@@ -27,7 +27,7 @@ public final class ComponentGalleryWindow {
         window.contentViewController = hostingController
         window.title = "Component Gallery"
         window.titlebarAppearsTransparent = true
-        window.backgroundColor = NSColor(VColor.background)
+        window.backgroundColor = NSColor(VColor.surfaceOverlay)
         window.isReleasedWhenClosed = false
         window.contentMinSize = NSSize(width: 800, height: 500)
 

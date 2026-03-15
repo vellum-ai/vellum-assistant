@@ -4,11 +4,12 @@
  * Validates that the deterministic fallback correctly classifies signals based
  * on urgency + requiresAction, that channel selection respects connected channels,
  * the copy-composer generates correct fallback copy for known event names, and
- * thread action types are structurally correct.
+ * conversation action types are structurally correct.
  */
 
 import { describe, expect, test } from "bun:test";
 
+import type { ConversationCandidateSet } from "../notifications/conversation-candidates.js";
 import {
   buildAccessRequestContractText,
   buildAccessRequestIdentityLine,
@@ -19,11 +20,10 @@ import {
   sanitizeIdentityField,
 } from "../notifications/copy-composer.js";
 import {
-  enforceGuardianCallThreadAffinity,
-  validateThreadActions,
+  enforceGuardianCallConversationAffinity,
+  validateConversationActions,
 } from "../notifications/decision-engine.js";
 import type { NotificationSignal } from "../notifications/signal.js";
-import type { ThreadCandidateSet } from "../notifications/thread-candidates.js";
 import type {
   NotificationChannel,
   NotificationDecision,
@@ -413,22 +413,22 @@ describe("notification decision strategy", () => {
     });
   });
 
-  // -- Thread action validation -----------------------------------------------
+  // -- Conversation action validation -----------------------------------------------
 
-  describe("thread action validation", () => {
+  describe("conversation action validation", () => {
     const validChannels: NotificationChannel[] = ["vellum", "telegram"];
-    const candidateSet: ThreadCandidateSet = {
+    const candidateSet: ConversationCandidateSet = {
       vellum: [
         {
           conversationId: "conv-001",
-          title: "Reminder thread",
+          title: "Reminder conversation",
           updatedAt: Date.now(),
           latestSourceEventName: "schedule.notify",
           channel: "vellum",
         },
         {
           conversationId: "conv-002",
-          title: "Guardian thread",
+          title: "Guardian conversation",
           updatedAt: Date.now(),
           latestSourceEventName: "guardian.question",
           channel: "vellum",
@@ -438,7 +438,7 @@ describe("notification decision strategy", () => {
       telegram: [
         {
           conversationId: "conv-003",
-          title: "Telegram thread",
+          title: "Telegram conversation",
           updatedAt: Date.now(),
           latestSourceEventName: "schedule.notify",
           channel: "telegram",
@@ -447,7 +447,7 @@ describe("notification decision strategy", () => {
     };
 
     test("accepts start_new action", () => {
-      const result = validateThreadActions(
+      const result = validateConversationActions(
         { vellum: { action: "start_new" } },
         validChannels,
         candidateSet,
@@ -456,7 +456,7 @@ describe("notification decision strategy", () => {
     });
 
     test("accepts reuse_existing with valid candidate conversationId", () => {
-      const result = validateThreadActions(
+      const result = validateConversationActions(
         { vellum: { action: "reuse_existing", conversationId: "conv-001" } },
         validChannels,
         candidateSet,
@@ -468,7 +468,7 @@ describe("notification decision strategy", () => {
     });
 
     test("downgrades reuse_existing with invalid conversationId to start_new", () => {
-      const result = validateThreadActions(
+      const result = validateConversationActions(
         {
           vellum: { action: "reuse_existing", conversationId: "conv-INVALID" },
         },
@@ -479,7 +479,7 @@ describe("notification decision strategy", () => {
     });
 
     test("downgrades reuse_existing without conversationId to start_new", () => {
-      const result = validateThreadActions(
+      const result = validateConversationActions(
         { vellum: { action: "reuse_existing" } },
         validChannels,
         candidateSet,
@@ -488,7 +488,7 @@ describe("notification decision strategy", () => {
     });
 
     test("downgrades reuse_existing with empty conversationId to start_new", () => {
-      const result = validateThreadActions(
+      const result = validateConversationActions(
         { vellum: { action: "reuse_existing", conversationId: "  " } },
         validChannels,
         candidateSet,
@@ -498,7 +498,7 @@ describe("notification decision strategy", () => {
 
     test("rejects reuse_existing targeting a different channel candidate", () => {
       // conv-003 is a telegram candidate, not a vellum candidate
-      const result = validateThreadActions(
+      const result = validateConversationActions(
         { vellum: { action: "reuse_existing", conversationId: "conv-003" } },
         validChannels,
         candidateSet,
@@ -506,8 +506,8 @@ describe("notification decision strategy", () => {
       expect(result.vellum).toEqual({ action: "start_new" });
     });
 
-    test("ignores thread actions for channels not in validChannels", () => {
-      const result = validateThreadActions(
+    test("ignores conversation actions for channels not in validChannels", () => {
+      const result = validateConversationActions(
         { voice: { action: "start_new" } },
         validChannels,
         candidateSet,
@@ -516,16 +516,16 @@ describe("notification decision strategy", () => {
     });
 
     test("handles null/undefined input gracefully", () => {
-      expect(validateThreadActions(null, validChannels, candidateSet)).toEqual(
-        {},
-      );
       expect(
-        validateThreadActions(undefined, validChannels, candidateSet),
+        validateConversationActions(null, validChannels, candidateSet),
+      ).toEqual({});
+      expect(
+        validateConversationActions(undefined, validChannels, candidateSet),
       ).toEqual({});
     });
 
     test("handles missing candidate set — all reuse_existing downgrade to start_new", () => {
-      const result = validateThreadActions(
+      const result = validateConversationActions(
         { vellum: { action: "reuse_existing", conversationId: "conv-001" } },
         validChannels,
         undefined,
@@ -534,7 +534,7 @@ describe("notification decision strategy", () => {
     });
 
     test("supports multiple channels simultaneously", () => {
-      const result = validateThreadActions(
+      const result = validateConversationActions(
         {
           vellum: { action: "reuse_existing", conversationId: "conv-002" },
           telegram: { action: "start_new" },
@@ -550,7 +550,7 @@ describe("notification decision strategy", () => {
     });
 
     test("ignores unknown action values", () => {
-      const result = validateThreadActions(
+      const result = validateConversationActions(
         { vellum: { action: "unknown_action" } },
         validChannels,
         candidateSet,
@@ -829,9 +829,9 @@ describe("notification decision strategy", () => {
     });
   });
 
-  // -- Guardian call thread affinity enforcement --------------------------------
+  // -- Guardian call conversation affinity enforcement --------------------------------
 
-  describe("guardian call thread affinity enforcement", () => {
+  describe("guardian call conversation affinity enforcement", () => {
     function makeDecision(
       overrides?: Partial<NotificationDecision>,
     ): NotificationDecision {
@@ -863,13 +863,15 @@ describe("notification decision strategy", () => {
         },
       });
 
-      const result = enforceGuardianCallThreadAffinity(decision, signal);
-      expect(result.threadActions?.vellum).toEqual({ action: "start_new" });
+      const result = enforceGuardianCallConversationAffinity(decision, signal);
+      expect(result.conversationActions?.vellum).toEqual({
+        action: "start_new",
+      });
     });
 
     test("guardian.question with callSessionId and existing affinity hint does not override", () => {
       const decision = makeDecision({
-        threadActions: {
+        conversationActions: {
           vellum: { action: "reuse_existing", conversationId: "conv-123" },
         },
       });
@@ -886,17 +888,17 @@ describe("notification decision strategy", () => {
         conversationAffinityHint: { vellum: "conv-123" },
       });
 
-      const result = enforceGuardianCallThreadAffinity(decision, signal);
+      const result = enforceGuardianCallConversationAffinity(decision, signal);
       // Should remain unchanged — the affinity hint takes precedence
-      expect(result.threadActions?.vellum).toEqual({
+      expect(result.conversationActions?.vellum).toEqual({
         action: "reuse_existing",
         conversationId: "conv-123",
       });
     });
 
-    test("non-guardian event is not affected by guardian call thread affinity", () => {
+    test("non-guardian event is not affected by guardian call conversation affinity", () => {
       const decision = makeDecision({
-        threadActions: {
+        conversationActions: {
           vellum: { action: "reuse_existing", conversationId: "conv-456" },
         },
       });
@@ -905,8 +907,8 @@ describe("notification decision strategy", () => {
         contextPayload: { message: "Take out the trash" },
       });
 
-      const result = enforceGuardianCallThreadAffinity(decision, signal);
-      expect(result.threadActions?.vellum).toEqual({
+      const result = enforceGuardianCallConversationAffinity(decision, signal);
+      expect(result.conversationActions?.vellum).toEqual({
         action: "reuse_existing",
         conversationId: "conv-456",
       });
@@ -925,9 +927,9 @@ describe("notification decision strategy", () => {
         },
       });
 
-      const result = enforceGuardianCallThreadAffinity(decision, signal);
+      const result = enforceGuardianCallConversationAffinity(decision, signal);
       // No callSessionId → no enforcement
-      expect(result.threadActions).toBeUndefined();
+      expect(result.conversationActions).toBeUndefined();
     });
   });
 });

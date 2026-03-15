@@ -548,7 +548,7 @@ async function executeWebSearch(
   if (!apiKey) {
     return {
       content:
-        "Error: No web search API key configured. Provide a PERPLEXITY_API_KEY or BRAVE_API_KEY here in the chat using the secure credential prompt, or set it from the Settings page.",
+        "Error: No web search API key configured. Set it via `keys set perplexity <key>` or `keys set brave <key>`, or configure it from the Settings page under API Keys.",
       isError: true,
     };
   }

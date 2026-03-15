@@ -10,13 +10,16 @@ Options:
   -h, --help                               display help for command
 
 Commands:
+  bash [options] <command>                 Execute a shell command through the assistant process for debugging
   sessions                                 Manage sessions
   config                                   Manage configuration
   keys                                     Manage API keys in secure storage
   credentials [options]                    Manage credentials in the encrypted vault (API keys, tokens, passwords)
+  credential-execution [options]           Inspect and manage Credential Execution Service (CES) grants and audit records
   trust                                    Manage trust rules
   memory                                   Manage long-term memory indexing/retrieval
   audit [options]                          Show recent tool invocations
+  avatar                                   Manage the assistant's avatar
   doctor                                   Run diagnostic checks
   hooks                                    Manage hooks
   mcp                                      Manage MCP (Model Context Protocol) servers
@@ -30,5 +33,7 @@ Commands:
   oauth [options]                          Manage OAuth providers, apps, connections, and tokens
   skills                                   Browse and install skills from the Vellum catalog
   browser                                  Browser automation, extension relay, and Chrome CDP management
+  usage                                    Query LLM token usage and cost data
+  shotgun                                  Start and monitor screen-watch (shotgun) sessions via IPC
   sequence [options]                       Manage email sequences
 `;

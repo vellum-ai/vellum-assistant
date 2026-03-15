@@ -25,7 +25,6 @@ mock.module("../config/loader.js", () => ({
 
     provider: "anthropic",
     model: "test",
-    apiKeys: {},
     maxTokens: 4096,
     dataDir: "/tmp",
     timeouts: {
@@ -80,6 +79,8 @@ mock.module("../tools/network/script-proxy/index.js", () => ({
 mock.module("../util/platform.js", () => ({
   getRootDir: () => "/tmp",
   getDataDir: () => "/tmp",
+  getDbPath: () => "/tmp/assistant.db",
+  ensureDataDir: () => {},
 }));
 
 mock.module("../tools/credentials/resolve.js", () => ({
@@ -445,7 +446,7 @@ describe("WorkspaceGitService — abort signal propagation", () => {
     expect(service.isInitialized()).toBe(true);
   });
 
-  test("commitChanges: interleaved with abort-signalled writeNote does not corrupt repo", async () => {
+  test("commitChanges: after abort-signalled writeNote does not corrupt repo", async () => {
     const { WorkspaceGitService, _resetGitServiceRegistry } =
       await import("../workspace/git-service.js");
 
@@ -460,26 +461,77 @@ describe("WorkspaceGitService — abort signal propagation", () => {
 
     const headHash = await service.getHeadHash();
 
-    // Fire a pre-aborted writeNote alongside another commitChanges.
+    // Fire a pre-aborted writeNote — it should fail without corrupting the repo.
     const ac = new AbortController();
     ac.abort();
 
-    const [commitResult] = await Promise.allSettled([
-      service.commitChanges("second commit").then(() => "committed"),
-      service
-        .writeNote(headHash, "note", ac.signal)
-        .catch(() => "note-aborted"),
-    ]);
-
-    // The commit itself should succeed — the aborted note does not block it.
-    expect(commitResult.status).toBe("fulfilled");
-    if (commitResult.status === "fulfilled") {
-      expect(commitResult.value).toBe("committed");
+    let noteAborted = false;
+    try {
+      await service.writeNote(headHash, "note", ac.signal);
+    } catch {
+      noteAborted = true;
     }
+    expect(noteAborted).toBe(true);
+
+    // A subsequent commit should succeed — the aborted note did not corrupt state.
+    await service.commitChanges("second commit");
 
     // Repo must still be in a clean, functional state.
     const status = await service.getStatus();
     expect(status.clean).toBe(true);
+  });
+
+  test("concurrent git operations are serialized by the mutex", async () => {
+    const { WorkspaceGitService, _resetGitServiceRegistry } =
+      await import("../workspace/git-service.js");
+
+    _resetGitServiceRegistry();
+    const service = new WorkspaceGitService(testDir);
+    await service.ensureInitialized();
+
+    // Track the order of execution to prove serialization.
+    const executionLog: string[] = [];
+
+    // Create a deferred promise so we can explicitly control when the first
+    // mutex holder releases. This guarantees the second operation is queued
+    // behind the first — no timing dependency.
+    let releaseFirst!: () => void;
+    const firstBlocks = new Promise<void>((r) => {
+      releaseFirst = r;
+    });
+
+    // Operation A: acquire the mutex, signal it's holding, then wait for
+    // our explicit release before finishing.
+    let opAQueued!: () => void;
+    const opAIsHolding = new Promise<void>((r) => {
+      opAQueued = r;
+    });
+
+    const opA = service.runWithMutex(async (exec) => {
+      executionLog.push("A:start");
+      opAQueued(); // signal that A holds the lock
+      await firstBlocks; // wait until we explicitly release
+      await exec(["status"]);
+      executionLog.push("A:end");
+    });
+
+    // Wait until A is definitely holding the lock before starting B.
+    await opAIsHolding;
+
+    // Operation B: a normal commitChanges that must wait for A to finish.
+    writeFileSync(join(testDir, "concurrent.txt"), "data");
+    const opB = service.commitChanges("concurrent commit").then(() => {
+      executionLog.push("B:done");
+    });
+
+    // At this point B is queued behind A in the mutex. Release A.
+    releaseFirst();
+
+    // Both operations should complete without errors.
+    await Promise.all([opA, opB]);
+
+    // A must have fully completed before B started — that's the mutex guarantee.
+    expect(executionLog).toEqual(["A:start", "A:end", "B:done"]);
   });
 });
 

@@ -34,24 +34,4 @@ describe("feature flag registry availability", () => {
       expect(flag.scope).toBe("assistant");
     }
   });
-
-  test("bundled gateway/src/feature-flag-registry.json matches canonical meta/ copy", () => {
-    const repoRoot = join(process.cwd(), "..");
-    const canonicalPath = join(
-      repoRoot,
-      "meta",
-      "feature-flags",
-      "feature-flag-registry.json",
-    );
-    const bundledPath = join(
-      process.cwd(),
-      "src",
-      "feature-flag-registry.json",
-    );
-
-    const canonical = JSON.parse(readFileSync(canonicalPath, "utf-8"));
-    const bundled = JSON.parse(readFileSync(bundledPath, "utf-8"));
-
-    expect(bundled).toEqual(canonical);
-  });
 });

@@ -12,6 +12,8 @@ export interface ClassifiedSessionError {
   userMessage: string;
   retryable: boolean;
   debugDetails?: string;
+  /** Machine-readable error category for log report metadata and triage. */
+  errorCategory: string;
 }
 
 // Network-level error patterns (connection refused, timeout, DNS, reset)
@@ -66,6 +68,21 @@ const PROVIDER_API_PATTERNS = [
   /bad gateway/i,
   /service unavailable/i,
   /gateway timeout/i,
+];
+
+// Provider ordering error patterns (tool_use/tool_result mismatches)
+const ORDERING_ERROR_PATTERNS = [
+  /tool_result.*not immediately after.*tool_use/i,
+  /tool_use.*must have.*tool_result/i,
+  /tool_use_id.*without.*tool_result/i,
+  /tool_result.*tool_use_id.*not found/i,
+  /messages.*invalid.*order/i,
+];
+
+// Web-search-specific ordering error patterns
+const WEB_SEARCH_ORDERING_PATTERNS = [
+  /web_search.*tool_use.*without/i,
+  /web_search.*tool_result/i,
 ];
 
 // User-initiated cancellation patterns — these should NOT produce session_error
@@ -131,6 +148,7 @@ export function classifySessionError(
       userMessage: `Could not regenerate the response. ${base.userMessage}`,
       retryable: true,
       debugDetails,
+      errorCategory: `regenerate:${base.errorCategory}`,
     };
   }
 
@@ -155,8 +173,10 @@ function classifyCore(
     if (error.statusCode === 413) {
       return {
         code: "CONTEXT_TOO_LARGE",
-        userMessage: "This conversation exceeds the model's context limit.",
+        userMessage:
+          "This conversation is too long. Please start a new conversation.",
         retryable: false,
+        errorCategory: "context_too_large",
       };
     }
     if (error.statusCode === 401) {
@@ -164,13 +184,24 @@ function classifyCore(
         code: "PROVIDER_BILLING",
         userMessage: "Your API key is invalid or expired.",
         retryable: false,
+        errorCategory: "provider_billing",
+      };
+    }
+    if (error.statusCode === 402) {
+      return {
+        code: "PROVIDER_BILLING",
+        userMessage:
+          "You've run out of credits. Add funds to continue using the assistant.",
+        retryable: false,
+        errorCategory: "credits_exhausted",
       };
     }
     if (error.statusCode === 429) {
       return {
         code: "PROVIDER_RATE_LIMIT",
-        userMessage: "The AI provider is rate limiting requests.",
+        userMessage: "The AI provider is busy. Please try again in a moment.",
         retryable: true,
+        errorCategory: "rate_limit",
       };
     }
     if (error.statusCode >= 500) {
@@ -178,15 +209,35 @@ function classifyCore(
         code: "PROVIDER_API",
         userMessage: "The AI provider returned a server error.",
         retryable: true,
+        errorCategory: "provider_server_error",
       };
     }
-    // 4xx (non-429) — check for context-too-large before generic fallback
+    // 4xx (non-429) — check for context-too-large, ordering errors, then generic fallback
     if (error.statusCode >= 400) {
       if (isContextTooLarge(message)) {
         return {
           code: "CONTEXT_TOO_LARGE",
-          userMessage: "This conversation exceeds the model's context limit.",
+          userMessage:
+            "This conversation is too long. Please start a new conversation.",
           retryable: false,
+          errorCategory: "context_too_large",
+        };
+      }
+      if (isWebSearchOrderingError(message)) {
+        return {
+          code: "PROVIDER_WEB_SEARCH",
+          userMessage:
+            "An internal error occurred with web search. Please try again.",
+          retryable: true,
+          errorCategory: "web_search_ordering",
+        };
+      }
+      if (isOrderingError(message)) {
+        return {
+          code: "PROVIDER_ORDERING",
+          userMessage: "An internal error occurred. Please try again.",
+          retryable: true,
+          errorCategory: "tool_ordering",
         };
       }
       if (/credit balance is too low|insufficient.*credits?/i.test(message)) {
@@ -194,6 +245,7 @@ function classifyCore(
           code: "PROVIDER_BILLING",
           userMessage: "Your API key has insufficient credits.",
           retryable: false,
+          errorCategory: "provider_billing",
         };
       }
       if (
@@ -205,12 +257,14 @@ function classifyCore(
           code: "PROVIDER_BILLING",
           userMessage: "Your API key is invalid.",
           retryable: false,
+          errorCategory: "provider_billing",
         };
       }
       return {
         code: "PROVIDER_API",
         userMessage: "The AI provider rejected the request.",
         retryable: true,
+        errorCategory: "provider_api_error",
       };
     }
   }
@@ -224,6 +278,16 @@ export function isContextTooLarge(message: string): boolean {
   return CONTEXT_TOO_LARGE_PATTERNS.some((p) => p.test(message));
 }
 
+/** Check whether an error message indicates a web-search-specific ordering failure. */
+export function isWebSearchOrderingError(message: string): boolean {
+  return WEB_SEARCH_ORDERING_PATTERNS.some((p) => p.test(message));
+}
+
+/** Check whether an error message indicates a tool_use/tool_result ordering failure. */
+export function isOrderingError(message: string): boolean {
+  return ORDERING_ERROR_PATTERNS.some((p) => p.test(message));
+}
+
 function classifyByMessage(
   message: string,
 ): Omit<ClassifiedSessionError, "debugDetails"> {
@@ -231,8 +295,10 @@ function classifyByMessage(
   if (isContextTooLarge(message)) {
     return {
       code: "CONTEXT_TOO_LARGE",
-      userMessage: "This conversation exceeds the model's context limit.",
+      userMessage:
+        "This conversation is too long. Please start a new conversation.",
       retryable: false,
+      errorCategory: "context_too_large",
     };
   }
 
@@ -241,10 +307,32 @@ function classifyByMessage(
     if (pattern.test(message)) {
       return {
         code: "PROVIDER_RATE_LIMIT",
-        userMessage: "The AI provider is rate limiting requests.",
+        userMessage: "The AI provider is busy. Please try again in a moment.",
         retryable: true,
+        errorCategory: "rate_limit",
       };
     }
+  }
+
+  // Web-search ordering errors (before general ordering errors)
+  if (isWebSearchOrderingError(message)) {
+    return {
+      code: "PROVIDER_WEB_SEARCH",
+      userMessage:
+        "An internal error occurred with web search. Please try again.",
+      retryable: true,
+      errorCategory: "web_search_ordering",
+    };
+  }
+
+  // General tool_use/tool_result ordering errors
+  if (isOrderingError(message)) {
+    return {
+      code: "PROVIDER_ORDERING",
+      userMessage: "An internal error occurred. Please try again.",
+      retryable: true,
+      errorCategory: "tool_ordering",
+    };
   }
 
   // Network errors (before timeout so "connection timeout" is classified as network)
@@ -254,6 +342,7 @@ function classifyByMessage(
         code: "PROVIDER_NETWORK",
         userMessage: "Could not connect to the AI provider.",
         retryable: true,
+        errorCategory: "provider_network",
       };
     }
   }
@@ -265,6 +354,7 @@ function classifyByMessage(
         code: "PROVIDER_API",
         userMessage: "The AI provider returned a server error.",
         retryable: true,
+        errorCategory: "provider_server_error",
       };
     }
   }
@@ -277,6 +367,7 @@ function classifyByMessage(
         code: "PROVIDER_API",
         userMessage: "The request to the AI provider timed out.",
         retryable: true,
+        errorCategory: "provider_timeout",
       };
     }
   }
@@ -288,6 +379,7 @@ function classifyByMessage(
         code: "SESSION_ABORTED",
         userMessage: "The request was interrupted.",
         retryable: true,
+        errorCategory: "session_aborted",
       };
     }
   }
@@ -308,6 +400,7 @@ function classifyByMessage(
     code: "SESSION_PROCESSING_FAILED",
     userMessage,
     retryable: false,
+    errorCategory: "processing_failed",
   };
 }
 
@@ -325,5 +418,6 @@ export function buildSessionErrorMessage(
     userMessage: classified.userMessage,
     retryable: classified.retryable,
     debugDetails: classified.debugDetails,
+    errorCategory: classified.errorCategory,
   };
 }

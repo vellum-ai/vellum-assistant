@@ -58,7 +58,7 @@ export async function runTask(
 
   const run = createTaskRun(task.id);
   const conversation = bootstrapConversation({
-    threadType: "background",
+    conversationType: "background",
     source: opts.source,
     origin: "task",
     systemHint: `Task: ${task.title}`,

@@ -12,3 +12,9 @@
 export function credentialKey(service: string, field: string): string {
   return `credential/${service}/${field}`;
 }
+
+/**
+ * Well-known key under which the daemon persists the bootstrapped actor
+ * HTTP access token in the encrypted credential store.
+ */
+export const BOOTSTRAPPED_ACTOR_HTTP_TOKEN = credentialKey("bootstrapped_actor", "http_token");

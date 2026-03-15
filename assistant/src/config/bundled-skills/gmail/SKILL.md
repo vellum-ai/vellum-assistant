@@ -6,8 +6,6 @@ metadata:
   emoji: "📨"
   vellum:
     display-name: "Gmail"
-    user-invocable: true
-    feature-flag: "gmail"
 ---
 
 This skill provides Gmail-specific tools. For cross-platform messaging (send, read, search, reply), use the **messaging** skill. Gmail tools depend on the messaging skill's provider infrastructure — load messaging first if Gmail is not yet connected.
@@ -21,7 +19,7 @@ Do not offer AgentMail as an option or mention it unless the user specifically a
 ## Communication Style
 
 - **Be action-oriented.** When the user asks to do something ("declutter", "check my email"), start doing it immediately. Don't ask for permission to read their inbox — that's obviously what they want.
-- **Keep it human.** Never mention OAuth, tokens, APIs, sandboxes, credential proxies, or other technical internals. If something isn't working, say "Gmail needs to be reconnected" — not "the OAuth2 access token for integration:gmail has expired."
+- **Keep it human.** Never mention OAuth, tokens, APIs, sandboxes, credential proxies, or other technical internals. If something isn't working, say "Gmail needs to be reconnected" — not "the OAuth2 access token for integration:google has expired."
 - **Show progress.** When running a tool that scans many emails, tell the user what you're doing: "Scanning your inbox for clutter..." Don't go silent.
 - **Be brief and warm.** One or two sentences per update is plenty. Don't over-explain what you're about to do — just do it and narrate lightly.
 

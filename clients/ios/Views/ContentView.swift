@@ -31,8 +31,12 @@ struct ContentView: View {
     }
 
     /// Whether the user has previously saved daemon connection settings.
-    /// iOS uses HTTP+SSE only — checks for gateway URL or runtime URL.
+    /// iOS uses HTTP+SSE only — checks for managed assistant, gateway URL, or runtime URL.
     private var hasSavedSettings: Bool {
+        if let id = UserDefaults.standard.string(forKey: UserDefaultsKeys.managedAssistantId), !id.isEmpty,
+           let url = UserDefaults.standard.string(forKey: UserDefaultsKeys.managedPlatformBaseURL), !url.isEmpty {
+            return true
+        }
         if let url = UserDefaults.standard.string(forKey: UserDefaultsKeys.gatewayBaseURL), !url.isEmpty {
             return true
         }
@@ -127,7 +131,7 @@ struct ContentView: View {
                 .scaleEffect(1.5)
             Text("Connecting to your Assistant...")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -137,15 +141,15 @@ struct ContentView: View {
     private var connectionFailedView: some View {
         VStack(spacing: VSpacing.lg) {
             VIconView(.wifiOff, size: 48)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
 
             Text("Unable to Connect")
                 .font(VFont.title)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             Text("Unable to reach your Assistant's gateway. This could mean your Assistant is offline, the tunnel is down, or the gateway is not active.")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
 
@@ -153,7 +157,7 @@ struct ContentView: View {
                 let delaySeconds = Int(min(pow(2.0, Double(retryCount - 1)) * 2.0, 30.0))
                 Text("Retrying in \(delaySeconds)s…")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
 
             VStack(spacing: VSpacing.md) {
@@ -164,7 +168,7 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(VColor.accent)
+                .tint(VColor.primaryBase)
 
                 Button {
                     connectPhase = .ready
@@ -196,7 +200,7 @@ struct ContentView: View {
                 .id(ObjectIdentifier(clientProvider.client as AnyObject))
                 .tag(Tab.things)
                 .tabItem {
-                    Label { Text("Things") } icon: { VIconView(.layoutGrid, size: 12) }
+                    Label { Text("Library") } icon: { VIconView(.layoutGrid, size: 12) }
                 }
 
             IdentityView(onConnectTapped: navigateToConnectSettings)

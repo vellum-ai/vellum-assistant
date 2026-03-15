@@ -1,12 +1,14 @@
 # macOS Keychain Broker Architecture
 
 **Status:** Accepted
-**Last Updated:** 2026-03-05
+**Last Updated:** 2026-03-14
 **Owners:** macOS client + assistant runtime
 
 ## Decision
 
 Embed the keychain broker in the macOS app process rather than running a standalone daemon. The app exposes SecItem keychain operations over a Unix domain socket to the assistant runtime and gateway. Debug builds skip the broker entirely (`#if !DEBUG` guard) so developers never see keychain authorization prompts during rebuilds.
+
+Credential storage is abstracted behind a `CredentialBackend` interface with two implementations: a keychain backend (backed by the broker) and an encrypted file store backend. Each process resolves a single primary backend at startup and uses single-writer semantics -- all writes go to the resolved backend only, with no dual-writing.
 
 ## Problem Statement
 
@@ -20,6 +22,21 @@ Prior state:
 
 ## Architecture
 
+### CredentialBackend interface
+
+All credential storage operations are routed through the `CredentialBackend` interface, which provides a uniform API for get, set, delete, and list operations. This abstraction decouples `secure-keys.ts` from any specific storage mechanism.
+
+Two implementations exist:
+
+| Backend          | Backing store                                | When used                                                               |
+| ---------------- | -------------------------------------------- | ----------------------------------------------------------------------- |
+| Keychain backend | macOS Keychain via the broker UDS connection | Production app context (`VELLUM_DEV` is NOT `"1"`) and broker available |
+| Encrypted store  | `~/.vellum/protected/keys.enc` (AES-256-GCM) | `VELLUM_DEV=1`, broker unavailable, CLI-only, headless, CI              |
+
+The interface is intentionally minimal to make adding future backends trivial -- e.g., Linux secret service (libsecret/D-Bus), 1Password CLI, or cloud KMS. A new backend only needs to implement the `CredentialBackend` interface and be wired into the backend resolution logic.
+
+### Broker topology
+
 ```mermaid
 graph LR
     subgraph "macOS App Process"
@@ -29,11 +46,19 @@ graph LR
         SERVICE --> KC["macOS Keychain"]
     end
 
-    RUNTIME["Assistant Runtime (Bun)"] -->|"UDS JSON"| SERVER
-    GATEWAY["Gateway (Bun)"] -->|"UDS JSON<br/>(async)"| SERVER
+    subgraph "Backend Resolution"
+        RESOLVE{"resolveBackend()"}
+        KB["Keychain Backend"]
+        EB["Encrypted Store Backend"]
+        RESOLVE -->|"VELLUM_DEV!=1<br/>+ broker available"| KB
+        RESOLVE -->|"VELLUM_DEV=1<br/>OR broker unavailable"| EB
+    end
 
-    RUNTIME -.->|"fallback<br/>(sync + broker unavailable)"| ENC["Encrypted Store<br/>(~/.vellum/protected/keys.enc)"]
-    GATEWAY -.->|"fallback<br/>(broker unavailable)"| ENC
+    KB -->|"UDS JSON"| SERVER
+    RUNTIME["Assistant Runtime (Bun)"] --> RESOLVE
+    GATEWAY["Gateway (Bun)"] -->|"read-only"| RESOLVE
+
+    EB --> ENC["Encrypted Store<br/>(~/.vellum/protected/keys.enc)"]
 ```
 
 ### Key properties
@@ -42,7 +67,8 @@ graph LR
 - **No auth bootstrap problem.** The app writes the broker auth token to disk before launching the daemon, so the daemon always has a valid token at startup.
 - **No keychain prompts on signed builds.** Items are stored with `kSecAttrAccessibleAfterFirstUnlock` under the `vellum-assistant` service name. A stable code-signing identity means macOS grants access without prompting after the first unlock.
 - **No keychain interaction on debug builds.** The entire `KeychainBrokerServer` is compiled out with `#if !DEBUG`, so development builds use the encrypted file store exclusively.
-- **Encrypted file store as permanent fallback.** CLI-only, headless, and development environments always have the encrypted store (`~/.vellum/protected/keys.enc`) available. Async callers that use the broker also write through to the encrypted store so sync callers see a consistent view.
+- **Single-writer to resolved backend.** Each process resolves exactly one primary backend at startup. Writes go only to that backend. There is no dual-writing.
+- **Encrypted file store as permanent fallback.** CLI-only, headless, and development environments always have the encrypted store (`~/.vellum/protected/keys.enc`) available.
 
 ## Components
 
@@ -55,11 +81,12 @@ graph LR
 
 ### TypeScript side (runtime + gateway)
 
-| File                                               | Role                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `assistant/src/security/keychain-broker-client.ts` | Async UDS client for the runtime. Persistent socket connection, request/response correlation, auth token caching with auto-refresh on `UNAUTHORIZED`. Falls back gracefully (returns safe defaults, never throws).                                                                                                                                                                                                                                                      |
-| `assistant/src/security/secure-keys.ts`            | Unified API surface. Sync variants use encrypted store only. Async variants (`getSecureKeyAsync`, `setSecureKeyAsync`, `deleteSecureKeyAsync`) try broker first. **Reads** fall back to the encrypted store when the broker is unavailable or key is not found. **Writes** return `false` on broker failure (no encrypted-store fallback). **Deletes** return `"deleted"`, `"not-found"`, or `"error"` to let callers distinguish idempotent no-ops from real failures. |
-| `gateway/src/credential-reader.ts`                 | Read-only credential reader. Tries broker via native async UDS connection (`node:net`), falls back to encrypted store. All public credential read functions are async.                                                                                                                                                                                                                                                                                                  |
+| File                                               | Role                                                                                                                                                                                                                                                                                                                                                          |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/security/credential-backend.ts`     | `CredentialBackend` interface definition (`get`, `set`, `delete`, `list`) plus both adapter implementations: `KeychainBackend` (backed by the broker UDS client) and `EncryptedStoreBackend` (backed by `encrypted-store.ts` / `~/.vellum/protected/keys.enc`). Also exports factory functions `createKeychainBackend()` and `createEncryptedStoreBackend()`. |
+| `assistant/src/security/keychain-broker-client.ts` | Async UDS client for the runtime. Persistent socket connection, request/response correlation, auth token caching with auto-refresh on `UNAUTHORIZED`. Falls back gracefully (returns safe defaults, never throws).                                                                                                                                            |
+| `assistant/src/security/secure-keys.ts`            | Unified API surface. Resolves a single primary `CredentialBackend` at startup based on environment and broker availability. All writes go to the resolved backend only (single-writer). Reads check the primary backend first, with legacy fallback to the encrypted store for migration. Deletes clean up both stores to prevent stale keys.                 |
+| `gateway/src/credential-reader.ts`                 | Read-only credential reader. Tries broker via native async UDS connection (`node:net`), falls back to encrypted store. All public credential read functions are async.                                                                                                                                                                                        |
 
 ## Message Contract
 
@@ -161,26 +188,77 @@ XPC provides stronger caller identity guarantees via audit tokens and code requi
 - **Release builds:** The broker starts automatically with the app. The daemon discovers the broker via the derived socket path (`join(getRootDir(), "keychain-broker.sock")`) and token file. No configuration needed.
 - **CLI-only / headless:** No macOS app means no broker socket. All storage uses the encrypted file store. This is the expected path for CI, servers, and non-macOS platforms.
 
+## Store-Routing Policy
+
+### Backend resolution
+
+At process startup, `secure-keys.ts` resolves a single primary `CredentialBackend` for the lifetime of the process:
+
+| Condition                                             | Resolved backend |
+| ----------------------------------------------------- | ---------------- |
+| `VELLUM_DEV` is NOT `"1"` **and** broker is available | Keychain backend |
+| `VELLUM_DEV=1` **or** broker is unavailable           | Encrypted store  |
+
+Once resolved, the backend does not change during the process lifetime. There is no runtime switching between backends.
+
+### Read strategy
+
+Reads go to the **primary backend first**. If the primary backend is the keychain backend and the key is not found, a legacy fallback read is attempted against the encrypted store. This fallback handles the migration period where keys written before the single-writer policy may still exist only in the encrypted store. When the primary backend is the encrypted store, there is no fallback -- the encrypted store is the sole source of truth.
+
+### Write strategy
+
+Writes go **only to the resolved primary backend**. There is no dual-writing. This eliminates the consistency problems that dual-writing introduced (partial failures leaving stores out of sync, unclear source of truth).
+
+- Keychain backend resolved: writes go to the keychain via broker only.
+- Encrypted store resolved: writes go to the encrypted file store only.
+
+### Delete strategy
+
+Deletes **always clean up both stores** regardless of the resolved backend. This ensures that stale keys do not linger in the non-primary store, which could cause unexpected reads through the legacy fallback path.
+
+### `VELLUM_DEV` environment variable
+
+Setting `VELLUM_DEV=1` forces the encrypted store as the sole backend, bypassing the keychain broker entirely even when the broker socket is available. This serves two purposes:
+
+1. **Development ergonomics.** Developers running the daemon outside the macOS app context (e.g., `bun run` directly) avoid broker connectivity issues and keychain prompt noise.
+2. **Deterministic testing.** Tests and CI environments get predictable encrypted-store-only behavior without depending on macOS Keychain infrastructure.
+
+When `VELLUM_DEV` is not set or is set to any value other than `"1"`, backend resolution proceeds normally (broker availability check).
+
 ## Callsite Policy
+
+### Async-only policy
+
+**All credential access uses the async functions** (`getSecureKeyAsync`, `setSecureKeyAsync`, `deleteSecureKeyAsync`). These route through the resolved `CredentialBackend`, with legacy fallback reads to the encrypted store when the keychain backend is primary. The migration from sync to async is complete: the sync variants (`getSecureKey`, `setSecureKey`, `deleteSecureKey`) have been deleted and no longer exist in the codebase.
 
 ### Runtime request handlers (secret-routes, etc.)
 
-All runtime HTTP handlers that write or delete secrets **must** use the async APIs (`setSecureKeyAsync`, `deleteSecureKeyAsync`). These are the primary entry points for macOS app flows and must go through the broker to reach keychain.
-
-### CLI commands (keys, credentials)
-
-CLI commands may use sync APIs (`setSecureKey`, `deleteSecureKey`, `getSecureKey`) since they run outside the macOS app process and the broker may not be available. The sync path uses the encrypted store directly, which is correct for headless/CLI environments.
+All runtime HTTP handlers that write or delete secrets use the async APIs (`setSecureKeyAsync`, `deleteSecureKeyAsync`). These are the primary entry points for macOS app flows and route through the resolved backend.
 
 ### Gateway (credential-reader)
 
-The gateway reads credentials via async `readCredential()` which tries the broker first (native async UDS), falling back to the encrypted store. The gateway never writes credentials — that responsibility belongs to the assistant runtime.
+The gateway reads credentials via async `readCredential()` which tries the broker first (native async UDS), falling back to the encrypted store. The gateway never writes credentials -- that responsibility belongs to the assistant runtime.
 
-### Startup / initialization code
+### Sync function removal
 
-Sync APIs are acceptable for startup paths (e.g. provider initialization, config loading) where async is impractical or the broker may not yet be available.
+The sync secure-key functions (`getSecureKey`, `setSecureKey`, `deleteSecureKey`) have been deleted. All code uses the async variants (`getSecureKeyAsync`, `setSecureKeyAsync`, `deleteSecureKeyAsync`).
 
 ## Migration
 
-Existing encrypted store keys remain accessible — the encrypted store is always consulted as a **read** fallback when the broker does not have a key. Successful writes from async code paths go to both the broker (keychain) and the encrypted store, keeping both in sync. If a broker write or delete fails, the operation returns `false` without falling back to the encrypted store alone, preventing stale divergence. Callers must inspect the boolean return value and handle failures (typically by logging a warning). There is no one-time migration step required.
+Existing encrypted store keys remain accessible through the legacy read fallback. When the keychain backend is the resolved primary, reads that miss in the keychain fall back to the encrypted store, so keys written before the single-writer policy are still reachable without a one-time migration step.
+
+Over time, as keys are re-written through normal credential update flows, they will be written only to the resolved primary backend. The legacy fallback read path will eventually become a no-op as all keys migrate naturally to the keychain.
+
+Deletes always clean up both stores, so stale keys in the non-primary store are removed as part of normal credential lifecycle operations.
 
 The old `keychain.ts` module (which called `/usr/bin/security` CLI directly) has been deleted. The old keychain-to-encrypted migration code has been removed. All keychain access now flows exclusively through the broker.
+
+## Extensibility
+
+The `CredentialBackend` interface is the extension point for adding new storage backends. To add a new backend (e.g., Linux secret service via libsecret/D-Bus, 1Password CLI, cloud KMS):
+
+1. Implement the `CredentialBackend` interface in a new module.
+2. Wire the new backend into the resolution logic in `secure-keys.ts`.
+3. The rest of the codebase is unaffected -- all callers go through the existing async API surface.
+
+No changes to callsites, the gateway, or the broker protocol are needed when adding a backend.

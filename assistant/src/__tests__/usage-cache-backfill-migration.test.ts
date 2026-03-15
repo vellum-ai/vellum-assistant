@@ -46,7 +46,7 @@ import {
 import { migrateBackfillUsageCacheAccounting } from "../memory/migrations/140-backfill-usage-cache-accounting.js";
 import type { PricingUsage } from "../usage/types.js";
 import {
-  estimateCost,
+  resolvePricing,
   resolvePricingForUsageWithOverrides,
 } from "../util/pricing.js";
 
@@ -187,7 +187,8 @@ describe("migrateBackfillUsageCacheAccounting", () => {
       model,
       inputTokens: 700,
       outputTokens: 70,
-      estimatedCostUsd: estimateCost(700, 70, model, "anthropic"),
+      estimatedCostUsd:
+        resolvePricing("anthropic", model, 700, 70).estimatedCostUsd ?? 0,
     });
     insertRequestLog({
       id: "log-prev",
@@ -201,12 +202,9 @@ describe("migrateBackfillUsageCacheAccounting", () => {
       }),
     });
 
-    const flattenedHistoricalCost = estimateCost(
-      3_420_218,
-      11_768,
-      model,
-      "anthropic",
-    );
+    const flattenedHistoricalCost =
+      resolvePricing("anthropic", model, 3_420_218, 11_768).estimatedCostUsd ??
+      0;
     insertUsageEvent({
       id: "usage-target",
       conversationId: "conv-usage-1",
@@ -245,7 +243,8 @@ describe("migrateBackfillUsageCacheAccounting", () => {
       }),
     });
 
-    const noLogCost = estimateCost(1_234, 56, model, "anthropic");
+    const noLogCost =
+      resolvePricing("anthropic", model, 1_234, 56).estimatedCostUsd ?? 0;
     insertUsageEvent({
       id: "usage-no-logs",
       conversationId: "conv-usage-2",
@@ -346,7 +345,8 @@ describe("migrateBackfillUsageCacheAccounting", () => {
       model,
       inputTokens: 1_200,
       outputTokens: 80,
-      estimatedCostUsd: estimateCost(1_200, 80, model, "anthropic"),
+      estimatedCostUsd:
+        resolvePricing("anthropic", model, 1_200, 80).estimatedCostUsd ?? 0,
     });
     insertRequestLog({
       id: "log-target",

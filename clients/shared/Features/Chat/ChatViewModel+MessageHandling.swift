@@ -1723,13 +1723,19 @@ extension ChatViewModel {
                 // Only reset sending state if no other messages are in-flight.
                 // Check for genuinely in-flight statuses (.processing, .queued)
                 // — NOT .sent, which is the default/terminal status for all
-                // previously delivered messages.
-                let hasActiveSend = isSending && messages.contains(where: { msg in
-                    guard msg.role == .user else { return false }
-                    if msg.status == .processing { return true }
-                    if case .queued = msg.status { return true }
-                    return false
-                })
+                // previously delivered messages. Also treat an active assistant
+                // response (currentAssistantMessageId != nil) as in-flight,
+                // because direct (non-queued) sends keep the user bubble at
+                // .sent while isSending is true and the assistant streams.
+                let hasActiveSend = isSending && (
+                    currentAssistantMessageId != nil ||
+                    messages.contains(where: { msg in
+                        guard msg.role == .user else { return false }
+                        if msg.status == .processing { return true }
+                        if case .queued = msg.status { return true }
+                        return false
+                    })
+                )
                 if !hasActiveSend {
                     isThinking = false
                     isSending = false
@@ -1893,6 +1899,7 @@ extension ChatViewModel {
             assistantActivityAnchor = msg.anchor
             assistantActivityReason = msg.reason
             assistantStatusText = msg.statusText
+            isCompacting = msg.reason == "context_compacting"
             switch msg.phase {
             case "thinking":
                 isThinking = true

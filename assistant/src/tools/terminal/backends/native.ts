@@ -21,14 +21,33 @@ const HASH_DISPLAY_LENGTH = 12;
  * - Allows write access only to the working directory and temp dirs
  * - Blocks outbound network access (unless proxied)
  * - Blocks process debugging (ptrace)
+ * - Optionally blocks read access to specific protected paths (CES lockdown)
  *
  * When `allowNetwork` is true the `(deny network*)` rule is replaced with
  * `(allow network*)` so the process can reach the local credential proxy.
  */
-function buildSandboxProfile(allowNetwork: boolean): string {
+function buildSandboxProfile(
+  allowNetwork: boolean,
+  denyReadPaths?: string[],
+): string {
   const networkRule = allowNetwork
     ? ";; Allow network access (proxied mode — needed to reach the credential proxy)\n(allow network*)"
     : ";; Block network access\n(deny network*)";
+
+  // Build deny-read rules for protected paths (CES shell lockdown).
+  // These are placed AFTER the allow file-read* rule because SBPL uses
+  // last-match-wins semantics — the more specific deny overrides the
+  // general allow.
+  const denyReadRules =
+    denyReadPaths && denyReadPaths.length > 0
+      ? "\n;; CES shell lockdown: block reads of protected credential/transport paths\n" +
+        denyReadPaths
+          .map(
+            (p) =>
+              `(deny file-read* (subpath "${escapeSBPL(p)}") (with no-log))`,
+          )
+          .join("\n")
+      : "";
 
   return `
 (version 1)
@@ -36,9 +55,11 @@ function buildSandboxProfile(allowNetwork: boolean): string {
 
 ;; Allow read access to the filesystem (tools, libraries, etc.)
 (allow file-read*)
+${denyReadRules}
 
 ;; Allow write access to the working directory and its children
 (allow file-write*
+  (literal "/dev/null")
   (subpath "__WORKING_DIR__")
   (subpath "/private/tmp")
   (subpath "/tmp")
@@ -90,21 +111,28 @@ function escapeSBPL(path: string): string {
  * a hash of the path) to avoid race conditions when concurrent commands
  * use different working directories.
  */
-function getProfilePath(workingDir: string, allowNetwork: boolean): string {
+function getProfilePath(
+  workingDir: string,
+  allowNetwork: boolean,
+  denyReadPaths?: string[],
+): string {
   const dir = join(process.env.HOME ?? "/tmp", ".vellum");
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
-  // Include the network flag in the hash so proxied and non-proxied profiles
-  // for the same directory don't collide.
-  const hashInput = allowNetwork ? `${workingDir}:proxied` : workingDir;
+  // Include the network flag and deny-read paths in the hash so profiles
+  // with different configurations don't collide.
+  let hashInput = allowNetwork ? `${workingDir}:proxied` : workingDir;
+  if (denyReadPaths && denyReadPaths.length > 0) {
+    hashInput += `:deny-read:${denyReadPaths.sort().join(",")}`;
+  }
   const hash = createHash("sha256")
     .update(hashInput)
     .digest("hex")
     .slice(0, HASH_DISPLAY_LENGTH);
   const path = join(dir, `sandbox-profile-${hash}.sb`);
 
-  const profile = buildSandboxProfile(allowNetwork).replace(
+  const profile = buildSandboxProfile(allowNetwork, denyReadPaths).replace(
     /__WORKING_DIR__/g,
     () => escapeSBPL(workingDir),
   );
@@ -155,11 +183,13 @@ function isBwrapAvailable(): boolean {
  * - /dev bind-mounted for device access (needed by many tools)
  * - Network access blocked (--unshare-net)
  * - PID namespace isolated (--unshare-pid)
+ * - Optional tmpfs overlays on protected paths (CES lockdown)
  */
 function buildBwrapArgs(
   workingDir: string,
   command: string,
   allowNetwork: boolean,
+  denyReadPaths?: string[],
 ): string[] {
   const args = [
     // Filesystem: read-only root, writable working dir and temp
@@ -177,6 +207,15 @@ function buildBwrapArgs(
     "--proc",
     "/proc",
   ];
+
+  // CES shell lockdown: overlay protected paths with empty tmpfs mounts
+  // so the subprocess cannot read credential data, bootstrap sockets, or
+  // toolstore contents. The tmpfs mount hides the real directory contents.
+  if (denyReadPaths && denyReadPaths.length > 0) {
+    for (const p of denyReadPaths) {
+      args.push("--tmpfs", p);
+    }
+  }
 
   // Only isolate the network namespace when network access is not needed.
   // In proxied mode the process must be able to reach 127.0.0.1:<proxy-port>.
@@ -207,9 +246,10 @@ export class NativeBackend implements SandboxBackend {
     options?: WrapOptions,
   ): SandboxResult {
     const allowNetwork = options?.networkMode === "proxied";
+    const denyReadPaths = options?.denyReadPaths;
 
     if (isMacOS()) {
-      const profile = getProfilePath(workingDir, allowNetwork);
+      const profile = getProfilePath(workingDir, allowNetwork, denyReadPaths);
       return {
         command: "sandbox-exec",
         args: ["-f", profile, "bash", "-c", "--", command],
@@ -226,7 +266,7 @@ export class NativeBackend implements SandboxBackend {
       }
       return {
         command: "bwrap",
-        args: buildBwrapArgs(workingDir, command, allowNetwork),
+        args: buildBwrapArgs(workingDir, command, allowNetwork, denyReadPaths),
         sandboxed: true,
       };
     }

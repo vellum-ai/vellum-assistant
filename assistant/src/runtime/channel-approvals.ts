@@ -134,7 +134,7 @@ export function buildApprovalUIMetadata(
 /**
  * Map a channel-level `ApprovalAction` to the permission system's
  * `UserDecision` type. Temporary approval modes (`approve_10m`,
- * `approve_thread`) map directly to their `allow_*` counterparts so
+ * `approve_conversation`) map directly to their `allow_*` counterparts so
  * the permission pipeline can activate the appropriate override.
  */
 function mapApprovalActionToUserDecision(action: ApprovalAction): UserDecision {
@@ -143,8 +143,8 @@ function mapApprovalActionToUserDecision(action: ApprovalAction): UserDecision {
       return "deny";
     case "approve_10m":
       return "allow_10m";
-    case "approve_thread":
-      return "allow_thread";
+    case "approve_conversation":
+      return "allow_conversation";
     default:
       return "allow";
   }

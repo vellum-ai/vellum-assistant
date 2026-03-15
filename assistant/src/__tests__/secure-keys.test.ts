@@ -33,12 +33,15 @@ let mockBrokerStore: Map<string, string> = new Map();
 let mockBrokerGetError = false;
 let mockBrokerSetError = false;
 let mockBrokerDelError = false;
+let mockBrokerGetCalled = false;
+let mockBrokerSetCalled = false;
 
 mock.module("../security/keychain-broker-client.js", () => ({
   createBrokerClient: () => ({
     isAvailable: () => mockBrokerAvailable,
     ping: async () => (mockBrokerAvailable ? { pong: true } : null),
     get: async (account: string) => {
+      mockBrokerGetCalled = true;
       // null = broker error (fall back to encrypted store)
       if (mockBrokerGetError) return null;
       const value = mockBrokerStore.get(account);
@@ -46,9 +49,15 @@ mock.module("../security/keychain-broker-client.js", () => ({
       return { found: false };
     },
     set: async (account: string, value: string) => {
-      if (mockBrokerSetError) return false;
+      mockBrokerSetCalled = true;
+      if (mockBrokerSetError)
+        return {
+          status: "rejected" as const,
+          code: "KEYCHAIN_ERROR",
+          message: "mock error",
+        };
       mockBrokerStore.set(account, value);
-      return true;
+      return { status: "ok" as const };
     },
     del: async (account: string) => {
       if (mockBrokerDelError) return false;
@@ -60,18 +69,13 @@ mock.module("../security/keychain-broker-client.js", () => ({
   }),
 }));
 
+import * as encryptedStore from "../security/encrypted-store.js";
 import { _setStorePath } from "../security/encrypted-store.js";
 import {
   _resetBackend,
-  _setBackend,
-  deleteSecureKey,
   deleteSecureKeyAsync,
-  getBackendType,
-  getSecureKey,
   getSecureKeyAsync,
-  isDowngradedFromKeychain,
-  listSecureKeys,
-  setSecureKey,
+  listSecureKeysAsync,
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
 
@@ -95,6 +99,11 @@ describe("secure-keys", () => {
     mockBrokerGetError = false;
     mockBrokerSetError = false;
     mockBrokerDelError = false;
+    mockBrokerGetCalled = false;
+    mockBrokerSetCalled = false;
+
+    // Ensure VELLUM_DEV is NOT set so broker tests work by default
+    delete process.env.VELLUM_DEV;
 
     if (existsSync(TEST_DIR)) {
       rmSync(TEST_DIR, { recursive: true });
@@ -106,6 +115,7 @@ describe("secure-keys", () => {
   afterEach(() => {
     _setStorePath(null);
     _resetBackend();
+    delete process.env.VELLUM_DEV;
   });
 
   afterAll(() => {
@@ -115,285 +125,347 @@ describe("secure-keys", () => {
   });
 
   // -----------------------------------------------------------------------
-  // Backend selection
+  // CRUD operations (via encrypted store backend — broker unavailable)
   // -----------------------------------------------------------------------
-  describe("backend selection", () => {
-    test("returns encrypted when broker is unavailable", () => {
-      expect(getBackendType()).toBe("encrypted");
+  describe("CRUD with encrypted backend (broker unavailable)", () => {
+    test("set and get a key", async () => {
+      await setSecureKeyAsync("openai", "sk-openai-789");
+      expect(await getSecureKeyAsync("openai")).toBe("sk-openai-789");
     });
 
-    test("returns broker when broker is available", () => {
-      mockBrokerAvailable = true;
-      expect(getBackendType()).toBe("broker");
+    test("get returns undefined for nonexistent key", async () => {
+      expect(await getSecureKeyAsync("nonexistent")).toBeUndefined();
     });
 
-    test("isDowngradedFromKeychain always returns false", () => {
-      expect(isDowngradedFromKeychain()).toBe(false);
+    test("delete removes a key", async () => {
+      await setSecureKeyAsync("gemini", "gem-key");
+      expect(await deleteSecureKeyAsync("gemini")).toBe("deleted");
+      expect(await getSecureKeyAsync("gemini")).toBeUndefined();
+    });
+
+    test("delete returns not-found for nonexistent key", async () => {
+      expect(await deleteSecureKeyAsync("missing")).toBe("not-found");
     });
   });
 
   // -----------------------------------------------------------------------
-  // CRUD operations (via encrypted store backend — sync)
+  // Single-writer: writes go to keychain only when broker available
   // -----------------------------------------------------------------------
-  describe("CRUD with encrypted backend (sync)", () => {
-    test("set and get a key", () => {
-      setSecureKey("openai", "sk-openai-789");
-      expect(getSecureKey("openai")).toBe("sk-openai-789");
-    });
-
-    test("get returns undefined for nonexistent key", () => {
-      expect(getSecureKey("nonexistent")).toBeUndefined();
-    });
-
-    test("delete removes a key", () => {
-      setSecureKey("gemini", "gem-key");
-      expect(deleteSecureKey("gemini")).toBe("deleted");
-      expect(getSecureKey("gemini")).toBeUndefined();
-    });
-
-    test("delete returns not-found for nonexistent key", () => {
-      expect(deleteSecureKey("missing")).toBe("not-found");
-    });
-
-    test("listSecureKeys returns all keys", () => {
-      setSecureKey("anthropic", "val1");
-      setSecureKey("openai", "val2");
-      const keys = listSecureKeys();
-      expect(keys).toContain("anthropic");
-      expect(keys).toContain("openai");
-      expect(keys.length).toBe(2);
-    });
-  });
-
-  // -----------------------------------------------------------------------
-  // Sync variants always use encrypted store even when broker is available
-  // -----------------------------------------------------------------------
-  describe("sync variants ignore broker", () => {
-    test("getSecureKey uses encrypted store even when broker is available", () => {
+  describe("single-writer with broker available", () => {
+    test("setSecureKeyAsync writes to broker only (not encrypted store)", async () => {
       mockBrokerAvailable = true;
-      mockBrokerStore.set("api-key", "broker-value");
-      // Sync getter should not see broker-only keys
-      expect(getSecureKey("api-key")).toBeUndefined();
-      // But encrypted store keys should work
-      setSecureKey("api-key", "encrypted-value");
-      expect(getSecureKey("api-key")).toBe("encrypted-value");
+      _resetBackend();
+
+      const result = await setSecureKeyAsync("api-key", "new-value");
+      expect(result).toBe(true);
+      // Value is in the broker store
+      expect(mockBrokerStore.get("api-key")).toBe("new-value");
+      // Value should NOT be in the encrypted store (single-writer)
+      expect(encryptedStore.getKey("api-key")).toBeUndefined();
     });
 
-    test("setSecureKey uses encrypted store even when broker is available", () => {
+    test("setSecureKeyAsync returns false on broker set error", async () => {
       mockBrokerAvailable = true;
-      setSecureKey("api-key", "encrypted-value");
-      expect(getSecureKey("api-key")).toBe("encrypted-value");
-      // Should not have written to broker
+      mockBrokerSetError = true;
+      _resetBackend();
+
+      const result = await setSecureKeyAsync("api-key", "new-value");
+      expect(result).toBe(false);
       expect(mockBrokerStore.has("api-key")).toBe(false);
     });
-
-    test("deleteSecureKey uses encrypted store even when broker is available", () => {
-      mockBrokerAvailable = true;
-      mockBrokerStore.set("api-key", "broker-value");
-      setSecureKey("api-key", "encrypted-value");
-      deleteSecureKey("api-key");
-      expect(getSecureKey("api-key")).toBeUndefined();
-      // Broker value should be untouched
-      expect(mockBrokerStore.has("api-key")).toBe(true);
-    });
   });
 
   // -----------------------------------------------------------------------
-  // Async variants — broker available path
+  // Reads: primary backend first, legacy fallback to encrypted store
   // -----------------------------------------------------------------------
-  describe("async variants with broker available", () => {
-    test("getSecureKeyAsync returns broker value when available", async () => {
+  describe("reads with broker available", () => {
+    test("getSecureKeyAsync reads from broker (primary backend)", async () => {
       mockBrokerAvailable = true;
+      _resetBackend();
+
       mockBrokerStore.set("api-key", "broker-value");
-      setSecureKey("api-key", "encrypted-value");
-      expect(await getSecureKeyAsync("api-key")).toBe("broker-value");
+      const result = await getSecureKeyAsync("api-key");
+      expect(result).toBe("broker-value");
+      expect(mockBrokerGetCalled).toBe(true);
     });
 
-    test("getSecureKeyAsync falls back to encrypted store when broker reports not-found", async () => {
+    test("getSecureKeyAsync falls back to encrypted store for legacy keys", async () => {
       mockBrokerAvailable = true;
-      // Broker has nothing for this key — returns { found: false }.
-      // Keys may exist only in the encrypted store (written while broker
-      // was unavailable or via sync setSecureKey), so we must fall back.
-      setSecureKey("api-key", "encrypted-value");
-      expect(await getSecureKeyAsync("api-key")).toBe("encrypted-value");
+      _resetBackend();
+
+      // Pre-populate encrypted store directly (legacy key not in broker)
+      encryptedStore.setKey("legacy-key", "legacy-value");
+
+      const result = await getSecureKeyAsync("legacy-key");
+      expect(result).toBe("legacy-value");
+      // Broker was checked first (returned nothing), then encrypted store
+      expect(mockBrokerGetCalled).toBe(true);
     });
 
-    test("getSecureKeyAsync returns undefined when neither broker nor encrypted store has key", async () => {
+    test("getSecureKeyAsync returns undefined when neither store has the key", async () => {
       mockBrokerAvailable = true;
-      // Neither store has the key — should return undefined
+      _resetBackend();
+
       expect(await getSecureKeyAsync("missing-key")).toBeUndefined();
     });
 
-    test("getSecureKeyAsync falls back to encrypted store on broker error", async () => {
+    test("getSecureKeyAsync returns broker value even when encrypted store also has a value", async () => {
       mockBrokerAvailable = true;
-      mockBrokerGetError = true;
-      setSecureKey("api-key", "encrypted-value");
-      expect(await getSecureKeyAsync("api-key")).toBe("encrypted-value");
-    });
+      _resetBackend();
 
-    test("setSecureKeyAsync writes to broker and encrypted store", async () => {
-      mockBrokerAvailable = true;
-      const result = await setSecureKeyAsync("api-key", "new-value");
-      expect(result).toBe(true);
-      expect(mockBrokerStore.get("api-key")).toBe("new-value");
-      // Also persisted to encrypted store for sync callers
-      expect(getSecureKey("api-key")).toBe("new-value");
-    });
-
-    test("setSecureKeyAsync returns false on broker set error (no silent fallback)", async () => {
-      mockBrokerAvailable = true;
-      mockBrokerSetError = true;
-      const result = await setSecureKeyAsync("api-key", "new-value");
-      // Must return false — falling through to encrypted-only write would
-      // leave the broker with stale data that async readers still see.
-      expect(result).toBe(false);
-      expect(mockBrokerStore.has("api-key")).toBe(false);
-      // Encrypted store should NOT have been written either.
-      expect(getSecureKey("api-key")).toBeUndefined();
-    });
-
-    test("deleteSecureKeyAsync deletes from broker and encrypted store", async () => {
-      mockBrokerAvailable = true;
+      // Both stores have a value — broker (primary) should win
       mockBrokerStore.set("api-key", "broker-value");
-      setSecureKey("api-key", "encrypted-value");
+      encryptedStore.setKey("api-key", "encrypted-value");
+
+      const result = await getSecureKeyAsync("api-key");
+      expect(result).toBe("broker-value");
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Dev mode bypass — VELLUM_DEV=1 uses encrypted store only
+  // -----------------------------------------------------------------------
+  describe("dev mode bypass (VELLUM_DEV=1)", () => {
+    test("setSecureKeyAsync writes to encrypted store only, ignoring broker", async () => {
+      process.env.VELLUM_DEV = "1";
+      mockBrokerAvailable = true;
+      _resetBackend();
+
+      const result = await setSecureKeyAsync("api-key", "dev-value");
+      expect(result).toBe(true);
+      // Written to encrypted store
+      expect(encryptedStore.getKey("api-key")).toBe("dev-value");
+      // NOT written to broker
+      expect(mockBrokerStore.has("api-key")).toBe(false);
+      expect(mockBrokerSetCalled).toBe(false);
+    });
+
+    test("getSecureKeyAsync reads from encrypted store only, ignoring broker", async () => {
+      process.env.VELLUM_DEV = "1";
+      mockBrokerAvailable = true;
+      _resetBackend();
+
+      mockBrokerStore.set("api-key", "broker-value");
+      encryptedStore.setKey("api-key", "encrypted-value");
+
+      const result = await getSecureKeyAsync("api-key");
+      expect(result).toBe("encrypted-value");
+      // Broker should not have been contacted
+      expect(mockBrokerGetCalled).toBe(false);
+    });
+
+    test("getSecureKeyAsync returns undefined when encrypted store is empty (does not check broker)", async () => {
+      process.env.VELLUM_DEV = "1";
+      mockBrokerAvailable = true;
+      _resetBackend();
+
+      mockBrokerStore.set("api-key", "broker-value");
+
+      const result = await getSecureKeyAsync("api-key");
+      expect(result).toBeUndefined();
+      expect(mockBrokerGetCalled).toBe(false);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Delete always attempts both stores
+  // -----------------------------------------------------------------------
+  describe("delete attempts both stores", () => {
+    test("deleteSecureKeyAsync removes from both stores when broker available", async () => {
+      mockBrokerAvailable = true;
+      _resetBackend();
+
+      mockBrokerStore.set("api-key", "broker-value");
+      encryptedStore.setKey("api-key", "encrypted-value");
+
       const result = await deleteSecureKeyAsync("api-key");
       expect(result).toBe("deleted");
       expect(mockBrokerStore.has("api-key")).toBe(false);
-      expect(getSecureKey("api-key")).toBeUndefined();
+      expect(encryptedStore.getKey("api-key")).toBeUndefined();
     });
 
-    test("deleteSecureKeyAsync returns error on broker del error (no silent fallback)", async () => {
+    test("deleteSecureKeyAsync returns deleted when only encrypted store has key", async () => {
+      // Broker unavailable — only encrypted store
+      encryptedStore.setKey("api-key", "encrypted-value");
+
+      const result = await deleteSecureKeyAsync("api-key");
+      expect(result).toBe("deleted");
+      expect(encryptedStore.getKey("api-key")).toBeUndefined();
+    });
+
+    test("deleteSecureKeyAsync returns error when broker delete fails", async () => {
       mockBrokerAvailable = true;
       mockBrokerDelError = true;
-      setSecureKey("api-key", "encrypted-value");
+      _resetBackend();
+
+      mockBrokerStore.set("api-key", "broker-value");
+      encryptedStore.setKey("api-key", "encrypted-value");
+
       const result = await deleteSecureKeyAsync("api-key");
-      // Must return "error" — falling through to encrypted-only delete would
-      // leave the broker with the key, and async readers would still see it.
       expect(result).toBe("error");
-      // Encrypted store should NOT have been modified either.
-      expect(getSecureKey("api-key")).toBe("encrypted-value");
-    });
-  });
-
-  // -----------------------------------------------------------------------
-  // Async variants — broker unavailable path
-  // -----------------------------------------------------------------------
-  describe("async variants with broker unavailable", () => {
-    test("getSecureKeyAsync uses encrypted store", async () => {
-      setSecureKey("api-key", "encrypted-value");
-      expect(await getSecureKeyAsync("api-key")).toBe("encrypted-value");
     });
 
-    test("getSecureKeyAsync returns undefined for missing key", async () => {
-      expect(await getSecureKeyAsync("missing")).toBeUndefined();
-    });
+    test("deleteSecureKeyAsync in dev mode still attempts both stores", async () => {
+      process.env.VELLUM_DEV = "1";
+      mockBrokerAvailable = true;
+      _resetBackend();
 
-    test("setSecureKeyAsync uses encrypted store", async () => {
-      const result = await setSecureKeyAsync("api-key", "new-value");
-      expect(result).toBe(true);
-      expect(getSecureKey("api-key")).toBe("new-value");
-    });
+      mockBrokerStore.set("api-key", "broker-value");
+      encryptedStore.setKey("api-key", "encrypted-value");
 
-    test("deleteSecureKeyAsync uses encrypted store", async () => {
-      setSecureKey("api-key", "value");
       const result = await deleteSecureKeyAsync("api-key");
       expect(result).toBe("deleted");
-      expect(getSecureKey("api-key")).toBeUndefined();
+      expect(mockBrokerStore.has("api-key")).toBe(false);
+      expect(encryptedStore.getKey("api-key")).toBeUndefined();
+    });
+
+    test("deleteSecureKeyAsync returns not-found when key missing from both stores", async () => {
+      // Broker unavailable, encrypted store empty
+      const result = await deleteSecureKeyAsync("missing-key");
+      expect(result).toBe("not-found");
     });
   });
 
   // -----------------------------------------------------------------------
-  // Stale-value prevention — broker-first reads after credential updates
+  // Legacy read fallback
+  // -----------------------------------------------------------------------
+  describe("legacy read fallback", () => {
+    test("returns encrypted store value when broker has no key (legacy migration)", async () => {
+      mockBrokerAvailable = true;
+      _resetBackend();
+
+      // Simulate a legacy key that was written to encrypted store before
+      // the single-writer migration — broker doesn't have it.
+      encryptedStore.setKey("legacy-account", "legacy-secret");
+
+      const result = await getSecureKeyAsync("legacy-account");
+      expect(result).toBe("legacy-secret");
+    });
+
+    test("does not fall back to encrypted store when already using encrypted store backend", async () => {
+      // Broker unavailable — primary backend IS the encrypted store.
+      // No fallback needed.
+      encryptedStore.setKey("account", "value");
+      encryptedStore.setKey("other-account", "other-value");
+
+      // Should read directly from encrypted store (primary)
+      const result = await getSecureKeyAsync("account");
+      expect(result).toBe("value");
+      // Broker should not have been contacted
+      expect(mockBrokerGetCalled).toBe(false);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Stale-value prevention
   // -----------------------------------------------------------------------
   describe("stale-value prevention", () => {
-    test("setSecureKeyAsync updates broker so broker-first read returns new value", async () => {
+    test("setSecureKeyAsync failure does not corrupt broker store", async () => {
       mockBrokerAvailable = true;
-      // Simulate broker holding an old value
-      mockBrokerStore.set("api-key", "old-broker-value");
-      setSecureKey("api-key", "old-encrypted-value");
+      _resetBackend();
 
-      // Update via async path (writes both broker + encrypted)
-      const ok = await setSecureKeyAsync("api-key", "new-value");
-      expect(ok).toBe(true);
-
-      // Broker-first read should return the new value, not stale old value
-      const value = await getSecureKeyAsync("api-key");
-      expect(value).toBe("new-value");
-      // Both stores should agree
-      expect(mockBrokerStore.get("api-key")).toBe("new-value");
-      expect(getSecureKey("api-key")).toBe("new-value");
-    });
-
-    test("deleteSecureKeyAsync removes from broker so broker-first read falls through", async () => {
-      mockBrokerAvailable = true;
-      mockBrokerStore.set("api-key", "old-broker-value");
-      setSecureKey("api-key", "old-encrypted-value");
-
-      // Delete via async path (deletes from both broker + encrypted)
-      const result = await deleteSecureKeyAsync("api-key");
-      expect(result).toBe("deleted");
-
-      // Broker-first read should not find the key in either store
-      const value = await getSecureKeyAsync("api-key");
-      expect(value).toBeUndefined();
-    });
-
-    test("sync setSecureKey does NOT update broker — stale read demonstrates the problem", async () => {
-      mockBrokerAvailable = true;
-      mockBrokerStore.set("api-key", "old-broker-value");
-
-      // Sync write only updates encrypted store, NOT broker
-      setSecureKey("api-key", "new-encrypted-value");
-
-      // Broker-first read still returns the stale broker value
-      const value = await getSecureKeyAsync("api-key");
-      expect(value).toBe("old-broker-value");
-      // This is the exact bug that async migration fixes
-    });
-
-    test("setSecureKeyAsync failure leaves both stores unchanged", async () => {
-      mockBrokerAvailable = true;
-      mockBrokerSetError = true;
+      // Pre-seed broker with original value
       mockBrokerStore.set("api-key", "original-value");
-      setSecureKey("api-key", "original-value");
 
+      // Now fail the next set
+      mockBrokerSetError = true;
       const ok = await setSecureKeyAsync("api-key", "new-value");
       expect(ok).toBe(false);
 
-      // Both stores should retain original value — no partial update
+      // Broker should still have original value
       expect(mockBrokerStore.get("api-key")).toBe("original-value");
-      expect(getSecureKey("api-key")).toBe("original-value");
-    });
-
-    test("deleteSecureKeyAsync failure leaves both stores unchanged", async () => {
-      mockBrokerAvailable = true;
-      mockBrokerDelError = true;
-      mockBrokerStore.set("api-key", "value");
-      setSecureKey("api-key", "value");
-
-      const result = await deleteSecureKeyAsync("api-key");
-      expect(result).toBe("error");
-
-      // Both stores should retain the key — no partial deletion
-      expect(mockBrokerStore.has("api-key")).toBe(true);
-      expect(getSecureKey("api-key")).toBe("value");
     });
   });
 
   // -----------------------------------------------------------------------
-  // _setBackend / _resetBackend (no-ops kept for test compat)
+  // listSecureKeysAsync — merged/deduplicated key listing
   // -----------------------------------------------------------------------
-  describe("_setBackend", () => {
-    test("_setBackend is a no-op but does not throw", () => {
-      _setBackend("encrypted");
-      setSecureKey("test", "value");
-      expect(existsSync(STORE_PATH)).toBe(true);
+  describe("listSecureKeysAsync", () => {
+    test("returns merged, deduplicated keys when broker is primary and encrypted store has legacy keys", async () => {
+      mockBrokerAvailable = true;
+      _resetBackend();
+
+      // Broker has some keys
+      mockBrokerStore.set("broker-key-1", "val1");
+      mockBrokerStore.set("shared-key", "broker-val");
+
+      // Encrypted store has legacy keys (some overlapping)
+      encryptedStore.setKey("legacy-key-1", "val2");
+      encryptedStore.setKey("shared-key", "enc-val");
+
+      const keys = await listSecureKeysAsync();
+      expect(keys).toContain("broker-key-1");
+      expect(keys).toContain("legacy-key-1");
+      expect(keys).toContain("shared-key");
+      // Should be exactly 3 unique keys (no duplicates)
+      expect(keys.length).toBe(3);
     });
 
-    test("_resetBackend is a no-op but does not throw", () => {
+    test("returns only encrypted store keys when broker is unavailable", async () => {
+      // Broker unavailable (default state) — primary backend is encrypted store
+      encryptedStore.setKey("enc-key-1", "val1");
+      encryptedStore.setKey("enc-key-2", "val2");
+
+      const keys = await listSecureKeysAsync();
+      expect(keys).toContain("enc-key-1");
+      expect(keys).toContain("enc-key-2");
+      expect(keys.length).toBe(2);
+    });
+
+    test("returns only encrypted store keys when VELLUM_DEV=1 (even if broker available)", async () => {
+      process.env.VELLUM_DEV = "1";
+      mockBrokerAvailable = true;
       _resetBackend();
-      setSecureKey("test", "value");
-      expect(getSecureKey("test")).toBe("value");
+
+      // Broker has keys that should be ignored
+      mockBrokerStore.set("broker-only", "val1");
+
+      // Encrypted store has keys
+      encryptedStore.setKey("dev-key-1", "val2");
+      encryptedStore.setKey("dev-key-2", "val3");
+
+      const keys = await listSecureKeysAsync();
+      expect(keys).toContain("dev-key-1");
+      expect(keys).toContain("dev-key-2");
+      // broker-only key should NOT appear since primary backend is encrypted store
+      expect(keys).not.toContain("broker-only");
+      expect(keys.length).toBe(2);
+    });
+
+    test("returns broker-only keys when encrypted store is empty", async () => {
+      mockBrokerAvailable = true;
+      _resetBackend();
+
+      mockBrokerStore.set("broker-key-1", "val1");
+      mockBrokerStore.set("broker-key-2", "val2");
+
+      const keys = await listSecureKeysAsync();
+      expect(keys).toContain("broker-key-1");
+      expect(keys).toContain("broker-key-2");
+      expect(keys.length).toBe(2);
+    });
+
+    test("deduplicates keys that exist in both stores", async () => {
+      mockBrokerAvailable = true;
+      _resetBackend();
+
+      // Same key in both stores
+      mockBrokerStore.set("api-key", "broker-val");
+      encryptedStore.setKey("api-key", "enc-val");
+
+      const keys = await listSecureKeysAsync();
+      expect(keys).toContain("api-key");
+      // Only one copy, not two
+      expect(keys.length).toBe(1);
+      expect(keys.filter((k) => k === "api-key").length).toBe(1);
+    });
+
+    test("returns empty array when both stores are empty", async () => {
+      mockBrokerAvailable = true;
+      _resetBackend();
+
+      const keys = await listSecureKeysAsync();
+      expect(keys).toEqual([]);
     });
   });
 });

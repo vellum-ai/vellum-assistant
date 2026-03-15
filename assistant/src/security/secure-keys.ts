@@ -1,175 +1,171 @@
 /**
- * Unified secure key storage — routes through the keychain broker when
- * available (macOS app embedded), with transparent fallback to the
- * encrypted-at-rest file store.
+ * Unified secure key storage — single-writer routing through CredentialBackend
+ * adapters.
  *
- * Async variants try the broker first; sync variants always use the
- * encrypted store (startup code paths cannot do async I/O).
+ * Backend selection (`resolveBackend`) is the single decision point:
+ *   - Production (VELLUM_DEV unset or "0"): keychain backend when available.
+ *   - Dev mode (VELLUM_DEV=1): encrypted file store always.
+ *
+ * Writes go to exactly one backend (no dual-writing). Reads in keychain mode
+ * fall back to the encrypted store for keys that haven't been migrated yet.
+ * Deletes clean up both stores regardless of mode.
  */
 
-import * as encryptedStore from "./encrypted-store.js";
-import type { KeychainBrokerClient } from "./keychain-broker-client.js";
-import { createBrokerClient } from "./keychain-broker-client.js";
+import type {
+  SecureKeyBackend,
+  SecureKeyDeleteResult,
+} from "@vellumai/credential-storage";
 
-let _broker: KeychainBrokerClient | undefined;
+import { getLogger } from "../util/logger.js";
+import type { CredentialBackend, DeleteResult } from "./credential-backend.js";
+import {
+  createEncryptedStoreBackend,
+  createKeychainBackend,
+} from "./credential-backend.js";
 
-function getBroker(): KeychainBrokerClient {
-  if (!_broker) _broker = createBrokerClient();
-  return _broker;
+export type { DeleteResult } from "./credential-backend.js";
+
+/**
+ * Re-export shared-package secure-key abstractions so downstream consumers
+ * can import from this module without a direct @vellumai/credential-storage
+ * dependency.
+ */
+export type { SecureKeyBackend, SecureKeyDeleteResult };
+
+const log = getLogger("secure-keys");
+
+let _keychain: CredentialBackend | undefined;
+let _encryptedStore: CredentialBackend | undefined;
+let _resolvedBackend: CredentialBackend | undefined;
+
+function getKeychainBackend(): CredentialBackend {
+  if (!_keychain) _keychain = createKeychainBackend();
+  return _keychain;
+}
+
+function getEncryptedStoreBackend(): CredentialBackend {
+  if (!_encryptedStore) _encryptedStore = createEncryptedStoreBackend();
+  return _encryptedStore;
+}
+
+/**
+ * Resolve the primary credential backend for this process.
+ * Production (VELLUM_DEV unset or "0") uses keychain when available.
+ * Dev mode (VELLUM_DEV=1) always uses the encrypted file store.
+ *
+ * Once resolved, the backend does not change during the process lifetime.
+ * Call `_resetBackend()` in tests to clear the cached resolution.
+ */
+function resolveBackend(): CredentialBackend {
+  if (!_resolvedBackend) {
+    if (process.env.VELLUM_DEV !== "1" && getKeychainBackend().isAvailable()) {
+      _resolvedBackend = getKeychainBackend();
+    } else {
+      _resolvedBackend = getEncryptedStoreBackend();
+    }
+  }
+  return _resolvedBackend;
+}
+
+/**
+ * List all account names across both backends (async).
+ *
+ * When the primary backend is the keychain, this merges keys from the keychain
+ * and the encrypted store (for legacy keys that haven't been migrated). The
+ * result is deduplicated. When the primary backend is already the encrypted
+ * store, only that store is queried.
+ */
+export async function listSecureKeysAsync(): Promise<string[]> {
+  const backend = resolveBackend();
+  const primaryKeys = await backend.list();
+
+  // If primary backend is NOT the encrypted store, also check
+  // the encrypted store for legacy keys that haven't been migrated.
+  if (backend !== getEncryptedStoreBackend()) {
+    const encKeys = await getEncryptedStoreBackend().list();
+    const merged = new Set([...primaryKeys, ...encKeys]);
+    return Array.from(merged);
+  }
+
+  return primaryKeys;
 }
 
 // ---------------------------------------------------------------------------
-// Sync variants — encrypted store only (startup / sync call sites)
+// Async CRUD — single-writer routing
 // ---------------------------------------------------------------------------
 
 /**
- * Retrieve a secret from secure storage (sync — encrypted store only).
- * Returns `undefined` if the key doesn't exist or on error.
- */
-export function getSecureKey(account: string): string | undefined {
-  return encryptedStore.getKey(account);
-}
-
-/**
- * Store a secret in secure storage (sync — encrypted store only).
- * Returns `true` on success, `false` on failure.
- */
-export function setSecureKey(account: string, value: string): boolean {
-  return encryptedStore.setKey(account, value);
-}
-
-/** Result of a delete operation — distinguishes success, not-found, and error. */
-export type DeleteResult = "deleted" | "not-found" | "error";
-
-/**
- * Delete a secret from secure storage (sync — encrypted store only).
- * Returns `"deleted"` on success, `"not-found"` if key doesn't exist,
- * or `"error"` on failure.
- */
-export function deleteSecureKey(account: string): DeleteResult {
-  return encryptedStore.deleteKey(account);
-}
-
-/**
- * List all account names in secure storage (sync — encrypted store only).
- * Throws if the store file exists but cannot be read.
- */
-export function listSecureKeys(): string[] {
-  return encryptedStore.listKeys();
-}
-
-// ---------------------------------------------------------------------------
-// Backend introspection
-// ---------------------------------------------------------------------------
-
-/**
- * Return the currently resolved backend type.
- * Returns `"broker"` when the keychain broker is reachable, `"encrypted"` otherwise.
- */
-export function getBackendType(): "broker" | "encrypted" | null {
-  return getBroker().isAvailable() ? "broker" : "encrypted";
-}
-
-/**
- * Whether the backend was downgraded from keychain to encrypted at runtime.
- * Always returns false now that keychain CLI is removed.
- */
-export function isDowngradedFromKeychain(): boolean {
-  return false;
-}
-
-// ---------------------------------------------------------------------------
-// Async variants — try broker first, fall back to encrypted store
-// ---------------------------------------------------------------------------
-
-/**
- * Async version of `getSecureKey`. When the broker is available it is
- * queried first. A `null` return from the broker means error (fall back
- * to encrypted store). A `{ found: false }` also falls back to the
- * encrypted store — keys may exist only in `keys.enc` (e.g. written
- * while the broker was unavailable or via sync `setSecureKey`).
+ * Retrieve a secret from secure storage. Reads from the primary backend
+ * first. If the primary backend is the keychain, falls back to the encrypted
+ * store for legacy keys that haven't been migrated.
  */
 export async function getSecureKeyAsync(
   account: string,
 ): Promise<string | undefined> {
-  const broker = getBroker();
-  if (broker.isAvailable()) {
-    const result = await broker.get(account);
-    // null = broker error, fall back to encrypted store
-    if (result == null) return encryptedStore.getKey(account);
-    // Broker found the key — use it
-    if (result.found) return result.value;
-    // Broker says not found — check encrypted store as fallback
-    return encryptedStore.getKey(account);
+  const backend = resolveBackend();
+  const result = await backend.get(account);
+  if (result != null) return result;
+
+  // Legacy fallback: if primary backend is NOT the encrypted store,
+  // check the encrypted store for keys that haven't been migrated.
+  if (backend !== getEncryptedStoreBackend()) {
+    return await getEncryptedStoreBackend().get(account);
   }
-  return encryptedStore.getKey(account);
+
+  return undefined;
 }
 
 /**
- * Async version of `setSecureKey`. When the broker is available the key
- * is written there **and** to the encrypted store so that sync callers
- * have a consistent view. Returns `true` only when both stores succeed.
- *
- * If the broker is available but `broker.set()` fails we return `false`
- * immediately — falling through to an encrypted-store-only write would
- * leave the broker with stale data that async readers would still see.
+ * Store a secret in secure storage. Writes to exactly one backend —
+ * no dual-writing.
  */
 export async function setSecureKeyAsync(
   account: string,
   value: string,
 ): Promise<boolean> {
-  const broker = getBroker();
-  if (broker.isAvailable()) {
-    const brokerOk = await broker.set(account, value);
-    if (!brokerOk) return false;
-    // Broker succeeded — also persist to encrypted store for sync callers.
-    const encOk = encryptedStore.setKey(account, value);
-    return encOk;
+  const backend = resolveBackend();
+  const ok = await backend.set(account, value);
+  if (!ok) {
+    log.warn(
+      { account, backend: backend.name },
+      "Credential backend set failed",
+    );
   }
-  return encryptedStore.setKey(account, value);
+  return ok;
 }
 
 /**
- * Async version of `deleteSecureKey`. When the broker is available the
- * key is deleted there **and** from the encrypted store so that sync
- * callers have a consistent view.
- *
- * Returns `"deleted"` when the key was removed, `"not-found"` when it
- * didn't exist (idempotent), or `"error"` on a real backend failure.
- *
- * If the broker is available but `broker.del()` fails we return `"error"`
- * immediately — falling through to an encrypted-store-only delete would
- * leave the broker with the key, and async readers would still see it.
+ * Delete a secret from secure storage. Always attempts deletion on both
+ * the keychain backend (if available) and the encrypted store backend,
+ * regardless of routing mode. This cleans up legacy data from both stores.
  */
 export async function deleteSecureKeyAsync(
   account: string,
 ): Promise<DeleteResult> {
-  const broker = getBroker();
-  if (broker.isAvailable()) {
-    const brokerOk = await broker.del(account);
-    if (!brokerOk) return "error";
-    // Broker succeeded — also remove from encrypted store for sync callers.
-    const encResult = encryptedStore.deleteKey(account);
-    // Broker deletion succeeded; encrypted-store "not-found" is fine
-    // (key may only exist in the broker).
-    if (encResult === "error") return "error";
-    return "deleted";
+  const keychain = getKeychainBackend();
+  const enc = getEncryptedStoreBackend();
+
+  let keychainResult: DeleteResult = "not-found";
+  if (keychain.isAvailable()) {
+    keychainResult = await keychain.delete(account);
   }
-  return encryptedStore.deleteKey(account);
+
+  const encResult = await enc.delete(account);
+
+  // Return "error" if either errored
+  if (keychainResult === "error" || encResult === "error") return "error";
+  // Return "deleted" if either deleted
+  if (keychainResult === "deleted" || encResult === "deleted") return "deleted";
+  return "not-found";
 }
 
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 
-/** @internal Test-only: reset the cached broker so it's re-created. */
+/** @internal Test-only: reset the cached backends so they're re-created. */
 export function _resetBackend(): void {
-  _broker = undefined;
-}
-
-/** @internal Test-only: force a specific backend. Pass `undefined` to reset. */
-export function _setBackend(
-  _backend: "keychain" | "encrypted" | "broker" | null | undefined,
-): void {
-  // No-op — kept for test compatibility.
+  _keychain = undefined;
+  _encryptedStore = undefined;
+  _resolvedBackend = undefined;
 }

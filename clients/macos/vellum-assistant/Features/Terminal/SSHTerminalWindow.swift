@@ -15,17 +15,8 @@ final class SSHTerminalWindow {
 
     /// Opens a new terminal window for the given managed assistant.
     ///
-    /// - Parameters:
-    ///   - assistant: The managed assistant to connect to.
-    ///   - baseURL: Platform base URL for terminal API requests.
-    ///   - token: Session token for authentication.
-    ///   - organizationId: Organization ID header value (optional).
-    func open(
-        assistant: LockfileAssistant,
-        baseURL: String,
-        token: String,
-        organizationId: String?
-    ) {
+    /// - Parameter assistant: The managed assistant to connect to.
+    func open(assistant: LockfileAssistant) {
         // If a window is already open, bring it to front.
         if let existing = window, existing.isVisible {
             existing.makeKeyAndOrderFront(nil)
@@ -33,15 +24,8 @@ final class SSHTerminalWindow {
             return
         }
 
-        let apiClient = TerminalAPIClient(
-            baseURL: baseURL,
-            token: token,
-            organizationId: organizationId
-        )
-        let manager = TerminalSessionManager(
-            assistantId: assistant.assistantId,
-            apiClient: apiClient
-        )
+        let apiClient = TerminalAPIClient(assistantId: assistant.assistantId)
+        let manager = TerminalSessionManager(apiClient: apiClient)
         self.sessionManager = manager
 
         let contentView = SSHTerminalContentView(sessionManager: manager)
@@ -102,10 +86,10 @@ private struct SSHTerminalContentView: View {
             terminalToolbar
             SSHTerminalView(sessionManager: sessionManager)
                 .padding(8)
-                .background(VColor.backgroundSubtle)
+                .background(VColor.surfaceBase)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
     }
 
     private var terminalToolbar: some View {
@@ -113,31 +97,31 @@ private struct SSHTerminalContentView: View {
             statusIndicator
             Text(statusText)
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
 
             Spacer()
 
             if case .error = sessionManager.status {
-                VButton(label: "Reconnect", style: .secondary, size: .small) {
+                VButton(label: "Reconnect", style: .outlined) {
                     sessionManager.reconnect()
                 }
             }
 
             if case .connected = sessionManager.status {
-                VButton(label: "Disconnect", style: .secondary, size: .small) {
+                VButton(label: "Disconnect", style: .outlined) {
                     sessionManager.close()
                 }
             }
 
             if case .closed = sessionManager.status {
-                VButton(label: "Connect", style: .primary, size: .small) {
+                VButton(label: "Connect", style: .primary) {
                     sessionManager.connect()
                 }
             }
         }
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.xs)
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
     }
 
     @ViewBuilder
@@ -150,13 +134,13 @@ private struct SSHTerminalContentView: View {
     private var statusColor: Color {
         switch sessionManager.status {
         case .idle, .closed:
-            return .gray
+            return VColor.contentTertiary
         case .connecting, .reconnecting:
-            return .orange
+            return VColor.systemNegativeHover
         case .connected:
-            return .green
+            return VColor.systemPositiveStrong
         case .error:
-            return .red
+            return VColor.systemNegativeStrong
         }
     }
 

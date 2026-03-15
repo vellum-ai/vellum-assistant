@@ -578,20 +578,6 @@ describe("bundled browser skill", () => {
     );
   });
 
-  test("browser skill is user-invocable", () => {
-    const catalog = loadSkillCatalog();
-    const browserSkill = catalog.find((s) => s.id === "browser");
-    expect(browserSkill).toBeDefined();
-    expect(browserSkill!.userInvocable).toBe(true);
-  });
-
-  test("browser skill has model invocation enabled", () => {
-    const catalog = loadSkillCatalog();
-    const browserSkill = catalog.find((s) => s.id === "browser");
-    expect(browserSkill).toBeDefined();
-    expect(browserSkill!.disableModelInvocation).toBe(false);
-  });
-
   test("browser skill has a valid tool manifest with 14 tools", () => {
     const catalog = loadSkillCatalog();
     const browserSkill = catalog.find((s) => s.id === "browser");
@@ -674,13 +660,13 @@ describe("ingress-dependent setup skills declare public-ingress", () => {
     expect(includes).toContain("public-ingress");
   });
 
-  test("slack-oauth-setup includes browser", () => {
+  test("slack-oauth-setup includes collaborative-oauth-flow", () => {
     const includes = readSkillIncludes(
       FIRST_PARTY_SKILLS_DIR,
       "slack-oauth-setup",
     );
     expect(includes).toBeDefined();
-    expect(includes).toContain("browser");
+    expect(includes).toContain("collaborative-oauth-flow");
   });
 });
 
@@ -702,20 +688,6 @@ describe("bundled computer-use skill", () => {
     expect(cuSkill!.name).toBe("computer-use");
     expect(cuSkill!.displayName).toBe("Computer Use");
     expect(cuSkill!.bundled).toBe(true);
-  });
-
-  test("computer-use skill is not user-invocable", () => {
-    const catalog = loadSkillCatalog();
-    const cuSkill = catalog.find((s) => s.id === "computer-use");
-    expect(cuSkill).toBeDefined();
-    expect(cuSkill!.userInvocable).toBe(false);
-  });
-
-  test("computer-use skill has model invocation disabled", () => {
-    const catalog = loadSkillCatalog();
-    const cuSkill = catalog.find((s) => s.id === "computer-use");
-    expect(cuSkill).toBeDefined();
-    expect(cuSkill!.disableModelInvocation).toBe(true);
   });
 
   test("computer-use skill has a valid tool manifest with 11 tools", () => {

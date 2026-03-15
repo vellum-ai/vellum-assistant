@@ -147,7 +147,7 @@ struct VoiceOrbView: View {
     private var stateLabel: some View {
         Text(stateLabelText)
             .font(VFont.caption)
-            .foregroundColor(VColor.textSecondary)
+            .foregroundColor(VColor.contentSecondary)
             .animation(VAnimation.standard, value: stateLabelText)
     }
 
@@ -164,19 +164,19 @@ struct VoiceOrbView: View {
 
     private var orbColor: Color {
         switch state {
-        case .listening: return VColor.accent
-        case .speaking:  return VColor.success
-        case .thinking:  return Forest._700
-        case .idle:      return Moss._500
+        case .listening: return VColor.primaryBase
+        case .speaking:  return VColor.systemPositiveStrong
+        case .thinking:  return VColor.primaryHover
+        case .idle:      return VColor.contentDisabled
         }
     }
 
     private var orbGradient: [Color] {
         switch state {
-        case .listening: return [Forest._500, Forest._700]
-        case .speaking:  return [Emerald._500, Emerald._700]
-        case .thinking:  return [Forest._600, Forest._800]
-        case .idle:      return [Moss._500, Moss._400]
+        case .listening: return [VColor.primaryActive, VColor.primaryHover]
+        case .speaking:  return [VColor.systemPositiveStrong, VColor.systemPositiveStrong]
+        case .thinking:  return [VColor.primaryBase, VColor.borderActive]
+        case .idle:      return [VColor.contentDisabled, VColor.contentTertiary]
         }
     }
 
@@ -259,6 +259,6 @@ struct VoiceOrbView: View {
         }
     }
     .padding(40)
-    .background(VColor.background)
+    .background(VColor.surfaceOverlay)
 }
 #endif

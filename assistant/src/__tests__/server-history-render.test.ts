@@ -78,7 +78,7 @@ describe("renderHistoryContent", () => {
     );
   });
 
-  test("renders image attachments in history output", () => {
+  test("skips image attachment placeholder text (images sent as separate attachments)", () => {
     const output = renderHistoryContent([
       {
         type: "image",
@@ -90,7 +90,7 @@ describe("renderHistoryContent", () => {
       },
     ]);
 
-    expect(output.text).toContain("[Image attachment] image/png, 5 B");
+    expect(output.text).toBe("");
   });
 
   test("appends attachment lines after text content", () => {

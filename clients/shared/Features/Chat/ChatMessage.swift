@@ -42,12 +42,12 @@ public struct ToolConfirmationData: Equatable {
     public let executionTarget: String?
     /// When false, hide "Always Allow" and trust-rule persistence controls.
     public let persistentDecisionsAllowed: Bool
-    /// Which temporary approval options the daemon supports for this request (e.g. "allow_10m", "allow_thread").
+    /// Which temporary approval options the daemon supports for this request (e.g. "allow_10m", "allow_conversation").
     public let temporaryOptionsAvailable: [String]
     /// The tool_use block ID for client-side correlation with specific tool calls.
     public let toolUseId: String?
     public var state: ToolConfirmationState = .pending
-    /// The decision string that was used to approve (e.g. "allow", "allow_10m", "allow_thread", "always_allow").
+    /// The decision string that was used to approve (e.g. "allow", "allow_10m", "allow_conversation", "always_allow").
     /// Set when the state transitions to `.approved`.
     public var approvedDecision: String?
     /// When set, `toolCategory` returns this instead of deriving from `toolName`.
@@ -1042,8 +1042,6 @@ public struct ToolCallData: Identifiable, Equatable {
             return "Ran an AppleScript"
         case "computer_use_wait":
             return "Waited for the screen"
-        case "computer_use_request_control":
-            return "Requested computer control"
         case "computer_use_done", "computer_use_respond":
             return "Finished the task"
         case "ui_show":

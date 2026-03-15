@@ -1,4 +1,3 @@
-import { randomBytes } from "crypto";
 import { unlinkSync, writeFileSync } from "fs";
 import { tmpdir, userInfo } from "os";
 import { join } from "path";
@@ -7,7 +6,8 @@ import { saveAssistantEntry, setActiveAssistant } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
 import { FIREWALL_TAG, GATEWAY_PORT } from "./constants";
 import type { Species } from "./constants";
-import { generateRandomSuffix } from "./random-name";
+import { leaseGuardianToken } from "./guardian-token";
+import { generateInstanceName } from "./random-name";
 import { exec, execOutput } from "./step-runner";
 
 export async function getActiveProject(): Promise<string> {
@@ -447,7 +447,6 @@ export async function hatchGcp(
   name: string | null,
   buildStartupScript: (
     species: Species,
-    bearerToken: string,
     sshUser: string,
     anthropicApiKey: string,
     instanceName: string,
@@ -467,12 +466,7 @@ export async function hatchGcp(
     const project = process.env.GCP_PROJECT ?? (await getActiveProject());
     let instanceName: string;
 
-    if (name) {
-      instanceName = name;
-    } else {
-      const suffix = generateRandomSuffix();
-      instanceName = `${species}-${suffix}`;
-    }
+    instanceName = generateInstanceName(species, name);
 
     console.log(`\ud83e\udd5a Creating new assistant: ${instanceName}`);
     console.log(`   Species: ${species}`);
@@ -500,13 +494,11 @@ export async function hatchGcp(
         console.log(
           `\u26a0\ufe0f  Instance name ${instanceName} already exists, generating a new name...`,
         );
-        const suffix = generateRandomSuffix();
-        instanceName = `${species}-${suffix}`;
+        instanceName = generateInstanceName(species);
       }
     }
 
     const sshUser = userInfo().username;
-    const bearerToken = randomBytes(32).toString("hex");
     const hatchedBy = process.env.VELLUM_HATCHED_BY;
     const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
     if (!anthropicApiKey) {
@@ -517,7 +509,6 @@ export async function hatchGcp(
     }
     const startupScript = await buildStartupScript(
       species,
-      bearerToken,
       sshUser,
       anthropicApiKey,
       instanceName,
@@ -637,7 +628,7 @@ export async function hatchGcp(
           species === "vellum" &&
           (await checkCurlFailure(instanceName, project, zone, account))
         ) {
-          const installScriptUrl = `${process.env.VELLUM_PLATFORM_URL ?? "https://assistant.vellum.ai"}/install.sh`;
+          const installScriptUrl = `${process.env.VELLUM_PLATFORM_URL ?? "https://vellum.ai"}/install.sh`;
           console.log(
             `\ud83d\udd04 Detected install script curl failure for ${installScriptUrl}, attempting recovery...`,
           );
@@ -652,6 +643,16 @@ export async function hatchGcp(
         } else {
           process.exit(1);
         }
+      }
+
+      try {
+        const tokenData = await leaseGuardianToken(runtimeUrl, instanceName);
+        gcpEntry.bearerToken = tokenData.accessToken;
+        saveAssistantEntry(gcpEntry);
+      } catch (err) {
+        console.warn(
+          `\u26a0\ufe0f  Could not lease guardian token: ${err instanceof Error ? err.message : err}`,
+        );
       }
 
       console.log("Instance details:");

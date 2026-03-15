@@ -2369,17 +2369,17 @@ final class ChatViewModelTests: XCTestCase {
     // MARK: - createSessionIfNeeded (Message-less Session Create)
 
     func testCreateSessionIfNeededSetsBootstrapping() {
-        viewModel.createSessionIfNeeded(threadType: "private")
+        viewModel.createSessionIfNeeded(conversationType: "private")
         XCTAssertFalse(viewModel.isSending, "Message-less session creates should not set isSending")
         XCTAssertFalse(viewModel.isThinking, "Should not show thinking for message-less session create")
         XCTAssertNotNil(viewModel.bootstrapCorrelationId, "Should set correlation ID")
-        XCTAssertEqual(viewModel.threadType, "private")
+        XCTAssertEqual(viewModel.conversationType, "private")
         XCTAssertTrue(viewModel.isBootstrapping)
     }
 
     func testCreateSessionIfNeededNoOpWhenSessionExists() {
         viewModel.sessionId = "existing-session"
-        viewModel.createSessionIfNeeded(threadType: "private")
+        viewModel.createSessionIfNeeded(conversationType: "private")
         XCTAssertNil(viewModel.bootstrapCorrelationId, "Should not bootstrap when session already exists")
     }
 
@@ -2391,12 +2391,12 @@ final class ChatViewModelTests: XCTestCase {
         let originalCorrelationId = viewModel.bootstrapCorrelationId
 
         // Calling createSessionIfNeeded should be a no-op
-        viewModel.createSessionIfNeeded(threadType: "private")
+        viewModel.createSessionIfNeeded(conversationType: "private")
         XCTAssertEqual(viewModel.bootstrapCorrelationId, originalCorrelationId, "Should not overwrite existing bootstrap")
     }
 
     func testCreateSessionIfNeededSessionInfoResetsState() {
-        viewModel.createSessionIfNeeded(threadType: "private")
+        viewModel.createSessionIfNeeded(conversationType: "private")
         let correlationId = viewModel.bootstrapCorrelationId!
 
         // Simulate daemon responding with session_info
@@ -2416,7 +2416,7 @@ final class ChatViewModelTests: XCTestCase {
             callbackSessionId = sessionId
         }
 
-        viewModel.createSessionIfNeeded(threadType: "private")
+        viewModel.createSessionIfNeeded(conversationType: "private")
         let correlationId = viewModel.bootstrapCorrelationId!
 
         let info = SessionInfoMessage(sessionId: "callback-session", title: "Test", correlationId: correlationId)
@@ -2425,13 +2425,13 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(callbackSessionId, "callback-session", "Should fire onSessionCreated callback")
     }
 
-    func testCreateSessionIfNeededSendsThreadTypeInMessage() {
+    func testCreateSessionIfNeededSendsConversationTypeInMessage() {
         var capturedMessages: [Any] = []
         daemonClient.sendOverride = { msg in
             capturedMessages.append(msg)
         }
 
-        viewModel.createSessionIfNeeded(threadType: "private")
+        viewModel.createSessionIfNeeded(conversationType: "private")
 
         // Allow the async Task in bootstrapSession to execute
         let expectation = XCTestExpectation(description: "session_create sent")
@@ -2442,24 +2442,24 @@ final class ChatViewModelTests: XCTestCase {
 
         let sessionCreates = capturedMessages.compactMap { $0 as? SessionCreateMessage }
         XCTAssertEqual(sessionCreates.count, 1, "Should send exactly one session_create")
-        XCTAssertEqual(sessionCreates.first?.threadType, "private", "session_create should include threadType")
+        XCTAssertEqual(sessionCreates.first?.conversationType, "private", "session_create should include conversationType")
         XCTAssertNotNil(sessionCreates.first?.correlationId, "session_create should include correlationId")
     }
 
-    func testCreateSessionIfNeededWithoutThreadType() {
+    func testCreateSessionIfNeededWithoutConversationType() {
         viewModel.createSessionIfNeeded()
         XCTAssertFalse(viewModel.isSending, "Message-less session creates should not set isSending")
-        XCTAssertNil(viewModel.threadType, "threadType should remain nil when not specified")
+        XCTAssertNil(viewModel.conversationType, "conversationType should remain nil when not specified")
     }
 
-    func testThreadTypePassedThroughNormalSend() {
+    func testConversationTypePassedThroughNormalSend() {
         var capturedMessages: [Any] = []
         daemonClient.sendOverride = { msg in
             capturedMessages.append(msg)
         }
 
-        // Set threadType before sending
-        viewModel.threadType = "private"
+        // Set conversationType before sending
+        viewModel.conversationType = "private"
         viewModel.inputText = "Hello"
         viewModel.sendMessage()
 
@@ -2472,12 +2472,12 @@ final class ChatViewModelTests: XCTestCase {
 
         let sessionCreates = capturedMessages.compactMap { $0 as? SessionCreateMessage }
         XCTAssertEqual(sessionCreates.count, 1)
-        XCTAssertEqual(sessionCreates.first?.threadType, "private", "Normal send should also pass threadType")
+        XCTAssertEqual(sessionCreates.first?.conversationType, "private", "Normal send should also pass conversationType")
     }
 
     func testCreateSessionThenSendMessageUsesClaimedSession() {
         // Create session without message
-        viewModel.createSessionIfNeeded(threadType: "private")
+        viewModel.createSessionIfNeeded(conversationType: "private")
         let correlationId = viewModel.bootstrapCorrelationId!
 
         // Daemon responds with session_info

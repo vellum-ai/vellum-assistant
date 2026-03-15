@@ -65,7 +65,10 @@ mock.module("../tools/registry.js", () => ({
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 import { credentialKey } from "../security/credential-key.js";
 import { redactSensitiveFields } from "../security/redaction.js";
-import { getSecureKey, setSecureKey } from "../security/secure-keys.js";
+import {
+  getSecureKeyAsync,
+  setSecureKeyAsync,
+} from "../security/secure-keys.js";
 import { CredentialBroker } from "../tools/credentials/broker.js";
 import {
   _setMetadataPath,
@@ -191,7 +194,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
   test("browser_fill_credential does not import getCredentialValue", () => {
     const thisDir = dirname(fileURLToPath(import.meta.url));
     const browserSrc = readFileSync(
-      resolve(thisDir, "../tools/browser/headless-browser.ts"),
+      resolve(thisDir, "../tools/browser/browser-execution.ts"),
       "utf-8",
     );
     expect(browserSrc).not.toContain("getCredentialValue");
@@ -236,6 +239,22 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "oauth/oauth-store.ts", // OAuth provider disconnect (delete stored tokens)
       "cli/commands/oauth/connections.ts", // CLI OAuth connection delete (legacy credential cleanup)
       "oauth/manual-token-connection.ts", // manual-token provider backfill (keychain credential existence check)
+      "cli/commands/doctor.ts", // CLI diagnostic API key verification via secure storage
+      "swarm/backend-claude-code.ts", // Claude Code swarm backend API key lookup
+      "workspace/provider-commit-message-generator.ts", // commit message generation provider key lookup
+      "config/bundled-skills/transcribe/tools/transcribe-media.ts", // transcription tool API key lookup
+      "config/bundled-skills/image-studio/tools/media-generate-image.ts", // image generation tool API key lookup
+      "config/bundled-skills/media-processing/tools/analyze-keyframes.ts", // keyframe analysis tool API key lookup
+      "config/bundled-skills/media-processing/tools/extract-keyframes.ts", // keyframe extraction tool API key lookup
+      "providers/registry.ts", // provider registry API key lookup for initialization
+      "media/app-icon-generator.ts", // app icon generation API key lookup
+      "media/avatar-router.ts", // avatar generation API key lookup
+      "memory/embedding-backend.ts", // embedding backend API key lookup
+      "daemon/handlers/config-model.ts", // model config handler API key lookup
+      "daemon/session-slash.ts", // session slash command API key lookup
+      "daemon/session-process.ts", // session process API key lookup
+      "daemon/lifecycle.ts", // CLI edge token persistence at startup
+      "tools/claude-code/claude-code.ts", // Claude Code tool API key lookup
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
@@ -323,7 +342,7 @@ describe("Invariant 3: secrets never logged in plaintext", () => {
           "this is fine",
         );
       });
-    } else if (tc.component === "ipc_decode") {
+    } else if (tc.component === "message_decode") {
       // PR 24 — message decode log hygiene: the TS daemon's message parser must
       // not log raw message content that could contain secrets.
       // Logging metadata (line length, error type) is acceptable; logging
@@ -423,7 +442,7 @@ describe("Invariant 4: credentials only used for allowed purpose", () => {
         allowedTools: tc.allowedTools,
         allowedDomains: tc.allowedDomains,
       });
-      setSecureKey(
+      await setSecureKeyAsync(
         credentialKey(tc.credentialId, "token"),
         "test-secret-value",
       );
@@ -451,7 +470,7 @@ describe("Invariant 4: credentials only used for allowed purpose", () => {
       allowedTools: ["browser_fill_credential"],
       allowedDomains: ["github.com"],
     });
-    setSecureKey(credentialKey("github", "token"), "ghp_secret123");
+    await setSecureKeyAsync(credentialKey("github", "token"), "ghp_secret123");
 
     const result = await broker.browserFill({
       service: "github",
@@ -504,7 +523,7 @@ describe("Invariant 6: oauth2ClientSecret not in metadata, only in secure store"
 
   test("upsertCredentialMetadata does not accept oauth2ClientSecret or other OAuth fields", () => {
     const record = upsertCredentialMetadata(
-      "integration:gmail",
+      "integration:google",
       "access_token",
       {
         allowedTools: ["api_request"],
@@ -515,16 +534,16 @@ describe("Invariant 6: oauth2ClientSecret not in metadata, only in secure store"
     expect("oauth2ClientId" in record).toBe(false);
   });
 
-  test("client secret is read from secure store, not metadata", () => {
-    setSecureKey(
-      credentialKey("integration:gmail", "client_secret"),
+  test("client secret is read from secure store, not metadata", async () => {
+    await setSecureKeyAsync(
+      credentialKey("integration:google", "client_secret"),
       "my-secret",
     );
-    upsertCredentialMetadata("integration:gmail", "access_token", {
+    upsertCredentialMetadata("integration:google", "access_token", {
       allowedTools: ["api_request"],
     });
 
-    const meta = getCredentialMetadata("integration:gmail", "access_token");
+    const meta = getCredentialMetadata("integration:google", "access_token");
     expect(meta).toBeDefined();
     expect("oauth2ClientSecret" in meta!).toBe(false);
     // OAuth-specific fields are no longer in metadata (v5)
@@ -533,7 +552,9 @@ describe("Invariant 6: oauth2ClientSecret not in metadata, only in secure store"
 
     // Secret is in secure store
     expect(
-      getSecureKey(credentialKey("integration:gmail", "client_secret")),
+      await getSecureKeyAsync(
+        credentialKey("integration:google", "client_secret"),
+      ),
     ).toBe("my-secret");
   });
 
@@ -543,7 +564,7 @@ describe("Invariant 6: oauth2ClientSecret not in metadata, only in secure store"
       credentials: [
         {
           credentialId: "cred-v2-secret",
-          service: "integration:gmail",
+          service: "integration:google",
           field: "access_token",
           allowedTools: [],
           allowedDomains: [],
@@ -561,7 +582,7 @@ describe("Invariant 6: oauth2ClientSecret not in metadata, only in secure store"
       "utf-8",
     );
 
-    const meta = getCredentialMetadata("integration:gmail", "access_token");
+    const meta = getCredentialMetadata("integration:google", "access_token");
     expect(meta).toBeDefined();
     expect("oauth2ClientSecret" in meta!).toBe(false);
 

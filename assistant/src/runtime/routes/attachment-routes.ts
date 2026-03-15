@@ -12,8 +12,8 @@ import {
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
-/** 30 MB — base64-encoded 20 MB attachment ≈ 27 MB plus JSON wrapper overhead. */
-const MAX_UPLOAD_BODY_BYTES = 30 * 1024 * 1024;
+/** 75 MB — base64-encoded 50 MB attachment ≈ 67 MB plus JSON wrapper overhead. */
+const MAX_UPLOAD_BODY_BYTES = 75 * 1024 * 1024;
 
 export async function handleUploadAttachment(req: Request): Promise<Response> {
   const rawBody = await req.arrayBuffer();
@@ -101,7 +101,7 @@ export async function handleDeleteAttachment(req: Request): Promise<Response> {
   return new Response(null, { status: 204 });
 }
 
-export function handleGetAttachment(attachmentId: string): Response {
+function handleGetAttachment(attachmentId: string): Response {
   const attachment = attachmentsStore.getAttachmentById(attachmentId);
   if (!attachment) {
     return httpError("NOT_FOUND", "Attachment not found", 404);

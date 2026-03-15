@@ -23,13 +23,13 @@ struct RecordingSourcePickerView: View {
             // Header
             Text("Screen Recording")
                 .font(VFont.title)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .padding(.top, VSpacing.sm)
                 .padding(.bottom, VSpacing.sm)
 
             Text("Choose what to record")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .padding(.bottom, VSpacing.sm)
 
             // Scope picker (Display / Window)
@@ -51,7 +51,7 @@ struct RecordingSourcePickerView: View {
                 Spacer()
                 ProgressView("Loading sources...")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                 Spacer()
             } else {
                 sourceList
@@ -59,13 +59,13 @@ struct RecordingSourcePickerView: View {
             }
 
             Divider()
-                .background(VColor.surfaceBorder)
+                .background(VColor.borderBase)
 
             // Audio toggle + buttons
             bottomBar
         }
         .frame(width: 420)
-        .background(VColor.surface)
+        .background(VColor.surfaceBase)
         .task {
             await viewModel.loadSources()
             await viewModel.loadPreviews()
@@ -89,7 +89,7 @@ struct RecordingSourcePickerView: View {
     private var previewPane: some View {
         ZStack {
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.backgroundSubtle)
+                .fill(VColor.surfaceBase)
 
             ThumbnailView(
                 thumbnail: viewModel.selectedThumbnail,
@@ -172,18 +172,18 @@ struct RecordingSourcePickerView: View {
                 )
 
                 VIconView(.appWindow, size: 16)
-                    .foregroundColor(isSelected ? VColor.accent : VColor.textSecondary)
+                    .foregroundColor(isSelected ? VColor.primaryBase : VColor.contentSecondary)
                     .frame(width: 24)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(window.title)
                         .font(VFont.bodyMedium)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                         .lineLimit(1)
                     if !window.appName.isEmpty {
                         Text(window.appName)
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                             .lineLimit(1)
                     }
                 }
@@ -192,7 +192,7 @@ struct RecordingSourcePickerView: View {
 
                 if isSelected {
                     VIconView(.circleCheck, size: 18)
-                        .foregroundColor(VColor.accent)
+                        .foregroundColor(VColor.primaryBase)
                 }
             }
             .padding(.horizontal, VSpacing.md)
@@ -200,11 +200,11 @@ struct RecordingSourcePickerView: View {
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(isSelected ? VColor.accent.opacity(0.1) : (hoveredWindowId == window.id ? VColor.ghostHover : Color.clear))
+                    .fill(isSelected ? VColor.primaryBase.opacity(0.1) : (hoveredWindowId == window.id ? VColor.surfaceBase : Color.clear))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(isSelected ? VColor.accent.opacity(0.3) : VColor.surfaceBorder, lineWidth: 1)
+                    .stroke(isSelected ? VColor.primaryBase.opacity(0.3) : VColor.borderBase, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -237,15 +237,15 @@ struct RecordingSourcePickerView: View {
                     HStack(spacing: VSpacing.sm) {
                         Text(display.name)
                             .font(VFont.bodyMedium)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                             .lineLimit(1)
                         if display.isCurrentDisplay {
-                            VBadge(style: .label("This display"), color: VColor.accent)
+                            VBadge(style: .label("This display"), color: VColor.primaryBase)
                         }
                     }
                     Text(display.subtitle)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .lineLimit(1)
                 }
 
@@ -253,7 +253,7 @@ struct RecordingSourcePickerView: View {
 
                 if isSelected {
                     VIconView(.circleCheck, size: 18)
-                        .foregroundColor(VColor.accent)
+                        .foregroundColor(VColor.primaryBase)
                 }
             }
             .padding(.horizontal, VSpacing.md)
@@ -261,11 +261,11 @@ struct RecordingSourcePickerView: View {
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(isSelected ? VColor.accent.opacity(0.1) : (hoveredDisplayId == display.id ? VColor.ghostHover : Color.clear))
+                    .fill(isSelected ? VColor.primaryBase.opacity(0.1) : (hoveredDisplayId == display.id ? VColor.surfaceBase : Color.clear))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(isSelected ? VColor.accent.opacity(0.3) : VColor.surfaceBorder, lineWidth: 1)
+                    .stroke(isSelected ? VColor.primaryBase.opacity(0.3) : VColor.borderBase, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -281,10 +281,10 @@ struct RecordingSourcePickerView: View {
     private func emptyState(_ message: String) -> some View {
         VStack(spacing: VSpacing.sm) {
             VIconView(.squareDashed, size: 32)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
             Text(message)
                 .font(VFont.body)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, VSpacing.xxl)
@@ -297,11 +297,11 @@ struct RecordingSourcePickerView: View {
             // Audio toggles — icon + text left, toggle right (space-between)
             HStack(spacing: VSpacing.sm) {
                 VIconView(.volume2, size: 14)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .frame(width: 20)
                 Text("System audio")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 Spacer()
                 VToggle(isOn: $viewModel.includeAudio)
                     .accessibilityLabel("System audio")
@@ -311,11 +311,11 @@ struct RecordingSourcePickerView: View {
             if #available(macOS 14, *) {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(.mic, size: 14)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .frame(width: 20)
                     Text("Microphone")
                         .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                     Spacer()
                     VToggle(isOn: $viewModel.includeMicrophone)
                         .accessibilityLabel("Microphone")
@@ -325,11 +325,11 @@ struct RecordingSourcePickerView: View {
 
             // Buttons
             HStack(spacing: VSpacing.md) {
-                VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                VButton(label: "Cancel", style: .outlined) {
                     onCancel()
                 }
                 Spacer()
-                VButton(label: "Start Recording", style: .primary, size: .medium, isDisabled: !viewModel.canStart) {
+                VButton(label: "Start Recording", style: .primary, isDisabled: !viewModel.canStart) {
                     onStart(viewModel.selectedRecordingOptions)
                 }
             }

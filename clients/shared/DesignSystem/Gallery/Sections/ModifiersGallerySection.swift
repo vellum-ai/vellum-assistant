@@ -22,13 +22,13 @@ struct ModifiersGallerySection: View {
                         VStack(spacing: VSpacing.md) {
                             Text("Sample content")
                                 .font(VFont.body)
-                                .foregroundColor(VColor.textPrimary)
+                                .foregroundColor(VColor.contentDefault)
                                 .padding(VSpacing.xl)
                                 .vCard(radius: radius)
 
                             Text(".\(name) (\(Int(radius))pt)")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                         }
                     }
                 }
@@ -37,33 +37,33 @@ struct ModifiersGallerySection: View {
             // Background colors
             Text("Background Colors")
                 .font(VFont.headline)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
 
             VCard {
                 HStack(spacing: VSpacing.lg) {
                     ForEach([
-                        ("surface", VColor.surface),
-                        ("background", VColor.background),
-                        ("accent", VColor.accent),
-                        ("success", VColor.success),
-                        ("error", VColor.error),
+                        ("surface", VColor.surfaceBase),
+                        ("background", VColor.surfaceOverlay),
+                        ("accent", VColor.primaryBase),
+                        ("success", VColor.systemPositiveStrong),
+                        ("error", VColor.systemNegativeStrong),
                     ], id: \.0) { name, color in
                         VStack(spacing: VSpacing.md) {
                             Text("Sample content")
                                 .font(VFont.body)
-                                .foregroundColor(VColor.textPrimary)
+                                .foregroundColor(VColor.contentDefault)
                                 .padding(VSpacing.xl)
                                 .vCard(background: color)
 
                             Text(name)
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                         }
                     }
                 }
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - .vHover()
             GallerySectionHeader(
@@ -75,12 +75,12 @@ struct ModifiersGallerySection: View {
                 VStack(alignment: .leading, spacing: VSpacing.md) {
                     Text("Hover over the items below:")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
 
                     ForEach(["First item", "Second item", "Third item"], id: \.self) { item in
                         Text(item)
                             .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                             .padding(VSpacing.md)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .vHover()
@@ -89,7 +89,7 @@ struct ModifiersGallerySection: View {
                 }
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - .pointerCursor()
             GallerySectionHeader(
@@ -101,25 +101,25 @@ struct ModifiersGallerySection: View {
                 VStack(alignment: .leading, spacing: VSpacing.md) {
                     Text("Hover over the items below to see the pointer cursor:")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
 
                     HStack(spacing: VSpacing.lg) {
                         Button("Button") {}
                             .buttonStyle(.plain)
                             .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                             .padding(VSpacing.md)
-                            .background(VColor.surface)
+                            .background(VColor.surfaceBase)
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                             .overlay(
                                 RoundedRectangle(cornerRadius: VRadius.sm)
-                                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+                                    .stroke(VColor.borderBase, lineWidth: 1)
                             )
                             .pointerCursor()
 
                         Text("Tappable label")
                             .font(VFont.body)
-                            .foregroundColor(VColor.accent)
+                            .foregroundColor(VColor.primaryBase)
                             .padding(VSpacing.md)
                             .contentShape(Rectangle())
                             .pointerCursor()
@@ -127,7 +127,7 @@ struct ModifiersGallerySection: View {
                 }
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - .vPanelBackground()
             GallerySectionHeader(
@@ -139,39 +139,75 @@ struct ModifiersGallerySection: View {
                 VStack(spacing: VSpacing.md) {
                     Text("With .vPanelBackground()")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
 
                     VStack(spacing: VSpacing.md) {
                         Text("Panel content")
                             .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                     }
                     .frame(width: 200, height: 100)
                     .vPanelBackground()
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                            .stroke(VColor.borderBase, lineWidth: 1)
                     )
                 }
 
                 VStack(spacing: VSpacing.md) {
                     Text("Without (default background)")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
 
                     VStack(spacing: VSpacing.md) {
                         Text("Regular content")
                             .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                     }
                     .frame(width: 200, height: 100)
-                    .background(VColor.background)
+                    .background(VColor.surfaceOverlay)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                            .stroke(VColor.borderBase, lineWidth: 1)
                     )
+                }
+            }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+            // MARK: - .if()
+            GallerySectionHeader(
+                title: ".if(_:transform:)",
+                description: "Conditionally applies a transformation to a view. When the condition is true, the transform closure is applied; otherwise the view is returned unchanged."
+            )
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Text("condition = true (bold applied)")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentSecondary)
+
+                    Text("Hello, world!")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentDefault)
+                        .if(true) { view in
+                            view.bold()
+                        }
+
+                    Divider().background(VColor.borderBase)
+
+                    Text("condition = false (no change)")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentSecondary)
+
+                    Text("Hello, world!")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentDefault)
+                        .if(false) { view in
+                            view.bold()
+                        }
                 }
             }
         }

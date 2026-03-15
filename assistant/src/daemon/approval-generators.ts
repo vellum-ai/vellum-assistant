@@ -46,15 +46,15 @@ const APPROVAL_CONVERSATION_TOOL_SCHEMA = {
           "keep_pending",
           "approve_once",
           "approve_10m",
-          "approve_thread",
+          "approve_conversation",
           "approve_always",
           "reject",
         ],
         description:
           "The decision: keep_pending if the user is asking questions or unclear, " +
           "approve_once to approve this single request, approve_10m to approve all " +
-          "requests for 10 minutes, approve_thread to approve all requests in this " +
-          "thread, approve_always to approve this tool permanently, reject to deny the request.",
+          "requests for 10 minutes, approve_conversation to approve all requests in this " +
+          "conversation, approve_always to approve this tool permanently, reject to deny the request.",
       },
       replyText: {
         type: "string",
@@ -75,7 +75,7 @@ const VALID_DISPOSITIONS: ReadonlySet<string> = new Set([
   "keep_pending",
   "approve_once",
   "approve_10m",
-  "approve_thread",
+  "approve_conversation",
   "approve_always",
   "reject",
 ]);

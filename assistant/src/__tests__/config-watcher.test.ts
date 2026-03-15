@@ -38,6 +38,7 @@ mock.module("../util/platform.js", () => ({
   getLogPath: () => join(WORKSPACE_DIR, "data", "logs", "vellum.log"),
   getHistoryPath: () => join(WORKSPACE_DIR, "data", "history"),
   getHooksDir: () => join(WORKSPACE_DIR, "hooks"),
+  getSignalsDir: () => join(TEST_DIR, "signals"),
 
   getSandboxRootDir: () => join(WORKSPACE_DIR, "data", "sandbox"),
   getSandboxWorkingDir: () => WORKSPACE_DIR,
@@ -118,6 +119,22 @@ mock.module("../permissions/trust-store.js", () => ({
 
 mock.module("../providers/registry.js", () => ({
   initializeProviders: () => {},
+}));
+
+mock.module("../signals/mcp-reload.js", () => ({
+  handleMcpReloadSignal: () => {},
+}));
+
+mock.module("../signals/confirm.js", () => ({
+  handleConfirmationSignal: () => {},
+}));
+
+mock.module("../signals/trust-rule.js", () => ({
+  handleTrustRuleSignal: () => {},
+}));
+
+mock.module("../signals/conversation-undo.js", () => ({
+  handleConversationUndoSignal: () => {},
 }));
 
 let resetAllowlistCallCount = 0;
@@ -214,7 +231,7 @@ describe("ConfigWatcher workspace file handlers", () => {
 
   test("config.json change calls refreshConfigFromSources", async () => {
     let refreshCalled = false;
-    watcher.refreshConfigFromSources = () => {
+    watcher.refreshConfigFromSources = async () => {
       refreshCalled = true;
       return false; // no change, so onSessionEvict should NOT be called
     };
@@ -229,7 +246,7 @@ describe("ConfigWatcher workspace file handlers", () => {
   });
 
   test("config.json change triggers onSessionEvict when config actually changed", async () => {
-    watcher.refreshConfigFromSources = () => true;
+    watcher.refreshConfigFromSources = async () => true;
 
     watcher.start(onSessionEvict);
     simulateFileChange(WORKSPACE_DIR, "config.json");
@@ -240,7 +257,7 @@ describe("ConfigWatcher workspace file handlers", () => {
 
   test("config.json change is suppressed when suppressConfigReload is true", async () => {
     let refreshCalled = false;
-    watcher.refreshConfigFromSources = () => {
+    watcher.refreshConfigFromSources = async () => {
       refreshCalled = true;
       return true;
     };

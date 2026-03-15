@@ -84,7 +84,7 @@ struct DebugPanelView: View {
                         icon: .triangleAlert,
                         label: "Failures",
                         value: "\(failures)",
-                        color: Danger._500
+                        color: VColor.systemNegativeStrong
                     )
                 }
             }
@@ -95,18 +95,18 @@ struct DebugPanelView: View {
     }
 
     @ViewBuilder
-    private func metric(icon: VIcon, label: String, value: String, color: Color = Emerald._400) -> some View {
+    private func metric(icon: VIcon, label: String, value: String, color: Color = VColor.systemPositiveStrong) -> some View {
         VStack(spacing: VSpacing.xxs) {
             HStack(spacing: VSpacing.xs) {
                 VIconView(icon, size: 11)
                     .foregroundColor(color)
                 Text(value)
                     .font(VFont.captionMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
             }
             Text(label)
                 .font(VFont.small)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
         }
     }
 
@@ -117,13 +117,13 @@ struct DebugPanelView: View {
         VStack(spacing: VSpacing.md) {
             Spacer()
             VIconView(icon, size: 36)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
             Text(title)
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
             Text(subtitle)
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
             Spacer()
@@ -224,12 +224,12 @@ struct TraceTimelineIOSView: View {
                         }
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
-                        .foregroundColor(Amber._500)
-                        .background(Moss._700)
+                        .foregroundColor(VColor.systemNegativeHover)
+                        .background(VColor.surfaceActive)
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                         .overlay(
                             RoundedRectangle(cornerRadius: VRadius.sm)
-                                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                                .stroke(VColor.borderBase, lineWidth: 1)
                         )
                     }
                     .buttonStyle(.plain)
@@ -252,24 +252,24 @@ struct TraceTimelineIOSView: View {
 
                 Text(requestId.isEmpty ? "System" : "Request \(requestId.prefix(8))")
                     .font(VFont.captionMedium)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
 
                 if groupStatus == .cancelled {
                     Text("Cancelled")
                         .font(VFont.small)
-                        .foregroundColor(Amber._500)
+                        .foregroundColor(VColor.systemNegativeHover)
                 } else if groupStatus == .handedOff {
                     Text("Handed off")
                         .font(VFont.small)
-                        .foregroundColor(Forest._400)
+                        .foregroundColor(VColor.systemPositiveWeak)
                 } else if groupStatus == .error {
                     Text("Error")
                         .font(VFont.small)
-                        .foregroundColor(Danger._500)
+                        .foregroundColor(VColor.systemNegativeStrong)
                 }
 
                 Rectangle()
-                    .fill(VColor.surfaceBorder)
+                    .fill(VColor.borderBase)
                     .frame(height: 1)
             }
 
@@ -291,11 +291,11 @@ struct TraceTimelineIOSView: View {
 
     private func groupStatusColor(_ status: TraceStore.RequestGroupStatus) -> Color {
         switch status {
-        case .active: return Emerald._400
-        case .completed: return Emerald._400
-        case .cancelled: return Amber._500
-        case .handedOff: return Forest._400
-        case .error: return Danger._500
+        case .active: return VColor.systemPositiveStrong
+        case .completed: return VColor.systemPositiveStrong
+        case .cancelled: return VColor.systemNegativeHover
+        case .handedOff: return VColor.systemPositiveWeak
+        case .error: return VColor.systemNegativeStrong
         }
     }
 
@@ -321,7 +321,7 @@ struct TraceTimelineIOSView: View {
                     traceRow(event: event)
                     if hasAttributes {
                         VIconView(isExpanded ? .chevronUp : .chevronDown, size: 10)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                             .frame(width: 18)
                     }
                 }
@@ -335,10 +335,10 @@ struct TraceTimelineIOSView: View {
                         HStack(spacing: VSpacing.sm) {
                             Text(key)
                                 .font(VFont.small)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                             Text(stringValue(attrs[key]))
                                 .font(VFont.small)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.contentSecondary)
                                 .lineLimit(3)
                         }
                     }
@@ -346,7 +346,7 @@ struct TraceTimelineIOSView: View {
                 .padding(.leading, 26)
                 .padding(.vertical, VSpacing.xs)
                 .padding(.trailing, VSpacing.sm)
-                .background(Moss._700.opacity(0.5))
+                .background(VColor.surfaceActive.opacity(0.5))
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
             }
         }
@@ -364,12 +364,12 @@ struct TraceTimelineIOSView: View {
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(event.summary)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .lineLimit(2)
 
                 Text(formattedTimestamp(event.timestampMs))
                     .font(VFont.small)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
 
             Spacer(minLength: 0)
@@ -401,10 +401,10 @@ struct TraceTimelineIOSView: View {
 
     private func statusColor(for status: String?) -> Color {
         switch status {
-        case "error": return Danger._500
-        case "warning": return Amber._500
-        case "success": return Emerald._400
-        default: return Moss._400
+        case "error": return VColor.systemNegativeStrong
+        case "warning": return VColor.systemNegativeHover
+        case "success": return VColor.systemPositiveStrong
+        default: return VColor.contentTertiary
         }
     }
 

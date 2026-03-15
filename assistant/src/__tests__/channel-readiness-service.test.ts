@@ -48,7 +48,7 @@ mock.module("../email/service.js", () => ({
 }));
 
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKey: (key: string) => mockSecureKeys[key] ?? null,
+  getSecureKeyAsync: async (key: string) => mockSecureKeys[key] ?? null,
 }));
 
 mock.module("../runtime/channel-invite-transports/whatsapp.js", () => ({

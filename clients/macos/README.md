@@ -357,9 +357,9 @@ In Settings > Trust, engineers can simulate whether a tool invocation would be a
 
 ---
 
-## Xcode Previews
+## Component Gallery (Debug)
 
-The package is split into a library target (`VellumAssistantLib`) and a thin executable target (`vellum-assistant`). This lets you preview SwiftUI views live in Xcode without building and running the whole app.
+Use Component Gallery as the visual verification surface for UI components. Do not add `#Preview` / `PreviewProvider` blocks.
 
 ### Prerequisites
 
@@ -384,56 +384,29 @@ The package is split into a library target (`VellumAssistantLib`) and a thin exe
 </details>
 
 <details>
-<summary><strong>Step-by-step: Viewing a preview</strong></summary>
+<summary><strong>Step-by-step: Opening Component Gallery</strong></summary>
 
-1. **Select the library scheme.** At the very top center of the Xcode window, there's a dropdown button that shows the current scheme (it probably says `vellum-assistant > My Mac`). Click it and switch to **`VellumAssistantLib`**. Previews only work on the library target — the executable target will show an error about `ENABLE_DEBUG_DYLIB`.
+1. **Run a debug build of `vellum-assistant`.**
+   In Xcode, use the `vellum-assistant` scheme and run on `My Mac`.
 
-2. **Open a SwiftUI file.** In the left sidebar (file navigator), expand `vellum-assistant` and navigate to any SwiftUI view, for example:
-   - `Features/Onboarding/OnboardingFlowView.swift`
-   - `Features/Session/SessionOverlayWindow.swift`
-   - `Features/Settings/SettingsAppearanceTab.swift`
+2. **Open the menu bar app menu.**
+   Click the Vellum menu bar icon, then choose **Component Gallery**.
 
-3. **Show the Canvas.** Go to the menu bar: **Editor → Canvas** (or press `⌥⌘↩` / Option+Command+Return). A preview panel appears on the right side of the editor.
+3. **Validate components in Gallery.**
+   Verify variants/states in the appropriate section (`Gallery/Sections/`).
 
-4. **Resume the preview.** If the canvas says "Preview paused", click the **Resume** button at the top of the canvas (or press `⌥⌘P` / Option+Command+P). Xcode will build the library and render the preview.
+4. **Keep Gallery updated with code changes.**
+   When adding or changing design system components, update Gallery sections instead of adding preview blocks.
 
 </details>
-
-### Important: Views need a `#Preview` block
-
-A SwiftUI file will **only show a preview** if it contains a `#Preview` block. If you open a file and the canvas is blank or says "No preview available", the file is missing one.
-
-To add a preview, put this at the bottom of the file (outside any struct):
-
-```swift
-#Preview {
-    MyViewName()
-}
-```
-
-For example, views with dependencies need them passed in:
-
-```swift
-#Preview {
-    OnboardingFlowView(
-        state: OnboardingState(),
-        daemonClient: DaemonClient(),
-        authManager: AuthManager(),
-        managedBootstrapEnabled: true,
-        onComplete: {},
-        onOpenSettings: {}
-    )
-}
-```
 
 ### Troubleshooting
 
 | Problem | Fix |
 |---------|-----|
-| "ENABLE_DEBUG_DYLIB" error | Switch the scheme to **`VellumAssistantLib`** (not `vellum-assistant`) |
-| Canvas is blank / "No preview available" | The file needs a `#Preview { ... }` block — see above |
-| "Preview paused" | Click **Resume** in the canvas or press `⌥⌘P` |
-| Build errors in the canvas | Try **Product → Clean Build Folder** (`⇧⌘K`) then resume |
+| "Component Gallery" menu item is missing | Run a **Debug** build (`#if DEBUG` menu item) |
+| Changed component does not appear in Gallery | Update the relevant file in `clients/shared/DesignSystem/Gallery/Sections/` |
+| Gallery build errors | Fix compile errors in component code, then rerun the app |
 
 ---
 
@@ -450,7 +423,6 @@ ComputerUse/          Core perception + action pipeline
   AXTreeDiff          Diff between AX tree snapshots across steps
   ActionExecutor      CGEvent mouse/keyboard injection
   ActionVerifier      Safety checks (sensitive data, loops, limits)
-  ChromeAccessibilityHelper  Auto-restart Chrome with --force-renderer-accessibility
   RecipeExecutor      Recipe-based onboarding (computer-use driven setup)
   ScreenCapture       ScreenCaptureKit screenshot capture
   Session             Main orchestration loop

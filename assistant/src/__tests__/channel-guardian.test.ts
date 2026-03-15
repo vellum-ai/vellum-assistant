@@ -1441,7 +1441,7 @@ describe("HTTP handler channel-aware guardian status", () => {
     expect(resp!.guardianDisplayName).toBe("Guardian Name");
   });
 
-  test("status action defaults channel to telegram when omitted (backward compat)", async () => {
+  test("status action defaults channel to telegram when omitted", async () => {
     const { ctx, lastResponse } = createMockCtx();
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
@@ -1457,7 +1457,7 @@ describe("HTTP handler channel-aware guardian status", () => {
     expect(resp!.assistantId).toBe("self");
   });
 
-  test("status action defaults assistantId to self when omitted (backward compat)", async () => {
+  test("status action defaults assistantId to self when omitted", async () => {
     const { ctx, lastResponse } = createMockCtx();
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
@@ -2282,9 +2282,9 @@ describe("outbound verification sessions", () => {
     expect(result2.success).toBe(false);
   });
 
-  // ── Backward compat: existing inbound-only flow still works ──
+  // ── Inbound-only verification flow ──
 
-  test("backward compat: inbound-only challenge without expected identity still works", () => {
+  test("inbound-only challenge without expected identity still works", () => {
     const { secret } = createInboundVerificationSession("telegram");
 
     const result = validateAndConsumeVerification(

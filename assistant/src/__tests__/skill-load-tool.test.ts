@@ -68,6 +68,7 @@ mock.module("../util/logger.js", () => ({
 const mockAutoInstall = mock((_skillId: string) => Promise.resolve(false));
 mock.module("../skills/catalog-install.js", () => ({
   autoInstallFromCatalog: (skillId: string) => mockAutoInstall(skillId),
+  resolveCatalog: (_skillId?: string) => Promise.resolve([]),
 }));
 
 await import("../tools/skills/load.js");

@@ -213,8 +213,8 @@ describe("authenticateRequest", () => {
   });
 
   test("rejects token with wrong audience", () => {
-    // Mint a token with audience vellum-gateway instead of vellum-daemon
-    const token = mintValidToken({ aud: "vellum-gateway" });
+    // Mint a token with an unrecognized audience (neither vellum-daemon nor vellum-gateway)
+    const token = mintValidToken({ aud: "vellum-other" as TokenAudience });
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",

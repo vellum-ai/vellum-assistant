@@ -29,11 +29,11 @@ public struct VTab: View {
 
     private var background: Color {
         if isSelected {
-            return VColor.navActive
+            return VColor.surfaceActive
         } else if isHovered {
-            return VColor.navHover
+            return VColor.surfaceBase
         } else {
-            return VColor.navHover.opacity(0)
+            return VColor.surfaceBase.opacity(0)
         }
     }
 
@@ -54,9 +54,9 @@ public struct VTab: View {
                     Spacer().frame(width: 16)
                 }
             }
-            .foregroundColor(isSelected && (style == .pill || style == .rectangular) ? VColor.textPrimary : (isSelected ? VColor.textPrimary : VColor.textSecondary))
+            .foregroundColor(isSelected && (style == .pill || style == .rectangular) ? VColor.contentDefault : (isSelected ? VColor.contentDefault : VColor.contentSecondary))
             .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.sm)
+            .frame(height: 32)
             .contentShape(RoundedRectangle(cornerRadius: cornerRadius))
         }
         .buttonStyle(.plain)
@@ -64,7 +64,7 @@ public struct VTab: View {
             if isCloseable, let onClose = onClose {
                 Button(action: onClose) {
                     VIconView(.x, size: 10)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Close \(label)")
@@ -75,7 +75,7 @@ public struct VTab: View {
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         .overlay(
             RoundedRectangle(cornerRadius: cornerRadius)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                .stroke(VColor.borderBase, lineWidth: 1)
                 .opacity(isSelected ? 1 : 0)
         )
         .animation(VAnimation.fast, value: isHovered)
@@ -84,15 +84,3 @@ public struct VTab: View {
     }
 }
 
-#Preview("VTab") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        HStack(spacing: 8) {
-            VTab(label: "Dashboard", icon: VIcon.house.rawValue, isSelected: true, onSelect: {})
-            VTab(label: "Settings", icon: VIcon.settings.rawValue, onSelect: {})
-            VTab(label: "Thread", icon: VIcon.plus.rawValue, isCloseable: false, style: .rectangular, onSelect: {})
-        }
-        .padding()
-    }
-    .frame(width: 450, height: 80)
-}

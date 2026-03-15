@@ -70,6 +70,8 @@ export interface ContactChannel {
   revokedReason: string | null;
   blockedReason: string | null;
   lastSeenAt: number | null;
+  interactionCount: number;
+  lastInteraction: number | null;
   updatedAt: number | null;
   createdAt: number;
 }

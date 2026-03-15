@@ -1,4 +1,4 @@
-# Path B: Manual Channel Setup (Telegram, SMS, Slack, etc.)
+# Path B: Manual Channel Setup (Telegram, Slack, etc.)
 
 When the user is on a non-interactive channel, walk them through a text-based setup. The channel path uses **Web application** credentials because the OAuth callback goes through the public gateway URL.
 
@@ -126,7 +126,7 @@ After the user sends it:
 
 ```
 credential_store store:
-  service: "integration:gmail"
+  service: "integration:google"
   field: "client_id"
   value: "<the client id the user sent>"
 ```
@@ -145,7 +145,7 @@ After the user sends the suffix, reconstruct and store the full secret:
 
 ```
 credential_store store:
-  service: "integration:gmail"
+  service: "integration:google"
   field: "client_secret"
   value: "GOCSPX-<the suffix the user sent>"
 ```
@@ -161,7 +161,7 @@ Tell the user:
 ```
 credential_store:
   action: "oauth2_connect"
-  service: "integration:gmail"
+  service: "integration:google"
 ```
 
 Send the returned auth URL to the user. If they see **This app isn't verified**, tell them to click **Advanced** and continue to **Vellum Assistant**.

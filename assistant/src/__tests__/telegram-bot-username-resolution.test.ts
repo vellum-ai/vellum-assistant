@@ -21,6 +21,7 @@ let mockConfigWriteCalls: Array<{
 
 mock.module("../telegram/bot-username.js", () => ({
   getTelegramBotUsername: () => mockBotUsername,
+  getTelegramBotId: () => (mockBotUsername ? "123456" : undefined),
 }));
 
 mock.module("../config/loader.js", () => ({
@@ -37,10 +38,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKey: (_keyId: string) => mockSecureKey,
-  setSecureKey: (_account: string, _value: string) => true,
-  deleteSecureKey: (_account: string) => "deleted" as const,
-  listSecureKeys: () => [] as string[],
+  getSecureKeyAsync: async (_keyId: string) => mockSecureKey,
 }));
 
 // Suppress logger output during tests

@@ -3,6 +3,7 @@ import { homedir } from "os";
 import { join } from "path";
 
 import {
+  DAEMON_INTERNAL_ASSISTANT_ID,
   DEFAULT_DAEMON_PORT,
   DEFAULT_GATEWAY_PORT,
   DEFAULT_QDRANT_PORT,
@@ -152,7 +153,9 @@ export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
       "share",
       "vellum",
       "assistants",
-      typeof raw.assistantId === "string" ? raw.assistantId : "default",
+      typeof raw.assistantId === "string"
+        ? raw.assistantId
+        : DAEMON_INTERNAL_ASSISTANT_ID,
     );
     raw.resources = {
       instanceDir,
@@ -172,7 +175,9 @@ export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
         "share",
         "vellum",
         "assistants",
-        typeof raw.assistantId === "string" ? raw.assistantId : "default",
+        typeof raw.assistantId === "string"
+          ? raw.assistantId
+          : DAEMON_INTERNAL_ASSISTANT_ID,
       );
       mutated = true;
     }

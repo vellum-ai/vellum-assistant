@@ -136,9 +136,32 @@ public struct DaemonConfig {
 
     /// Create a `DaemonConfig` populated from UserDefaults / Keychain.
     public static func fromUserDefaults() -> DaemonConfig {
+        let featureFlagToken = APIKeyManager.shared.getAPIKey(provider: "feature-flag-token")
+
+        // Managed assistant: cloud-hosted via platform proxy with session token auth.
+        // Set after Vellum login + managed bootstrap completes.
+        if let managedAssistantId = UserDefaults.standard.string(forKey: "managed_assistant_id"),
+           !managedAssistantId.isEmpty,
+           let platformBaseURL = UserDefaults.standard.string(forKey: "managed_platform_base_url"),
+           !platformBaseURL.isEmpty {
+            let metadata = TransportMetadata(
+                routeMode: .platformAssistantProxy,
+                authMode: .sessionToken,
+                platformAssistantId: managedAssistantId
+            )
+            return DaemonConfig(
+                transport: .http(
+                    baseURL: platformBaseURL,
+                    bearerToken: nil,
+                    conversationKey: managedAssistantId
+                ),
+                transportMetadata: metadata,
+                featureFlagToken: featureFlagToken
+            )
+        }
+
         // gateway_base_url is set by QR pairing (v4).
         let httpBaseURL = UserDefaults.standard.string(forKey: "gateway_base_url").flatMap { $0.isEmpty ? nil : $0 }
-        let featureFlagToken = APIKeyManager.shared.getAPIKey(provider: "feature-flag-token")
         if let baseURL = httpBaseURL {
             let bearerToken = APIKeyManager.shared.getAPIKey(provider: "runtime-bearer-token")
             let conversationKey: String

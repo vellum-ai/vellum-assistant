@@ -33,16 +33,15 @@ struct ContactsContainerView: View {
             ScrollView {
                 ContactsListView(
                     viewModel: viewModel,
-                    selection: $selection,
-                    store: store
+                    selection: $selection
                 )
                 .padding(VSpacing.lg)
             }
             .frame(width: 320)
-            .background(VColor.background)
+            .background(VColor.surfaceOverlay)
 
             Divider()
-                .background(VColor.surfaceBorder)
+                .background(VColor.borderBase)
 
             // Right pane: detail, loading, or placeholder
             if viewModel.isLoading && viewModel.contacts.isEmpty {
@@ -52,10 +51,10 @@ struct ContactsContainerView: View {
                         .controlSize(.regular)
                     Text("Loading contacts...")
                         .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(VColor.background)
+                .background(VColor.surfaceOverlay)
             } else {
                 switch selection {
                 case .assistant:
@@ -68,41 +67,53 @@ struct ContactsContainerView: View {
                                 .controlSize(.regular)
                             Text("Loading assistant channels...")
                                 .font(VFont.body)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.contentSecondary)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(VColor.background)
+                        .background(VColor.surfaceOverlay)
                     }
                 case .contact(let contactId):
                     if let contact = viewModel.contacts.first(where: { $0.id == contactId }) {
-                        ContactDetailView(
-                            contact: contact,
-                            daemonClient: daemonClient,
-                            store: store,
-                            onDelete: {
-                                selection = .assistant
-                                viewModel.loadContacts()
-                            }
-                        )
-                        .id(contactId)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        if contact.role == "guardian" {
+                            GuardianChannelsDetailView(
+                                contact: contact,
+                                daemonClient: daemonClient,
+                                store: store,
+                                onSelectAssistant: { selection = .assistant }
+                            )
+                            .id(contactId)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        } else {
+                            ContactDetailView(
+                                contact: contact,
+                                daemonClient: daemonClient,
+                                store: store,
+                                onDelete: {
+                                    selection = .assistant
+                                    viewModel.loadContacts()
+                                },
+                                guardianName: viewModel.guardianContact?.displayName
+                            )
+                            .id(contactId)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        }
                     }
                 case nil:
                     // True empty state — contacts loaded but none selected
                     VStack(spacing: VSpacing.md) {
                         VIconView(.users, size: 36)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                         Text("Select a contact")
                             .font(VFont.headline)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                         Text("Choose a contact from the list to view their details.")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                             .multilineTextAlignment(.center)
                             .frame(maxWidth: 240)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(VColor.background)
+                    .background(VColor.surfaceOverlay)
                 }
             }
         }

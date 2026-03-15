@@ -19,6 +19,7 @@ import {
 } from "../../tasks/tool-sanitizer.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
+import { resolveRequiredTools } from "../../work-items/resolve-required-tools.js";
 import {
   deleteWorkItem,
   getWorkItem,
@@ -321,21 +322,20 @@ export async function preflightWorkItem(
     return { success: false, error: "Work item not found" };
   }
 
-  let requiredTools: string[];
-  if (workItem.requiredTools != null) {
-    requiredTools = sanitizeToolList(JSON.parse(workItem.requiredTools));
-  } else {
-    const task = getTask(workItem.taskId);
-    if (!task) {
-      return {
-        success: false,
-        error: `Associated task not found: ${workItem.taskId}`,
-      };
-    }
-    requiredTools = task.requiredTools
-      ? sanitizeToolList(JSON.parse(task.requiredTools))
-      : getRegisteredToolNames();
+  const task = getTask(workItem.taskId);
+  if (!task) {
+    return {
+      success: false,
+      error: `Associated task not found: ${workItem.taskId}`,
+    };
   }
+  const taskRequiredTools = task.requiredTools
+    ? sanitizeToolList(JSON.parse(task.requiredTools))
+    : getRegisteredToolNames();
+  let requiredTools = resolveRequiredTools(
+    workItem.requiredTools,
+    taskRequiredTools,
+  );
 
   if (requiredTools.length === 0) {
     return { success: true, permissions: [] };
@@ -648,15 +648,13 @@ export function workItemRouteDefinitions(
           );
         }
 
-        // Compute required tools
-        let requiredTools: string[];
-        if (workItem.requiredTools != null) {
-          requiredTools = sanitizeToolList(JSON.parse(workItem.requiredTools));
-        } else {
-          requiredTools = task.requiredTools
-            ? sanitizeToolList(JSON.parse(task.requiredTools))
-            : getRegisteredToolNames();
-        }
+        const taskRequiredTools = task.requiredTools
+          ? sanitizeToolList(JSON.parse(task.requiredTools))
+          : getRegisteredToolNames();
+        const requiredTools = resolveRequiredTools(
+          workItem.requiredTools,
+          taskRequiredTools,
+        );
 
         // Permission checkpoint
         let approvedTools: string[] | undefined;
@@ -712,7 +710,7 @@ export function workItemRouteDefinitions(
                   session = await getOrCreateSession(conversationId);
 
                   publishEvent({
-                    type: "task_run_thread_created",
+                    type: "task_run_conversation_created",
                     conversationId,
                     workItemId,
                     title: workItem.title,

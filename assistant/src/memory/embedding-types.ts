@@ -42,9 +42,17 @@ export type MultimodalEmbeddingInput =
 /** Accepts raw strings as shorthand for text inputs. */
 export type EmbeddingInput = string | MultimodalEmbeddingInput;
 
-export function normalizeEmbeddingInput(input: EmbeddingInput): MultimodalEmbeddingInput {
+export function normalizeEmbeddingInput(
+  input: EmbeddingInput,
+): MultimodalEmbeddingInput {
   if (typeof input === "string") return { type: "text", text: input };
   return input;
+}
+
+/** Sparse vector representation: parallel arrays of term indices and weights. */
+export interface SparseEmbedding {
+  indices: number[];
+  values: number[];
 }
 
 export function embeddingInputContentHash(input: EmbeddingInput): string {

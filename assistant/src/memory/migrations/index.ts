@@ -91,6 +91,22 @@ export { migrateScheduleOneShotRouting } from "./146-schedule-oneshot-routing.js
 export { migrateRemindersToSchedules } from "./147-migrate-reminders-to-schedules.js";
 export { migrateDropRemindersTable } from "./148-drop-reminders-table.js";
 export { createOAuthTables } from "./149-oauth-tables.js";
+export { migrateOAuthAppsClientSecretPath } from "./150-oauth-apps-client-secret-path.js";
+export { migrateOAuthProvidersPingUrl } from "./151-oauth-providers-ping-url.js";
+export { migrateMemoryItemSupersession } from "./152-memory-item-supersession.js";
+export { migrateDropEntityTables } from "./153-drop-entity-tables.js";
+export { migrateDropMemorySegmentFts } from "./154-drop-fts.js";
+export { migrateDropConflicts } from "./155-drop-conflicts.js";
+export { migrateCallSessionInviteMetadata } from "./156-call-session-invite-metadata.js";
+export { migrateInviteContactId } from "./157-invite-contact-id.js";
+export { migrateChannelInteractionColumns } from "./158-channel-interaction-columns.js";
+export { migrateDropContactInteractionColumns } from "./159-drop-contact-interaction-columns.js";
+export { migrateDropLoopbackPortColumn } from "./160-drop-loopback-port-column.js";
+export { migrateDropOrphanedMediaTables } from "./161-drop-orphaned-media-tables.js";
+export { migrateGuardianTimestampsEpochMs } from "./162-guardian-timestamps-epoch-ms.js";
+export { migrateRenameNotificationThreadColumns } from "./163-rename-notification-thread-columns.js";
+export { migrateRenameConversationTypeColumn } from "./164-rename-conversation-type-column.js";
+export { migrateRenameInboxThreadStateTable } from "./165-rename-inbox-thread-state-table.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

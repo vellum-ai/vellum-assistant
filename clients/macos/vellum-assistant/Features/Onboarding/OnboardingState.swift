@@ -27,7 +27,7 @@ enum ActivationKey: String, CaseIterable {
 final class OnboardingState {
     /// Bump this version whenever the default-flow step order changes so that
     /// persisted step indices from a previous layout are not consumed as-is.
-    private static let currentFlowVersion = 9
+    private static let currentFlowVersion = 11
 
     var currentStep: Int = 0
     var assistantName: String = "Velly"
@@ -36,16 +36,23 @@ final class OnboardingState {
     var accessibilityGranted: Bool = false
     var screenGranted: Bool = false
     var skipPermissionChecks: Bool = false
+
+    /// Whether the user explicitly skipped login during onboarding.
+    var skippedAuth: Bool = false
+
+    /// The hosting mode selected in onboarding step 1.
+    var selectedHostingMode: HostingMode = .local
+
+    enum HostingMode: String {
+        case vellumCloud = "vellum-cloud"
+        case local = "local"
+        case localDocker = "local-docker"
+        case vps = "vps"
+    }
     var hasHatched: Bool = false
     var interviewCompleted: Bool = false
     var cloudProvider: String = "local"
     var onboardingVariant: OnboardingVariant = .default
-
-    /// Whether the user's hosting choice requires cloud credentials (not local/docker).
-    var needsCloudCredentials: Bool {
-        let userHosted = MacOSClientFeatureFlagManager.shared.isEnabled("user_hosted_enabled")
-        return userHosted && cloudProvider != "local" && cloudProvider != "docker"
-    }
 
     /// When false, step changes are not written to UserDefaults (used by auth gate).
     var shouldPersist: Bool = true
@@ -61,6 +68,8 @@ final class OnboardingState {
     var customQRCodeImageData: Data = Data()
     var selectedModel: String = "claude-opus-4-6"
     var isHatching: Bool = false
+    var isManagedHatch: Bool = false
+    var hasExistingManagedAssistant: Bool = false
     var hatchLogLines: [String] = []
     var hatchCompleted: Bool = false
     var hatchFailed: Bool = false
@@ -76,10 +85,6 @@ final class OnboardingState {
 
     var anyPermissionDenied: Bool {
         !speechGranted || !accessibilityGranted || !screenGranted
-    }
-
-    var userHostedEnabled: Bool {
-        MacOSClientFeatureFlagManager.shared.isEnabled("user_hosted_enabled")
     }
 
     /// Continuous crack progress (0.0–1.0) derived from step and permission state.
@@ -137,13 +142,15 @@ final class OnboardingState {
         // Clamp restored step to the variant's maximum to prevent out-of-range
         // rendering (e.g. a step saved from the 8-step default flow would be
         // invalid for the 5-step first-meeting flow).
-        // Default onboarding now exits immediately after the first post-hatch
-        // conversation entry point (step 2). Prevent stale persisted indices
-        // from reopening legacy permission-request steps.
-        // When userHostedEnabled is on and a cloud provider is selected, the flow
-        // has 4 steps (0–3); otherwise it stays at 3 steps (0–2).
-        let hasCloudStep = MacOSClientFeatureFlagManager.shared.isEnabled("user_hosted_enabled") && cloudProvider != "local" && cloudProvider != "docker"
-        let maxStep = onboardingVariant == .firstMeeting ? 4 : (hasCloudStep ? 3 : 2)
+        let isManagedSignIn = MacOSClientFeatureFlagManager.shared.isEnabled("managed_sign_in_enabled")
+        let maxStep: Int
+        if isManagedSignIn {
+            maxStep = 2
+        } else if onboardingVariant == .firstMeeting {
+            maxStep = 4
+        } else {
+            maxStep = 2
+        }
         if currentStep > maxStep {
             currentStep = maxStep
         }
@@ -175,10 +182,13 @@ final class OnboardingState {
     func resetForRetry() {
         // Reset hatch flags
         isHatching = false
+        isManagedHatch = false
+        hasExistingManagedAssistant = false
         hatchFailed = false
         hatchCompleted = false
         hatchLogLines = []
         hasHatched = false
+        skippedAuth = false
 
         // Clear stored API key so the user starts fresh
         APIKeyManager.deleteKey(for: "anthropic")

@@ -1,4 +1,3 @@
-import { createHash, randomBytes, randomUUID } from "crypto";
 import {
   appendFileSync,
   existsSync,
@@ -10,11 +9,8 @@ import {
   unlinkSync,
   writeFileSync,
 } from "fs";
-import { homedir, hostname, userInfo } from "os";
+import { homedir } from "os";
 import { join } from "path";
-
-import QRCode from "qrcode";
-import qrcode from "qrcode-terminal";
 
 // Direct import — bun embeds this at compile time so it works in compiled binaries.
 import cliPkg from "../../package.json";
@@ -50,7 +46,7 @@ import {
 import { maybeStartNgrokTunnel } from "../lib/ngrok";
 import { detectOrphanedProcesses } from "../lib/orphan-detection";
 import { isProcessAlive, stopProcess } from "../lib/process";
-import { generateRandomSuffix } from "../lib/random-name";
+import { generateInstanceName } from "../lib/random-name";
 import { validateAssistantName } from "../lib/retire-archive";
 import { archiveLogFile, resetLogFile } from "../lib/xdg-log";
 
@@ -96,14 +92,12 @@ chown -R "$SSH_USER:$SSH_USER" "$SSH_USER_HOME" 2>/dev/null || true
 
 export async function buildStartupScript(
   species: Species,
-  bearerToken: string,
   sshUser: string,
   anthropicApiKey: string,
   instanceName: string,
   cloud: RemoteHost,
 ): Promise<string> {
-  const platformUrl =
-    process.env.VELLUM_PLATFORM_URL ?? "https://assistant.vellum.ai";
+  const platformUrl = process.env.VELLUM_PLATFORM_URL ?? "https://vellum.ai";
   const logPath =
     cloud === "custom"
       ? "/tmp/vellum-startup.log"
@@ -116,7 +110,6 @@ export async function buildStartupScript(
 
   if (species === "openclaw") {
     return await buildOpenclawStartupScript(
-      bearerToken,
       sshUser,
       anthropicApiKey,
       timestampRedirect,
@@ -566,121 +559,6 @@ function installCLISymlink(): void {
   );
 }
 
-async function waitForDaemonReady(
-  runtimeUrl: string,
-  bearerToken: string | undefined,
-  timeoutMs = 15000,
-): Promise<boolean> {
-  const start = Date.now();
-  const pollInterval = 1000;
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const res = await fetch(`${runtimeUrl}/v1/health`, {
-        method: "GET",
-        headers: bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {},
-        signal: AbortSignal.timeout(2000),
-      });
-      if (res.ok) return true;
-    } catch {
-      // Daemon not ready yet
-    }
-    await new Promise((r) => setTimeout(r, pollInterval));
-  }
-  return false;
-}
-
-async function displayPairingQRCode(
-  runtimeUrl: string,
-  bearerToken: string | undefined,
-  /** External gateway URL for the QR payload. When omitted, runtimeUrl is used. */
-  externalGatewayUrl?: string,
-): Promise<void> {
-  try {
-    const pairingRequestId = randomUUID();
-    const pairingSecret = randomBytes(32).toString("hex");
-
-    // The daemon's HTTP server may not be fully ready even though the gateway
-    // health check passed (the gateway is up, but the upstream daemon HTTP
-    // endpoint it proxies to may still be initializing). Poll the daemon's
-    // health endpoint through the gateway to ensure it's reachable.
-    const daemonReady = await waitForDaemonReady(runtimeUrl, bearerToken);
-    if (!daemonReady) {
-      console.warn(
-        "⚠ Assistant health check did not pass within 15s. Run `vellum pair` to try again.\n",
-      );
-      return;
-    }
-
-    const registerRes = await fetch(`${runtimeUrl}/pairing/register`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
-      },
-      body: JSON.stringify({
-        pairingRequestId,
-        pairingSecret,
-        gatewayUrl: externalGatewayUrl ?? runtimeUrl,
-      }),
-    });
-
-    if (!registerRes.ok) {
-      const body = await registerRes.text().catch(() => "");
-      console.warn(
-        `⚠ Could not register pairing request: ${registerRes.status} ${registerRes.statusText}${body ? ` — ${body}` : ""}. Run \`vellum pair\` to try again.\n`,
-      );
-      return;
-    }
-
-    const hostId = createHash("sha256")
-      .update(hostname() + userInfo().username)
-      .digest("hex");
-    const payload = JSON.stringify({
-      type: "vellum-daemon",
-      v: 4,
-      id: hostId,
-      g: externalGatewayUrl ?? runtimeUrl,
-      pairingRequestId,
-      pairingSecret,
-    });
-
-    const qrString = await new Promise<string>((resolve) => {
-      qrcode.generate(payload, { small: true }, (code: string) => {
-        resolve(code);
-      });
-    });
-
-    // Save QR code as PNG to a well-known location so it can be retrieved
-    // (e.g. via SCP) for pairing through the Desktop app.
-    const qrDir = join(homedir(), ".vellum", "pairing-qr");
-    mkdirSync(qrDir, { recursive: true });
-    const qrPngPath = join(qrDir, "initial.png");
-    try {
-      const pngBuffer = await QRCode.toBuffer(payload, {
-        type: "png",
-        width: 512,
-      });
-      writeFileSync(qrPngPath, pngBuffer);
-      console.log(`QR code PNG saved to ${qrPngPath}\n`);
-    } catch (pngErr) {
-      const pngReason =
-        pngErr instanceof Error ? pngErr.message : String(pngErr);
-      console.warn(`\u26A0 Could not save QR code PNG: ${pngReason}\n`);
-    }
-
-    console.log("Scan this QR code with the Vellum iOS app to pair:\n");
-    console.log(qrString);
-    console.log("This pairing request expires in 5 minutes.");
-    console.log("Run `vellum pair` to generate a new one.\n");
-  } catch (err) {
-    // Non-fatal — pairing is optional
-    const reason = err instanceof Error ? err.message : String(err);
-    console.warn(
-      `⚠ Could not generate pairing QR code: ${reason}. Run \`vellum pair\` to try again.\n`,
-    );
-  }
-}
-
 async function hatchLocal(
   species: Species,
   name: string | null,
@@ -696,10 +574,10 @@ async function hatchLocal(
     process.exit(1);
   }
 
-  const instanceName =
-    name ??
-    process.env.VELLUM_ASSISTANT_NAME ??
-    `${species}-${generateRandomSuffix()}`;
+  const instanceName = generateInstanceName(
+    species,
+    name ?? process.env.VELLUM_ASSISTANT_NAME,
+  );
 
   // Clean up stale local state: if daemon/gateway processes are running but
   // the lock file has no entries, stop them before starting fresh.
@@ -760,6 +638,10 @@ async function hatchLocal(
   console.log(`   Species: ${species}`);
   console.log("");
 
+  if (!process.env.APP_VERSION) {
+    process.env.APP_VERSION = cliPkg.version;
+  }
+
   await startLocalDaemon(watch, resources);
 
   let runtimeUrl: string;
@@ -790,23 +672,10 @@ async function hatchLocal(
     delete process.env.BASE_DATA_DIR;
   }
 
-  // Read the bearer token (JWT) written by the daemon so the CLI can
-  // with the gateway (which requires auth by default). The daemon writes under
-  // getRootDir() which resolves to <instanceDir>/.vellum/.
-  let bearerToken: string | undefined;
-  try {
-    const tokenPath = join(resources.instanceDir, ".vellum", "http-token");
-    const token = readFileSync(tokenPath, "utf-8").trim();
-    if (token) bearerToken = token;
-  } catch {
-    // Token file may not exist if daemon started without HTTP server
-  }
-
   const localEntry: AssistantEntry = {
     assistantId: instanceName,
     runtimeUrl,
     localUrl: `http://127.0.0.1:${resources.gatewayPort}`,
-    bearerToken,
     cloud: "local",
     species,
     hatchedAt: new Date().toISOString(),
@@ -828,12 +697,6 @@ async function hatchLocal(
     console.log(`  Name: ${instanceName}`);
     console.log(`  Runtime: ${runtimeUrl}`);
     console.log("");
-
-    // Use loopback for HTTP calls (health check + pairing register) since
-    // mDNS hostnames may not resolve on the local machine, but keep the
-    // external runtimeUrl in the QR payload so iOS devices can reach it.
-    const localGatewayUrl = `http://127.0.0.1:${resources.gatewayPort}`;
-    await displayPairingQRCode(localGatewayUrl, bearerToken, runtimeUrl);
   }
 
   if (keepAlive) {

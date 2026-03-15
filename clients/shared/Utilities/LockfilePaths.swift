@@ -30,20 +30,31 @@ public enum LockfilePaths {
     }
 
     /// Resolve the local gateway port: env var > lockfile > default 7830.
-    public static func resolveGatewayPort() -> Int {
+    ///
+    /// When `connectedAssistantId` is provided the port is read from that
+    /// specific lockfile entry instead of the most-recently-hatched one.
+    /// This prevents multi-instance scenarios from targeting the wrong gateway.
+    public static func resolveGatewayPort(connectedAssistantId: String? = nil) -> Int {
         if let envPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
             ?? getenv("GATEWAY_PORT").flatMap({ String(cString: $0) }),
            let port = Int(envPort) {
             return port
         }
         if let json = read(),
-           let assistants = json["assistants"] as? [[String: Any]],
-           let latest = assistants.max(by: {
-               ($0["hatchedAt"] as? String ?? "") < ($1["hatchedAt"] as? String ?? "")
-           }),
-           let resources = latest["resources"] as? [String: Any],
-           let port = resources["gatewayPort"] as? Int {
-            return port
+           let assistants = json["assistants"] as? [[String: Any]] {
+            let entry: [String: Any]?
+            if let id = connectedAssistantId {
+                entry = assistants.first(where: { ($0["assistantId"] as? String) == id })
+            } else {
+                entry = assistants.max(by: {
+                    ($0["hatchedAt"] as? String ?? "") < ($1["hatchedAt"] as? String ?? "")
+                })
+            }
+            if let entry,
+               let resources = entry["resources"] as? [String: Any],
+               let port = resources["gatewayPort"] as? Int {
+                return port
+            }
         }
         return 7830
     }
@@ -74,6 +85,6 @@ public enum LockfilePaths {
             }
         }
 
-        return "http://127.0.0.1:\(resolveGatewayPort())"
+        return "http://127.0.0.1:\(resolveGatewayPort(connectedAssistantId: connectedAssistantId))"
     }
 }

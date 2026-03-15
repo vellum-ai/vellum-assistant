@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   buildTemporalContext,
-  extractUserTimeZoneFromDynamicProfile,
+  extractUserTimeZoneFromRecall,
 } from "../daemon/date-context.js";
 
 // Fixed timestamps for deterministic assertions (all UTC midday to avoid DST edge cases).
@@ -149,82 +149,6 @@ describe("buildTemporalContext", () => {
     });
     expect(result).toContain("Current local time: 2026-02-19T00:05:00+00:00");
     expect(result).not.toContain("T24:05:00");
-  });
-});
-
-describe("extractUserTimeZoneFromDynamicProfile", () => {
-  test("extracts canonical timezone from explicit timezone profile line", () => {
-    const profile = [
-      "<dynamic-user-profile>",
-      "- timezone: Timezone is America/New_York.",
-      "</dynamic-user-profile>",
-    ].join("\n");
-    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe(
-      "America/New_York",
-    );
-  });
-
-  test("extracts timezone token from generic profile text when explicit line is absent", () => {
-    const profile = [
-      "<dynamic-user-profile>",
-      "- location: Travels often between Europe and Asia (currently Europe/Paris).",
-      "</dynamic-user-profile>",
-    ].join("\n");
-    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe("Europe/Paris");
-  });
-
-  test("returns null when no valid timezone is present", () => {
-    const profile = [
-      "<dynamic-user-profile>",
-      "- timezone: Pacific time",
-      "</dynamic-user-profile>",
-    ].join("\n");
-    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBeNull();
-  });
-
-  test("extracts UTC/GMT offset tokens from explicit timezone profile line", () => {
-    const profile = [
-      "<dynamic-user-profile>",
-      "- timezone: UTC+2",
-      "</dynamic-user-profile>",
-    ].join("\n");
-    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe("Etc/GMT-2");
-  });
-
-  test("extracts GMT negative offset tokens from generic profile text", () => {
-    const profile = [
-      "<dynamic-user-profile>",
-      "- preferences: schedule notifications in GMT-5 whenever possible.",
-      "</dynamic-user-profile>",
-    ].join("\n");
-    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe("Etc/GMT+5");
-  });
-
-  test("extracts fractional UTC offset tokens from explicit timezone profile line", () => {
-    const profile = [
-      "<dynamic-user-profile>",
-      "- timezone: UTC+5:30",
-      "</dynamic-user-profile>",
-    ].join("\n");
-    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe("+05:30");
-  });
-
-  test("extracts fractional GMT offset tokens from generic profile text", () => {
-    const profile = [
-      "<dynamic-user-profile>",
-      "- preferences: default reminders to GMT+5:45.",
-      "</dynamic-user-profile>",
-    ].join("\n");
-    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe("+05:45");
-  });
-
-  test("prefers IANA timezone tokens over UTC/GMT offsets in the same profile line", () => {
-    const profile = [
-      "<dynamic-user-profile>",
-      "- timezone: UTC+1 (Europe/Paris)",
-      "</dynamic-user-profile>",
-    ].join("\n");
-    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe("Europe/Paris");
   });
 });
 
@@ -613,5 +537,97 @@ describe("trip-planning: timezone-shifted weekend anchors", () => {
     });
     expect(result).toContain("Today: 2026-02-27 (Friday)");
     expect(result).toContain("Next weekend: 2026-02-28 – 2026-03-01");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractUserTimeZoneFromRecall
+// ---------------------------------------------------------------------------
+
+describe("extractUserTimeZoneFromRecall", () => {
+  test("returns null for empty input", () => {
+    expect(extractUserTimeZoneFromRecall("")).toBeNull();
+    expect(extractUserTimeZoneFromRecall("  ")).toBeNull();
+  });
+
+  test("extracts IANA timezone from user_identity section", () => {
+    const text = `<memory_context>
+
+<user_identity>
+User's timezone is America/New_York
+User works as a software engineer
+</user_identity>
+
+</memory_context>`;
+    expect(extractUserTimeZoneFromRecall(text)).toBe("America/New_York");
+  });
+
+  test("extracts timezone from 'timezone: ...' line in identity", () => {
+    const text = `<memory_context>
+
+<user_identity>
+- name: Alice
+- timezone: Europe/London
+- role: designer
+</user_identity>
+
+</memory_context>`;
+    expect(extractUserTimeZoneFromRecall(text)).toBe("Europe/London");
+  });
+
+  test("extracts UTC offset timezone", () => {
+    const text = `<memory_context>
+
+<user_identity>
+User's time zone is UTC+5:30
+</user_identity>
+
+</memory_context>`;
+    const result = extractUserTimeZoneFromRecall(text);
+    expect(result).not.toBeNull();
+    // UTC+5:30 should canonicalize to +05:30
+    expect(result).toBe("+05:30");
+  });
+
+  test("falls back to scanning full text when no identity section", () => {
+    const text = `<memory_context>
+
+<relevant_context>
+<episode source="Mar 5">
+User mentioned their timezone is Asia/Tokyo
+</episode>
+</relevant_context>
+
+</memory_context>`;
+    expect(extractUserTimeZoneFromRecall(text)).toBe("Asia/Tokyo");
+  });
+
+  test("returns null when no timezone info present", () => {
+    const text = `<memory_context>
+
+<user_identity>
+User's name is Bob
+User works at Acme Corp
+</user_identity>
+
+</memory_context>`;
+    expect(extractUserTimeZoneFromRecall(text)).toBeNull();
+  });
+
+  test("prefers identity section over other sections", () => {
+    const text = `<memory_context>
+
+<user_identity>
+User's timezone is America/Chicago
+</user_identity>
+
+<relevant_context>
+<episode source="Mar 5">
+Discussed timezone America/Los_Angeles for the deployment
+</episode>
+</relevant_context>
+
+</memory_context>`;
+    expect(extractUserTimeZoneFromRecall(text)).toBe("America/Chicago");
   });
 });

@@ -44,12 +44,3 @@ export function canonicalizeInboundIdentity(
 
   return trimmed;
 }
-
-/**
- * Check whether a channel uses phone-number-based identity.
- * Useful for call sites that need to know whether E.164 normalization
- * applies without re-importing the channel set.
- */
-export function isPhoneChannel(channel: ChannelId): boolean {
-  return PHONE_CHANNELS.has(channel);
-}

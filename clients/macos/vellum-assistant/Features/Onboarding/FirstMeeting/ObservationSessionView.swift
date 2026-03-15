@@ -48,13 +48,13 @@ struct ObservationSessionView: View {
 
                 HStack(spacing: VSpacing.xs) {
                     Circle()
-                        .fill(VColor.success)
+                        .fill(VColor.systemPositiveStrong)
                         .frame(width: 8, height: 8)
                         .opacity(pulseOpacity)
 
                 Text("Observing")
                     .font(VFont.captionMedium)
-                    .foregroundColor(VColor.success)
+                    .foregroundColor(VColor.systemPositiveStrong)
                     .textSelection(.enabled)
                 }
             }
@@ -66,12 +66,12 @@ struct ObservationSessionView: View {
                         VStack(alignment: .leading, spacing: VSpacing.xxs) {
                             Text("Observation in progress")
                                 .font(VFont.headline)
-                                .foregroundColor(VColor.textPrimary)
+                                .foregroundColor(VColor.contentDefault)
                                 .textSelection(.enabled)
 
                             Text("\(timeDisplay) remaining")
                                 .font(VFont.mono)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.contentSecondary)
                                 .textSelection(.enabled)
                         }
 
@@ -80,18 +80,18 @@ struct ObservationSessionView: View {
                         // Circular progress indicator
                         ZStack {
                             Circle()
-                                .stroke(VColor.surfaceBorder, lineWidth: 3)
+                                .stroke(VColor.borderBase, lineWidth: 3)
                                 .frame(width: 40, height: 40)
 
                             Circle()
                                 .trim(from: 0, to: progress)
-                                .stroke(VColor.accent, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                                .stroke(VColor.primaryBase, style: StrokeStyle(lineWidth: 3, lineCap: .round))
                                 .frame(width: 40, height: 40)
                                 .rotationEffect(.degrees(-90))
                                 .animation(VAnimation.standard, value: progress)
 
                             VIconView(.eye, size: 14)
-                                .foregroundColor(VColor.accent)
+                                .foregroundColor(VColor.primaryBase)
                         }
                     }
 
@@ -99,11 +99,11 @@ struct ObservationSessionView: View {
                     GeometryReader { geometry in
                         ZStack(alignment: .leading) {
                             RoundedRectangle(cornerRadius: VRadius.xs)
-                                .fill(VColor.surfaceBorder)
+                                .fill(VColor.borderBase)
                                 .frame(height: 4)
 
                             RoundedRectangle(cornerRadius: VRadius.xs)
-                                .fill(VColor.accent)
+                                .fill(VColor.primaryBase)
                                 .frame(width: geometry.size.width * progress, height: 4)
                                 .animation(VAnimation.standard, value: progress)
                         }
@@ -229,18 +229,18 @@ private struct NarrationBubble: View {
         HStack {
             HStack(spacing: VSpacing.sm) {
                 VIconView(.eye, size: 11)
-                    .foregroundColor(VColor.accent)
+                    .foregroundColor(VColor.primaryBase)
 
                 Text(text)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .textSelection(.enabled)
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.md)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(VColor.surface.opacity(0.5))
+                    .fill(VColor.surfaceBase.opacity(0.5))
             )
 
             Spacer(minLength: 0)

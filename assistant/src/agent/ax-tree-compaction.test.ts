@@ -182,6 +182,57 @@ describe("compactAxTreeHistory", () => {
     expect(result).toEqual([]);
   });
 
+  test("counts AX trees per block, not per message", () => {
+    // One message has two AX tree blocks — they should count as 2 trees
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "t1a",
+            content: "<ax-tree>\ntree-1a\n</ax-tree>",
+            is_error: false,
+          },
+          {
+            type: "tool_result",
+            tool_use_id: "t1b",
+            content: "<ax-tree>\ntree-1b\n</ax-tree>",
+            is_error: false,
+          },
+        ],
+      },
+      assistantText("ok"),
+      axTreeToolResult("t2", "tree-2"),
+    ];
+
+    const result = compactAxTreeHistory(messages);
+
+    // 3 total AX tree blocks, keep last 2 → strip only first block (t1a)
+    const msg0 = result[0];
+    const block0 = msg0.content[0];
+    expect(block0.type).toBe("tool_result");
+    if (block0.type === "tool_result") {
+      expect(block0.content).toContain("<ax_tree_omitted />");
+      expect(block0.content).not.toContain("<ax-tree>");
+    }
+
+    // Second block in same message (t1b) should be kept
+    const block1 = msg0.content[1];
+    expect(block1.type).toBe("tool_result");
+    if (block1.type === "tool_result") {
+      expect(block1.content).toContain("<ax-tree>");
+      expect(block1.content).not.toContain("<ax_tree_omitted />");
+    }
+
+    // Last message (t2) should also be kept
+    const lastBlock = result[2].content[0];
+    expect(lastBlock.type).toBe("tool_result");
+    if (lastBlock.type === "tool_result") {
+      expect(lastBlock.content).toContain("<ax-tree>");
+    }
+  });
+
   test("is pure — does not mutate input messages", () => {
     const messages: Message[] = [
       axTreeToolResult("t1", "tree-1"),

@@ -9,7 +9,6 @@ import VellumAssistantShared
 /// Only displayed when the assistant is managed (`isManaged == true`).
 @MainActor
 struct AssistantUpgradeSection: View {
-    let assistant: LockfileAssistant
     let currentVersion: String?
 
     @State private var availableReleases: [AssistantRelease] = []
@@ -32,17 +31,17 @@ struct AssistantUpgradeSection: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             Text("Upgrade")
                 .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 if let current = currentVersion, !current.isEmpty {
                     HStack(spacing: VSpacing.sm) {
                         Text("Current version:")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                         Text(current)
                             .font(VFont.mono)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                     }
                 }
 
@@ -50,17 +49,17 @@ struct AssistantUpgradeSection: View {
                     HStack(spacing: VSpacing.sm) {
                         Text("Latest version:")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                         Text(latest.version)
                             .font(VFont.mono)
-                            .foregroundColor(upgradeAvailable ? VColor.accent : VColor.textPrimary)
+                            .foregroundColor(upgradeAvailable ? VColor.primaryBase : VColor.contentDefault)
                     }
                 }
 
                 if !upgradeAvailable && !isLoadingReleases && !availableReleases.isEmpty {
                     Text("You are on the latest version.")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.success)
+                        .foregroundColor(VColor.systemPositiveStrong)
                 }
             }
 
@@ -75,7 +74,7 @@ struct AssistantUpgradeSection: View {
 
                 VButton(
                     label: isLoadingReleases ? "Checking..." : "Check for Updates",
-                    style: .secondary
+                    style: .outlined
                 ) {
                     Task { await loadReleases() }
                 }
@@ -88,25 +87,25 @@ struct AssistantUpgradeSection: View {
                         .controlSize(.small)
                     Text(isUpgrading ? "Upgrading assistant..." : "Checking for updates...")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
 
             if let error = errorMessage {
                 Text(error)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.error)
+                    .foregroundColor(VColor.systemNegativeStrong)
             }
 
             if let success = successMessage {
                 Text(success)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.success)
+                    .foregroundColor(VColor.systemPositiveStrong)
             }
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceSubtle)
+        .vCard(background: VColor.surfaceOverlay)
         .frame(maxWidth: .infinity, alignment: .leading)
         .task { await loadReleases() }
         .alert("Upgrade Assistant", isPresented: $showingUpgradeConfirmation) {
@@ -135,28 +134,27 @@ struct AssistantUpgradeSection: View {
         isLoadingReleases = true
         defer { isLoadingReleases = false }
 
-        guard let request = buildRequest(path: "releases", method: "GET") else {
-            errorMessage = "Unable to check for updates"
-            return
-        }
-
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200 else {
+            let (paginated, response): (PaginatedReleasesResponse?, _) = try await GatewayHTTPClient.get(
+                path: "assistants/releases"
+            ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
+            guard response.statusCode == 200 else {
                 errorMessage = "Failed to check for updates"
                 return
             }
-            let decoder = JSONDecoder()
-            decoder.keyDecodingStrategy = .convertFromSnakeCase
-            // Try paginated response { "results": [...] }, then plain array [...]
-            if let decoded = try? decoder.decode(PaginatedReleasesResponse.self, from: data) {
-                availableReleases = decoded.results
-            } else if let decoded = try? decoder.decode(ReleasesResponse.self, from: data) {
-                availableReleases = decoded.releases
+            if let paginated {
+                availableReleases = paginated.results
             } else {
-                availableReleases = try decoder.decode([AssistantRelease].self, from: data)
+                let decoder = JSONDecoder()
+                decoder.keyDecodingStrategy = .convertFromSnakeCase
+                if let decoded = try? decoder.decode(ReleasesResponse.self, from: response.data) {
+                    availableReleases = decoded.releases
+                } else {
+                    availableReleases = try decoder.decode([AssistantRelease].self, from: response.data)
+                }
             }
+        } catch let error as GatewayHTTPClient.ClientError {
+            errorMessage = "Unable to check for updates: \(error.localizedDescription)"
         } catch {
             errorMessage = "Failed to check for updates: \(error.localizedDescription)"
         }
@@ -167,27 +165,19 @@ struct AssistantUpgradeSection: View {
         isUpgrading = true
         defer { isUpgrading = false }
 
-        guard var request = buildRequest(path: "upgrade", method: "POST") else {
-            errorMessage = "Unable to start upgrade"
-            return
-        }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                errorMessage = "Invalid response"
-                return
-            }
-            if httpResponse.statusCode >= 200 && httpResponse.statusCode < 300 {
+            let response = try await GatewayHTTPClient.post(path: "assistants/upgrade")
+            if response.isSuccess {
                 successMessage = "Upgrade initiated. The assistant may be briefly unavailable."
                 // Refresh releases to update UI without clearing success message
                 await loadReleasesQuietly()
                 // Clear any error from the releases fetch so it doesn't appear alongside the success
                 if successMessage != nil { errorMessage = nil }
             } else {
-                errorMessage = "Upgrade failed (HTTP \(httpResponse.statusCode))"
+                errorMessage = "Upgrade failed (HTTP \(response.statusCode))"
             }
+        } catch let error as GatewayHTTPClient.ClientError {
+            errorMessage = "Unable to start upgrade: \(error.localizedDescription)"
         } catch {
             errorMessage = "Upgrade failed: \(error.localizedDescription)"
         }
@@ -200,20 +190,6 @@ struct AssistantUpgradeSection: View {
         successMessage = nil
     }
 
-    private func buildRequest(path: String, method: String) -> URLRequest? {
-        let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
-        guard let token = SessionTokenManager.getToken(), !token.isEmpty else { return nil }
-        let trailingSlash = path.hasSuffix("/") ? "" : "/"
-        guard let url = URL(string: "\(baseURL)/v1/assistants/\(path)\(trailingSlash)") else { return nil }
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.timeoutInterval = 30
-        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
-        if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
-            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
-        }
-        return request
-    }
 }
 
 // MARK: - Models

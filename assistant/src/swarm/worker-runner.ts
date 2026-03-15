@@ -63,7 +63,7 @@ export async function runWorkerTask(
   emitStatus(onStatus, task.id, "queued");
 
   // Check backend availability
-  if (!backend.isAvailable()) {
+  if (!(await backend.isAvailable())) {
     emitStatus(onStatus, task.id, "failed");
     return {
       taskId: task.id,

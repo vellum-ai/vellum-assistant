@@ -14,6 +14,6 @@ export function err(message: string): ToolExecutionResult {
   return { content: message, isError: true };
 }
 
-export function getSlackConnection(): OAuthConnection {
+export async function getSlackConnection(): Promise<OAuthConnection> {
   return resolveOAuthConnection("integration:slack");
 }

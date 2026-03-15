@@ -69,7 +69,7 @@ struct VoiceSettingsView: View {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Activation Key:")
                         .font(VFont.inputLabel)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
 
                     HStack(spacing: VSpacing.sm) {
                         // Preset options
@@ -100,10 +100,10 @@ struct VoiceSettingsView: View {
                     if currentActivator.kind == .key {
                         HStack(alignment: .top, spacing: VSpacing.xs) {
                             VIconView(.info, size: 10)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                             Text("This key will still type in other apps while held. For seamless use, a dedicated key (F-key, mouse button) is recommended.")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                                 .lineSpacing(1)
                         }
                     }
@@ -119,26 +119,26 @@ struct VoiceSettingsView: View {
             HStack(spacing: VSpacing.sm) {
                 // Radio indicator
                 Circle()
-                    .fill(isSelected ? VColor.radioSelectedFill : Color.clear)
+                    .fill(isSelected ? VColor.primaryBase : Color.clear)
                     .frame(width: 10, height: 10)
                     .overlay(
                         Circle()
-                            .strokeBorder(isSelected ? VColor.radioSelectedFill : VColor.radioUnselectedStroke, lineWidth: 1.5)
+                            .strokeBorder(isSelected ? VColor.primaryBase : VColor.borderHover, lineWidth: 1.5)
                     )
 
                 Text(label)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(isSelected ? VColor.radioSelectedBg : Color.clear)
+                    .fill(isSelected ? VColor.surfaceActive : Color.clear)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .strokeBorder(VColor.radioBorder, lineWidth: 1)
+                    .strokeBorder(VColor.borderBase, lineWidth: 1)
             )
             .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
         }
@@ -275,8 +275,8 @@ struct VoiceSettingsView: View {
         SettingsCard(title: "Text-to-Speech", subtitle: "ElevenLabs provides high-quality voice responses during voice conversations. An API key is required.") {
             if store.hasElevenLabsKey {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
-                    VButton(label: "Disconnect", style: .danger, size: .medium) {
+                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
+                    VButton(label: "Disconnect", style: .danger) {
                         store.clearElevenLabsKey()
                         elevenLabsKeyText = ""
                         ttsSetupExpanded = false
@@ -286,35 +286,35 @@ struct VoiceSettingsView: View {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("ElevenLabs API Key")
                         .font(VFont.inputLabel)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
 
                     SecureField("Your ElevenLabs API key", text: $elevenLabsKeyText)
                         .vInputStyle()
                         .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
 
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.lock, size: 10)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                         Text("Your API key is stored securely in the macOS Keychain.")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
 
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connect", style: .secondary, size: .medium, isDisabled: elevenLabsKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                        VButton(label: "Connect", style: .outlined, isDisabled: elevenLabsKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                             store.saveElevenLabsKey(elevenLabsKeyText)
                             elevenLabsKeyText = ""
                             ttsSetupExpanded = false
                         }
-                        VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                        VButton(label: "Cancel", style: .outlined) {
                             ttsSetupExpanded = false
                             elevenLabsKeyText = ""
                         }
                     }
                 }
             } else {
-                VButton(label: "Set Up", style: .secondary, size: .medium) {
+                VButton(label: "Set Up", style: .outlined) {
                     ttsSetupExpanded = true
                 }
             }

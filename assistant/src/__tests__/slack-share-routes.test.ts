@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const secureKeyValues = new Map<string, string>();
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKey: (key: string) => secureKeyValues.get(key),
+  getSecureKeyAsync: async (key: string) => secureKeyValues.get(key),
   setSecureKeyAsync: async () => {},
 }));
 

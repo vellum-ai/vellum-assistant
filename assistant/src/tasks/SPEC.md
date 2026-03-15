@@ -3,7 +3,7 @@
 One-shot tasks are user-defined, reusable prompt templates that run as
 self-contained LLM invocations. A user creates a task once (template + input
 schema), then triggers it with concrete inputs whenever needed. Each run
-produces a result in an isolated background thread.
+produces a result in an isolated background conversation.
 
 ---
 
@@ -77,13 +77,13 @@ This means:
   each other's memory.
 
 This mirrors the existing `private:{id}` scoping pattern used by private
-threads (see `conversation-crud.ts`), extended to a new `task:` namespace.
+conversations (see `conversation-crud.ts`), extended to a new `task:` namespace.
 
 ---
 
 ## 3. Run Surface
 
-Each task run creates a new conversation thread with `threadType: 'background'`.
+Each task run creates a new background conversation with `conversationType: 'background'`.
 
 ### Lifecycle
 
@@ -99,11 +99,11 @@ Each task run creates a new conversation thread with `threadType: 'background'`.
 3. **Completion**: When the session finishes, the work item transitions to
    `awaiting_review` (on success) or `failed` (on error). The daemon broadcasts
    the final status to all clients.
-4. **Visibility**: Background conversations are excluded from the default thread
+4. **Visibility**: Background conversations are excluded from the default conversation
    list (existing behavior in `conversation-crud.ts`). Clients can query for
    them explicitly to surface task results in a dedicated UI.
 
-**Why background conversations:** Reuses the existing `threadType: 'background'`
+**Why background conversations:** Reuses the existing `conversationType: 'background'`
 infrastructure. Task runs don't interrupt the user's current conversation, and
 clients can choose how and when to display results (toast, panel, separate
 tab).

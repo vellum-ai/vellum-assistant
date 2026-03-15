@@ -4,14 +4,14 @@
  * Exercises the full media-reuse user story end-to-end:
  *
  * 1. A fal.ai credential is stored with an injection template.
- * 2. User uploads a selfie in Thread A (standard thread).
- * 3. In Thread B (standard), the agent uses asset_search to find the selfie,
+ * 2. User uploads a selfie in Conversation A (standard conversation).
+ * 3. In Conversation B (standard), the agent uses asset_search to find the selfie,
  *    then asset_materialize to write it to disk.
  * 4. A proxied bash command calls the provider API through a real proxy
  *    session with credential injection against a local mock endpoint.
  * 5. The generated result is saved back.
  *
- * Also verifies that private-thread isolation blocks cross-thread media access.
+ * Also verifies that private-conversation isolation blocks cross-conversation media access.
  */
 
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -52,7 +52,6 @@ mock.module("../config/loader.js", () => ({
 
     model: "test",
     provider: "test",
-    apiKeys: {},
     memory: { enabled: false },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     timeouts: { shellDefaultTimeoutSec: 30, shellMaxTimeoutSec: 60 },
@@ -79,13 +78,9 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 }));
 
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKey: (account: string) => secureKeyValues.get(account),
-  setSecureKey: () => true,
-  deleteSecureKey: () => "deleted",
-  listSecureKeys: () => [],
-  getBackendType: () => "encrypted",
+  getSecureKeyAsync: async (account: string) => secureKeyValues.get(account),
+  listSecureKeysAsync: async () => [],
   _resetBackend: () => {},
-  _setBackend: () => {},
 }));
 
 // Stub ensureLocalCA / certs so tests never run openssl
@@ -201,8 +196,8 @@ function resetTables() {
 
 describe("Story E2E: selfie yesterday -> generated image today", () => {
   // Shared state across the story steps
-  let threadA: ReturnType<typeof createConversation>;
-  let threadB: ReturnType<typeof createConversation>;
+  let conversationA: ReturnType<typeof createConversation>;
+  let conversationB: ReturnType<typeof createConversation>;
   let selfieId: string;
   let selfieAttachment: ReturnType<typeof uploadAttachment>;
 
@@ -229,8 +224,10 @@ describe("Story E2E: selfie yesterday -> generated image today", () => {
     expect(falInjectionTemplate.headerName).toBe("Authorization");
     expect(falInjectionTemplate.valuePrefix).toBe("Key ");
 
-    // -- Step 2: Selfie uploaded in Thread A (standard) --
-    threadA = createConversation({ title: "Thread A — selfie upload" });
+    // -- Step 2: Selfie uploaded in Conversation A (standard) --
+    conversationA = createConversation({
+      title: "Conversation A — selfie upload",
+    });
     selfieAttachment = uploadAttachment(
       "selfie.png",
       "image/png",
@@ -239,7 +236,7 @@ describe("Story E2E: selfie yesterday -> generated image today", () => {
     selfieId = selfieAttachment.id;
 
     const msgA = await addMessage(
-      threadA.id,
+      conversationA.id,
       "user",
       "Here is my selfie from yesterday",
     );
@@ -252,15 +249,17 @@ describe("Story E2E: selfie yesterday -> generated image today", () => {
       `UPDATE attachments SET created_at = ${yesterday} WHERE id = '${selfieId}'`,
     );
 
-    // -- Step 3: Thread B is a new standard conversation --
-    threadB = createConversation({ title: "Thread B — generate image" });
+    // -- Step 3: Conversation B is a new standard conversation --
+    conversationB = createConversation({
+      title: "Conversation B — generate image",
+    });
   });
 
-  test("asset_search discovers the selfie from Thread B (cross-thread)", async () => {
+  test("asset_search discovers the selfie from Conversation B (cross-conversation)", async () => {
     const context: ToolContext = {
       workingDir: sandboxDir,
       sessionId: "sess-story",
-      conversationId: threadB.id,
+      conversationId: conversationB.id,
       trustClass: "guardian",
     };
 
@@ -279,7 +278,7 @@ describe("Story E2E: selfie yesterday -> generated image today", () => {
     const context: ToolContext = {
       workingDir: sandboxDir,
       sessionId: "sess-story",
-      conversationId: threadB.id,
+      conversationId: conversationB.id,
       trustClass: "guardian",
     };
 
@@ -292,11 +291,11 @@ describe("Story E2E: selfie yesterday -> generated image today", () => {
     expect(result.content).toContain("selfie.png");
   });
 
-  test("asset_materialize writes the selfie to disk in Thread B sandbox", async () => {
+  test("asset_materialize writes the selfie to disk in Conversation B sandbox", async () => {
     const context: ToolContext = {
       workingDir: sandboxDir,
       sessionId: "sess-story",
-      conversationId: threadB.id,
+      conversationId: conversationB.id,
       trustClass: "guardian",
     };
 
@@ -324,7 +323,7 @@ describe("Story E2E: selfie yesterday -> generated image today", () => {
     const contextB: ToolContext = {
       workingDir: sandboxDir,
       sessionId: "sess-story",
-      conversationId: threadB.id,
+      conversationId: conversationB.id,
       trustClass: "guardian",
     };
 
@@ -403,7 +402,7 @@ describe("Story E2E: selfie yesterday -> generated image today", () => {
     );
 
     const msgB = await addMessage(
-      threadB.id,
+      conversationB.id,
       "assistant",
       "Here is your generated portrait!",
     );
@@ -502,36 +501,42 @@ describe("Proxied bash activation requires per-invocation approval", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Private-thread variant: cross-thread blocking
+// Private-conversation variant: cross-conversation blocking
 // ---------------------------------------------------------------------------
 
-describe("Private-thread variant: cross-thread media blocking", () => {
+describe("Private-conversation variant: cross-conversation media blocking", () => {
   beforeEach(() => {
     resetTables();
     rmSync(sandboxDir, { recursive: true, force: true });
     mkdirSync(sandboxDir, { recursive: true });
   });
 
-  test("selfie in private thread A is NOT discoverable via search from Thread B", async () => {
-    // Upload selfie in a private thread
-    const privateThread = createConversation({
-      title: "Private selfie thread",
-      threadType: "private",
+  test("selfie in private conversation A is NOT discoverable via search from Conversation B", async () => {
+    // Upload selfie in a private conversation
+    const privateConversation = createConversation({
+      title: "Private selfie conversation",
+      conversationType: "private",
     });
     const selfie = uploadAttachment(
       "private-selfie.png",
       "image/png",
       TINY_PNG_BASE64,
     );
-    const msg = await addMessage(privateThread.id, "user", "My private selfie");
+    const msg = await addMessage(
+      privateConversation.id,
+      "user",
+      "My private selfie",
+    );
     linkAttachmentToMessage(msg.id, selfie.id, 0);
 
-    // Search from a standard thread
-    const standardThread = createConversation({ title: "Standard thread B" });
+    // Search from a standard conversation
+    const standardConversation = createConversation({
+      title: "Standard conversation B",
+    });
     const context: ToolContext = {
       workingDir: sandboxDir,
       sessionId: "sess-priv-test",
-      conversationId: standardThread.id,
+      conversationId: standardConversation.id,
       trustClass: "guardian",
     };
 
@@ -544,22 +549,28 @@ describe("Private-thread variant: cross-thread media blocking", () => {
     expect(result.content).toContain("No assets found");
   });
 
-  test("selfie in private thread A is NOT materializable from Thread B", async () => {
-    const privateThread = createConversation({
-      title: "Private selfie thread",
-      threadType: "private",
+  test("selfie in private conversation A is NOT materializable from Conversation B", async () => {
+    const privateConversation = createConversation({
+      title: "Private selfie conversation",
+      conversationType: "private",
     });
     const base64 = Buffer.from("private image data").toString("base64");
     const selfie = uploadAttachment("private-selfie.png", "image/png", base64);
-    const msg = await addMessage(privateThread.id, "user", "My private selfie");
+    const msg = await addMessage(
+      privateConversation.id,
+      "user",
+      "My private selfie",
+    );
     linkAttachmentToMessage(msg.id, selfie.id, 0);
 
-    // Try to materialize from a standard thread
-    const standardThread = createConversation({ title: "Standard thread B" });
+    // Try to materialize from a standard conversation
+    const standardConversation = createConversation({
+      title: "Standard conversation B",
+    });
     const context: ToolContext = {
       workingDir: sandboxDir,
       sessionId: "sess-priv-test",
-      conversationId: standardThread.id,
+      conversationId: standardConversation.id,
       trustClass: "guardian",
     };
 
@@ -569,28 +580,32 @@ describe("Private-thread variant: cross-thread media blocking", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("private thread");
+    expect(result.content).toContain("private conversation");
     expect(result.content).toContain("cannot be accessed");
   });
 
-  test("selfie in private thread IS accessible from the same private thread", async () => {
-    const privateThread = createConversation({
-      title: "Private selfie thread",
-      threadType: "private",
+  test("selfie in private conversation IS accessible from the same private conversation", async () => {
+    const privateConversation = createConversation({
+      title: "Private selfie conversation",
+      conversationType: "private",
     });
     const selfie = uploadAttachment(
       "private-selfie.png",
       "image/png",
       TINY_PNG_BASE64,
     );
-    const msg = await addMessage(privateThread.id, "user", "My private selfie");
+    const msg = await addMessage(
+      privateConversation.id,
+      "user",
+      "My private selfie",
+    );
     linkAttachmentToMessage(msg.id, selfie.id, 0);
 
-    // Search from the same private thread
+    // Search from the same private conversation
     const context: ToolContext = {
       workingDir: sandboxDir,
       sessionId: "sess-priv-test",
-      conversationId: privateThread.id,
+      conversationId: privateConversation.id,
       trustClass: "guardian",
     };
 
@@ -601,7 +616,7 @@ describe("Private-thread variant: cross-thread media blocking", () => {
     expect(searchResult.isError).toBe(false);
     expect(searchResult.content).toContain("private-selfie.png");
 
-    // Materialize from the same private thread
+    // Materialize from the same private conversation
     const materializeResult = await assetMaterializeTool.execute(
       { attachment_id: selfie.id, destination_path: "my-selfie.png" },
       context,
@@ -610,37 +625,37 @@ describe("Private-thread variant: cross-thread media blocking", () => {
     expect(materializeResult.content).toContain("Materialized");
   });
 
-  test("selfie in private thread A is NOT accessible from private thread B", async () => {
-    const privateThreadA = createConversation({
-      title: "Private thread A",
-      threadType: "private",
+  test("selfie in private conversation A is NOT accessible from private conversation B", async () => {
+    const privateConversationA = createConversation({
+      title: "Private conversation A",
+      conversationType: "private",
     });
     const selfie = uploadAttachment(
-      "thread-a-selfie.png",
+      "conversation-a-selfie.png",
       "image/png",
       TINY_PNG_BASE64,
     );
     const msgA = await addMessage(
-      privateThreadA.id,
+      privateConversationA.id,
       "user",
-      "Selfie in thread A",
+      "Selfie in conversation A",
     );
     linkAttachmentToMessage(msgA.id, selfie.id, 0);
 
-    // Search from a different private thread
-    const privateThreadB = createConversation({
-      title: "Private thread B",
-      threadType: "private",
+    // Search from a different private conversation
+    const privateConversationB = createConversation({
+      title: "Private conversation B",
+      conversationType: "private",
     });
     const context: ToolContext = {
       workingDir: sandboxDir,
       sessionId: "sess-priv-test",
-      conversationId: privateThreadB.id,
+      conversationId: privateConversationB.id,
       trustClass: "guardian",
     };
 
     const searchResult = await assetSearchTool.execute(
-      { filename: "thread-a-selfie" },
+      { filename: "conversation-a-selfie" },
       context,
     );
     expect(searchResult.isError).toBe(false);
@@ -648,11 +663,11 @@ describe("Private-thread variant: cross-thread media blocking", () => {
 
     // Also verify materialize is blocked
     const materializeResult = await assetMaterializeTool.execute(
-      { attachment_id: selfie.id, destination_path: "cross-thread.png" },
+      { attachment_id: selfie.id, destination_path: "cross-conversation.png" },
       context,
     );
     expect(materializeResult.isError).toBe(true);
-    expect(materializeResult.content).toContain("private thread");
+    expect(materializeResult.content).toContain("private conversation");
   });
 
   test("visibility policy unit check: private attachment blocked from standard context", () => {
@@ -712,7 +727,7 @@ describe("Private-thread variant: cross-thread media blocking", () => {
     );
     expect(fromStandard.map((i) => i.id)).toEqual(["std-1"]);
 
-    // From private thread A, standard + A's private attachment are visible
+    // From private conversation A, standard + A's private attachment are visible
     const fromPrivA = filterVisibleAttachments(
       items,
       { conversationId: "conv-priv-a", isPrivate: true },
@@ -720,7 +735,7 @@ describe("Private-thread variant: cross-thread media blocking", () => {
     );
     expect(fromPrivA.map((i) => i.id)).toEqual(["std-1", "priv-a"]);
 
-    // From private thread B, standard + B's private attachment are visible
+    // From private conversation B, standard + B's private attachment are visible
     const fromPrivB = filterVisibleAttachments(
       items,
       { conversationId: "conv-priv-b", isPrivate: true },

@@ -48,7 +48,10 @@ export interface GuardianDecisionAction {
 export const GUARDIAN_DECISION_ACTIONS = {
   approve_once: { action: "approve_once", label: "Approve once" },
   approve_10m: { action: "approve_10m", label: "Allow 10 min" },
-  approve_thread: { action: "approve_thread", label: "Allow thread" },
+  approve_conversation: {
+    action: "approve_conversation",
+    label: "Allow conversation",
+  },
   approve_always: { action: "approve_always", label: "Approve always" },
   reject: { action: "reject", label: "Reject" },
 } as const satisfies Record<string, GuardianDecisionAction>;
@@ -62,7 +65,7 @@ export const GUARDIAN_DECISION_ACTIONS = {
  * of a requester), both `approve_always` and the temporary modes are excluded
  * since guardians cannot grant broad delegated allow modes on behalf of others.
  *
- * Temporary modes (`approve_10m`, `approve_thread`) are included for
+ * Temporary modes (`approve_10m`, `approve_conversation`) are included for
  * requester-side standard approval flows when persistent decisions are allowed.
  */
 export function buildDecisionActions(opts?: {
@@ -78,7 +81,7 @@ export function buildDecisionActions(opts?: {
     ...(showTemporary
       ? [
           GUARDIAN_DECISION_ACTIONS.approve_10m,
-          GUARDIAN_DECISION_ACTIONS.approve_thread,
+          GUARDIAN_DECISION_ACTIONS.approve_conversation,
         ]
       : []),
     ...(showAlways ? [GUARDIAN_DECISION_ACTIONS.approve_always] : []),
@@ -97,16 +100,18 @@ export function buildPlainTextFallback(
 ): string {
   const hasAlways = actions.some((a) => a.action === "approve_always");
   const has10m = actions.some((a) => a.action === "approve_10m");
-  const hasThread = actions.some((a) => a.action === "approve_thread");
+  const hasConversation = actions.some(
+    (a) => a.action === "approve_conversation",
+  );
 
-  if (hasAlways && has10m && hasThread) {
-    return `${promptText}\n\nReply "yes" to approve once, "approve for 10 minutes", "approve for thread", "always" to approve always, or "no" to reject.`;
+  if (hasAlways && has10m && hasConversation) {
+    return `${promptText}\n\nReply "yes" to approve once, "approve for 10 minutes", "approve for conversation", "always" to approve always, or "no" to reject.`;
   }
   if (hasAlways) {
     return `${promptText}\n\nReply "yes" to approve once, "always" to approve always, or "no" to reject.`;
   }
-  if (has10m && hasThread) {
-    return `${promptText}\n\nReply "yes" to approve once, "approve for 10 minutes", "approve for thread", or "no" to reject.`;
+  if (has10m && hasConversation) {
+    return `${promptText}\n\nReply "yes" to approve once, "approve for 10 minutes", "approve for conversation", or "no" to reject.`;
   }
   return `${promptText}\n\nReply "yes" to approve or "no" to reject.`;
 }

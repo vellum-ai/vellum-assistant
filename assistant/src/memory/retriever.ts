@@ -1,5 +1,4 @@
-import { createHash } from "crypto";
-import { inArray } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 
 import type { AssistantConfig } from "../config/types.js";
 import { estimateTextTokens } from "../context/token-estimator.js";
@@ -12,40 +11,34 @@ import {
 import { getDb } from "./db.js";
 import {
   embedWithBackend,
+  generateSparseEmbedding,
   getMemoryBackendStatus,
   logMemoryEmbeddingWarning,
 } from "./embedding-backend.js";
-import { formatRecallText } from "./format-recall.js";
+import { isQdrantBreakerOpen } from "./qdrant-circuit-breaker.js";
 import {
-  isQdrantBreakerOpen,
-  QdrantCircuitOpenError,
-} from "./qdrant-circuit-breaker.js";
+  conversations,
+  memoryItems,
+  memoryItemSources,
+  messages,
+} from "./schema.js";
 import {
-  getCachedRecall,
-  getMemoryVersion,
-  setCachedRecall,
-} from "./recall-cache.js";
-import { memoryItemSources } from "./schema.js";
-import { entitySearch } from "./search/entity.js";
-import { MEMORY_CONTEXT_ACK } from "./search/formatting.js";
-import {
-  directItemSearch,
-  lexicalSearch,
-  recencySearch,
-} from "./search/lexical.js";
-import { buildFTSQuery, expandQueryForFTS } from "./search/query-expansion.js";
-import {
-  applySourceCaps,
-  mergeCandidates,
-  rerankWithLLM,
-} from "./search/ranking.js";
+  buildTwoLayerInjection,
+  IDENTITY_KINDS,
+  MEMORY_CONTEXT_ACK,
+  PREFERENCE_KINDS,
+} from "./search/formatting.js";
+import { recencySearch } from "./search/lexical.js";
 import { isQdrantConnectionError, semanticSearch } from "./search/semantic.js";
+import { applyStaleDemotion, computeStaleness } from "./search/staleness.js";
+import {
+  classifyTiers,
+  type TieredCandidate,
+} from "./search/tier-classifier.js";
 import type {
   Candidate,
-  CollectedCandidates,
   DegradationReason,
   DegradationStatus,
-  FallbackSource,
   MemoryRecallCandiateDebug,
   MemoryRecallOptions,
   MemoryRecallResult,
@@ -61,29 +54,12 @@ export {
 export type {
   DegradationReason,
   DegradationStatus,
-  FallbackSource,
   MemoryRecallCandiateDebug,
   MemoryRecallResult,
   ScopePolicyOverride,
 } from "./search/types.js";
 
 const log = getLogger("memory-retriever");
-
-/** Hash the retrieval-relevant config fields so the recall cache distinguishes different configs. */
-function buildConfigFingerprint(config: AssistantConfig): string {
-  const relevant = {
-    r: config.memory.retrieval,
-    e: {
-      provider: config.memory.embeddings.provider,
-      required: config.memory.embeddings.required,
-    },
-    ent: config.memory.entity.enabled,
-  };
-  return createHash("sha256")
-    .update(JSON.stringify(relevant))
-    .digest("hex")
-    .slice(0, 16);
-}
 
 const EMBED_MAX_RETRIES = 3;
 const EMBED_BASE_DELAY_MS = 500;
@@ -152,335 +128,17 @@ function buildScopeFilter(
 }
 
 /**
- * Shared retrieval pipeline: collect candidates from all available sources
- * (lexical, recency, semantic, entity, direct item search) and merge them
- * using RRF.
- */
-export async function collectAndMergeCandidates(
-  query: string,
-  config: AssistantConfig,
-  opts?: {
-    queryVector?: number[] | null;
-    provider?: string;
-    model?: string;
-    conversationId?: string;
-    excludeMessageIds?: string[];
-    scopeId?: string;
-    scopePolicyOverride?: ScopePolicyOverride;
-  },
-): Promise<CollectedCandidates> {
-  const queryVector = opts?.queryVector ?? null;
-  const excludeMessageIds = opts?.excludeMessageIds ?? [];
-  const scopeId = opts?.scopeId;
-  const scopePolicy = config.memory.retrieval.scopePolicy;
-  // Build the list of scope IDs to include in queries.
-  // A per-call scopePolicyOverride takes precedence over the global policy.
-  const scopeIds = buildScopeFilter(
-    scopeId,
-    scopePolicy,
-    opts?.scopePolicyOverride,
-  );
-
-  let semanticSearchFailed = false;
-  let semanticSearchError: unknown;
-
-  // Detect when semantic search won't be available so we can compensate
-  // by boosting lexical/recency/direct item limits.
-  const semanticUnavailable = !queryVector || isQdrantBreakerOpen();
-  if (semanticUnavailable) {
-    log.debug("Semantic search unavailable — boosting lexical limits");
-  }
-
-  // -- Phase 1: cheap local searches (always run) --
-  const lexicalTopK = semanticUnavailable
-    ? config.memory.retrieval.lexicalTopK * 2
-    : config.memory.retrieval.lexicalTopK;
-
-  // When semantic search is unavailable, expand the conversational query
-  // into meaningful keywords for better FTS recall. This compensates for
-  // the lack of vector-based semantic matching.
-  const expandedFtsQuery = semanticUnavailable
-    ? buildFTSQuery(expandQueryForFTS(query))
-    : undefined;
-
-  const lexical = lexicalSearch(
-    query,
-    lexicalTopK,
-    excludeMessageIds,
-    scopeIds,
-    expandedFtsQuery,
-  );
-
-  const baseRecencyLimit = Math.max(
-    10,
-    Math.floor(config.memory.retrieval.semanticTopK / 2),
-  );
-  const recencyLimit = semanticUnavailable
-    ? Math.ceil(baseRecencyLimit * 1.5)
-    : baseRecencyLimit;
-  const recency = opts?.conversationId
-    ? recencySearch(
-        opts.conversationId,
-        recencyLimit,
-        excludeMessageIds,
-        scopeIds,
-      )
-    : [];
-
-  // Direct item search supplements FTS with LIKE-based matching.
-  // When exclusions are present, adaptively increase the fetch size until
-  // we collect directLimit valid (non-excluded) items or exhaust the DB.
-  const baseDirectLimit = Math.max(10, config.memory.retrieval.lexicalTopK);
-  const directLimit = semanticUnavailable
-    ? baseDirectLimit * 2
-    : baseDirectLimit;
-
-  // Helper: filter fetched direct items to those with at least one non-excluded source.
-  const filterDirectItems = (items: Candidate[]): Candidate[] => {
-    if (items.length === 0) return items;
-    const db = getDb();
-    const excludedSet = new Set(excludeMessageIds);
-    const allSources = db
-      .select({
-        memoryItemId: memoryItemSources.memoryItemId,
-        messageId: memoryItemSources.messageId,
-      })
-      .from(memoryItemSources)
-      .where(
-        inArray(
-          memoryItemSources.memoryItemId,
-          items.map((c) => c.id),
-        ),
-      )
-      .all();
-    const hasNonExcluded = new Set<string>();
-    const hasSources = new Set<string>();
-    for (const s of allSources) {
-      hasSources.add(s.memoryItemId);
-      if (!excludedSet.has(s.messageId)) {
-        hasNonExcluded.add(s.memoryItemId);
-      }
-    }
-    return items.filter(
-      (c) => !hasSources.has(c.id) || hasNonExcluded.has(c.id),
-    );
-  };
-
-  let directItems: Candidate[];
-  if (excludeMessageIds.length > 0) {
-    const MAX_FETCH = directLimit * 8;
-
-    // Probe: fetch directLimit items and measure how many survive filtering.
-    const probe = directItemSearch(query, directLimit, scopeIds);
-    const probeFiltered = filterDirectItems(probe);
-    const probeExhausted = probe.length < directLimit;
-
-    if (probeFiltered.length >= directLimit || probeExhausted) {
-      directItems = probeFiltered.slice(0, directLimit);
-    } else {
-      // Compute exclusion ratio from probe and extrapolate the fetch size
-      // needed to yield directLimit surviving items in a single query.
-      const exclusionRatio =
-        probe.length > 0 ? 1 - probeFiltered.length / probe.length : 0;
-      // Fetch enough to compensate for the observed exclusion rate, with
-      // a 1.5x safety margin to avoid a second round in most cases.
-      const estimatedFetch =
-        exclusionRatio < 1
-          ? Math.ceil((directLimit / (1 - exclusionRatio)) * 1.5)
-          : MAX_FETCH;
-      let fetchSize = Math.min(
-        Math.max(estimatedFetch, directLimit + 24),
-        MAX_FETCH,
-      );
-
-      let fetched = directItemSearch(query, fetchSize, scopeIds);
-      directItems = filterDirectItems(fetched).slice(0, directLimit);
-
-      // Retry loop: when the estimate under-fetched (uneven exclusion
-      // distribution), keep increasing fetchSize until quota is met or
-      // the DB is exhausted.
-      while (
-        directItems.length < directLimit &&
-        fetched.length === fetchSize &&
-        fetchSize < MAX_FETCH
-      ) {
-        fetchSize = Math.min(fetchSize * 2, MAX_FETCH);
-        fetched = directItemSearch(query, fetchSize, scopeIds);
-        directItems = filterDirectItems(fetched).slice(0, directLimit);
-      }
-    }
-  } else {
-    directItems = directItemSearch(query, directLimit, scopeIds);
-  }
-
-  // -- Early termination check --
-  // If cheap sources already produced enough high-relevance candidates,
-  // skip semantic and entity search entirely.
-  //
-  // Deduplicate before counting: lexical and recency can return the same
-  // segment (common when recent messages match the query), so checking raw
-  // counts would inflate the total and trigger early termination prematurely.
-  const etConfig = config.memory.retrieval.earlyTermination;
-  const cheapCandidateMap = new Map<string, Candidate>();
-  for (const c of [...lexical, ...recency, ...directItems]) {
-    const existing = cheapCandidateMap.get(c.key);
-    // Keep the candidate with higher query relevance (lexical score is the
-    // best proxy we have at this stage; confidence reflects extraction
-    // certainty, not query-match strength).
-    if (!existing || c.lexical > existing.lexical) {
-      cheapCandidateMap.set(c.key, c);
-    }
-  }
-  const cheapCandidates = [...cheapCandidateMap.values()];
-
-  // Gate on relevance instead of confidence: for direct item candidates,
-  // c.confidence reflects extraction certainty (memory_items.confidence),
-  // not query-match relevance. Common tokens can produce many high-confidence
-  // but weakly relevant items that would skip semantic search exactly when
-  // it's needed most. Instead, check lexical score (query-match relevance).
-  //
-  // Disable early termination when semantic search is unavailable: boosted
-  // limits inflate cheap candidate counts, making this gate trigger more
-  // easily. Skipping entity retrieval on top of losing semantic search
-  // would reduce recall quality further.
-  const canTerminateEarly =
-    etConfig.enabled &&
-    !semanticUnavailable &&
-    cheapCandidates.length >= etConfig.minCandidates &&
-    cheapCandidates.filter((c) => c.lexical >= etConfig.confidenceThreshold)
-      .length >= etConfig.minHighConfidence;
-
-  // -- Phase 2: entity search + await semantic (skipped on early termination) --
-  let semantic: Candidate[] = [];
-  let entity: Candidate[] = [];
-  let candidateDepths: Map<string, number> | undefined;
-  let relationSeedEntityCount = 0;
-  let relationTraversedEdgeCount = 0;
-  let relationNeighborEntityCount = 0;
-  let relationExpandedItemCount = 0;
-
-  if (!canTerminateEarly) {
-    // Start semantic search now that we know early termination won't apply.
-    // The network round-trip overlaps with entity search below.
-    const semanticPromise = queryVector
-      ? semanticSearch(
-          queryVector,
-          opts?.provider ?? "unknown",
-          opts?.model ?? "unknown",
-          config.memory.retrieval.semanticTopK,
-          excludeMessageIds,
-          scopeIds,
-        ).catch((err): Candidate[] => {
-          semanticSearchFailed = true;
-          semanticSearchError = err;
-          if (isQdrantConnectionError(err)) {
-            log.warn(
-              { err },
-              "Qdrant is unavailable — semantic search disabled, memory recall will be degraded",
-            );
-          } else {
-            log.warn(
-              { err },
-              "Semantic search failed, continuing with other retrieval methods",
-            );
-          }
-          return [];
-        })
-      : null;
-
-    // Entity search is synchronous — run it while the semantic promise
-    // is in flight.
-    if (config.memory.entity.enabled) {
-      const entitySearchResult = entitySearch(
-        query,
-        config.memory.entity,
-        scopeIds,
-        excludeMessageIds,
-      );
-      entity = entitySearchResult.candidates;
-      candidateDepths = entitySearchResult.candidateDepths;
-      relationSeedEntityCount = entitySearchResult.relationSeedEntityCount;
-      relationTraversedEdgeCount =
-        entitySearchResult.relationTraversedEdgeCount;
-      relationNeighborEntityCount =
-        entitySearchResult.relationNeighborEntityCount;
-      relationExpandedItemCount = entitySearchResult.relationExpandedItemCount;
-    }
-
-    if (semanticPromise) {
-      semantic = await semanticPromise;
-    }
-  }
-
-  if (canTerminateEarly) {
-    log.debug(
-      {
-        cheapCandidateCount: cheapCandidates.length,
-        highRelevanceCount: cheapCandidates.filter(
-          (c) => c.lexical >= etConfig.confidenceThreshold,
-        ).length,
-      },
-      "Early termination: skipping semantic and entity search — sufficient high-relevance candidates from cheap sources",
-    );
-  }
-
-  const relationScoreMultiplier =
-    config.memory.entity.enabled &&
-    config.memory.entity.relationRetrieval.enabled
-      ? config.memory.entity.relationRetrieval.neighborScoreMultiplier
-      : undefined;
-  const depthMap =
-    config.memory.entity.enabled &&
-    config.memory.entity.relationRetrieval.depthDecay
-      ? candidateDepths
-      : undefined;
-  const merged = mergeCandidates(
-    lexical,
-    semantic,
-    recency,
-    [...entity, ...directItems],
-    config.memory.retrieval.freshness,
-    relationScoreMultiplier,
-    depthMap,
-  );
-
-  return {
-    lexical,
-    recency,
-    semantic,
-    entity,
-    relationSeedEntityCount,
-    relationTraversedEdgeCount,
-    relationNeighborEntityCount,
-    relationExpandedItemCount,
-    earlyTerminated: canTerminateEarly,
-    semanticSearchFailed,
-    semanticUnavailable,
-    semanticSearchError,
-    merged,
-  };
-}
-
-/**
  * Build a structured degradation status describing which retrieval
  * capabilities are unavailable and what fallback sources remain.
  */
 function buildDegradationStatus(
   reason: DegradationReason,
-  config: AssistantConfig,
+  _config: AssistantConfig,
 ): DegradationStatus {
-  const fallbackSources: FallbackSource[] = [
-    "lexical",
-    "recency",
-    "direct_item",
-  ];
-  if (config.memory.entity.enabled) {
-    fallbackSources.push("entity");
-  }
   return {
     semanticUnavailable: true,
     reason,
-    fallbackSources,
+    fallbackSources: ["recency"],
   };
 }
 
@@ -508,7 +166,7 @@ async function generateQueryEmbedding(
   signal: AbortSignal | undefined,
   start: number,
 ): Promise<EmbeddingResult | { earlyExit: MemoryRecallResult }> {
-  const backendStatus = getMemoryBackendStatus(config);
+  const backendStatus = await getMemoryBackendStatus(config);
   let queryVector: number[] | null = null;
   let provider: string | undefined;
   let model: string | undefined;
@@ -576,162 +234,22 @@ async function generateQueryEmbedding(
   return { queryVector, provider, model, degraded, degradation, reason };
 }
 
-/** Result of the re-ranking stage. */
-interface RerankResult {
-  merged: Candidate[];
-  rerankApplied: boolean;
-}
-
 /**
- * Apply source caps and optionally LLM re-rank the merged candidates.
- * Returns `null` when the caller should return an early-exit `emptyResult`
- * (abort during re-ranking).
+ * Memory recall pipeline: hybrid search → tier classification →
+ * staleness annotation → two-layer XML injection.
+ *
+ * Pipeline steps:
+ *   1. Build query text (caller provides via buildMemoryQuery)
+ *   2. Generate dense + sparse embeddings
+ *   3. Hybrid search on Qdrant (dense + sparse RRF fusion)
+ *   4. Supplement with recency search (conversation-scoped, DB only)
+ *   5. Merge + deduplicate results
+ *   6. Classify tiers (score > 0.8 → tier 1, > 0.6 → tier 2)
+ *   7. Enrich item candidates with metadata for staleness
+ *   8. Compute staleness per item
+ *   9. Demote very_stale tier 1 → tier 2
+ *  10. Build two-layer XML injection with budget allocation
  */
-async function rerankMergedCandidates(
-  query: string,
-  candidates: Candidate[],
-  config: AssistantConfig,
-  signal: AbortSignal | undefined,
-  start: number,
-  provider: string | undefined,
-  model: string | undefined,
-): Promise<RerankResult | { earlyExit: MemoryRecallResult }> {
-  let merged = applySourceCaps(candidates, config);
-  let rerankApplied = false;
-
-  const rerankingConfig = config.memory.retrieval.reranking;
-  if (rerankingConfig.enabled && merged.length >= 5) {
-    const rerankStart = Date.now();
-    const topCandidates = merged.slice(0, rerankingConfig.topK);
-    try {
-      const reranked = await rerankWithLLM(
-        query,
-        topCandidates,
-        rerankingConfig,
-      );
-      merged = [...reranked, ...merged.slice(rerankingConfig.topK)];
-      rerankApplied = true;
-      log.debug(
-        {
-          rerankLatencyMs: Date.now() - rerankStart,
-          rerankedCount: reranked.length,
-        },
-        "LLM re-ranking completed",
-      );
-    } catch (err) {
-      if (signal?.aborted || isAbortError(err)) {
-        return {
-          earlyExit: emptyResult({
-            enabled: true,
-            degraded: false,
-            reason: "memory.aborted",
-            provider,
-            model,
-            latencyMs: Date.now() - start,
-          }),
-        };
-      }
-      log.warn(
-        { err, rerankLatencyMs: Date.now() - rerankStart },
-        "LLM re-ranking failed, using RRF order",
-      );
-    }
-  }
-
-  return { merged, rerankApplied };
-}
-
-/**
- * Trim candidates to the token budget, format for injection, and assemble
- * the final `MemoryRecallResult`.
- */
-function formatRecallResult(
-  query: string,
-  collected: CollectedCandidates,
-  merged: Candidate[],
-  rerankApplied: boolean,
-  config: AssistantConfig,
-  options: MemoryRecallOptions | undefined,
-  embedding: EmbeddingResult,
-  start: number,
-): MemoryRecallResult {
-  const mergedCount = merged.length;
-  const maxInjectTokens = Math.max(
-    1,
-    Math.floor(
-      options?.maxInjectTokensOverride ??
-        config.memory.retrieval.maxInjectTokens,
-    ),
-  );
-
-  const formatted = formatRecallText(merged, {
-    format: config.memory.retrieval.injectionFormat,
-    maxTokens: maxInjectTokens,
-  });
-  const { selected } = formatted;
-  const injectedText = formatted.text;
-
-  const topCandidates: MemoryRecallCandiateDebug[] = selected
-    .slice(0, 10)
-    .map((c) => ({
-      key: c.key,
-      type: c.type,
-      kind: c.kind,
-      finalScore: c.finalScore,
-      lexical: c.lexical,
-      semantic: c.semantic,
-      recency: c.recency,
-    }));
-
-  const latencyMs = Date.now() - start;
-  log.debug(
-    {
-      query: truncate(query, 120),
-      lexicalHits: collected.lexical.length,
-      semanticHits: collected.semantic.length,
-      recencyHits: collected.recency.length,
-      entityHits: collected.entity.length,
-      relationSeedEntityCount: collected.relationSeedEntityCount,
-      relationTraversedEdgeCount: collected.relationTraversedEdgeCount,
-      relationNeighborEntityCount: collected.relationNeighborEntityCount,
-      relationExpandedItemCount: collected.relationExpandedItemCount,
-      earlyTerminated: collected.earlyTerminated,
-      mergedCount,
-      selected: selected.length,
-      maxInjectTokens,
-      rerankApplied,
-      injectedTokens: estimateTextTokens(injectedText),
-      latencyMs,
-    },
-    "Memory recall completed",
-  );
-
-  return {
-    enabled: true,
-    degraded: embedding.degraded,
-    degradation: embedding.degradation,
-    reason: embedding.reason,
-    provider: embedding.provider,
-    model: embedding.model,
-    lexicalHits: collected.lexical.length,
-    semanticHits: collected.semantic.length,
-    recencyHits: collected.recency.length,
-    entityHits: collected.entity.length,
-    relationSeedEntityCount: collected.relationSeedEntityCount,
-    relationTraversedEdgeCount: collected.relationTraversedEdgeCount,
-    relationNeighborEntityCount: collected.relationNeighborEntityCount,
-    relationExpandedItemCount: collected.relationExpandedItemCount,
-    earlyTerminated: collected.earlyTerminated,
-    mergedCount,
-    selectedCount: selected.length,
-    rerankApplied,
-    injectedTokens: estimateTextTokens(injectedText),
-    injectedText,
-    latencyMs,
-    topCandidates,
-  };
-}
-
 export async function buildMemoryRecall(
   query: string,
   conversationId: string,
@@ -739,10 +257,10 @@ export async function buildMemoryRecall(
   options?: MemoryRecallOptions,
 ): Promise<MemoryRecallResult> {
   const start = Date.now();
-  const versionSnapshot = getMemoryVersion();
   const excludeMessageIds =
     options?.excludeMessageIds?.filter((id) => id.length > 0) ?? [];
   const signal = options?.signal;
+
   if (!config.memory.enabled) {
     return emptyResult({
       enabled: false,
@@ -760,23 +278,7 @@ export async function buildMemoryRecall(
     });
   }
 
-  // Check recall cache
-  const configFingerprint = buildConfigFingerprint(config);
-  const cached = getCachedRecall(
-    query,
-    conversationId,
-    options,
-    configFingerprint,
-  );
-  if (cached) {
-    log.debug(
-      { query: truncate(query, 120), latencyMs: Date.now() - start },
-      "Memory recall served from cache",
-    );
-    return { ...cached, latencyMs: Date.now() - start };
-  }
-
-  // Stage 1: Embedding generation
+  // ── Step 1+2: Generate dense and sparse embeddings ──────────────
   const embeddingResult = await generateQueryEmbedding(
     query,
     config,
@@ -785,120 +287,398 @@ export async function buildMemoryRecall(
   );
   if ("earlyExit" in embeddingResult) return embeddingResult.earlyExit;
 
-  // Stage 2: Candidate collection (lexical, recency, direct, semantic, entity)
-  let collected: CollectedCandidates;
-  try {
-    collected = await collectAndMergeCandidates(query, config, {
-      queryVector: embeddingResult.queryVector,
-      provider: embeddingResult.provider,
-      model: embeddingResult.model,
-      conversationId,
-      excludeMessageIds,
-      scopeId: options?.scopeId,
-      scopePolicyOverride: options?.scopePolicyOverride,
-    });
-  } catch (err) {
-    if (signal?.aborted || isAbortError(err)) {
-      return emptyResult({
-        enabled: true,
-        degraded: false,
-        reason: "memory.aborted",
-        provider: embeddingResult.provider,
-        model: embeddingResult.model,
-        latencyMs: Date.now() - start,
-      });
+  const { queryVector, provider, model } = embeddingResult;
+
+  // Generate sparse embedding for the query text (TF-IDF based)
+  const sparseVector = generateSparseEmbedding(query);
+  const sparseVectorAvailable = sparseVector.indices.length > 0;
+
+  // ── Step 3: Hybrid search on Qdrant ─────────────────────────────
+  const scopePolicy = config.memory.retrieval.scopePolicy;
+  const scopeIds = buildScopeFilter(
+    options?.scopeId,
+    scopePolicy,
+    options?.scopePolicyOverride,
+  );
+
+  const HYBRID_LIMIT = 20;
+
+  let hybridCandidates: Candidate[] = [];
+  let semanticSearchFailed = false;
+  let sparseVectorUsed = false;
+  const hybridSearchStart = Date.now();
+
+  const qdrantBreakerOpen = isQdrantBreakerOpen();
+  if (queryVector && !qdrantBreakerOpen) {
+    try {
+      hybridCandidates = await semanticSearch(
+        queryVector,
+        provider ?? "unknown",
+        model ?? "unknown",
+        HYBRID_LIMIT,
+        excludeMessageIds,
+        scopeIds,
+        sparseVectorAvailable ? sparseVector : undefined,
+      );
+      sparseVectorUsed = sparseVectorAvailable;
+    } catch (err) {
+      semanticSearchFailed = true;
+      if (isQdrantConnectionError(err)) {
+        log.warn({ err }, "Qdrant unavailable — hybrid search disabled");
+      } else {
+        log.warn({ err }, "Hybrid search failed, continuing with recency only");
+      }
     }
-    log.warn(
-      { err },
-      "Memory retrieval failed, returning degraded empty recall",
-    );
-    return emptyResult({
-      enabled: true,
-      degraded: true,
-      reason: `memory.retrieval_failure: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-      provider: embeddingResult.provider,
-      model: embeddingResult.model,
-      latencyMs: Date.now() - start,
-    });
+  }
+  const hybridSearchMs = Date.now() - hybridSearchStart;
+
+  // ── Step 4: Recency supplement (DB only, conversation-scoped) ───
+  const recencyLimit = 5;
+  const recencyCandidates = conversationId
+    ? recencySearch(conversationId, recencyLimit, excludeMessageIds, scopeIds)
+    : [];
+
+  // ── Step 5: Merge and deduplicate ──────────────────────────────
+  const candidateMap = new Map<string, Candidate>();
+  for (const c of [...hybridCandidates, ...recencyCandidates]) {
+    const existing = candidateMap.get(c.key);
+    if (!existing) {
+      candidateMap.set(c.key, { ...c });
+      continue;
+    }
+    // Keep highest scores from each source
+    existing.semantic = Math.max(existing.semantic, c.semantic);
+    existing.recency = Math.max(existing.recency, c.recency);
+    existing.confidence = Math.max(existing.confidence, c.confidence);
+    existing.importance = Math.max(existing.importance, c.importance);
+    if (c.text.length > existing.text.length) {
+      existing.text = c.text;
+    }
   }
 
-  // Propagate semantic search failure or breaker-based unavailability into
-  // degradation state. This ensures results computed with boosted limits
-  // are marked degraded and excluded from the recall cache — preventing
-  // stale boosted results from being served after the breaker closes.
-  //
-  // Exception: when semanticUnavailable is solely because no embedding
-  // provider is configured (queryVector == null) and embeddings are not
-  // required, lexical-only results are the expected steady state — do not
-  // mark as degraded.
-  const semanticActuallyFailed =
-    collected.semanticSearchFailed ||
-    (collected.semanticUnavailable &&
-      (embeddingResult.queryVector != null ||
-        config.memory.embeddings.required));
-  if (semanticActuallyFailed) {
+  // Compute RRF-style final scores for the merged candidates
+  const allCandidates = [...candidateMap.values()];
+  for (const c of allCandidates) {
+    // Simple weighted combination — hybrid search already applies RRF fusion
+    // at the Qdrant level; here we combine the fused semantic score with recency.
+    c.finalScore = c.semantic * 0.7 + c.recency * 0.2 + c.confidence * 0.1;
+  }
+  allCandidates.sort((a, b) => b.finalScore - a.finalScore);
+
+  // ── Step 6: Tier classification ─────────────────────────────────
+  // Recency-only candidates (semantic=0) can never reach the tier 2 threshold
+  // (>0.6) since their max finalScore is 0.3. Promote them directly to tier 2
+  // so recent conversation context is preserved even without semantic signal.
+  const recencyOnlyKeys = new Set(
+    allCandidates
+      .filter((c) => c.semantic === 0 && c.recency > 0)
+      .map((c) => c.key),
+  );
+  const tiered = classifyTiers(allCandidates);
+  if (recencyOnlyKeys.size > 0) {
+    const alreadyTiered = new Set(tiered.map((c) => c.key));
+    for (const c of allCandidates) {
+      if (recencyOnlyKeys.has(c.key) && !alreadyTiered.has(c.key)) {
+        tiered.push({ ...c, tier: 2 });
+      }
+    }
+  }
+
+  // ── Step 6b: Enrich candidates with source labels ──────────────
+  enrichSourceLabels(tiered);
+
+  // ── Step 7: Enrich with item metadata for staleness ─────────────
+  const itemIds = tiered.filter((c) => c.type === "item").map((c) => c.id);
+  const itemMetadataMap = enrichItemMetadata(itemIds);
+
+  // ── Step 8: Compute staleness per item ──────────────────────────
+  const now = Date.now();
+  for (const c of tiered) {
+    if (c.type !== "item") continue;
+    const meta = itemMetadataMap.get(c.id);
+    if (!meta) continue;
+    const { level } = computeStaleness(
+      {
+        kind: c.kind,
+        firstSeenAt: meta.firstSeenAt,
+        sourceConversationCount: meta.sourceConversationCount,
+      },
+      now,
+    );
+    c.staleness = level;
+  }
+
+  // ── Step 9: Demote very_stale tier 1 → tier 2 ──────────────────
+  const afterDemotion = applyStaleDemotion(tiered);
+
+  // ── Step 10: Budget allocation and two-layer injection ──────────
+  const maxInjectTokens = Math.max(
+    1,
+    Math.floor(
+      options?.maxInjectTokensOverride ??
+        config.memory.retrieval.maxInjectTokens,
+    ),
+  );
+
+  // Split into sections for two-layer injection
+  const identityItems = afterDemotion.filter(
+    (c) => c.tier === 1 && IDENTITY_KINDS.has(c.kind),
+  );
+  const preferences = afterDemotion.filter(
+    (c) => c.tier === 1 && PREFERENCE_KINDS.has(c.kind),
+  );
+  const tier1Candidates = afterDemotion.filter(
+    (c) =>
+      c.tier === 1 &&
+      !IDENTITY_KINDS.has(c.kind) &&
+      !PREFERENCE_KINDS.has(c.kind),
+  );
+  const tier2Candidates = afterDemotion.filter((c) => c.tier === 2);
+
+  const injectedText = buildTwoLayerInjection({
+    identityItems,
+    tier1Candidates,
+    tier2Candidates,
+    preferences,
+    totalBudgetTokens: maxInjectTokens,
+  });
+
+  // ── Assemble result ─────────────────────────────────────────────
+  const selectedCount =
+    identityItems.length +
+    tier1Candidates.length +
+    tier2Candidates.length +
+    preferences.length;
+
+  const tier1Count = afterDemotion.filter((c) => c.tier === 1).length;
+  const tier2Count = afterDemotion.filter((c) => c.tier === 2).length;
+  const stalenessStats = {
+    fresh: afterDemotion.filter((c) => c.staleness === "fresh").length,
+    aging: afterDemotion.filter((c) => c.staleness === "aging").length,
+    stale: afterDemotion.filter((c) => c.staleness === "stale").length,
+    very_stale: afterDemotion.filter((c) => c.staleness === "very_stale")
+      .length,
+  };
+
+  const topCandidates: MemoryRecallCandiateDebug[] = afterDemotion
+    .slice(0, 10)
+    .map((c) => ({
+      key: c.key,
+      type: c.type,
+      kind: c.kind,
+      finalScore: c.finalScore,
+      semantic: c.semantic,
+      recency: c.recency,
+    }));
+
+  const latencyMs = Date.now() - start;
+
+  // Propagate degradation from semantic search failure or breaker-open skip
+  if (
+    semanticSearchFailed ||
+    qdrantBreakerOpen ||
+    (!queryVector && config.memory.embeddings.required)
+  ) {
     embeddingResult.degraded = true;
     embeddingResult.reason =
       embeddingResult.reason ??
-      (collected.semanticUnavailable
-        ? embeddingResult.queryVector != null
-          ? "memory.qdrant_circuit_open"
-          : "memory.embedding_unavailable"
-        : "memory.semantic_search_failure");
-    if (!embeddingResult.degradation) {
-      const isQdrantIssue =
-        embeddingResult.queryVector != null ||
-        isQdrantConnectionError(collected.semanticSearchError) ||
-        collected.semanticSearchError instanceof QdrantCircuitOpenError;
-      const reason: DegradationReason = isQdrantIssue
-        ? "qdrant_unavailable"
-        : "embedding_generation_failed";
-      embeddingResult.degradation = buildDegradationStatus(reason, config);
-    }
+      (qdrantBreakerOpen
+        ? "memory.qdrant_breaker_open"
+        : "memory.hybrid_search_failure");
   }
 
-  // Stage 3: Source caps + LLM re-ranking
-  const rerankResult = await rerankMergedCandidates(
-    query,
-    collected.merged,
-    config,
-    signal,
-    start,
-    embeddingResult.provider,
-    embeddingResult.model,
-  );
-  if ("earlyExit" in rerankResult) return rerankResult.earlyExit;
-
-  // Stage 4: Token budget trimming and result formatting
-  const result = formatRecallResult(
-    query,
-    collected,
-    rerankResult.merged,
-    rerankResult.rerankApplied,
-    config,
-    options,
-    embeddingResult,
-    start,
+  log.debug(
+    {
+      query: truncate(query, 120),
+      hybridHits: hybridCandidates.length,
+      recencyHits: recencyCandidates.length,
+      mergedCount: allCandidates.length,
+      tier1Count,
+      tier2Count,
+      stalenessStats,
+      selectedCount,
+      maxInjectTokens,
+      injectedTokens: estimateTextTokens(injectedText),
+      latencyMs,
+    },
+    "Memory recall completed",
   );
 
-  // Only cache non-degraded results — degraded results (e.g. lexical-only
-  // fallback when embeddings fail) would delay quality recovery once the
-  // embedding backend comes back.
-  if (!result.degraded) {
-    setCachedRecall(
-      query,
-      conversationId,
-      options,
-      result,
-      versionSnapshot,
-      configFingerprint,
-    );
-  }
+  const result: MemoryRecallResult = {
+    enabled: true,
+    degraded: embeddingResult.degraded,
+    degradation: embeddingResult.degradation,
+    reason: embeddingResult.reason,
+    provider: embeddingResult.provider,
+    model: embeddingResult.model,
+    semanticHits: hybridCandidates.length,
+    recencyHits: recencyCandidates.length,
+    mergedCount: allCandidates.length,
+    selectedCount,
+    injectedTokens: estimateTextTokens(injectedText),
+    injectedText,
+    latencyMs,
+    topCandidates,
+    tier1Count,
+    tier2Count,
+    hybridSearchMs,
+    sparseVectorUsed,
+  };
+
   return result;
 }
 
+/**
+ * Enrich item candidates with metadata needed for staleness computation:
+ * - firstSeenAt: when the item was first extracted
+ * - sourceConversationCount: number of distinct conversations that sourced this item
+ */
+function enrichItemMetadata(
+  itemIds: string[],
+): Map<
+  string,
+  { firstSeenAt: number; sourceConversationCount: number; kind: string }
+> {
+  const result = new Map<
+    string,
+    { firstSeenAt: number; sourceConversationCount: number; kind: string }
+  >();
+  if (itemIds.length === 0) return result;
+
+  try {
+    const db = getDb();
+
+    // Fetch firstSeenAt and kind from memory_items
+    const items = db
+      .select({
+        id: memoryItems.id,
+        firstSeenAt: memoryItems.firstSeenAt,
+        kind: memoryItems.kind,
+      })
+      .from(memoryItems)
+      .where(inArray(memoryItems.id, itemIds))
+      .all();
+
+    for (const item of items) {
+      result.set(item.id, {
+        firstSeenAt: item.firstSeenAt,
+        kind: item.kind,
+        sourceConversationCount: 1, // default, updated below
+      });
+    }
+
+    // Compute sourceConversationCount: count distinct conversation IDs
+    // across the memory_item_sources → messages join.
+    const sourceCountRows = db
+      .select({
+        memoryItemId: memoryItemSources.memoryItemId,
+        conversationCount:
+          sql<number>`COUNT(DISTINCT ${messages.conversationId})`.as(
+            "conversation_count",
+          ),
+      })
+      .from(memoryItemSources)
+      .innerJoin(messages, sql`${memoryItemSources.messageId} = ${messages.id}`)
+      .where(inArray(memoryItemSources.memoryItemId, itemIds))
+      .groupBy(memoryItemSources.memoryItemId)
+      .all();
+
+    for (const row of sourceCountRows) {
+      const existing = result.get(row.memoryItemId);
+      if (existing) {
+        existing.sourceConversationCount = row.conversationCount;
+      }
+    }
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to enrich item metadata for staleness computation",
+    );
+  }
+
+  return result;
+}
+
+/**
+ * Enrich tiered candidates with source labels (conversation titles).
+ *
+ * For "item" candidates: joins through memoryItemSources → messages → conversations
+ * to find the most recent conversation title associated with the item.
+ * For "segment" / "summary" candidates: looks up the conversation title directly
+ * via the candidate's key (which contains the conversationId for segments).
+ *
+ * Mutates the candidates in-place for efficiency.
+ */
+function enrichSourceLabels(candidates: TieredCandidate[]): void {
+  if (candidates.length === 0) return;
+
+  try {
+    const db = getDb();
+
+    // Collect item IDs for items that need source label lookup
+    const itemCandidates = candidates.filter((c) => c.type === "item");
+    const itemIds = itemCandidates.map((c) => c.id);
+
+    if (itemIds.length > 0) {
+      // For items: find conversation titles via memoryItemSources → messages → conversations.
+      // Pick the most recent conversation title per item.
+      const rows = db
+        .select({
+          memoryItemId: memoryItemSources.memoryItemId,
+          title: conversations.title,
+          conversationUpdatedAt: conversations.updatedAt,
+        })
+        .from(memoryItemSources)
+        .innerJoin(
+          messages,
+          sql`${memoryItemSources.messageId} = ${messages.id}`,
+        )
+        .innerJoin(
+          conversations,
+          sql`${messages.conversationId} = ${conversations.id}`,
+        )
+        .where(inArray(memoryItemSources.memoryItemId, itemIds))
+        .all();
+
+      // Group by item ID and pick the most recently updated conversation title
+      const titleMap = new Map<string, string>();
+      const updatedAtMap = new Map<string, number>();
+      for (const row of rows) {
+        if (!row.title) continue;
+        const existing = updatedAtMap.get(row.memoryItemId);
+        if (existing === undefined || row.conversationUpdatedAt > existing) {
+          titleMap.set(row.memoryItemId, row.title);
+          updatedAtMap.set(row.memoryItemId, row.conversationUpdatedAt);
+        }
+      }
+
+      for (const c of itemCandidates) {
+        const title = titleMap.get(c.id);
+        if (title) {
+          c.sourceLabel = title;
+        }
+      }
+    }
+
+    // For segment candidates: the key format is "seg:<segmentId>" and the id is the segment's id.
+    // We can look up the conversation title via the segment's conversationId in memory_segments.
+    // However, segments already reference a conversationId in the schema — but the Candidate type
+    // doesn't carry it. For now, skip segment source labels as the join path would require
+    // importing memorySegments and an additional query. The primary value is item source labels.
+  } catch (err) {
+    log.warn({ err }, "Failed to enrich candidates with source labels");
+  }
+}
+
+/**
+ * Strip memory recall messages from the conversation history.
+ *
+ * Handles both exact text matching and `<memory_context>` XML wrapper
+ * detection: when the recall text starts with `<memory_context>`, we
+ * also match user messages whose sole text block starts with the same
+ * tag (covering cases where the exact text differs slightly due to
+ * dynamic content).
+ */
 export function stripMemoryRecallMessages<
   T extends {
     role: "user" | "assistant";
@@ -918,6 +698,25 @@ export function stripMemoryRecallMessages<
     msg.content[0].type === "text" &&
     msg.content[0].text === MEMORY_CONTEXT_ACK;
 
+  // Check if the recall text uses the <memory_context> XML format
+  const isMemoryContextFormat = recallText
+    .trimStart()
+    .startsWith("<memory_context>");
+
+  // Helper: does a text block match the recall text?
+  const textMatches = (text: string | undefined): boolean => {
+    if (!text) return false;
+    if (text === recallText) return true;
+    // For <memory_context> format, match any block that starts with the tag
+    if (
+      isMemoryContextFormat &&
+      text.trimStart().startsWith("<memory_context>")
+    ) {
+      return true;
+    }
+    return false;
+  };
+
   // Prefer the canonical separate_context_message pair: a user message whose
   // sole text block is the recall text, followed by an assistant ack. This
   // must be checked first so that a real user message that happens to contain
@@ -928,7 +727,7 @@ export function stripMemoryRecallMessages<
       if (msg.role !== "user") continue;
       if (msg.content.length !== 1) continue;
       const block = msg.content[0];
-      if (block.type !== "text" || block.text !== recallText) continue;
+      if (block.type !== "text" || !textMatches(block.text)) continue;
       const next = messages[i + 1];
       if (next && isAck(next)) {
         return [...messages.slice(0, i), ...messages.slice(i + 2)];
@@ -937,7 +736,7 @@ export function stripMemoryRecallMessages<
   }
 
   // Fall back to generic text-match removal: find the last user message
-  // containing the recall text block (prepend_user_block or repair-merged).
+  // containing the recall text block.
   let targetIndex = -1;
   let blockIndex = -1;
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -945,7 +744,7 @@ export function stripMemoryRecallMessages<
     if (msg.role !== "user" || msg.content.length === 0) continue;
     for (let bi = msg.content.length - 1; bi >= 0; bi--) {
       const block = msg.content[bi];
-      if (block.type === "text" && block.text === recallText) {
+      if (block.type === "text" && textMatches(block.text)) {
         targetIndex = i;
         blockIndex = bi;
         break;
@@ -981,21 +780,6 @@ export function stripMemoryRecallMessages<
     cleaned.push({ ...messages[i], content: filteredContent } as T);
   }
   return cleaned;
-}
-
-export function injectMemoryRecallIntoUserMessage<
-  T extends {
-    role: "user" | "assistant";
-    content: Array<{ type: string; text?: string }>;
-  },
->(message: T, memoryRecallText: string): T {
-  if (message.role !== "user") return message;
-  if (memoryRecallText.trim().length === 0) return message;
-  const memoryBlock = { type: "text", text: memoryRecallText } as const;
-  return {
-    ...message,
-    content: [memoryBlock, ...message.content] as T["content"],
-  } as T;
 }
 
 /**
@@ -1049,18 +833,10 @@ function emptyResult(
     reason: init.reason,
     provider: init.provider,
     model: init.model,
-    lexicalHits: 0,
     semanticHits: 0,
     recencyHits: 0,
-    entityHits: 0,
-    relationSeedEntityCount: 0,
-    relationTraversedEdgeCount: 0,
-    relationNeighborEntityCount: 0,
-    relationExpandedItemCount: 0,
-    earlyTerminated: false,
     mergedCount: 0,
     selectedCount: 0,
-    rerankApplied: false,
     injectedTokens: 0,
     injectedText: "",
     latencyMs: init.latencyMs,

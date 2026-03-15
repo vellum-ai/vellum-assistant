@@ -44,11 +44,11 @@ extension ComposerView {
     func slashHighlightedText(font: Font) -> AttributedString {
         var attr = AttributedString(inputText)
         attr.font = font
-        attr.foregroundColor = VColor.textPrimary
+        attr.foregroundColor = VColor.contentDefault
         if let swiftRange = slashCommandRange,
            let attrStart = AttributedString.Index(swiftRange.lowerBound, within: attr),
            let attrEnd = AttributedString.Index(swiftRange.upperBound, within: attr) {
-            attr[attrStart..<attrEnd].foregroundColor = VColor.slashCommand
+            attr[attrStart..<attrEnd].foregroundColor = VColor.primaryBase
         }
         return attr
     }
@@ -140,13 +140,13 @@ struct SlashCommandPopup: View {
             }
         }
         .padding(.vertical, VSpacing.xs)
-        .background(VColor.surface)
+        .background(VColor.surfaceBase)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                .stroke(VColor.borderBase, lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.3), radius: 12, y: -4)
+        .shadow(color: VColor.auxBlack.opacity(0.3), radius: 12, y: -4)
     }
 }
 
@@ -168,16 +168,16 @@ struct SlashCommandRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("/\(command.name)")
                         .font(VFont.bodyBold)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                     Text(command.description)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
                 Spacer()
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.sm)
-            .background(isSelected || isHovered ? VColor.hoverOverlay.opacity(0.06) : Color.clear)
+            .background(isSelected || isHovered ? VColor.contentEmphasized.opacity(0.06) : Color.clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

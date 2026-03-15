@@ -102,8 +102,8 @@ describe("requestCompressionApproval", () => {
     expect(result).toEqual({ approved: true });
   });
 
-  test("maps allow_thread decision to approved: true", async () => {
-    const prompter = createMockPrompter("allow_thread");
+  test("maps allow_conversation decision to approved: true", async () => {
+    const prompter = createMockPrompter("allow_conversation");
     const result = await requestCompressionApproval(prompter);
     expect(result).toEqual({ approved: true });
   });

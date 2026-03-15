@@ -104,21 +104,6 @@ export function getSharedAppLink(
   };
 }
 
-export function deleteSharedAppLink(id: string): boolean {
-  const db = getDb();
-  const existing = db
-    .select({ id: sharedAppLinks.id })
-    .from(sharedAppLinks)
-    .where(eq(sharedAppLinks.id, id))
-    .get();
-
-  if (!existing) return false;
-
-  db.delete(sharedAppLinks).where(eq(sharedAppLinks.id, id)).run();
-
-  return true;
-}
-
 export function deleteSharedAppLinkByToken(shareToken: string): boolean {
   const db = getDb();
   const existing = db

@@ -96,14 +96,14 @@ declare -a SAFE_LINE_PATTERNS=(
     # `clientSecret: config.clientSecret || "real_secret"`.
     "[.?]+[a-zA-Z0-9_]*[Cc]lient[Ss]ecret([^\"'/]*$|[^\"'/]*//.*)$"
     # TS/JS: secret/key variable assigned from a function call.
-    # E.g. `const clientSecret = getSecureKey(keyVault)` or
-    # `getSecureKey('credential:integration:twitter:client_secret')` or
-    # `getSecureKey(credentialKey(service, "client_secret"))`.
+    # E.g. `const clientSecret = getSecureKeyAsync(keyVault)` or
+    # `getSecureKeyAsync('credential:integration:twitter:client_secret')` or
+    # `getSecureKeyAsync(credentialKey(service, "client_secret"))`.
     # Allows: no quoted args, quoted args containing `:` (key paths), or
     # nested function calls like `credentialKey(...)` whose quoted args are
     # short identifier-like strings (field names, not real secrets).
     # Raw alphanumeric strings like `"sk_live_..."` are still rejected.
-    "(client[_-]?[Ss]ecret|[Pp]rivate[_-]?[Kk]ey)[[:space:]]*=[[:space:]]*(get[A-Za-z]*|create[A-Za-z]*|load[A-Za-z]*|read[A-Za-z]*|delete[A-Za-z]*|set[A-Za-z]*)\(([^\"']*$|[^\"']*[\"'][^\"']*:[^\"']*[\"'][^\"']*$|[a-zA-Z_][a-zA-Z0-9_]*\([^)]*[\"'][a-z_]+[\"'][^)]*\)[^\"']*$)"
+    "(client[_-]?[Ss]ecret|[Pp]rivate[_-]?[Kk]ey)[[:space:]]*=[[:space:]]*(await[[:space:]]+)?(get[A-Za-z]*|create[A-Za-z]*|load[A-Za-z]*|read[A-Za-z]*|delete[A-Za-z]*|set[A-Za-z]*)\(([^\"']*$|[^\"']*[\"'][^\"']*:[^\"']*[\"'][^\"']*$|[a-zA-Z_][a-zA-Z0-9_]*\([^)]*[\"'][a-z_]+[\"'][^)]*\)[^\"']*$)"
     # TS/JS: property key followed by type annotation or opening brace.
     # E.g. `requiresClientSecret: boolean;` or `client_secret: {`.
     "[Cc]lient[_-]?[Ss]ecret['\"]?:[[:space:]]*(boolean|number)[[:space:]]*[;,]?"
@@ -136,6 +136,10 @@ declare -a SAFE_LINE_PATTERNS=(
     # Only match known safe suffixes — NOT apiKey, secretKey, accessKey, tokenKey,
     # authKey, privateKey, encryptionKey, signingKey, or other credential-adjacent names.
     "(let|var|val)[[:space:]]+([a-z][a-zA-Z0-9]*)?(([Ss]torage|[Cc]ache|[Ll]ookup|[Ss]ort|[Pp]rimary|[Ff]oreign|[Ii]ndex|[Pp]artition|[Aa]ttribute|[Pp]reference|[Dd]efaults|[Ss]ettings|[Ll]ocale|[Bb]undle|[Rr]esource|[Nn]otification|[Oo]bserver|[Ss]ubscription|[Rr]egistration|[Cc]onfig|[Tt]heme|[Ff]ont|[Cc]olor|[Ll]ayout|[Cc]onstraint|[Pp]ersistence|[Mm]igration|[Pp]osition|[Ss]ize|[Cc]onversation|[Bb]ootstrap|[Cc]onnected|[Dd]ate|[Cc]ount)s?[Kk]ey)[[:space:]]*=[[:space:]]*['\"][a-zA-Z][a-zA-Z0-9_.]*['\"]"
+    # SQL: column names containing "secret" in DDL/DML where the value is a SQL
+    # expression (concatenation via ||), not a literal secret.
+    # E.g. `SET client_secret_credential_path = 'oauth_app/' || id || '/client_secret'`
+    "[a-z_]*secret[a-z_]*[[:space:]]*=[[:space:]]*'[^']*'[[:space:]]*\|\|"
     # AWS well-known example key used in documentation
     "AKIAIOSFODNN7EXAMPLE"
     # Swift let/var constants used as UserDefaults key names (not secrets).
@@ -253,16 +257,17 @@ if [ "${1:-}" = "--self-test" ]; then
     UNSAFE_TS_NULLISH_FALLBACK='clientSecret: config.clientSecret ?? "real_secret_value_1234"'
 
     # Function-call assignments (false positives to whitelist)
-    SAFE_FUNC_CALL_SECRET='const clientSecret = getSecureKey(keyVault)'
+    SAFE_FUNC_CALL_SECRET='const clientSecret = getSecureKeyAsync(keyVault)'
+    SAFE_FUNC_CALL_AWAIT='clientSecret = await getSecureKeyAsync(dbApp.clientSecretCredentialPath);'
     SAFE_CREATE_PRIVATE_KEY='const key = createPrivateKey(keyPem)'
     # Function-call with quoted key path (colon-separated identifier) — must be whitelisted
-    SAFE_FUNC_CALL_KEY_PATH="const clientSecret = getSecureKey('credential:integration:twitter:client_secret') || undefined;"
+    SAFE_FUNC_CALL_KEY_PATH="const clientSecret = getSecureKeyAsync('credential:integration:twitter:client_secret') || undefined;"
     # Function-call with nested credentialKey() call — must be whitelisted
-    SAFE_FUNC_CALL_NESTED='const clientSecret = getSecureKey(credentialKey(service, "client_secret"));'
+    SAFE_FUNC_CALL_NESTED='const clientSecret = getSecureKeyAsync(credentialKey(service, "client_secret"));'
     # Function-call with key path followed by a hardcoded secret fallback — must NOT be whitelisted
-    UNSAFE_FUNC_CALL_KEY_PATH_FALLBACK="const clientSecret = getSecureKey('credential:integration:twitter:client_secret') || \"sk_live_12345678901234567890\""
+    UNSAFE_FUNC_CALL_KEY_PATH_FALLBACK="const clientSecret = getSecureKeyAsync('credential:integration:twitter:client_secret') || \"sk_live_12345678901234567890\""
     # Function-call with literal secret in args — must NOT be whitelisted
-    UNSAFE_FUNC_CALL_LITERAL='const clientSecret = getSecureKey("sk_live_12345678901234567890")'
+    UNSAFE_FUNC_CALL_LITERAL='const clientSecret = getSecureKeyAsync("sk_live_12345678901234567890")'
     UNSAFE_FUNC_CALL_SINGLE_QUOTE="const privateKey = loadPrivateKey('real_secret_key_value_12345')"
     # Type-annotated property (false positive to whitelist)
     SAFE_TYPED_PROP_SECRET='  requiresClientSecret: boolean;'
@@ -494,6 +499,10 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_secret_pattern "$SAFE_FUNC_CALL_SECRET" && ! matches_safe_line_pattern "$SAFE_FUNC_CALL_SECRET"; then
         echo -e "${RED}Self-test failed:${NC} function-call clientSecret assignment false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_FUNC_CALL_AWAIT" && ! matches_safe_line_pattern "$SAFE_FUNC_CALL_AWAIT"; then
+        echo -e "${RED}Self-test failed:${NC} await function-call clientSecret assignment false positive"
         exit 1
     fi
     if matches_secret_pattern "$SAFE_CREATE_PRIVATE_KEY" && ! matches_safe_line_pattern "$SAFE_CREATE_PRIVATE_KEY"; then

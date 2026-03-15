@@ -80,7 +80,7 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                     } else {
                         // Placeholder shown while the image is being decoded off the main thread.
                         Rectangle()
-                            .fill(Color.gray.opacity(0.2))
+                            .fill(VColor.surfaceActive)
                             .frame(width: 60, height: 60)
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                     }
@@ -171,24 +171,24 @@ extension ChatBubble {
     func fileAttachmentChip(_ attachment: ChatAttachment) -> some View {
         HStack(spacing: VSpacing.xs) {
             VIconView(fileIcon(for: attachment.mimeType), size: 14)
-                .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textSecondary)
+                .foregroundColor(isUser ? VColor.contentSecondary : VColor.contentSecondary)
 
             Text(attachment.filename)
                 .font(VFont.caption)
-                .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
+                .foregroundColor(isUser ? VColor.contentDefault : VColor.contentDefault)
                 .lineLimit(1)
 
             if attachment.dataLength > 0 {
                 Text(formattedFileSize(base64Length: attachment.dataLength))
                     .font(VFont.small)
-                    .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textMuted)
+                    .foregroundColor(isUser ? VColor.contentSecondary : VColor.contentTertiary)
             }
         }
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)
         .background(
             RoundedRectangle(cornerRadius: VRadius.sm)
-                .fill(isUser ? VColor.userBubbleText.opacity(0.15) : VColor.surfaceBorder.opacity(0.5))
+                .fill(isUser ? VColor.contentDefault.opacity(0.15) : VColor.borderBase.opacity(0.5))
         )
         .contentShape(Rectangle())
         .onTapGesture {

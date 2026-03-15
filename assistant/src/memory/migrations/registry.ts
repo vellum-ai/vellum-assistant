@@ -190,6 +190,25 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Drop the legacy reminders table and its index after data migration to cron_jobs",
   },
+  {
+    key: "migration_oauth_apps_client_secret_path_v1",
+    version: 28,
+    description:
+      "Add client_secret_credential_path column to oauth_apps and backfill existing rows with convention-based paths",
+  },
+  {
+    key: "migration_guardian_timestamps_epoch_ms_v1",
+    version: 29,
+    description:
+      "Convert guardian table timestamps from ISO 8601 text to epoch ms integers for consistency with all other tables",
+  },
+  {
+    key: "migration_guardian_timestamps_rebuild_v1",
+    version: 30,
+    dependsOn: ["migration_guardian_timestamps_epoch_ms_v1"],
+    description:
+      "Rebuild guardian tables so timestamp columns have INTEGER affinity instead of TEXT",
+  },
 ];
 
 export interface MigrationValidationResult {

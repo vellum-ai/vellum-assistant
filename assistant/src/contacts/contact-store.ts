@@ -2,7 +2,6 @@ import { and, asc, desc, eq, like, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../memory/db.js";
-import { rawChanges } from "../memory/raw-query.js";
 import {
   assistantContactMetadata,
   contactChannels,
@@ -34,8 +33,8 @@ function parseContact(row: typeof contacts.$inferSelect): Contact {
     id: row.id,
     displayName: row.displayName,
     notes: row.notes,
-    lastInteraction: row.lastInteraction,
-    interactionCount: row.interactionCount,
+    lastInteraction: null,
+    interactionCount: 0,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     role: row.role as Contact["role"],
@@ -63,6 +62,8 @@ function parseChannel(
     revokedReason: row.revokedReason,
     blockedReason: row.blockedReason,
     lastSeenAt: row.lastSeenAt,
+    interactionCount: row.interactionCount,
+    lastInteraction: row.lastInteraction,
     updatedAt: row.updatedAt,
     createdAt: row.createdAt,
   };
@@ -80,7 +81,15 @@ function getChannelsForContact(contactId: string): ContactChannel[] {
 }
 
 function withChannels(contact: Contact): ContactWithChannels {
-  return { ...contact, channels: getChannelsForContact(contact.id) };
+  const channels = getChannelsForContact(contact.id);
+  const interactionCount = channels.reduce(
+    (sum, ch) => sum + ch.interactionCount,
+    0,
+  );
+  const lastInteraction =
+    channels.reduce((max, ch) => Math.max(max, ch.lastInteraction ?? 0), 0) ||
+    null;
+  return { ...contact, interactionCount, lastInteraction, channels };
 }
 
 // ── Channel data type for syncChannels ───────────────────────────────
@@ -140,6 +149,10 @@ export function upsertContact(params: {
   contactType?: ContactType;
   principalId?: string | null;
   channels?: SyncChannelData[];
+  /** When true, conflicting channels on other contacts are reassigned to this
+   *  contact instead of being skipped. Used by invite redemption to bind a
+   *  redeemer's existing channel identity to the invite's target contact. */
+  reassignConflictingChannels?: boolean;
 }): ContactWithChannels & { created: boolean } {
   const db = getDb();
   const now = Date.now();
@@ -171,7 +184,12 @@ export function upsertContact(params: {
         .run();
 
       if (params.channels) {
-        syncChannels(contactId, params.channels, now);
+        syncChannels(
+          contactId,
+          params.channels,
+          now,
+          params.reassignConflictingChannels,
+        );
       }
 
       emitContactChange();
@@ -226,8 +244,6 @@ export function upsertContact(params: {
       id: contactId,
       displayName: params.displayName,
       notes: params.notes ?? null,
-      lastInteraction: null,
-      interactionCount: 0,
       role: params.role ?? "contact",
       contactType: params.contactType ?? "human",
       principalId: params.principalId ?? null,
@@ -253,6 +269,7 @@ function syncChannels(
   contactId: string,
   channels: SyncChannelData[],
   now: number,
+  reassignConflicting?: boolean,
 ): void {
   const db = getDb();
 
@@ -312,7 +329,34 @@ function syncChannels(
       .get();
 
     if (conflicting) {
-      // Channel belongs to another contact -- skip to avoid unique constraint violation.
+      if (reassignConflicting) {
+        // Reassign the channel to the target contact. Used by invite redemption
+        // to bind a redeemer's existing channel identity to the invite's target.
+        const reassignSet: Record<string, unknown> = {
+          contactId,
+          updatedAt: now,
+        };
+        if (ch.externalUserId !== undefined)
+          reassignSet.externalUserId = ch.externalUserId;
+        if (ch.externalChatId !== undefined)
+          reassignSet.externalChatId = ch.externalChatId;
+        if (ch.status !== undefined) reassignSet.status = ch.status;
+        if (ch.policy !== undefined) reassignSet.policy = ch.policy;
+        if (ch.verifiedAt !== undefined) reassignSet.verifiedAt = ch.verifiedAt;
+        if (ch.verifiedVia !== undefined)
+          reassignSet.verifiedVia = ch.verifiedVia;
+        if (ch.inviteId !== undefined) reassignSet.inviteId = ch.inviteId;
+        if (ch.revokedReason !== undefined)
+          reassignSet.revokedReason = ch.revokedReason;
+        if (ch.blockedReason !== undefined)
+          reassignSet.blockedReason = ch.blockedReason;
+
+        db.update(contactChannels)
+          .set(reassignSet)
+          .where(eq(contactChannels.id, conflicting.id))
+          .run();
+      }
+      // When not reassigning, skip to avoid unique constraint violation.
       // The caller should use contact_merge to combine the two contacts.
       continue;
     }
@@ -451,7 +495,7 @@ export function searchContacts(params: {
       .from(contacts)
       .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
       .where(whereClause)
-      .orderBy(desc(contacts.updatedAt), desc(contacts.lastInteraction))
+      .orderBy(desc(contacts.updatedAt))
       .all();
 
     const contactIds = [...new Set(rows.map((r) => r.contactId))];
@@ -472,7 +516,7 @@ export function searchContacts(params: {
     .select()
     .from(contacts)
     .where(whereClause)
-    .orderBy(desc(contacts.updatedAt), desc(contacts.lastInteraction))
+    .orderBy(desc(contacts.updatedAt))
     .limit(limit)
     .all();
 
@@ -494,11 +538,7 @@ export function listContacts(
     .select()
     .from(contacts)
     .where(conditions.length === 1 ? conditions[0] : and(...conditions))
-    .orderBy(
-      sql`${contacts.role} = 'guardian' DESC`,
-      desc(contacts.updatedAt),
-      desc(contacts.lastInteraction),
-    )
+    .orderBy(sql`${contacts.role} = 'guardian' DESC`, desc(contacts.updatedAt))
     .limit(effectiveLimit)
     .all();
   return rows.map((r) => withChannels(parseContact(r)));
@@ -534,16 +574,8 @@ export function mergeContacts(
       .get();
     if (!merge) throw new Error(`Contact "${mergeId}" not found`);
 
-    // Resolve merged field values — pick the better/more recent value
-    const mergedInteractionCount =
-      keep.interactionCount + merge.interactionCount;
-    const mergedLastInteraction =
-      Math.max(keep.lastInteraction ?? 0, merge.lastInteraction ?? 0) || null;
-
     tx.update(contacts)
       .set({
-        interactionCount: mergedInteractionCount,
-        lastInteraction: mergedLastInteraction,
         notes: [keep.notes, merge.notes].filter(Boolean).join("\n") || null,
         updatedAt: now,
       })
@@ -756,46 +788,6 @@ export function findGuardianForChannel(
 }
 
 /**
- * Revoke the guardian's active channel of the given type by setting its
- * status to 'revoked'. This ensures findGuardianForChannel() no longer
- * returns stale data after a binding is revoked.
- *
- * Returns true if a channel was found and revoked, false otherwise.
- */
-export function revokeGuardianChannel(channelType: string): boolean {
-  const db = getDb();
-  const conditions = [
-    eq(contacts.role, "guardian"),
-    eq(contactChannels.type, channelType),
-    eq(contactChannels.status, "active"),
-  ];
-  const rows = db
-    .select({
-      channelId: contactChannels.id,
-    })
-    .from(contacts)
-    .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
-    .where(and(...conditions))
-    .all();
-
-  if (rows.length === 0) return false;
-
-  const now = Date.now();
-  for (const row of rows) {
-    db.update(contactChannels)
-      .set({
-        status: "revoked",
-        revokedReason: "guardian_binding_revoked",
-        updatedAt: now,
-      })
-      .where(eq(contactChannels.id, row.channelId))
-      .run();
-  }
-
-  return true;
-}
-
-/**
  * List all active channels for guardian contacts.
  * This is the contacts-based equivalent of listActiveBindingsByAssistant(assistantId).
  * Joins contacts+channels with status='active' in a single query so we never
@@ -897,19 +889,19 @@ export function updateChannelLastSeenById(channelId: string): void {
 }
 
 /**
- * Atomically increment interactionCount and set lastInteraction on a contact.
+ * Atomically increment interactionCount and set lastInteraction on a contact channel.
  * Optimized for the hot path — single UPDATE with no prior SELECT.
  */
-export function updateContactInteraction(contactId: string): void {
+export function updateChannelInteraction(channelId: string): void {
   const db = getDb();
   const now = Date.now();
-  db.update(contacts)
+  db.update(contactChannels)
     .set({
       lastInteraction: now,
-      interactionCount: sql`${contacts.interactionCount} + 1`,
+      interactionCount: sql`${contactChannels.interactionCount} + 1`,
       updatedAt: now,
     })
-    .where(eq(contacts.id, contactId))
+    .where(eq(contactChannels.id, channelId))
     .run();
 }
 
@@ -999,13 +991,4 @@ export function getAssistantContactMetadata(
 
   if (!row) return null;
   return parseAssistantMetadata(row);
-}
-
-export function deleteAssistantContactMetadata(contactId: string): boolean {
-  const db = getDb();
-  db.delete(assistantContactMetadata)
-    .where(eq(assistantContactMetadata.contactId, contactId))
-    .run();
-
-  return rawChanges() > 0;
 }

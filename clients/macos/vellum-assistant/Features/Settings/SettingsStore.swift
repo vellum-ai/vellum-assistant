@@ -42,14 +42,12 @@ public final class SettingsStore: ObservableObject {
 
     static let availableModels: [String] = [
         "claude-opus-4-6",
-        "claude-opus-4-6-fast",
         "claude-sonnet-4-6",
         "claude-haiku-4-5-20251001",
     ]
 
     static let modelDisplayNames: [String: String] = [
         "claude-opus-4-6": "Claude Opus 4.6",
-        "claude-opus-4-6-fast": "Claude Opus 4.6 Fast",
         "claude-sonnet-4-6": "Claude Sonnet 4.6",
         "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
     ]
@@ -83,6 +81,7 @@ public final class SettingsStore: ObservableObject {
     // MARK: - Telegram Integration State
 
     @Published var telegramHasBotToken: Bool = false
+    @Published var telegramBotId: String?
     @Published var telegramBotUsername: String?
     @Published var telegramConnected: Bool = false
     @Published var telegramHasWebhookSecret: Bool = false
@@ -138,26 +137,14 @@ public final class SettingsStore: ObservableObject {
     @Published var voiceOutboundSendCount: Int = 0
     @Published var voiceOutboundCode: String?
 
-    // MARK: - Approved Ingress Contacts (Telegram)
-
-    struct ApprovedMember: Identifiable, Equatable {
-        let id: String
-        let displayName: String?
-        let username: String?
-        let externalUserId: String?
-    }
-
-    @Published var telegramApprovedMembers: [ApprovedMember] = []
-    @Published var telegramApprovedMembersLoading: Bool = false
-    @Published var telegramApprovedMembersError: String?
-    @Published var telegramRevokingMemberIds: Set<String> = []
-
     // MARK: - Slack Channel Integration State
 
     @Published var slackChannelHasBotToken: Bool = false
     @Published var slackChannelHasAppToken: Bool = false
     @Published var slackChannelConnected: Bool = false
     @Published var slackChannelBotUsername: String?
+    @Published var slackChannelBotUserId: String?
+    @Published var slackChannelTeamId: String?
     @Published var slackChannelTeamName: String?
     @Published var slackChannelSaveInProgress: Bool = false
     @Published var slackChannelError: String?
@@ -172,13 +159,6 @@ public final class SettingsStore: ObservableObject {
     @Published var slackVerificationInstruction: String?
     @Published var slackVerificationError: String?
     @Published var slackVerificationAlreadyBound: Bool = false
-
-    // MARK: - Approved Ingress Contacts (Slack)
-
-    @Published var slackApprovedMembers: [ApprovedMember] = []
-    @Published var slackApprovedMembersLoading: Bool = false
-    @Published var slackApprovedMembersError: String?
-    @Published var slackRevokingMemberIds: Set<String> = []
 
     // MARK: - Outbound Verification Session State (Slack)
 
@@ -197,6 +177,12 @@ public final class SettingsStore: ObservableObject {
     /// Per-channel setup status populated from the readiness API.
     /// Values: "not_configured", "incomplete", "ready".
     @Published var channelSetupStatus: [String: String] = [:]
+
+    // MARK: - Provider Routing Sources
+
+    /// Per-provider routing source from the daemon debug endpoint.
+    /// Values: `"user-key"`, `"managed-proxy"`, or absent.
+    @Published var providerRoutingSources: [String: String] = [:]
 
     // MARK: - Platform Config State
 
@@ -249,6 +235,14 @@ public final class SettingsStore: ObservableObject {
     private weak var daemonClient: DaemonClient?
     private var cancellables = Set<AnyCancellable>()
     private let configPath: String?
+
+    /// Whether the connected assistant is remote (not running locally).
+    /// When true, local workspace config writes are skipped to avoid creating
+    /// a `.vellum/` directory that doesn't belong to any local assistant.
+    private var isCurrentAssistantRemote: Bool {
+        UserDefaults.standard.string(forKey: "connectedAssistantId")
+            .flatMap { LockfileAssistant.loadByName($0) }?.isRemote ?? false
+    }
 
     /// Guards against stale `get` responses overwriting an optimistic
     /// toggle. Set when `setIngressEnabled` fires; cleared once a matching
@@ -353,7 +347,8 @@ public final class SettingsStore: ObservableObject {
         // When enabledSince was defaulted to "now" (no value on disk),
         // persist it immediately so subsequent loads produce the same
         // deterministic timestamp instead of advancing each time.
-        if mediaSettings.didDefaultEnabledSince {
+        // Skip for remote assistants to avoid creating a local .vellum/ directory.
+        if mediaSettings.didDefaultEnabledSince && !isCurrentAssistantRemote {
             persistMediaEmbedState()
         }
 
@@ -366,7 +361,10 @@ public final class SettingsStore: ObservableObject {
         // Re-sync all API keys to daemon when it reconnects
         NotificationCenter.default.publisher(for: .daemonDidReconnect)
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.syncAllKeysToDaemon() }
+            .sink { [weak self] _ in
+                self?.syncAllKeysToDaemon()
+                self?.loadProviderRoutingSources()
+            }
             .store(in: &cancellables)
 
         // maxStepsPerSession is read at session startup, so it must be persisted synchronously
@@ -519,6 +517,7 @@ public final class SettingsStore: ObservableObject {
             self.telegramSaveInProgress = false
             if response.success {
                 self.telegramHasBotToken = response.hasBotToken
+                self.telegramBotId = response.botId
                 self.telegramBotUsername = response.botUsername
                 self.telegramConnected = response.connected
                 self.telegramHasWebhookSecret = response.hasWebhookSecret
@@ -526,6 +525,7 @@ public final class SettingsStore: ObservableObject {
                 self.fetchChannelSetupStatus()
             } else {
                 self.telegramError = response.error
+                self.fetchChannelSetupStatus()
             }
         }
 
@@ -658,6 +658,9 @@ public final class SettingsStore: ObservableObject {
         // Ingress config is refreshed by onAppear in SettingsPanel,
         // not here, to avoid duplicate get requests whose
         // stale responses could overwrite an optimistic toggle.
+
+        // Fetch provider routing sources (managed vs BYO) on init
+        loadProviderRoutingSources()
     }
 
     // MARK: - API Key Actions
@@ -670,6 +673,7 @@ public final class SettingsStore: ObservableObject {
         syncKeyToDaemon(provider: "anthropic", value: trimmed)
         hasKey = true
         maskedKey = Self.maskKey(trimmed)
+        scheduleRoutingSourceRefresh()
     }
 
     func clearAPIKey() {
@@ -678,6 +682,7 @@ public final class SettingsStore: ObservableObject {
         deleteKeyFromDaemon(provider: "anthropic")
         hasKey = false
         maskedKey = ""
+        scheduleRoutingSourceRefresh()
     }
 
     func saveBraveKey(_ raw: String) {
@@ -688,6 +693,7 @@ public final class SettingsStore: ObservableObject {
         syncKeyToDaemon(provider: "brave", value: trimmed)
         hasBraveKey = true
         maskedBraveKey = Self.maskKey(trimmed)
+        scheduleRoutingSourceRefresh()
     }
 
     func clearBraveKey() {
@@ -696,6 +702,7 @@ public final class SettingsStore: ObservableObject {
         deleteKeyFromDaemon(provider: "brave")
         hasBraveKey = false
         maskedBraveKey = ""
+        scheduleRoutingSourceRefresh()
     }
 
     func savePerplexityKey(_ raw: String) {
@@ -706,6 +713,7 @@ public final class SettingsStore: ObservableObject {
         syncKeyToDaemon(provider: "perplexity", value: trimmed)
         hasPerplexityKey = true
         maskedPerplexityKey = Self.maskKey(trimmed)
+        scheduleRoutingSourceRefresh()
     }
 
     func clearPerplexityKey() {
@@ -714,6 +722,7 @@ public final class SettingsStore: ObservableObject {
         deleteKeyFromDaemon(provider: "perplexity")
         hasPerplexityKey = false
         maskedPerplexityKey = ""
+        scheduleRoutingSourceRefresh()
     }
 
     func saveImageGenKey(_ raw: String) {
@@ -724,6 +733,7 @@ public final class SettingsStore: ObservableObject {
         syncKeyToDaemon(provider: "gemini", value: trimmed)
         hasImageGenKey = true
         maskedImageGenKey = Self.maskKey(trimmed)
+        scheduleRoutingSourceRefresh()
     }
 
     func clearImageGenKey() {
@@ -732,6 +742,7 @@ public final class SettingsStore: ObservableObject {
         deleteKeyFromDaemon(provider: "gemini")
         hasImageGenKey = false
         maskedImageGenKey = ""
+        scheduleRoutingSourceRefresh()
     }
 
     func saveElevenLabsKey(_ raw: String) {
@@ -870,81 +881,15 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Slack Channel Actions (HTTP-first)
 
-    /// Builds an authenticated URLRequest for the daemon's runtime HTTP server (local mode)
-    /// or the platform assistant proxy (managed mode).
-    ///
-    /// - Local: `http://localhost:{port}/{path}` with `Authorization: Bearer {jwt}`
-    /// - Managed: `{platformBaseURL}/v1/assistants/{id}/{path}/` with `X-Session-Token` + `Vellum-Organization-Id`
-    private func buildDaemonRequest(path: String, method: String) -> URLRequest? {
-        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        let assistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
-        if let assistant, assistant.isManaged {
-            return Self.buildManagedAssistantProxyRequest(
-                baseURL: assistant.runtimeUrl ?? AuthService.shared.baseURL,
-                assistantId: assistant.assistantId,
-                path: path,
-                method: method,
-                sessionToken: SessionTokenManager.getToken(),
-                organizationId: UserDefaults.standard.string(forKey: "connectedOrganizationId")
-            )
-        }
-
-        // Local mode: direct to daemon runtime HTTP server.
-        // Use the lockfile assistant's daemon port so multi-instance switching
-        // targets the correct daemon (not always the default 7821).
-        let port = assistant?.daemonPort
-            ?? Int(ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "")
-            ?? 7821
-        guard let token = ActorTokenManager.getToken(), !token.isEmpty else { return nil }
-        guard let url = URL(string: "http://localhost:\(port)/\(path)") else { return nil }
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.timeoutInterval = 5
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        return request
-    }
-
-    /// Managed requests must fail closed without a session token so callers
-    /// preserve work for later retry instead of sending unauthenticated writes.
-    nonisolated static func buildManagedAssistantProxyRequest(
-        baseURL: String,
-        assistantId: String,
-        path: String,
-        method: String,
-        sessionToken: String?,
-        organizationId: String?
-    ) -> URLRequest? {
-        guard let token = sessionToken, !token.isEmpty else { return nil }
-        // Strip "v1/" prefix — the platform proxy already namespaces under /v1/assistants/{id}/
-        let proxyPath = path.hasPrefix("v1/") ? String(path.dropFirst(3)) : path
-        // Django URL convention: trailing slash
-        let trailingSlash = proxyPath.hasSuffix("/") ? "" : "/"
-        guard let url = URL(string: "\(baseURL)/v1/assistants/\(assistantId)/\(proxyPath)\(trailingSlash)") else { return nil }
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.timeoutInterval = 5
-        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
-        if let orgId = organizationId, !orgId.isEmpty {
-            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
-        }
-        return request
-    }
-
-    /// Whether the daemon HTTP endpoint is reachable (for tombstone replay gating).
-    private func isDaemonHTTPAvailable() -> Bool {
-        return buildDaemonRequest(path: "v1/secrets", method: "GET") != nil
-    }
-
     // MARK: - Daemon Key Sync (HTTP)
 
     /// Notify the daemon that an API key was set, so it updates its encrypted store.
     private func syncKeyToDaemon(provider: String, value: String) {
-        guard var request = buildDaemonRequest(path: "v1/secrets", method: "POST") else { return }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return }
         let body: [String: String] = ["type": "api_key", "name": provider, "value": value]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        Task.detached {
-            _ = try? await URLSession.shared.data(for: request)
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return }
+        Task {
+            _ = try? await GatewayHTTPClient.post(path: "assistants/\(assistantId)/secrets", body: bodyData)
         }
     }
 
@@ -974,9 +919,9 @@ public final class SettingsStore: ObservableObject {
         let tombstones = UserDefaults.standard.array(forKey: kPendingKeyDeletionTombstones)
             as? [[String: String]] ?? []
         guard !tombstones.isEmpty else { return }
-        // Bail out early if the HTTP endpoint is unavailable — preserve all tombstones
+        // Bail out early if no assistant is connected — preserve all tombstones
         // for the next reconnect attempt.
-        guard isDaemonHTTPAvailable() else { return }
+        guard UserDefaults.standard.string(forKey: "connectedAssistantId") != nil else { return }
         var remaining: [[String: String]] = []
         for entry in tombstones {
             guard let type = entry["type"], let name = entry["name"] else { continue }
@@ -1001,24 +946,22 @@ public final class SettingsStore: ObservableObject {
     /// Returns true if the HTTP endpoint was available and the request was dispatched.
     @discardableResult
     private func deleteKeyFromDaemon(provider: String) -> Bool {
-        guard var request = buildDaemonRequest(path: "v1/secrets", method: "DELETE") else { return false }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return false }
         let body: [String: String] = ["type": "api_key", "name": provider]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        Task.detached {
-            _ = try? await URLSession.shared.data(for: request)
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return false }
+        Task {
+            _ = try? await GatewayHTTPClient.delete(path: "assistants/\(assistantId)/secrets", body: bodyData)
         }
         return true
     }
 
     /// Notify the daemon that a credential was set (type: "credential", name: "service:field").
     private func syncCredentialToDaemon(name: String, value: String) {
-        guard var request = buildDaemonRequest(path: "v1/secrets", method: "POST") else { return }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return }
         let body: [String: String] = ["type": "credential", "name": name, "value": value]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        Task.detached {
-            _ = try? await URLSession.shared.data(for: request)
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return }
+        Task {
+            _ = try? await GatewayHTTPClient.post(path: "assistants/\(assistantId)/secrets", body: bodyData)
         }
     }
 
@@ -1026,12 +969,11 @@ public final class SettingsStore: ObservableObject {
     /// Returns true if the HTTP endpoint was available and the request was dispatched.
     @discardableResult
     private func deleteCredentialFromDaemon(name: String) -> Bool {
-        guard var request = buildDaemonRequest(path: "v1/secrets", method: "DELETE") else { return false }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return false }
         let body: [String: String] = ["type": "credential", "name": name]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        Task.detached {
-            _ = try? await URLSession.shared.data(for: request)
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return false }
+        Task {
+            _ = try? await GatewayHTTPClient.delete(path: "assistants/\(assistantId)/secrets", body: bodyData)
         }
         return true
     }
@@ -1069,26 +1011,29 @@ public final class SettingsStore: ObservableObject {
     }
 
     func fetchSlackChannelConfig() {
-        guard var request = buildDaemonRequest(path: "v1/integrations/slack/channel/config", method: "GET") else { return }
-        request.timeoutInterval = 10
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return }
         Task {
             do {
-                let (data, response) = try await URLSession.shared.data(for: request)
-                guard let httpResp = response as? HTTPURLResponse else { return }
-                if httpResp.statusCode == 200 {
-                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                        self.slackChannelHasBotToken = json["hasBotToken"] as? Bool ?? false
-                        self.slackChannelHasAppToken = json["hasAppToken"] as? Bool ?? false
-                        self.slackChannelConnected = json["connected"] as? Bool ?? false
-                        self.slackChannelBotUsername = json["botUsername"] as? String
-                        self.slackChannelTeamName = json["teamName"] as? String
-                        self.slackChannelError = nil
-                    }
-                } else if httpResp.statusCode == 404 {
+                let (config, response): (SlackChannelConfigResponse?, _) = try await GatewayHTTPClient.get(
+                    path: "assistants/\(assistantId)/integrations/slack/channel/config",
+                    timeout: 10
+                )
+                if response.statusCode == 200, let config {
+                    self.slackChannelHasBotToken = config.hasBotToken ?? false
+                    self.slackChannelHasAppToken = config.hasAppToken ?? false
+                    self.slackChannelConnected = config.connected ?? false
+                    self.slackChannelBotUsername = config.botUsername
+                    self.slackChannelBotUserId = config.botUserId
+                    self.slackChannelTeamId = config.teamId
+                    self.slackChannelTeamName = config.teamName
+                    self.slackChannelError = nil
+                } else if response.statusCode == 404 {
                     self.slackChannelHasBotToken = false
                     self.slackChannelHasAppToken = false
                     self.slackChannelConnected = false
                     self.slackChannelBotUsername = nil
+                    self.slackChannelBotUserId = nil
+                    self.slackChannelTeamId = nil
                     self.slackChannelTeamName = nil
                 }
             } catch {
@@ -1103,25 +1048,31 @@ public final class SettingsStore: ObservableObject {
         guard !trimmedBot.isEmpty, !trimmedApp.isEmpty else { return }
         slackChannelSaveInProgress = true
         slackChannelError = nil
-        guard var request = buildDaemonRequest(path: "v1/integrations/slack/channel/config", method: "POST") else {
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else {
             slackChannelSaveInProgress = false
             return
         }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 10
         let body: [String: String] = ["botToken": trimmedBot, "appToken": trimmedApp]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else {
+            slackChannelSaveInProgress = false
+            return
+        }
         Task {
             do {
-                let (data, response) = try await URLSession.shared.data(for: request)
+                let response = try await GatewayHTTPClient.post(
+                    path: "assistants/\(assistantId)/integrations/slack/channel/config",
+                    body: bodyData,
+                    timeout: 10
+                )
                 self.slackChannelSaveInProgress = false
-                guard let httpResp = response as? HTTPURLResponse else { return }
-                if (200..<300).contains(httpResp.statusCode) {
-                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                if response.isSuccess {
+                    if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any] {
                         self.slackChannelHasBotToken = json["hasBotToken"] as? Bool ?? true
                         self.slackChannelHasAppToken = json["hasAppToken"] as? Bool ?? true
                         self.slackChannelConnected = json["connected"] as? Bool ?? false
                         self.slackChannelBotUsername = json["botUsername"] as? String
+                        self.slackChannelBotUserId = json["botUserId"] as? String
+                        self.slackChannelTeamId = json["teamId"] as? String
                         self.slackChannelTeamName = json["teamName"] as? String
                         self.slackChannelError = nil
                     } else {
@@ -1131,11 +1082,11 @@ public final class SettingsStore: ObservableObject {
                     self.fetchChannelSetupStatus()
                 } else {
                     let errorMsg: String
-                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                    if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
                        let msg = json["error"] as? String {
                         errorMsg = msg
                     } else {
-                        errorMsg = "HTTP \(httpResp.statusCode)"
+                        errorMsg = "HTTP \(response.statusCode)"
                     }
                     self.slackChannelError = "Failed to save: \(errorMsg)"
                 }
@@ -1147,23 +1098,36 @@ public final class SettingsStore: ObservableObject {
     }
 
     func clearSlackChannelConfig() {
+        slackChannelSaveInProgress = true
         slackChannelError = nil
-        guard var request = buildDaemonRequest(path: "v1/integrations/slack/channel/config", method: "DELETE") else { return }
-        request.timeoutInterval = 10
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else {
+            slackChannelSaveInProgress = false
+            return
+        }
         Task {
             do {
-                let (_, response) = try await URLSession.shared.data(for: request)
-                guard let httpResp = response as? HTTPURLResponse else { return }
-                if (200..<300).contains(httpResp.statusCode) {
+                let response = try await GatewayHTTPClient.delete(
+                    path: "assistants/\(assistantId)/integrations/slack/channel/config",
+                    timeout: 10
+                )
+                if response.isSuccess {
                     self.slackChannelHasBotToken = false
                     self.slackChannelHasAppToken = false
                     self.slackChannelConnected = false
                     self.slackChannelBotUsername = nil
+                    self.slackChannelBotUserId = nil
+                    self.slackChannelTeamId = nil
                     self.slackChannelTeamName = nil
                     self.slackChannelError = nil
-                    self.fetchChannelSetupStatus()
+                } else {
+                    self.slackChannelError = "Failed to disconnect: HTTP \(response.statusCode)"
                 }
+                self.slackChannelSaveInProgress = false
+                self.fetchChannelSetupStatus()
             } catch {
+                self.slackChannelSaveInProgress = false
+                self.slackChannelError = error.localizedDescription
+                self.fetchChannelSetupStatus()
                 log.error("Failed to clear Slack channel config: \(error)")
             }
         }
@@ -1171,21 +1135,8 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Twilio Actions (HTTP)
 
-    /// Resolve the gateway base URL and bearer token for Twilio HTTP calls.
-    /// Uses httpTransport for remote connections, otherwise defaults to local gateway.
-    private func resolveTwilioHTTPEndpoint() -> (baseURL: String, bearerToken: String?)? {
-        if let httpTransport = daemonClient?.httpTransport {
-            return (httpTransport.baseURL, httpTransport.bearerToken)
-        }
-        // Local mode: call the gateway directly.
-        let gatewayPort = LockfilePaths.resolveGatewayPort()
-        let baseURL = "http://127.0.0.1:\(gatewayPort)"
-        let bearerToken = ActorTokenManager.getToken()
-        return (baseURL, bearerToken)
-    }
-
-    /// Shared helper: perform a Twilio HTTP request, decode the JSON response,
-    /// and apply the result to @Published properties on the main actor.
+    /// Shared helper: perform a Twilio HTTP request via GatewayHTTPClient,
+    /// decode the JSON response, and apply the result to @Published properties.
     private func performTwilioHTTPRequest(
         method: String,
         path: String,
@@ -1193,41 +1144,40 @@ public final class SettingsStore: ObservableObject {
         applyPhoneNumber: Bool = false,
         applyNumbers: Bool = false
     ) async {
-        guard let endpoint = resolveTwilioHTTPEndpoint(),
-              let url = URL(string: "\(endpoint.baseURL)\(path)") else {
-            twilioError = "No HTTP endpoint available"
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else {
+            twilioError = "No connected assistant"
             return
         }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.timeoutInterval = 30
-        // Use the JWT access token as the sole Authorization bearer.
-        // Falls back to the legacy runtime bearer token if no JWT is available.
-        if let accessToken = ActorTokenManager.getToken(), !accessToken.isEmpty {
-            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        } else if let token = endpoint.bearerToken, !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
+        let gatewayPath = "assistants/\(assistantId)/\(path)"
+        let bodyData: Data?
         if let body {
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+            bodyData = try? JSONSerialization.data(withJSONObject: body)
+        } else {
+            bodyData = nil
         }
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse else {
-                twilioError = "Invalid response"
+            let response: GatewayHTTPClient.Response
+            switch method {
+            case "GET":
+                response = try await GatewayHTTPClient.get(path: gatewayPath)
+            case "POST":
+                response = try await GatewayHTTPClient.post(path: gatewayPath, body: bodyData)
+            case "DELETE":
+                response = try await GatewayHTTPClient.delete(path: gatewayPath, body: bodyData)
+            default:
+                twilioError = "Unsupported HTTP method"
                 return
             }
-            guard (200..<300).contains(http.statusCode) else {
-                let errorBody = String(data: data, encoding: .utf8) ?? "HTTP \(http.statusCode)"
+
+            guard response.isSuccess else {
+                let errorBody = String(data: response.data, encoding: .utf8) ?? "HTTP \(response.statusCode)"
                 twilioError = "Request failed: \(errorBody)"
                 return
             }
 
-            // Decode the response JSON
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            guard let json = try JSONSerialization.jsonObject(with: response.data) as? [String: Any] else {
                 twilioError = "Invalid JSON response"
                 return
             }
@@ -1283,7 +1233,7 @@ public final class SettingsStore: ObservableObject {
         Task {
             await performTwilioHTTPRequest(
                 method: "GET",
-                path: "/v1/integrations/twilio/config",
+                path: "integrations/twilio/config",
                 applyPhoneNumber: true
             )
             twilioSaveInProgress = false
@@ -1300,7 +1250,7 @@ public final class SettingsStore: ObservableObject {
         Task {
             await performTwilioHTTPRequest(
                 method: "POST",
-                path: "/v1/integrations/twilio/credentials",
+                path: "integrations/twilio/credentials",
                 body: ["accountSid": trimmedSid, "authToken": trimmedToken]
             )
             twilioSaveInProgress = false
@@ -1315,7 +1265,7 @@ public final class SettingsStore: ObservableObject {
         Task {
             await performTwilioHTTPRequest(
                 method: "DELETE",
-                path: "/v1/integrations/twilio/credentials"
+                path: "integrations/twilio/credentials"
             )
             twilioSaveInProgress = false
             self.fetchChannelSetupStatus()
@@ -1331,7 +1281,7 @@ public final class SettingsStore: ObservableObject {
         Task {
             await performTwilioHTTPRequest(
                 method: "POST",
-                path: "/v1/integrations/twilio/numbers/assign",
+                path: "integrations/twilio/numbers/assign",
                 body: ["phoneNumber": trimmed],
                 applyPhoneNumber: true
             )
@@ -1357,7 +1307,7 @@ public final class SettingsStore: ObservableObject {
             if let c = trimmedCountry, !c.isEmpty { body["country"] = c.uppercased() }
             await performTwilioHTTPRequest(
                 method: "POST",
-                path: "/v1/integrations/twilio/numbers/provision",
+                path: "integrations/twilio/numbers/provision",
                 body: body.isEmpty ? nil : body,
                 applyPhoneNumber: true
             )
@@ -1371,7 +1321,7 @@ public final class SettingsStore: ObservableObject {
         Task {
             await performTwilioHTTPRequest(
                 method: "GET",
-                path: "/v1/integrations/twilio/numbers",
+                path: "integrations/twilio/numbers",
                 applyNumbers: true
             )
             twilioListInProgress = false
@@ -1496,172 +1446,6 @@ public final class SettingsStore: ObservableObject {
             try daemonClient?.sendChannelVerificationSession(action: "revoke", channel: channel)
         } catch {
             log.error("Failed to revoke \(channel) verification: \(error)")
-        }
-    }
-
-    // MARK: - Approved Ingress Contacts Actions
-
-    func refreshTelegramApprovedMembers() {
-        guard var request = buildDaemonRequest(path: "v1/contacts", method: "GET") else { return }
-        // Append query parameter — buildDaemonRequest already set the base URL
-        if let url = request.url, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
-            var items = components.queryItems ?? []
-            items.append(URLQueryItem(name: "channelType", value: "telegram"))
-            components.queryItems = items
-            request.url = components.url
-        }
-        request.timeoutInterval = 10
-        telegramApprovedMembersLoading = true
-        telegramApprovedMembersError = nil
-        Task {
-            do {
-                let (data, response) = try await URLSession.shared.data(for: request)
-                self.telegramApprovedMembersLoading = false
-                guard let httpResp = response as? HTTPURLResponse else { return }
-                if httpResp.statusCode == 200 {
-                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let contactsList = json["contacts"] as? [[String: Any]] {
-                        let verifiedIdentityId = self.telegramVerificationIdentity
-                        var approvedMembers: [ApprovedMember] = []
-                        for contact in contactsList {
-                            let displayName = contact["displayName"] as? String
-                            guard let channels = contact["channels"] as? [[String: Any]] else { continue }
-                            for channel in channels {
-                                guard let channelType = channel["type"] as? String,
-                                      channelType == "telegram",
-                                      let status = channel["status"] as? String,
-                                      status == "active",
-                                      let channelId = channel["id"] as? String else { continue }
-                                let externalUserId = channel["externalUserId"] as? String
-                                // Skip the verified identity — they're already shown in the Channel Verification row
-                                if let verifiedIdentityId, let externalUserId, externalUserId == verifiedIdentityId {
-                                    continue
-                                }
-                                approvedMembers.append(ApprovedMember(
-                                    id: channelId,
-                                    displayName: displayName,
-                                    username: channel["address"] as? String,
-                                    externalUserId: externalUserId
-                                ))
-                            }
-                        }
-                        self.telegramApprovedMembers = approvedMembers
-                        self.telegramApprovedMembersError = nil
-                    }
-                } else {
-                    self.telegramApprovedMembersError = "Failed to load (HTTP \(httpResp.statusCode))"
-                }
-            } catch {
-                self.telegramApprovedMembersLoading = false
-                self.telegramApprovedMembersError = "Failed to load: \(error.localizedDescription)"
-            }
-        }
-    }
-
-    func revokeTelegramApprovedMember(memberId: String) {
-        guard var request = buildDaemonRequest(path: "v1/contact-channels/\(memberId)", method: "PATCH") else { return }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["status": "revoked"])
-        request.timeoutInterval = 10
-        telegramRevokingMemberIds.insert(memberId)
-        let removed = telegramApprovedMembers.filter { $0.id == memberId }
-        telegramApprovedMembers.removeAll { $0.id == memberId }
-        Task {
-            do {
-                let (_, response) = try await URLSession.shared.data(for: request)
-                self.telegramRevokingMemberIds.remove(memberId)
-                guard let httpResp = response as? HTTPURLResponse else { return }
-                if !(200..<300).contains(httpResp.statusCode) {
-                    // Rollback on failure
-                    self.telegramApprovedMembers.append(contentsOf: removed)
-                    self.telegramApprovedMembersError = "Failed to revoke (HTTP \(httpResp.statusCode))"
-                }
-            } catch {
-                self.telegramRevokingMemberIds.remove(memberId)
-                self.telegramApprovedMembers.append(contentsOf: removed)
-                self.telegramApprovedMembersError = "Failed to revoke: \(error.localizedDescription)"
-            }
-        }
-    }
-
-    func refreshSlackApprovedMembers() {
-        guard var request = buildDaemonRequest(path: "v1/contacts", method: "GET") else { return }
-        if let url = request.url, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
-            var items = components.queryItems ?? []
-            items.append(URLQueryItem(name: "channelType", value: "slack"))
-            components.queryItems = items
-            request.url = components.url
-        }
-        request.timeoutInterval = 10
-        slackApprovedMembersLoading = true
-        slackApprovedMembersError = nil
-        Task {
-            do {
-                let (data, response) = try await URLSession.shared.data(for: request)
-                self.slackApprovedMembersLoading = false
-                guard let httpResp = response as? HTTPURLResponse else { return }
-                if httpResp.statusCode == 200 {
-                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let contactsList = json["contacts"] as? [[String: Any]] {
-                        let verifiedIdentityId = self.slackVerificationIdentity
-                        var approvedMembers: [ApprovedMember] = []
-                        for contact in contactsList {
-                            let displayName = contact["displayName"] as? String
-                            guard let channels = contact["channels"] as? [[String: Any]] else { continue }
-                            for channel in channels {
-                                guard let channelType = channel["type"] as? String,
-                                      channelType == "slack",
-                                      let status = channel["status"] as? String,
-                                      status == "active",
-                                      let channelId = channel["id"] as? String else { continue }
-                                let externalUserId = channel["externalUserId"] as? String
-                                // Skip the verified identity — they're already shown in the Channel Verification row
-                                if let verifiedIdentityId, let externalUserId, externalUserId == verifiedIdentityId {
-                                    continue
-                                }
-                                approvedMembers.append(ApprovedMember(
-                                    id: channelId,
-                                    displayName: displayName,
-                                    username: channel["address"] as? String,
-                                    externalUserId: externalUserId
-                                ))
-                            }
-                        }
-                        self.slackApprovedMembers = approvedMembers
-                        self.slackApprovedMembersError = nil
-                    }
-                } else {
-                    self.slackApprovedMembersError = "Failed to load (HTTP \(httpResp.statusCode))"
-                }
-            } catch {
-                self.slackApprovedMembersLoading = false
-                self.slackApprovedMembersError = "Failed to load: \(error.localizedDescription)"
-            }
-        }
-    }
-
-    func revokeSlackApprovedMember(memberId: String) {
-        guard var request = buildDaemonRequest(path: "v1/contact-channels/\(memberId)", method: "PATCH") else { return }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["status": "revoked"])
-        request.timeoutInterval = 10
-        slackRevokingMemberIds.insert(memberId)
-        let removed = slackApprovedMembers.filter { $0.id == memberId }
-        slackApprovedMembers.removeAll { $0.id == memberId }
-        Task {
-            do {
-                let (_, response) = try await URLSession.shared.data(for: request)
-                self.slackRevokingMemberIds.remove(memberId)
-                guard let httpResp = response as? HTTPURLResponse else { return }
-                if !(200..<300).contains(httpResp.statusCode) {
-                    self.slackApprovedMembers.append(contentsOf: removed)
-                    self.slackApprovedMembersError = "Failed to revoke (HTTP \(httpResp.statusCode))"
-                }
-            } catch {
-                self.slackRevokingMemberIds.remove(memberId)
-                self.slackApprovedMembers.append(contentsOf: removed)
-                self.slackApprovedMembersError = "Failed to revoke: \(error.localizedDescription)"
-            }
         }
     }
 
@@ -2005,6 +1789,38 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    // MARK: - Provider Routing Sources
+
+    /// Fetches provider routing sources from the daemon debug endpoint and
+    /// updates `providerRoutingSources`. Non-fatal — silently ignores errors.
+    func loadProviderRoutingSources() {
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return }
+        Task {
+            do {
+                let response = try await GatewayHTTPClient.get(
+                    path: "assistants/\(assistantId)/debug",
+                    timeout: 10
+                )
+                guard response.isSuccess else { return }
+                guard let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                      let provider = json["provider"] as? [String: Any],
+                      let sources = provider["routingSources"] as? [String: String] else { return }
+                self.providerRoutingSources = sources
+            } catch {
+                log.error("Failed to load provider routing sources: \(error)")
+            }
+        }
+    }
+
+    /// Schedules a delayed refresh of provider routing sources, giving the
+    /// daemon time to re-initialize providers after a key change.
+    private func scheduleRoutingSourceRefresh() {
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            loadProviderRoutingSources()
+        }
+    }
+
     // MARK: - Ingress Config
 
     func refreshIngressConfig() {
@@ -2147,7 +1963,8 @@ public final class SettingsStore: ObservableObject {
     /// LAN pairing URL for the gateway, or nil if no LAN IP available.
     var lanPairingUrl: String? {
         guard let ip = LANIPHelper.currentLANAddress() else { return nil }
-        return "http://\(ip):\(LockfilePaths.resolveGatewayPort())"
+        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        return "http://\(ip):\(LockfilePaths.resolveGatewayPort(connectedAssistantId: connectedId))"
     }
 
     // MARK: - Dev Mode Actions
@@ -2224,6 +2041,8 @@ public final class SettingsStore: ObservableObject {
         let normalized = MediaEmbedSettings.normalizeDomains(domains)
         mediaEmbedVideoAllowlistDomains = normalized
 
+        guard !isCurrentAssistantRemote else { return }
+
         let existingConfig = WorkspaceConfigIO.read(from: configPath)
         var existingUI = existingConfig["ui"] as? [String: Any] ?? [:]
         var existingMediaEmbeds = existingUI["mediaEmbeds"] as? [String: Any] ?? [:]
@@ -2241,6 +2060,8 @@ public final class SettingsStore: ObservableObject {
     /// Writes the current `mediaEmbedsEnabled` and `mediaEmbedsEnabledSince` to
     /// the workspace config under `ui.mediaEmbeds`.
     private func persistMediaEmbedState() {
+        guard !isCurrentAssistantRemote else { return }
+
         var mediaEmbedsDict: [String: Any] = [
             "enabled": mediaEmbedsEnabled,
         ]
@@ -2341,6 +2162,8 @@ public final class SettingsStore: ObservableObject {
     // MARK: - User Timezone Loading/Persistence
 
     private func persistUserTimezone() {
+        guard !isCurrentAssistantRemote else { return }
+
         let existingConfig = WorkspaceConfigIO.read(from: configPath)
         var existingUI = existingConfig["ui"] as? [String: Any] ?? [:]
         if let timezone = userTimezone {
@@ -2368,4 +2191,16 @@ public final class SettingsStore: ObservableObject {
         }
         return canonicalizeTimeZoneIdentifier(trimmed)
     }
+}
+
+// MARK: - Slack Channel Config Response
+
+private struct SlackChannelConfigResponse: Decodable {
+    let hasBotToken: Bool?
+    let hasAppToken: Bool?
+    let connected: Bool?
+    let botUsername: String?
+    let botUserId: String?
+    let teamId: String?
+    let teamName: String?
 }

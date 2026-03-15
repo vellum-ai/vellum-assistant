@@ -4,10 +4,10 @@
  * Materializes a conversation + message for each notification delivery
  * before the adapter sends it. This ensures every delivery has an
  * auditable conversation trail and enables the macOS/iOS client to
- * deep-link directly into the notification thread.
+ * deep-link directly into the notification conversation.
  *
  * Resolution order:
- * 1. Explicit `reuse_existing` thread action — highest precedence.
+ * 1. Explicit `reuse_existing` conversation action — highest precedence.
  * 2. Binding-key reuse — for `continue_existing_conversation` channels,
  *    looks up a previously bound conversation by (sourceChannel, externalChatId).
  * 3. Default — creates a fresh conversation and, when binding context is
@@ -27,12 +27,15 @@ import {
   upsertOutboundBinding,
 } from "../memory/external-conversation-store.js";
 import { getLogger } from "../util/logger.js";
+import {
+  composeConversationSeed,
+  isConversationSeedSane,
+} from "./conversation-seed-composer.js";
 import type { NotificationSignal } from "./signal.js";
-import { composeThreadSeed, isThreadSeedSane } from "./thread-seed-composer.js";
 import type {
+  ConversationAction,
   DestinationBindingContext,
   NotificationChannel,
-  ThreadAction,
 } from "./types.js";
 import type { RenderedChannelCopy } from "./types.js";
 
@@ -57,12 +60,12 @@ export interface PairingResult {
   /** True when a brand-new conversation was created; false when an existing one was reused. */
   createdNewConversation: boolean;
   /** When the model requested reuse_existing but the target was invalid, this is true. */
-  threadDecisionFallbackUsed: boolean;
+  conversationFallbackUsed: boolean;
 }
 
 export interface PairingOptions {
-  /** Per-channel thread action from the decision engine. */
-  threadAction?: ThreadAction;
+  /** Per-channel conversation action from the decision engine. */
+  conversationAction?: ConversationAction;
   /** Destination binding data for channel-scoped conversation continuation. */
   bindingContext?: DestinationBindingContext;
 }
@@ -74,7 +77,7 @@ export interface PairingOptions {
  * and materializes a conversation + assistant message accordingly.
  *
  * Resolution precedence:
- * 1. `options.threadAction === "reuse_existing"` — reuse the explicit target.
+ * 1. `options.conversationAction === "reuse_existing"` — reuse the explicit target.
  * 2. `continue_existing_conversation` strategy with binding context —
  *    look up a previously bound conversation by (sourceChannel, externalChatId).
  * 3. Create a new conversation (and upsert the binding when context is present).
@@ -99,35 +102,36 @@ export async function pairDeliveryWithConversation(
         messageId: null,
         strategy: "not_deliverable",
         createdNewConversation: false,
-        threadDecisionFallbackUsed: false,
+        conversationFallbackUsed: false,
       };
     }
 
-    const title = copy.threadTitle ?? copy.title ?? signal.sourceEventName;
+    const title =
+      copy.conversationTitle ?? copy.title ?? signal.sourceEventName;
 
-    // Only start_new_conversation threads should be user-visible in the sidebar.
-    // Channels with continue_existing_conversation reuse bound external threads
+    // Only start_new_conversation conversations should be user-visible in the sidebar.
+    // Channels with continue_existing_conversation reuse bound external conversations
     // and mark them as background so they don't clutter the sidebar UI.
-    const threadType =
+    const conversationType =
       strategy === "start_new_conversation" ? "standard" : "background";
 
-    // Prefer model-provided threadSeedMessage when present and sane;
+    // Prefer model-provided conversationSeedMessage when present and sane;
     // fall back to the runtime composer which adapts verbosity to the
     // delivery surface (vellum/macos = richer, telegram = compact).
-    const messageContent = isThreadSeedSane(copy.threadSeedMessage)
-      ? copy.threadSeedMessage
-      : composeThreadSeed(signal, channel, copy);
+    const messageContent = isConversationSeedSane(copy.conversationSeedMessage)
+      ? copy.conversationSeedMessage
+      : composeConversationSeed(signal, channel, copy);
 
-    const threadAction = options?.threadAction;
+    const conversationAction = options?.conversationAction;
     const bindingContext = options?.bindingContext;
 
     // Attempt to reuse an existing conversation when the model requests it
-    if (threadAction?.action === "reuse_existing") {
-      const targetId = threadAction.conversationId;
+    if (conversationAction?.action === "reuse_existing") {
+      const targetId = conversationAction.conversationId;
       const existing = getConversation(targetId);
 
       if (existing && existing.source === "notification") {
-        // Append the seed message to the existing conversation thread
+        // Append the seed message to the existing conversation
         const message = await addMessage(
           existing.id,
           "assistant",
@@ -153,7 +157,7 @@ export async function pairDeliveryWithConversation(
             strategy,
             conversationId: existing.id,
             messageId: message.id,
-            threadAction: "reuse_existing",
+            conversationAction: "reuse_existing",
           },
           "Reused existing notification conversation for delivery",
         );
@@ -163,7 +167,7 @@ export async function pairDeliveryWithConversation(
           messageId: message.id,
           strategy,
           createdNewConversation: false,
-          threadDecisionFallbackUsed: false,
+          conversationFallbackUsed: false,
         };
       }
 
@@ -176,12 +180,12 @@ export async function pairDeliveryWithConversation(
           targetExists: !!existing,
           targetSource: existing?.source,
         },
-        "Thread reuse target invalid — falling back to new conversation",
+        "Conversation reuse target invalid — falling back to new conversation",
       );
 
       const conversation = createConversation({
         title,
-        threadType,
+        conversationType,
         source: "notification",
       });
 
@@ -208,7 +212,7 @@ export async function pairDeliveryWithConversation(
         messageId: message.id,
         strategy,
         createdNewConversation: true,
-        threadDecisionFallbackUsed: true,
+        conversationFallbackUsed: true,
       };
     }
 
@@ -270,7 +274,7 @@ export async function pairDeliveryWithConversation(
             messageId: message.id,
             strategy,
             createdNewConversation: false,
-            threadDecisionFallbackUsed: false,
+            conversationFallbackUsed: false,
           };
         }
 
@@ -294,7 +298,7 @@ export async function pairDeliveryWithConversation(
     // notification copy from polluting conversational recall.
     const conversation = createConversation({
       title,
-      threadType,
+      conversationType,
       source: "notification",
     });
 
@@ -325,7 +329,7 @@ export async function pairDeliveryWithConversation(
         strategy,
         conversationId: conversation.id,
         messageId: message.id,
-        threadAction: threadAction?.action ?? "start_new",
+        conversationAction: conversationAction?.action ?? "start_new",
       },
       "Paired notification delivery with conversation",
     );
@@ -335,7 +339,7 @@ export async function pairDeliveryWithConversation(
       messageId: message.id,
       strategy,
       createdNewConversation: true,
-      threadDecisionFallbackUsed: false,
+      conversationFallbackUsed: false,
     };
   } catch (err) {
     log.error(
@@ -354,7 +358,7 @@ export async function pairDeliveryWithConversation(
       messageId: null,
       strategy: fallbackStrategy,
       createdNewConversation: false,
-      threadDecisionFallbackUsed: false,
+      conversationFallbackUsed: false,
     };
   }
 }

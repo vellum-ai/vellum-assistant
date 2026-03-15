@@ -25,31 +25,31 @@ import type { NotificationSignal } from "./signal.js";
 import type {
   ChannelAdapter,
   ChannelDeliveryPayload,
+  ConversationAction,
   NotificationChannel,
   NotificationDecision,
   NotificationDeliveryResult,
   RenderedChannelCopy,
-  ThreadAction,
 } from "./types.js";
 
 const log = getLogger("notif-broadcaster");
 
-/** Callback invoked immediately when a vellum notification thread is created. */
-export interface ThreadCreatedInfo {
+/** Callback invoked immediately when a vellum notification conversation is created. */
+export interface ConversationCreatedInfo {
   conversationId: string;
   title: string;
   sourceEventName: string;
-  /** Present when the thread is for a guardian-sensitive notification. */
+  /** Present when the conversation is for a guardian-sensitive notification. */
   targetGuardianPrincipalId?: string;
 }
-export type OnThreadCreatedFn = (info: ThreadCreatedInfo) => void;
+export type OnConversationCreatedFn = (info: ConversationCreatedInfo) => void;
 export interface BroadcastDecisionOptions {
-  onThreadCreated?: OnThreadCreatedFn;
+  onConversationCreated?: OnConversationCreatedFn;
 }
 
 export class NotificationBroadcaster {
   private adapters: Map<NotificationChannel, ChannelAdapter>;
-  private onThreadCreated: OnThreadCreatedFn | null = null;
+  private onConversationCreated: OnConversationCreatedFn | null = null;
 
   constructor(adapters: ChannelAdapter[]) {
     this.adapters = new Map();
@@ -59,8 +59,8 @@ export class NotificationBroadcaster {
   }
 
   /** Register a callback that fires immediately when a vellum conversation is paired. */
-  setOnThreadCreated(fn: OnThreadCreatedFn): void {
-    this.onThreadCreated = fn;
+  setOnConversationCreated(fn: OnConversationCreatedFn): void {
+    this.onConversationCreated = fn;
   }
 
   /**
@@ -147,12 +147,12 @@ export class NotificationBroadcaster {
         };
       }
 
-      // Resolve the per-channel thread action from the decision (default: start_new)
-      const threadAction: ThreadAction | undefined =
-        decision.threadActions?.[channel];
+      // Resolve the per-channel conversation action from the decision (default: start_new)
+      const conversationAction: ConversationAction | undefined =
+        decision.conversationActions?.[channel];
 
       // Check for duplicate delivery BEFORE pairing to avoid side effects
-      // (e.g. appending seed messages to existing threads) on retry paths
+      // (e.g. appending seed messages to existing conversations) on retry paths
       // where a delivery row already exists.
       const persistedDecisionId = decision.persistedDecisionId;
       const hasPersistedDecision = typeof persistedDecisionId === "string";
@@ -184,17 +184,17 @@ export class NotificationBroadcaster {
         }
       }
 
-      // Pair the delivery with a conversation before sending, passing the thread action
+      // Pair the delivery with a conversation before sending, passing the conversation action
       // and destination binding context for channel-scoped continuation
       const pairing = await pairDeliveryWithConversation(
         signal,
         channel,
         copy,
-        { threadAction, bindingContext: destination.bindingContext },
+        { conversationAction, bindingContext: destination.bindingContext },
       );
 
       // For the vellum channel, merge the conversationId into deep-link metadata
-      // so the macOS/iOS client can navigate directly to the notification thread.
+      // so the macOS/iOS client can navigate directly to the notification conversation.
       let deepLinkTarget = decision.deepLinkTarget;
       if (channel === "vellum" && pairing.conversationId) {
         deepLinkTarget = {
@@ -205,8 +205,8 @@ export class NotificationBroadcaster {
           deepLinkTarget = { ...deepLinkTarget, messageId: pairing.messageId };
         }
 
-        // Resolve guardian scoping for thread-created events so clients
-        // can filter guardian-sensitive threads the same way they filter
+        // Resolve guardian scoping for conversation-created events so clients
+        // can filter guardian-sensitive conversations the same way they filter
         // guardian-sensitive notification intents.
         const guardianPrincipalId =
           typeof destination.metadata?.guardianPrincipalId === "string"
@@ -218,45 +218,45 @@ export class NotificationBroadcaster {
             ? guardianPrincipalId
             : undefined;
 
-        const threadTitle =
-          copy.threadTitle ?? copy.title ?? signal.sourceEventName;
-        const info: ThreadCreatedInfo = {
+        const conversationTitle =
+          copy.conversationTitle ?? copy.title ?? signal.sourceEventName;
+        const info: ConversationCreatedInfo = {
           conversationId: pairing.conversationId,
-          title: threadTitle,
+          title: conversationTitle,
           sourceEventName: signal.sourceEventName,
           targetGuardianPrincipalId,
         };
 
-        // The per-dispatch onThreadCreated callback fires whenever a vellum
+        // The per-dispatch onConversationCreated callback fires whenever a vellum
         // conversation is paired (new or reused) because callers like
         // dispatchGuardianQuestion rely on it to create delivery bookkeeping
         // rows before emitNotificationSignal() returns.
-        if (options?.onThreadCreated) {
+        if (options?.onConversationCreated) {
           try {
-            options.onThreadCreated(info);
+            options.onConversationCreated(info);
           } catch (err) {
             log.error(
               { err, signalId: signal.signalId },
-              "per-dispatch onThreadCreated callback failed — continuing broadcast",
+              "per-dispatch onConversationCreated callback failed — continuing broadcast",
             );
           }
         }
 
         // Emit notification_thread_created event only when a NEW
-        // conversation was actually created. Reusing an existing thread
+        // conversation was actually created. Reusing an existing conversation
         // should not fire the event — the client already knows about the
         // conversation.
         if (
           pairing.createdNewConversation &&
           pairing.strategy === "start_new_conversation"
         ) {
-          if (this.onThreadCreated) {
+          if (this.onConversationCreated) {
             try {
-              this.onThreadCreated(info);
+              this.onConversationCreated(info);
             } catch (err) {
               log.error(
                 { err, signalId: signal.signalId },
-                "onThreadCreated callback failed — continuing broadcast",
+                "onConversationCreated callback failed — continuing broadcast",
               );
             }
           }
@@ -273,14 +273,14 @@ export class NotificationBroadcaster {
         deepLinkTarget,
       };
 
-      // Compute thread decision audit fields for the delivery record
-      const threadAudit = {
-        threadAction: threadAction?.action ?? "start_new",
-        threadTargetConversationId:
-          threadAction?.action === "reuse_existing"
-            ? threadAction.conversationId
+      // Compute conversation decision audit fields for the delivery record
+      const conversationAudit = {
+        conversationAction: conversationAction?.action ?? "start_new",
+        conversationTargetId:
+          conversationAction?.action === "reuse_existing"
+            ? conversationAction.conversationId
             : undefined,
-        threadDecisionFallbackUsed: pairing.threadDecisionFallbackUsed,
+        conversationFallbackUsed: pairing.conversationFallbackUsed,
       };
 
       try {
@@ -297,7 +297,7 @@ export class NotificationBroadcaster {
             conversationId: pairing.conversationId ?? undefined,
             messageId: pairing.messageId ?? undefined,
             conversationStrategy: pairing.strategy,
-            ...threadAudit,
+            ...conversationAudit,
           });
         } else {
           log.warn(

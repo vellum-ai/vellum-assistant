@@ -22,7 +22,6 @@ mock.module("../email/service.js", () => ({
   }),
   // Re-export other symbols that callers might need
   EmailService: class {},
-  _resetEmailService: () => {},
 }));
 
 // ---------------------------------------------------------------------------

@@ -3,7 +3,13 @@
  * Watches workspace files (config, prompts), protected directory
  * (trust rules, secret allowlist), and skills directories for changes.
  */
-import { existsSync, type FSWatcher, readdirSync, watch } from "node:fs";
+import {
+  existsSync,
+  type FSWatcher,
+  mkdirSync,
+  readdirSync,
+  watch,
+} from "node:fs";
 import { join } from "node:path";
 
 import { getConfig, invalidateConfigCache } from "../config/loader.js";
@@ -14,10 +20,19 @@ import {
   resetAllowlist,
   validateAllowlistFile,
 } from "../security/secret-allowlist.js";
+import { handleBashSignal } from "../signals/bash.js";
+import { handleCancelSignal } from "../signals/cancel.js";
+import { handleConfirmationSignal } from "../signals/confirm.js";
+import { handleConversationUndoSignal } from "../signals/conversation-undo.js";
+import { handleMcpReloadSignal } from "../signals/mcp-reload.js";
+import { handleShotgunSignal } from "../signals/shotgun.js";
+import { handleTrustRuleSignal } from "../signals/trust-rule.js";
+import { handleUserMessageSignal } from "../signals/user-message.js";
 import { DebouncerMap } from "../util/debounce.js";
 import { getLogger } from "../util/logger.js";
 import {
   getRootDir,
+  getSignalsDir,
   getWorkspaceDir,
   getWorkspaceSkillsDir,
 } from "../util/platform.js";
@@ -79,7 +94,7 @@ export class ConfigWatcher {
    * when effective config values (including API keys) have changed.
    * Returns true if config actually changed.
    */
-  refreshConfigFromSources(): boolean {
+  async refreshConfigFromSources(): Promise<boolean> {
     invalidateConfigCache();
     const config = getConfig();
     const fingerprint = this.configFingerprint(config);
@@ -89,7 +104,7 @@ export class ConfigWatcher {
     clearTrustCache();
     clearEmbeddingBackendCache();
     const isFirstInit = this.lastFingerprint === "";
-    initializeProviders(config);
+    await initializeProviders(config);
     this.lastFingerprint = fingerprint;
     return !isFirstInit;
   }
@@ -104,11 +119,20 @@ export class ConfigWatcher {
     const protectedDir = join(getRootDir(), "protected");
 
     const workspaceHandlers: Record<string, () => void> = {
-      "config.json": () => {
+      "config.json": async () => {
         if (this.suppressReload) return;
         try {
-          const changed = this.refreshConfigFromSources();
-          if (changed) onSessionEvict();
+          const prevConfig = getConfig();
+          const prevMcpFingerprint = JSON.stringify(prevConfig.mcp ?? {});
+          const changed = await this.refreshConfigFromSources();
+          if (changed) {
+            onSessionEvict();
+            const newConfig = getConfig();
+            const newMcpFingerprint = JSON.stringify(newConfig.mcp ?? {});
+            if (newMcpFingerprint !== prevMcpFingerprint) {
+              handleMcpReloadSignal();
+            }
+          }
         } catch (err) {
           log.error(
             { err, configPath: join(workspaceDir, "config.json") },
@@ -185,6 +209,7 @@ export class ConfigWatcher {
       );
     }
 
+    this.startSignalsWatcher();
     this.startSkillsWatchers(onSessionEvict);
   }
 
@@ -194,6 +219,66 @@ export class ConfigWatcher {
       watcher.close();
     }
     this.watchers = [];
+  }
+
+  private startSignalsWatcher(): void {
+    const signalsDir = getSignalsDir();
+    try {
+      if (!existsSync(signalsDir)) {
+        mkdirSync(signalsDir, { recursive: true });
+      }
+    } catch {
+      // If we can't create it, watching will also fail — handled below.
+    }
+
+    const exactSignalHandlers: Record<string, () => void | Promise<void>> = {
+      cancel: handleCancelSignal,
+      confirm: handleConfirmationSignal,
+      "mcp-reload": handleMcpReloadSignal,
+      "trust-rule": handleTrustRuleSignal,
+      "conversation-undo": handleConversationUndoSignal,
+    };
+
+    const prefixSignalHandlers: Record<
+      string,
+      (filename: string) => void | Promise<void>
+    > = {
+      "bash.": handleBashSignal,
+      "shotgun.": handleShotgunSignal,
+      "user-message.": handleUserMessageSignal,
+    };
+
+    try {
+      const watcher = watch(signalsDir, (_eventType, filename) => {
+        if (!filename) return;
+        const file = String(filename);
+
+        if (exactSignalHandlers[file]) {
+          this.debounceTimers.schedule(`signal:${file}`, () => {
+            log.info({ file }, "Signal file detected");
+            exactSignalHandlers[file]();
+          });
+          return;
+        }
+
+        for (const [prefix, handler] of Object.entries(prefixSignalHandlers)) {
+          if (file.startsWith(prefix) && !file.endsWith(".result")) {
+            this.debounceTimers.schedule(`signal:${file}`, () => {
+              log.info({ file }, "Signal file detected");
+              handler(file);
+            });
+            return;
+          }
+        }
+      });
+      this.watchers.push(watcher);
+      log.info({ dir: signalsDir }, "Watching signals directory");
+    } catch (err) {
+      log.warn(
+        { err, dir: signalsDir },
+        "Failed to watch signals directory. Signal-based reload will be unavailable.",
+      );
+    }
   }
 
   private startSkillsWatchers(onSessionEvict: () => void): void {

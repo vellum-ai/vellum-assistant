@@ -37,14 +37,7 @@ extension AppDelegate {
                 return
             }
 
-            // Priority 2: Route to active TextResponseWindow conversation
-            if let textSession = self?.currentTextSession, textSession.state == .ready {
-                textSession.sendFollowUp(text: text)
-                self?.textResponseWindow?.updatePartialTranscription("")
-                return
-            }
-
-            // Priority 3: Fall back to creating a new session
+            // Priority 2: Fall back to creating a new session
             self?.startSession(task: text, source: "voice")
         }
         voiceInput?.onPartialTranscription = { [weak self] text in
@@ -70,16 +63,12 @@ extension AppDelegate {
                 return
             }
 
-            // Priority 2: Route to active TextResponseWindow conversation
-            if let textSession = self?.currentTextSession, textSession.state == .ready {
-                self?.textResponseWindow?.updatePartialTranscription(text)
-            }
         }
         voiceInput?.daemonClient = daemonClient
         voiceInput?.onActionModeTriggered = { [weak self] text in
             guard let self else { return }
             log.info("Action mode triggered from voice dictation — submitting task")
-            self.startSession(task: text, source: TaskSubmission.voiceActionSource)
+            self.startSession(task: text, source: "voice_action")
         }
         voiceInput?.onAmplitudeChanged = { [weak self] amplitude in
             // Lazy-acquire recordingViewModel if it wasn't set during onRecordingStateChanged
@@ -92,8 +81,6 @@ extension AppDelegate {
         voiceInput?.onRecordingStateChanged = { [weak self] isRecording in
             // Check if main window is actively in the foreground (not just existing behind other apps)
             let mainWindowActive = NSApp.isActive && (self?.mainWindow?.isVisible ?? false)
-            // If there's an active conversation in ready state, route recording state there
-            let hasActiveConvo = self?.currentTextSession?.state == .ready
 
             // Sync recording state: clear on the view model that started recording
             // to avoid stale isRecording when the user switches threads mid-recording.
@@ -119,18 +106,16 @@ extension AppDelegate {
                 let quickInputActive = self?.quickInputWindow?.isVisible ?? false
                 let isDictation = self?.voiceInput?.currentMode == .dictation
                 let isChatComposerOrigin = self?.voiceInput?.activeOrigin == .chatComposer
-                if !mainWindowActive && !hasActiveConvo && !quickInputActive && !isDictation && !isChatComposerOrigin,
+                if !mainWindowActive && !quickInputActive && !isDictation && !isChatComposerOrigin,
                    let manager = self?.mainWindow?.voiceModeManager {
                     let window = VoiceTranscriptionWindow(voiceModeManager: manager)
                     window.show()
                     self?.voiceTranscriptionWindow = window
                 }
-                self?.textResponseWindow?.updateRecordingState(true)
             } else {
                 self?.voiceTranscriptionWindow?.close()
                 self?.voiceTranscriptionWindow = nil
                 self?.updateMenuBarIcon()
-                self?.textResponseWindow?.updateRecordingState(false)
             }
         }
         voiceInput?.start()

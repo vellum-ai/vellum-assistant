@@ -26,7 +26,7 @@ struct ThingsView: View {
                 .pickerStyle(.segmented)
                 .padding(.horizontal, VSpacing.md)
                 .padding(.vertical, VSpacing.sm)
-                .accessibilityLabel("Things section picker")
+                .accessibilityLabel("Library section picker")
 
                 switch selectedSegment {
                 case .myApps:
@@ -37,7 +37,7 @@ struct ThingsView: View {
                     DocumentsListView(directoryStore: directoryStore)
                 }
             }
-            .navigationTitle("Things")
+            .navigationTitle("Library")
             .onAppear {
                 directoryStore.fetchApps()
                 directoryStore.fetchSharedApps()

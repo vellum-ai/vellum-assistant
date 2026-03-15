@@ -98,25 +98,27 @@ export interface RenderedChannelCopy {
   body: string;
   /** Channel-native delivery text (e.g. Telegram chat message body). */
   deliveryText?: string;
-  threadTitle?: string;
-  threadSeedMessage?: string;
+  conversationTitle?: string;
+  conversationSeedMessage?: string;
 }
 
-// -- Thread action types ------------------------------------------------------
+// -- Conversation action types ------------------------------------------------
 
-/** Start a new conversation thread for the notification delivery. */
-export interface ThreadActionStartNew {
+/** Start a new conversation for the notification delivery. */
+export interface ConversationActionStartNew {
   action: "start_new";
 }
 
-/** Reuse an existing conversation thread identified by conversationId. */
-export interface ThreadActionReuseExisting {
+/** Reuse an existing conversation identified by conversationId. */
+export interface ConversationActionReuseExisting {
   action: "reuse_existing";
   conversationId: string;
 }
 
-/** Per-channel thread action — either start a new thread or reuse an existing one. */
-export type ThreadAction = ThreadActionStartNew | ThreadActionReuseExisting;
+/** Per-channel conversation action — either start a new conversation or reuse an existing one. */
+export type ConversationAction =
+  | ConversationActionStartNew
+  | ConversationActionReuseExisting;
 
 /** Output produced by the notification decision engine for a given signal. */
 export interface NotificationDecision {
@@ -124,8 +126,10 @@ export interface NotificationDecision {
   selectedChannels: NotificationChannel[];
   reasoningSummary: string;
   renderedCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>>;
-  /** Per-channel thread actions decided by the model. Absent channels default to start_new. */
-  threadActions?: Partial<Record<NotificationChannel, ThreadAction>>;
+  /** Per-channel conversation actions decided by the model. Absent channels default to start_new. */
+  conversationActions?: Partial<
+    Record<NotificationChannel, ConversationAction>
+  >;
   deepLinkTarget?: Record<string, unknown>;
   dedupeKey: string;
   confidence: number;

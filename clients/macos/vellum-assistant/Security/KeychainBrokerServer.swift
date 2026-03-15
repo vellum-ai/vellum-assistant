@@ -293,10 +293,11 @@ final class KeychainBrokerServer {
                 sendError(id: request.id, code: "INVALID_REQUEST", message: "Missing 'account' or 'value' param", on: conn)
                 return
             }
-            if KeychainBrokerService.set(account: account, value: value) {
+            let setStatus = KeychainBrokerService.set(account: account, value: value)
+            if setStatus == errSecSuccess {
                 sendSuccess(id: request.id, result: SetResult(stored: true), on: conn)
             } else {
-                sendError(id: request.id, code: "KEYCHAIN_ERROR", message: "SecItemAdd failed", on: conn)
+                sendError(id: request.id, code: "KEYCHAIN_ERROR", message: "Keychain set failed (OSStatus \(setStatus))", on: conn)
             }
 
         case "key.delete":

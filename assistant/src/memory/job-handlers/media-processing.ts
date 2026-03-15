@@ -34,7 +34,7 @@ export async function mediaProcessingJob(job: MemoryJob): Promise<void> {
       "Skipping media processing pipeline — only video assets are supported",
     );
     updateMediaAssetStatus(mediaAssetId, "indexed");
-    if (selectedBackendSupportsMultimodal(getConfig())) {
+    if (await selectedBackendSupportsMultimodal(getConfig())) {
       enqueueMemoryJob("embed_media", { assetId: mediaAssetId });
     }
     return;
@@ -114,7 +114,7 @@ export async function mediaProcessingJob(job: MemoryJob): Promise<void> {
   }
 
   updateMediaAssetStatus(mediaAssetId, "indexed");
-  if (selectedBackendSupportsMultimodal(getConfig())) {
+  if (await selectedBackendSupportsMultimodal(getConfig())) {
     enqueueMemoryJob("embed_media", { assetId: mediaAssetId });
   }
 }

@@ -35,6 +35,13 @@ public final class SkillsStore: ObservableObject {
     @Published public var isCreating = false
     @Published public var createError: String?
 
+    @Published public var selectedSkillDetail: SkillDetailHTTPResponse?
+    @Published public var selectedSkillFiles: SkillDetailFilesHTTPResponse?
+    @Published public var isLoadingSkillDetail = false
+    @Published public var isLoadingSkillFiles = false
+    @Published public var skillDetailError: String?
+    @Published public var skillFilesError: String?
+
     // MARK: - Result Types
 
     public struct InstallResult: Sendable {
@@ -439,6 +446,53 @@ public final class SkillsStore: ObservableObject {
             }
             isCreating = false
         }
+    }
+
+    // MARK: - Fetch Skill Detail
+
+    public func fetchSkillDetail(skillId: String) {
+        guard !isLoadingSkillDetail else { return }
+        isLoadingSkillDetail = true
+        skillDetailError = nil
+
+        Task {
+            let result = await daemonClient.httpTransport?.fetchSkillDetail(skillId: skillId)
+            if let result {
+                selectedSkillDetail = result
+            } else {
+                skillDetailError = "Failed to load skill details"
+            }
+            isLoadingSkillDetail = false
+        }
+    }
+
+    // MARK: - Fetch Skill Files
+
+    public func fetchSkillFiles(skillId: String) {
+        guard !isLoadingSkillFiles else { return }
+        isLoadingSkillFiles = true
+        skillFilesError = nil
+
+        Task {
+            let result = await daemonClient.httpTransport?.fetchSkillFiles(skillId: skillId)
+            if let result {
+                selectedSkillFiles = result
+            } else {
+                skillFilesError = "Failed to load skill files"
+            }
+            isLoadingSkillFiles = false
+        }
+    }
+
+    // MARK: - Clear Skill Detail
+
+    public func clearSkillDetail() {
+        selectedSkillDetail = nil
+        selectedSkillFiles = nil
+        isLoadingSkillDetail = false
+        isLoadingSkillFiles = false
+        skillDetailError = nil
+        skillFilesError = nil
     }
 
     // MARK: - Reset Draft State

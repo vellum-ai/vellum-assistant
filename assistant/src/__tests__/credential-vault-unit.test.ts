@@ -105,7 +105,10 @@ mock.module("../security/oauth2.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { credentialKey } from "../security/credential-key.js";
-import { getSecureKey, setSecureKey } from "../security/secure-keys.js";
+import {
+  getSecureKeyAsync,
+  setSecureKeyAsync,
+} from "../security/secure-keys.js";
 import { CredentialBroker } from "../tools/credentials/broker.js";
 import {
   _setMetadataPath,
@@ -205,7 +208,7 @@ describe("CredentialBroker transient credentials", () => {
     upsertCredentialMetadata("github", "token", {
       allowedTools: ["browser_fill_credential"],
     });
-    setSecureKey(credentialKey("github", "token"), "stored-value");
+    await setSecureKeyAsync(credentialKey("github", "token"), "stored-value");
     broker.injectTransient("github", "token", "transient-value");
 
     // First fill uses transient
@@ -468,9 +471,9 @@ describe("credential_store tool — prompt action", () => {
     expect(result.content).not.toContain("prompt-secret-val");
 
     // Verify stored
-    expect(getSecureKey(credentialKey("test-prompt", "api_key"))).toBe(
-      "prompt-secret-val",
-    );
+    expect(
+      await getSecureKeyAsync(credentialKey("test-prompt", "api_key")),
+    ).toBe("prompt-secret-val");
   });
 
   test("prompt with policy fields persists metadata", async () => {
@@ -531,8 +534,8 @@ describe("credential_store tool — prompt action", () => {
 describe("credential_store tool — oauth2_connect error paths", () => {
   /** Well-known provider rows returned by the mocked getProvider */
   const wellKnownProviders: Record<string, object> = {
-    "integration:gmail": {
-      key: "integration:gmail",
+    "integration:google": {
+      key: "integration:google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: JSON.stringify(["https://mail.google.com/"]),
@@ -624,9 +627,10 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     expect(result.content).toContain("client_id is required");
   });
 
-  test("requires interactive context", async () => {
-    // Register custom-svc as a provider so the orchestrator finds it
-    // and reaches the non-interactive check (gateway transport).
+  test("non-interactive loopback oauth2_connect returns deferred auth URL", async () => {
+    // After the blanket non-interactive guard was removed (#16337),
+    // loopback-transport flows succeed with a deferred auth URL so the
+    // agent can present it to the user.
     mockGetProvider.mockImplementation((key: string) => {
       if (key === "custom-svc") {
         return {
@@ -651,11 +655,11 @@ describe("credential_store tool — oauth2_connect error paths", () => {
       },
       { ..._ctx, isInteractive: false },
     );
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("non-interactive session");
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("mock-auth-url.example.com");
   });
 
-  test("resolves gmail alias to integration:gmail", async () => {
+  test("resolves gmail alias to integration:google", async () => {
     // Even with alias resolution, missing client_id should still fail
     const result = await credentialStoreTool.execute(
       {
@@ -687,12 +691,13 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     // and store client_secret in the secure store.
     mockGetMostRecentAppByProvider.mockImplementation(() => ({
       id: "test-app-id",
-      providerKey: "integration:gmail",
+      providerKey: "integration:google",
       clientId: "stored-client-id-123",
+      clientSecretCredentialPath: "oauth_app/test-app-id/client_secret",
       createdAt: Date.now(),
     }));
     mockGetProvider.mockImplementation(() => ({
-      key: "integration:gmail",
+      key: "integration:google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: JSON.stringify(["https://mail.google.com/"]),
@@ -700,7 +705,10 @@ describe("credential_store tool — oauth2_connect error paths", () => {
       callbackTransport: "loopback",
       loopbackPort: 8756,
     }));
-    setSecureKey("oauth_app/test-app-id/client_secret", "test-secret");
+    await setSecureKeyAsync(
+      "oauth_app/test-app-id/client_secret",
+      "test-secret",
+    );
 
     const result = await credentialStoreTool.execute(
       {
@@ -730,13 +738,15 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     mockGetAppByProviderAndClientId.mockImplementation(
       (providerKey: string, cId: string) => {
         if (
-          providerKey === "integration:gmail" &&
+          providerKey === "integration:google" &&
           cId === "caller-supplied-client-id"
         ) {
           return {
             id: "matched-app-id",
-            providerKey: "integration:gmail",
+            providerKey: "integration:google",
             clientId: "caller-supplied-client-id",
+            clientSecretCredentialPath:
+              "oauth_app/matched-app-id/client_secret",
             createdAt: Date.now(),
           };
         }
@@ -744,7 +754,7 @@ describe("credential_store tool — oauth2_connect error paths", () => {
       },
     );
     mockGetProvider.mockImplementation(() => ({
-      key: "integration:gmail",
+      key: "integration:google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: JSON.stringify(["https://mail.google.com/"]),
@@ -752,7 +762,10 @@ describe("credential_store tool — oauth2_connect error paths", () => {
       callbackTransport: "loopback",
       loopbackPort: 8756,
     }));
-    setSecureKey("oauth_app/matched-app-id/client_secret", "matched-secret");
+    await setSecureKeyAsync(
+      "oauth_app/matched-app-id/client_secret",
+      "matched-secret",
+    );
 
     const result = await credentialStoreTool.execute(
       {
@@ -779,12 +792,13 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     // use getMostRecentAppByProvider (the fallback heuristic).
     mockGetMostRecentAppByProvider.mockImplementation(() => ({
       id: "recent-app-id",
-      providerKey: "integration:gmail",
+      providerKey: "integration:google",
       clientId: "recent-client-id",
+      clientSecretCredentialPath: "oauth_app/recent-app-id/client_secret",
       createdAt: Date.now(),
     }));
     mockGetProvider.mockImplementation(() => ({
-      key: "integration:gmail",
+      key: "integration:google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: JSON.stringify(["https://mail.google.com/"]),
@@ -792,7 +806,10 @@ describe("credential_store tool — oauth2_connect error paths", () => {
       callbackTransport: "loopback",
       loopbackPort: 8756,
     }));
-    setSecureKey("oauth_app/recent-app-id/client_secret", "recent-secret");
+    await setSecureKeyAsync(
+      "oauth_app/recent-app-id/client_secret",
+      "recent-secret",
+    );
 
     const result = await credentialStoreTool.execute(
       {
@@ -818,7 +835,7 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     // report the missing secret error.
     mockGetAppByProviderAndClientId.mockImplementation(() => undefined);
     mockGetProvider.mockImplementation(() => ({
-      key: "integration:gmail",
+      key: "integration:google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: JSON.stringify(["https://mail.google.com/"]),
@@ -849,12 +866,12 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     // guardrail.
     mockGetMostRecentAppByProvider.mockImplementation(() => ({
       id: "test-app-id-no-secret",
-      providerKey: "integration:gmail",
+      providerKey: "integration:google",
       clientId: "stored-client-id-456",
       createdAt: Date.now(),
     }));
     mockGetProvider.mockImplementation(() => ({
-      key: "integration:gmail",
+      key: "integration:google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: JSON.stringify(["https://mail.google.com/"]),
@@ -1019,7 +1036,9 @@ describe("credential_store tool — store validation edge cases", () => {
     );
 
     // Verify stored
-    expect(getSecureKey(credentialKey("del-test", "key"))).toBe("secret");
+    expect(await getSecureKeyAsync(credentialKey("del-test", "key"))).toBe(
+      "secret",
+    );
     const { getCredentialMetadata } =
       await import("../tools/credentials/metadata-store.js");
     expect(getCredentialMetadata("del-test", "key")).toBeDefined();
@@ -1036,7 +1055,9 @@ describe("credential_store tool — store validation edge cases", () => {
     expect(result.isError).toBe(false);
 
     // Both should be gone
-    expect(getSecureKey(credentialKey("del-test", "key"))).toBeUndefined();
+    expect(
+      await getSecureKeyAsync(credentialKey("del-test", "key")),
+    ).toBeUndefined();
     expect(getCredentialMetadata("del-test", "key")).toBeUndefined();
   });
 });
@@ -1108,7 +1129,7 @@ describe("CredentialBroker — serverUseById edge cases", () => {
     _resetBackend();
   });
 
-  test("serverUseById with multiple injection templates returns all", () => {
+  test("serverUseById with multiple injection templates returns all", async () => {
     const meta = upsertCredentialMetadata("multi", "api_key", {
       allowedTools: ["proxy"],
       injectionTemplates: [
@@ -1125,9 +1146,9 @@ describe("CredentialBroker — serverUseById edge cases", () => {
         },
       ],
     });
-    setSecureKey(credentialKey("multi", "api_key"), "multi-secret");
+    await setSecureKeyAsync(credentialKey("multi", "api_key"), "multi-secret");
 
-    const result = broker.serverUseById({
+    const result = await broker.serverUseById({
       credentialId: meta.credentialId,
       requestingTool: "proxy",
     });
@@ -1141,13 +1162,13 @@ describe("CredentialBroker — serverUseById edge cases", () => {
     expect(JSON.stringify(result)).not.toContain("multi-secret");
   });
 
-  test("serverUseById verifies secret exists in storage (fail-closed)", () => {
+  test("serverUseById verifies secret exists in storage (fail-closed)", async () => {
     const meta = upsertCredentialMetadata("fal", "api_key", {
       allowedTools: ["proxy"],
     });
-    // No setSecureKey — metadata exists but value doesn't
+    // No setSecureKeyAsync — metadata exists but value doesn't
 
-    const result = broker.serverUseById({
+    const result = await broker.serverUseById({
       credentialId: meta.credentialId,
       requestingTool: "proxy",
     });

@@ -5,6 +5,7 @@
 
 import { execFile } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -18,6 +19,8 @@ import { ConfigError } from "./shared/errors.js";
 import type { ExtractedCredential } from "./shared/recording-types.js";
 
 const execFileAsync = promisify(execFile);
+const SESSION_DIR_MODE = 0o700;
+const SESSION_FILE_MODE = 0o600;
 
 export interface DoorDashSession {
   cookies: ExtractedCredential[];
@@ -37,6 +40,7 @@ export function loadSession(): DoorDashSession | null {
   const path = getSessionPath();
   if (!existsSync(path)) return null;
   try {
+    chmodSync(path, SESSION_FILE_MODE);
     return JSON.parse(readFileSync(path, "utf-8")) as DoorDashSession;
   } catch {
     return null;
@@ -45,8 +49,13 @@ export function loadSession(): DoorDashSession | null {
 
 export function saveSession(session: DoorDashSession): void {
   const dir = getSessionDir();
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(getSessionPath(), JSON.stringify(session, null, 2));
+  if (!existsSync(dir))
+    mkdirSync(dir, { recursive: true, mode: SESSION_DIR_MODE });
+  else chmodSync(dir, SESSION_DIR_MODE);
+  writeFileSync(getSessionPath(), JSON.stringify(session, null, 2), {
+    mode: SESSION_FILE_MODE,
+  });
+  chmodSync(getSessionPath(), SESSION_FILE_MODE);
 }
 
 export function clearSession(): void {

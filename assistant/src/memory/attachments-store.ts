@@ -46,8 +46,8 @@ function formatBytes(bytes: number): string {
 // Size and encoding limits
 // ---------------------------------------------------------------------------
 
-/** Hard ceiling on a single uploaded attachment (20 MB, matching assistant limits). */
-export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+/** Hard ceiling on a single uploaded attachment (50 MB, matching assistant limits). */
+export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
 /**
  * Validate that a string contains only characters from the standard base64

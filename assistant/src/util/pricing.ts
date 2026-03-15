@@ -20,7 +20,6 @@ const PROVIDER_PRICING: Record<string, Record<string, ModelPricing>> = {
   anthropic: {
     "claude-opus-4-6": { inputPer1M: 5, outputPer1M: 25 },
     "claude-opus-4": { inputPer1M: 15, outputPer1M: 75 },
-    "claude-opus-4-6-fast": { inputPer1M: 30, outputPer1M: 150 },
     "claude-sonnet-4": { inputPer1M: 3, outputPer1M: 15 },
     "claude-haiku-4": { inputPer1M: 0.8, outputPer1M: 4 },
   },
@@ -264,42 +263,4 @@ export function resolvePricing(
     model,
     createDirectUsage(inputTokens, outputTokens),
   );
-}
-
-/**
- * Resolve pricing with optional custom model overrides checked first.
- * Overrides are matched by provider (exact) and modelPattern (prefix match).
- * Falls back to the built-in catalog if no override matches.
- */
-export function resolvePricingWithOverrides(
-  provider: string,
-  model: string,
-  inputTokens: number,
-  outputTokens: number,
-  overrides?: ModelPricingOverride[],
-): PricingResult {
-  return resolvePricingForUsageWithOverrides(
-    provider,
-    model,
-    createDirectUsage(inputTokens, outputTokens),
-    overrides,
-  );
-}
-
-/**
- * Estimate cost in USD for the given token counts, provider, and model.
- * Returns 0 if the provider/model combination is not in the pricing table
- * (e.g. Ollama local models).
- */
-export function estimateCost(
-  inputTokens: number,
-  outputTokens: number,
-  model: string,
-  provider: string,
-): number {
-  const result = resolvePricing(provider, model, inputTokens, outputTokens);
-  if (result.pricingStatus === "priced" && result.estimatedCostUsd != null) {
-    return result.estimatedCostUsd;
-  }
-  return 0;
 }

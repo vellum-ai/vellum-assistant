@@ -20,11 +20,11 @@ public struct ModelPickerBubble: View {
             }
         }
         .padding(.vertical, VSpacing.xs)
-        .background(VColor.surface)
+        .background(VColor.surfaceBase)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                .stroke(VColor.borderBase, lineWidth: 1)
         )
         .frame(maxWidth: 280)
     }
@@ -37,16 +37,16 @@ public struct ModelPickerBubble: View {
         } label: {
             HStack(spacing: VSpacing.md) {
                 VIconView(isSelected ? .circleCheck : .circle, size: 12)
-                    .foregroundColor(isSelected ? VColor.accent : (isHovered ? VColor.textPrimary : VColor.textSecondary))
+                    .foregroundColor(isSelected ? VColor.primaryBase : (isHovered ? VColor.contentDefault : VColor.contentSecondary))
                     .frame(width: 18)
                 Text(model.name)
                     .font(isSelected ? VFont.bodyBold : VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 Spacer()
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.sm)
-            .background(isHovered ? VColor.hoverOverlay.opacity(0.06) : Color.clear)
+            .background(isHovered ? VColor.contentEmphasized.opacity(0.06) : Color.clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

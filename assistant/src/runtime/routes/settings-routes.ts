@@ -10,7 +10,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { setIngressPublicBaseUrl } from "../../config/env.js";
+import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import { loadSkillCatalog } from "../../config/skills.js";
+import {
+  computeGatewayTarget,
+  getIngressConfigResult,
+} from "../../daemon/handlers/config-ingress.js";
 import { normalizeActivationKey } from "../../daemon/handlers/config-voice.js";
 import { orchestrateOAuthConnect } from "../../oauth/connect-orchestrator.js";
 import {
@@ -29,7 +35,7 @@ import {
   generateAllowlistOptions,
   generateScopeOptions,
 } from "../../permissions/checker.js";
-import { getSecureKey } from "../../security/secure-keys.js";
+import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { parseToolManifestFile } from "../../skills/tool-manifest.js";
 import {
   type ManifestOverride,
@@ -72,6 +78,7 @@ function handleVoiceConfigUpdate(activationKey: string): Response {
 // Avatar generation
 // ---------------------------------------------------------------------------
 
+// Also callable via the `vellum-avatar` skill's AI generation mode.
 async function handleGenerateAvatar(description: string): Promise<Response> {
   if (!description.trim()) {
     return httpError("BAD_REQUEST", "Description is required.", 400);
@@ -94,8 +101,22 @@ async function handleGenerateAvatar(description: string): Promise<Response> {
       getWorkspaceDir(),
       "data",
       "avatar",
-      "custom-avatar.png",
+      "avatar-image.png",
     );
+
+    // Notify all connected SSE clients so every macOS/iOS instance
+    // reloads the avatar image immediately.
+    assistantEventHub
+      .publish(
+        buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+          type: "avatar_updated",
+          avatarPath,
+        }),
+      )
+      .catch((err) => {
+        log.warn({ err }, "Failed to publish avatar_updated event");
+      });
+
     return Response.json({ ok: true, avatarPath });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -160,7 +181,7 @@ async function handleOAuthConnectStart(body: {
     const app = getApp(conn.oauthAppId);
     if (app) {
       clientId = app.clientId;
-      clientSecret = getSecureKey(`oauth_app/${app.id}/client_secret`);
+      clientSecret = await getSecureKeyAsync(app.clientSecretCredentialPath);
     }
   }
 
@@ -170,7 +191,9 @@ async function handleOAuthConnectStart(body: {
     if (dbApp) {
       clientId = dbApp.clientId;
       if (!clientSecret) {
-        clientSecret = getSecureKey(`oauth_app/${dbApp.id}/client_secret`);
+        clientSecret = await getSecureKeyAsync(
+          dbApp.clientSecretCredentialPath,
+        );
       }
     }
   }
@@ -460,7 +483,7 @@ async function handleToolPermissionSimulate(body: {
       manifestOverride,
     );
 
-    // Private-thread override
+    // Private-conversation override
     if (
       body.forcePromptSideEffects &&
       result.decision === "allow" &&
@@ -468,7 +491,7 @@ async function handleToolPermissionSimulate(body: {
     ) {
       result.decision = "prompt";
       result.reason =
-        "Private thread: side-effect tools require explicit approval";
+        "Private conversation: side-effect tools require explicit approval";
     }
 
     // Non-interactive override
@@ -693,6 +716,53 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
       method: "GET",
       policyKey: "diagnostics/env-vars",
       handler: () => handleEnvVars(),
+    },
+
+    // Ingress config (GET / PUT)
+    {
+      endpoint: "integrations/ingress/config",
+      method: "GET",
+      policyKey: "integrations/ingress/config:GET",
+      handler: () => Response.json(getIngressConfigResult()),
+    },
+    {
+      endpoint: "integrations/ingress/config",
+      method: "PUT",
+      policyKey: "integrations/ingress/config",
+      handler: async ({ req }) => {
+        try {
+          const body = (await req.json()) as {
+            publicBaseUrl?: string;
+            enabled?: boolean;
+          };
+          const value = (body.publicBaseUrl ?? "").trim().replace(/\/+$/, "");
+          const raw = loadRawConfig();
+          const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
+          ingress.publicBaseUrl = value || undefined;
+          if (body.enabled !== undefined) {
+            ingress.enabled = body.enabled;
+          }
+          saveRawConfig({ ...raw, ingress });
+
+          const isEnabled = (ingress.enabled as boolean | undefined) ?? false;
+          if (value && isEnabled) {
+            setIngressPublicBaseUrl(value);
+          } else {
+            setIngressPublicBaseUrl(undefined);
+          }
+
+          return Response.json({
+            enabled: isEnabled,
+            publicBaseUrl: value,
+            localGatewayTarget: computeGatewayTarget(),
+            success: true,
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          log.error({ err }, "Failed to update ingress config via HTTP");
+          return httpError("INTERNAL_ERROR", message, 500);
+        }
+      },
     },
   ];
 }

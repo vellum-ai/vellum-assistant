@@ -25,22 +25,22 @@ struct GatewaySettingsCard: View {
                 // Local Gateway Target (read-only copyable address)
                 Text("Local Gateway Target")
                     .font(VFont.inputLabel)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
 
                 HStack(spacing: VSpacing.sm) {
                     Text(store.localGatewayTarget)
                         .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                         .textSelection(.enabled)
                         .padding(.horizontal, VSpacing.md)
                         .padding(.vertical, VSpacing.xs)
                         .frame(height: 28, alignment: .leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(VColor.inputBackground)
+                        .background(VColor.surfaceActive)
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                         .overlay(
                             RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                                .stroke(VColor.borderBase, lineWidth: 1)
                         )
 
                     Button {
@@ -53,7 +53,7 @@ struct GatewaySettingsCard: View {
                         }
                     } label: {
                         VIconView(gatewayTargetCopied ? .check : .copy, size: 12)
-                            .foregroundColor(gatewayTargetCopied ? VColor.success : VColor.textSecondary)
+                            .foregroundColor(gatewayTargetCopied ? VColor.systemPositiveStrong : VColor.contentSecondary)
                             .frame(width: 28, height: 28)
                             .contentShape(Rectangle())
                     }
@@ -74,41 +74,41 @@ struct GatewaySettingsCard: View {
 
                 // Running badge — only shown when gateway is reachable
                 if store.gatewayReachable == true {
-                    VButton(label: "Running", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
+                    VButton(label: "Running", leftIcon: VIcon.circleCheck.rawValue, style: .primary) {}
                 }
 
                 Text("Point your tunnel (ngrok, Cloudflare, etc.) to this address.")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
             }
 
             // Gateway URL field
             Text("Gateway URL")
                 .font(VFont.inputLabel)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
 
             if isManaged {
                 // For managed assistants, show the gateway URL as read-only
                 Text(store.localGatewayTarget)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .textSelection(.enabled)
                     .padding(.horizontal, VSpacing.md)
                     .padding(.vertical, VSpacing.xs)
                     .frame(height: 28, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(VColor.inputBackground)
+                    .background(VColor.surfaceActive)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                            .stroke(VColor.borderBase, lineWidth: 1)
                     )
             } else {
                 HStack(spacing: VSpacing.sm) {
                     TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
                         .vInputStyle()
                         .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                         .focused($isGatewayUrlFocused)
 
                     Button {
@@ -123,7 +123,7 @@ struct GatewaySettingsCard: View {
 
                 // Save button at the bottom
                 HStack {
-                    VButton(label: "Save", style: .primary, size: .medium) {
+                    VButton(label: "Save", style: .primary) {
                         store.saveIngressPublicBaseUrl(gatewayUrlText)
                         isGatewayUrlFocused = false
                     }
@@ -135,10 +135,10 @@ struct GatewaySettingsCard: View {
                    store.ingressReachable == false {
                     HStack(spacing: VSpacing.sm) {
                         VIconView(.triangleAlert, size: 12)
-                            .foregroundColor(VColor.warning)
+                            .foregroundColor(VColor.systemNegativeHover)
                         Text("Gateway is running but tunnel is unreachable. Check your tunnel configuration.")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.warning)
+                            .foregroundColor(VColor.systemNegativeHover)
                     }
                 }
             }

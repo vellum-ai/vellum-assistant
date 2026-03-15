@@ -23,7 +23,11 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { findContactChannel } from "../contacts/contact-store.js";
+import {
+  findContactChannel,
+  getContact,
+  upsertContact,
+} from "../contacts/contact-store.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
 import {
@@ -54,12 +58,19 @@ function resetTables() {
   getSqlite().run("DELETE FROM contacts");
 }
 
+/** Create a throwaway contact and return its ID, for use as the invite's contactId. */
+function createTargetContact(displayName = "Target Contact"): string {
+  return upsertContact({ displayName, role: "contact" }).id;
+}
+
 describe("invite-redemption-service", () => {
   beforeEach(resetTables);
 
   test("redeems a valid invite and returns typed outcome", () => {
+    const targetContactId = createTargetContact();
     const { rawToken, invite } = createInvite({
       sourceChannel: "telegram",
+      contactId: targetContactId,
       maxUses: 1,
     });
 
@@ -79,8 +90,10 @@ describe("invite-redemption-service", () => {
   });
 
   test("marks channel as verified via invite on redemption", () => {
+    const targetContactId = createTargetContact();
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: targetContactId,
       maxUses: 1,
     });
 
@@ -104,9 +117,11 @@ describe("invite-redemption-service", () => {
   });
 
   test("marks channel as verified via invite on 6-digit code redemption", () => {
+    const targetContactId = createTargetContact();
     const inviteCode = "123456";
     createInvite({
       sourceChannel: "telegram",
+      contactId: targetContactId,
       maxUses: 1,
       inviteCodeHash: hashVoiceCode(inviteCode),
     });
@@ -141,9 +156,11 @@ describe("invite-redemption-service", () => {
   });
 
   test("returns expired for an expired invite", () => {
+    const targetContactId = createTargetContact();
     // Create an invite that expired 1 ms ago
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: targetContactId,
       maxUses: 1,
       expiresInMs: -1,
     });
@@ -158,8 +175,10 @@ describe("invite-redemption-service", () => {
   });
 
   test("returns revoked for a revoked invite", () => {
+    const targetContactId = createTargetContact();
     const { rawToken, invite } = createInvite({
       sourceChannel: "telegram",
+      contactId: targetContactId,
       maxUses: 1,
     });
     revokeStoreFn(invite.id);
@@ -174,8 +193,10 @@ describe("invite-redemption-service", () => {
   });
 
   test("returns max_uses_reached when invite is fully consumed", () => {
+    const targetContactId = createTargetContact();
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: targetContactId,
       maxUses: 1,
     });
 
@@ -198,8 +219,10 @@ describe("invite-redemption-service", () => {
   });
 
   test("returns channel_mismatch when redeeming on wrong channel", () => {
+    const targetContactId = createTargetContact();
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: targetContactId,
       maxUses: 1,
     });
 
@@ -213,8 +236,10 @@ describe("invite-redemption-service", () => {
   });
 
   test("returns missing_identity when no externalUserId or externalChatId", () => {
+    const targetContactId = createTargetContact();
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: targetContactId,
       maxUses: 1,
     });
 
@@ -227,16 +252,18 @@ describe("invite-redemption-service", () => {
   });
 
   test("returns already_member when user is already an active member", () => {
-    const { rawToken } = createInvite({
-      sourceChannel: "telegram",
-      maxUses: 5,
-    });
-
-    // Pre-create an active member
-    upsertContactChannel({
+    // Pre-create an active member and find their contact
+    const member = upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "existing-user",
       status: "active",
+    });
+
+    // Create an invite targeting the same contact that owns the channel
+    const { rawToken } = createInvite({
+      sourceChannel: "telegram",
+      contactId: member!.contact.id,
+      maxUses: 5,
     });
 
     const outcome = redeemInvite({
@@ -257,16 +284,18 @@ describe("invite-redemption-service", () => {
   });
 
   test("returns invalid_token for a blocked member to avoid leaking membership status", () => {
-    const { rawToken } = createInvite({
-      sourceChannel: "telegram",
-      maxUses: 5,
-    });
-
-    // Pre-create a blocked member — simulates a guardian-initiated block
-    upsertContactChannel({
+    // Pre-create a blocked member and find their contact
+    const member = upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "blocked-user",
       status: "blocked",
+    });
+
+    // Create an invite targeting the same contact that owns the channel
+    const { rawToken } = createInvite({
+      sourceChannel: "telegram",
+      contactId: member!.contact.id,
+      maxUses: 5,
     });
 
     const outcome = redeemInvite({
@@ -278,9 +307,157 @@ describe("invite-redemption-service", () => {
     expect(outcome).toEqual({ ok: false, reason: "invalid_token" });
   });
 
-  test("does not return already_member for a revoked member", () => {
+  test("binds redeemer to the invite's target contact, not the guardian", () => {
+    // Pre-create a guardian contact with a revoked telegram channel
+    const guardianContact = upsertContact({
+      displayName: "Guardian",
+      role: "guardian",
+      channels: [
+        {
+          type: "telegram",
+          address: "guardian-tg-id",
+          externalUserId: "guardian-tg-id",
+          status: "revoked",
+        },
+      ],
+    });
+
+    // Create a separate target contact "Mom"
+    const momContact = upsertContact({
+      displayName: "Mom",
+      role: "contact",
+    });
+
+    // Create an invite targeting Mom's contact
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: momContact.id,
+      maxUses: 5,
+    });
+
+    // Redeem using the guardian's Telegram identity
+    const outcome = redeemInvite({
+      rawToken,
+      sourceChannel: "telegram",
+      externalUserId: "guardian-tg-id",
+    });
+
+    // Should succeed — redeemer's channel is bound to Mom
+    expect(outcome.ok).toBe(true);
+    expect((outcome as { type: string }).type).toBe("redeemed");
+
+    // Verify the redeemer's Telegram ID is now bound to Mom's contact
+    const result = findContactChannel({
+      channelType: "telegram",
+      externalUserId: "guardian-tg-id",
+    });
+    expect(result).not.toBeNull();
+    expect(result!.contact.id).toBe(momContact.id);
+    expect(result!.channel.status).toBe("active");
+
+    // Verify the original guardian contact was NOT modified
+    const guardian = getContact(guardianContact.id);
+    expect(guardian).not.toBeNull();
+    expect(guardian!.role).toBe("guardian");
+  });
+
+  test("downgrades guardian to contact when redeeming invite targeting own contact", () => {
+    // Create a guardian contact with a revoked channel
+    const guardianContact = upsertContact({
+      displayName: "Guardian",
+      role: "guardian",
+      channels: [
+        {
+          type: "telegram",
+          address: "guardian-own-id",
+          externalUserId: "guardian-own-id",
+          status: "revoked",
+        },
+      ],
+    });
+
+    // Create invite targeting the guardian's own contact
+    const { rawToken } = createInvite({
+      sourceChannel: "telegram",
+      contactId: guardianContact.id,
+      maxUses: 5,
+    });
+
+    const outcome = redeemInvite({
+      rawToken,
+      sourceChannel: "telegram",
+      externalUserId: "guardian-own-id",
+    });
+
+    expect(outcome.ok).toBe(true);
+
+    // The guardian should now be downgraded to "contact"
+    const updated = getContact(guardianContact.id);
+    expect(updated!.role).toBe("contact");
+  });
+
+  test("binds redeemer to the invite's target contact via 6-digit code, not the guardian", () => {
+    // Pre-create a guardian contact with a revoked telegram channel
+    const guardianContact = upsertContact({
+      displayName: "Guardian",
+      role: "guardian",
+      channels: [
+        {
+          type: "telegram",
+          address: "guardian-code-id",
+          externalUserId: "guardian-code-id",
+          status: "revoked",
+        },
+      ],
+    });
+
+    // Create a separate target contact "Mom"
+    const momContact = upsertContact({
+      displayName: "Mom",
+      role: "contact",
+    });
+
+    // Create an invite targeting Mom's contact with a 6-digit code
+    const code = "123456";
+    const inviteCodeHash = hashVoiceCode(code);
+    createInvite({
+      sourceChannel: "telegram",
+      contactId: momContact.id,
+      maxUses: 5,
+      inviteCodeHash,
+    });
+
+    // Redeem using the guardian's Telegram identity
+    const outcome = redeemInviteByCode({
+      code,
+      sourceChannel: "telegram",
+      externalUserId: "guardian-code-id",
+    });
+
+    // Should succeed — redeemer's channel is bound to Mom
+    expect(outcome.ok).toBe(true);
+    expect((outcome as { type: string }).type).toBe("redeemed");
+
+    // Verify the redeemer's Telegram ID is now bound to Mom's contact
+    const result = findContactChannel({
+      channelType: "telegram",
+      externalUserId: "guardian-code-id",
+    });
+    expect(result).not.toBeNull();
+    expect(result!.contact.id).toBe(momContact.id);
+    expect(result!.channel.status).toBe("active");
+
+    // Verify the original guardian contact was NOT modified
+    const guardian = getContact(guardianContact.id);
+    expect(guardian).not.toBeNull();
+    expect(guardian!.role).toBe("guardian");
+  });
+
+  test("does not return already_member for a revoked member", () => {
+    const targetContactId = createTargetContact();
+    const { rawToken } = createInvite({
+      sourceChannel: "telegram",
+      contactId: targetContactId,
       maxUses: 5,
     });
 
@@ -306,8 +483,10 @@ describe("invite-redemption-service", () => {
   });
 
   test("raw token is not present in the outcome object", () => {
+    const targetContactId = createTargetContact();
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: targetContactId,
       maxUses: 1,
     });
 
@@ -323,7 +502,12 @@ describe("invite-redemption-service", () => {
   });
 
   test("channel enforcement blocks cross-channel redemption (voice invite via slack)", () => {
-    const { rawToken } = createInvite({ sourceChannel: "phone", maxUses: 1 });
+    const targetContactId = createTargetContact();
+    const { rawToken } = createInvite({
+      sourceChannel: "phone",
+      contactId: targetContactId,
+      maxUses: 1,
+    });
 
     const outcome = redeemInvite({
       rawToken,
@@ -353,9 +537,11 @@ describe("invite-redemption-service", () => {
   });
 
   test("returns expired for an active member with an expired invite token", () => {
+    const targetContactId = createTargetContact();
     // Create an expired invite
     const { rawToken } = createInvite({
       sourceChannel: "telegram",
+      contactId: targetContactId,
       maxUses: 5,
       expiresInMs: -1,
     });
@@ -378,9 +564,11 @@ describe("invite-redemption-service", () => {
   });
 
   test("returns channel_mismatch for an active member with a valid token for a different channel", () => {
+    const targetContactId = createTargetContact();
     // Create an invite for voice
     const { rawToken } = createInvite({
       sourceChannel: "phone",
+      contactId: targetContactId,
       maxUses: 5,
     });
 

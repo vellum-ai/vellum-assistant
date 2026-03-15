@@ -170,6 +170,7 @@ function makeSession(overrides: Record<string, unknown> = {}) {
     setHostBashProxy: () => {},
     setHostFileProxy: () => {},
     setHostCuProxy: () => {},
+    addPreactivatedSkillId: () => {},
     emitConfirmationStateChanged: () => {},
     emitActivityState: () => {},
     setTurnChannelContext: () => {},
@@ -342,6 +343,25 @@ describe("HTTP POST /v1/messages does not intercept recording intents (by design
     const session = makeSession({ persistUserMessage, runAgentLoop });
 
     const res = await sendMessage("start recording", session);
+
+    expect(res.status).toBe(202);
+    expect(persistUserMessage).toHaveBeenCalledTimes(1);
+    expect(runAgentLoop).toHaveBeenCalledTimes(1);
+  });
+
+  test("structured commandIntent recording actions are ignored by HTTP path", async () => {
+    // Even when the request includes a structured commandIntent for recording,
+    // the HTTP path does not parse or act on it — handleSendMessage only reads
+    // content, conversationKey, attachmentIds, sourceChannel, and interface.
+    // This ensures a future regression that starts parsing commandIntent would
+    // be caught.
+    const persistUserMessage = mock(async () => "persisted-msg-id");
+    const runAgentLoop = mock(async () => undefined);
+    const session = makeSession({ persistUserMessage, runAgentLoop });
+
+    const res = await sendMessage("start screen recording", session, {
+      commandIntent: { type: "start_recording", payload: "screen" },
+    });
 
     expect(res.status).toBe(202);
     expect(persistUserMessage).toHaveBeenCalledTimes(1);

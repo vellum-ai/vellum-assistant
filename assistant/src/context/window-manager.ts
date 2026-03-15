@@ -26,7 +26,7 @@ const SUMMARY_SYSTEM_PROMPT = [
   "## Goals",
   "## Constraints",
   "## Decisions",
-  "## Open Threads",
+  "## Open Conversations",
   "## Key Artifacts",
   "## Recent Progress",
 ].join("\n");
@@ -85,12 +85,15 @@ export interface ContextWindowManagerOptions {
   provider: Provider;
   systemPrompt: string | (() => string);
   config: ContextWindowConfig;
+  /** Pre-computed tool token budget to include in all estimations. */
+  toolTokenBudget?: number;
 }
 
 export class ContextWindowManager {
   private readonly provider: Provider;
   private readonly _systemPrompt: string | (() => string);
   private readonly config: ContextWindowConfig;
+  private readonly toolTokenBudget: number;
   /**
    * Cached resolved system prompt. Lazily populated on first access via the
    * `systemPrompt` getter and cleared after each compaction pass so the next
@@ -102,6 +105,7 @@ export class ContextWindowManager {
     this.provider = options.provider;
     this._systemPrompt = options.systemPrompt;
     this.config = options.config;
+    this.toolTokenBudget = options.toolTokenBudget ?? 0;
   }
 
   /** Lazily resolve and cache the system prompt for the duration of a compaction pass. */
@@ -132,6 +136,7 @@ export class ContextWindowManager {
     try {
       const estimated = estimatePromptTokens(messages, this.systemPrompt, {
         providerName: this.provider.name,
+        toolTokenBudget: this.toolTokenBudget,
       });
       const threshold = Math.floor(
         this.config.maxInputTokens * this.config.compactThreshold,
@@ -163,6 +168,7 @@ export class ContextWindowManager {
       options?.precomputedEstimate ??
       estimatePromptTokens(messages, this.systemPrompt, {
         providerName: this.provider.name,
+        toolTokenBudget: this.toolTokenBudget,
       });
     const thresholdTokens = Math.floor(
       this.config.maxInputTokens * this.config.compactThreshold,
@@ -245,6 +251,7 @@ export class ContextWindowManager {
       const estimatedAfterTruncation = didTruncate
         ? estimatePromptTokens(truncatedMessages, this.systemPrompt, {
             providerName: this.provider.name,
+            toolTokenBudget: this.toolTokenBudget,
           })
         : previousEstimatedInputTokens;
       return {
@@ -303,7 +310,10 @@ export class ContextWindowManager {
     const projectedInputTokens = estimatePromptTokens(
       projectedMessages,
       this.systemPrompt,
-      { providerName: this.provider.name },
+      {
+        providerName: this.provider.name,
+        toolTokenBudget: this.toolTokenBudget,
+      },
     );
     const projectedGainTokens = Math.max(
       0,
@@ -428,7 +438,10 @@ export class ContextWindowManager {
     const estimatedInputTokens = estimatePromptTokens(
       compactedMessages,
       this.systemPrompt,
-      { providerName: this.provider.name },
+      {
+        providerName: this.provider.name,
+        toolTokenBudget: this.toolTokenBudget,
+      },
     );
     log.info(
       {
@@ -502,6 +515,7 @@ export class ContextWindowManager {
       );
       return estimatePromptTokens(projectedMessages, this.systemPrompt, {
         providerName: this.provider.name,
+        toolTokenBudget: this.toolTokenBudget,
       });
     };
 
@@ -671,7 +685,10 @@ function countPersistedMessages(messages: Message[]): number {
 function isToolResultOnly(message: Message): boolean {
   return (
     message.content.length > 0 &&
-    message.content.every((block) => block.type === "tool_result")
+    message.content.every(
+      (block) =>
+        block.type === "tool_result" || block.type === "web_search_tool_result",
+    )
   );
 }
 

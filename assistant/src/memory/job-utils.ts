@@ -8,6 +8,7 @@ import { getLogger } from "../util/logger.js";
 import { getDb } from "./db.js";
 import {
   embedWithBackend,
+  generateSparseEmbedding,
   getMemoryBackendStatus,
 } from "./embedding-backend.js";
 import type { EmbeddingInput } from "./embedding-types.js";
@@ -146,7 +147,7 @@ export async function embedAndUpsert(
   input: EmbeddingInput,
   extraPayload?: Record<string, unknown>,
 ): Promise<void> {
-  const status = getMemoryBackendStatus(config);
+  const status = await getMemoryBackendStatus(config);
   if (!status.provider) {
     throw new BackendUnavailableError(
       `Embedding backend unavailable (${status.reason ?? "no provider"})`,
@@ -201,6 +202,14 @@ export async function embedAndUpsert(
       ? normalized.text
       : `[${normalized.type}:${normalized.mimeType}]`;
 
+  // Generate sparse embedding from the same source text used for dense embedding.
+  // For non-text (media) inputs, sparse vectors are skipped since tokenization
+  // only applies to text content.
+  const sparseVector =
+    normalized.type === "text"
+      ? generateSparseEmbedding(normalized.text)
+      : undefined;
+
   // Persist embedding in SQLite for cross-restart cache
   const now = Date.now();
   try {
@@ -249,12 +258,18 @@ export async function embedAndUpsert(
   try {
     const modality = normalized.type;
     await withQdrantBreaker(() =>
-      qdrant.upsert(targetType, targetId, vector, {
-        text: payloadText,
-        modality,
-        created_at: (extraPayload?.created_at as number) ?? now,
-        ...(extraPayload as Record<string, unknown> | undefined),
-      }),
+      qdrant.upsert(
+        targetType,
+        targetId,
+        vector,
+        {
+          text: payloadText,
+          modality,
+          created_at: (extraPayload?.created_at as number) ?? now,
+          ...(extraPayload as Record<string, unknown> | undefined),
+        },
+        sparseVector,
+      ),
     );
   } catch (err) {
     log.warn(
@@ -263,58 +278,4 @@ export async function embedAndUpsert(
     );
     throw err;
   }
-}
-
-// ── Time window utilities ──────────────────────────────────────────
-
-export function currentWeekWindow(now: Date): {
-  scopeKey: string;
-  startMs: number;
-  endMs: number;
-} {
-  const day = (now.getUTCDay() + 6) % 7;
-  const start = new Date(
-    Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      now.getUTCDate() - day,
-      0,
-      0,
-      0,
-      0,
-    ),
-  );
-  const end = new Date(start);
-  end.setUTCDate(end.getUTCDate() + 7);
-  const scopeKey = `${start.getUTCFullYear()}-W${weekNumber(start)
-    .toString()
-    .padStart(2, "0")}`;
-  return { scopeKey, startMs: start.getTime(), endMs: end.getTime() };
-}
-
-export function currentMonthWindow(now: Date): {
-  scopeKey: string;
-  startMs: number;
-  endMs: number;
-} {
-  const start = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0),
-  );
-  const end = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0),
-  );
-  const scopeKey = `${start.getUTCFullYear()}-${String(
-    start.getUTCMonth() + 1,
-  ).padStart(2, "0")}`;
-  return { scopeKey, startMs: start.getTime(), endMs: end.getTime() };
-}
-
-function weekNumber(date: Date): number {
-  const tmp = new Date(
-    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
-  );
-  const dayNum = tmp.getUTCDay() || 7;
-  tmp.setUTCDate(tmp.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
-  return Math.ceil(((tmp.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
 }

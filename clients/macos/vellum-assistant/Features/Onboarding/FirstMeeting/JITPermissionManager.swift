@@ -150,13 +150,6 @@ final class JITPermissionManager {
 }
 
 #if DEBUG
-struct JITPermissionManager_Preview: PreviewProvider {
-    static var previews: some View {
-        JITPermissionManagerPreviewWrapper()
-            .frame(width: 500, height: 300)
-            .previewDisplayName("JITPermissionManager")
-    }
-}
 
 private struct JITPermissionManagerPreviewWrapper: View {
     @State private var manager = JITPermissionManager()
@@ -165,11 +158,11 @@ private struct JITPermissionManagerPreviewWrapper: View {
         VStack(spacing: VSpacing.xl) {
             Text("JIT Permission Manager")
                 .font(VFont.headline)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             Text("Active: \(manager.isActive ? "Yes" : "No")")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
 
             HStack(spacing: VSpacing.md) {
                 OnboardingButton(title: "Request Mic", style: .tertiary) {
@@ -189,11 +182,11 @@ private struct JITPermissionManagerPreviewWrapper: View {
             if let request = manager.activePermissionRequest {
                 Text("Active request: \(request.title)")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.success)
+                    .foregroundColor(VColor.systemPositiveStrong)
             }
         }
         .padding(VSpacing.xxl)
-        .background(VColor.background)
+        .background(VColor.surfaceOverlay)
     }
 }
 #endif

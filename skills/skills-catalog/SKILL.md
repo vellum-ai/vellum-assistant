@@ -1,12 +1,11 @@
 ---
 name: skills-catalog
-description: Discover bundled skills and search/install community skills from Clawhub
+description: Discover bundled skills and search/install community skills from the skills.sh registry
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🧩"
   vellum:
     display-name: "Skills Catalog"
-    user-invocable: true
 ---
 
 You can help the user discover what skills are available and find community skills to extend the assistant's capabilities.
@@ -21,41 +20,35 @@ skill_load skill=<skill-id>
 
 The skill catalog shown in the system prompt lists all bundled skills with their IDs. When a user asks about capabilities, refer to this list to find relevant bundled skills and load them as needed.
 
-## Community skills (Clawhub)
+## Community skills (skills.sh)
 
-Community skills are published on Clawhub and can be searched, inspected, and installed on demand using the `clawhub` CLI via bash.
+Community skills are published on the skills.sh registry and can be searched, inspected, and installed on demand using the `assistant skills` CLI.
 
 ### Searching for community skills
 
 ```bash
-npx clawhub search "<query>" --limit 10
+assistant skills search "<query>"
 ```
 
-Returns matching skills with their slug, version, and name. Use this when the user asks for a capability not covered by bundled skills.
-
-To browse trending/popular skills without a specific query:
-
-```bash
-npx clawhub explore --json --limit 10
-```
-
-### Inspecting a community skill
-
-Before installing, inspect a skill to review its metadata, author, stats, and SKILL.md content:
-
-```bash
-npx clawhub inspect <slug> --json --files --file SKILL.md
-```
-
-Present the results to the user so they can decide whether to install.
+Returns matching skills with their slug, source, install counts, and security audit badges. Use this when the user asks for a capability not covered by bundled skills.
 
 ### Installing a community skill
 
+**Trust model — check the source owner before installing:**
+
+- **Vellum-owned** (`vellum-ai/*`): First-party skills published by the Vellum team. Install these directly without prompting — they are vetted and trusted.
+- **Third-party** (any other owner): Ask the user for permission first. Present the skill name, source, audit results, and install count. Say something like: "I found a community skill that could help, but it's published by a third party — we haven't vetted it. Want to install it anyway?"
+
 ```bash
-npx clawhub install <slug> --force --workdir ~/.vellum/workspace
+assistant skills add <owner>/<repo>@<skill-name>
 ```
 
-Once installed, the skill appears in `~/.vellum/workspace/skills/<slug>/` and can be loaded with `skill_load` like any other skill.
+For example:
+```bash
+assistant skills add vercel-labs/skills@find-skills
+```
+
+Once installed, the skill appears in the workspace skills directory and can be loaded with `skill_load` like any other skill.
 
 ## Typical flow
 
@@ -65,10 +58,10 @@ Once installed, the skill appears in `~/.vellum/workspace/skills/<slug>/` and ca
    - Load any that match with `skill_load`
 
 2. **User wants a capability not covered by bundled skills** — "Can you do X?"
-   - Search with `npx clawhub search "<query>"`
-   - Optionally inspect promising results with `npx clawhub inspect <slug> --json`
-   - Present matching results with descriptions and install counts
-   - Install the chosen skill with `npx clawhub install <slug> --force --workdir ~/.vellum/workspace`
+   - Search with `assistant skills search "<query>"`
+   - Present matching results with descriptions, install counts, and audit badges
+   - Check the source owner to determine trust level (see trust model above)
+   - Install with `assistant skills add <owner>/<repo>@<skill-name>`
    - Load it with `skill_load`
 
 3. **Skill has dependencies** — if `includes` lists other skill IDs, load those first with `skill_load`
@@ -76,7 +69,7 @@ Once installed, the skill appears in `~/.vellum/workspace/skills/<slug>/` and ca
 ## Notes
 
 - Bundled skills are always available and do not need installation
-- Community skills are installed to `~/.vellum/workspace/skills/<slug>/`
+- Community skills are installed to the workspace skills directory
 - After installing a community skill, it is auto-enabled and immediately loadable
 - Skills can be enabled or disabled via feature flags without uninstalling them
-- Run `npx clawhub --help` to discover additional CLI options
+- Never install third-party community skills without explicit user confirmation

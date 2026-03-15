@@ -23,6 +23,8 @@ export const callSessions = sqliteTable(
     status: text("status").notNull().default("initiated"),
     callMode: text("call_mode"),
     verificationSessionId: text("verification_session_id"),
+    inviteFriendName: text("invite_friend_name"),
+    inviteGuardianName: text("invite_guardian_name"),
     callerIdentityMode: text("caller_identity_mode"),
     callerIdentitySource: text("caller_identity_source"),
     initiatedFromConversationId: text("initiated_from_conversation_id"),
@@ -192,72 +194,5 @@ export const mediaKeyframes = sqliteTable("media_keyframes", {
   timestamp: real("timestamp").notNull(),
   filePath: text("file_path").notNull(),
   metadata: text("metadata"), // JSON
-  createdAt: integer("created_at").notNull(),
-});
-
-export const mediaVisionOutputs = sqliteTable("media_vision_outputs", {
-  id: text("id").primaryKey(),
-  assetId: text("asset_id")
-    .notNull()
-    .references(() => mediaAssets.id, { onDelete: "cascade" }),
-  keyframeId: text("keyframe_id")
-    .notNull()
-    .references(() => mediaKeyframes.id, { onDelete: "cascade" }),
-  analysisType: text("analysis_type").notNull(),
-  output: text("output").notNull(), // JSON
-  confidence: real("confidence"),
-  createdAt: integer("created_at").notNull(),
-});
-
-export const mediaTimelines = sqliteTable("media_timelines", {
-  id: text("id").primaryKey(),
-  assetId: text("asset_id")
-    .notNull()
-    .references(() => mediaAssets.id, { onDelete: "cascade" }),
-  startTime: real("start_time").notNull(),
-  endTime: real("end_time").notNull(),
-  segmentType: text("segment_type").notNull(),
-  attributes: text("attributes"), // JSON
-  confidence: real("confidence"),
-  createdAt: integer("created_at").notNull(),
-});
-
-export const mediaEvents = sqliteTable("media_events", {
-  id: text("id").primaryKey(),
-  assetId: text("asset_id")
-    .notNull()
-    .references(() => mediaAssets.id, { onDelete: "cascade" }),
-  eventType: text("event_type").notNull(),
-  startTime: real("start_time").notNull(),
-  endTime: real("end_time").notNull(),
-  confidence: real("confidence").notNull(),
-  reasons: text("reasons").notNull(), // JSON array
-  metadata: text("metadata"), // JSON
-  createdAt: integer("created_at").notNull(),
-});
-
-export const mediaTrackingProfiles = sqliteTable("media_tracking_profiles", {
-  id: text("id").primaryKey(),
-  assetId: text("asset_id")
-    .notNull()
-    .references(() => mediaAssets.id, { onDelete: "cascade" }),
-  capabilities: text("capabilities").notNull(), // JSON: { [capName]: { enabled, tier } }
-  createdAt: integer("created_at").notNull(),
-});
-
-export const mediaEventFeedback = sqliteTable("media_event_feedback", {
-  id: text("id").primaryKey(),
-  assetId: text("asset_id")
-    .notNull()
-    .references(() => mediaAssets.id, { onDelete: "cascade" }),
-  eventId: text("event_id")
-    .notNull()
-    .references(() => mediaEvents.id, { onDelete: "cascade" }),
-  feedbackType: text("feedback_type").notNull(), // correct | incorrect | boundary_edit | missed
-  originalStartTime: real("original_start_time"),
-  originalEndTime: real("original_end_time"),
-  correctedStartTime: real("corrected_start_time"),
-  correctedEndTime: real("corrected_end_time"),
-  notes: text("notes"),
   createdAt: integer("created_at").notNull(),
 });

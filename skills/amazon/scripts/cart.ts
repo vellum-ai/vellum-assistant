@@ -375,7 +375,9 @@ export async function removeFromCart(opts: {
 }): Promise<CartSummary> {
   const { tabId } = await prepareRequest();
 
-  return runWithBackoff(async () => {
+  // Run the delete POST with retries, then fetch the updated cart separately.
+  // This avoids re-sending an already-successful delete when viewCart() fails.
+  await runWithBackoff(async () => {
     const url = `${AMAZON_BASE}/gp/cart/view.html`;
     const body = `cartItemId.${opts.cartItemId}=${opts.cartItemId}&quantity.${opts.cartItemId}=0&submit.delete.${opts.cartItemId}=Delete&ie=UTF8&action=delete`;
 
@@ -412,8 +414,9 @@ export async function removeFromCart(opts: {
 
     const result = (await cdpEval(tabId, script)) as Record<string, unknown>;
     handleResult(result);
-    return viewCart();
   });
+
+  return viewCart();
 }
 
 /**

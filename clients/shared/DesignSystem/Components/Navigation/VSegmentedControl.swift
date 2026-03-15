@@ -6,12 +6,19 @@ public enum VSegmentedControlStyle {
 }
 
 public struct VSegmentedControl<SelectionValue: Hashable>: View {
-    public let items: [(label: String, tag: SelectionValue)]
+    public let items: [(label: String, icon: String?, tag: SelectionValue)]
     @Binding public var selection: SelectionValue
     public let style: VSegmentedControlStyle
 
-    public init(items: [(label: String, tag: SelectionValue)], selection: Binding<SelectionValue>, style: VSegmentedControlStyle = .underline) {
+    public init(items: [(label: String, icon: String?, tag: SelectionValue)], selection: Binding<SelectionValue>, style: VSegmentedControlStyle = .underline) {
         self.items = items
+        self._selection = selection
+        self.style = style
+    }
+
+    /// Convenience init without icons.
+    public init(items: [(label: String, tag: SelectionValue)], selection: Binding<SelectionValue>, style: VSegmentedControlStyle = .underline) {
+        self.items = items.map { (label: $0.label, icon: nil, tag: $0.tag) }
         self._selection = selection
         self.style = style
     }
@@ -35,12 +42,12 @@ public struct VSegmentedControl<SelectionValue: Hashable>: View {
                     VStack(spacing: VSpacing.xs) {
                         Text(item.label)
                             .font(VFont.captionMedium)
-                            .foregroundColor(selection == item.tag ? VColor.textPrimary : VColor.textMuted)
+                            .foregroundColor(selection == item.tag ? VColor.contentDefault : VColor.contentTertiary)
                             .padding(.horizontal, VSpacing.xl)
                             .padding(.vertical, VSpacing.xs)
 
                         Rectangle()
-                            .fill(selection == item.tag ? VColor.accent : .clear)
+                            .fill(selection == item.tag ? VColor.primaryBase : .clear)
                             .frame(height: 2)
                     }
                     .contentShape(Rectangle())
@@ -63,6 +70,7 @@ public struct VSegmentedControl<SelectionValue: Hashable>: View {
                 let item = items[index]
                 PillSegment(
                     label: item.label,
+                    icon: item.icon,
                     isSelected: selection == item.tag,
                     action: { selection = item.tag }
                 )
@@ -71,7 +79,7 @@ public struct VSegmentedControl<SelectionValue: Hashable>: View {
         .padding(2)
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.inputBackground)
+                .fill(VColor.surfaceActive)
         )
         .animation(VAnimation.fast, value: selection)
     }
@@ -82,7 +90,7 @@ public struct VSegmentedControl<SelectionValue: Hashable>: View {
 public extension VSegmentedControl where SelectionValue == Int {
     init(items: [String], selection: Binding<Int>, style: VSegmentedControlStyle = .underline) {
         self.init(
-            items: items.enumerated().map { (label: $0.element, tag: $0.offset) },
+            items: items.enumerated().map { (label: $0.element, icon: nil as String?, tag: $0.offset) },
             selection: selection,
             style: style
         )
@@ -93,6 +101,7 @@ public extension VSegmentedControl where SelectionValue == Int {
 
 private struct PillSegment: View {
     let label: String
+    var icon: String? = nil
     let isSelected: Bool
     let action: () -> Void
 
@@ -100,19 +109,26 @@ private struct PillSegment: View {
 
     var body: some View {
         Button(action: action) {
-            Text(label)
-                .font(VFont.body)
-                .fixedSize()
-                .foregroundColor(isSelected ? selectedTextColor : VColor.textSecondary)
-                .padding(.horizontal, VSpacing.lg)
-                .frame(maxWidth: .infinity)
-                .frame(height: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.md - 1)
-                        .fill(segmentBackground)
-                        .shadow(color: isSelected ? Color.black.opacity(0.08) : .clear, radius: 2, x: 0, y: 1)
-                )
-                .contentShape(Rectangle())
+            Group {
+                if let icon {
+                    VIconView(.resolve(icon), size: 12)
+                        .foregroundColor(isSelected ? VColor.contentDefault : VColor.contentTertiary)
+                } else {
+                    Text(label)
+                        .font(VFont.body)
+                        .fixedSize()
+                        .foregroundColor(isSelected ? selectedTextColor : VColor.contentSecondary)
+                }
+            }
+            .padding(.horizontal, icon != nil ? VSpacing.sm : VSpacing.lg)
+            .frame(maxWidth: .infinity)
+            .frame(height: 32)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md - 1)
+                    .fill(segmentBackground)
+                    .shadow(color: isSelected ? VColor.auxBlack.opacity(0.08) : .clear, radius: 2, x: 0, y: 1)
+            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
@@ -122,14 +138,14 @@ private struct PillSegment: View {
     }
 
     private var selectedTextColor: Color {
-        VColor.textPrimary
+        VColor.contentDefault
     }
 
     private var segmentBackground: Color {
         if isSelected {
-            return VColor.segmentSelected
+            return VColor.surfaceLift
         } else if isHovered {
-            return VColor.segmentHover
+            return VColor.surfaceActive
         } else {
             return .clear
         }
@@ -137,13 +153,6 @@ private struct PillSegment: View {
 }
 
 #if DEBUG
-struct VSegmentedControl_Preview: PreviewProvider {
-    static var previews: some View {
-        VSegmentedControlPreviewWrapper()
-            .frame(width: 500, height: 120)
-            .previewDisplayName("VSegmentedControl")
-    }
-}
 
 private struct VSegmentedControlPreviewWrapper: View {
     @State private var selection = 1
@@ -151,7 +160,7 @@ private struct VSegmentedControlPreviewWrapper: View {
 
     var body: some View {
         ZStack {
-            VColor.background.ignoresSafeArea()
+            VColor.surfaceOverlay.ignoresSafeArea()
             VStack(spacing: VSpacing.xl) {
                 VSegmentedControl(items: ["Profile", "Settings", "Channels", "Overview"], selection: $selection)
 

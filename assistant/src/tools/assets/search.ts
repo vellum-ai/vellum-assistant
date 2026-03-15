@@ -1,5 +1,5 @@
 /**
- * asset_search — cross-thread attachment metadata search.
+ * asset_search — cross-conversation attachment metadata search.
  *
  * Queries the attachments store for matching assets by MIME type,
  * filename, recency, or conversation scope. Returns metadata and
@@ -14,7 +14,7 @@ import {
   isAttachmentVisible,
 } from "../../daemon/media-visibility-policy.js";
 import type { StoredAttachment } from "../../memory/attachments-store.js";
-import { getConversationThreadType } from "../../memory/conversation-crud.js";
+import { getConversationType } from "../../memory/conversation-crud.js";
 import { getDb, rawAll } from "../../memory/db.js";
 import {
   attachments,
@@ -22,8 +22,12 @@ import {
   messageAttachments,
   messages,
 } from "../../memory/schema.js";
-import { escapeLikeWildcards } from "../../memory/search/lexical.js";
 import { RiskLevel } from "../../permissions/types.js";
+
+/** Escape SQL LIKE wildcard characters so a literal substring match is used. */
+function escapeLikeWildcards(s: string): string {
+  return s.replace(/%/g, "").replace(/_/g, "");
+}
 import type { ToolDefinition } from "../../providers/types.js";
 import { registerTool } from "../registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
@@ -67,17 +71,17 @@ function formatAttachment(a: StoredAttachment): string {
 
 /**
  * Look up which conversations an attachment belongs to, along with each
- * conversation's thread type. An attachment can be linked to multiple
+ * conversation's type. An attachment can be linked to multiple
  * messages across multiple conversations.
  */
 export function getAttachmentSourceConversations(
   attachmentId: string,
-): Array<{ conversationId: string; threadType: string }> {
+): Array<{ conversationId: string; conversationType: string }> {
   const db = getDb();
   return db
     .select({
       conversationId: messages.conversationId,
-      threadType: conversations.threadType,
+      conversationType: conversations.conversationType,
     })
     .from(messageAttachments)
     .innerJoin(messages, eq(messages.id, messageAttachments.messageId))
@@ -91,9 +95,9 @@ export function getAttachmentSourceConversations(
  * Returns true if visible, false if hidden.
  *
  * - Orphan attachments (no message linkage) are universally visible.
- * - Attachments with any standard-thread source are universally visible.
+ * - Attachments with any standard-conversation source are universally visible.
  * - All-private attachments are visible only if the caller is in one of
- *   the source private threads.
+ *   the source private conversations.
  */
 function isAttachmentVisibleFromContext(
   attachmentId: string,
@@ -104,12 +108,12 @@ function isAttachmentVisibleFromContext(
     return true;
   }
 
-  const hasStandard = sources.some((s) => s.threadType !== "private");
+  const hasStandard = sources.some((s) => s.conversationType !== "private");
   if (hasStandard) {
     return true;
   }
 
-  // All sources are private — visible only if the caller is in one of those threads
+  // All sources are private — visible only if the caller is in one of those conversations
   return sources.some((s) =>
     isAttachmentVisible(
       { conversationId: s.conversationId, isPrivate: true },
@@ -354,14 +358,14 @@ class AssetSearchTool implements Tool {
         limit: MAX_RESULTS,
       });
 
-      // Enforce private-thread visibility: filter out attachments that
-      // belong exclusively to private threads the caller cannot access.
-      const currentThreadType = getConversationThreadType(
+      // Enforce private-conversation visibility: filter out attachments that
+      // belong exclusively to private conversations the caller cannot access.
+      const currentConversationType = getConversationType(
         context.conversationId,
       );
       const currentContext: AttachmentContext = {
         conversationId: context.conversationId,
-        isPrivate: currentThreadType === "private",
+        isPrivate: currentConversationType === "private",
       };
 
       const effectiveLimit = Math.min(limit ?? DEFAULT_LIMIT, MAX_RESULTS);

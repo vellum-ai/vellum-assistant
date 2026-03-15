@@ -1,18 +1,17 @@
 ---
 name: oauth-setup
-description: Connect any OAuth service — create app credentials and authorize via browser automation
+description: Connect any OAuth service — walk users through app setup via a collaborative guided flow
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🔑"
   vellum:
     display-name: "OAuth Setup"
-    user-invocable: true
-    includes: ["browser"]
+    includes: ["collaborative-oauth-flow"]
 ---
 
 You are helping the user connect an OAuth-based service to Vellum. This is a generic setup flow that works for any provider with a well-known OAuth config.
 
-**Tone:** Be friendly and reassuring throughout. Narrate what you're doing in plain language so the user always knows what's happening. After each step, briefly confirm what was accomplished before moving on.
+This skill follows the **Collaborative Guided Flow** pattern from the included `collaborative-oauth-flow` skill. That reference covers the navigation helper setup, step rhythm, rules, tone, error handling, and guardrails. This file defines the generic provider-agnostic steps.
 
 ## Input
 
@@ -21,6 +20,7 @@ You will be given a `service` name (e.g., "discord", "linear", "spotify"). If no
 ## Step 1: Read the service config
 
 Use `credential_store` with `action: "describe"` and `service: "<name>"` to get the well-known OAuth config. This returns:
+
 - `scopes` — permissions to request
 - `redirectUri` — the callback URL to register
 - `callbackTransport` — loopback or gateway
@@ -28,6 +28,7 @@ Use `credential_store` with `action: "describe"` and `service: "<name>"` to get 
 - `authUrl` / `tokenUrl` — OAuth endpoints
 
 It may also include a `setup` object with rich metadata:
+
 - `setup.displayName` — the provider's name
 - `setup.dashboardUrl` — where to create the app
 - `setup.appType` — what kind of app to create
@@ -36,17 +37,23 @@ It may also include a `setup` object with rich metadata:
 
 If no config is found, tell the user this service doesn't have a pre-configured setup and offer to help them configure it manually via `oauth2_connect`.
 
-## Step 2: Choose the flow based on setup metadata
+## Step 2: Check for a dedicated setup skill
 
-### If `setup` metadata is present (rich flow)
+Check the available skills catalog for a dedicated `<service>-oauth-setup` skill matching this service name. If one exists, load that skill instead — it has provider-specific steps that are more reliable than the generic flow. Use `skill_load` with that skill ID and hand off completely.
 
-Continue to Step 3 (Rich Flow).
+Well-known services with dedicated setup skills: `gmail` (google-oauth-applescript), `slack`, `notion`, `twitter`, `github`, `linear`, `spotify`, `todoist`, `discord`, `dropbox`, `asana`, `airtable`, `hubspot`, `figma`.
+
+## Step 3: Choose the flow based on setup metadata
+
+### If `setup` metadata is present (guided flow)
+
+Continue to Step 4.
 
 ### If `setup` metadata is absent (manual flow)
 
-The provider has OAuth config (endpoints, scopes) but no setup automation metadata. Guide the user through a manual app creation:
+The provider has OAuth config (endpoints, scopes) but no setup guidance. Guide the user through a manual app creation:
 
-1. Tell the user: "I have the OAuth endpoints and scopes for this service, but I don't have developer dashboard automation for it. You'll need to create an OAuth app manually."
+1. Tell the user: "I have the OAuth endpoints and scopes for this service, but I don't have step-by-step guidance for its developer dashboard. You'll need to create an OAuth app manually."
 2. Provide the details they need:
    - **Scopes to request:** list the `scopes` from the config
    - **Redirect URI:** show the `redirectUri` value
@@ -57,92 +64,141 @@ The provider has OAuth config (endpoints, scopes) but no setup automation metada
    - Set the redirect URI
    - Configure the required scopes
    - Copy the Client ID (and Client Secret if required)
-4. Once they provide the credentials, skip to **Step 8: Connect**.
+4. Once they provide the credentials, skip to **Step 9: Store and Connect**.
 
 ---
 
-## Rich Flow (when `setup` is present)
+## Guided Flow (when `setup` is present)
 
-### Step 3: Tell the user what's happening
+### Step 4: Pre-Flow Setup
 
-Tell the user:
-- "I'll walk you through creating a {setup.appType} so Vellum can connect to {setup.displayName}. The whole process takes a few minutes."
-- "I'll be automating the {setup.displayName} developer dashboard in the browser — you'll be able to see everything I'm doing."
-- "I'll ask for your approval before each major step, so nothing happens without your say-so."
+> We're going to set up {setup.displayName} OAuth together. I'll open each page in your browser and tell you exactly what to do. You can pause anytime.
+>
+> Your Mac may ask for permissions along the way — if you see an option to allow for a longer duration (like 10 minutes), that'll save you from approving every single step.
 
-### Step 4: Navigate to the developer dashboard
+### Step 5: Open the developer dashboard
 
-Use `browser_navigate` to go to `setup.dashboardUrl`.
+Open: `{setup.dashboardUrl}`
 
-Take a `browser_screenshot` and `browser_snapshot`:
-- **If a sign-in page appears:** Tell the user to sign in and wait for confirmation.
-- **If the dashboard loads:** Continue to Step 5.
+> I've opened the {setup.displayName} developer dashboard. If it's asking you to sign in, go ahead and do that first.
 
-### Step 5: Create an app
+Wait for user confirmation before proceeding.
 
-**Ask for approval before proceeding.** Use `ui_show` with `surface_type: "confirmation"` explaining what you're about to create.
+---
 
-Once approved:
-1. Find and click the "Create App" / "New Application" / "New Integration" button (adapt to the provider's UI)
-2. Name it "Vellum Assistant"
-3. Follow any guidance from `setup.notes`
-4. Complete the creation flow
+### Step 6: Create an app
 
-Take a `browser_screenshot` to confirm.
+> Look for a button to create a new app or integration — it might say "Create App", "New Application", or "New Integration". Go ahead and click it.
 
-### Step 6: Configure scopes/permissions
+Guide the user through the creation flow:
 
-**Ask for approval before proceeding.** List the `scopes` from the config and explain what each grants.
+1. Name it "Vellum Assistant"
+2. Follow any guidance from `setup.notes` (e.g., select "Public" for Notion, "From scratch" for Slack)
+3. Complete the creation
 
-Once approved, navigate to the OAuth/permissions section and add each scope. Follow `setup.notes` for any provider-specific guidance (e.g., "User Token Scopes" vs "Bot Token Scopes").
+Wait for confirmation.
 
-Take a `browser_screenshot` after adding all scopes.
+---
 
-### Step 7: Set redirect URL
+### Step 7: Configure scopes/permissions (if any)
+
+If scopes are non-empty, guide the user to the OAuth/permissions section:
+
+> Now we need to add the permissions {setup.displayName} needs. Look for an OAuth, Permissions, or Scopes section.
+
+List each scope and what it grants. Guide the user to add them one at a time or paste them.
+
+If scopes are empty (e.g. Notion), skip this step.
+
+---
+
+### Step 8: Set redirect URL
 
 Check the `redirectUri` from the config:
-- If it mentions "not currently configured" or `ingress.publicBaseUrl` — the user needs a public gateway URL configured. Check if one is set; if not, load the `public-ingress` skill first.
-- If it says "automatic" — skip this step entirely (no redirect URI needed).
-- Otherwise, enter the `redirectUri` exactly as provided.
 
-Take a `browser_snapshot` to confirm.
+- If it says "automatic" — skip this step entirely (no redirect URI needed for loopback)
+- If it mentions `ingress.publicBaseUrl` — the user needs a public gateway URL. Check if one is configured; if not, load the `public-ingress` skill first
+- Otherwise, tell the user exactly where to add the redirect URI
 
-### Step 7b: Extract credentials
-
-Navigate to the app's credentials/settings section.
-
-Use `browser_extract` to read:
-1. **Client ID** (or equivalent)
-2. **Client Secret** (if `requiresClientSecret` is true) — click "Show"/"Reveal" first if needed
+> Look for "Redirect URLs" or "OAuth Redirect URIs" in the settings. Add this URL: `{redirectUri}`
 
 ---
 
-## Step 8: Connect
+### Step 9: Store and Connect
 
-Tell the user you're opening the authorization page.
+#### Collect Client ID
 
-Use `credential_store` with:
+> Copy the Client ID from the app's credentials page and paste it here in the chat.
+
+#### Collect Client Secret (if required)
+
+Always use a secure prompt:
+
 ```
-action: "oauth2_connect"
-service: "<service name>"
-client_id: "<extracted client ID>"
-client_secret: "<extracted client secret>"  (if required)
+credential_store prompt:
+  service: "<provider-key>"
+  field: "client_secret"
+  label: "{setup.displayName} OAuth Client Secret"
+  description: "Copy the Client Secret from the credentials page and paste it here."
+  placeholder: "..."
 ```
 
-Everything else (endpoints, scopes, params) is auto-filled from the well-known config. Wait for the flow to complete.
+#### Register and authorize
 
-## Step 9: Celebrate!
+```
+bash:
+  command: |
+    assistant oauth apps upsert --provider <provider-key> --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ) --client-secret-credential-path "credential/<provider-key>/client_secret"
+```
 
-Once connected, tell the user:
-- If `setup` is present: "**{setup.displayName} is connected!** You're all set."
-- If `setup` is absent: "**{service} is connected!** You're all set."
+```
+bash:
+  command: |
+    assistant oauth connections connect <provider-key> --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    )
+```
+
+If the service shows an "unverified app" or consent warning, tell the user how to proceed.
+
+---
+
+### Step 10: Verify Connection
+
+If a ping URL is available, verify:
+
+```
+bash:
+  command: |
+    curl -H "Authorization: Bearer $(assistant oauth connections token <provider-key> --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ))" "<provider-ping-url>"
+```
+
+**On success:** "**{setup.displayName} is connected!** You're all set."
 
 Summarize what was accomplished.
 
+---
+
+## Path B: Manual Channel Setup
+
+For non-interactive channels (Telegram, Slack, etc.), provide all URLs and instructions as text messages. Key differences:
+
+- The user navigates on their own — give them the URLs to open
+- Use **Web application** credentials if the provider distinguishes (callback goes through public gateway)
+- Collect the Client Secret via `credential_store prompt` or split entry if the prefix could trigger channel scanners
+- Resolve the redirect URI from `ingress.publicBaseUrl` before sending instructions; if not configured, load the `public-ingress` skill first
+
 ## Error Handling
 
-- **Page load failures:** Retry once. If it still fails, ask the user to check their connection.
-- **Element not found:** Take a fresh `browser_snapshot`. The provider's UI may have changed — adapt dynamically.
-- **User declines an approval gate:** Don't push back. Explain why it matters, offer to retry or cancel.
+- **User lands on unexpected page:** Offer to screenshot, identify where they are, navigate back
+- **User not signed in:** Tell them to sign in, wait, continue
+- **Feature already configured:** "Looks like this is already set up — great, let's skip ahead."
+- **User is confused or frustrated:** Pause, acknowledge, simplify
 - **OAuth flow timeout or failure:** Offer to retry. The app is already created, so only the connect step needs to be re-run.
-- **Any unexpected state:** Take a `browser_screenshot` and `browser_snapshot`, describe what you see, and ask for guidance.

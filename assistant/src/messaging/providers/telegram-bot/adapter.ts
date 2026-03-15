@@ -18,7 +18,7 @@ import type { OAuthConnection } from "../../../oauth/connection.js";
 import { getConnectionByProvider } from "../../../oauth/oauth-store.js";
 import { mintDaemonDeliveryToken } from "../../../runtime/auth/token-service.js";
 import { credentialKey } from "../../../security/credential-key.js";
-import { getSecureKey } from "../../../security/secure-keys.js";
+import { getSecureKeyAsync } from "../../../security/secure-keys.js";
 import type { MessagingProvider } from "../../provider.js";
 import type {
   ConnectionInfo,
@@ -44,8 +44,8 @@ function getBearerToken(): string {
 }
 
 /** Read the Telegram bot token from the credential vault. */
-function getBotToken(): string | undefined {
-  return getSecureKey(credentialKey("telegram", "bot_token"));
+async function getBotToken(): Promise<string | undefined> {
+  return getSecureKeyAsync(credentialKey("telegram", "bot_token"));
 }
 
 export const telegramBotMessagingProvider: MessagingProvider = {
@@ -55,22 +55,31 @@ export const telegramBotMessagingProvider: MessagingProvider = {
   capabilities: new Set(["send"]),
 
   /**
-   * Custom connectivity check using the oauth_connection record as the
-   * single source of truth, consistent with integration-status.ts.
+   * Custom connectivity check using both the oauth_connection record AND
+   * actual keychain credentials. The connection row alone can become stale
+   * if clearTelegramConfig() returns early on a secure-key deletion error
+   * without removing the row. Checking both ensures we don't report
+   * Telegram as connected when secrets are missing.
    *
    * Both bot_token and webhook_secret are required — the gateway's
    * /deliver/telegram endpoint rejects requests without the webhook
    * secret, so partial credentials would cause every send to fail.
    */
-  isConnected(): boolean {
+  async isConnected(): Promise<boolean> {
     const conn = getConnectionByProvider("telegram");
-    return !!(conn && conn.status === "active");
+    if (!(conn && conn.status === "active")) return false;
+    const botToken = await getBotToken();
+    if (botToken === undefined) return false;
+    const webhookSecret = await getSecureKeyAsync(
+      credentialKey("telegram", "webhook_secret"),
+    );
+    return !!webhookSecret;
   },
 
   async testConnection(
     _connectionOrToken: OAuthConnection | string,
   ): Promise<ConnectionInfo> {
-    const botToken = getBotToken();
+    const botToken = await getBotToken();
     if (!botToken) {
       return {
         connected: false,

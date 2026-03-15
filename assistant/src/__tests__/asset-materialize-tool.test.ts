@@ -33,7 +33,6 @@ mock.module("../config/loader.js", () => ({
 
     model: "test",
     provider: "test",
-    apiKeys: {},
     memory: { enabled: false },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
   }),
@@ -367,7 +366,7 @@ describe("AssetMaterializeTool visibility policy", () => {
   test("materializing from a private thread works within the same private thread", async () => {
     const privateConv = createConversation({
       title: "private-conv",
-      threadType: "private",
+      conversationType: "private",
     });
     const base64Content = Buffer.from("private content").toString("base64");
     const attachment = uploadAttachment(
@@ -397,7 +396,7 @@ describe("AssetMaterializeTool visibility policy", () => {
   test("materializing from a private thread is REJECTED from a different conversation", async () => {
     const privateConv = createConversation({
       title: "private-conv",
-      threadType: "private",
+      conversationType: "private",
     });
     const base64Content = Buffer.from("private content").toString("base64");
     const attachment = uploadAttachment(
@@ -422,14 +421,14 @@ describe("AssetMaterializeTool visibility policy", () => {
       context,
     );
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("private thread");
+    expect(result.content).toContain("private conversation");
     expect(result.content).toContain("cannot be accessed");
   });
 
   test("error message is user-actionable", async () => {
     const privateConv = createConversation({
       title: "private-conv",
-      threadType: "private",
+      conversationType: "private",
     });
     const base64Content = Buffer.from("private content").toString("base64");
     const attachment = uploadAttachment(
@@ -457,13 +456,13 @@ describe("AssetMaterializeTool visibility policy", () => {
     // Should mention the filename so the user knows which file
     expect(result.content).toContain("confidential.pdf");
     // Should explain how to access it
-    expect(result.content).toContain("from within the private thread");
+    expect(result.content).toContain("from within the private conversation");
   });
 
   test("materializing from a different private thread is REJECTED", async () => {
     const privateConv1 = createConversation({
       title: "private-conv-1",
-      threadType: "private",
+      conversationType: "private",
     });
     const base64Content = Buffer.from("private content").toString("base64");
     const attachment = uploadAttachment(
@@ -477,7 +476,7 @@ describe("AssetMaterializeTool visibility policy", () => {
     // Attempt from a different private conversation
     const privateConv2 = createConversation({
       title: "private-conv-2",
-      threadType: "private",
+      conversationType: "private",
     });
     const context: ToolContext = {
       workingDir: sandboxDir,
@@ -491,13 +490,13 @@ describe("AssetMaterializeTool visibility policy", () => {
       context,
     );
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("private thread");
+    expect(result.content).toContain("private conversation");
   });
 
   test("attachment linked to both private and standard threads can be materialized from anywhere", async () => {
     const privateConv = createConversation({
       title: "private-conv",
-      threadType: "private",
+      conversationType: "private",
     });
     const standardConv = createConversation({ title: "standard-conv" });
     const base64Content = Buffer.from("shared content").toString("base64");

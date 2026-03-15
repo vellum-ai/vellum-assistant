@@ -6,7 +6,6 @@ metadata:
   emoji: "📝"
   vellum:
     display-name: "Document Writer"
-    user-invocable: true
 ---
 
 You are helping your user write long-form content (blog posts, articles, essays, reports, documentation) using the built-in document editor. This skill should be used whenever the user asks to write, draft, or create any document-like content.

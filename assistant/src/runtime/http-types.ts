@@ -2,6 +2,7 @@
  * Shared types for the runtime HTTP server and its route handlers.
  */
 import type { ChannelId, InterfaceId } from "../channels/types.js";
+import type { CesClient } from "../credential-execution/client.js";
 import type { SkillOperationContext } from "../daemon/handlers/skills.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type {
@@ -19,7 +20,7 @@ import type {
   ComposeGuardianActionMessageOptions,
   GuardianActionMessageContext,
 } from "./guardian-action-message-composer.js";
-import type { SessionManagementDeps } from "./routes/session-management-routes.js";
+import type { SessionManagementDeps } from "./routes/conversation-management-routes.js";
 /**
  * Daemon-injected function that generates approval copy using a provider.
  * Returns generated text or `null` on failure (caller falls back to deterministic text).
@@ -38,7 +39,7 @@ export type ApprovalConversationDisposition =
   | "keep_pending"
   | "approve_once"
   | "approve_10m"
-  | "approve_thread"
+  | "approve_conversation"
   | "approve_always"
   | "reject";
 
@@ -116,6 +117,7 @@ export interface RuntimeMessageSessionOptions {
     channelId: ChannelId;
     hints?: string[];
     uxBrief?: string;
+    chatType?: string;
   };
   assistantId?: string;
   trustContext?: TrustContext;
@@ -223,6 +225,8 @@ export interface RuntimeHttpServerOptions {
   getWatchDeps?: () => import("./routes/watch-routes.js").WatchDeps;
   /** Provider for recording dependencies (recording routes). */
   getRecordingDeps?: () => import("./routes/recording-routes.js").RecordingDeps;
+  /** Accessor for the CES client, used to push API key updates to CES after hatch. */
+  getCesClient?: () => CesClient | undefined;
 }
 
 export interface RuntimeAttachmentMetadata {
@@ -231,6 +235,8 @@ export interface RuntimeAttachmentMetadata {
   mimeType: string;
   sizeBytes: number;
   kind: string;
+  data?: string;
+  thumbnailData?: string;
 }
 
 export interface RuntimeMessagePayload {

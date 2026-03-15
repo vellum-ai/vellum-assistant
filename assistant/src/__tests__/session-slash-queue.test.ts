@@ -22,7 +22,6 @@ mock.module("../util/platform.js", () => ({
 }));
 
 mock.module("../memory/guardian-action-store.js", () => ({
-  getPendingDeliveryByConversation: () => null,
   getGuardianActionRequest: () => null,
   resolveGuardianActionRequest: () => {},
 }));
@@ -54,8 +53,6 @@ mock.module("../config/loader.js", () => ({
       },
     },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
-    apiKeys: {},
-    memory: { retrieval: { injectionStrategy: "inline" } },
     daemon: {
       startupSocketWaitMs: 5000,
       stopTimeoutMs: 5000,
@@ -82,7 +79,7 @@ mock.module("../security/secret-allowlist.js", () => ({
 }));
 
 mock.module("../memory/conversation-crud.js", () => ({
-  getConversationThreadType: () => "default",
+  getConversationType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
@@ -118,26 +115,13 @@ mock.module("../memory/retriever.js", () => ({
     enabled: false,
     degraded: false,
     injectedText: "",
-    lexicalHits: 0,
+
     semanticHits: 0,
     recencyHits: 0,
     injectedTokens: 0,
     latencyMs: 0,
   }),
-  injectMemoryRecallIntoUserMessage: (msg: Message) => msg,
   stripMemoryRecallMessages: (msgs: Message[]) => msgs,
-}));
-
-mock.module("../memory/admin.js", () => ({
-  getMemoryConflictAndCleanupStats: () => ({
-    conflicts: { pending: 0, resolved: 0, oldestPendingAgeMs: null },
-    cleanup: {
-      resolvedBacklog: 0,
-      supersededBacklog: 0,
-      resolvedCompleted24h: 0,
-      supersededCompleted24h: 0,
-    },
-  }),
 }));
 
 mock.module("../context/window-manager.js", () => ({
@@ -167,8 +151,7 @@ mock.module("../config/skills.js", () => ({
       description: "Morning routine skill",
       directoryPath: "/skills/start-the-day",
       skillFilePath: "/skills/start-the-day/SKILL.md",
-      userInvocable: true,
-      disableModelInvocation: false,
+
       source: "managed",
     },
   ],
@@ -181,7 +164,6 @@ mock.module("../config/skill-state.js", () => ({
     catalog.map((s) => ({
       summary: s,
       state: "enabled",
-      degraded: false,
     })),
 }));
 
@@ -200,6 +182,9 @@ let pendingRuns: PendingRun[] = [];
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     constructor() {}
+    getToolTokenBudget() {
+      return 0;
+    }
     async run(
       messages: Message[],
       onEvent: (event: AgentEvent) => void,
@@ -298,17 +283,17 @@ function resolveRun(index: number) {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("Session queue slash handling", () => {
+describe("Session queue — slash-like messages pass through to agent loop", () => {
   beforeEach(() => {
     pendingRuns = [];
   });
 
-  test("queued unknown slash does not stall queue", async () => {
+  test("queued slash-like input does not stall queue — passes through", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
     const events1: ServerMessage[] = [];
-    const eventsUnknown: ServerMessage[] = [];
+    const eventsSlash: ServerMessage[] = [];
     const events3: ServerMessage[] = [];
 
     // Start first message — blocks on agent loop
@@ -320,12 +305,12 @@ describe("Session queue slash handling", () => {
     );
     await waitForPendingRun(1);
 
-    // Enqueue unknown slash and a normal message after it
+    // Enqueue a slash-like message and a normal message after it
     session.enqueueMessage(
       "/not-a-skill",
       [],
-      (e) => eventsUnknown.push(e),
-      "req-unknown",
+      (e) => eventsSlash.push(e),
+      "req-slash",
     );
     session.enqueueMessage("msg-3", [], (e) => events3.push(e), "req-3");
     expect(session.getQueueDepth()).toBe(2);
@@ -334,32 +319,30 @@ describe("Session queue slash handling", () => {
     resolveRun(0);
     await p1;
 
-    // The unknown slash should have been handled immediately (no agent loop)
-    // and msg-3 should have been drained next
+    // The slash-like message should go through agent loop (passthrough)
     await waitForPendingRun(2);
 
-    // Unknown slash events: dequeued, text delta, message complete
-    expect(eventsUnknown.some((e) => e.type === "message_dequeued")).toBe(true);
-    const textDeltas = eventsUnknown.filter(
-      (e) => e.type === "assistant_text_delta",
-    );
-    expect(textDeltas.length).toBe(1);
-    expect((textDeltas[0] as { text: string }).text).toContain(
-      "Unknown command",
-    );
-    expect(eventsUnknown.some((e) => e.type === "message_complete")).toBe(true);
+    // Slash-like message events: dequeued (agent loop started)
+    expect(eventsSlash.some((e) => e.type === "message_dequeued")).toBe(true);
+
+    // It goes through the agent loop — so 2 agent runs total (msg-1 and /not-a-skill)
+    expect(pendingRuns.length).toBe(2);
+
+    // Complete the slash run so msg-3 can drain
+    resolveRun(1);
+    await waitForPendingRun(3);
 
     // msg-3 events: dequeued (agent loop started)
     expect(events3.some((e) => e.type === "message_dequeued")).toBe(true);
 
-    // Only 2 agent loop runs total (msg-1 and msg-3, not the unknown slash)
-    expect(pendingRuns.length).toBe(2);
+    // 3 total agent loop runs: msg-1, /not-a-skill, msg-3
+    expect(pendingRuns.length).toBe(3);
 
-    resolveRun(1);
+    resolveRun(2);
     await new Promise((r) => setTimeout(r, 50));
   });
 
-  test("queued known slash rewrites content", async () => {
+  test("queued skill-name slash passes through as-is", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
@@ -375,7 +358,7 @@ describe("Session queue slash handling", () => {
     );
     await waitForPendingRun(1);
 
-    // Enqueue a known slash command
+    // Enqueue a slash command that matches a skill name — still passes through
     session.enqueueMessage(
       "/start-the-day",
       [],
@@ -383,12 +366,12 @@ describe("Session queue slash handling", () => {
       "req-slash",
     );
 
-    // Complete first run — triggers drain with known slash
+    // Complete first run — triggers drain
     resolveRun(0);
     await p1;
     await waitForPendingRun(2);
 
-    // The second agent loop run should have rewritten content
+    // The slash message goes through the agent loop unchanged
     const lastUserMsg =
       pendingRuns[1].messages[pendingRuns[1].messages.length - 1];
     expect(lastUserMsg.role).toBe("user");
@@ -396,8 +379,8 @@ describe("Session queue slash handling", () => {
       .filter((b) => b.type === "text")
       .map((b) => (b as { text: string }).text)
       .join("");
-    expect(text).toContain("start-the-day");
-    expect(text).toContain("Start the Day");
+    // Content passes through as-is — no rewriting
+    expect(text).toContain("/start-the-day");
 
     resolveRun(1);
     await new Promise((r) => setTimeout(r, 50));

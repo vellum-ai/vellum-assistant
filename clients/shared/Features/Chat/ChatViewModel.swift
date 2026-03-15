@@ -149,6 +149,10 @@ public final class ChatViewModel: ObservableObject {
         get { messageManager.assistantStatusText }
         set { messageManager.assistantStatusText = newValue }
     }
+    public var isCompacting: Bool {
+        get { messageManager.isCompacting }
+        set { messageManager.isCompacting = newValue }
+    }
     public var hasPendingConfirmation: Bool {
         messages.contains(where: { $0.confirmation?.state == .pending })
     }
@@ -355,17 +359,23 @@ public final class ChatViewModel: ObservableObject {
     public var isVoiceModeActive: Bool = false
     var pendingUserAttachments: [UserMessageAttachment]?
     /// Stores the last user message that failed to send, enabling retry.
-    private(set) var lastFailedMessageText: String?
+    private(set) var lastFailedMessageText: String? {
+        didSet { syncRetryStateToErrorManager() }
+    }
     private(set) var lastFailedMessageDisplayText: String?
     private(set) var lastFailedMessageAttachments: [UserMessageAttachment]?
     /// Set only when a send operation (bootstrapSession or sendUserMessage) fails.
     /// Used by `isRetryableError` to ensure the retry button only appears for
     /// actual send failures, not for unrelated errors (attachment validation,
     /// confirmation response failures, regenerate errors, etc.).
-    private(set) var lastFailedSendError: String?
+    private(set) var lastFailedSendError: String? {
+        didSet { syncRetryStateToErrorManager() }
+    }
     /// Stores the text of a message that was blocked by the secret-ingress check.
     /// Set when an error with category "secret_blocked" arrives.
-    var secretBlockedMessageText: String?
+    var secretBlockedMessageText: String? {
+        didSet { syncRetryStateToErrorManager() }
+    }
     /// Stashed context from the blocked send, so sendAnyway() can reconstruct
     /// the original UserMessageMessage with attachments and surface metadata.
     var secretBlockedAttachments: [UserMessageAttachment]?
@@ -374,10 +384,10 @@ public final class ChatViewModel: ObservableObject {
     /// Nonce sent with `session_create` and echoed back in `session_info`.
     /// Used to ensure this ChatViewModel only claims its own session.
     var bootstrapCorrelationId: String?
-    /// Thread type sent with `session_create` (e.g. "private").
-    /// Set by `createSessionIfNeeded(threadType:)` and included in the
-    /// message so the daemon can persist the correct thread kind.
-    public var threadType: String?
+    /// Conversation type sent with `session_create` (e.g. "private").
+    /// Set by `createSessionIfNeeded(conversationType:)` and included in the
+    /// message so the daemon can persist the correct conversation kind.
+    public var conversationType: String?
     /// Skill IDs to pre-activate in the session. Included in the
     /// `session_create` request for deterministic skill activation.
     public var preactivatedSkillIds: [String]?
@@ -549,6 +559,23 @@ public final class ChatViewModel: ObservableObject {
     @Published public var btwLoading: Bool = false
     /// The in-flight btw streaming task, stored for cancellation.
     private var btwTask: Task<Void, Never>?
+
+    // MARK: - Empty-State Greeting
+
+    /// A daemon-generated greeting shown when the conversation is empty, or nil before generation.
+    @Published public var emptyStateGreeting: String? = nil
+    /// True while a greeting is being streamed from the daemon.
+    @Published public var isGeneratingGreeting: Bool = false
+    /// The in-flight greeting streaming task, stored for cancellation.
+    private var greetingTask: Task<Void, Never>?
+
+    private static let fallbackGreetings = [
+        "What are we working on?",
+        "I'm here whenever you need me.",
+        "What's on your mind?",
+        "Let's make something happen.",
+        "Ready when you are.",
+    ]
 
     /// Whether there are more messages above the current display window.
     /// True when either:
@@ -1170,6 +1197,43 @@ public final class ChatViewModel: ObservableObject {
         btwLoading = false
     }
 
+    // MARK: - Empty-State Greeting Generation
+
+    /// Stream a short, personality-matched greeting from the daemon for the empty conversation state.
+    /// Each call cancels any in-flight generation and starts fresh. On error, falls back to a
+    /// random default greeting so the UI always receives a value.
+    public func generateGreeting() {
+        greetingTask?.cancel()
+        emptyStateGreeting = nil
+        isGeneratingGreeting = true
+
+        greetingTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let key = "greeting-\(UUID().uuidString)"
+            var result = ""
+            do {
+                let stream = self.daemonClient.sendBtwMessage(
+                    content: "Generate a short, casual greeting for when the user opens a new conversation (under 8 words, like \"Ready when you are.\" or \"What's on your mind?\"). Match your personality. Output ONLY the greeting, nothing else.",
+                    conversationKey: key
+                )
+                for try await delta in stream {
+                    guard !Task.isCancelled else { return }
+                    result += delta
+                }
+                guard !Task.isCancelled else { return }
+                self.emptyStateGreeting = result.isEmpty
+                    ? Self.fallbackGreetings.randomElement()!
+                    : result
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.emptyStateGreeting = Self.fallbackGreetings.randomElement()!
+            }
+            self.isGeneratingGreeting = false
+        }
+    }
+
     private func bootstrapSession(userMessage: String?, attachments: [UserMessageAttachment]?) {
         // Only set sending/thinking indicators when there's an actual user
         // message; message-less session creates (e.g. private thread
@@ -1214,7 +1278,7 @@ public final class ChatViewModel: ObservableObject {
 
             // Send session_create with correlation ID and thread type
             do {
-                try daemonClient.send(SessionCreateMessage(title: nil, correlationId: correlationId, threadType: self.threadType, preactivatedSkillIds: self.preactivatedSkillIds))
+                try daemonClient.send(SessionCreateMessage(title: nil, correlationId: correlationId, conversationType: self.conversationType, preactivatedSkillIds: self.preactivatedSkillIds))
                 // Clear one-shot preactivated skills so they don't leak into a
                 // later session if this bootstrap is interrupted before completion.
                 self.preactivatedSkillIds = nil
@@ -1451,10 +1515,10 @@ public final class ChatViewModel: ObservableObject {
     /// Used by private threads that need a persistent session ID right away
     /// (e.g. to store the thread in the database before the user types anything).
     /// No-op if a session already exists or a bootstrap is already in flight.
-    public func createSessionIfNeeded(threadType: String? = nil) {
+    public func createSessionIfNeeded(conversationType: String? = nil) {
         guard sessionId == nil, !isBootstrapping else { return }
-        if let threadType {
-            self.threadType = threadType
+        if let conversationType {
+            self.conversationType = conversationType
         }
         bootstrapSession(userMessage: nil, attachments: nil)
     }
@@ -1953,16 +2017,18 @@ public final class ChatViewModel: ObservableObject {
             // Preserve attachments so they are resent with the retry.
             // ChatAttachment.data may already be cleared for older messages,
             // but for a just-sent 429'd message it is still populated.
+            // Also keep file-path-based attachments even when data is empty,
+            // since the daemon can read the file from disk.
             lastFailedMessageAttachments = lastMsg.attachments.compactMap { att in
-                guard !att.data.isEmpty else { return nil }
+                guard !att.data.isEmpty || att.filePath != nil else { return nil }
                 return UserMessageAttachment(
                     id: att.id,
                     filename: att.filename,
                     mimeType: att.mimeType,
                     data: att.data,
                     extractedText: nil,
-                    sizeBytes: nil,
-                    thumbnailData: nil,
+                    sizeBytes: att.sizeBytes,
+                    thumbnailData: att.thumbnailData?.base64EncodedString(),
                     filePath: att.filePath
                 )
             }
@@ -1991,6 +2057,17 @@ public final class ChatViewModel: ObservableObject {
     /// Whether the current error is a secret-ingress block that can be bypassed.
     public var isSecretBlockError: Bool {
         secretBlockedMessageText != nil
+    }
+
+    /// Forward retry-related state to `errorManager` so `@ObservedObject` views
+    /// (e.g. `ErrorToastOverlay`) receive reactive updates. Called automatically
+    /// via `didSet` on `lastFailedMessageText`, `lastFailedSendError`, and
+    /// `secretBlockedMessageText`.
+    private func syncRetryStateToErrorManager() {
+        errorManager.isConnectionError = isConnectionError
+        errorManager.isSecretBlockError = isSecretBlockError
+        errorManager.isRetryableError = isRetryableError
+        errorManager.hasRetryPayload = hasRetryPayload
     }
 
     /// Resend the secret-blocked message with the bypass flag so the backend skips the check.
@@ -2145,7 +2222,7 @@ public final class ChatViewModel: ObservableObject {
         }
         // Send succeeded — update the message state
         if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
-            let isApproval = decision == "allow" || decision == "allow_10m" || decision == "allow_thread"
+            let isApproval = decision == "allow" || decision == "allow_10m" || decision == "allow_conversation"
             messages[index].confirmation?.state = isApproval ? .approved : .denied
             if isApproval {
                 messages[index].confirmation?.approvedDecision = decision
@@ -2195,7 +2272,7 @@ public final class ChatViewModel: ObservableObject {
     public func updateConfirmationState(requestId: String, decision: String) {
         if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
             switch decision {
-            case "allow", "allow_10m", "allow_thread":
+            case "allow", "allow_10m", "allow_conversation":
                 messages[index].confirmation?.state = .approved
                 messages[index].confirmation?.approvedDecision = decision
             case "deny":
@@ -2661,6 +2738,7 @@ public final class ChatViewModel: ObservableObject {
         reconnectLatchTimeoutTask?.cancel()
         reconnectDebounceTask?.cancel()
         btwTask?.cancel()
+        greetingTask?.cancel()
         memoryPressureSource?.cancel()
         if let observer = reconnectObserver {
             NotificationCenter.default.removeObserver(observer)

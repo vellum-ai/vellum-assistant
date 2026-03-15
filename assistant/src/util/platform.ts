@@ -284,21 +284,38 @@ export function isIOSPairingEnabled(): boolean {
 }
 
 /**
- * Returns the path to the platform API token file (~/.vellum/platform-token).
- * This token is the X-Session-Token used to authenticate with the Vellum
- * Platform API (e.g. assistant.vellum.ai).
+ * Returns the XDG-compliant path for the platform API token
+ * (~/.config/vellum/platform-token). This is the canonical location
+ * shared by the CLI and desktop app.
+ */
+function getXdgPlatformTokenPath(): string {
+  const configHome =
+    process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
+  return join(configHome, "vellum", "platform-token");
+}
+
+/**
+ * Returns the instance-scoped path to the platform API token file
+ * (~/.vellum/platform-token). Used as a fallback for local assistant
+ * instances that may have the token written here by the desktop app.
  */
 export function getPlatformTokenPath(): string {
   return join(getRootDir(), "platform-token");
 }
 
 /**
- * Read the platform API token from disk. Returns null if the file
- * doesn't exist or can't be read.
+ * Read the platform API token from disk. Checks the instance-scoped
+ * path first, then falls back to the XDG-compliant shared location.
+ * Returns null if neither file exists or can be read.
  */
 export function readPlatformToken(): string | null {
   try {
     return readFileSync(getPlatformTokenPath(), "utf-8").trim();
+  } catch {
+    // Instance-scoped token not found; try XDG path
+  }
+  try {
+    return readFileSync(getXdgPlatformTokenPath(), "utf-8").trim();
   } catch {
     return null;
   }
@@ -321,14 +338,30 @@ export function getHistoryPath(): string {
 }
 
 export function getHooksDir(): string {
-  return getWorkspaceHooksDir();
+  return join(getRootDir(), "hooks");
 }
 
+/**
+ * Returns ~/.vellum/signals — the directory for IPC signal files.
+ *
+ * Placed under getRootDir() (not getWorkspaceDir()) so that sandboxed tools
+ * — whose write access is limited to the workspace directory — cannot write
+ * signal files to bypass guardian authorization.
+ */
+export function getSignalsDir(): string {
+  return join(getRootDir(), "signals");
+}
 // --- Workspace path primitives ---
 // These will become the canonical paths after workspace migration.
 // Currently not used by call-sites; wired in later PRs.
 
-/** Returns ~/.vellum/workspace — the workspace root for user-facing state. */
+/**
+ * Returns ~/.vellum/workspace — the workspace root for user-facing state.
+ *
+ * WARNING: The entire workspace directory is included in diagnostic log exports
+ * ("Send logs to Vellum"). Do not store secrets, API keys, or sensitive
+ * credentials here — use the credential store or ~/.vellum/protected/ instead.
+ */
 export function getWorkspaceDir(): string {
   return join(getRootDir(), "workspace");
 }
@@ -363,7 +396,7 @@ export function ensureDataDir(): void {
     join(root, "protected"),
     // Workspace dirs
     workspace,
-    join(workspace, "hooks"),
+    join(root, "hooks"),
     join(workspace, "skills"),
     join(workspace, "embedding-models"),
     // Data sub-dirs under workspace

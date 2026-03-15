@@ -12,52 +12,51 @@ graph TB
         INDEX["Memory Indexer"]
         SEGMENT["Split into segments<br/>→ memory_segments"]
         EXTRACT_JOB["Enqueue extract_items job<br/>→ memory_jobs"]
-        CONFLICT_RESOLVE_JOB["Enqueue resolve_pending_conflicts_for_message<br/>(dedupe by type+message+scope)<br/>→ memory_jobs"]
         SUMMARY_JOB["Enqueue build_conversation_summary<br/>→ memory_jobs"]
     end
 
     subgraph "Background Worker (polls every 1.5s)"
         WORKER["MemoryJobsWorker"]
-        EMBED_SEG["embed_segment<br/>→ memory_embeddings"]
-        EMBED_ITEM["embed_item<br/>→ memory_embeddings"]
-        EMBED_SUM["embed_summary<br/>→ memory_embeddings"]
-        EXTRACT["extract_items<br/>→ memory_items +<br/>memory_item_sources"]
-        CHECK_CONTRA["check_contradictions<br/>→ contradiction/update merge OR<br/>pending_clarification + memory_item_conflicts"]
-        RESOLVE_PENDING["resolve_pending_conflicts_for_message<br/>message-scoped clarification resolution<br/>→ resolved conflict + item status updates"]
-        CLEAN_CONFLICTS["cleanup_resolved_conflicts<br/>delete resolved conflict rows<br/>older than retention window"]
-        CLEAN_SUPERSEDED["cleanup_stale_superseded_items<br/>delete stale superseded items<br/>and item embedding rows"]
-        EXTRACT_ENTITIES["extract_entities<br/>→ memory_entities +<br/>memory_item_entities +<br/>memory_entity_relations"]
-        BACKFILL_REL["backfill_entity_relations<br/>checkpointed message scan<br/>→ enqueue extract_entities"]
+        EMBED_SEG["embed_segment<br/>→ Qdrant (dense + sparse)"]
+        EMBED_ITEM["embed_item<br/>→ Qdrant (dense + sparse)"]
+        EMBED_SUM["embed_summary<br/>→ Qdrant (dense + sparse)"]
+        EXTRACT["extract_items<br/>→ memory_items +<br/>memory_item_sources<br/>(LLM-directed supersession)"]
+        CLEAN_SUPERSEDED["cleanup_stale_superseded_items<br/>delete stale superseded items<br/>and Qdrant vectors"]
         BUILD_SUM["build_conversation_summary<br/>→ memory_summaries"]
-        WEEKLY["refresh_weekly_summary<br/>→ memory_summaries"]
     end
 
-    subgraph "Embedding Providers"
+    subgraph "Embedding Provider Selection (selectEmbeddingBackend)"
+        PROVIDER_SELECT["Provider Selection<br/>auto: local → OpenAI → Gemini → Ollama<br/>or explicit config override"]
         LOCAL_EMB["Local (ONNX)<br/>bge-small-en-v1.5"]
         OAI_EMB["OpenAI<br/>text-embedding-3-small"]
         GEM_EMB["Gemini<br/>gemini-embedding-001"]
         OLL_EMB["Ollama<br/>nomic-embed-text"]
     end
 
+    subgraph "Sparse Embedding (in-process)"
+        SPARSE_GEN["generateSparseEmbedding()<br/>TF-IDF, FNV-1a hashing<br/>(no external calls)"]
+    end
+
+    subgraph "Qdrant Vector Store"
+        DENSE["Named vector: dense<br/>(cosine similarity)"]
+        SPARSE["Named vector: sparse<br/>(TF-IDF based)"]
+        RRF["Query API:<br/>Reciprocal Rank Fusion"]
+    end
+
     subgraph "Read Path (Memory Recall)"
+        NEEDS_MEM["needsMemory gate<br/>(skip short/empty/tool-result turns)"]
         QUERY["Recall Query Builder<br/>User request + compacted context summary"]
-        CONFLICT_GATE["Soft Conflict Gate<br/>dismiss non-actionable conflicts (kind + statement + provenance policy)<br/>attempt internal resolution from user turn<br/>relevance-based; never produces user-facing prompts"]
-        PROFILE_BUILD["Dynamic Profile Compiler<br/>active trusted profile memories<br/>user_confirmed > user_reported > assistant_inferred"]
-        PROFILE_INJECT["Inject profile context block<br/>into runtime user tail<br/>(strict token cap)"]
         BUDGET["Dynamic Recall Budget<br/>computeRecallBudget()<br/>from prompt headroom"]
-        LEX["Lexical Search<br/>FTS5 on memory_segment_fts"]
-        SEM["Semantic Search<br/>Qdrant cosine similarity"]
-        ENTITY_SEARCH["Entity Search<br/>Seed name/alias matching"]
-        REL_EXPAND["Relation Expansion<br/>1-hop via memory_entity_relations<br/>→ neighbor item links"]
-        DIRECT["Direct Item Search<br/>LIKE on subject/statement"]
-        SCOPE["Scope Filter<br/>scope_id filtering<br/>(strict | global_fallback)<br/>Private threads: own scope + 'default'"]
-        MERGE["RRF Merge<br/>+ Trust Weighting<br/>+ Freshness Decay"]
-        CAPS["Source Caps<br/>bound per-source candidate count"]
-        RERANK["LLM Re-ranking<br/>(Haiku, optional)"]
-        TRIM["Token Trim<br/>maxInjectTokens override<br/>or static fallback"]
-        INJECT["Attention-ordered<br/>Injection into prompt"]
-        TELEMETRY["Emit memory_recalled<br/>hits + relation counters +<br/>ranking diagnostics"]
-        STRIP_PROFILE["Strip injected dynamic profile block<br/>before persisting conversation history"]
+        EMBED_Q["Generate dense + sparse<br/>query embeddings"]
+        HYBRID["Hybrid Search<br/>dense + sparse RRF on Qdrant"]
+        RECENCY["Recency Search<br/>conversation-scoped, DB only"]
+        MERGE["Merge + Deduplicate<br/>weighted score combination"]
+        SCOPE["Scope Filter<br/>scope_id filtering<br/>(strict | global_fallback)<br/>Private conversations: own scope + 'default'"]
+        TIER["Tier Classification<br/>score > 0.8 → tier 1<br/>score > 0.6 → tier 2<br/>below → dropped"]
+        STALE["Staleness Computation<br/>kind-specific lifetimes<br/>+ reinforcement from<br/>source conversation count"]
+        DEMOTE["Stale Demotion<br/>very_stale tier 1 → tier 2"]
+        INJECT["Two-Layer XML Injection<br/>budget-aware rendering"]
+        TELEMETRY["Emit memory_recalled<br/>tier counts + hybrid search ms +<br/>staleness stats"]
     end
 
     subgraph "Context Window Management"
@@ -83,49 +82,47 @@ graph TB
     STORE --> INDEX
     INDEX --> SEGMENT
     INDEX --> EXTRACT_JOB
-    INDEX --> CONFLICT_RESOLVE_JOB
     INDEX --> SUMMARY_JOB
 
     WORKER --> EMBED_SEG
     WORKER --> EMBED_ITEM
     WORKER --> EMBED_SUM
     WORKER --> EXTRACT
-    WORKER --> CHECK_CONTRA
-    WORKER --> RESOLVE_PENDING
-    WORKER --> CLEAN_CONFLICTS
     WORKER --> CLEAN_SUPERSEDED
-    WORKER --> EXTRACT_ENTITIES
-    WORKER --> BACKFILL_REL
     WORKER --> BUILD_SUM
-    WORKER --> WEEKLY
-    EXTRACT --> CHECK_CONTRA
-    EXTRACT --> EXTRACT_ENTITIES
 
-    EMBED_SEG --> OAI_EMB
-    EMBED_SEG --> GEM_EMB
-    EMBED_SEG --> OLL_EMB
+    EMBED_SEG --> PROVIDER_SELECT
+    EMBED_ITEM --> PROVIDER_SELECT
+    EMBED_SUM --> PROVIDER_SELECT
+    PROVIDER_SELECT --> LOCAL_EMB
+    PROVIDER_SELECT --> OAI_EMB
+    PROVIDER_SELECT --> GEM_EMB
+    PROVIDER_SELECT --> OLL_EMB
+    LOCAL_EMB --> DENSE
+    OAI_EMB --> DENSE
+    GEM_EMB --> DENSE
+    OLL_EMB --> DENSE
+    EMBED_SEG --> SPARSE_GEN
+    EMBED_ITEM --> SPARSE_GEN
+    EMBED_SUM --> SPARSE_GEN
+    SPARSE_GEN --> SPARSE
 
-    QUERY --> CONFLICT_GATE
-    CONFLICT_GATE --> PROFILE_BUILD
-    PROFILE_BUILD --> PROFILE_INJECT
-    CONFLICT_GATE --> LEX
-    CONFLICT_GATE --> SEM
-    CONFLICT_GATE --> ENTITY_SEARCH
-    CONFLICT_GATE --> DIRECT
-    LEX --> SCOPE
-    SEM --> SCOPE
-    ENTITY_SEARCH --> REL_EXPAND
-    REL_EXPAND --> SCOPE
-    DIRECT --> SCOPE
+    NEEDS_MEM --> QUERY
+    QUERY --> EMBED_Q
+    EMBED_Q --> PROVIDER_SELECT
+    EMBED_Q --> SPARSE_GEN
+    EMBED_Q --> HYBRID
+    HYBRID --> RRF
+    QUERY --> RECENCY
+    HYBRID --> SCOPE
+    RECENCY --> SCOPE
     SCOPE --> MERGE
-    MERGE --> CAPS
-    CAPS --> RERANK
-    RERANK --> TRIM
-    BUDGET --> TRIM
-    TRIM --> INJECT
-    PROFILE_INJECT --> INJECT
+    MERGE --> TIER
+    TIER --> STALE
+    STALE --> DEMOTE
+    BUDGET --> INJECT
+    DEMOTE --> INJECT
     INJECT --> TELEMETRY
-    INJECT --> STRIP_PROFILE
 
     CTX --> COMPACT
     COMPACT --> GUARDS
@@ -158,124 +155,191 @@ The key distinction: normal compaction is a cost-optimized background process th
 
 ### Memory Retrieval Config Knobs (Defaults)
 
-| Config key                                                |                                                           Default | Purpose                                                                                                            |
-| --------------------------------------------------------- | ----------------------------------------------------------------: | ------------------------------------------------------------------------------------------------------------------ |
-| `memory.retrieval.dynamicBudget.enabled`                  |                                                            `true` | Toggle per-turn recall budget calculation from live prompt headroom.                                               |
-| `memory.retrieval.dynamicBudget.minInjectTokens`          |                                                            `1200` | Lower clamp for computed recall injection budget.                                                                  |
-| `memory.retrieval.dynamicBudget.maxInjectTokens`          |                                                           `10000` | Upper clamp for computed recall injection budget.                                                                  |
-| `memory.retrieval.dynamicBudget.targetHeadroomTokens`     |                                                           `10000` | Reserved headroom to keep free for response generation/tool traces.                                                |
-| `memory.entity.extractRelations.enabled`                  |                                                            `true` | Enable relation edge extraction and persistence in `memory_entity_relations`.                                      |
-| `memory.entity.extractRelations.backfillBatchSize`        |                                                             `200` | Batch size for checkpointed `backfill_entity_relations` jobs.                                                      |
-| `memory.entity.relationRetrieval.enabled`                 |                                                            `true` | Enable one-hop relation expansion from matched seed entities at recall time.                                       |
-| `memory.entity.relationRetrieval.maxSeedEntities`         |                                                               `8` | Maximum matched seed entities from the query.                                                                      |
-| `memory.entity.relationRetrieval.maxNeighborEntities`     |                                                              `20` | Maximum unique neighbor entities expanded from relation edges.                                                     |
-| `memory.entity.relationRetrieval.maxEdges`                |                                                              `40` | Maximum relation edges traversed during expansion.                                                                 |
-| `memory.entity.relationRetrieval.neighborScoreMultiplier` |                                                             `0.7` | Downweight multiplier for relation-expanded candidates vs direct entity hits.                                      |
-| `memory.conflicts.enabled`                                |                                                            `true` | Enable soft conflict gate for unresolved `memory_item_conflicts`.                                                  |
-| `memory.conflicts.resolverLlmTimeoutMs`                   |                                                           `12000` | Timeout bound for clarification resolver LLM fallback.                                                             |
-| `memory.conflicts.relevanceThreshold`                     |                                                             `0.3` | Similarity threshold for deciding whether a pending conflict is relevant to the current request.                   |
-| `memory.conflicts.gateMode`                               |                                                          `'soft'` | Conflict gate strategy. Currently only `'soft'` is supported (resolves conflicts internally without user prompts). |
-| `memory.conflicts.conflictableKinds`                      | `['preference', 'profile', 'constraint', 'instruction', 'style']` | Memory item kinds eligible for conflict detection. Items with kinds outside this list are auto-dismissed.          |
-| `memory.profile.enabled`                                  |                                                            `true` | Enable dynamic profile compilation from active trusted profile/preference/constraint/instruction memories.         |
-| `memory.profile.maxInjectTokens`                          |                                                             `800` | Hard token cap enforced by `ProfileCompiler` when generating the runtime profile block.                            |
+| Config key                                            |                   Default | Purpose                                                              |
+| ----------------------------------------------------- | ------------------------: | -------------------------------------------------------------------- |
+| `memory.retrieval.dynamicBudget.enabled`              |                    `true` | Toggle per-turn recall budget calculation from live prompt headroom. |
+| `memory.retrieval.dynamicBudget.minInjectTokens`      |                    `1200` | Lower clamp for computed recall injection budget.                    |
+| `memory.retrieval.dynamicBudget.maxInjectTokens`      |                   `10000` | Upper clamp for computed recall injection budget.                    |
+| `memory.retrieval.dynamicBudget.targetHeadroomTokens` |                   `10000` | Reserved headroom to keep free for response generation/tool traces.  |
+| `memory.retrieval.maxInjectTokens`                    |                   `10000` | Static fallback when dynamic budget is disabled.                     |
+| `memory.retrieval.scopePolicy`                        | `'allow_global_fallback'` | Scope filtering strategy: `'strict'` or `'allow_global_fallback'`.   |
 
 ### Memory Recall Debugging Playbook
 
 1. Run a recall-heavy turn and inspect `memory_recalled` events in the client trace stream.
 2. Validate baseline counters:
-   - `lexicalHits`, `semanticHits`, `recencyHits`, `entityHits`
-   - `relationSeedEntityCount`, `relationTraversedEdgeCount`, `relationNeighborEntityCount`, `relationExpandedItemCount`
+   - `semanticHits`, `recencyHits`
+   - `tier1Count`, `tier2Count`
+   - `hybridSearchLatencyMs`
    - `mergedCount`, `selectedCount`, `injectedTokens`, `latencyMs`
 3. Cross-check context pressure with `context_compacted` events:
    - `previousEstimatedInputTokens` vs `estimatedInputTokens`
    - `summaryCalls`, `compactedMessages`
 4. If dynamic budget is enabled, verify `injectedTokens` stays within the configured min/max clamps for `dynamicBudget`.
-5. Run `bun run src/index.ts memory status` and confirm cleanup pressure signals:
-   - `Pending conflicts`, `Resolved conflicts`, `Oldest pending conflict age`
-   - job queue counts for `cleanup_resolved_conflicts` / `cleanup_stale_superseded_items`
-6. Before tuning ranking or relation settings, run:
+5. Inspect staleness distribution in debug logs:
+   - `fresh`, `aging`, `stale`, `very_stale` counts
+   - Check for unexpected tier demotions (very_stale tier 1 items demoted to tier 2)
+6. Before tuning ranking settings, run:
    - `cd assistant && bun test src/__tests__/context-memory-e2e.test.ts`
    - `cd assistant && bun test src/__tests__/memory-context-benchmark.benchmark.test.ts`
    - `cd assistant && bun test src/__tests__/memory-recall-quality.test.ts`
-   - `cd assistant && bun test src/__tests__/memory-regressions.test.ts -t "relation"`
 7. After tuning, rerun the same suite and compare:
-   - relation counters (coverage)
+   - tier counts (coverage)
    - selected count / injected tokens (budget safety)
    - latency and ordering regressions via top candidate snapshots
 
-### Conflict Lifecycle and Profile Hygiene
+### Write Path — Extraction and Supersession
 
 ```mermaid
 stateDiagram-v2
-    [*] --> ActiveItems : extract_items/check_contradictions
-    ActiveItems --> PendingConflict : ambiguous_contradiction\n(candidate -> pending_clarification)
-    PendingConflict --> PendingConflict : internal evaluation\n(relevance check, no user prompt)
-    PendingConflict --> Dismissed : non-actionable\n(kind policy + transient statement filter)
-    PendingConflict --> ResolvedKeepExisting : clarification resolver\n+ applyConflictResolution
-    PendingConflict --> ResolvedKeepCandidate : clarification resolver\n+ applyConflictResolution
-    PendingConflict --> ResolvedMerge : clarification resolver\n+ applyConflictResolution
-    ResolvedKeepExisting --> CleanupConflicts : cleanup_resolved_conflicts
-    ResolvedKeepCandidate --> CleanupConflicts : cleanup_resolved_conflicts
-    ResolvedMerge --> CleanupConflicts : cleanup_resolved_conflicts
-    ResolvedKeepExisting --> SupersededItems : candidate superseded
-    ResolvedMerge --> SupersededItems : merged-from candidate superseded
-    SupersededItems --> CleanupItems : cleanup_stale_superseded_items
+    [*] --> ActiveItem : extract_items\n(LLM or pattern-based)
+    ActiveItem --> Superseded : explicit supersession\n(overrideConfidence = "explicit"\n+ supersedes = oldItemId)
+    ActiveItem --> ActiveItem : tentative/inferred override\n(both items coexist)
+    ActiveItem --> Superseded : subject-match fallback\n(same kind + subject,\nno LLM-directed supersession)
+    Superseded --> Cleanup : cleanup_stale_superseded_items\n(delete from DB + Qdrant)
 ```
 
-### Internal-Only Conflict Handling
+**Item extraction** uses LLM-powered extraction (with pattern-based fallback) to identify memorable information from conversation messages. Each extracted item belongs to one of six kinds:
 
-Memory conflict resolution is entirely internal and non-interruptive. The conflict gate evaluates pending conflicts on each turn, dismisses non-actionable ones (based on kind policy, statement eligibility, coherence, and provenance), and attempts resolution when user input looks like a natural clarification. At no point does the conflict system produce user-facing clarification prompts, inject conflict instructions into the assistant's response, or block the user's request. The user is never aware that a conflict exists; the runtime response path always continues answering the user's actual request. This invariant is enforced across the conflict gate (`session-conflict-gate.ts`), session memory (`session-memory.ts`), session agent loop (`session-agent-loop.ts`), and runtime assembly (`session-runtime-assembly.ts`).
+| Kind         | Description                                       | Base Lifetime |
+| ------------ | ------------------------------------------------- | ------------- |
+| `identity`   | Personal info, facts, relationships               | 6 months      |
+| `preference` | Likes, dislikes, preferred approaches/tools       | 3 months      |
+| `constraint` | Rules, requirements, directives                   | 1 month       |
+| `project`    | Project details, repos, tech stacks, action items | 2 weeks       |
+| `decision`   | Choices made, approaches selected                 | 2 weeks       |
+| `event`      | Deadlines, milestones, meetings, dates            | 3 days        |
 
-Runtime profile flow (per turn):
+**Supersession chains** replace the old conflict resolution system. When the LLM extracts a new item that updates an existing one, it sets `supersedes` to the old item's ID and `overrideConfidence` to one of three levels:
 
-1. `ProfileCompiler` builds a trusted profile block from active `profile` / `preference` / `constraint` / `instruction` items under strict token cap.
-2. Session injects that block only into runtime prompt state.
-3. Session strips the injected profile block before persisting conversation history, so dynamic profile context never pollutes durable message rows.
+- `explicit` — Clear override signal (e.g. "I changed my mind about X"). The old item is marked `superseded` and removed from Qdrant.
+- `tentative` — Ambiguous; both items coexist as active.
+- `inferred` — Weak signal; both items coexist (logged for observability).
 
-### Provenance-Aware Memory Pipeline
+A fallback subject-match supersession also runs for items without LLM-directed supersession: same kind + same subject = old item superseded.
 
-Every persisted message carries provenance metadata (`provenanceTrustClass`, `provenanceSourceChannel`, etc.) derived from the `TrustContext` resolved by `trust-context-resolver.ts`. This metadata records the trust class of the actor who produced the message and through which channel, enabling downstream trust decisions without re-resolving identity at read time.
+**Semantic density gating** skips extraction for messages that are too short, consist of low-value filler (e.g. "ok", "thanks", "got it"), or have fewer than 3 words.
+
+### Read Path — Hybrid Recall Pipeline
+
+The recall pipeline runs on every turn that passes the `needsMemory` gate (skips empty, very short, and tool-result-only turns). The pipeline is orchestrated by `buildMemoryRecall()` in `retriever.ts`:
+
+1. **Query construction** (`query-builder.ts`): Combines the user request text (up to 2000 chars) with any in-context session summary (up to 1200 chars).
+
+2. **Dense + sparse embedding generation**: The query is embedded using the configured embedding provider (auto-selection order: local → OpenAI → Gemini → Ollama). A TF-IDF sparse embedding is also generated in-process using FNV-1a hashing to a 30K vocabulary with sub-linear TF weighting and L2 normalization.
+
+3. **Hybrid search on Qdrant**: When both dense and sparse vectors are available, the pipeline uses Qdrant's query API with two prefetch stages (dense and sparse, each fetching up to 40 candidates) fused via Reciprocal Rank Fusion (RRF). Falls back to dense-only search when sparse vectors are unavailable.
+
+4. **Recency supplement**: A DB-only recency search fetches the 5 most recent segments from the current conversation, providing conversation-local context even when vector search misses.
+
+5. **Merge and deduplicate**: Hybrid and recency candidates are merged by key. Duplicate entries keep the highest scores from each source. A weighted final score is computed: `semantic * 0.7 + recency * 0.2 + confidence * 0.1`.
+
+6. **Tier classification** (`tier-classifier.ts`): Score-based, deterministic classification:
+   - `finalScore > 0.8` → **tier 1** (high relevance)
+   - `finalScore > 0.6` → **tier 2** (possibly relevant)
+   - Below 0.6 → dropped
+
+7. **Staleness computation** (`staleness.ts`): Each item candidate is annotated with a staleness level based on its age relative to a kind-specific base lifetime (see table above). The effective lifetime is extended by a reinforcement factor: `baseLifetime * (1 + 0.3 * (sourceConversationCount - 1))`, so items mentioned across multiple conversations age more slowly. Staleness levels:
+   - `ratio < 0.5` → `fresh`
+   - `ratio <= 1.0` → `aging`
+   - `ratio <= 2.0` → `stale`
+   - `ratio > 2.0` → `very_stale`
+
+8. **Stale demotion**: `very_stale` tier 1 candidates are demoted to tier 2, preventing old information from occupying prime injection space.
+
+9. **Two-layer XML injection** (`formatting.ts`): Budget-aware rendering into four XML sections:
+
+   ```xml
+   <memory_context>
+
+   <user_identity>
+   <!-- identity-kind tier 1 items (plain statements) -->
+   </user_identity>
+
+   <relevant_context>
+   <!-- tier 1 non-identity/non-preference items (episode-wrapped with source attribution) -->
+   </relevant_context>
+
+   <applicable_preferences>
+   <!-- preference/constraint tier 1 items (plain statements) -->
+   </applicable_preferences>
+
+   <possibly_relevant>
+   <!-- tier 2 items (episode-wrapped with staleness annotations) -->
+   </possibly_relevant>
+
+   </memory_context>
+   ```
+
+   Empty sections are omitted. Each section has a per-item token budget (150 tokens for tier 1, 100 for tier 2). Tier 1 sections consume budget first; tier 2 uses the remainder.
+
+10. **Injection strategy**: The rendered `<memory_context>` block is injected as a separate user + assistant acknowledgment message pair before the last user message (`injectMemoryRecallAsSeparateMessage`). This separates memory context from the user's actual query.
+
+### Internal-Only Trust Gating
+
+**Provenance-aware pipeline**: Every persisted message carries provenance metadata (`provenanceTrustClass`, `provenanceSourceChannel`, etc.) derived from the `TrustContext` resolved by `trust-context-resolver.ts`.
 
 Two trust gates enforce trust-class-based access control over the memory pipeline:
 
-- **Write gate** (`indexer.ts`): The `extract_items` and `resolve_conflicts` jobs only run for messages from trusted actors (guardian or undefined provenance). Messages from untrusted actors (`trusted_contact`, `unknown`) are still segmented and embedded — so they appear in conversation context — but no profile extraction or conflict resolution is triggered. This prevents untrusted channels from injecting or mutating long-term memory items.
+- **Write gate** (`indexer.ts`): The `extract_items` job only runs for messages from trusted actors (guardian or undefined provenance). Messages from untrusted actors (`trusted_contact`, `unknown`) are still segmented and embedded — so they appear in conversation context — but no item extraction is triggered. This prevents untrusted channels from injecting or mutating long-term memory items.
 
-- **Read gate** (`session-memory.ts`): When the current session's actor is untrusted, the memory recall pipeline returns a no-op context — no recall injection, no dynamic profile, no conflict resolution. This ensures untrusted actors cannot surface or exploit previously extracted memory.
+- **Read gate** (`session-memory.ts`): When the current session's actor is untrusted, the memory recall pipeline returns a no-op context — no recall injection. This ensures untrusted actors cannot surface or exploit previously extracted memory.
 
 Trust policy is **cross-channel and trust-class-based**: decisions use `trustContext.trustClass`, not the channel string. Desktop sessions default to `trustClass: 'guardian'`. External channels (Telegram, WhatsApp, phone) provide explicit trust context via the resolver. Messages without provenance metadata are treated as trusted (guardian); all new messages carry provenance.
 
+### Embedding Backend Selection
+
+The embedding backend is selected based on `memory.embeddings.provider` config:
+
+- `auto` (default): Tries local → OpenAI → Gemini → Ollama, using the first available.
+- `local`: ONNX-based local model (bge-small-en-v1.5). Lazy-loaded to avoid crashing in compiled binaries where onnxruntime-node is unavailable.
+- `openai`: OpenAI text-embedding-3-small. Requires an OpenAI API key in secure storage.
+- `gemini`: Gemini gemini-embedding-001. Requires a Gemini API key in secure storage. Only backend supporting multimodal embeddings (images, audio, video).
+- `ollama`: Ollama nomic-embed-text. Requires Ollama to be configured.
+
+An in-memory LRU vector cache (32 MB cap, keyed by `sha256(provider + model + content)`) avoids redundant embedding calls for identical content. Sparse embeddings are generated in-process (no external calls).
+
+### Graceful Degradation
+
+When the embedding backend or Qdrant is unavailable:
+
+- A **circuit breaker** on Qdrant (`qdrant-circuit-breaker.ts`) tracks consecutive failures and short-circuits search calls when the breaker is open.
+- If embedding generation fails and `memory.embeddings.required` is `true`, recall returns an empty result with a degradation status (`embedding_generation_failed` or `embedding_provider_down`).
+- If embeddings are optional (default), the pipeline falls back to recency-only search.
+- Degradation status is reported to clients via `memory_status` events.
+
 ---
 
-## Private Threads — Isolated Memory and Strict Side-Effect Controls
+## Private Conversations — Isolated Memory and Strict Side-Effect Controls
 
-Private threads provide per-conversation memory isolation and stricter tool execution controls. When a conversation is created with `threadType: 'private'`, the daemon assigns it a unique memory scope and enforces additional safeguards to prevent unintended side effects.
+Private conversations provide per-conversation memory isolation and stricter tool execution controls. When a conversation is created with `conversationType: 'private'`, the daemon assigns it a unique memory scope and enforces additional safeguards to prevent unintended side effects.
 
 ### Schema Columns
 
 Two columns on the `conversations` table drive the feature:
 
-| Column            | Type                               | Values                                                                   | Purpose                                                                                                                        |
-| ----------------- | ---------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| `thread_type`     | `text NOT NULL DEFAULT 'standard'` | `'standard'` or `'private'`                                              | Determines whether the conversation uses shared or isolated memory and permission policies                                     |
-| `memory_scope_id` | `text NOT NULL DEFAULT 'default'`  | `'default'` for standard threads; `'private:<uuid>'` for private threads | Scopes all memory writes (items, segments) to this namespace; embeddings are isolated indirectly via their parent item/segment |
+| Column              | Type                               | Values                                                                               | Purpose                                                                                                                        |
+| ------------------- | ---------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `conversation_type` | `text NOT NULL DEFAULT 'standard'` | `'standard'` or `'private'`                                                          | Determines whether the conversation uses shared or isolated memory and permission policies                                     |
+| `memory_scope_id`   | `text NOT NULL DEFAULT 'default'`  | `'default'` for standard conversations; `'private:<uuid>'` for private conversations | Scopes all memory writes (items, segments) to this namespace; embeddings are isolated indirectly via their parent item/segment |
 
 ### Memory Isolation
 
 ```mermaid
 graph TB
-    subgraph "Standard Thread"
+    subgraph "Standard Conversation"
         STD_WRITE["Memory writes<br/>→ scope_id = 'default'"]
         STD_READ["Memory recall<br/>reads scope_id = 'default' only"]
     end
 
-    subgraph "Private Thread"
+    subgraph "Private Conversation"
         PVT_WRITE["Memory writes<br/>→ scope_id = 'private:&lt;uuid&gt;'"]
         PVT_READ["Memory recall<br/>reads scope_id = 'private:&lt;uuid&gt;'<br/>+ fallback to 'default'"]
     end
 
     subgraph "Shared Memory Pool"
-        DEFAULT_SCOPE["'default' scope<br/>(all standard thread memories)"]
-        PRIVATE_SCOPE["'private:&lt;uuid&gt;' scope<br/>(isolated to one thread)"]
+        DEFAULT_SCOPE["'default' scope<br/>(all standard conversation memories)"]
+        PRIVATE_SCOPE["'private:&lt;uuid&gt;' scope<br/>(isolated to one conversation)"]
     end
 
     STD_WRITE --> DEFAULT_SCOPE
@@ -285,56 +349,53 @@ graph TB
     PVT_READ -.->|"fallback"| DEFAULT_SCOPE
 ```
 
-**Write isolation**: All memory items and segments created during a private thread are tagged with its `memory_scope_id` (e.g. `'private:abc123'`). Embeddings are isolated indirectly — they reference scoped items/segments via `target_type`/`target_id`, so scope filtering at the item/segment level cascades to their embeddings. All scoped data is invisible to standard threads and other private threads.
+**Write isolation**: All memory items and segments created during a private conversation are tagged with its `memory_scope_id` (e.g. `'private:abc123'`). Embeddings are isolated indirectly — they reference scoped items/segments via `target_type`/`target_id`, so scope filtering at the item/segment level cascades to their embeddings. All scoped data is invisible to standard conversations and other private conversations.
 
-**Read fallback**: When recalling memories for a private thread, the retriever queries both the thread's own scope and the `'default'` scope. This ensures the assistant still has access to general knowledge (user profile, preferences, facts) learned in standard threads, while private-thread-specific memories take precedence in ranking. The fallback is implemented via `ScopePolicyOverride` with `fallbackToDefault: true`, which overrides the global scope policy on a per-call basis.
-
-**Profile compilation**: The `ProfileCompiler` also respects this dual-scope behavior for private threads — it includes profile/preference/constraint items from both the private scope and the default scope when building the runtime profile block.
+**Read fallback**: When recalling memories for a private conversation, the retriever queries both the conversation's own scope and the `'default'` scope. This ensures the assistant still has access to general knowledge (user profile, preferences, facts) learned in standard conversations, while private-conversation-specific memories take precedence in ranking. The fallback is implemented via `ScopePolicyOverride` with `fallbackToDefault: true`, which overrides the global scope policy on a per-call basis.
 
 ### SessionMemoryPolicy
 
-The daemon derives a `SessionMemoryPolicy` from the conversation's `thread_type` and `memory_scope_id` when creating or restoring a session:
+The daemon derives a `SessionMemoryPolicy` from the conversation's `conversation_type` and `memory_scope_id` when creating or restoring a session:
 
 ```typescript
 interface SessionMemoryPolicy {
   scopeId: string; // 'default' or 'private:<uuid>'
-  includeDefaultFallback: boolean; // true for private threads
-  strictSideEffects: boolean; // true for private threads
+  includeDefaultFallback: boolean; // true for private conversations
+  strictSideEffects: boolean; // true for private conversations
 }
 ```
 
-Standard threads use `DEFAULT_MEMORY_POLICY` (`{ scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false }`). Private threads set all three fields: the private scope ID, default-fallback enabled, and strict side-effect controls enabled.
+Standard conversations use `DEFAULT_MEMORY_POLICY` (`{ scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false }`). Private conversations set all three fields: the private scope ID, default-fallback enabled, and strict side-effect controls enabled.
 
 ### Strict Side-Effect Prompt Gate
 
-When `strictSideEffects` is `true` (all private threads), the `ToolExecutor` promotes any `allow` permission decision to `prompt` for side-effect tools — even when a trust rule would normally auto-allow the invocation. Deny decisions are preserved unchanged; only `allow` -> `prompt` promotion occurs.
+When `strictSideEffects` is `true` (all private conversations), the `ToolExecutor` promotes any `allow` permission decision to `prompt` for side-effect tools — even when a trust rule would normally auto-allow the invocation. Deny decisions are preserved unchanged; only `allow` -> `prompt` promotion occurs.
 
 ```mermaid
 graph TB
-    TOOL["Tool invocation in<br/>private thread"] --> PERM["Normal permission check<br/>(trust rules + risk level)"]
+    TOOL["Tool invocation in<br/>private conversation"] --> PERM["Normal permission check<br/>(trust rules + risk level)"]
     PERM --> DECISION{"Decision?"}
     DECISION -->|"deny"| DENY["Blocked<br/>(unchanged)"]
     DECISION -->|"prompt"| PROMPT["Prompt user<br/>(unchanged)"]
     DECISION -->|"allow"| SIDE_CHECK{"isSideEffectTool()?"}
     SIDE_CHECK -->|"no"| ALLOW["Auto-allow<br/>(read-only tools pass)"]
-    SIDE_CHECK -->|"yes"| FORCE_PROMPT["Promote to prompt<br/>'Private thread: side-effect<br/>tools require explicit approval'"]
+    SIDE_CHECK -->|"yes"| FORCE_PROMPT["Promote to prompt<br/>'Private conversation: side-effect<br/>tools require explicit approval'"]
 ```
 
-This ensures that file writes, bash commands, host operations, and other mutating tools always require explicit user confirmation in private threads, providing an additional safety layer for sensitive conversations.
+This ensures that file writes, bash commands, host operations, and other mutating tools always require explicit user confirmation in private conversations, providing an additional safety layer for sensitive conversations.
 
 ### Key Source Files
 
 | File                                         | Role                                                                                       |
 | -------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `assistant/src/memory/schema.ts`             | `conversations` table: `threadType` and `memoryScopeId` column definitions                 |
+| `assistant/src/memory/schema.ts`             | `conversations` table: `conversationType` and `memoryScopeId` column definitions           |
 | `assistant/src/daemon/session.ts`            | `SessionMemoryPolicy` interface and `DEFAULT_MEMORY_POLICY` constant                       |
-| `assistant/src/daemon/server.ts`             | `deriveMemoryPolicy()` — maps thread type to memory policy                                 |
+| `assistant/src/daemon/server.ts`             | `deriveMemoryPolicy()` — maps conversation type to memory policy                           |
 | `assistant/src/daemon/session-tool-setup.ts` | Propagates `memoryPolicy.strictSideEffects` as `forcePromptSideEffects` into `ToolContext` |
 | `assistant/src/tools/executor.ts`            | `forcePromptSideEffects` gate — promotes allow to prompt for side-effect tools             |
 | `assistant/src/memory/search/types.ts`       | `ScopePolicyOverride` interface for per-call scope control                                 |
 | `assistant/src/memory/retriever.ts`          | `buildScopeFilter()` — builds scope ID list from override or global config                 |
-| `assistant/src/memory/profile-compiler.ts`   | Dual-scope profile compilation with `includeDefaultFallback`                               |
-| `assistant/src/daemon/session-memory.ts`     | Wires `scopeId` and `includeDefaultFallback` into recall and profile compilation           |
+| `assistant/src/daemon/session-memory.ts`     | Wires `scopeId` and `includeDefaultFallback` into recall                                   |
 
 ---
 
@@ -387,7 +448,7 @@ graph TB
 
 ### Cache compatibility
 
-The Anthropic provider places `cache_control: { type: 'ephemeral' }` on the **last content block** of the last two user turns. Since workspace context is prepended (first block), the cache breakpoint correctly lands on the trailing user text or dynamic profile block. This is validated by dedicated cache-compatibility tests.
+The Anthropic provider places `cache_control: { type: 'ephemeral' }` on the **last content block** of the last two user turns. Since workspace context is prepended (first block), the cache breakpoint correctly lands on the trailing user text block. This is validated by dedicated cache-compatibility tests.
 
 ### Key files
 
@@ -425,7 +486,7 @@ graph TB
 
 - **Fresh each turn**: `buildTemporalContext()` is called at the start of every agent loop invocation, ensuring the model always sees the current date even in long-running conversations.
 - **Clock source invariant**: Absolute time (`now`) always comes from the assistant host clock (`Date.now()`), never from channel/client clocks.
-- **Timezone precedence**: If `ui.userTimezone` is configured, temporal context uses it for local-date interpretation. Otherwise it falls back to dynamic profile memory, then assistant host timezone.
+- **Timezone precedence**: If `ui.userTimezone` is configured, temporal context uses it for local-date interpretation. Otherwise it falls back to memory-stored timezone, then assistant host timezone.
 - **Timezone-aware**: Uses `Intl.DateTimeFormat` APIs for DST-safe date arithmetic and timezone validation/canonicalization.
 - **Bounded output**: Hard-capped at 1500 characters and 14 horizon entries to prevent prompt bloat.
 - **Runtime-only**: The injected `<temporal_context>` block is stripped from `this.messages` after the agent loop completes via `stripTemporalContext`. It never persists in conversation history.
@@ -509,7 +570,7 @@ graph TB
 
     **Commit message LLM fallback chain**: The generator runs a sequence of pre-flight checks before calling the LLM. Each check that fails produces a machine-readable `llmFallbackReason` in the structured log output and immediately returns a deterministic message. The checks, in order:
     1. `disabled` — `commitMessageLLM.enabled` is `false` or `useConfiguredProvider` is `false`
-    2. `missing_provider_api_key` — the configured provider's API key is not set in `config.apiKeys` (skipped for keyless providers like Ollama that run without an API key)
+    2. `missing_provider_api_key` — the configured provider's API key is not found in secure storage (skipped for keyless providers like Ollama that run without an API key)
     3. `breaker_open` — the generator's internal circuit breaker is open after consecutive LLM failures (exponential backoff)
     4. `insufficient_budget` — the remaining turn budget (`deadlineMs - Date.now()`) is below `minRemainingTurnBudgetMs`
     5. `missing_fast_model` — no fast model could be resolved for the configured provider (see below); the provider is **not** called

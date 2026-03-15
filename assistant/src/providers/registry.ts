@@ -1,4 +1,5 @@
 import { wrapWithLogfire } from "../logfire.js";
+import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { ConfigError, ProviderNotConfiguredError } from "../util/errors.js";
 import { AnthropicProvider } from "./anthropic/client.js";
 import { FailoverProvider, type ProviderHealthStatus } from "./failover.js";
@@ -135,7 +136,6 @@ export function getDefaultModel(providerName: string): string {
 }
 
 export interface ProvidersConfig {
-  apiKeys: Record<string, string>;
   provider: string;
   model: string;
   webSearchProvider?: string;
@@ -164,6 +164,7 @@ export interface ProviderDebugStatus {
   registeredProviders: string[];
   failoverHealth: ProviderHealthStatus[] | null;
   overallHealth: "healthy" | "degraded" | "down";
+  routingSources: Record<string, "user-key" | "managed-proxy">;
 }
 
 export function getProviderDebugStatus(
@@ -199,10 +200,13 @@ export function getProviderDebugStatus(
     registeredProviders: registered,
     failoverHealth,
     overallHealth,
+    routingSources: Object.fromEntries(routingSources),
   };
 }
 
-export function initializeProviders(config: ProvidersConfig): void {
+export async function initializeProviders(
+  config: ProvidersConfig,
+): Promise<void> {
   providers.clear();
   routingSources.clear();
   cachedFailoverProvider = null;
@@ -211,13 +215,14 @@ export function initializeProviders(config: ProvidersConfig): void {
   const streamTimeoutMs =
     (config.timeouts?.providerStreamTimeoutSec ?? 300) * 1000;
 
-  if (config.apiKeys.anthropic) {
+  const anthropicKey = await getSecureKeyAsync("anthropic");
+  if (anthropicKey) {
     const model = resolveModel(config, "anthropic");
     registerProvider(
       "anthropic",
       new RetryProvider(
         wrapWithLogfire(
-          new AnthropicProvider(config.apiKeys.anthropic, model, {
+          new AnthropicProvider(anthropicKey, model, {
             useNativeWebSearch: config.webSearchProvider === "anthropic-native",
             streamTimeoutMs,
           }),
@@ -226,10 +231,10 @@ export function initializeProviders(config: ProvidersConfig): void {
     );
     routingSources.set("anthropic", "user-key");
   } else {
-    // No user Anthropic key — route through Vertex managed proxy
-    const managedBaseUrl = buildManagedBaseUrl("vertex");
+    // No user Anthropic key — route through managed proxy
+    const managedBaseUrl = await buildManagedBaseUrl("anthropic");
     if (managedBaseUrl) {
-      const ctx = resolveManagedProxyContext();
+      const ctx = await resolveManagedProxyContext();
       const model = resolveModel(config, "anthropic");
       registerProvider(
         "anthropic",
@@ -247,21 +252,22 @@ export function initializeProviders(config: ProvidersConfig): void {
       routingSources.set("anthropic", "managed-proxy");
     }
   }
-  if (config.apiKeys.openai) {
+  const openaiKey = await getSecureKeyAsync("openai");
+  if (openaiKey) {
     const model = resolveModel(config, "openai");
     registerProvider(
       "openai",
       new RetryProvider(
         wrapWithLogfire(
-          new OpenAIProvider(config.apiKeys.openai, model, { streamTimeoutMs }),
+          new OpenAIProvider(openaiKey, model, { streamTimeoutMs }),
         ),
       ),
     );
     routingSources.set("openai", "user-key");
   } else {
-    const managedBaseUrl = buildManagedBaseUrl("openai");
+    const managedBaseUrl = await buildManagedBaseUrl("openai");
     if (managedBaseUrl) {
-      const ctx = resolveManagedProxyContext();
+      const ctx = await resolveManagedProxyContext();
       const model = resolveModel(config, "openai");
       registerProvider(
         "openai",
@@ -277,22 +283,23 @@ export function initializeProviders(config: ProvidersConfig): void {
       routingSources.set("openai", "managed-proxy");
     }
   }
-  if (config.apiKeys.gemini) {
+  const geminiKey = await getSecureKeyAsync("gemini");
+  if (geminiKey) {
     const model = resolveModel(config, "gemini");
     registerProvider(
       "gemini",
       new RetryProvider(
         wrapWithLogfire(
-          new GeminiProvider(config.apiKeys.gemini, model, { streamTimeoutMs }),
+          new GeminiProvider(geminiKey, model, { streamTimeoutMs }),
         ),
       ),
     );
     routingSources.set("gemini", "user-key");
   } else {
     // No user Gemini key — route through Vertex managed proxy
-    const managedBaseUrl = buildManagedBaseUrl("vertex");
+    const managedBaseUrl = await buildManagedBaseUrl("vertex");
     if (managedBaseUrl) {
-      const ctx = resolveManagedProxyContext();
+      const ctx = await resolveManagedProxyContext();
       const model = resolveModel(config, "gemini");
       registerProvider(
         "gemini",
@@ -308,14 +315,15 @@ export function initializeProviders(config: ProvidersConfig): void {
       routingSources.set("gemini", "managed-proxy");
     }
   }
-  if (config.provider === "ollama" || config.apiKeys.ollama) {
+  const ollamaKey = await getSecureKeyAsync("ollama");
+  if (config.provider === "ollama" || ollamaKey) {
     const model = resolveModel(config, "ollama");
     registerProvider(
       "ollama",
       new RetryProvider(
         wrapWithLogfire(
           new OllamaProvider(model, {
-            apiKey: config.apiKeys.ollama,
+            apiKey: ollamaKey ?? undefined,
             streamTimeoutMs,
           }),
         ),
@@ -323,68 +331,34 @@ export function initializeProviders(config: ProvidersConfig): void {
     );
     routingSources.set("ollama", "user-key");
   }
-  if (config.apiKeys.fireworks) {
+  const fireworksKey = await getSecureKeyAsync("fireworks");
+  if (fireworksKey) {
     const model = resolveModel(config, "fireworks");
     registerProvider(
       "fireworks",
       new RetryProvider(
         wrapWithLogfire(
-          new FireworksProvider(config.apiKeys.fireworks, model, {
+          new FireworksProvider(fireworksKey, model, {
             streamTimeoutMs,
           }),
         ),
       ),
     );
     routingSources.set("fireworks", "user-key");
-  } else {
-    const managedBaseUrl = buildManagedBaseUrl("fireworks");
-    if (managedBaseUrl) {
-      const ctx = resolveManagedProxyContext();
-      const model = resolveModel(config, "fireworks");
-      registerProvider(
-        "fireworks",
-        new RetryProvider(
-          wrapWithLogfire(
-            new FireworksProvider(ctx.assistantApiKey, model, {
-              baseURL: managedBaseUrl,
-              streamTimeoutMs,
-            }),
-          ),
-        ),
-      );
-      routingSources.set("fireworks", "managed-proxy");
-    }
   }
-  if (config.apiKeys.openrouter) {
+  const openrouterKey = await getSecureKeyAsync("openrouter");
+  if (openrouterKey) {
     const model = resolveModel(config, "openrouter");
     registerProvider(
       "openrouter",
       new RetryProvider(
         wrapWithLogfire(
-          new OpenRouterProvider(config.apiKeys.openrouter, model, {
+          new OpenRouterProvider(openrouterKey, model, {
             streamTimeoutMs,
           }),
         ),
       ),
     );
     routingSources.set("openrouter", "user-key");
-  } else {
-    const managedBaseUrl = buildManagedBaseUrl("openrouter");
-    if (managedBaseUrl) {
-      const ctx = resolveManagedProxyContext();
-      const model = resolveModel(config, "openrouter");
-      registerProvider(
-        "openrouter",
-        new RetryProvider(
-          wrapWithLogfire(
-            new OpenRouterProvider(ctx.assistantApiKey, model, {
-              baseURL: managedBaseUrl,
-              streamTimeoutMs,
-            }),
-          ),
-        ),
-      );
-      routingSources.set("openrouter", "managed-proxy");
-    }
   }
 }

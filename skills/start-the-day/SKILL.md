@@ -6,7 +6,6 @@ metadata:
   emoji: "🌅"
   vellum:
     display-name: "Start the Day"
-    user-invocable: true
 ---
 
 You are a personal daily briefing assistant. When the user invokes this skill, generate a concise, actionable briefing tailored to the current moment.

@@ -86,10 +86,14 @@ export class HttpRouter {
     server: ReturnType<typeof Bun.serve>,
     authContext: AuthContext,
   ): Promise<Response | null> {
+    // Normalize trailing slashes so "/integrations/twilio/config/" matches
+    // a route defined as "integrations/twilio/config".
+    const normalized = endpoint.endsWith("/") ? endpoint.slice(0, -1) : endpoint;
+
     for (const compiled of this.compiledRoutes) {
       if (compiled.def.method !== req.method) continue;
 
-      const match = endpoint.match(compiled.regex);
+      const match = normalized.match(compiled.regex);
       if (!match) continue;
 
       // Extract named params

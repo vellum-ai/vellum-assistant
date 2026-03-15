@@ -133,7 +133,11 @@ const initGuard = new PromiseGuard<void>();
  *   2. Next to the compiled binary (process.execPath)
  * This matches the pattern used for compiled Bun binary asset resolution.
  */
-function findWasmPath(pkg: string, file: string): string {
+function findWasmPath(
+  pkg: string,
+  file: string,
+  resolvedPkgDir?: string,
+): string {
   const dir = import.meta.dirname ?? __dirname;
 
   // In compiled Bun binaries, import.meta.dirname points into the virtual
@@ -154,9 +158,16 @@ function findWasmPath(pkg: string, file: string): string {
     return execDirPath;
   }
 
-  // Use module resolution to find the package. This handles hoisted
-  // dependencies (e.g. global bun installs where web-tree-sitter is at the
-  // top-level node_modules rather than nested under @vellumai/assistant).
+  // Use a pre-resolved package directory when available (callers pass this so
+  // that static-analysis tools like knip can see the literal specifier).
+  if (resolvedPkgDir) {
+    const resolvedPath = join(resolvedPkgDir, file);
+    if (existsSync(resolvedPath)) return resolvedPath;
+  }
+
+  // Fallback: dynamic module resolution. This handles hoisted dependencies
+  // (e.g. global bun installs where web-tree-sitter is at the top-level
+  // node_modules rather than nested under @vellumai/assistant).
   try {
     const resolved = require.resolve(`${pkg}/package.json`);
     const pkgDir = dirname(resolved);
@@ -184,13 +195,32 @@ async function ensureParser(): Promise<Parser> {
   if (parserInstance) return parserInstance;
 
   await initGuard.run(async () => {
+    let webTreeSitterDir: string | undefined;
+    try {
+      webTreeSitterDir = dirname(
+        require.resolve("web-tree-sitter/package.json"),
+      );
+    } catch {
+      // Handled by findWasmPath fallbacks
+    }
+    let treeSitterBashDir: string | undefined;
+    try {
+      treeSitterBashDir = dirname(
+        require.resolve("tree-sitter-bash/package.json"),
+      );
+    } catch {
+      // Handled by findWasmPath fallbacks
+    }
+
     const treeSitterWasm = findWasmPath(
       "web-tree-sitter",
       "web-tree-sitter.wasm",
+      webTreeSitterDir,
     );
     const bashWasmPath = findWasmPath(
       "tree-sitter-bash",
       "tree-sitter-bash.wasm",
+      treeSitterBashDir,
     );
 
     verifyWasmChecksum(treeSitterWasm, "web-tree-sitter.wasm");

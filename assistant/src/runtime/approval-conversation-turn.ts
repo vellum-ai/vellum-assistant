@@ -23,7 +23,7 @@ const VALID_DISPOSITIONS: ReadonlySet<ApprovalConversationDisposition> =
     "keep_pending",
     "approve_once",
     "approve_10m",
-    "approve_thread",
+    "approve_conversation",
     "approve_always",
     "reject",
   ]);
@@ -33,7 +33,7 @@ const DECISION_BEARING_DISPOSITIONS: ReadonlySet<ApprovalConversationDisposition
   new Set([
     "approve_once",
     "approve_10m",
-    "approve_thread",
+    "approve_conversation",
     "approve_always",
     "reject",
   ]);

@@ -50,6 +50,7 @@ import {
   ASK_GUARDIAN_CAPTURE_REGEX,
   CALL_OPENING_ACK_MARKER,
   CALL_OPENING_MARKER,
+  CALL_VERIFICATION_COMPLETE_MARKER,
   couldBeControlMarker,
   END_CALL_MARKER,
   extractBalancedJson,
@@ -207,6 +208,21 @@ export class CallController {
     this.resetSilenceTimer();
     this.lastSentWasOpener = true;
     await this.runTurn(CALL_OPENING_MARKER);
+  }
+
+  /**
+   * Kick off the first utterance after the caller has completed outbound
+   * phone verification. Sends a verification-aware marker so the LLM can
+   * greet naturally with context that verification just happened.
+   */
+  async startPostVerificationGreeting(): Promise<void> {
+    if (this.initialGreetingStarted) return;
+    if (this.state !== "idle") return;
+
+    this.initialGreetingStarted = true;
+    this.resetSilenceTimer();
+    this.lastSentWasOpener = true;
+    await this.runTurn(CALL_VERIFICATION_COMPLETE_MARKER);
   }
 
   /**

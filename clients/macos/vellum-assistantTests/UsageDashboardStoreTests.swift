@@ -5,16 +5,7 @@ import Testing
 // MARK: - Mock Client
 
 @MainActor
-private final class MockUsageClient: DaemonClientProtocol {
-    var isConnected: Bool = true
-
-    func subscribe() -> AsyncStream<ServerMessage> { AsyncStream { $0.finish() } }
-    func send<T: Encodable>(_ message: T) throws {}
-    func connect() async throws {}
-    func disconnect() {}
-    func startSSE() {}
-    func stopSSE() {}
-
+private final class MockUsageClient: UsageClientProtocol {
     var stubbedTotals: UsageTotalsResponse?
     var stubbedDaily: UsageDailyResponse?
     var stubbedBreakdown: UsageBreakdownResponse?
@@ -353,16 +344,7 @@ struct UsageDashboardStoreGroupTests {
 /// A mock client where each fetch method blocks on a continuation until the
 /// test explicitly resumes it — giving full control over completion order.
 @MainActor
-private final class DelayedMockUsageClient: DaemonClientProtocol {
-    var isConnected: Bool = true
-
-    func subscribe() -> AsyncStream<ServerMessage> { AsyncStream { $0.finish() } }
-    func send<T: Encodable>(_ message: T) throws {}
-    func connect() async throws {}
-    func disconnect() {}
-    func startSSE() {}
-    func stopSSE() {}
-
+private final class DelayedMockUsageClient: UsageClientProtocol {
     /// Each call to a fetch method appends a continuation here.
     /// Tests pop and resume them in whatever order they want.
     var totalsContinuations: [CheckedContinuation<UsageTotalsResponse?, Never>] = []

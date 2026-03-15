@@ -57,8 +57,8 @@ public struct ToolConfirmationBubble: View {
         confirmation.temporaryOptionsAvailable.contains("allow_10m")
     }
 
-    private var hasAllowThread: Bool {
-        confirmation.temporaryOptionsAvailable.contains("allow_thread")
+    private var hasAllowConversation: Bool {
+        confirmation.temporaryOptionsAvailable.contains("allow_conversation")
     }
 
     /// The decision value to send when "Always Allow" is clicked.
@@ -81,8 +81,8 @@ public struct ToolConfirmationBubble: View {
             switch confirmation.approvedDecision {
             case "allow_10m":
                 return "\(confirmation.toolCategory) allowed for 10 minutes"
-            case "allow_thread":
-                return "\(confirmation.toolCategory) allowed for this thread"
+            case "allow_conversation":
+                return "\(confirmation.toolCategory) allowed for this conversation"
             default:
                 return "\(confirmation.toolCategory) allowed"
             }
@@ -92,16 +92,6 @@ public struct ToolConfirmationBubble: View {
             return "Timed out"
         case .pending:
             return ""
-        }
-    }
-
-    /// Color for the risk level badge.
-    private var riskColor: Color {
-        switch confirmation.riskLevel.lowercased() {
-        case "low":    return VColor.textMuted
-        case "medium": return VColor.warning
-        case "high":   return VColor.error
-        default:       return VColor.textMuted
         }
     }
 
@@ -128,16 +118,16 @@ public struct ToolConfirmationBubble: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             HStack(spacing: VSpacing.sm) {
                 VIconView(.shield, size: 16)
-                    .foregroundColor(VColor.accent)
+                    .foregroundColor(VColor.primaryBase)
 
                 Text(confirmation.permissionFriendlyName)
                     .font(VFont.bodyBold)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
             }
 
             Text(confirmation.humanDescription)
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
 
             HStack(spacing: VSpacing.sm) {
                 VButton(label: "Open System Settings", style: .primary) {
@@ -148,11 +138,11 @@ public struct ToolConfirmationBubble: View {
                     #endif
                 }
 
-                VButton(label: "I\u{2019}ve granted it", style: .tertiary) {
+                VButton(label: "I\u{2019}ve granted it", style: .outlined) {
                     onAllow()
                 }
 
-                VButton(label: "Skip", style: .tertiary) {
+                VButton(label: "Skip", style: .outlined) {
                     onDeny()
                 }
             }
@@ -160,11 +150,11 @@ public struct ToolConfirmationBubble: View {
         .padding(VSpacing.lg)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surface)
+                .fill(VColor.surfaceOverlay)
         )
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                .stroke(VColor.borderBase, lineWidth: 0.5)
         )
     }
 
@@ -191,17 +181,17 @@ public struct ToolConfirmationBubble: View {
     private var commandExplanationBanner: some View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
             VIconView(.info, size: 14)
-                .foregroundColor(VColor.accent)
+                .foregroundColor(VColor.primaryBase)
                 .padding(.top, 1)
 
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("What is this?")
                     .font(VFont.captionMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 Text("Sometimes your assistant needs to run commands on your computer to complete tasks \u{2014} like installing software, checking settings, or organizing files. You\u{2019}ll always be asked for permission first, and nothing runs without your approval.")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -209,7 +199,7 @@ public struct ToolConfirmationBubble: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: VRadius.sm)
-                .fill(VColor.accent.opacity(0.08))
+                .fill(VColor.primaryBase.opacity(0.08))
         )
     }
 
@@ -219,7 +209,7 @@ public struct ToolConfirmationBubble: View {
             // Bold non-technical question
             Text(confirmation.humanDescription)
                 .font(VFont.bodyBold)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             // First-time educational banner for command confirmations
             if isCommandTool && !hasSeenCommandExplanation {
@@ -240,11 +230,11 @@ public struct ToolConfirmationBubble: View {
                 } label: {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.chevronRight, size: 9)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                             .rotationEffect(.degrees(showTechnicalDetails ? 90 : 0))
                         Text(showTechnicalDetails ? "Hide" : "More details")
                             .font(VFont.captionMedium)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
                 }
                 .buttonStyle(.plain)
@@ -267,46 +257,15 @@ public struct ToolConfirmationBubble: View {
         .padding(VSpacing.md)
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.surface)
+                .fill(VColor.surfaceOverlay)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.surfaceBorder, lineWidth: 1)
+                        .stroke(VColor.borderBase, lineWidth: 0.5)
                 )
         )
     }
 
-    // MARK: - Header Row
 
-    @ViewBuilder
-    private var headerRow: some View {
-        HStack(spacing: VSpacing.sm) {
-            VIconView(confirmation.toolCategoryIcon, size: 12)
-                .foregroundColor(VColor.textSecondary)
-
-            Text(confirmation.toolCategory)
-                .font(VFont.captionMedium)
-                .foregroundColor(VColor.textPrimary)
-
-            VBadge(
-                style: .label(confirmation.riskLevel.capitalized),
-                color: riskColor
-            )
-
-            if let target = confirmation.normalizedExecutionTarget {
-                Text(target)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xxs)
-                    .background(
-                        Capsule()
-                            .fill(VColor.backgroundSubtle)
-                    )
-            }
-
-            Spacer()
-        }
-    }
 
     // MARK: - Inline Preview
 
@@ -320,7 +279,7 @@ public struct ToolConfirmationBubble: View {
         ScrollView {
             Text(content)
                 .font(VFont.monoSmall)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         }
@@ -329,7 +288,7 @@ public struct ToolConfirmationBubble: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: VRadius.sm)
-                .fill(VColor.backgroundSubtle)
+                .fill(VColor.surfaceOverlay)
         )
     }
 
@@ -339,7 +298,7 @@ public struct ToolConfirmationBubble: View {
     private var descriptionText: some View {
         Text(confirmation.humanDescription)
             .font(VFont.caption)
-            .foregroundColor(VColor.textMuted)
+            .foregroundColor(VColor.contentTertiary)
     }
 
     // MARK: - Diff Disclosure
@@ -355,9 +314,9 @@ public struct ToolConfirmationBubble: View {
                 HStack(spacing: 3) {
                     Text("View diff")
                         .font(.system(size: 10))
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     VIconView(showDiff ? .chevronUp : .chevronDown, size: 8)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
                 .contentShape(Rectangle())
             }
@@ -370,7 +329,7 @@ public struct ToolConfirmationBubble: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text(diffInfo.filePath)
                         .font(VFont.monoSmall)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
 
                     codePreviewBlock(diffBody, maxHeight: 260)
                 }
@@ -387,7 +346,7 @@ public struct ToolConfirmationBubble: View {
     private var topLevelActions: [ToolConfirmationKeyboardModel.Action] {
         var actions: [ToolConfirmationKeyboardModel.Action] = []
         if hasAllow10m { actions.append(.allow10m) }
-        if hasAllowThread { actions.append(.allowThread) }
+        if hasAllowConversation { actions.append(.allowConversation) }
         actions.append(.allowOnce)
         if hasRuleOptions && confirmation.persistentDecisionsAllowed {
             actions.append(.alwaysAllow)
@@ -397,7 +356,7 @@ public struct ToolConfirmationBubble: View {
     }
 
     private var hasTemporaryOptions: Bool {
-        hasAllow10m || hasAllowThread
+        hasAllow10m || hasAllowConversation
     }
 
     @ViewBuilder
@@ -409,7 +368,7 @@ public struct ToolConfirmationBubble: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Approve all actions")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     HStack(spacing: VSpacing.xs) {
                         if hasAllow10m {
                             confirmationButton(
@@ -419,13 +378,13 @@ public struct ToolConfirmationBubble: View {
                                 isKeyboardSelected: keyboardModel?.selectedAction == .allow10m
                             ) { markCommandExplanationSeen(); onTemporaryAllow?(confirmation.requestId, "allow_10m") }
                         }
-                        if hasAllowThread {
+                        if hasAllowConversation {
                             confirmationButton(
-                                "Allow for this thread",
+                                "Allow for this conversation",
                                 isPrimary: true,
                                 isDanger: false,
-                                isKeyboardSelected: keyboardModel?.selectedAction == .allowThread
-                            ) { markCommandExplanationSeen(); onTemporaryAllow?(confirmation.requestId, "allow_thread") }
+                                isKeyboardSelected: keyboardModel?.selectedAction == .allowConversation
+                            ) { markCommandExplanationSeen(); onTemporaryAllow?(confirmation.requestId, "allow_conversation") }
                         }
                     }
                 }
@@ -435,7 +394,7 @@ public struct ToolConfirmationBubble: View {
                 if hasTemporaryOptions {
                     Text("This action only")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
                 HStack(spacing: VSpacing.xs) {
                     confirmationButton(
@@ -672,8 +631,8 @@ public struct ToolConfirmationBubble: View {
             onAllow()
         case .allow10m:
             onTemporaryAllow?(confirmation.requestId, "allow_10m")
-        case .allowThread:
-            onTemporaryAllow?(confirmation.requestId, "allow_thread")
+        case .allowConversation:
+            onTemporaryAllow?(confirmation.requestId, "allow_conversation")
         case .alwaysAllow:
             if confirmation.allowlistOptions.count > 1 {
                 withAnimation(VAnimation.fast) {
@@ -780,19 +739,19 @@ public struct ToolConfirmationBubble: View {
                             )
                         } label: {
                             VIconView(.chevronLeft, size: 10)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                         }
                         .buttonStyle(.plain)
 
                         Text("Choose scope")
                             .font(VFont.captionMedium)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
                     .padding(.horizontal, VSpacing.sm)
                     .padding(.vertical, VSpacing.xs)
 
                     Divider()
-                        .background(VColor.divider)
+                        .background(VColor.borderBase)
 
                     ForEach(Array(confirmation.scopeOptions.enumerated()), id: \.element.scope) { index, scopeOption in
                         ScopePickerRow(
@@ -808,7 +767,7 @@ public struct ToolConfirmationBubble: View {
 
                         if index < confirmation.scopeOptions.count - 1 {
                             Divider()
-                                .background(VColor.divider)
+                                .background(VColor.borderBase)
                         }
                     }
                 } else {
@@ -840,7 +799,7 @@ public struct ToolConfirmationBubble: View {
 
                         if index < confirmation.allowlistOptions.count - 1 {
                             Divider()
-                                .background(VColor.divider)
+                                .background(VColor.borderBase)
                         }
                     }
                 }
@@ -857,12 +816,12 @@ public struct ToolConfirmationBubble: View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Choose scope")
                 .font(VFont.captionMedium)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .padding(.horizontal, VSpacing.sm)
                 .padding(.vertical, VSpacing.xs)
 
             Divider()
-                .background(VColor.divider)
+                .background(VColor.borderBase)
 
             ForEach(Array(confirmation.scopeOptions.enumerated()), id: \.element.scope) { index, scopeOption in
                 ScopePickerRow(
@@ -880,7 +839,7 @@ public struct ToolConfirmationBubble: View {
 
                 if index < confirmation.scopeOptions.count - 1 {
                     Divider()
-                        .background(VColor.divider)
+                        .background(VColor.borderBase)
                 }
             }
         }
@@ -924,11 +883,11 @@ private struct AlwaysAllowRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(VFont.monoSmall)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 if !subtitle.isEmpty {
                     Text(subtitle)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -936,11 +895,11 @@ private struct AlwaysAllowRow: View {
             .padding(.horizontal, VSpacing.sm)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.sm)
-                    .fill(isHovered || isKeyboardSelected ? VColor.surfaceBorder.opacity(0.5) : .clear)
+                    .fill(isHovered || isKeyboardSelected ? VColor.borderBase.opacity(0.5) : .clear)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.sm)
-                    .stroke(isKeyboardSelected ? VColor.accent : .clear, lineWidth: 2)
+                    .stroke(isKeyboardSelected ? VColor.primaryBase : .clear, lineWidth: 2)
             )
             .contentShape(Rectangle())
         }
@@ -965,17 +924,17 @@ private struct ScopePickerRow: View {
         Button(action: action) {
             Text(label)
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, VSpacing.sm)
                 .padding(.horizontal, VSpacing.sm)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.sm)
-                        .fill(isHovered || isKeyboardSelected ? VColor.surfaceBorder.opacity(0.5) : .clear)
+                        .fill(isHovered || isKeyboardSelected ? VColor.borderBase.opacity(0.5) : .clear)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.sm)
-                        .stroke(isKeyboardSelected ? VColor.accent : .clear, lineWidth: 2)
+                        .stroke(isKeyboardSelected ? VColor.primaryBase : .clear, lineWidth: 2)
                 )
                 .contentShape(Rectangle())
         }
@@ -988,180 +947,4 @@ private struct ScopePickerRow: View {
 }
 
 #if DEBUG
-#Preview("ToolConfirmationBubble") {
-    VStack(spacing: VSpacing.lg) {
-        // Bash command — medium risk, pending
-        ToolConfirmationBubble(
-            confirmation: ToolConfirmationData(
-                requestId: "test-bash-medium",
-                toolName: "host_bash",
-                input: ["command": AnyCodable("npm install express")],
-                riskLevel: "medium",
-                allowlistOptions: [
-                    ConfirmationRequestAllowlistOption(label: "exact", description: "This exact command", pattern: "npm install express"),
-                ],
-                scopeOptions: [
-                    ConfirmationRequestScopeOption(label: "This project", scope: "project"),
-                ],
-                executionTarget: "host"
-            ),
-            onAllow: {},
-            onDeny: {},
-            onAlwaysAllow: { _, _, _, _ in }
-        )
-
-        // File write — high risk, pending
-        ToolConfirmationBubble(
-            confirmation: ToolConfirmationData(
-                requestId: "test-write-high",
-                toolName: "host_file_write",
-                input: ["path": AnyCodable("/Users/me/project/main.swift")],
-                riskLevel: "high",
-                executionTarget: "host"
-            ),
-            onAllow: {},
-            onDeny: {},
-            onAlwaysAllow: { _, _, _, _ in }
-        )
-
-        // Bash — low risk, pending
-        ToolConfirmationBubble(
-            confirmation: ToolConfirmationData(
-                requestId: "test-bash-low",
-                toolName: "host_bash",
-                input: ["command": AnyCodable("ls -lt ~/Downloads/ | head -50")],
-                riskLevel: "low",
-                executionTarget: "host"
-            ),
-            onAllow: {},
-            onDeny: {},
-            onAlwaysAllow: { _, _, _, _ in }
-        )
-
-        // Always-allow dropdown — medium risk
-        ToolConfirmationBubble(
-            confirmation: ToolConfirmationData(
-                requestId: "test-dropdown",
-                toolName: "host_bash",
-                input: ["command": AnyCodable("ls -la ~/Library/Application\\ Support/")],
-                riskLevel: "medium",
-                allowlistOptions: [
-                    ConfirmationRequestAllowlistOption(label: "exact", description: "This exact command", pattern: "ls -la ~/Library/Application\\ Support/"),
-                    ConfirmationRequestAllowlistOption(label: "prefix", description: "Any \"ls -la ~/Library/Application\\\" command", pattern: "ls -la ~/Library/Application*"),
-                    ConfirmationRequestAllowlistOption(label: "tool", description: "Any ls command", pattern: "ls *"),
-                ],
-                scopeOptions: [
-                    ConfirmationRequestScopeOption(label: "This project", scope: "project"),
-                ],
-                executionTarget: "host"
-            ),
-            onAllow: {},
-            onDeny: {},
-            onAlwaysAllow: { _, _, _, _ in }
-        )
-
-        // Collapsed — approved
-        ToolConfirmationBubble(
-            confirmation: ToolConfirmationData(
-                requestId: "test-approved",
-                toolName: "host_bash",
-                input: ["command": AnyCodable("npm install")],
-                riskLevel: "medium",
-                state: .approved
-            ),
-            onAllow: {},
-            onDeny: {},
-            onAlwaysAllow: { _, _, _, _ in }
-        )
-
-        // Collapsed — denied
-        ToolConfirmationBubble(
-            confirmation: ToolConfirmationData(
-                requestId: "test-denied",
-                toolName: "host_file_write",
-                input: ["path": AnyCodable("/etc/hosts")],
-                riskLevel: "high",
-                state: .denied
-            ),
-            onAllow: {},
-            onDeny: {},
-            onAlwaysAllow: { _, _, _, _ in }
-        )
-
-        // Unknown tool fallback
-        ToolConfirmationBubble(
-            confirmation: ToolConfirmationData(
-                requestId: "test-unknown",
-                toolName: "custom_plugin_action",
-                input: ["query": AnyCodable("test")],
-                riskLevel: "medium"
-            ),
-            onAllow: {},
-            onDeny: {},
-            onAlwaysAllow: { _, _, _, _ in }
-        )
-
-        // System permission request (pending)
-        ToolConfirmationBubble(
-            confirmation: ToolConfirmationData(
-                requestId: "test-perm",
-                toolName: "request_system_permission",
-                input: [
-                    "permission_type": AnyCodable("full_disk_access"),
-                    "reason": AnyCodable("I need Full Disk Access to read your Documents folder.")
-                ],
-                riskLevel: "high"
-            ),
-            onAllow: {},
-            onDeny: {},
-            onAlwaysAllow: { _, _, _, _ in }
-        )
-
-        // Inline always-allow with multiple scopes (scope picker on click)
-        ToolConfirmationBubble(
-            confirmation: ToolConfirmationData(
-                requestId: "test-inline-multi-scope",
-                toolName: "host_bash",
-                input: ["command": AnyCodable("npm test")],
-                riskLevel: "medium",
-                allowlistOptions: [
-                    ConfirmationRequestAllowlistOption(label: "exact", description: "This exact command", pattern: "npm test"),
-                ],
-                scopeOptions: [
-                    ConfirmationRequestScopeOption(label: "This project", scope: "project"),
-                    ConfirmationRequestScopeOption(label: "Everywhere", scope: "everywhere"),
-                ],
-                executionTarget: "host"
-            ),
-            onAllow: {},
-            onDeny: {},
-            onAlwaysAllow: { _, _, _, _ in }
-        )
-
-        // Dropdown always-allow with multiple scopes (two-step selection)
-        ToolConfirmationBubble(
-            confirmation: ToolConfirmationData(
-                requestId: "test-dropdown-multi-scope",
-                toolName: "host_bash",
-                input: ["command": AnyCodable("git push origin main")],
-                riskLevel: "medium",
-                allowlistOptions: [
-                    ConfirmationRequestAllowlistOption(label: "exact", description: "This exact command", pattern: "git push origin main"),
-                    ConfirmationRequestAllowlistOption(label: "prefix", description: "Any \"git push\" command", pattern: "git push *"),
-                    ConfirmationRequestAllowlistOption(label: "tool", description: "Any git command", pattern: "git *"),
-                ],
-                scopeOptions: [
-                    ConfirmationRequestScopeOption(label: "This project", scope: "project"),
-                    ConfirmationRequestScopeOption(label: "Everywhere", scope: "everywhere"),
-                ],
-                executionTarget: "host"
-            ),
-            onAllow: {},
-            onDeny: {},
-            onAlwaysAllow: { _, _, _, _ in }
-        )
-    }
-    .padding(VSpacing.xl)
-    .background(VColor.background)
-}
 #endif

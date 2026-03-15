@@ -1,8 +1,9 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, like, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
 import type { MemoryExtractionConfig } from "../config/types.js";
+import { buildCoreIdentityContext } from "../prompts/system-prompt.js";
 import {
   createTimeout,
   extractToolUse,
@@ -15,30 +16,23 @@ import { getDb } from "./db.js";
 import { computeMemoryFingerprint } from "./fingerprint.js";
 import { enqueueMemoryJob } from "./jobs-store.js";
 import { extractTextFromStoredMessageContent } from "./message-content.js";
-import {
-  memoryItemConflicts,
-  memoryItems,
-  memoryItemSources,
-  messages,
-} from "./schema.js";
+import { withQdrantBreaker } from "./qdrant-circuit-breaker.js";
+import { getQdrantClient } from "./qdrant-client.js";
+import { memoryItems, memoryItemSources, messages } from "./schema.js";
 import { isConversationFailed } from "./task-memory-cleanup.js";
 import { clampUnitInterval } from "./validation.js";
 
 const log = getLogger("memory-items-extractor");
 
 export type MemoryItemKind =
+  | "identity"
   | "preference"
-  | "profile"
   | "project"
   | "decision"
-  | "todo"
-  | "fact"
   | "constraint"
-  | "relationship"
-  | "event"
-  | "opinion"
-  | "instruction"
-  | "style";
+  | "event";
+
+export type OverrideConfidence = "explicit" | "tentative" | "inferred";
 
 interface ExtractedItem {
   kind: MemoryItemKind;
@@ -47,26 +41,37 @@ interface ExtractedItem {
   confidence: number;
   importance: number;
   fingerprint: string;
+  supersedes: string | null;
+  overrideConfidence: OverrideConfidence;
+  /** True when the LLM emitted a supersedes ID that was rejected (hallucinated). */
+  supersedesRejected?: boolean;
 }
 
 const VALID_KINDS = new Set<string>([
+  "identity",
   "preference",
-  "profile",
   "project",
   "decision",
-  "todo",
-  "fact",
   "constraint",
-  "relationship",
   "event",
-  "opinion",
-  "instruction",
-  "style",
 ]);
 
+/** Maps old kind names to their new equivalents for graceful migration. */
+const KIND_MIGRATION_MAP: Record<string, MemoryItemKind> = {
+  profile: "identity",
+  fact: "identity",
+  relationship: "identity",
+  opinion: "preference",
+  todo: "project",
+  instruction: "constraint",
+  style: "preference",
+};
+
 const SUPERSEDE_KINDS = new Set<MemoryItemKind>([
-  "decision",
+  "identity",
   "preference",
+  "project",
+  "decision",
   "constraint",
 ]);
 
@@ -129,32 +134,51 @@ function hasSemanticDensity(text: string): boolean {
 
 // ── LLM-powered extraction ────────────────────────────────────────────
 
-const EXTRACTION_SYSTEM_PROMPT = `You are a memory extraction system. Given a message from a conversation, extract structured memory items that would be valuable to remember for future interactions.
+function buildExtractionSystemPrompt(
+  existingItems: Array<{
+    id: string;
+    kind: string;
+    subject: string;
+    statement: string;
+  }>,
+  messageRole: string,
+): string {
+  // NOTE: If you want to reduce token costs for extraction, you can remove
+  // the full identity context below and replace it with just the user's name,
+  // e.g. via resolveUserReference(). But you should always provide at least
+  // basic context like the user's name to avoid generic "User ..." labels.
+  const identityContext = buildCoreIdentityContext();
+
+  let prompt = "";
+  if (identityContext) {
+    prompt += `# Identity Context\n\n${identityContext}\n\n---\n\n`;
+  }
+
+  prompt += `You are a memory extraction system. Given a message from a conversation, extract structured memory items that would be valuable to remember for future interactions.
 
 Extract items in these categories:
-- preference: User likes, dislikes, preferred approaches/tools/styles
-- profile: Personal info (name, role, location, timezone, background)
-- project: Project names, repos, tech stacks, architecture details
+- identity: Personal info (name, role, location, timezone, background), notable facts, relationships between people/teams/systems
+- preference: User likes, dislikes, preferred approaches/tools/styles, communication style patterns, opinions and evaluations
+- project: Project names, repos, tech stacks, architecture details, action items, follow-ups, things to do later
 - decision: Choices made, approaches selected, trade-offs resolved
-- todo: Action items, follow-ups, things to do later
-- fact: Notable facts, definitions, technical details worth remembering
-- constraint: Rules, requirements, things that must/must not be done
-- relationship: Connections between people, teams, projects, systems
+- constraint: Rules, requirements, things that must/must not be done, explicit directives on how the assistant should behave
 - event: Deadlines, milestones, meetings, releases, dates
-- opinion: Viewpoints, assessments, evaluations of tools/approaches
-- instruction: Explicit directives on how the assistant should behave
-- style: Communication style patterns — writing tone, formatting habits, vocabulary choices, greeting/sign-off conventions
 
 For each item, provide:
 - kind: One of the categories above
 - subject: A short label (2-8 words) identifying what this is about
-- statement: The full factual statement to remember (1-2 sentences)
+- statement: A relationship-rich factual statement to remember (1-2 sentences). Include relational context — who recommended it, why it matters, how it connects to other facts. For example, write "Data processing library that Sarah from Marketing recommended for the Q4 pipeline rewrite" instead of just "Uses pandas".
 - confidence: How confident you are this is accurate (0.0-1.0)
 - importance: How valuable this is to remember (0.0-1.0)
   - 1.0: Explicit user instructions about assistant behavior
   - 0.8-0.9: Personal facts, strong preferences, key decisions
   - 0.6-0.7: Project details, constraints, opinions
   - 0.3-0.5: Contextual details, minor preferences
+- supersedes: If this item replaces an existing memory item, set this to the ID of the item it replaces. Use null if it does not replace anything. Determine supersession by understanding the semantic meaning — do not rely on keyword matching.
+- overrideConfidence: How confident you are that this overrides an existing item:
+  - "explicit": Clear override signal (e.g., "Actually I now prefer X", "I changed my mind about Y", "We switched from A to B")
+  - "tentative": Ambiguous — the new information might override the old, but it's not certain
+  - "inferred": Weak signal — possibly related to an existing item but no clear override intent
 
 Rules:
 - Only extract genuinely memorable information. Skip pleasantries, filler, and transient discussion.
@@ -163,20 +187,109 @@ Rules:
 - Prefer fewer high-quality items over many low-quality ones.
 - If the message contains no memorable information, return an empty array.`;
 
+  if (messageRole === "assistant") {
+    prompt += `
+
+IMPORTANT: The message below is from the ASSISTANT, not the user. Do NOT attribute the assistant's own statements, feelings, self-descriptions, or introspection to the user. Only extract facts about the user, the world, or the project that the assistant is referencing or relaying — NOT the assistant's own identity, uncertainty, or behavior. If the assistant is simply talking about itself (e.g., introducing itself, expressing uncertainty about its own purpose), extract nothing.`;
+  }
+
+  if (existingItems.length > 0) {
+    prompt += `\n\nExisting memory items (use these to identify supersession targets — set \`supersedes\` to the item ID if the new information replaces one of these):\n`;
+    for (const item of existingItems) {
+      prompt += `- [${item.id}] (${item.kind}) ${item.subject}: ${item.statement}\n`;
+    }
+  }
+
+  return prompt;
+}
+
+const VALID_OVERRIDE_CONFIDENCES = new Set<string>([
+  "explicit",
+  "tentative",
+  "inferred",
+]);
+
 interface LLMExtractedItem {
   kind: string;
   subject: string;
   statement: string;
   confidence: number;
   importance: number;
+  supersedes: string | null;
+  overrideConfidence: string;
+}
+
+/**
+ * Query top-10 active items by kind + subject similarity to give the
+ * extraction LLM awareness of existing items it might supersede.
+ * This is a write-path-only heuristic — not used at read time.
+ */
+function queryExistingItemsForContext(
+  scopeId: string,
+  text: string,
+): Array<{ id: string; kind: string; subject: string; statement: string }> {
+  const db = getDb();
+
+  // Extract a rough subject prefix from the first few words of the text
+  const words = text.trim().split(/\s+/).slice(0, 3).join(" ");
+  // Escape LIKE wildcards so user text with % or _ doesn't alter query semantics
+  const escaped = words.replace(/%/g, "").replace(/_/g, "");
+  const subjectPrefix = escaped.length > 0 ? `${escaped}%` : "%";
+
+  // Query active items matching subject prefix, limited to 10
+  const rows = db
+    .select({
+      id: memoryItems.id,
+      kind: memoryItems.kind,
+      subject: memoryItems.subject,
+      statement: memoryItems.statement,
+    })
+    .from(memoryItems)
+    .where(
+      and(
+        eq(memoryItems.scopeId, scopeId),
+        eq(memoryItems.status, "active"),
+        like(memoryItems.subject, subjectPrefix),
+      ),
+    )
+    .limit(10)
+    .all();
+
+  // If prefix match yielded few results, backfill with recent active items
+  if (rows.length < 10) {
+    const existingIds = new Set(rows.map((r) => r.id));
+    const backfill = db
+      .select({
+        id: memoryItems.id,
+        kind: memoryItems.kind,
+        subject: memoryItems.subject,
+        statement: memoryItems.statement,
+      })
+      .from(memoryItems)
+      .where(
+        and(eq(memoryItems.scopeId, scopeId), eq(memoryItems.status, "active")),
+      )
+      .limit(10 - rows.length)
+      .all();
+
+    for (const row of backfill) {
+      if (!existingIds.has(row.id)) {
+        rows.push(row);
+        existingIds.add(row.id);
+      }
+    }
+  }
+
+  return rows;
 }
 
 async function extractItemsWithLLM(
   text: string,
   extractionConfig: MemoryExtractionConfig,
   scopeId: string,
+  messageRole: string,
 ): Promise<ExtractedItem[]> {
-  const provider = getConfiguredProvider();
+  const provider = await getConfiguredProvider();
   if (!provider) {
     log.debug(
       "Configured provider unavailable for LLM extraction, falling back to pattern-based",
@@ -188,8 +301,19 @@ async function extractItemsWithLLM(
     const { signal, cleanup } = createTimeout(15000);
 
     try {
+      // Query existing items to give the LLM supersession context
+      const existingItems = queryExistingItemsForContext(scopeId, text);
+      const systemPrompt = buildExtractionSystemPrompt(
+        existingItems,
+        messageRole,
+      );
+
+      const messagePrefix =
+        messageRole === "assistant"
+          ? "[This message is from the assistant]\n\n"
+          : "";
       const response = await provider.sendMessage(
-        [userMessage(text)],
+        [userMessage(`${messagePrefix}${text}`)],
         [
           {
             name: "store_memory_items",
@@ -215,7 +339,7 @@ async function extractItemsWithLLM(
                       statement: {
                         type: "string",
                         description:
-                          "Full factual statement to remember (1-2 sentences)",
+                          "Relationship-rich factual statement to remember (1-2 sentences). Include relational context.",
                       },
                       confidence: {
                         type: "number",
@@ -227,6 +351,17 @@ async function extractItemsWithLLM(
                         description:
                           "How valuable this is to remember (0.0-1.0)",
                       },
+                      supersedes: {
+                        type: ["string", "null"],
+                        description:
+                          "ID of the existing memory item this replaces, or null if not replacing anything",
+                      },
+                      overrideConfidence: {
+                        type: "string",
+                        enum: ["explicit", "tentative", "inferred"],
+                        description:
+                          "How confident you are that this overrides an existing item: explicit (clear override), tentative (ambiguous), inferred (weak signal)",
+                      },
                     },
                     required: [
                       "kind",
@@ -234,6 +369,8 @@ async function extractItemsWithLLM(
                       "statement",
                       "confidence",
                       "importance",
+                      "supersedes",
+                      "overrideConfidence",
                     ],
                   },
                 },
@@ -242,7 +379,7 @@ async function extractItemsWithLLM(
             },
           },
         ],
-        EXTRACTION_SYSTEM_PROMPT,
+        systemPrompt,
         {
           config: {
             modelIntent: extractionConfig.modelIntent,
@@ -270,9 +407,14 @@ async function extractItemsWithLLM(
         return extractItemsPatternBased(text, scopeId);
       }
 
+      // Build set of known existing item IDs for supersession validation
+      const existingItemIds = new Set(existingItems.map((e) => e.id));
+
       const items: ExtractedItem[] = [];
       for (const raw of input.items) {
-        if (!VALID_KINDS.has(raw.kind)) continue;
+        // Apply kind migration map for old kind names, then validate
+        const resolvedKind = KIND_MIGRATION_MAP[raw.kind] ?? raw.kind;
+        if (!VALID_KINDS.has(resolvedKind)) continue;
         if (!raw.subject || !raw.statement) continue;
         const subject = truncate(String(raw.subject), 80, "");
         const statement = truncate(String(raw.statement), 500, "");
@@ -280,17 +422,38 @@ async function extractItemsWithLLM(
         const importance = clampUnitInterval(parseScore(raw.importance, 0.5));
         const fingerprint = computeMemoryFingerprint(
           scopeId,
-          raw.kind,
+          resolvedKind,
           subject,
           statement,
         );
+
+        // Validate supersedes: must reference a known existing item ID.
+        // Reject hallucinated IDs that don't match any item we showed the LLM.
+        const rawSupersedes =
+          typeof raw.supersedes === "string" && raw.supersedes.length > 0
+            ? raw.supersedes
+            : null;
+        const supersedes =
+          rawSupersedes && existingItemIds.has(rawSupersedes)
+            ? rawSupersedes
+            : null;
+        const supersedesRejected = !!rawSupersedes && !supersedes;
+        const overrideConfidence = VALID_OVERRIDE_CONFIDENCES.has(
+          raw.overrideConfidence,
+        )
+          ? (raw.overrideConfidence as OverrideConfidence)
+          : "inferred";
+
         items.push({
-          kind: raw.kind as MemoryItemKind,
+          kind: resolvedKind as MemoryItemKind,
           subject,
           statement,
           confidence,
           importance,
           fingerprint,
+          supersedes,
+          overrideConfidence,
+          supersedesRejected,
         });
       }
 
@@ -342,7 +505,12 @@ export async function extractAndUpsertMemoryItemsForMessage(
   const extractionConfig = config.memory.extraction;
   const effectiveScopeId = scopeId ?? "default";
   const extracted = extractionConfig.useLLM
-    ? await extractItemsWithLLM(text, extractionConfig, effectiveScopeId)
+    ? await extractItemsWithLLM(
+        text,
+        extractionConfig,
+        effectiveScopeId,
+        message.role,
+      )
     : extractItemsPatternBased(text, effectiveScopeId);
 
   if (extracted.length === 0) return 0;
@@ -387,12 +555,7 @@ export async function extractAndUpsertMemoryItemsForMessage(
         verificationState === "user_reported"
           ? "user_reported"
           : existing.verificationState;
-      // Preserve pending_clarification if this item has an unresolved conflict
-      effectiveStatus =
-        existing.status === "pending_clarification" &&
-        hasPendingConflict(existing.id)
-          ? "pending_clarification"
-          : "active";
+      effectiveStatus = "active";
       db.update(memoryItems)
         .set({
           status: effectiveStatus,
@@ -424,16 +587,103 @@ export async function extractAndUpsertMemoryItemsForMessage(
           firstSeenAt: message.createdAt,
           lastSeenAt: seenAt,
           lastUsedAt: null,
+          supersedes: item.supersedes,
+          overrideConfidence: item.overrideConfidence,
         })
         .run();
       upserted += 1;
     }
 
-    // Only supersede other items when this item is active — a
-    // pending_clarification item should not demote the existing active
-    // item, since that would leave no retrievable memory until manual
-    // conflict resolution occurs.
-    if (SUPERSEDE_KINDS.has(item.kind) && effectiveStatus === "active") {
+    // Handle LLM-directed supersession based on overrideConfidence.
+    // Guard: skip if supersedes targets the current item (self-supersession on
+    // fingerprint re-hit would incorrectly remove an active memory).
+    if (
+      item.supersedes &&
+      item.supersedes !== memoryItemId &&
+      item.overrideConfidence === "explicit" &&
+      effectiveStatus === "active"
+    ) {
+      // Explicit supersession: mark old item as superseded and link both items
+      const oldItem = db
+        .select({ id: memoryItems.id })
+        .from(memoryItems)
+        .where(
+          and(
+            eq(memoryItems.id, item.supersedes),
+            eq(memoryItems.scopeId, effectiveScopeId),
+            eq(memoryItems.status, "active"),
+          ),
+        )
+        .get();
+
+      if (oldItem) {
+        db.update(memoryItems)
+          .set({
+            status: "superseded",
+            supersededBy: memoryItemId,
+          })
+          .where(eq(memoryItems.id, oldItem.id))
+          .run();
+
+        // Update new item's supersedes link
+        db.update(memoryItems)
+          .set({ supersedes: oldItem.id })
+          .where(eq(memoryItems.id, memoryItemId))
+          .run();
+
+        // Remove superseded item from Qdrant vector index
+        try {
+          const qdrant = getQdrantClient();
+          await withQdrantBreaker(() =>
+            qdrant.deleteByTarget("item", oldItem.id),
+          );
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          log.warn(
+            { err: errMsg, oldItemId: oldItem.id },
+            "Failed to remove superseded item from Qdrant — will be cleaned up by index maintenance",
+          );
+        }
+
+        log.debug(
+          { newItemId: memoryItemId, oldItemId: oldItem.id },
+          "Explicitly superseded memory item",
+        );
+      }
+    } else if (item.supersedes && item.overrideConfidence === "tentative") {
+      // Tentative: insert as active but don't supersede — both coexist
+      log.debug(
+        {
+          newItemId: memoryItemId,
+          supersedes: item.supersedes,
+          overrideConfidence: "tentative",
+        },
+        "Tentative override — both items coexist",
+      );
+    } else if (item.supersedes && item.overrideConfidence === "inferred") {
+      // Inferred: insert as active, don't supersede, log for observability
+      log.debug(
+        {
+          newItemId: memoryItemId,
+          supersedes: item.supersedes,
+          overrideConfidence: "inferred",
+        },
+        "Inferred override — both items coexist (weak signal)",
+      );
+    }
+
+    // Fallback subject-match supersession: only when the LLM did not
+    // explicitly handle supersession for this item. This preserves the
+    // original behavior for pattern-based extraction and items without
+    // LLM-directed supersession. Skip items whose supersedes ID was
+    // rejected (hallucinated) — they should coexist, not trigger
+    // subject-based replacement.
+    if (
+      !item.supersedes &&
+      !item.supersedesRejected &&
+      SUPERSEDE_KINDS.has(item.kind) &&
+      effectiveStatus === "active"
+    ) {
       db.update(memoryItems)
         .set({ status: "superseded" })
         .where(
@@ -459,11 +709,6 @@ export async function extractAndUpsertMemoryItemsForMessage(
       .run();
 
     enqueueMemoryJob("embed_item", { itemId: memoryItemId });
-
-    // Queue contradiction check for newly inserted items
-    if (!existing) {
-      enqueueMemoryJob("check_contradictions", { itemId: memoryItemId });
-    }
   }
 
   log.debug(
@@ -504,6 +749,8 @@ function extractItemsPatternBased(
       confidence: classification.confidence,
       importance: classification.importance,
       fingerprint,
+      supersedes: null,
+      overrideConfidence: "inferred" as OverrideConfidence,
     });
   }
 
@@ -533,7 +780,7 @@ function classifySentence(
       "timezone",
     ])
   ) {
-    return { kind: "profile", confidence: 0.72, importance: 0.8 };
+    return { kind: "identity", confidence: 0.72, importance: 0.8 };
   }
   if (includesAny(lower, ["project", "repository", "repo", "codebase"])) {
     return { kind: "project", confidence: 0.68, importance: 0.6 };
@@ -546,7 +793,7 @@ function classifySentence(
   if (
     includesAny(lower, ["todo", "to do", "next step", "follow up", "need to"])
   ) {
-    return { kind: "todo", confidence: 0.74, importance: 0.6 };
+    return { kind: "project", confidence: 0.74, importance: 0.6 };
   }
   if (
     includesAny(lower, [
@@ -560,7 +807,7 @@ function classifySentence(
     return { kind: "constraint", confidence: 0.7, importance: 0.7 };
   }
   if (includesAny(lower, ["remember", "important", "fact", "noted"])) {
-    return { kind: "fact", confidence: 0.62, importance: 0.5 };
+    return { kind: "identity", confidence: 0.62, importance: 0.5 };
   }
   return null;
 }
@@ -602,21 +849,4 @@ function parseScore(value: unknown, fallback: number): number {
   if (value == null || value === "") return fallback;
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
-}
-
-/** Returns true if the given memory item is the candidate in an unresolved conflict. */
-function hasPendingConflict(itemId: string): boolean {
-  const db = getDb();
-  const row = db
-    .select({ id: memoryItemConflicts.id })
-    .from(memoryItemConflicts)
-    .where(
-      and(
-        eq(memoryItemConflicts.candidateItemId, itemId),
-        eq(memoryItemConflicts.status, "pending_clarification"),
-      ),
-    )
-    .limit(1)
-    .get();
-  return row != null;
 }

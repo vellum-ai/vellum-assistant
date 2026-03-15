@@ -15,7 +15,7 @@ import type {
   TurnInterfaceContext,
 } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
-import { getConfig } from "../config/loader.js";
+import { API_KEY_PROVIDERS, getConfig } from "../config/loader.js";
 import { listPendingRequestsByConversationScope } from "../memory/canonical-guardian-store.js";
 import {
   addMessage,
@@ -27,6 +27,7 @@ import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
 import type { Message } from "../providers/types.js";
 import { routeGuardianReply } from "../runtime/guardian-reply-router.js";
+import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import type {
   ServerMessage,
@@ -47,12 +48,15 @@ import { resolveVerificationSessionIntent } from "./verification-session-intent.
 const log = getLogger("session-process");
 
 /** Build a model_info event with fresh config data. */
-export function buildModelInfoEvent(): ServerMessage {
+export async function buildModelInfoEvent(): Promise<ServerMessage> {
   const config = getConfig();
-  const configured = Object.keys(config.apiKeys).filter(
-    (k) => !!config.apiKeys[k],
-  );
-  if (!configured.includes("ollama")) configured.push("ollama");
+  const configured: string[] = ["ollama"];
+  for (const p of API_KEY_PROVIDERS) {
+    if (p === "ollama") continue;
+    if (await getSecureKeyAsync(p)) {
+      configured.push(p);
+    }
+  }
   return {
     type: "model_info",
     model: config.model,
@@ -90,8 +94,10 @@ export interface ProcessSessionContext {
   currentPage?: string;
   /** Cumulative token usage stats for the session. */
   readonly usageStats: UsageStats;
-  /** Request-scoped skill IDs preactivated via slash resolution. */
+  /** Request-scoped skill IDs preactivated via config or programmatic injection. */
   preactivatedSkillIds?: string[];
+  /** Add a skill ID to the preactivated set without replacing existing entries. */
+  addPreactivatedSkillId(id: string): void;
   /** Assistant identity — used for scoping notification preferences. */
   readonly assistantId?: string;
   trustContext?: TrustContext;
@@ -140,7 +146,8 @@ export interface ProcessSessionContext {
       | "message_complete"
       | "generation_cancelled"
       | "error_terminal"
-      | "preview_start",
+      | "preview_start"
+      | "context_compacting",
     anchor?: "assistant_turn" | "user_turn" | "global",
     requestId?: string,
     statusText?: string,
@@ -224,6 +231,11 @@ export async function drainQueue(
   const next = session.queue.shift();
   if (!next) return;
 
+  // Reset per-turn preactivation so a prior iteration (e.g. an unknown-slash
+  // from a desktop source that skips runAgentLoop) can't leak CU preactivation
+  // into the next queued message.
+  session.preactivatedSkillIds = undefined;
+
   log.info(
     {
       conversationId: session.conversationId,
@@ -283,11 +295,15 @@ export async function drainQueue(
     const sourceInterface = interfaceCtx?.userMessageInterface;
     if (sourceInterface === "macos" || sourceInterface === "ios") {
       session.restoreProxyAvailability();
+      session.addPreactivatedSkillId("computer-use");
     }
   }
 
   // Resolve slash commands for queued messages
-  const slashResult = resolveSlash(next.content, buildSlashContext(session));
+  const slashResult = await resolveSlash(
+    next.content,
+    buildSlashContext(session),
+  );
 
   // Unknown slash — persist the exchange and continue draining.
   // Persist each message before pushing to session.messages so that a
@@ -356,7 +372,7 @@ export async function drainQueue(
         isModelSlashCommand(next.content) ||
         isProviderShortcut(next.content)
       ) {
-        next.onEvent(buildModelInfoEvent());
+        next.onEvent(await buildModelInfoEvent());
       }
       next.onEvent({ type: "assistant_text_delta", text: slashResult.message });
       session.traceEmitter.emit(
@@ -398,11 +414,6 @@ export async function drainQueue(
   }
 
   const resolvedContent = slashResult.content;
-
-  // Preactivate skill tools when slash resolution identifies a known skill
-  if (slashResult.kind === "rewritten") {
-    session.preactivatedSkillIds = [slashResult.skillId];
-  }
 
   // Guardian verification intent interception for queued messages.
   // Preserve the original user content for persistence; only the agent
@@ -642,7 +653,7 @@ export async function processMessage(
   }
 
   // Resolve slash commands before persistence
-  const slashResult = resolveSlash(content, buildSlashContext(session));
+  const slashResult = await resolveSlash(content, buildSlashContext(session));
 
   // Unknown slash command — persist the exchange (user + assistant) so the
   // messageId is real.  Persist each message before pushing to session.messages
@@ -706,7 +717,7 @@ export async function processMessage(
     // Emit fresh model info before the text delta so the client has
     // up-to-date configuredProviders when rendering /model or /models UI.
     if (isModelSlashCommand(content) || isProviderShortcut(content)) {
-      onEvent(buildModelInfoEvent());
+      onEvent(await buildModelInfoEvent());
     }
     onEvent({ type: "assistant_text_delta", text: slashResult.message });
     session.traceEmitter.emit(
@@ -722,11 +733,6 @@ export async function processMessage(
   }
 
   const resolvedContent = slashResult.content;
-
-  // Preactivate skill tools when slash resolution identifies a known skill
-  if (slashResult.kind === "rewritten") {
-    session.preactivatedSkillIds = [slashResult.skillId];
-  }
 
   // Guardian verification intent interception — force direct guardian
   // verification requests into the guardian-verify-setup skill flow on

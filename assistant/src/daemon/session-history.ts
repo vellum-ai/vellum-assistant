@@ -21,6 +21,14 @@ const log = getLogger("session-history");
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
+function isToolResultBlock(
+  block: ContentBlock | Record<string, unknown>,
+): boolean {
+  return (
+    block.type === "tool_result" || block.type === "web_search_tool_result"
+  );
+}
+
 function isUndoableUserMessage(message: Message): boolean {
   if (message.role !== "user") return false;
   if (getSummaryFromContextMessage(message) != null) return false;
@@ -30,7 +38,7 @@ function isUndoableUserMessage(message: Message): boolean {
   // (e.g. after repairHistory merges a tool_result turn with a user prompt) are still
   // undoable because they contain real user content.
   const hasNonToolResultContent = message.content.some(
-    (block) => block.type !== "tool_result",
+    (block) => !isToolResultBlock(block),
   );
   if (!hasNonToolResultContent) return false;
   return true;
@@ -143,7 +151,9 @@ export function consolidateAssistantMessages(
         const content = JSON.parse(msg.content);
         const isToolResultOnly =
           Array.isArray(content) &&
-          content.every((block) => block.type === "tool_result") &&
+          content.every((block: Record<string, unknown>) =>
+            isToolResultBlock(block),
+          ) &&
           content.length > 0;
         if (isToolResultOnly) {
           internalToolResultMessages.push(msg);
@@ -229,8 +239,8 @@ export function consolidateAssistantMessages(
     try {
       const content = JSON.parse(msg.content);
       if (Array.isArray(content)) {
-        const toolResultBlocks = content.filter(
-          (b: Record<string, unknown>) => b.type === "tool_result",
+        const toolResultBlocks = content.filter((b: Record<string, unknown>) =>
+          isToolResultBlock(b),
         );
         log.info(
           {
@@ -253,8 +263,8 @@ export function consolidateAssistantMessages(
   const toolUseBlocksInConsolidated = consolidatedContent.filter(
     (b) => b.type === "tool_use",
   ).length;
-  const toolResultBlocksInConsolidated = consolidatedContent.filter(
-    (b) => b.type === "tool_result",
+  const toolResultBlocksInConsolidated = consolidatedContent.filter((b) =>
+    isToolResultBlock(b),
   ).length;
   log.info(
     {
@@ -471,7 +481,7 @@ export async function regenerate(
       if (
         Array.isArray(parsed) &&
         parsed.length > 0 &&
-        parsed.every((b: Record<string, unknown>) => b.type === "tool_result")
+        parsed.every((b: Record<string, unknown>) => isToolResultBlock(b))
       ) {
         continue; // Skip tool_result-only user messages
       }

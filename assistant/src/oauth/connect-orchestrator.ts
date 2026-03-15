@@ -48,7 +48,7 @@ function resolveBehavior(providerKey: string): {
   setup?: OAuthProviderBehavior["setup"];
   setupSkillId?: string;
   postConnectHookId?: string;
-  injectionTemplates?: OAuthProviderBehavior["injectionTemplates"];
+  loopbackPort?: number;
 } {
   const behavior = getProviderBehavior(providerKey);
   if (!behavior) return {};
@@ -57,7 +57,7 @@ function resolveBehavior(providerKey: string): {
     setup: behavior.setup,
     setupSkillId: behavior.setupSkillId,
     postConnectHookId: behavior.postConnectHookId,
-    injectionTemplates: behavior.injectionTemplates,
+    loopbackPort: behavior.loopbackPort,
   };
 }
 
@@ -90,8 +90,6 @@ export interface OAuthConnectOptions {
   openUrl?: (url: string) => void;
   /** Send a message to the client (e.g. open_url). */
   sendToClient?: (msg: { type: string; [key: string]: unknown }) => void;
-  /** Tools allowed to use the resulting credential. */
-  allowedTools?: string[];
 
   /**
    * Called when the deferred (non-interactive) flow completes — either
@@ -164,8 +162,8 @@ export async function orchestrateOAuthConnect(
     | undefined;
   const callbackTransport =
     (providerRow.callbackTransport as "loopback" | "gateway" | null) ??
-    "gateway";
-  const loopbackPort = providerRow.loopbackPort;
+    "loopback";
+  const loopbackPort = behavior.loopbackPort;
 
   // Resolve scopes via the scope policy engine
   const scopeProfile = {
@@ -216,11 +214,7 @@ export async function orchestrateOAuthConnect(
     service: resolvedService,
     clientId: options.clientId,
     clientSecret: options.clientSecret,
-    tokenUrl,
-    tokenEndpointAuthMethod,
     userinfoUrl,
-    allowedTools: options.allowedTools,
-    wellKnownInjectionTemplates: behavior.injectionTemplates,
   };
 
   // -----------------------------------------------------------------------
@@ -248,8 +242,10 @@ export async function orchestrateOAuthConnect(
       const prepared = await prepareOAuth2Flow(
         oauthConfig,
         callbackTransport === "loopback"
-          ? { callbackTransport, loopbackPort: loopbackPort ?? undefined }
-          : undefined,
+          ? { callbackTransport, loopbackPort }
+          : callbackTransport === "gateway"
+            ? { callbackTransport }
+            : undefined,
       );
 
       // Fire-and-forget: store tokens when the callback arrives
@@ -351,7 +347,7 @@ export async function orchestrateOAuthConnect(
         },
       },
       callbackTransport === "loopback"
-        ? { callbackTransport, loopbackPort: loopbackPort ?? undefined }
+        ? { callbackTransport, loopbackPort }
         : callbackTransport === "gateway"
           ? { callbackTransport }
           : undefined,

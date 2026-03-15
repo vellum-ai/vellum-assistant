@@ -431,6 +431,7 @@ describe("Native Web Search — Streaming Events", () => {
       type: "server_tool_start",
       name: "web_search",
       toolUseId: "stu_stream123",
+      input: {},
     });
   });
 

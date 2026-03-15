@@ -39,37 +39,8 @@ const log = getLogger("skills");
 const VellumMetadataSchema = z
   .object({
     emoji: z.string().optional(),
-    os: z.array(z.string()).optional(),
-    requires: z
-      .object({
-        bins: z.array(z.string()).optional(),
-        anyBins: z.array(z.string()).optional(),
-        env: z.array(z.string()).optional(),
-        config: z.array(z.string()).optional(),
-      })
-      .optional(),
-    primaryEnv: z.string().optional(),
-    install: z
-      .array(
-        z
-          .object({
-            id: z.string(),
-            kind: z.enum(["brew", "node", "go", "uv", "download"]),
-          })
-          .passthrough(),
-      )
-      .optional(),
-    cli: z
-      .object({
-        command: z.string(),
-        entry: z.string(),
-      })
-      .optional(),
     "display-name": z.string().optional(),
-    "user-invocable": z.union([z.boolean(), z.string()]).optional(),
-    "disable-model-invocation": z.union([z.boolean(), z.string()]).optional(),
     includes: z.array(z.string()).optional(),
-    "credential-setup-for": z.string().optional(),
     "feature-flag": z.string().optional(),
   })
   .passthrough();
@@ -80,38 +51,6 @@ const SkillMetadataSchema = z
     vellum: VellumMetadataSchema.optional(),
   })
   .passthrough();
-
-// ─── New interfaces for extended skill metadata ──────────────────────────────
-
-export interface SkillCliSpec {
-  /** CLI command name (e.g. "doordash"). Used as the launcher script name in ~/.vellum/bin/. */
-  command: string;
-  /** Entry point filename relative to the skill directory (e.g. "doordash-entry.ts"). */
-  entry: string;
-}
-
-export interface VellumMetadata {
-  emoji?: string;
-  os?: string[];
-  requires?: SkillRequirements;
-  primaryEnv?: string;
-  install?: InstallerSpec[];
-  /** Declares a standalone CLI entry point for this skill. */
-  cli?: SkillCliSpec;
-}
-
-export interface SkillRequirements {
-  bins?: string[];
-  anyBins?: string[];
-  env?: string[];
-  config?: string[];
-}
-
-export interface InstallerSpec {
-  id: string;
-  kind: "brew" | "node" | "go" | "uv" | "download";
-  [key: string]: unknown;
-}
 
 export type SkillSource = "bundled" | "managed" | "workspace" | "extra";
 
@@ -128,16 +67,11 @@ export interface SkillSummary {
   icon?: string;
   emoji?: string;
   homepage?: string;
-  userInvocable: boolean;
-  disableModelInvocation: boolean;
   source: SkillSource;
-  metadata?: VellumMetadata;
   /** Parsed tool manifest metadata, if the skill has a valid TOOLS.json. */
   toolManifest?: SkillToolManifestMeta;
   /** IDs of child skills that this skill includes (metadata-only, not auto-activated). */
   includes?: string[];
-  /** Declares which credential this skill sets up (e.g. "vercel:api_token"). */
-  credentialSetupFor?: string;
   /** Feature flag ID declared in frontmatter. Only skills with this field are subject to feature flag gating. */
   featureFlag?: string;
 }
@@ -217,90 +151,6 @@ export interface SkillToolManifestMeta {
   versionHash?: string;
 }
 
-// ─── Requirements check ──────────────────────────────────────────────────────
-
-export interface RequirementsCheckResult {
-  eligible: boolean;
-  missing: {
-    bins?: string[];
-    env?: string[];
-  };
-}
-
-export function checkSkillRequirements(
-  skill: SkillSummary,
-  envOverrides?: Record<string, string>,
-): RequirementsCheckResult {
-  const vellum = skill.metadata;
-  if (!vellum) {
-    return { eligible: true, missing: {} };
-  }
-
-  const missingBins: string[] = [];
-  const missingEnv: string[] = [];
-
-  // OS check
-  if (vellum.os && vellum.os.length > 0) {
-    if (!vellum.os.includes(process.platform)) {
-      return {
-        eligible: false,
-        missing: {
-          bins: [
-            `(unsupported platform: ${
-              process.platform
-            }, requires: ${vellum.os.join(", ")})`,
-          ],
-        },
-      };
-    }
-  }
-
-  const requires = vellum.requires;
-  if (!requires) {
-    return { eligible: true, missing: {} };
-  }
-
-  // bins: all must exist
-  if (requires.bins) {
-    for (const bin of requires.bins) {
-      if (!Bun.which(bin)) {
-        missingBins.push(bin);
-      }
-    }
-  }
-
-  // anyBins: at least one must exist
-  if (requires.anyBins && requires.anyBins.length > 0) {
-    const hasAny = requires.anyBins.some((bin) => Bun.which(bin) != null);
-    if (!hasAny) {
-      missingBins.push(`(one of: ${requires.anyBins.join(", ")})`);
-    }
-  }
-
-  // env: check process.env or envOverrides
-  if (requires.env) {
-    const env = envOverrides
-      ? { ...process.env, ...envOverrides }
-      : process.env;
-    for (const key of requires.env) {
-      if (!env[key]) {
-        missingEnv.push(key);
-      }
-    }
-  }
-
-  // config: skip for now (needs config integration from M2)
-
-  const missing: RequirementsCheckResult["missing"] = {};
-  if (missingBins.length > 0) missing.bins = missingBins;
-  if (missingEnv.length > 0) missing.env = missingEnv;
-
-  return {
-    eligible: missingBins.length === 0 && missingEnv.length === 0,
-    missing,
-  };
-}
-
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 export function getSkillsDir(): string {
@@ -337,11 +187,8 @@ interface ParsedFrontmatter {
   displayName: string;
   description: string;
   body: string;
-  userInvocable: boolean;
-  disableModelInvocation: boolean;
-  metadata?: VellumMetadata;
+  emoji?: string;
   includes?: string[];
-  credentialSetupFor?: string;
   featureFlag?: string;
 }
 
@@ -371,7 +218,7 @@ function parseFrontmatter(
   }
 
   // metadata is already a parsed object from YAML — validate with Zod schema
-  let metadata: VellumMetadata | undefined;
+  let emoji: string | undefined;
   let parsedMeta: z.infer<typeof SkillMetadataSchema> | undefined;
   let vellum: z.infer<typeof VellumMetadataSchema> | undefined;
 
@@ -389,20 +236,7 @@ function parseFrontmatter(
       if (zodResult.success) {
         parsedMeta = zodResult.data;
         vellum = parsedMeta.vellum;
-        if (parsedMeta.vellum) {
-          metadata = parsedMeta.vellum as VellumMetadata;
-        }
-        // Inject top-level emoji into metadata when metadata.vellum doesn't
-        // carry its own emoji. The Agent Skills spec places emoji at the
-        // top level of the metadata object, so bundled skills that follow
-        // this convention would otherwise lose their emoji value.
-        if (parsedMeta.emoji) {
-          if (metadata && !metadata.emoji) {
-            metadata.emoji = parsedMeta.emoji;
-          } else if (!metadata) {
-            metadata = { emoji: parsedMeta.emoji };
-          }
-        }
+        emoji = vellum?.emoji ?? parsedMeta.emoji;
       } else {
         // Zod validation failed — fall back to raw parsed object so we don't
         // lose all metadata because of a single bad field value.  We coerce
@@ -415,51 +249,14 @@ function parseFrontmatter(
         const raw = metadataRaw as Record<string, unknown>;
         parsedMeta = raw as z.infer<typeof SkillMetadataSchema>;
         vellum = raw?.vellum as z.infer<typeof VellumMetadataSchema>;
-        if (raw?.vellum && typeof raw.vellum === "object") {
-          const vellumRaw = raw.vellum as Record<string, unknown>;
-
-          // Coerce `os` to string[] — a bare string is wrapped in an array.
-          if (vellumRaw.os !== undefined) {
-            vellumRaw.os = Array.isArray(vellumRaw.os)
-              ? vellumRaw.os
-              : [vellumRaw.os];
-          }
-
-          // Coerce `requires` sub-fields to arrays.
-          if (vellumRaw.requires && typeof vellumRaw.requires === "object") {
-            const req = vellumRaw.requires as Record<string, unknown>;
-            for (const key of ["bins", "anyBins", "env", "config"] as const) {
-              if (req[key] !== undefined && !Array.isArray(req[key])) {
-                req[key] = typeof req[key] === "string" ? [req[key]] : [];
-              }
-            }
-          }
-
-          metadata = vellumRaw as unknown as VellumMetadata;
+        if (vellum && typeof vellum === "object") {
+          emoji = typeof vellum.emoji === "string" ? vellum.emoji : undefined;
+        }
+        if (!emoji && parsedMeta?.emoji) {
+          emoji = parsedMeta.emoji;
         }
       }
     }
-  }
-
-  // Read vellum-specific fields exclusively from metadata.vellum
-  const vellumUserInvocable = vellum?.["user-invocable"];
-  let userInvocable: boolean;
-  if (typeof vellumUserInvocable === "boolean") {
-    userInvocable = vellumUserInvocable;
-  } else if (typeof vellumUserInvocable === "string") {
-    userInvocable = vellumUserInvocable !== "false";
-  } else {
-    userInvocable = true;
-  }
-
-  const vellumDisableModelInvocation = vellum?.["disable-model-invocation"];
-  let disableModelInvocation: boolean;
-  if (typeof vellumDisableModelInvocation === "boolean") {
-    disableModelInvocation = vellumDisableModelInvocation;
-  } else if (typeof vellumDisableModelInvocation === "string") {
-    disableModelInvocation = vellumDisableModelInvocation === "true";
-  } else {
-    disableModelInvocation = false;
   }
 
   let includes: string[] | undefined;
@@ -474,11 +271,6 @@ function parseFrontmatter(
     ];
     includes = normalized.length > 0 ? normalized : undefined;
   }
-
-  const credentialSetupFor =
-    typeof vellum?.["credential-setup-for"] === "string"
-      ? vellum["credential-setup-for"]
-      : undefined;
 
   const featureFlag =
     typeof vellum?.["feature-flag"] === "string"
@@ -495,11 +287,8 @@ function parseFrontmatter(
     displayName,
     description,
     body: stripCommentLines(body),
-    userInvocable,
-    disableModelInvocation,
-    metadata,
+    emoji,
     includes,
-    credentialSetupFor,
     featureFlag,
   };
 }
@@ -647,14 +436,11 @@ function readSkillFromDirectory(
       directoryPath,
       skillFilePath,
       body: parsed.body,
-      emoji: parsed.metadata?.emoji,
-      userInvocable: parsed.userInvocable,
-      disableModelInvocation: parsed.disableModelInvocation,
+      emoji: parsed.emoji,
+
       source,
-      metadata: parsed.metadata,
       toolManifest: detectToolManifest(directoryPath),
       includes: parsed.includes,
-      credentialSetupFor: parsed.credentialSetupFor,
       featureFlag: parsed.featureFlag,
     };
   } catch (err) {
@@ -698,14 +484,11 @@ function readBundledSkillFromDirectory(
       skillFilePath,
       body: parsed.body,
       bundled: true,
-      emoji: parsed.metadata?.emoji,
-      userInvocable: parsed.userInvocable,
-      disableModelInvocation: parsed.disableModelInvocation,
+      emoji: parsed.emoji,
+
       source: "bundled",
-      metadata: parsed.metadata,
       toolManifest: detectToolManifest(directoryPath),
       includes: parsed.includes,
-      credentialSetupFor: parsed.credentialSetupFor,
       featureFlag: parsed.featureFlag,
     };
   } catch (err) {
@@ -758,13 +541,10 @@ function loadBundledSkills(): SkillSummary[] {
       skillFilePath: skill.skillFilePath,
       bundled: true,
       emoji: skill.emoji,
-      userInvocable: skill.userInvocable,
-      disableModelInvocation: skill.disableModelInvocation,
+
       source: "bundled",
-      metadata: skill.metadata,
       toolManifest: skill.toolManifest,
       includes: skill.includes,
-      credentialSetupFor: skill.credentialSetupFor,
       featureFlag: skill.featureFlag,
     });
   }
@@ -896,13 +676,9 @@ function skillSummaryFromDefinition(
     skillFilePath: skill.skillFilePath,
     bundled: skill.bundled,
     emoji: skill.emoji,
-    userInvocable: skill.userInvocable,
-    disableModelInvocation: skill.disableModelInvocation,
     source,
-    metadata: skill.metadata,
     toolManifest: skill.toolManifest,
     includes: skill.includes,
-    credentialSetupFor: skill.credentialSetupFor,
     featureFlag: skill.featureFlag,
   };
 }
@@ -948,14 +724,11 @@ export function loadSkillCatalog(
             description: parsed.description,
             directoryPath: directory,
             skillFilePath,
-            emoji: parsed.metadata?.emoji,
-            userInvocable: parsed.userInvocable,
-            disableModelInvocation: parsed.disableModelInvocation,
+            emoji: parsed.emoji,
+
             source: "extra",
-            metadata: parsed.metadata,
             toolManifest: detectToolManifest(directory),
             includes: parsed.includes,
-            credentialSetupFor: parsed.credentialSetupFor,
             featureFlag: parsed.featureFlag,
           });
         } catch (err) {
@@ -1045,14 +818,11 @@ export function loadSkillCatalog(
           description: parsed.description,
           directoryPath: directory,
           skillFilePath,
-          emoji: parsed.metadata?.emoji,
-          userInvocable: parsed.userInvocable,
-          disableModelInvocation: parsed.disableModelInvocation,
+          emoji: parsed.emoji,
+
           source: "workspace",
-          metadata: parsed.metadata,
           toolManifest: detectToolManifest(directory),
           includes: parsed.includes,
-          credentialSetupFor: parsed.credentialSetupFor,
           featureFlag: parsed.featureFlag,
         };
 
@@ -1294,7 +1064,7 @@ async function generateSkillIcon(
   name: string,
   description: string,
 ): Promise<string> {
-  const provider = getConfiguredProvider();
+  const provider = await getConfiguredProvider();
   if (!provider) {
     throw new Error("Configured provider unavailable for icon generation");
   }

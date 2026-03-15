@@ -1,6 +1,7 @@
 import { getConfig } from "../config/loader.js";
 import { resolveConfiguredProvider } from "../providers/provider-send-message.js";
 import type { Message } from "../providers/types.js";
+import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import type { CommitContext } from "./commit-message-provider.js";
 import { DefaultCommitMessageProvider } from "./commit-message-provider.js";
@@ -140,16 +141,19 @@ export class ProviderCommitMessageGenerator {
     // Step 2: Resolve configured provider using fail-open semantics.
     // If nothing is resolvable, differentiate likely missing-key cases from
     // true registry/init failures.
-    const resolved = resolveConfiguredProvider();
+    const resolved = await resolveConfiguredProvider();
     if (!resolved) {
       const candidates = getProviderCandidates(config);
       const hasAnyKeylessCandidate = candidates.some((name) =>
         KEYLESS_PROVIDERS.has(name),
       );
-      const hasAnyProviderKey = candidates.some((name) => {
-        const value = config.apiKeys[name];
-        return typeof value === "string" && value.length > 0;
-      });
+      const keyChecks = await Promise.all(
+        candidates.map(async (name) => {
+          const value = await getSecureKeyAsync(name);
+          return typeof value === "string" && value.length > 0;
+        }),
+      );
+      const hasAnyProviderKey = keyChecks.some(Boolean);
       if (!hasAnyKeylessCandidate && !hasAnyProviderKey) {
         log.debug(
           "No API keys available for configured/fallback providers; falling back to deterministic",
@@ -168,8 +172,8 @@ export class ProviderCommitMessageGenerator {
 
     // Step 2b: API key preflight for the selected provider (skip keyless).
     if (!KEYLESS_PROVIDERS.has(selectedProviderName)) {
-      const providerApiKey = config.apiKeys[selectedProviderName];
-      if (!providerApiKey || providerApiKey === "") {
+      const providerApiKey = await getSecureKeyAsync(selectedProviderName);
+      if (!providerApiKey) {
         log.debug(
           {
             selectedProvider: selectedProviderName,

@@ -11,6 +11,7 @@ import {
 import {
   CHANNEL_IDS,
   INTERFACE_IDS,
+  isInteractiveInterface,
   parseChannelId,
   parseInterfaceId,
 } from "../../channels/types.js";
@@ -51,6 +52,7 @@ import { getConfiguredProvider } from "../../providers/provider-send-message.js"
 import type { Provider } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { getLogger } from "../../util/logger.js";
+import { silentlyWithLog } from "../../util/silently.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import type { AuthContext } from "../auth/types.js";
@@ -315,16 +317,71 @@ export function handleListMessages(
   let prevAssistantTimestamp = 0;
   const messages: RuntimeMessagePayload[] = parsed.map((m) => {
     let msgAttachments: RuntimeAttachmentMetadata[] = [];
-    if (m.role === "assistant" && m.id) {
-      const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
-      if (linked.length > 0) {
-        msgAttachments = linked.map((a) => ({
-          id: a.id,
-          filename: a.originalFilename,
-          mimeType: a.mimeType,
-          sizeBytes: a.sizeBytes,
-          kind: a.kind,
-        }));
+    if (m.id) {
+      if (m.role === "user") {
+        // Use metadata-only query first to avoid loading large base64
+        // blobs for non-image attachments (documents, audio). Then
+        // selectively fetch full data only for images so the client can
+        // generate thumbnails for inline display on history restore.
+        const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
+        if (linked.length > 0) {
+          msgAttachments = linked.map((a) => {
+            if (a.mimeType.startsWith("image/")) {
+              const full = attachmentsStore.getAttachmentById(a.id);
+              return {
+                id: a.id,
+                filename: a.originalFilename,
+                mimeType: a.mimeType,
+                sizeBytes: a.sizeBytes,
+                kind: a.kind,
+                ...(full?.dataBase64 ? { data: full.dataBase64 } : {}),
+                ...(a.thumbnailBase64
+                  ? { thumbnailData: a.thumbnailBase64 }
+                  : {}),
+              };
+            }
+            return {
+              id: a.id,
+              filename: a.originalFilename,
+              mimeType: a.mimeType,
+              sizeBytes: a.sizeBytes,
+              kind: a.kind,
+              ...(a.thumbnailBase64
+                ? { thumbnailData: a.thumbnailBase64 }
+                : {}),
+            };
+          });
+        }
+      } else {
+        const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
+        if (linked.length > 0) {
+          msgAttachments = linked.map((a) => {
+            if (a.mimeType.startsWith("image/")) {
+              const full = attachmentsStore.getAttachmentById(a.id);
+              return {
+                id: a.id,
+                filename: a.originalFilename,
+                mimeType: a.mimeType,
+                sizeBytes: a.sizeBytes,
+                kind: a.kind,
+                ...(full?.dataBase64 ? { data: full.dataBase64 } : {}),
+                ...(a.thumbnailBase64
+                  ? { thumbnailData: a.thumbnailBase64 }
+                  : {}),
+              };
+            }
+            return {
+              id: a.id,
+              filename: a.originalFilename,
+              mimeType: a.mimeType,
+              sizeBytes: a.sizeBytes,
+              kind: a.kind,
+              ...(a.thumbnailBase64
+                ? { thumbnailData: a.thumbnailBase64 }
+                : {}),
+            };
+          });
+        }
       }
     }
 
@@ -412,7 +469,7 @@ function makeHubPublisher(
           toolName: msg.toolName,
           status: "pending",
           requestCode: generateCanonicalRequestCode(),
-          expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+          expiresAt: Date.now() + 5 * 60 * 1000,
         });
 
         // For trusted-contact sessions, bridge to guardian.question so the
@@ -498,6 +555,7 @@ export async function handleSendMessage(
     attachmentIds?: string[];
     sourceChannel?: string;
     interface?: string;
+    conversationType?: string;
   };
 
   const { conversationKey, content, attachmentIds } = body;
@@ -596,7 +654,11 @@ export async function handleSendMessage(
     );
   }
 
-  const mapping = getOrCreateConversation(conversationKey);
+  const conversationType =
+    body.conversationType === "private" ? ("private" as const) : undefined;
+  const mapping = getOrCreateConversation(conversationKey, {
+    conversationType,
+  });
   const smDeps = deps.sendMessageDeps;
   const session = await smDeps.getOrCreateSession(mapping.conversationId);
 
@@ -619,14 +681,7 @@ export async function handleSendMessage(
   }
 
   const onEvent = makeHubPublisher(smDeps, mapping.conversationId, session);
-  // Desktop, CLI, and web interfaces have an SSE client that can display
-  // permission prompts. Channel interfaces (telegram, slack, etc.) route
-  // approvals through the guardian system and have no interactive prompter UI.
-  const isInteractiveInterface =
-    sourceInterface === "macos" ||
-    sourceInterface === "ios" ||
-    sourceInterface === "cli" ||
-    sourceInterface === "vellum";
+  const isInteractive = isInteractiveInterface(sourceInterface);
   // Only create the host bash proxy for desktop client interfaces that can
   // execute commands on the user's machine. Non-desktop sessions (CLI,
   // channels, headless) fall back to local execution.
@@ -648,8 +703,16 @@ export async function handleSendMessage(
       session.setHostFileProxy(fileProxy);
     }
     if (!session.isProcessing() || !session.hostCuProxy) {
-      const cuProxy = new HostCuProxy(onEvent);
+      const cuProxy = new HostCuProxy(onEvent, (requestId) => {
+        pendingInteractions.resolve(requestId);
+      });
       session.setHostCuProxy(cuProxy);
+    }
+    // Only preactivate CU when the session is idle — if the session is
+    // processing, this message will be queued and preactivation is deferred
+    // to dequeue time in drainQueueImpl to avoid mutating in-flight turn state.
+    if (!session.isProcessing()) {
+      session.addPreactivatedSkillId("computer-use");
     }
   } else if (!session.isProcessing()) {
     session.setHostBashProxy(undefined);
@@ -664,7 +727,7 @@ export async function handleSendMessage(
     session.isProcessing() &&
     sourceInterface !== "macos" &&
     sourceInterface !== "ios";
-  session.updateClient(onEvent, !isInteractiveInterface, {
+  session.updateClient(onEvent, !isInteractive, {
     skipProxySenderUpdate: preservingProxies,
   });
 
@@ -736,7 +799,7 @@ export async function handleSendMessage(
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
       },
-      { isInteractive: isInteractiveInterface },
+      { isInteractive },
     );
     if (enqueueResult.rejected) {
       return Response.json(
@@ -776,6 +839,31 @@ export async function handleSendMessage(
     );
   }
 
+  // Auto-deny pending confirmations for idle sessions. The legacy
+  // handleUserMessage called autoDenyPendingConfirmations unconditionally
+  // before dispatching, so an idle session with lingering confirmations
+  // (e.g. the user never responded to a tool-approval prompt) must deny
+  // them before starting the new turn.
+  if (session.hasAnyPendingConfirmation()) {
+    for (const interaction of pendingInteractions.getByConversation(
+      mapping.conversationId,
+    )) {
+      if (
+        interaction.session === session &&
+        interaction.kind === "confirmation"
+      ) {
+        session.emitConfirmationStateChanged({
+          sessionId: mapping.conversationId,
+          requestId: interaction.requestId,
+          state: "denied" as const,
+          source: "auto_deny" as const,
+        });
+      }
+    }
+    session.denyAllPendingConfirmations();
+    pendingInteractions.removeBySession(session);
+  }
+
   // Session is idle — persist and fire agent loop immediately
   session.setTurnChannelContext({
     userMessageChannel: sourceChannel,
@@ -800,7 +888,7 @@ export async function handleSendMessage(
     provider: config.provider,
     estimatedCost: session.usageStats.estimatedCost,
   };
-  const slashResult = resolveSlash(rawContent, slashContext);
+  const slashResult = await resolveSlash(rawContent, slashContext);
 
   if (slashResult.kind === "unknown") {
     session.processing = true;
@@ -845,7 +933,7 @@ export async function handleSendMessage(
       // a config change from a concurrent request.
       const modelInfoEvent =
         isModelSlashCommand(rawContent) || isProviderShortcut(rawContent)
-          ? buildModelInfoEvent()
+          ? await buildModelInfoEvent()
           : null;
 
       const response = Response.json(
@@ -860,7 +948,7 @@ export async function handleSendMessage(
       // Defer event publishing to next tick so the HTTP response reaches the
       // client first. This ensures the client's serverToLocalSessionMap is
       // populated before SSE events arrive, preventing dropped events in new
-      // desktop threads.
+      // desktop conversations.
       //
       // session.processing and drainQueue are also deferred so the current
       // slash command's events are emitted before the next queued message
@@ -877,7 +965,7 @@ export async function handleSendMessage(
           sessionId: conversationId,
         });
         session.processing = false;
-        session.drainQueue().catch(() => {});
+        silentlyWithLog(session.drainQueue(), "slash-command queue drain");
       }, 0);
 
       cleanupDeferred = true;
@@ -887,15 +975,12 @@ export async function handleSendMessage(
       // setTimeout above), but still needed for error paths.
       if (!cleanupDeferred && session.processing) {
         session.processing = false;
-        session.drainQueue().catch(() => {});
+        silentlyWithLog(session.drainQueue(), "error-path queue drain");
       }
     }
   }
 
   const resolvedContent = slashResult.content;
-  if (slashResult.kind === "rewritten") {
-    session.setPreactivatedSkillIds([slashResult.skillId]);
-  }
 
   let messageId: string;
   try {
@@ -906,16 +991,13 @@ export async function handleSendMessage(
       requestId,
     );
   } catch (err) {
-    // Reset preactivated skill IDs so a stale activation doesn't leak
-    // into the next message if persistence fails.
-    session.setPreactivatedSkillIds(undefined);
     throw err;
   }
 
   // Fire-and-forget the agent loop; events flow to the hub via onEvent.
   session
     .runAgentLoop(resolvedContent, messageId, onEvent, {
-      isInteractive: isInteractiveInterface,
+      isInteractive,
       isUserMessage: true,
     })
     .catch((err) => {
@@ -1052,7 +1134,7 @@ export async function handleGetSuggestion(
     }
 
     // Try LLM suggestion using the configured provider
-    const provider = getConfiguredProvider();
+    const provider = await getConfiguredProvider();
     if (provider) {
       try {
         // Deduplicate concurrent requests
@@ -1102,10 +1184,10 @@ export async function handleGetSuggestion(
 /**
  * GET /search?q=<query>[&limit=<n>][&maxMessagesPerConversation=<n>]
  *
- * Full-text search across all conversation threads (message content + titles).
+ * Full-text search across all conversations (message content + titles).
  * Returns ranked results grouped by conversation, each with matching message excerpts.
  */
-export function handleSearchConversations(url: URL): Response {
+function handleSearchConversations(url: URL): Response {
   const query = url.searchParams.get("q") ?? "";
   if (!query.trim()) {
     return httpError("BAD_REQUEST", "q query parameter is required", 400);

@@ -106,10 +106,12 @@ export function extractEmail(address: string): string {
  * If only one provider is connected, auto-select it.
  * Otherwise, throw asking the user to specify.
  */
-export function resolveProvider(platformInput?: string): MessagingProvider {
+export async function resolveProvider(
+  platformInput?: string,
+): Promise<MessagingProvider> {
   if (platformInput) return getMessagingProvider(platformInput);
 
-  const connected = getConnectedProviders();
+  const connected = await getConnectedProviders();
   if (connected.length === 1) return connected[0];
   if (connected.length === 0) {
     throw new Error(
@@ -130,9 +132,10 @@ export function resolveProvider(platformInput?: string): MessagingProvider {
  * Non-OAuth providers (e.g. Telegram) use isConnected() and don't need
  * tokens — they receive an empty string which the string overload handles.
  */
-export function getProviderConnection(
+export async function getProviderConnection(
   provider: MessagingProvider,
-): OAuthConnection | string {
-  if (provider.isConnected?.()) return "";
-  return resolveOAuthConnection(provider.credentialService);
+  account?: string,
+): Promise<OAuthConnection | string> {
+  if (await provider.isConnected?.()) return "";
+  return resolveOAuthConnection(provider.credentialService, account);
 }

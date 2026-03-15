@@ -19,7 +19,7 @@ export interface TrustRule {
 export type UserDecision =
   | "allow"
   | "allow_10m"
-  | "allow_thread"
+  | "allow_conversation"
   | "always_allow"
   | "always_allow_high_risk"
   | "deny"
@@ -31,7 +31,7 @@ export function isAllowDecision(decision: UserDecision): boolean {
   return (
     decision === "allow" ||
     decision === "allow_10m" ||
-    decision === "allow_thread" ||
+    decision === "allow_conversation" ||
     decision === "always_allow" ||
     decision === "always_allow_high_risk" ||
     decision === "temporary_override"

@@ -30,12 +30,12 @@ struct SubagentDetailPanel: View {
                                 Text("Abort")
                                     .font(VFont.captionMedium)
                             }
-                            .foregroundColor(Danger._400)
+                            .foregroundColor(VColor.systemNegativeStrong)
                             .padding(.horizontal, VSpacing.sm)
                             .padding(.vertical, VSpacing.xxs)
                             .background(
                                 RoundedRectangle(cornerRadius: VRadius.pill)
-                                    .fill(Danger._500.opacity(0.12))
+                                    .fill(VColor.systemNegativeStrong.opacity(0.12))
                             )
                         }
                         .buttonStyle(.plain)
@@ -48,10 +48,10 @@ struct SubagentDetailPanel: View {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("OBJECTIVE")
                             .font(VFont.small)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                         Text(objective)
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                             .lineLimit(4)
                     }
                 }
@@ -65,19 +65,19 @@ struct SubagentDetailPanel: View {
                 if let error = subagentInfo?.error, !error.isEmpty {
                     HStack(alignment: .top, spacing: VSpacing.xs) {
                         VIconView(.triangleAlert, size: 11)
-                            .foregroundColor(Danger._500)
+                            .foregroundColor(VColor.systemNegativeStrong)
                         Text(error)
                             .font(VFont.caption)
-                            .foregroundColor(Danger._400)
+                            .foregroundColor(VColor.systemNegativeStrong)
                     }
                     .padding(VSpacing.sm)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(
                         RoundedRectangle(cornerRadius: VRadius.md)
-                            .fill(Danger._500.opacity(0.08))
+                            .fill(VColor.systemNegativeStrong.opacity(0.08))
                             .overlay(
                                 RoundedRectangle(cornerRadius: VRadius.md)
-                                    .strokeBorder(Danger._500.opacity(0.2), lineWidth: 1)
+                                    .strokeBorder(VColor.systemNegativeStrong.opacity(0.2), lineWidth: 1)
                             )
                     )
                 }
@@ -85,7 +85,7 @@ struct SubagentDetailPanel: View {
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.lg)
 
-            Divider().background(VColor.surfaceBorder)
+            Divider().background(VColor.borderBase)
         }) {
             if events.isEmpty {
                 VEmptyState(
@@ -133,10 +133,10 @@ struct SubagentDetailPanel: View {
 
     private func statusColor(_ status: SubagentStatus) -> Color {
         switch status {
-        case .completed: return Emerald._500
-        case .failed, .aborted: return Danger._500
-        case .running: return Forest._500
-        default: return Moss._400
+        case .completed: return VColor.systemPositiveStrong
+        case .failed, .aborted: return VColor.systemNegativeStrong
+        case .running: return VColor.primaryActive
+        default: return VColor.contentTertiary
         }
     }
 
@@ -158,14 +158,14 @@ struct SubagentDetailPanel: View {
     private func metricItem(icon: String, label: String, value: String) -> some View {
         HStack(spacing: VSpacing.xxs) {
             VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 10)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
             VStack(alignment: .leading, spacing: 0) {
                 Text(label)
                     .font(VFont.small)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                 Text(value)
                     .font(VFont.captionMedium)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
             }
         }
     }
@@ -187,13 +187,13 @@ struct SubagentDetailPanel: View {
     private func eventLabel(for kind: SubagentEventItem.Kind) -> some View {
         switch kind {
         case .text:
-            label(icon: "text.bubble.fill", text: "RESPONSE", color: Forest._400)
+            label(icon: "text.bubble.fill", text: "RESPONSE", color: VColor.systemPositiveWeak)
         case .toolUse:
-            label(icon: "wrench.fill", text: "TOOL CALL", color: Forest._400)
+            label(icon: "wrench.fill", text: "TOOL CALL", color: VColor.systemPositiveWeak)
         case .toolResult(let isError):
-            label(icon: isError ? "xmark.circle.fill" : "checkmark.circle.fill", text: isError ? "TOOL ERROR" : "TOOL RESULT", color: isError ? Danger._400 : Emerald._400)
+            label(icon: isError ? "xmark.circle.fill" : "checkmark.circle.fill", text: isError ? "TOOL ERROR" : "TOOL RESULT", color: isError ? VColor.systemNegativeStrong : VColor.systemPositiveStrong)
         case .error:
-            label(icon: "exclamationmark.triangle.fill", text: "ERROR", color: Danger._500)
+            label(icon: "exclamationmark.triangle.fill", text: "ERROR", color: VColor.systemNegativeStrong)
         }
     }
 
@@ -216,18 +216,18 @@ struct SubagentDetailPanel: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(VColor.surface.opacity(0.4))
+                        .fill(VColor.surfaceBase.opacity(0.4))
                 )
 
         case .toolUse(let name):
             HStack(spacing: VSpacing.xs) {
                 Text(name)
                     .font(VFont.captionMedium)
-                    .foregroundColor(Forest._300)
+                    .foregroundColor(VColor.systemPositiveWeak)
                 if !event.content.isEmpty {
                     Text(event.content)
                         .font(VFont.monoSmall)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
@@ -236,39 +236,39 @@ struct SubagentDetailPanel: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(Forest._500.opacity(0.06))
+                    .fill(VColor.primaryActive.opacity(0.06))
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.md)
-                            .strokeBorder(Forest._500.opacity(0.12), lineWidth: 1)
+                            .strokeBorder(VColor.primaryActive.opacity(0.12), lineWidth: 1)
                     )
             )
 
         case .toolResult:
             Text(event.content)
                 .font(VFont.monoSmall)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .lineLimit(6)
                 .textSelection(.enabled)
                 .padding(VSpacing.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(VColor.surface.opacity(0.3))
+                        .fill(VColor.surfaceBase.opacity(0.3))
                 )
 
         case .error:
             Text(event.content)
                 .font(VFont.caption)
-                .foregroundColor(Danger._400)
+                .foregroundColor(VColor.systemNegativeStrong)
                 .textSelection(.enabled)
                 .padding(VSpacing.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(Danger._500.opacity(0.08))
+                        .fill(VColor.systemNegativeStrong.opacity(0.08))
                         .overlay(
                             RoundedRectangle(cornerRadius: VRadius.md)
-                                .strokeBorder(Danger._500.opacity(0.15), lineWidth: 1)
+                                .strokeBorder(VColor.systemNegativeStrong.opacity(0.15), lineWidth: 1)
                         )
                 )
         }

@@ -77,9 +77,9 @@ struct ChatBubble: View {
 
     private var bubbleFill: AnyShapeStyle {
         if isUser {
-            AnyShapeStyle(VColor.userBubble)
+            AnyShapeStyle(VColor.surfaceActive)
         } else if message.isError {
-            AnyShapeStyle(VColor.error.opacity(0.1))
+            AnyShapeStyle(VColor.systemNegativeStrong.opacity(0.1))
         } else {
             AnyShapeStyle(Color.clear)
         }
@@ -89,7 +89,7 @@ struct ChatBubble: View {
     private var bubbleBorderOverlay: some View {
         if message.isError || (isUser && message.status == .sendFailed) {
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .strokeBorder(VColor.error.opacity(0.3), lineWidth: 1)
+                .strokeBorder(VColor.systemNegativeStrong.opacity(0.3), lineWidth: 1)
         }
     }
 
@@ -249,16 +249,16 @@ struct ChatBubble: View {
     private var sendFailedIndicator: some View {
         HStack(spacing: VSpacing.xs) {
             VIconView(.triangleAlert, size: 12)
-                .foregroundColor(VColor.error)
+                .foregroundColor(VColor.systemNegativeStrong)
             Text("Failed to send")
                 .font(VFont.caption)
-                .foregroundColor(VColor.error)
+                .foregroundColor(VColor.systemNegativeStrong)
             Button {
                 onRetryFailedMessage?(message.id)
             } label: {
                 Text("Retry")
                     .font(VFont.caption.weight(.medium))
-                    .foregroundColor(VColor.accent)
+                    .foregroundColor(VColor.primaryBase)
             }
             .buttonStyle(.plain)
             .pointerCursor()
@@ -281,14 +281,14 @@ struct ChatBubble: View {
         HStack(spacing: 2) {
             Text(formattedTimestamp)
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .help(detailedTimestamp)
             if hasCopyableText {
                 Button {
                     copyMessageText()
                 } label: {
                     VIconView(showCopyConfirmation ? .check : .copy, size: 11)
-                        .foregroundColor(showCopyConfirmation ? VColor.success : VColor.textMuted)
+                        .foregroundColor(showCopyConfirmation ? VColor.systemPositiveStrong : VColor.contentTertiary)
                         .frame(width: 24, height: 24)
                         .contentShape(Rectangle())
                 }
@@ -302,7 +302,7 @@ struct ChatBubble: View {
                     onReportMessage(message.daemonMessageId)
                 } label: {
                     VIconView(.bug, size: 11)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .frame(width: 24, height: 24)
                         .contentShape(Rectangle())
                 }
@@ -330,12 +330,12 @@ struct ChatBubble: View {
                 if message.isError && hasText {
                     HStack(alignment: .top, spacing: VSpacing.sm) {
                         VIconView(.triangleAlert, size: 14 * conversationZoomScale)
-                            .foregroundColor(VColor.error)
+                            .foregroundColor(VColor.systemNegativeStrong)
                             .padding(.top, 1)
                         Text(message.text)
                             .font(.system(size: 14 * conversationZoomScale))
                             .lineSpacing(6)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             // lineLimit(nil) lets text wrap naturally in a single measurement
@@ -355,20 +355,20 @@ struct ChatBubble: View {
                         MarkdownSegmentView(
                             segments: segments,
                             maxContentWidth: nil,
-                            textColor: isUser ? VColor.userBubbleText : VColor.textPrimary,
-                            secondaryTextColor: isUser ? VColor.userBubbleTextSecondary : VColor.textSecondary,
-                            mutedTextColor: isUser ? VColor.userBubbleTextSecondary : VColor.textMuted,
-                            tintColor: isUser ? VColor.userBubbleText : VColor.accent,
-                            codeTextColor: isUser ? VColor.userBubbleText : VColor.codeText,
-                            codeBackgroundColor: isUser ? VColor.userBubbleText.opacity(0.1) : VColor.codeBackground,
-                            hrColor: isUser ? VColor.userBubbleText.opacity(0.3) : VColor.surfaceBorder
+                            textColor: isUser ? VColor.contentDefault : VColor.contentDefault,
+                            secondaryTextColor: isUser ? VColor.contentSecondary : VColor.contentSecondary,
+                            mutedTextColor: isUser ? VColor.contentSecondary : VColor.contentTertiary,
+                            tintColor: isUser ? VColor.contentDefault : VColor.primaryBase,
+                            codeTextColor: isUser ? VColor.contentDefault : VColor.systemNegativeStrong,
+                            codeBackgroundColor: isUser ? VColor.contentDefault.opacity(0.1) : VColor.surfaceActive,
+                            hrColor: isUser ? VColor.contentDefault.opacity(0.3) : VColor.borderBase
                         )
                     } else {
                         Text(markdownText)
                             .font(.system(size: 14 * conversationZoomScale))
                             .lineSpacing(6)
-                            .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
-                            .tint(isUser ? VColor.userBubbleText : VColor.accent)
+                            .foregroundColor(isUser ? VColor.contentDefault : VColor.contentDefault)
+                            .tint(isUser ? VColor.contentDefault : VColor.primaryBase)
                             .textSelection(.enabled)
                             // For assistant messages, fill available width for readability.
                             // For user messages, let the bubble shrink-wrap to text width.
@@ -380,7 +380,7 @@ struct ChatBubble: View {
                 } else if !message.attachments.isEmpty {
                     Text(attachmentSummary)
                         .font(VFont.caption)
-                        .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textSecondary)
+                        .foregroundColor(isUser ? VColor.contentSecondary : VColor.contentSecondary)
                 }
 
                 // Skip image attachments when they all come from tool calls shown inline

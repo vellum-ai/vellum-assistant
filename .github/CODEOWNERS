@@ -42,7 +42,6 @@ gateway/src/whatsapp/ @NgoHarrison
 
 # System prompt ownership
 assistant/src/prompts/system-prompt.ts @awlevin @siddseethepalli @alex-nork
-assistant/src/prompts/computer-use-prompt.ts @awlevin @siddseethepalli @alex-nork
 assistant/src/prompts/templates/ @awlevin @siddseethepalli @alex-nork
 
 # Default identity/personality files

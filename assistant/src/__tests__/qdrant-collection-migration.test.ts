@@ -21,12 +21,14 @@ interface MockCallLog {
 
 let mockCollectionExists: boolean;
 let mockCollectionSize: number;
+let mockUseNamedVectors: boolean;
 let mockSentinelPayload: Record<string, unknown> | null;
 let callLog: MockCallLog;
 
 function resetMockState() {
   mockCollectionExists = false;
   mockCollectionSize = 384;
+  mockUseNamedVectors = false;
   mockSentinelPayload = null;
   callLog = {
     collectionExists: 0,
@@ -51,7 +53,9 @@ mock.module("@qdrant/js-client-rest", () => ({
       return {
         config: {
           params: {
-            vectors: { size: mockCollectionSize },
+            vectors: mockUseNamedVectors
+              ? { dense: { size: mockCollectionSize } }
+              : { size: mockCollectionSize },
           },
         },
       };
@@ -77,7 +81,12 @@ mock.module("@qdrant/js-client-rest", () => ({
         mockSentinelPayload &&
         opts.ids.includes("00000000-0000-0000-0000-000000000000")
       ) {
-        return [{ id: "00000000-0000-0000-0000-000000000000", payload: mockSentinelPayload }];
+        return [
+          {
+            id: "00000000-0000-0000-0000-000000000000",
+            payload: mockSentinelPayload,
+          },
+        ];
       }
       return [];
     }
@@ -97,6 +106,7 @@ beforeEach(() => {
 describe("Qdrant collection migration", () => {
   test("deletes and recreates collection on dimension mismatch", async () => {
     mockCollectionExists = true;
+    mockUseNamedVectors = true;
     mockCollectionSize = 384; // Current collection has 384-dim vectors
 
     const client = new VellumQdrantClient({
@@ -108,14 +118,16 @@ describe("Qdrant collection migration", () => {
       embeddingModel: "gemini:gemini-embedding-2-preview",
     });
 
-    await client.ensureCollection();
+    const result = await client.ensureCollection();
 
     expect(callLog.deleteCollection).toBe(1);
     expect(callLog.createCollection).toBe(1);
+    expect(result.migrated).toBe(true);
   });
 
   test("deletes and recreates collection on model-only mismatch", async () => {
     mockCollectionExists = true;
+    mockUseNamedVectors = true;
     mockCollectionSize = 768; // Same dimension
     mockSentinelPayload = {
       _meta: true,
@@ -131,16 +143,18 @@ describe("Qdrant collection migration", () => {
       embeddingModel: "gemini:gemini-embedding-2-preview", // New model
     });
 
-    await client.ensureCollection();
+    const result = await client.ensureCollection();
 
     expect(callLog.deleteCollection).toBe(1);
     expect(callLog.createCollection).toBe(1);
     // Sentinel should be written for the new model
     expect(callLog.upsert).toBe(1);
+    expect(result.migrated).toBe(true);
   });
 
   test("leaves collection untouched when dimensions and model match", async () => {
     mockCollectionExists = true;
+    mockUseNamedVectors = true;
     mockCollectionSize = 768;
     mockSentinelPayload = {
       _meta: true,
@@ -156,14 +170,16 @@ describe("Qdrant collection migration", () => {
       embeddingModel: "gemini:gemini-embedding-2-preview",
     });
 
-    await client.ensureCollection();
+    const result = await client.ensureCollection();
 
     expect(callLog.deleteCollection).toBe(0);
     expect(callLog.createCollection).toBe(0);
+    expect(result.migrated).toBe(false);
   });
 
   test("does not rebuild pre-existing collection without sentinel (graceful upgrade)", async () => {
     mockCollectionExists = true;
+    mockUseNamedVectors = true;
     mockCollectionSize = 768;
     mockSentinelPayload = null; // No sentinel — pre-existing collection
 
@@ -176,11 +192,12 @@ describe("Qdrant collection migration", () => {
       embeddingModel: "gemini:gemini-embedding-2-preview",
     });
 
-    await client.ensureCollection();
+    const result = await client.ensureCollection();
 
     // No sentinel found → no model mismatch → collection kept
     expect(callLog.deleteCollection).toBe(0);
     expect(callLog.createCollection).toBe(0);
+    expect(result.migrated).toBe(false);
   });
 
   test("writes sentinel point when creating a new collection", async () => {
@@ -195,11 +212,37 @@ describe("Qdrant collection migration", () => {
       embeddingModel: "gemini:gemini-embedding-2-preview",
     });
 
-    await client.ensureCollection();
+    const result = await client.ensureCollection();
 
     expect(callLog.createCollection).toBe(1);
     // Sentinel upsert should be called
     expect(callLog.upsert).toBe(1);
+    // Fresh collection, not a migration
+    expect(result.migrated).toBe(false);
+  });
+
+  test("deletes and recreates collection when migrating from unnamed to named vectors", async () => {
+    mockCollectionExists = true;
+    mockUseNamedVectors = false; // Legacy unnamed vectors
+    mockCollectionSize = 768;
+
+    const client = new VellumQdrantClient({
+      url: "http://localhost:6333",
+      collection: "memory",
+      vectorSize: 768, // Same dimension
+      onDisk: false,
+      quantization: "none",
+      embeddingModel: "gemini:gemini-embedding-2-preview",
+    });
+
+    const result = await client.ensureCollection();
+
+    // Unnamed vectors should trigger delete + recreate with named vectors
+    expect(callLog.deleteCollection).toBe(1);
+    expect(callLog.createCollection).toBe(1);
+    // Sentinel should be written for the new collection
+    expect(callLog.upsert).toBe(1);
+    expect(result.migrated).toBe(true);
   });
 
   test("does not write sentinel when embeddingModel is not provided", async () => {
@@ -214,10 +257,12 @@ describe("Qdrant collection migration", () => {
       // No embeddingModel
     });
 
-    await client.ensureCollection();
+    const result = await client.ensureCollection();
 
     expect(callLog.createCollection).toBe(1);
     // No sentinel should be written
     expect(callLog.upsert).toBe(0);
+    // Fresh collection, not a migration
+    expect(result.migrated).toBe(false);
   });
 });

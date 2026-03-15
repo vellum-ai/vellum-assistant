@@ -2,25 +2,14 @@ import { and, asc, eq, inArray, lt } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
-import { checkContradictions } from "../contradiction-checker.js";
 import { getDb, rawAll, rawRun } from "../db.js";
-import { asPositiveMs, asString } from "../job-utils.js";
+import { asPositiveMs } from "../job-utils.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
-import {
-  memoryEmbeddings,
-  memoryItemEntities,
-  memoryItems,
-} from "../schema.js";
+import { memoryEmbeddings, memoryItems } from "../schema.js";
 
 const log = getLogger("memory-jobs-worker");
 
 const CLEANUP_BATCH_LIMIT = 250;
-
-export async function checkContradictionsJob(job: MemoryJob): Promise<void> {
-  const itemId = asString(job.payload.itemId);
-  if (!itemId) return;
-  await checkContradictions(itemId);
-}
 
 export function cleanupStaleSupersededItemsJob(
   job: MemoryJob,
@@ -46,9 +35,6 @@ export function cleanupStaleSupersededItemsJob(
   if (stale.length === 0) return;
 
   const ids = stale.map((row) => row.id);
-  db.delete(memoryItemEntities)
-    .where(inArray(memoryItemEntities.memoryItemId, ids))
-    .run();
   db.delete(memoryEmbeddings)
     .where(
       and(
@@ -81,7 +67,7 @@ const PRUNE_BATCH_LIMIT = 100;
  *
  * Tables with onDelete cascade on conversation FK (memory_segments,
  * conversation_keys, channel_inbound_events, message_runs, call_sessions,
- * external_conversation_bindings, assistant_inbox_thread_state) are handled
+ * external_conversation_bindings, assistant_inbox_conversation_state) are handled
  * automatically. Tables without cascade (messages, tool_invocations,
  * llm_request_logs) are deleted explicitly before removing the conversation row.
  */

@@ -6,7 +6,7 @@ import {
   loadAllAssistants,
   type AssistantEntry,
 } from "../lib/assistant-config";
-import { checkHealth } from "../lib/health-check";
+import { checkHealth, checkManagedHealth } from "../lib/health-check";
 import {
   classifyProcess,
   detectOrphanedProcesses,
@@ -359,6 +359,8 @@ async function listAllAssistants(): Promise<void> {
         } else {
           health = await checkHealth(a.localUrl ?? a.runtimeUrl, a.bearerToken);
         }
+      } else if (a.cloud === "vellum") {
+        health = await checkManagedHealth(a.runtimeUrl, a.assistantId);
       } else {
         health = await checkHealth(a.localUrl ?? a.runtimeUrl, a.bearerToken);
       }

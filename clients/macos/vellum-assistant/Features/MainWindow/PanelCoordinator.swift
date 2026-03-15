@@ -71,37 +71,29 @@ extension MainWindowView {
                     } else {
                         windowState.selection = .app(surfaceMsg.surfaceId)
                     }
+                },
+                onNewThread: {
+                    threadManager.openThread(message: "What kind of apps can you build?", forceNew: true)
+                    windowState.selection = nil
                 }
             )
         case .intelligence:
             IntelligencePanel(
                 onClose: { windowState.selection = nil },
-                onEditAvatar: {
-                    if threadManager.activeViewModel == nil {
-                        threadManager.createThread()
-                    }
-                    if let viewModel = threadManager.activeViewModel {
-                        viewModel.inputText = "I want to edit my avatar's looks"
-                    }
-                    windowState.selection = nil
-                },
                 onInvokeSkill: { skill in
-                    if threadManager.activeViewModel == nil {
-                        threadManager.createThread()
-                    }
-                    if let viewModel = threadManager.activeViewModel {
-                        viewModel.pendingSkillInvocation = SkillInvocationData(
+                    let vm = threadManager.openThread(message: "Use the \(skill.name) skill") { vm in
+                        vm.pendingSkillInvocation = SkillInvocationData(
                             name: skill.name,
                             emoji: skill.emoji,
                             description: skill.description
                         )
-                        viewModel.inputText = "Use the \(skill.name) skill"
-                        viewModel.sendMessage()
-                        viewModel.pendingSkillInvocation = nil
                     }
+                    vm?.pendingSkillInvocation = nil
                     windowState.selection = nil
                 },
-                daemonClient: daemonClient
+                daemonClient: daemonClient,
+                initialTab: windowState.pendingMemoryId != nil ? "Memories" : nil,
+                pendingMemoryId: $windowState.pendingMemoryId
             )
         case .usageDashboard:
             UsageDashboardPanel(
@@ -131,15 +123,12 @@ extension MainWindowView {
                        !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         // Ensure a thread exists so the prompt doesn't silently fail
                         // on fresh app launch before any chat thread is created.
-                        if threadManager.activeViewModel == nil {
-                            threadManager.createThread()
-                        }
-                        if let vm = threadManager.activeViewModel {
+                        threadManager.openThread(
+                            message: prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+                        ) { vm in
                             // Sync dock state before sending so the message is
                             // classified correctly (chat vs. workspace refinement).
                             vm.isChatDockedToSide = windowState.isChatDockOpen
-                            vm.inputText = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-                            vm.sendMessage()
                         }
                         return
                     }
@@ -154,11 +143,11 @@ extension MainWindowView {
                 Spacer()
                 Text("Surface not available")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(VColor.background)
+            .background(VColor.surfaceOverlay)
         }
     }
 
@@ -239,7 +228,7 @@ extension MainWindowView {
                 AppWorkspaceDockLayout(
                     dockWidth: clampedChatDockWidth(geometry: geometry),
                     showDock: windowState.isChatDockOpen,
-                    dockBackground: VColor.chatBackground,
+                    dockBackground: VColor.surfaceOverlay,
                     dockCornerRadius: 0,
                     dock: {
                         chatView
@@ -281,10 +270,14 @@ extension MainWindowView {
                         } else {
                             windowState.selection = .app(surfaceMsg.surfaceId)
                         }
+                    },
+                    onNewThread: {
+                        threadManager.openThread(message: "What kind of apps can you build?", forceNew: true)
+                        windowState.selection = nil
                     }
                 )
                 .overlay(alignment: .topTrailing) { panelDismissButton }
-                .background(VColor.backgroundSubtle)
+                .background(VColor.surfaceBase)
             } else if panelType == .documentEditor {
                 let config = windowState.layoutConfig
                 VSplitView(
@@ -307,7 +300,7 @@ extension MainWindowView {
                 VSplitView(
                     panelWidth: clampedPanelWidth(geometry: geometry),
                     showPanel: true,
-                    mainBackground: VColor.chatBackground,
+                    mainBackground: VColor.surfaceOverlay,
                     mainCornerRadius: 0,
                     main: {
                         chatView
@@ -340,7 +333,7 @@ extension MainWindowView {
         VSplitView(
             panelWidth: $sidePanelWidth,
             showPanel: showConfigPanel || showSubagentPanel,
-            mainBackground: VColor.chatBackground,
+            mainBackground: VColor.surfaceOverlay,
             mainCornerRadius: 0,
             main: { slotView(for: config.center.content) },
             panel: {
@@ -448,42 +441,34 @@ extension MainWindowView {
                     } else {
                         windowState.selection = .app(surfaceMsg.surfaceId)
                     }
+                },
+                onNewThread: {
+                    threadManager.openThread(message: "What kind of apps can you build?", forceNew: true)
+                    windowState.dismissOverlay()
                 }
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }
-            .background(VColor.backgroundSubtle)
+            .background(VColor.surfaceBase)
         case .intelligence:
             IntelligencePanel(
                 onClose: { windowState.dismissOverlay() },
-                onEditAvatar: {
-                    if threadManager.activeViewModel == nil {
-                        threadManager.createThread()
-                    }
-                    if let viewModel = threadManager.activeViewModel {
-                        viewModel.inputText = "I want to edit my avatar's looks"
-                    }
-                    windowState.dismissOverlay()
-                },
                 onInvokeSkill: { skill in
-                    if threadManager.activeViewModel == nil {
-                        threadManager.createThread()
-                    }
-                    if let viewModel = threadManager.activeViewModel {
-                        viewModel.pendingSkillInvocation = SkillInvocationData(
+                    let vm = threadManager.openThread(message: "Use the \(skill.name) skill") { vm in
+                        vm.pendingSkillInvocation = SkillInvocationData(
                             name: skill.name,
                             emoji: skill.emoji,
                             description: skill.description
                         )
-                        viewModel.inputText = "Use the \(skill.name) skill"
-                        viewModel.sendMessage()
-                        viewModel.pendingSkillInvocation = nil
                     }
+                    vm?.pendingSkillInvocation = nil
                     windowState.dismissOverlay()
                 },
-                daemonClient: daemonClient
+                daemonClient: daemonClient,
+                initialTab: windowState.pendingMemoryId != nil ? "Memories" : nil,
+                pendingMemoryId: $windowState.pendingMemoryId
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }
-            .background(VColor.backgroundSubtle)
+            .background(VColor.surfaceOverlay)
         case .usageDashboard:
             UsageDashboardPanel(
                 store: usageDashboardStore,
@@ -504,7 +489,7 @@ extension MainWindowView {
     }
 
     var panelDismissButton: some View {
-        VIconButton(label: "Close", icon: VIcon.x.rawValue, iconOnly: true, action: panelDismissAction)
+        VButton(label: "Close", iconOnly: VIcon.x.rawValue, style: .ghost, action: panelDismissAction)
             .padding(.top, VSpacing.lg)
             .padding(.trailing, VSpacing.lg)
     }
@@ -556,9 +541,21 @@ func openFilePicker(viewModel: ChatViewModel) {
         .movie, .mpeg4Movie, .quickTimeMovie, .avi,
         .mp3, .wav, .aiff, .audio,
     ]
-    guard panel.runModal() == .OK else { return }
-    for url in panel.urls {
-        viewModel.addAttachment(url: url)
+    // Present as a window sheet instead of a blocking app-modal dialog
+    // so the user can still see the chat while picking files.
+    guard let window = NSApp.keyWindow ?? NSApp.mainWindow else {
+        // Fallback to modal if no window is available.
+        guard panel.runModal() == .OK else { return }
+        for url in panel.urls {
+            viewModel.addAttachment(url: url)
+        }
+        return
+    }
+    panel.beginSheetModal(for: window) { response in
+        guard response == .OK else { return }
+        for url in panel.urls {
+            viewModel.addAttachment(url: url)
+        }
     }
 }
 
@@ -588,6 +585,7 @@ struct ActiveChatViewWrapper: View {
     /// the empty state during first-launch bootstrap.
     @AppStorage("bootstrapState") private var bootstrapStateRaw: String = "complete"
     private var isBootstrapping: Bool { bootstrapStateRaw != "complete" }
+    private var isBootstrapTimedOut: Bool { bootstrapStateRaw == "timedOut" }
 
     var body: some View {
         ChatView(
@@ -598,28 +596,17 @@ struct ActiveChatViewWrapper: View {
             ),
             hasAPIKey: windowState.hasAPIKey,
             isThinking: viewModel.isThinking,
+            isCompacting: viewModel.isCompacting,
             isSending: viewModel.isSending,
-            errorText: viewModel.errorText,
-            pendingQueuedCount: viewModel.pendingQueuedCount,
             suggestion: viewModel.suggestion,
             pendingAttachments: viewModel.pendingAttachments,
             isLoadingAttachment: viewModel.isLoadingAttachment,
             isRecording: viewModel.isRecording,
-            onOpenSettings: {
-                windowState.selection = .panel(.settings)
-            },
             onSend: {
                 if viewModel.isRecording { onMicrophoneToggle() }
                 viewModel.sendMessage()
             },
             onStop: viewModel.stopGenerating,
-            onDismissError: viewModel.dismissError,
-            isRetryableError: viewModel.isRetryableError,
-            onRetryError: { viewModel.retryLastMessage() },
-            isConnectionError: viewModel.isConnectionError,
-            hasRetryPayload: viewModel.hasRetryPayload,
-            isSecretBlockError: viewModel.isSecretBlockError,
-            onSendAnyway: { viewModel.sendAnyway() },
             onAcceptSuggestion: viewModel.acceptSuggestion,
             onAttach: { openFilePicker(viewModel: viewModel) },
             onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
@@ -652,10 +639,6 @@ struct ActiveChatViewWrapper: View {
             onTemporaryAllow: { requestId, decision in viewModel.respondToConfirmation(requestId: requestId, decision: decision) },
             onGuardianAction: { requestId, action in viewModel.submitGuardianDecision(requestId: requestId, action: action) },
             onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) },
-            sessionError: viewModel.sessionError,
-            onRetry: { viewModel.retryAfterSessionError() },
-            onDismissSessionError: { viewModel.dismissSessionError() },
-            onCopyDebugInfo: { viewModel.copySessionErrorDebugDetails() },
             watchSession: ambientAgent.activeWatchSession,
             onStopWatch: { viewModel.stopWatchSession() },
             onReportMessage: { daemonMessageId in
@@ -699,7 +682,7 @@ struct ActiveChatViewWrapper: View {
             isHistoryLoaded: viewModel.isHistoryLoaded,
             dismissedDocumentSurfaceIds: viewModel.dismissedDocumentSurfaceIds,
             onDismissDocumentWidget: { viewModel.dismissDocumentSurface(id: $0) },
-            connectionDiagnosticHint: viewModel.connectionDiagnosticHint,
+
             voiceModeManager: voiceModeManager,
             voiceService: voiceService,
             onEndVoiceMode: onEndVoiceMode,
@@ -707,6 +690,8 @@ struct ActiveChatViewWrapper: View {
             onDictateToggle: onDictateToggle,
             onVoiceModeToggle: onVoiceModeToggle,
             threadId: threadId,
+            daemonGreeting: viewModel.emptyStateGreeting,
+            onRequestGreeting: { [weak viewModel] in viewModel?.generateGreeting() },
             anchorMessageId: $anchorMessageId,
             btwResponse: viewModel.btwResponse,
             btwLoading: viewModel.btwLoading,
@@ -715,7 +700,8 @@ struct ActiveChatViewWrapper: View {
             hasMoreMessages: viewModel.hasMoreMessages,
             isLoadingMoreMessages: viewModel.isLoadingMoreMessages,
             loadPreviousMessagePage: { await viewModel.loadPreviousMessagePage() },
-            isBootstrapping: isBootstrapping
+            isBootstrapping: isBootstrapping,
+            isBootstrapTimedOut: isBootstrapTimedOut
         )
         .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
     }
@@ -748,16 +734,16 @@ struct GhostButton: View {
                         .font(VFont.monoSmall)
                 }
             }
-            .foregroundColor(VColor.textSecondary)
+            .foregroundColor(VColor.contentSecondary)
             .padding(.horizontal, VSpacing.sm)
             .padding(.vertical, VSpacing.xs)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.sm)
-                    .fill(isHovered ? VColor.backgroundSubtle : Color.clear)
+                    .fill(isHovered ? VColor.surfaceBase : Color.clear)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.sm)
-                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    .stroke(VColor.borderBase, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -801,11 +787,11 @@ struct DynamicWorkspaceWrapper: View {
             HStack {
                 // Left: Close Chat primary CTA in edit mode, Edit primary button otherwise
                 if case .appEditing = windowState.selection {
-                    VButton(label: "Close chat", icon: VIcon.x.rawValue, style: .primary, size: .medium) {
+                    VButton(label: "Close chat", icon: VIcon.x.rawValue, style: .primary) {
                         onToggleChatDock()
                     }
                 } else {
-                    VButton(label: "Edit", icon: VIcon.pencil.rawValue, style: .primary, size: .medium) {
+                    VButton(label: "Edit", icon: VIcon.pencil.rawValue, style: .primary) {
                         if !isChatDockOpen {
                             windowState.workspaceComposerExpanded = false
                         }
@@ -818,7 +804,7 @@ struct DynamicWorkspaceWrapper: View {
 
                 Text(surface.title ?? data.preview?.title ?? "App")
                     .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.contextualText)
+                    .foregroundColor(VColor.contentSecondary)
                     .lineLimit(1)
 
                 Spacer(minLength: 0)
@@ -826,7 +812,7 @@ struct DynamicWorkspaceWrapper: View {
                 // Right: History + Share + Close outlined icon buttons
                 HStack(spacing: VSpacing.sm) {
                     if data.appId != nil {
-                        VIconButton(label: "Version history", icon: VIcon.history.rawValue, iconOnly: true, variant: .outlined, size: 28, tooltip: "Version history") {
+                        VButton(label: "Version history", iconOnly: VIcon.history.rawValue, style: .outlined, iconSize: 32, tooltip: "Version history") {
                             showVersionHistory = true
                         }
                     }
@@ -840,9 +826,9 @@ struct DynamicWorkspaceWrapper: View {
                             if sharing.isBundling || sharing.isPublishing {
                                 ProgressView()
                                     .controlSize(.small)
-                                    .frame(height: 28)
+                                    .frame(height: 32)
                             } else {
-                                VIconButton(label: "Share", icon: VIcon.share.rawValue, iconOnly: true, variant: .outlined, size: 28, tooltip: "Share") {
+                                VButton(label: "Share", iconOnly: VIcon.share.rawValue, style: .outlined, iconSize: 32, tooltip: "Share") {
                                     showShareDrawer.toggle()
                                 }
                                 .background(GeometryReader { proxy in
@@ -869,15 +855,15 @@ struct DynamicWorkspaceWrapper: View {
                         } else if sharing.isPublishing {
                             ProgressView()
                                 .controlSize(.small)
-                                .frame(height: 28)
+                                .frame(height: 32)
                         } else if sharing.publishedUrl == nil {
-                            VIconButton(label: "Publish", icon: VIcon.arrowUpRight.rawValue, iconOnly: true, variant: .outlined, size: 28, tooltip: "Publish to Vercel") {
+                            VButton(label: "Publish", iconOnly: VIcon.arrowUpRight.rawValue, style: .outlined, iconSize: 32, tooltip: "Publish to Vercel") {
                                 onPublishPage(data.html, data.preview?.title, data.appId)
                             }
                         }
                     }
 
-                    VIconButton(label: "Close workspace", icon: VIcon.x.rawValue, iconOnly: true, variant: .outlined, size: 28, tooltip: "Close workspace") {
+                    VButton(label: "Close workspace", iconOnly: VIcon.x.rawValue, style: .outlined, iconSize: 32, tooltip: "Close workspace") {
                         sharing.showSharePicker = false
                         windowState.activeDynamicSurface = nil
                         windowState.activeDynamicParsedSurface = nil
@@ -887,20 +873,24 @@ struct DynamicWorkspaceWrapper: View {
             }
             .padding(.leading, VSpacing.md)
             .padding(.trailing, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
+            .padding(.vertical, VSpacing.md)
             .background(
-                VColor.backgroundSubtle
+                VColor.surfaceOverlay
             )
+            .overlay(alignment: .bottom) {
+                VColor.borderBase
+                    .frame(height: 1)
+            }
 
             if let error = sharing.publishError {
                 HStack {
                     Spacer()
                     Text(error)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.error)
+                        .foregroundColor(VColor.systemNegativeStrong)
                         .padding(.horizontal, VSpacing.md)
                         .padding(.vertical, VSpacing.xs)
-                        .background(Danger._900.opacity(0.8))
+                        .background(VColor.systemNegativeStrong.opacity(0.8))
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                         .padding(.trailing, VSpacing.xl)
                 }
@@ -1013,13 +1003,13 @@ private struct PublishedButton: View {
     var body: some View {
         HStack(spacing: VSpacing.xs) {
             VIconView(.check, size: 10)
-                .foregroundColor(VColor.success)
+                .foregroundColor(VColor.systemPositiveStrong)
             Text("Published")
                 .font(VFont.caption)
             Divider()
                 .frame(height: 12)
             VIconView(copied ? .check : .copy, size: 10)
-                .foregroundColor(copied ? VColor.success : (isCopyHovered ? VColor.textPrimary : VColor.buttonSecondaryText))
+                .foregroundColor(copied ? VColor.systemPositiveStrong : (isCopyHovered ? VColor.contentDefault : VColor.primaryBase))
                 .animation(VAnimation.fast, value: copied)
                 .contentShape(Rectangle())
                 .onTapGesture {
@@ -1037,7 +1027,7 @@ private struct PublishedButton: View {
                 .pointerCursor()
                 .accessibilityLabel(copied ? "URL copied" : "Copy published URL")
         }
-        .foregroundColor(VColor.buttonSecondaryText)
+        .foregroundColor(VColor.primaryBase)
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.buttonV)
         .frame(height: 24)
@@ -1047,7 +1037,7 @@ private struct PublishedButton: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.buttonSecondaryBorder, lineWidth: 1)
+                .stroke(VColor.borderActive, lineWidth: 1)
         )
         .controlSize(.small)
     }
@@ -1064,19 +1054,19 @@ private struct ShareDrawer: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ShareDrawerRow(icon: VIcon.share.rawValue, label: "Share", action: onShare)
-            VColor.surfaceBorder.frame(height: 1)
+            VColor.borderBase.frame(height: 1)
                 .padding(.horizontal, VSpacing.xs)
             ShareDrawerRow(icon: VIcon.arrowUpRight.rawValue, label: "Publish to Vercel", action: onPublish)
         }
         .padding(.vertical, VSpacing.xs)
         .frame(width: 180)
-        .background(VColor.surfaceSubtle)
+        .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                .stroke(VColor.borderBase, lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+        .shadow(color: VColor.auxBlack.opacity(0.15), radius: 6, y: 2)
     }
 }
 
@@ -1090,16 +1080,16 @@ private struct ShareDrawerRow: View {
         Button(action: action) {
             HStack(spacing: VSpacing.sm) {
                 VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 12)
-                    .foregroundColor(isHovered ? VColor.textPrimary : VColor.textSecondary)
+                    .foregroundColor(isHovered ? VColor.contentDefault : VColor.contentSecondary)
                     .frame(width: 18)
                 Text(label)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 Spacer()
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
-            .background(VColor.navHover.opacity(isHovered ? 1 : 0))
+            .background(VColor.surfaceBase.opacity(isHovered ? 1 : 0))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1129,24 +1119,24 @@ private struct AppLoadingView: View {
             Spacer()
             if timedOut {
                 VIconView(.triangleAlert, size: 28)
-                    .foregroundColor(VColor.warning)
+                    .foregroundColor(VColor.systemNegativeHover)
                 Text("Failed to load app")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 Text("The app didn't respond in time. It may be unavailable or still starting up.")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 280)
                 HStack(spacing: VSpacing.sm) {
                     if let appId {
-                        VButton(label: "Retry", icon: "arrow.clockwise", style: .secondary) {
+                        VButton(label: "Retry", icon: "arrow.clockwise", style: .outlined) {
                             timedOut = false
                             onRetry(appId)
                         }
                         .controlSize(.small)
                     }
-                    VButton(label: "Close", style: .tertiary) {
+                    VButton(label: "Close", style: .outlined) {
                         onClose()
                     }
                     .controlSize(.small)
@@ -1157,15 +1147,15 @@ private struct AppLoadingView: View {
                     .controlSize(.regular)
                 Text("Loading app\u{2026}")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .overlay(alignment: .topTrailing) {
-            VIconButton(label: "Close", icon: VIcon.x.rawValue, iconOnly: true) {
+            VButton(label: "Close", iconOnly: VIcon.x.rawValue, style: .ghost) {
                 onClose()
             }
             .padding(VSpacing.lg)
@@ -1180,11 +1170,3 @@ private struct AppLoadingView: View {
     }
 }
 
-struct MainWindowView_Previews: PreviewProvider {
-    static var previews: some View {
-        let dc = DaemonClient()
-        MainWindowView(threadManager: ThreadManager(daemonClient: dc), appListManager: AppListManager(), zoomManager: ZoomManager(), conversationZoomManager: ConversationZoomManager(), traceStore: TraceStore(), usageDashboardStore: UsageDashboardStore(client: dc), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent(), settingsStore: SettingsStore(daemonClient: dc), authManager: AuthManager(), windowState: MainWindowState(), documentManager: DocumentManager(), voiceModeManager: VoiceModeManager())
-            .frame(width: 900, height: 600)
-            .padding(.top, 36)
-    }
-}

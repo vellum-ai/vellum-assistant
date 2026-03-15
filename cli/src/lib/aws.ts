@@ -1,4 +1,3 @@
-import { randomBytes } from "crypto";
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "fs";
 import { homedir, tmpdir, userInfo } from "os";
 import { join } from "path";
@@ -9,7 +8,8 @@ import { saveAssistantEntry, setActiveAssistant } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
 import { GATEWAY_PORT } from "./constants";
 import type { Species } from "./constants";
-import { generateRandomSuffix } from "./random-name";
+import { leaseGuardianToken } from "./guardian-token";
+import { generateInstanceName } from "./random-name";
 import { exec, execOutput } from "./step-runner";
 
 const KEY_PAIR_NAME = "vellum-assistant";
@@ -370,28 +370,6 @@ async function pollAwsInstance(
   }
 }
 
-async function fetchRemoteBearerToken(
-  ip: string,
-  keyPath: string,
-): Promise<string | null> {
-  try {
-    const remoteCmd =
-      'cat ~/.vellum.lock.json 2>/dev/null || cat ~/.vellum.lockfile.json 2>/dev/null || echo "{}"';
-    const output = await awsSshExec(ip, keyPath, remoteCmd);
-    const data = JSON.parse(output.trim());
-    const assistants = data.assistants;
-    if (Array.isArray(assistants) && assistants.length > 0) {
-      const token = assistants[0].bearerToken;
-      if (typeof token === "string" && token) {
-        return token;
-      }
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 export async function hatchAws(
   species: Species,
   detached: boolean,
@@ -405,12 +383,7 @@ export async function hatchAws(
       (await getActiveRegion().catch(() => AWS_DEFAULT_REGION));
     let instanceName: string;
 
-    if (name) {
-      instanceName = name;
-    } else {
-      const suffix = generateRandomSuffix();
-      instanceName = `${species}-${suffix}`;
-    }
+    instanceName = generateInstanceName(species, name);
 
     console.log(`\u{1F95A} Creating new assistant: ${instanceName}`);
     console.log(`   Species: ${species}`);
@@ -431,13 +404,11 @@ export async function hatchAws(
         console.log(
           `\u26a0\ufe0f  Instance name ${instanceName} already exists, generating a new name...`,
         );
-        const suffix = generateRandomSuffix();
-        instanceName = `${species}-${suffix}`;
+        instanceName = generateInstanceName(species);
       }
     }
 
     const sshUser = userInfo().username;
-    const bearerToken = randomBytes(32).toString("hex");
     const hatchedBy = process.env.VELLUM_HATCHED_BY;
     const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
     if (!anthropicApiKey) {
@@ -465,7 +436,6 @@ export async function hatchAws(
 
     const startupScript = await buildStartupScript(
       species,
-      bearerToken,
       sshUser,
       anthropicApiKey,
       instanceName,
@@ -558,10 +528,14 @@ export async function hatchAws(
           process.exit(1);
         }
 
-        const remoteBearerToken = await fetchRemoteBearerToken(ip, keyPath);
-        if (remoteBearerToken) {
-          awsEntry.bearerToken = remoteBearerToken;
+        try {
+          const tokenData = await leaseGuardianToken(runtimeUrl, instanceName);
+          awsEntry.bearerToken = tokenData.accessToken;
           saveAssistantEntry(awsEntry);
+        } catch (err) {
+          console.warn(
+            `\u26a0\ufe0f  Could not lease guardian token: ${err instanceof Error ? err.message : err}`,
+          );
         }
       } else {
         console.log(

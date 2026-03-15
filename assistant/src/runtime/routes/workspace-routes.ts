@@ -1,5 +1,8 @@
 /**
  * Route handlers for workspace file browsing and content serving.
+ *
+ * WARNING: Workspace contents are included in diagnostic log exports.
+ * Do not store secrets here — use the credential store or protected/ directory.
  */
 import {
   existsSync,
@@ -33,7 +36,10 @@ interface TreeEntry {
 
 function handleWorkspaceTree(ctx: RouteContext): Response {
   const requestedPath = ctx.url.searchParams.get("path") ?? "";
-  const resolved = resolveWorkspacePath(requestedPath);
+  const showHidden = ctx.url.searchParams.get("showHidden") === "true";
+  const resolved = resolveWorkspacePath(requestedPath, {
+    allowHidden: showHidden,
+  });
   if (resolved === undefined) {
     return httpError("BAD_REQUEST", "Invalid path", 400);
   }
@@ -45,7 +51,7 @@ function handleWorkspaceTree(ctx: RouteContext): Response {
     const entries: TreeEntry[] = [];
     for (const entry of dirents) {
       // Filter out dotfiles/directories (.env, .git, .private, etc.)
-      if (entry.name.startsWith(".")) continue;
+      if (!showHidden && entry.name.startsWith(".")) continue;
 
       const fullPath = join(resolved, entry.name);
 
@@ -95,7 +101,8 @@ function handleWorkspaceFile(ctx: RouteContext): Response {
     return httpError("BAD_REQUEST", "path query parameter is required", 400);
   }
 
-  const resolved = resolveWorkspacePath(path);
+  const showHidden = ctx.url.searchParams.get("showHidden") === "true";
+  const resolved = resolveWorkspacePath(path, { allowHidden: showHidden });
   if (resolved === undefined) {
     return httpError("BAD_REQUEST", "Invalid path", 400);
   }
@@ -145,7 +152,8 @@ function handleWorkspaceFileContent(ctx: RouteContext): Response {
     );
   }
 
-  const resolved = resolveWorkspacePath(path);
+  const showHidden = ctx.url.searchParams.get("showHidden") === "true";
+  const resolved = resolveWorkspacePath(path, { allowHidden: showHidden });
   if (resolved === undefined) {
     return httpError("BAD_REQUEST", "Invalid path", 400);
   }

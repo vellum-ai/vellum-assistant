@@ -4,7 +4,7 @@ import { getChannelInvitePolicy } from "../channels/config.js";
 import { loadRawConfig } from "../config/loader.js";
 import { getEmailService } from "../email/service.js";
 import { credentialKey } from "../security/credential-key.js";
-import { getSecureKey } from "../security/secure-keys.js";
+import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { resolveWhatsAppDisplayNumber } from "./channel-invite-transports/whatsapp.js";
 import type {
   ChannelId,
@@ -46,13 +46,13 @@ function check(
 }
 
 /** Check that a secure credential key exists. */
-function checkCredential(
+async function checkCredential(
   name: string,
   service: string,
   field: string,
   label: string,
-): ReadinessCheckResult {
-  const exists = !!getSecureKey(credentialKey(service, field));
+): Promise<ReadinessCheckResult> {
+  const exists = !!(await getSecureKeyAsync(credentialKey(service, field)));
   return check(
     name,
     exists,
@@ -77,7 +77,7 @@ function checkIngress(): ReadinessCheckResult {
 const voiceProbe: ChannelProbe = {
   channel: "phone",
   async runLocalChecks(): Promise<ReadinessCheckResult[]> {
-    const hasCreds = hasTwilioCredentials();
+    const hasCreds = await hasTwilioCredentials();
     const hasPhone = !!resolveTwilioPhoneNumber();
     const ingress = checkIngress();
 
@@ -117,26 +117,33 @@ const voiceProbe: ChannelProbe = {
 
 const telegramProbe: ChannelProbe = {
   channel: "telegram",
-  runLocalChecks: () => [
-    checkCredential("bot_token", "telegram", "bot_token", "Telegram bot token"),
-    checkCredential(
-      "webhook_secret",
-      "telegram",
-      "webhook_secret",
-      "Telegram webhook secret",
-    ),
-    checkIngress(),
-  ],
+  async runLocalChecks(): Promise<ReadinessCheckResult[]> {
+    return [
+      await checkCredential(
+        "bot_token",
+        "telegram",
+        "bot_token",
+        "Telegram bot token",
+      ),
+      await checkCredential(
+        "webhook_secret",
+        "telegram",
+        "webhook_secret",
+        "Telegram webhook secret",
+      ),
+      checkIngress(),
+    ];
+  },
 };
 
 // ── Email Probe ─────────────────────────────────────────────────────────────
 
 const emailProbe: ChannelProbe = {
   channel: "email",
-  runLocalChecks(): ReadinessCheckResult[] {
+  async runLocalChecks(): Promise<ReadinessCheckResult[]> {
     const hasApiKey = !!(
-      getSecureKey("agentmail") ||
-      getSecureKey(credentialKey("agentmail", "api_key"))
+      (await getSecureKeyAsync("agentmail")) ||
+      (await getSecureKeyAsync(credentialKey("agentmail", "api_key")))
     );
     const invitePolicy = getChannelInvitePolicy("email");
     return [
@@ -155,12 +162,11 @@ const emailProbe: ChannelProbe = {
       checkIngress(),
     ];
   },
-  // runRemoteChecks UNCHANGED — keep the existing inbox_configured check as-is
   async runRemoteChecks(): Promise<ReadinessCheckResult[]> {
     // Only worth checking if the API key is present
     const hasApiKey = !!(
-      getSecureKey("agentmail") ||
-      getSecureKey(credentialKey("agentmail", "api_key"))
+      (await getSecureKeyAsync("agentmail")) ||
+      (await getSecureKeyAsync(credentialKey("agentmail", "api_key")))
     );
     if (!hasApiKey) return [];
 
@@ -193,29 +199,29 @@ const emailProbe: ChannelProbe = {
 
 const whatsappProbe: ChannelProbe = {
   channel: "whatsapp",
-  runLocalChecks(): ReadinessCheckResult[] {
+  async runLocalChecks(): Promise<ReadinessCheckResult[]> {
     const displayNumber = resolveWhatsAppDisplayNumber();
     const invitePolicy = getChannelInvitePolicy("whatsapp");
     return [
-      checkCredential(
+      await checkCredential(
         "whatsapp_phone_number_id",
         "whatsapp",
         "phone_number_id",
         "WhatsApp phone number ID",
       ),
-      checkCredential(
+      await checkCredential(
         "whatsapp_access_token",
         "whatsapp",
         "access_token",
         "WhatsApp access token",
       ),
-      checkCredential(
+      await checkCredential(
         "whatsapp_app_secret",
         "whatsapp",
         "app_secret",
         "WhatsApp app secret",
       ),
-      checkCredential(
+      await checkCredential(
         "whatsapp_webhook_verify_token",
         "whatsapp",
         "webhook_verify_token",
@@ -242,20 +248,22 @@ const whatsappProbe: ChannelProbe = {
 
 const slackProbe: ChannelProbe = {
   channel: "slack",
-  runLocalChecks: () => [
-    checkCredential(
-      "bot_token",
-      "slack_channel",
-      "bot_token",
-      "Slack bot token",
-    ),
-    checkCredential(
-      "app_token",
-      "slack_channel",
-      "app_token",
-      "Slack app token",
-    ),
-  ],
+  async runLocalChecks(): Promise<ReadinessCheckResult[]> {
+    return [
+      await checkCredential(
+        "bot_token",
+        "slack_channel",
+        "bot_token",
+        "Slack bot token",
+      ),
+      await checkCredential(
+        "app_token",
+        "slack_channel",
+        "app_token",
+        "Slack app token",
+      ),
+    ];
+  },
 };
 
 // ── Service ─────────────────────────────────────────────────────────────────

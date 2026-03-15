@@ -2,8 +2,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Mutable mock state — set per test
 let mockWebSearchProvider: string | undefined = "perplexity";
-let mockBraveConfigKey: string | undefined;
-let mockPerplexityConfigKey: string | undefined;
 let mockBraveSecureKey: string | undefined;
 let mockPerplexitySecureKey: string | undefined;
 
@@ -19,12 +17,11 @@ mock.module("../../registry.js", () => ({
 mock.module("../../../config/loader.js", () => ({
   getConfig: () => ({
     webSearchProvider: mockWebSearchProvider,
-    apiKeys: { brave: mockBraveConfigKey, perplexity: mockPerplexityConfigKey },
   }),
 }));
 
 mock.module("../../../security/secure-keys.js", () => ({
-  getSecureKey: (provider: string) => {
+  getSecureKeyAsync: async (provider: string) => {
     if (provider === "brave") return mockBraveSecureKey;
     if (provider === "perplexity") return mockPerplexitySecureKey;
     return undefined;
@@ -47,33 +44,16 @@ await import("../web-search.js");
 
 describe("web_search tool", () => {
   let originalFetch: typeof globalThis.fetch;
-  let savedBraveKey: string | undefined;
-  let savedPerplexityKey: string | undefined;
 
   beforeEach(() => {
     originalFetch = globalThis.fetch;
     mockWebSearchProvider = "perplexity";
-    mockBraveConfigKey = undefined;
-    mockPerplexityConfigKey = undefined;
     mockBraveSecureKey = undefined;
     mockPerplexitySecureKey = undefined;
-
-    // Isolate from host env so getApiKey() doesn't short-circuit on real keys
-    savedBraveKey = process.env.BRAVE_API_KEY;
-    savedPerplexityKey = process.env.PERPLEXITY_API_KEY;
-    delete process.env.BRAVE_API_KEY;
-    delete process.env.PERPLEXITY_API_KEY;
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
-
-    if (savedBraveKey !== undefined) process.env.BRAVE_API_KEY = savedBraveKey;
-    else delete process.env.BRAVE_API_KEY;
-
-    if (savedPerplexityKey !== undefined)
-      process.env.PERPLEXITY_API_KEY = savedPerplexityKey;
-    else delete process.env.PERPLEXITY_API_KEY;
   });
 
   function execute(input: Record<string, unknown>) {
@@ -105,7 +85,7 @@ describe("web_search tool", () => {
   // ---- Perplexity provider ------------------------------------------------
 
   test("executes Perplexity search successfully", async () => {
-    mockPerplexityConfigKey = "pplx-test-key";
+    mockPerplexitySecureKey = "pplx-test-key";
     globalThis.fetch = (async (_url: string, _init?: RequestInit) => {
       return new Response(
         JSON.stringify({
@@ -126,7 +106,7 @@ describe("web_search tool", () => {
   });
 
   test("Perplexity sends correct request format", async () => {
-    mockPerplexityConfigKey = "pplx-test-key";
+    mockPerplexitySecureKey = "pplx-test-key";
     let capturedUrl = "";
     let capturedBody: any = null;
     let capturedHeaders: any = null;
@@ -150,7 +130,7 @@ describe("web_search tool", () => {
   });
 
   test("Perplexity returns no results message when response is empty", async () => {
-    mockPerplexityConfigKey = "pplx-test-key";
+    mockPerplexitySecureKey = "pplx-test-key";
     globalThis.fetch = (async () => {
       return new Response(JSON.stringify({ choices: [] }), {
         status: 200,
@@ -164,7 +144,7 @@ describe("web_search tool", () => {
   });
 
   test("Perplexity handles 401/403 auth errors", async () => {
-    mockPerplexityConfigKey = "bad-key";
+    mockPerplexitySecureKey = "bad-key";
     globalThis.fetch = (async () => {
       return new Response("Unauthorized", { status: 401 });
     }) as any;
@@ -175,7 +155,7 @@ describe("web_search tool", () => {
   });
 
   test("Perplexity handles 429 rate limit after max retries", async () => {
-    mockPerplexityConfigKey = "pplx-key";
+    mockPerplexitySecureKey = "pplx-key";
     let callCount = 0;
     globalThis.fetch = (async () => {
       callCount++;
@@ -193,7 +173,7 @@ describe("web_search tool", () => {
   });
 
   test("Perplexity handles generic server error", async () => {
-    mockPerplexityConfigKey = "pplx-key";
+    mockPerplexitySecureKey = "pplx-key";
     globalThis.fetch = (async () => {
       return new Response("Internal Server Error", { status: 500 });
     }) as any;
@@ -207,7 +187,7 @@ describe("web_search tool", () => {
 
   test("executes Brave search successfully", async () => {
     mockWebSearchProvider = "brave";
-    mockBraveConfigKey = "brave-test-key";
+    mockBraveSecureKey = "brave-test-key";
     globalThis.fetch = (async (_url: string) => {
       return new Response(
         JSON.stringify({
@@ -243,7 +223,7 @@ describe("web_search tool", () => {
 
   test("Brave sends correct query parameters", async () => {
     mockWebSearchProvider = "brave";
-    mockBraveConfigKey = "brave-key";
+    mockBraveSecureKey = "brave-key";
     let capturedUrl = "";
     globalThis.fetch = (async (url: string) => {
       capturedUrl = url;
@@ -268,7 +248,7 @@ describe("web_search tool", () => {
 
   test("Brave clamps count and offset", async () => {
     mockWebSearchProvider = "brave";
-    mockBraveConfigKey = "brave-key";
+    mockBraveSecureKey = "brave-key";
     let capturedUrl = "";
     globalThis.fetch = (async (url: string) => {
       capturedUrl = url;
@@ -286,7 +266,7 @@ describe("web_search tool", () => {
 
   test("Brave skips invalid freshness values", async () => {
     mockWebSearchProvider = "brave";
-    mockBraveConfigKey = "brave-key";
+    mockBraveSecureKey = "brave-key";
     let capturedUrl = "";
     globalThis.fetch = (async (url: string) => {
       capturedUrl = url;
@@ -303,7 +283,7 @@ describe("web_search tool", () => {
 
   test("Brave handles empty results", async () => {
     mockWebSearchProvider = "brave";
-    mockBraveConfigKey = "brave-key";
+    mockBraveSecureKey = "brave-key";
     globalThis.fetch = (async () => {
       return new Response(JSON.stringify({ web: { results: [] } }), {
         status: 200,
@@ -318,7 +298,7 @@ describe("web_search tool", () => {
 
   test("Brave handles 401 auth error", async () => {
     mockWebSearchProvider = "brave";
-    mockBraveConfigKey = "bad-key";
+    mockBraveSecureKey = "bad-key";
     globalThis.fetch = (async () => {
       return new Response("Forbidden", { status: 403 });
     }) as any;
@@ -330,7 +310,7 @@ describe("web_search tool", () => {
 
   test("Brave handles 429 rate limit with Retry-After header", async () => {
     mockWebSearchProvider = "brave";
-    mockBraveConfigKey = "brave-key";
+    mockBraveSecureKey = "brave-key";
     let callCount = 0;
     globalThis.fetch = (async () => {
       callCount++;
@@ -369,7 +349,7 @@ describe("web_search tool", () => {
 
   test("falls back from perplexity to brave when perplexity has no key", async () => {
     mockWebSearchProvider = "perplexity";
-    mockBraveConfigKey = "brave-fallback-key";
+    mockBraveSecureKey = "brave-fallback-key";
     let capturedUrl = "";
     globalThis.fetch = (async (url: string) => {
       capturedUrl = url;
@@ -386,7 +366,7 @@ describe("web_search tool", () => {
 
   test("falls back from brave to perplexity when brave has no key", async () => {
     mockWebSearchProvider = "brave";
-    mockPerplexityConfigKey = "pplx-fallback-key";
+    mockPerplexitySecureKey = "pplx-fallback-key";
     let capturedUrl = "";
     globalThis.fetch = (async (url: string, _init?: RequestInit) => {
       capturedUrl = url;
@@ -405,7 +385,7 @@ describe("web_search tool", () => {
 
   test("maps anthropic-native to perplexity", async () => {
     mockWebSearchProvider = "anthropic-native";
-    mockPerplexityConfigKey = "pplx-key";
+    mockPerplexitySecureKey = "pplx-key";
     let capturedUrl = "";
     globalThis.fetch = (async (url: string) => {
       capturedUrl = url;
@@ -422,38 +402,10 @@ describe("web_search tool", () => {
     expect(capturedUrl).toContain("perplexity");
   });
 
-  // ---- Env var keys -------------------------------------------------------
-
-  test("uses PERPLEXITY_API_KEY env var when available", async () => {
-    const origEnv = process.env.PERPLEXITY_API_KEY;
-    process.env.PERPLEXITY_API_KEY = "env-pplx-key";
-    try {
-      globalThis.fetch = (async (_url: string, init?: RequestInit) => {
-        const headers = new Headers(init?.headers);
-        expect(headers.get("authorization")).toBe("Bearer env-pplx-key");
-        return new Response(
-          JSON.stringify({
-            choices: [{ message: { content: "env key works" } }],
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }) as any;
-
-      const result = await execute({ query: "test" });
-      expect(result.isError).toBe(false);
-    } finally {
-      if (origEnv === undefined) {
-        delete process.env.PERPLEXITY_API_KEY;
-      } else {
-        process.env.PERPLEXITY_API_KEY = origEnv;
-      }
-    }
-  });
-
   // ---- Network errors -----------------------------------------------------
 
   test("handles fetch exceptions", async () => {
-    mockPerplexityConfigKey = "pplx-key";
+    mockPerplexitySecureKey = "pplx-key";
     globalThis.fetch = (async () => {
       throw new Error("Network error: connection refused");
     }) as any;
@@ -462,25 +414,5 @@ describe("web_search tool", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Web search failed");
     expect(result.content).toContain("connection refused");
-  });
-
-  // ---- Secure key precedence ----------------------------------------------
-
-  test("prefers secure key over config key for brave", async () => {
-    mockWebSearchProvider = "brave";
-    mockBraveConfigKey = "config-key";
-    mockBraveSecureKey = "secure-key";
-    let capturedHeaders: Headers | null = null;
-    globalThis.fetch = (async (_url: string, init?: RequestInit) => {
-      capturedHeaders = new Headers(init?.headers);
-      return new Response(JSON.stringify({ web: { results: [] } }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
-    }) as any;
-
-    await execute({ query: "test" });
-    // Brave uses X-Subscription-Token header with the secure key
-    expect(capturedHeaders!.get("x-subscription-token")).toBe("secure-key");
   });
 });

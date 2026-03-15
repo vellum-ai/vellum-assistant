@@ -26,11 +26,12 @@ mock.module("../config/loader.js", () => ({
 }));
 
 // Mock conversation store
-const createdConversations: Array<{ title: string; threadType: string }> = [];
+const createdConversations: Array<{ title: string; conversationType: string }> =
+  [];
 let conversationIdCounter = 0;
 
 mock.module("../memory/conversation-crud.js", () => ({
-  getConversationThreadType: () => "default",
+  getConversationType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
@@ -53,7 +54,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   }),
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
-  createConversation: (opts: { title: string; threadType: string }) => {
+  createConversation: (opts: { title: string; conversationType: string }) => {
     createdConversations.push(opts);
     return { id: `conv-${++conversationIdCounter}`, ...opts };
   },
@@ -165,7 +166,7 @@ describe("HeartbeatService", () => {
 
     expect(createdConversations).toHaveLength(1);
     expect(createdConversations[0].title).toBe("Generating title...");
-    expect(createdConversations[0].threadType).toBe("background");
+    expect(createdConversations[0].conversationType).toBe("background");
   });
 
   test("active hours guard skips outside window", async () => {

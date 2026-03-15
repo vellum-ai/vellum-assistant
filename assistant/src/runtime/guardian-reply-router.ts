@@ -30,6 +30,7 @@ import {
   type CanonicalGuardianRequest,
   getCanonicalGuardianRequest,
   getCanonicalGuardianRequestByCode,
+  isRequestExpired,
   listCanonicalGuardianRequests,
 } from "../memory/canonical-guardian-store.js";
 import {
@@ -113,7 +114,7 @@ export interface GuardianReplyResult {
 const VALID_ACTIONS: ReadonlySet<string> = new Set([
   "approve_once",
   "approve_10m",
-  "approve_thread",
+  "approve_conversation",
   "approve_always",
   "reject",
 ]);
@@ -198,49 +199,50 @@ function findPendingCanonicalRequests(
   pendingRequestIds?: string[],
   conversationId?: string,
 ): CanonicalGuardianRequest[] {
+  let results: CanonicalGuardianRequest[];
+
   // When explicit IDs are provided, look them up directly
   if (pendingRequestIds) {
     if (pendingRequestIds.length === 0) {
       return [];
     }
-    return pendingRequestIds
+    results = pendingRequestIds
       .map(getCanonicalGuardianRequest)
       .filter((r): r is CanonicalGuardianRequest => r?.status === "pending");
-  }
-
-  // Query by guardian identity when available
-  if (actor.actorExternalUserId) {
-    return listCanonicalGuardianRequests({
+  } else if (actor.actorExternalUserId) {
+    // Query by guardian identity when available
+    results = listCanonicalGuardianRequests({
       status: "pending",
       guardianExternalUserId: actor.actorExternalUserId,
     });
-  }
-
-  // Actors without an actorExternalUserId: scope by conversationId so the NL
-  // path can discover pending requests bound to this conversation.
-  // Include guardianPrincipalId filter when available so the guardian only
-  // sees requests they are authorized to act on.
-  if (conversationId) {
-    return listCanonicalGuardianRequests({
+  } else if (conversationId) {
+    // Actors without an actorExternalUserId: scope by conversationId so the NL
+    // path can discover pending requests bound to this conversation.
+    // Include guardianPrincipalId filter when available so the guardian only
+    // sees requests they are authorized to act on.
+    results = listCanonicalGuardianRequests({
       status: "pending",
       conversationId,
       ...(actor.guardianPrincipalId
         ? { guardianPrincipalId: actor.guardianPrincipalId }
         : {}),
     });
-  }
-
-  // Actors with a guardianPrincipalId but no actorExternalUserId or
-  // conversationId: query by principal so desktop sessions can still
-  // discover pending guardian work via their bound principal.
-  if (actor.guardianPrincipalId) {
-    return listCanonicalGuardianRequests({
+  } else if (actor.guardianPrincipalId) {
+    // Actors with a guardianPrincipalId but no actorExternalUserId or
+    // conversationId: query by principal so desktop sessions can still
+    // discover pending guardian work via their bound principal.
+    results = listCanonicalGuardianRequests({
       status: "pending",
       guardianPrincipalId: actor.guardianPrincipalId,
     });
+  } else {
+    return [];
   }
 
-  return [];
+  // Exclude requests that have passed their expiresAt deadline — they can
+  // no longer be resolved and should not trigger disambiguation or NL
+  // classification.
+  return results.filter((r) => !isRequestExpired(r));
 }
 
 /** Map an approval action string to the NL engine's allowed actions for guardians. */
@@ -494,7 +496,7 @@ export async function routeGuardianReply(
 
     // Use all pending requests for the guardian without conversation scoping.
     // Guardian requests for channel/voice flows are created on the requester's
-    // conversation, not the guardian's reply thread, so filtering by
+    // conversation, not the guardian's reply conversation, so filtering by
     // conversationId would incorrectly drop valid pending requests. Identity-
     // based filtering in findPendingCanonicalRequests already constrains
     // results to the correct guardian.
@@ -558,7 +560,7 @@ export async function routeGuardianReply(
     if (
       decisionAction === "approve_always" ||
       decisionAction === "approve_10m" ||
-      decisionAction === "approve_thread"
+      decisionAction === "approve_conversation"
     ) {
       decisionAction = "approve_once";
     }

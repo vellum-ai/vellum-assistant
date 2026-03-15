@@ -7,7 +7,7 @@ import { PNG } from "pngjs";
 import { saveAssistantEntry } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import type { Species } from "../lib/constants";
-import { generateRandomSuffix } from "../lib/random-name";
+import { generateInstanceName } from "../lib/random-name";
 
 interface QRPairingPayload {
   type: string;
@@ -119,7 +119,7 @@ export async function pair(): Promise<void> {
       throw new Error("QR code does not contain valid Vellum pairing data.");
     }
 
-    const instanceName = `${species}-${generateRandomSuffix()}`;
+    const instanceName = generateInstanceName(species);
     const runtimeUrl = payload.g;
     const deviceId = getDeviceId();
     const deviceName = hostname();

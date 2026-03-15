@@ -6,7 +6,6 @@ metadata:
   emoji: "🔌"
   vellum:
     display-name: "MCP Setup"
-    user-invocable: false
 ---
 
 Help users configure MCP servers so external tools (e.g. Linear, GitHub, Notion) become available in conversations.

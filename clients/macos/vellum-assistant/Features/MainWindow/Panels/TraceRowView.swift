@@ -14,12 +14,12 @@ struct TraceRowView: View {
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(event.summary)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .lineLimit(2)
 
                 Text(formattedTimestamp)
                     .font(VFont.small)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
 
             Spacer(minLength: 0)
@@ -73,13 +73,13 @@ struct TraceRowView: View {
     private var statusColor: Color {
         switch event.status {
         case "error":
-            return Danger._500
+            return VColor.systemNegativeStrong
         case "warning":
-            return Amber._500
+            return VColor.systemNegativeHover
         case "success":
-            return Emerald._400
+            return VColor.systemPositiveStrong
         default:
-            return Moss._400
+            return VColor.contentTertiary
         }
     }
 

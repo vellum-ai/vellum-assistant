@@ -28,7 +28,7 @@ struct FirstMeetingFlowView: View {
 
     var body: some View {
         ZStack {
-            VColor.background
+            VColor.surfaceOverlay
                 .ignoresSafeArea()
 
             // Dimmed mock chrome — gives the "chat UI behind" effect
@@ -114,7 +114,7 @@ struct FirstMeetingFlowView: View {
                 RoundedRectangle(cornerRadius: VRadius.xl)
                     .stroke(Meadow.panelBorder, lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.4), radius: 24, y: 12)
+            .shadow(color: VColor.auxBlack.opacity(0.4), radius: 24, y: 12)
             .padding(.vertical, VSpacing.xxxl)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -182,10 +182,10 @@ struct FirstMeetingFlowView: View {
                         Text(tab)
                     }
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .padding(.horizontal, VSpacing.md)
                     .padding(.vertical, VSpacing.sm)
-                    .background(VColor.surface.opacity(0.3))
+                    .background(VColor.surfaceBase.opacity(0.3))
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                 }
             }
@@ -196,15 +196,15 @@ struct FirstMeetingFlowView: View {
 
     private var mockInputBar: some View {
         HStack(spacing: VSpacing.md) {
-            VIconButton(label: "Phone", icon: VIcon.phoneCall.rawValue, iconOnly: true) { }
+            VButton(label: "Phone", iconOnly: VIcon.phoneCall.rawValue, style: .ghost) { }
 
             Text("What you need chef?")
                 .font(VFont.body)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.vertical, VSpacing.md)
-                .background(VColor.surface.opacity(0.3))
+                .background(VColor.surfaceBase.opacity(0.3))
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         }
         .padding(.horizontal, VSpacing.lg)

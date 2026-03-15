@@ -177,7 +177,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   createConversation: () => ({
     id: "bench-conv",
     title: "Bench",
-    threadType: "standard",
+    conversationType: "standard",
   }),
   clearAll: () => {},
   deleteConversation: () => {},
@@ -185,7 +185,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   deleteMessageById: () => ({ memoryItemIds: [], memoryEntityIds: [] }),
   getConversationOriginChannel: () => null,
   getConversationOriginInterface: () => null,
-  getConversationThreadType: () => "standard",
+  getConversationType: () => "standard",
   getConversationMemoryScopeId: () => "default",
   getConversationRecentProvenanceTrustClass: () => null,
   provenanceFromTrustContext: () => ({}),

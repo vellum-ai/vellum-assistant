@@ -37,10 +37,12 @@ import {
   migrateBackfillContactInteractionStats,
   migrateBackfillGuardianPrincipalId,
   migrateBackfillUsageCacheAccounting,
+  migrateCallSessionInviteMetadata,
   migrateCallSessionMode,
   migrateCanonicalGuardianDeliveriesDestinationIndex,
   migrateCanonicalGuardianRequesterChatId,
   migrateChannelInboundDeliveredSegments,
+  migrateChannelInteractionColumns,
   migrateContactChannelsAccessFields,
   migrateContactChannelsTypeChatIdIndex,
   migrateContactsAssistantId,
@@ -49,7 +51,13 @@ import {
   migrateConversationsThreadTypeIndex,
   migrateDropAccountsTable,
   migrateDropAssistantIdColumns,
+  migrateDropConflicts,
+  migrateDropContactInteractionColumns,
+  migrateDropEntityTables,
   migrateDropLegacyMemberGuardianTables,
+  migrateDropLoopbackPortColumn,
+  migrateDropMemorySegmentFts,
+  migrateDropOrphanedMediaTables,
   migrateDropRemindersTable,
   migrateDropUsageCompositeIndexes,
   migrateFkCascadeRebuilds,
@@ -60,15 +68,23 @@ import {
   migrateGuardianDeliveryConversationIndex,
   migrateGuardianPrincipalIdColumns,
   migrateGuardianPrincipalIdNotNull,
+  migrateGuardianTimestampsEpochMs,
   migrateGuardianVerificationPurpose,
   migrateGuardianVerificationSessions,
   migrateInviteCodeHashColumn,
+  migrateInviteContactId,
+  migrateMemoryItemSupersession,
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
   migrateNotificationDeliveryThreadDecision,
+  migrateOAuthAppsClientSecretPath,
+  migrateOAuthProvidersPingUrl,
   migrateReminderRoutingIntent,
   migrateRemindersToSchedules,
+  migrateRenameConversationTypeColumn,
   migrateRenameGuardianVerificationValues,
+  migrateRenameInboxThreadStateTable,
+  migrateRenameNotificationThreadColumns,
   migrateRenameVerificationSessionIdColumn,
   migrateRenameVerificationTable,
   migrateRenameVoiceToPhone,
@@ -208,7 +224,7 @@ export function initializeDb(): void {
   // 14c3. Guardian action supersession metadata (superseded_by_request_id, superseded_at) + session lookup index
   migrateGuardianActionSupersession(database);
 
-  // 14d. Index on conversations.thread_type for frequent WHERE filters
+  // 14d. Index on conversations.conversation_type for frequent WHERE filters
   migrateConversationsThreadTypeIndex(database);
 
   // 14e. Index on guardian_action_deliveries.destination_conversation_id for conversation-based lookups
@@ -239,7 +255,7 @@ export function initializeDb(): void {
   // 22. Scoped approval grants (channel-agnostic one-time-use grants)
   createScopedApprovalGrantsTable(database);
 
-  // 23. Thread decision audit columns on notification_deliveries
+  // 23. Conversation decision audit columns on notification_deliveries
   migrateNotificationDeliveryThreadDecision(database);
 
   // 24. Canonical guardian requests and deliveries (unified cross-source guardian domain)
@@ -343,6 +359,54 @@ export function initializeDb(): void {
 
   // 53. OAuth provider/app/connection tables
   createOAuthTables(database);
+
+  // 54. Add explicit client_secret_credential_path to oauth_apps
+  migrateOAuthAppsClientSecretPath(database);
+
+  // 55. Add ping_url column to oauth_providers
+  migrateOAuthProvidersPingUrl(database);
+
+  // 56. Add supersession tracking columns and override confidence to memory_items
+  migrateMemoryItemSupersession(database);
+
+  // 56b. Drop unused entity tables (entity search replaced by hybrid search on item statements)
+  migrateDropEntityTables(database);
+
+  // 57. Drop memory_segment_fts virtual table and triggers (replaced by Qdrant hybrid search)
+  migrateDropMemorySegmentFts(database);
+
+  // 58. Drop memory_item_conflicts table (conflict resolution system removed)
+  migrateDropConflicts(database);
+
+  // 59. Add invite metadata columns to call_sessions for outbound invite call routing
+  migrateCallSessionInviteMetadata(database);
+
+  // 60. Add required contact_id to assistant_ingress_invites and clean up legacy rows
+  migrateInviteContactId(database);
+
+  // 61. Add interaction_count and last_interaction columns to contact_channels
+  migrateChannelInteractionColumns(database);
+
+  // 62. Drop interaction_count and last_interaction columns from contacts (now derived from channels)
+  migrateDropContactInteractionColumns(database);
+
+  // 63. Drop loopback_port column from oauth_providers (moved to code-side behavior registry)
+  migrateDropLoopbackPortColumn(database);
+
+  // 64. Drop orphaned media tables (CREATE TABLE removed in #16739, clean up existing databases)
+  migrateDropOrphanedMediaTables(database);
+
+  // 65. Convert guardian timestamps from ISO 8601 text to epoch ms integers
+  migrateGuardianTimestampsEpochMs(database);
+
+  // 66. Rename assistant_inbox_thread_state → assistant_inbox_conversation_state
+  migrateRenameInboxThreadStateTable(database);
+
+  // 67. Rename thread_type → conversation_type in conversations table
+  migrateRenameConversationTypeColumn(database);
+
+  // 68. Rename notification_deliveries thread columns → conversation columns
+  migrateRenameNotificationThreadColumns(database);
 
   validateMigrationState(database);
 

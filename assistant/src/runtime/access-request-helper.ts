@@ -196,7 +196,7 @@ export function notifyGuardianOfAccessRequest(
     guardianPrincipalId: guardianPrincipalId ?? undefined,
     toolName: "ingress_access_request",
     questionText: `${senderIdentifier} is requesting access to the assistant`,
-    expiresAt: new Date(Date.now() + GUARDIAN_APPROVAL_TTL_MS).toISOString(),
+    expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
   });
 
   let vellumDeliveryId: string | null = null;
@@ -223,7 +223,7 @@ export function notifyGuardianOfAccessRequest(
       previousMemberStatus: previousMemberStatus ?? null,
     },
     dedupeKey: `access-request:${canonicalRequest.id}`,
-    onThreadCreated: (info) => {
+    onConversationCreated: (info) => {
       if (info.sourceEventName !== "ingress.access_request" || vellumDeliveryId)
         return;
       const delivery = createCanonicalGuardianDelivery({

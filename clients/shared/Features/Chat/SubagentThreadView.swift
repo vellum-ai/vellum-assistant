@@ -20,9 +20,9 @@ public struct SubagentThreadView: View {
 
     private var statusColor: Color {
         switch subagent.status {
-        case .completed: return VColor.success
-        case .failed, .aborted: return VColor.error
-        default: return VColor.statusRunning
+        case .completed: return VColor.systemPositiveStrong
+        case .failed, .aborted: return VColor.systemNegativeStrong
+        default: return VColor.systemPositiveStrong
         }
     }
 
@@ -96,7 +96,7 @@ public struct SubagentThreadView: View {
             // Label (clickable, turns blue on hover like Slack)
             Text(subagent.label)
                 .font(VFont.captionMedium)
-                .foregroundColor(isHovered ? VColor.iconAccent : VColor.textPrimary)
+                .foregroundColor(isHovered ? VColor.primaryBase : VColor.contentDefault)
 
             // Status icon
             VIconView(statusIcon, size: 9)
@@ -113,18 +113,18 @@ public struct SubagentThreadView: View {
             if replyCount > 0 {
                 Text("\(replyCount) repl\(replyCount == 1 ? "y" : "ies")")
                     .font(VFont.captionMedium)
-                    .foregroundColor(isHovered ? VColor.iconAccent : VColor.statusRunning)
+                    .foregroundColor(isHovered ? VColor.primaryBase : VColor.systemPositiveStrong)
             } else if isRunning {
                 Text("Working...")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .italic()
             }
 
             // Abort button
             if isRunning, let onAbort {
                 VIconView(.x, size: 9)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .padding(VSpacing.xs)
                     .contentShape(Rectangle())
                     .highPriorityGesture(TapGesture().onEnded { onAbort() })
@@ -134,13 +134,13 @@ public struct SubagentThreadView: View {
 
             // View thread arrow
             VIconView(.chevronRight, size: 9)
-                .foregroundColor(isHovered ? VColor.iconAccent : VColor.textMuted)
+                .foregroundColor(isHovered ? VColor.primaryBase : VColor.contentTertiary)
         }
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.sm)
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(isHovered ? VColor.backgroundSubtle.opacity(0.5) : VColor.backgroundSubtle.opacity(0.2))
+                .fill(isHovered ? VColor.surfaceBase.opacity(0.5) : VColor.surfaceBase.opacity(0.2))
         )
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)
@@ -163,7 +163,7 @@ public struct SubagentThreadView: View {
         HStack(spacing: 2) {
             ForEach(0..<3, id: \.self) { index in
                 Circle()
-                    .fill(VColor.textSecondary)
+                    .fill(VColor.contentSecondary)
                     .frame(width: 4, height: 4)
                     .phaseAnimator([0, 1, 2]) { content, phase in
                         content.opacity(phase == index ? 1.0 : 0.3)

@@ -88,7 +88,6 @@ import {
   loadConfig,
 } from "../config/loader.js";
 import { _setStorePath } from "../security/encrypted-store.js";
-import { _setBackend } from "../security/secure-keys.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -183,13 +182,11 @@ describe("config loader backfill", () => {
     }
     ensureTestDir();
     _setStorePath(join(TEST_DIR, "keys.enc"));
-    _setBackend("encrypted");
     invalidateConfigCache();
   });
 
   afterEach(() => {
     _setStorePath(null);
-    _setBackend(undefined);
     invalidateConfigCache();
   });
 
@@ -278,13 +275,12 @@ describe("config loader backfill", () => {
     expect(contentAfter).toBe(contentBefore);
   });
 
-  test("does not write apiKeys or dataDir during backfill", () => {
+  test("does not write dataDir during backfill", () => {
     writeConfig({ provider: "anthropic" });
 
     loadConfig();
 
     const raw = readConfig();
-    expect(raw.apiKeys).toBeUndefined();
     expect(raw.dataDir).toBeUndefined();
   });
 

@@ -2,11 +2,11 @@ import SwiftUI
 
 public struct VLoadingIndicator: View {
     public var size: CGFloat = 20
-    public var color: Color = VColor.accent
+    public var color: Color = VColor.primaryBase
 
     @State private var isAnimating = false
 
-    public init(size: CGFloat = 20, color: Color = VColor.accent) {
+    public init(size: CGFloat = 20, color: Color = VColor.primaryBase) {
         self.size = size
         self.color = color
     }
@@ -28,17 +28,3 @@ public struct VLoadingIndicator: View {
     }
 }
 
-#Preview("VLoadingIndicator") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        HStack(spacing: 24) {
-            VLoadingIndicator(size: 14)
-            VLoadingIndicator()
-            VLoadingIndicator(size: 32)
-            VLoadingIndicator(color: VColor.success)
-            VLoadingIndicator(color: VColor.error)
-        }
-        .padding()
-    }
-    .frame(width: 350, height: 100)
-}

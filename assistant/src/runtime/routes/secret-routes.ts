@@ -1,8 +1,10 @@
+import { setPlatformBaseUrl } from "../../config/env.js";
 import {
   API_KEY_PROVIDERS,
   getConfig,
   invalidateConfigCache,
 } from "../../config/loader.js";
+import type { CesClient } from "../../credential-execution/client.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
@@ -20,8 +22,59 @@ import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
 const log = getLogger("runtime-http");
+const MANAGED_PROXY_CREDENTIALS = [
+  { service: "vellum", field: "assistant_api_key" },
+  { service: "vellum", field: "platform_base_url" },
+] as const;
 
-export async function handleAddSecret(req: Request): Promise<Response> {
+function isManagedProxyCredential(service: string, field: string): boolean {
+  return MANAGED_PROXY_CREDENTIALS.some(
+    (c) => c.service === service && c.field === field,
+  );
+}
+
+const CES_READY_POLL_INTERVAL_MS = 500;
+const CES_READY_POLL_TIMEOUT_MS = 30_000;
+
+/**
+ * Poll the CES client until it becomes ready, then push the API key.
+ * Handles the timing window where the secret route is called while the
+ * CES handshake is still in flight.
+ */
+async function queueApiKeyPropagation(
+  cesClient: CesClient,
+  apiKey: string,
+): Promise<void> {
+  log.info(
+    "CES client not ready — queuing API key propagation until handshake completes",
+  );
+  const deadline = Date.now() + CES_READY_POLL_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, CES_READY_POLL_INTERVAL_MS));
+    if (cesClient.isReady()) {
+      try {
+        await cesClient.updateAssistantApiKey(apiKey);
+        log.info(
+          "Pushed queued assistant API key to CES after handshake completed",
+        );
+      } catch (err) {
+        log.warn(
+          { error: err instanceof Error ? err.message : String(err) },
+          "Failed to push queued assistant API key to CES (non-fatal)",
+        );
+      }
+      return;
+    }
+  }
+  log.warn(
+    "Timed out waiting for CES client to become ready — API key was not propagated",
+  );
+}
+
+export async function handleAddSecret(
+  req: Request,
+  getCesClient?: () => CesClient | undefined,
+): Promise<Response> {
   const body = (await req.json()) as {
     type?: string;
     name?: string;
@@ -62,7 +115,7 @@ export async function handleAddSecret(req: Request): Promise<Response> {
         );
       }
       invalidateConfigCache();
-      initializeProviders(getConfig());
+      await initializeProviders(getConfig());
       log.info({ provider: name }, "API key updated via HTTP");
       return Response.json({ success: true, type, name }, { status: 201 });
     }
@@ -89,6 +142,36 @@ export async function handleAddSecret(req: Request): Promise<Response> {
         );
       }
       upsertCredentialMetadata(service, field, {});
+      if (service === "vellum" && field === "platform_base_url") {
+        setPlatformBaseUrl(value);
+      }
+      if (isManagedProxyCredential(service, field)) {
+        await initializeProviders(getConfig());
+        if (service === "vellum" && field === "assistant_api_key") {
+          // Push the API key to CES so managed credential materialization
+          // works even though the handshake ran before the key was available.
+          const cesClient = getCesClient?.();
+          if (cesClient) {
+            if (cesClient.isReady()) {
+              try {
+                await cesClient.updateAssistantApiKey(value);
+                log.info(
+                  "Pushed assistant API key to CES after managed proxy credential update",
+                );
+              } catch (err) {
+                log.warn(
+                  { error: err instanceof Error ? err.message : String(err) },
+                  "Failed to push assistant API key to CES (non-fatal)",
+                );
+              }
+            } else {
+              // CES handshake is still in flight — queue the key propagation
+              // so it fires once CES becomes ready.
+              void queueApiKeyPropagation(cesClient, value);
+            }
+          }
+        }
+      }
       log.info({ service, field }, "Credential added via HTTP");
       return Response.json({ success: true, type, name }, { status: 201 });
     }
@@ -148,7 +231,7 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
         );
       }
       invalidateConfigCache();
-      initializeProviders(getConfig());
+      await initializeProviders(getConfig());
       log.info({ provider: name }, "API key deleted via HTTP");
       return Response.json({ success: true, type, name });
     }
@@ -181,6 +264,12 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
         );
       }
       deleteCredentialMetadata(service, field);
+      if (service === "vellum" && field === "platform_base_url") {
+        setPlatformBaseUrl(undefined);
+      }
+      if (isManagedProxyCredential(service, field)) {
+        await initializeProviders(getConfig());
+      }
       log.info({ service, field }, "Credential deleted via HTTP");
       return Response.json({ success: true, type, name });
     }
@@ -201,12 +290,19 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function secretRouteDefinitions(): RouteDefinition[] {
+export interface SecretRouteDeps {
+  /** Accessor for the CES client, used to push API key updates after hatch. */
+  getCesClient?: () => CesClient | undefined;
+}
+
+export function secretRouteDefinitions(
+  deps?: SecretRouteDeps,
+): RouteDefinition[] {
   return [
     {
       endpoint: "secrets",
       method: "POST",
-      handler: async ({ req }) => handleAddSecret(req),
+      handler: async ({ req }) => handleAddSecret(req, deps?.getCesClient),
     },
     {
       endpoint: "secrets",

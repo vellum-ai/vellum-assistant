@@ -15,7 +15,6 @@ mock.module("../util/platform.js", () => ({
 }));
 
 mock.module("../memory/guardian-action-store.js", () => ({
-  getPendingDeliveryByConversation: () => null,
   getGuardianActionRequest: () => null,
   resolveGuardianActionRequest: () => {},
 }));
@@ -35,8 +34,9 @@ mock.module("../config/loader.js", () => ({
     contextWindow: {
       enabled: true,
       maxInputTokens: 100000,
-      targetBudgetRatio: 0.30,
-      compactThreshold: 0.8,      summaryBudgetRatio: 0.05,
+      targetBudgetRatio: 0.3,
+      compactThreshold: 0.8,
+      summaryBudgetRatio: 0.05,
       overflowRecovery: {
         enabled: true,
         safetyMarginRatio: 0.05,
@@ -46,7 +46,6 @@ mock.module("../config/loader.js", () => ({
       },
     },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
-    apiKeys: {},
   }),
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
@@ -135,20 +134,8 @@ mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {},
 }));
 
-mock.module("../memory/admin.js", () => ({
-  getMemoryConflictAndCleanupStats: () => ({
-    conflicts: { pending: 0, resolved: 0, oldestPendingAgeMs: null },
-    cleanup: {
-      resolvedBacklog: 0,
-      supersededBacklog: 0,
-      resolvedCompleted24h: 0,
-      supersededCompleted24h: 0,
-    },
-  }),
-}));
-
 mock.module("../memory/conversation-crud.js", () => ({
-  getConversationThreadType: () => "default",
+  getConversationType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   deleteMessageById: () => {},
   getMessages: () => [],
@@ -179,13 +166,12 @@ mock.module("../memory/retriever.js", () => ({
     enabled: false,
     degraded: false,
     injectedText: "",
-    lexicalHits: 0,
+
     semanticHits: 0,
     recencyHits: 0,
     injectedTokens: 0,
     latencyMs: 0,
   }),
-  injectMemoryRecallIntoUserMessage: (msg: Message) => msg,
   stripMemoryRecallMessages: (msgs: Message[]) => msgs,
 }));
 
@@ -244,6 +230,9 @@ let firstRunErrorMode:
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     constructor() {}
+    getToolTokenBudget() {
+      return 0;
+    }
     async run(
       messages: Message[],
       onEvent: (event: AgentEvent) => void,
@@ -302,7 +291,15 @@ mock.module("../agent/loop.js", () => ({
         return history; // Progress was made — history grew
       }
 
-      if (agentLoopRunCount === 1 && firstRunErrorMode !== "none") {
+      // Context-too-large modes: keep failing when compaction can't help
+      const isContextTooLargeMode =
+        firstRunErrorMode !== "none" && firstRunErrorMode !== "ordering";
+      const shouldError =
+        firstRunErrorMode !== "none" &&
+        (agentLoopRunCount === 1 ||
+          (isContextTooLargeMode && !forceCompactionEnabled));
+
+      if (shouldError) {
         onEvent({
           type: "usage",
           inputTokens: 0,
@@ -494,7 +491,7 @@ describe("provider ordering error retry", () => {
     expect(events.some((e) => e.type === "session_error")).toBe(false);
   });
 
-  test("context-too-large can recover by trimming older media when forced compaction cannot run", async () => {
+  test("context-too-large exhausts reducer tiers without compaction — error surfaces after emergency attempt", async () => {
     firstRunErrorMode = "context_too_large";
     forceCompactionEnabled = false;
 
@@ -508,11 +505,17 @@ describe("provider ordering error retry", () => {
       (msg) => events.push(msg as unknown as Record<string, unknown>),
     );
 
+    // The convergence loop enters and applies the reducer (which returns
+    // exhausted:true). With the early-break removed, the loop still re-runs
+    // the agent loop once after the reducer. Since compaction didn't help
+    // (forceCompactionEnabled=false), the second run also fails with
+    // context_too_large. The overflow policy (fail_gracefully) surfaces error.
     expect(agentLoopRunCount).toBe(2);
+    // Two maybeCompact calls: initial auto-compact (force:false),
+    // reducer's compactFn (force:true).
     expect(maybeCompactCalls).toEqual([{ force: false }, { force: true }]);
 
-    expect(events.some((e) => e.type === "message_complete")).toBe(true);
-    expect(events.some((e) => e.type === "session_error")).toBe(false);
+    expect(events.some((e) => e.type === "session_error")).toBe(true);
   });
 
   test("context-too-large still surfaces when no media payloads are available to trim", async () => {
@@ -527,14 +530,10 @@ describe("provider ordering error retry", () => {
       events.push(msg as unknown as Record<string, unknown>),
     );
 
-    // The convergence loop attempts one reducer tier (which calls compactFn
-    // via force:true but compaction returns compacted:false), then retries the
-    // agent loop. The mock agent loop succeeds on the second call, so the
-    // convergence loop recovers. agentLoopRunCount is 2: initial + one retry.
+    // Same as above — convergence loop re-runs agent loop, which also fails.
     expect(agentLoopRunCount).toBe(2);
     expect(maybeCompactCalls).toEqual([{ force: false }, { force: true }]);
-    // Recovery succeeded — no session_error surfaced
-    expect(events.some((e) => e.type === "message_complete")).toBe(true);
+    expect(events.some((e) => e.type === "session_error")).toBe(true);
   });
 
   test("context-too-large phrase also triggers one forced-compaction retry", async () => {
@@ -594,8 +593,10 @@ describe("provider ordering error retry", () => {
       (msg) => events.push(msg as unknown as Record<string, unknown>),
     );
 
-    // Only one agent loop run — the retry path is skipped because progress was made.
-    expect(agentLoopRunCount).toBe(1);
+    // Two agent loop runs — first makes progress then 413, convergence loop
+    // re-runs after reducer (which returns exhausted). Second run also fails
+    // since compaction didn't help (forceCompactionEnabled=false).
+    expect(agentLoopRunCount).toBe(2);
 
     // The error must be surfaced to clients via session_error, not silently swallowed.
     const sessionError = events.find((e) => e.type === "session_error") as

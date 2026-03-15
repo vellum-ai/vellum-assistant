@@ -13,30 +13,17 @@ struct ThreadTitleActionsControl: View {
     @Binding var showDrawer: Bool
 
     var body: some View {
-        Button {
+        VButton(
+            label: presentation.displayTitle,
+            rightIcon: presentation.showsActionsMenu ? VIcon.chevronDown.rawValue : nil,
+            style: .ghost
+        ) {
             if presentation.showsActionsMenu {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
                     showDrawer.toggle()
                 }
             }
-        } label: {
-            HStack(spacing: VSpacing.xs) {
-                Text(presentation.displayTitle)
-                    .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
-                    .lineLimit(1)
-                if presentation.showsActionsMenu {
-                    VIconView(.chevronDown, size: 9)
-                        .foregroundColor(VColor.textMuted)
-                        .rotationEffect(.degrees(showDrawer ? -180 : 0))
-                        .animation(VAnimation.fast, value: showDrawer)
-                }
-            }
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .padding(.leading, VSpacing.sm)
-        .padding(.vertical, VSpacing.sm)
     }
 }
 
@@ -65,14 +52,11 @@ struct ThreadActionsDrawer: View {
 
             SidebarPrimaryRow(icon: VIcon.archive.rawValue, label: "Archive thread", action: onArchive)
         }
-        .padding(.vertical, VSpacing.sm)
-        .background(VColor.surfaceSubtle)
+        .padding(VSpacing.sm)
+        .background(VColor.surfaceLift)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+        .shadow(color: VColor.auxBlack.opacity(0.1), radius: 1.5, x: 0, y: 1)
+        .shadow(color: VColor.auxBlack.opacity(0.1), radius: 6, x: 0, y: 4)
         .frame(width: 200)
         .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .top)))
     }

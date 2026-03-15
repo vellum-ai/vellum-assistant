@@ -1,0 +1,12 @@
+import { avatarRenameMigration } from "./001-avatar-rename.js";
+import { seedDeviceIdMigration } from "./003-seed-device-id.js";
+import type { WorkspaceMigration } from "./types.js";
+
+/**
+ * Ordered list of all workspace data migrations.
+ * New migrations are appended to the end. Never reorder or remove entries.
+ */
+export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
+  avatarRenameMigration,
+  seedDeviceIdMigration,
+];

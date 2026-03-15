@@ -20,7 +20,7 @@ const log = getLogger("trust-rules-routes");
 /**
  * GET /v1/trust-rules/manage — list all trust rules.
  */
-export function handleListTrustRules(): Response {
+function handleListTrustRules(): Response {
   const rules = getAllRules();
   return Response.json({ type: "trust_rules_list_response", rules });
 }
@@ -47,6 +47,13 @@ export async function handleAddTrustRuleManage(
 
   if (!toolName || typeof toolName !== "string") {
     return httpError("BAD_REQUEST", "toolName is required", 400);
+  }
+  if (toolName.startsWith("__internal:")) {
+    return httpError(
+      "BAD_REQUEST",
+      "toolName must not start with __internal:",
+      400,
+    );
   }
   if (!pattern || typeof pattern !== "string") {
     return httpError("BAD_REQUEST", "pattern is required", 400);
@@ -124,6 +131,13 @@ export async function handleUpdateTrustRuleManage(
     priority?: number;
   };
 
+  if (typeof body.tool === "string" && body.tool.startsWith("__internal:")) {
+    return httpError(
+      "BAD_REQUEST",
+      "tool must not start with __internal:",
+      400,
+    );
+  }
   if (body.decision !== undefined) {
     const validDecisions = ["allow", "deny", "ask"] as const;
     if (

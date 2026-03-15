@@ -17,7 +17,6 @@ import type { ToolContext } from "../tools/types.js";
 const mockConfig = {
   provider: "anthropic",
   model: "test",
-  apiKeys: {},
   maxTokens: 4096,
   dataDir: "/tmp",
   timeouts: {

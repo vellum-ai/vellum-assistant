@@ -128,7 +128,7 @@ export class HeartbeatService {
       const prompt = this.buildPrompt(checklist);
 
       const conversation = bootstrapConversation({
-        threadType: "background",
+        conversationType: "background",
         source: "heartbeat",
         origin: "heartbeat",
         systemHint: "Heartbeat",

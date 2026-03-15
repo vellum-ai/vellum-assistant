@@ -7,26 +7,15 @@ struct ChatBubbleToggle: View {
     let onToggle: () -> Void
 
     var body: some View {
-        VIconButton(
+        VButton(
             label: isActive ? "Hide chat" : "Show chat",
-            icon: "bubble.left",
+            iconOnly: "bubble.left",
+            style: .ghost,
             isActive: isActive,
-            iconOnly: true,
             tooltip: tooltip,
             action: onToggle
         )
-        .foregroundColor(isActive ? VColor.accent : nil)
+        .foregroundColor(isActive ? VColor.primaryBase : nil)
     }
 }
 
-#Preview("ChatBubbleToggle") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        HStack(spacing: 16) {
-            ChatBubbleToggle(isActive: false, onToggle: {})
-            ChatBubbleToggle(isActive: true, onToggle: {})
-        }
-        .padding()
-    }
-    .frame(width: 200, height: 80)
-}

@@ -11,18 +11,17 @@ struct ThreadSwitcherDrawer: View {
     let onDismiss: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: SidebarLayoutMetrics.listRowGap) {
             Text("\(regularThreads.count) threads")
                 .font(VFont.caption)
-                .foregroundColor(VColor.tagText)
+                .foregroundColor(VColor.contentDisabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.top, VSpacing.sm)
                 .padding(.bottom, VSpacing.xs)
 
-            VColor.surfaceBorder.frame(height: 1)
+            VColor.surfaceBase.frame(height: 1)
                 .padding(.horizontal, VSpacing.xs)
-                .padding(.bottom, VSpacing.xs)
 
             ForEach(regularThreads) { thread in
                 SidebarThreadItem(
@@ -33,18 +32,14 @@ struct ThreadSwitcherDrawer: View {
                     selectThread: { selectThread(thread) },
                     onSelect: onDismiss
                 )
-                .padding(.bottom, SidebarLayoutMetrics.listRowGap)
             }
         }
-        .padding(.vertical, VSpacing.sm)
+        .padding(VSpacing.sm)
         .fixedSize(horizontal: false, vertical: true)
-        .background(VColor.surfaceSubtle)
+        .background(VColor.surfaceLift)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+        .shadow(color: VColor.auxBlack.opacity(0.1), radius: 1.5, x: 0, y: 1)
+        .shadow(color: VColor.auxBlack.opacity(0.1), radius: 6, x: 0, y: 4)
         .onDisappear {
             if sidebar.isHoveredThread != nil {
                 sidebar.isHoveredThread = nil

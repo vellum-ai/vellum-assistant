@@ -44,8 +44,8 @@ struct GeneratedPanel: View {
     @State private var showShareSheet = false
     @State private var pendingDeleteId: String?
 
-    // Track how many list responses we're waiting for
-    @State private var pendingResponses = 0
+    @State private var fetchAppsTask: Task<Void, Never>?
+    @State private var fetchAppsGeneration = 0
 
     /// Cache of lazily-loaded preview screenshots keyed by local app ID.
     /// Empty string is used as a sentinel for "fetched but no preview available".
@@ -68,7 +68,7 @@ struct GeneratedPanel: View {
             HStack {
                 Button(action: { withAnimation(VAnimation.fast) { isExpanded.toggle() } }) {
                     VIconView(isExpanded ? .minimize : .maximize, size: 11)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .frame(width: 28, height: 28, alignment: .leading)
                         .contentShape(Rectangle())
                 }
@@ -77,13 +77,13 @@ struct GeneratedPanel: View {
 
                 Text("Dynamic")
                     .font(VFont.panelTitle)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 Spacer()
 
                 Button(action: onClose) {
                     VIconView(.x, size: 12)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .frame(width: 32, height: 32)
                         .contentShape(Rectangle())
                 }
@@ -94,29 +94,29 @@ struct GeneratedPanel: View {
             .padding(.vertical, VSpacing.lg)
 
             Divider()
-                .background(VColor.surfaceBorder)
+                .background(VColor.borderBase)
 
             // Search bar
             if !displayItems.isEmpty || !searchText.isEmpty {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(.search, size: 12)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
 
                     TextField("Filter pages...", text: $searchText)
                         .textFieldStyle(.plain)
                         .font(VFont.mono)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
 
                     if !searchText.isEmpty {
                         Button(action: { searchText = "" }) {
                             VIconView(.circleX, size: 12)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                         }
                         .buttonStyle(.plain)
                     }
                 }
                 .padding(VSpacing.md)
-                .background(Moss._700)
+                .background(VColor.surfaceActive)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.top, VSpacing.md)
@@ -154,11 +154,11 @@ struct GeneratedPanel: View {
                                     HStack {
                                         Text("Documents")
                                             .font(VFont.display)
-                                            .foregroundColor(VColor.textMuted)
+                                            .foregroundColor(VColor.contentTertiary)
                                         Spacer()
                                         Text("\(documentItems.count)")
                                             .font(VFont.caption)
-                                            .foregroundColor(VColor.textMuted)
+                                            .foregroundColor(VColor.contentTertiary)
                                     }
                                     .padding(.horizontal, VSpacing.xs)
 
@@ -178,11 +178,11 @@ struct GeneratedPanel: View {
                                         HStack {
                                             Text("Pages")
                                                 .font(VFont.display)
-                                                .foregroundColor(VColor.textMuted)
+                                                .foregroundColor(VColor.contentTertiary)
                                             Spacer()
                                             Text("\(otherItems.count)")
                                                 .font(VFont.caption)
-                                                .foregroundColor(VColor.textMuted)
+                                                .foregroundColor(VColor.contentTertiary)
                                         }
                                         .padding(.horizontal, VSpacing.xs)
                                     }
@@ -201,11 +201,13 @@ struct GeneratedPanel: View {
                 .padding(VSpacing.xl)
             }
         }
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
         .onAppear {
             fetchApps()
         }
         .onDisappear {
+            fetchAppsTask?.cancel()
+            fetchAppsTask = nil
             for task in previewTasks.values { task.cancel() }
             previewTasks.removeAll()
         }
@@ -261,13 +263,13 @@ struct GeneratedPanel: View {
                 HStack(spacing: VSpacing.xs) {
                     Text(item.name)
                         .font(VFont.bodyBold)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                         .lineLimit(1)
 
                     if let version = item.version {
                         Text("v\(version)")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
 
                     if item.isShared {
@@ -281,10 +283,10 @@ struct GeneratedPanel: View {
                     if item.appType == "site" {
                         Text("Site")
                             .font(VFont.small)
-                            .foregroundColor(Emerald._400)
+                            .foregroundColor(VColor.systemPositiveStrong)
                             .padding(.horizontal, VSpacing.xs)
                             .padding(.vertical, 1)
-                            .background(Emerald._900.opacity(0.5))
+                            .background(VColor.systemPositiveStrong.opacity(0.5))
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
                     }
 
@@ -296,13 +298,13 @@ struct GeneratedPanel: View {
                 if let description = item.description, !description.isEmpty {
                     Text(description)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .lineLimit(2)
                 }
 
                 Text(item.dateLabel)
                     .font(VFont.small)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
 
             Spacer()
@@ -334,11 +336,11 @@ struct GeneratedPanel: View {
             }
         }
         .padding(VSpacing.lg)
-        .background(isHovered ? Moss._700 : Moss._900)
+        .background(isHovered ? VColor.surfaceActive : VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(item.isShared ? Forest._700.opacity(0.4) : Emerald._700.opacity(0.4), lineWidth: 1)
+                .stroke(item.isShared ? VColor.primaryHover.opacity(0.4) : VColor.systemPositiveStrong.opacity(0.4), lineWidth: 1)
         )
         .contentShape(Rectangle())
         .onTapGesture {
@@ -363,10 +365,10 @@ struct GeneratedPanel: View {
             Text("Shared")
                 .font(VFont.small)
         }
-        .foregroundColor(Forest._400)
+        .foregroundColor(VColor.systemPositiveWeak)
         .padding(.horizontal, 5)
         .padding(.vertical, 1)
-        .background(Forest._900.opacity(0.5))
+        .background(VColor.borderActive.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
     }
 
@@ -376,10 +378,10 @@ struct GeneratedPanel: View {
             Text("Update available")
                 .font(VFont.small)
         }
-        .foregroundColor(VColor.accent)
+        .foregroundColor(VColor.primaryBase)
         .padding(.horizontal, 5)
         .padding(.vertical, 1)
-        .background(VColor.accent.opacity(0.15))
+        .background(VColor.primaryBase.opacity(0.15))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
     }
 
@@ -387,15 +389,15 @@ struct GeneratedPanel: View {
         let (icon, color): (VIcon, Color) = {
             switch tier {
             case "verified":
-                return (.badgeCheck, VColor.success)
+                return (.badgeCheck, VColor.systemPositiveStrong)
             case "signed":
-                return (.badgeCheck, VColor.textSecondary)
+                return (.badgeCheck, VColor.contentSecondary)
             case "unsigned":
-                return (.triangleAlert, VColor.warning)
+                return (.triangleAlert, VColor.systemNegativeHover)
             case "tampered":
-                return (.badgeX, VColor.error)
+                return (.badgeX, VColor.systemNegativeStrong)
             default:
-                return (.info, VColor.textMuted)
+                return (.info, VColor.contentTertiary)
             }
         }()
 
@@ -426,7 +428,7 @@ struct GeneratedPanel: View {
                 .frame(width: 0, height: 0)
                 .opacity(0)
 
-                VIconButton(label: "Share", icon: VIcon.share.rawValue, iconOnly: true) {
+                VButton(label: "Share", iconOnly: VIcon.share.rawValue, style: .ghost) {
                     bundleAndShare(appId: localId, itemId: item.id)
                 }
             }
@@ -448,7 +450,7 @@ struct GeneratedPanel: View {
                 .frame(width: 0, height: 0)
                 .opacity(0)
 
-                VIconButton(label: "Share", icon: VIcon.share.rawValue, iconOnly: true) {
+                VButton(label: "Share", iconOnly: VIcon.share.rawValue, style: .ghost) {
                     reshareApp(uuid: uuid, itemId: item.id)
                 }
             }
@@ -456,13 +458,13 @@ struct GeneratedPanel: View {
     }
 
     private func forkButton(for item: DisplayAppItem) -> some View {
-        VIconButton(label: "Fork", icon: VIcon.gitBranch.rawValue, iconOnly: true) {
+        VButton(label: "Fork", iconOnly: VIcon.gitBranch.rawValue, style: .ghost) {
             forkSharedApp(item)
         }
     }
 
     private func deleteButton(for item: DisplayAppItem) -> some View {
-        VIconButton(label: "Delete", icon: VIcon.trash.rawValue, iconOnly: true) {
+        VButton(label: "Delete", iconOnly: VIcon.trash.rawValue, style: .ghost) {
             deleteSharedApp(item)
         }
     }
@@ -473,62 +475,44 @@ struct GeneratedPanel: View {
     @State private var sharedApps: [SharedAppItem] = []
 
     private func fetchApps() {
+        fetchAppsTask?.cancel()
+
         isLoading = true
-        pendingResponses = 2
+        fetchAppsGeneration += 1
+        let generation = fetchAppsGeneration
 
-        Task { @MainActor in
-            daemonClient.onAppsListResponse = { response in
-                self.localApps = response.apps
-                self.pendingResponses -= 1
-                if self.pendingResponses <= 0 {
-                    self.buildDisplayItems()
-                    self.isLoading = false
+        let task = Task { @MainActor in
+            defer {
+                if fetchAppsGeneration == generation {
+                    fetchAppsTask = nil
                 }
             }
 
-            daemonClient.onSharedAppsListResponse = { response in
-                self.sharedApps = response.apps
-                self.pendingResponses -= 1
-                if self.pendingResponses <= 0 {
-                    self.buildDisplayItems()
-                    self.isLoading = false
+            async let localResult: [AppItem] = {
+                do {
+                    return try await AppsLoader.load(using: daemonClient)
+                } catch {
+                    return []
                 }
-            }
+            }()
 
-            // Handle daemon-side errors that arrive as generic `error` messages
-            // instead of typed responses — reset loading/bundling state so the UI
-            // never gets permanently stuck.
-            daemonClient.onError = { _ in
-                if self.isLoading {
-                    self.pendingResponses -= 1
-                    if self.pendingResponses <= 0 {
-                        self.buildDisplayItems()
-                        self.isLoading = false
-                    }
+            async let sharedResult: [SharedAppItem] = {
+                do {
+                    return try await SharedAppsLoader.load(using: daemonClient)
+                } catch {
+                    return []
                 }
-                if self.isBundling {
-                    self.isBundling = false
-                    self.sharingAppId = nil
-                }
-            }
+            }()
 
-            do {
-                try daemonClient.sendAppsList()
-            } catch {
-                pendingResponses -= 1
-            }
+            let (fetchedLocal, fetchedShared) = await (localResult, sharedResult)
+            guard fetchAppsGeneration == generation else { return }
 
-            do {
-                try daemonClient.sendSharedAppsList()
-            } catch {
-                pendingResponses -= 1
-            }
-
-            if pendingResponses <= 0 {
-                buildDisplayItems()
-                isLoading = false
-            }
+            localApps = fetchedLocal
+            sharedApps = fetchedShared
+            buildDisplayItems()
+            isLoading = false
         }
+        fetchAppsTask = task
     }
 
     /// Fetch preview for a local app when its row appears on screen.
@@ -766,8 +750,3 @@ struct GeneratedPanel: View {
     }
 }
 
-struct GeneratedPanel_Previews: PreviewProvider {
-    static var previews: some View {
-        GeneratedPanel(onClose: {}, isExpanded: .constant(false), daemonClient: DaemonClient(), gatewayBaseURL: "http://127.0.0.1:3000")
-    }
-}

@@ -264,7 +264,7 @@ public final class MainWindow {
             activityNotificationService: services.activityNotificationService,
             isFirstLaunch: isFirstLaunch
         )
-        self.usageDashboardStore = UsageDashboardStore(client: services.daemonClient)
+        self.usageDashboardStore = UsageDashboardStore()
         self.threadManager.ambientAgent = services.ambientAgent
         documentManager.daemonClient = daemonClient
         services.daemonClient.onTraceEvent = { [weak self] msg in
@@ -397,7 +397,7 @@ public final class MainWindow {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = false
-        window.backgroundColor = NSColor(VColor.backgroundSubtle)
+        window.backgroundColor = NSColor(VColor.surfaceBase)
         window.isReleasedWhenClosed = false
         window.contentMinSize = NSSize(width: 800, height: 600)
         window.setFrame(windowRect, display: false)
@@ -436,7 +436,7 @@ public final class MainWindow {
         guard let origin = defaultTrafficLightOrigin else { return }
         containerView.setFrameOrigin(NSPoint(
             x: origin.x + 2,
-            y: origin.y - 2.5
+            y: origin.y - 8
         ))
     }
 
@@ -451,7 +451,28 @@ public final class MainWindow {
             layoutObserver = nil
         }
         defaultTrafficLightOrigin = nil
+        // Detach the SwiftUI hosting view before closing so that pending
+        // view-graph updates cannot post constraint changes to a closed window,
+        // which would crash in the AppKit display cycle.
+        window?.contentViewController = nil
         window?.close()
         window = nil
+    }
+
+    /// Tears down internal observers and detaches the underlying NSWindow
+    /// without closing it. The caller takes ownership of the returned window.
+    func detachWindow() -> NSWindow? {
+        if let observer = layoutObserver {
+            NotificationCenter.default.removeObserver(observer)
+            layoutObserver = nil
+        }
+        defaultTrafficLightOrigin = nil
+        if let zoomable = window as? TitleBarZoomableWindow {
+            zoomable.composerRedirectHandler = nil
+            zoomable.composerContainerView = nil
+        }
+        let detached = window
+        window = nil
+        return detached
     }
 }

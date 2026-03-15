@@ -148,7 +148,7 @@ export async function handleStartCall(
 /**
  * GET /v1/calls/:callSessionId
  */
-export function handleGetCallStatus(callSessionId: string): Response {
+function handleGetCallStatus(callSessionId: string): Response {
   const result = getCallStatus(callSessionId);
 
   if (!result.ok) {

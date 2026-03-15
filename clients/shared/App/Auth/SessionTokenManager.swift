@@ -9,14 +9,17 @@ public extension Notification.Name {
 /// Uses provider "session-token" to match the old keychain account name
 /// so existing macOS users' stored sessions are preserved after upgrade.
 ///
-/// Also writes the token to `~/.vellum/platform-token` so the daemon can
-/// read it for authenticated platform API calls without round-trips.
+/// Also writes the token to `~/.config/vellum/platform-token` (XDG path)
+/// and to the instance-scoped path so the daemon and CLI can read it for
+/// authenticated platform API calls without round-trips.
 public enum SessionTokenManager {
     private static let provider = "session-token"
 
     /// Path to the platform token file the daemon reads.
+    /// For local assistants with a known data directory, writes to the
+    /// instance-scoped path. Otherwise uses the XDG-compliant shared path.
     private static var platformTokenPath: String {
-        connectedAssistantPlatformTokenPath() ?? defaultPlatformTokenPath()
+        connectedAssistantPlatformTokenPath() ?? xdgPlatformTokenPath()
     }
 
     public static func getToken() -> String? {
@@ -65,36 +68,46 @@ public enum SessionTokenManager {
         return nil
     }
 
-    private static func defaultPlatformTokenPath() -> String {
+    /// XDG-compliant shared path (~/.config/vellum/platform-token).
+    /// Used by the CLI and desktop app as the canonical token location.
+    private static func xdgPlatformTokenPath() -> String {
         let launchEnvironment = ProcessInfo.processInfo.environment
-        if let baseDir = launchEnvironment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !baseDir.isEmpty {
-            let resolved = baseDir == "~"
-                ? NSHomeDirectory()
-                : (baseDir.hasPrefix("~/")
-                    ? NSHomeDirectory() + "/" + String(baseDir.dropFirst(2))
-                    : baseDir)
-            return resolved + "/.vellum/platform-token"
+        let configHome: String
+        if let xdg = launchEnvironment["XDG_CONFIG_HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !xdg.isEmpty {
+            configHome = xdg
+        } else {
+            configHome = NSHomeDirectory() + "/.config"
         }
-        return NSHomeDirectory() + "/.vellum/platform-token"
+        return configHome + "/vellum/platform-token"
     }
 
     private static func writePlatformTokenFile(_ token: String) {
-        let path = platformTokenPath
-        do {
-            try token.write(toFile: path, atomically: true, encoding: .utf8)
-            // Restrict permissions to owner-only (0600)
-            try FileManager.default.setAttributes(
-                [.posixPermissions: 0o600],
-                ofItemAtPath: path
-            )
-        } catch {
-            // Best-effort; daemon falls back to bundled catalog if token is unavailable
+        let paths = [platformTokenPath, xdgPlatformTokenPath()]
+        for path in Set(paths) {
+            do {
+                let dir = (path as NSString).deletingLastPathComponent
+                try FileManager.default.createDirectory(
+                    atPath: dir,
+                    withIntermediateDirectories: true,
+                    attributes: [.posixPermissions: 0o700]
+                )
+                try token.write(toFile: path, atomically: true, encoding: .utf8)
+                try FileManager.default.setAttributes(
+                    [.posixPermissions: 0o600],
+                    ofItemAtPath: path
+                )
+            } catch {
+                // Best-effort; daemon falls back to bundled catalog if token is unavailable
+            }
         }
     }
 
     private static func removePlatformTokenFile() {
-        try? FileManager.default.removeItem(atPath: platformTokenPath)
+        let paths = [platformTokenPath, xdgPlatformTokenPath()]
+        for path in Set(paths) {
+            try? FileManager.default.removeItem(atPath: path)
+        }
     }
 
     public static func getTokenAsync() async -> String? {

@@ -17,7 +17,7 @@ import type { GuardianDecisionAction } from "./guardian-decision-types.js";
 export type ApprovalAction =
   | "approve_once"
   | "approve_10m"
-  | "approve_thread"
+  | "approve_conversation"
   | "approve_always"
   | "reject";
 

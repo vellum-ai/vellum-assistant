@@ -20,8 +20,8 @@ import type { RouteDefinition } from "../../../http-router.js";
 /**
  * GET /v1/integrations/slack/channel/config
  */
-export function handleGetSlackChannelConfig(): Response {
-  const result = getSlackChannelConfig();
+export async function handleGetSlackChannelConfig(): Promise<Response> {
+  const result = await getSlackChannelConfig();
   return Response.json(result);
 }
 

@@ -1,14 +1,28 @@
-import { and, asc, count, desc, eq, lt, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, sql } from "drizzle-orm";
 
 import { getLogger } from "../util/logger.js";
-import type { ConversationRow, MessageRow } from "./conversation-crud.js";
-import { parseConversation, parseMessage } from "./conversation-crud.js";
+import type { ConversationRow } from "./conversation-crud.js";
+import { parseConversation } from "./conversation-crud.js";
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { getDb, rawAll } from "./db.js";
 import { conversations, messages } from "./schema.js";
-import { buildFtsMatchQuery } from "./search/lexical.js";
 
 const log = getLogger("conversation-store");
+
+/**
+ * Build an FTS5 MATCH query string from natural text by extracting tokens.
+ * Used for messages_fts full-text search over conversation content.
+ */
+function buildFtsMatchQuery(text: string): string | null {
+  const tokens = text
+    .toLowerCase()
+    .split(/[^a-z0-9_]+/g)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2);
+  if (tokens.length === 0) return null;
+  const unique = [...new Set(tokens)].slice(0, 24);
+  return unique.map((token) => `"${token.replace(/"/g, '""')}"`).join(" OR ");
+}
 
 export function listConversations(
   limit?: number,
@@ -19,7 +33,7 @@ export function listConversations(
   const db = getDb();
   const where = includeBackground
     ? undefined
-    : sql`${conversations.threadType} != 'background'`;
+    : sql`${conversations.conversationType} NOT IN ('background', 'private')`;
   const query = db
     .select()
     .from(conversations)
@@ -34,7 +48,7 @@ export function countConversations(includeBackground = false): number {
   const db = getDb();
   const where = includeBackground
     ? undefined
-    : sql`${conversations.threadType} != 'background'`;
+    : sql`${conversations.conversationType} NOT IN ('background', 'private')`;
   const [{ total }] = db
     .select({ total: count() })
     .from(conversations)
@@ -48,88 +62,13 @@ export function getLatestConversation(): ConversationRow | null {
   const row = db
     .select()
     .from(conversations)
-    .where(sql`${conversations.threadType} != 'background'`)
+    .where(
+      sql`${conversations.conversationType} NOT IN ('background', 'private')`,
+    )
     .orderBy(desc(conversations.updatedAt))
     .limit(1)
     .get();
   return row ? parseConversation(row) : null;
-}
-
-export interface PaginatedMessagesResult {
-  messages: MessageRow[];
-  /** Whether older messages exist beyond the returned page. */
-  hasMore: boolean;
-}
-
-/**
- * Paginated variant of getMessages. Returns the most recent `limit` messages
- * (optionally before a cursor timestamp), in chronological order.
- *
- * When `limit` is undefined, all matching messages are returned (no pagination).
- * When `beforeMessageId` is provided alongside `beforeTimestamp`, it acts as a
- * tie-breaker to avoid skipping messages that share the same millisecond timestamp
- * at page boundaries.
- */
-export function getMessagesPaginated(
-  conversationId: string,
-  limit: number | undefined,
-  beforeTimestamp?: number,
-  beforeMessageId?: string,
-): PaginatedMessagesResult {
-  const db = getDb();
-  const conditions = [eq(messages.conversationId, conversationId)];
-  if (beforeTimestamp !== undefined) {
-    if (beforeMessageId) {
-      // Proper compound cursor: fetch messages that are strictly older, OR
-      // share the same timestamp but have a smaller ID. This avoids both
-      // duplicates and skipped messages when multiple rows share a timestamp.
-      conditions.push(
-        or(
-          lt(messages.createdAt, beforeTimestamp),
-          and(
-            eq(messages.createdAt, beforeTimestamp),
-            lt(messages.id, beforeMessageId),
-          ),
-        )!,
-      );
-    } else {
-      // Legacy callers without a message ID tie-breaker: use strict lt.
-      // This may skip same-millisecond messages at boundaries, but avoids
-      // re-fetching the boundary message. New callers should prefer the
-      // compound cursor (beforeTimestamp + beforeMessageId).
-      conditions.push(lt(messages.createdAt, beforeTimestamp));
-    }
-  }
-
-  if (limit === undefined) {
-    // Unlimited: return all messages in chronological order, no pagination.
-    const rows = db
-      .select()
-      .from(messages)
-      .where(and(...conditions))
-      .orderBy(asc(messages.createdAt), asc(messages.id))
-      .all()
-      .map(parseMessage);
-    return { messages: rows, hasMore: false };
-  }
-
-  // Fetch limit+1 rows ordered newest-first so we can detect hasMore
-  const rows = db
-    .select()
-    .from(messages)
-    .where(and(...conditions))
-    .orderBy(desc(messages.createdAt), desc(messages.id))
-    .limit(limit + 1)
-    .all()
-    .map(parseMessage);
-
-  const hasMore = rows.length > limit;
-  const page = hasMore ? rows.slice(0, limit) : rows;
-
-  // Return in chronological order (oldest first) for the client
-  page.reverse();
-
-  return { messages: page, hasMore };
 }
 
 /**
@@ -160,7 +99,9 @@ export function isLastUserMessageToolResult(conversationId: string): boolean {
       Array.isArray(parsed) &&
       parsed.length > 0 &&
       parsed.every(
-        (block: Record<string, unknown>) => block.type === "tool_result",
+        (block: Record<string, unknown>) =>
+          block.type === "tool_result" ||
+          block.type === "web_search_tool_result",
       )
     ) {
       return true;
@@ -225,7 +166,7 @@ export function searchConversations(
         FROM messages_fts f
         JOIN messages m ON m.id = f.message_id
         JOIN conversations c ON c.id = m.conversation_id
-        WHERE messages_fts MATCH ? AND c.thread_type != 'background'
+        WHERE messages_fts MATCH ? AND c.conversation_type NOT IN ('background', 'private')
         LIMIT 1000
       `,
         ftsMatch,
@@ -250,7 +191,7 @@ export function searchConversations(
       SELECT DISTINCT m.conversation_id
       FROM messages m
       JOIN conversations c ON c.id = m.conversation_id
-      WHERE m.content LIKE ? ESCAPE '\\' AND c.thread_type != 'background'
+      WHERE m.content LIKE ? ESCAPE '\\' AND c.conversation_type NOT IN ('background', 'private')
       LIMIT 1000
     `,
       likePattern,
@@ -264,7 +205,7 @@ export function searchConversations(
     .from(conversations)
     .where(
       and(
-        sql`${conversations.threadType} != 'background'`,
+        sql`${conversations.conversationType} NOT IN ('background', 'private')`,
         sql`${conversations.title} LIKE ${titlePattern} ESCAPE '\\'`,
       ),
     )
@@ -375,7 +316,10 @@ function buildExcerpt(rawContent: string, query: string): string {
         if (typeof block === "object" && block != null) {
           if (block.type === "text" && typeof block.text === "string") {
             parts.push(block.text);
-          } else if (block.type === "tool_result") {
+          } else if (
+            block.type === "tool_result" ||
+            block.type === "web_search_tool_result"
+          ) {
             const inner = Array.isArray(block.content) ? block.content : [];
             for (const ib of inner) {
               if (ib?.type === "text" && typeof ib.text === "string")

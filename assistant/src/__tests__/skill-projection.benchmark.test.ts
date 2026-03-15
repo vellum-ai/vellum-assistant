@@ -54,10 +54,7 @@ mock.module("../config/skills.js", () => ({
       directoryPath: `/tmp/fake-skills/${id}`,
       skillFilePath: `/tmp/fake-skills/${id}/SKILL.md`,
       bundled: false,
-      userInvocable: false,
     })),
-  // Needed by transitive deps (skill-state.ts imports this)
-  checkSkillRequirements: () => ({ eligible: true, missing: {} }),
   getSkillsDir: () => "/tmp/fake-skills",
   getBundledSkillsDir: () => "/tmp/fake-bundled-skills",
   resolveSkillSelector: () => ({ found: false }),

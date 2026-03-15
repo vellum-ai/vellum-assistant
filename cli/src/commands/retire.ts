@@ -9,7 +9,7 @@ import {
   removeAssistantEntry,
 } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
-import { getPlatformUrl, readPlatformToken } from "../lib/platform-client";
+import { fetchOrganizationId, getPlatformUrl, readPlatformToken } from "../lib/platform-client";
 import { retireInstance as retireAwsInstance } from "../lib/aws";
 import { retireDocker } from "../lib/docker";
 import { retireInstance as retireGcpInstance } from "../lib/gcp";
@@ -189,10 +189,15 @@ async function retireVellum(assistantId: string): Promise<void> {
     process.exit(1);
   }
 
+  const orgId = await fetchOrganizationId(token);
+
   const url = `${getPlatformUrl()}/v1/assistants/${encodeURIComponent(assistantId)}/retire/`;
   const response = await fetch(url, {
     method: "DELETE",
-    headers: { "X-Session-Token": token },
+    headers: {
+      "X-Session-Token": token,
+      "Vellum-Organization-Id": orgId,
+    },
   });
 
   if (!response.ok) {

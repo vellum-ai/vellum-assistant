@@ -7,23 +7,14 @@ struct ChatView: View {
     @Binding var inputText: String
     let hasAPIKey: Bool
     let isThinking: Bool
+    let isCompacting: Bool
     let isSending: Bool
-    let errorText: String?
-    let pendingQueuedCount: Int
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
     var isLoadingAttachment: Bool = false
     let isRecording: Bool
-    let onOpenSettings: () -> Void
     let onSend: () -> Void
     let onStop: () -> Void
-    let onDismissError: () -> Void
-    let isRetryableError: Bool
-    let onRetryError: () -> Void
-    let isConnectionError: Bool
-    var hasRetryPayload: Bool = true
-    let isSecretBlockError: Bool
-    let onSendAnyway: () -> Void
     let onAcceptSuggestion: () -> Void
     let onAttach: () -> Void
     let onRemoveAttachment: (String) -> Void
@@ -45,10 +36,6 @@ struct ChatView: View {
     var onTemporaryAllow: ((String, String) -> Void)?
     var onGuardianAction: ((String, String) -> Void)?
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
-    let sessionError: SessionError?
-    let onRetry: () -> Void
-    let onDismissSessionError: () -> Void
-    let onCopyDebugInfo: () -> Void
     let watchSession: WatchSession?
     let onStopWatch: () -> Void
     var onReportMessage: ((String?) -> Void)?
@@ -70,7 +57,6 @@ struct ChatView: View {
     var isHistoryLoaded: Bool = true
     var dismissedDocumentSurfaceIds: Set<String> = []
     var onDismissDocumentWidget: ((String) -> Void)?
-    var connectionDiagnosticHint: String? = nil
     var voiceModeManager: VoiceModeManager? = nil
     var voiceService: OpenAIVoiceService? = nil
     var onEndVoiceMode: (() -> Void)? = nil
@@ -78,6 +64,8 @@ struct ChatView: View {
     var onDictateToggle: (() -> Void)? = nil
     var onVoiceModeToggle: (() -> Void)? = nil
     var threadId: UUID?
+    var daemonGreeting: String? = nil
+    var onRequestGreeting: (() -> Void)? = nil
     /// When set, scroll to this message ID and clear the binding.
     @Binding var anchorMessageId: UUID?
 
@@ -101,29 +89,51 @@ struct ChatView: View {
     /// and shows a loading panel instead.
     var isBootstrapping: Bool = false
 
+    /// When true during bootstrap, the daemon failed to connect within the
+    /// timeout window. Shows a failure screen instead of the loading skeleton.
+    var isBootstrapTimedOut: Bool = false
+
     @State private var isNearBottom = true
     @State private var isDropTargeted = false
     @State private var containerWidth: CGFloat = 0
-    @State private var appearance = AvatarAppearanceManager.shared
+
+    // MARK: - In-Chat Search (Cmd+F)
+    @State private var isSearchActive = false
+    @State private var searchText = ""
+    @State private var currentMatchIndex = 0
+    @State private var showSkeleton = false
+    @State private var skeletonDebounceTask: Task<Void, Never>? = nil
 
     private var isEmptyState: Bool {
         messages.isEmpty && isHistoryLoaded
     }
 
+    private var shouldShowSkeleton: Bool {
+        messages.isEmpty && !isHistoryLoaded
+    }
+
+    /// Message IDs whose text contains the search query, ordered chronologically.
+    private var searchMatches: [UUID] {
+        guard !searchText.isEmpty else { return [] }
+        let query = searchText.lowercased()
+        return messages.filter { $0.text.lowercased().contains(query) }.map(\.id)
+    }
+
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
-                if messages.isEmpty && !isHistoryLoaded {
+                if showSkeleton {
                     ChatLoadingSkeleton()
                         .padding(VSpacing.lg)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel("Loading chat history")
                 } else if isEmptyState && isBootstrapping {
-                    // During first-launch bootstrap, suppress the empty state
-                    // and show a simple loading panel until the first assistant
-                    // reply arrives and populates the chat.
-                    ChatBootstrapLoadingView()
+                    if isBootstrapTimedOut {
+                        ChatBootstrapTimeoutView()
+                    } else {
+                        ChatBootstrapLoadingView()
+                    }
                 } else if isEmptyState {
                     if isTemporaryChat {
                         ChatTemporaryChatEmptyStateView(
@@ -169,7 +179,9 @@ struct ChatView: View {
                             recordingAmplitude: recordingAmplitude,
                             onDictateToggle: onDictateToggle,
                             onVoiceModeToggle: onVoiceModeToggle,
-                            threadId: threadId
+                            threadId: threadId,
+                            daemonGreeting: daemonGreeting,
+                            onRequestGreeting: onRequestGreeting
                         )
                     }
                 } else {
@@ -178,6 +190,7 @@ struct ChatView: View {
                             messages: messages,
                             isSending: isSending,
                             isThinking: isThinking,
+                            isCompacting: isCompacting,
                             assistantActivityPhase: assistantActivityPhase,
                             assistantActivityAnchor: assistantActivityAnchor,
                             assistantActivityReason: assistantActivityReason,
@@ -212,18 +225,6 @@ struct ChatView: View {
                             isNearBottom: $isNearBottom,
                             containerWidth: containerWidth
                         )
-
-                        // Assistant avatar pinned above the composer, Claude-style.
-                        if messages.contains(where: { $0.role == .assistant }) || isSending {
-                            HStack {
-                                VAvatarImage(image: appearance.chatAvatarImage, size: 52)
-                                Spacer()
-                            }
-                            .padding(.horizontal, VSpacing.xl)
-                            .padding(.vertical, VSpacing.sm)
-                            .frame(maxWidth: VSpacing.chatColumnMaxWidth)
-                            .frame(maxWidth: .infinity)
-                        }
 
                         let composerMessages: [ChatMessage] = {
                             let all = messages.filter { !$0.isSubagentNotification }
@@ -270,7 +271,7 @@ struct ChatView: View {
             .background(alignment: .bottom) {
                 chatBackground
             }
-            .background(VColor.chatBackground)
+            .background(VColor.surfaceBase)
             .background(
                 GeometryReader { geo in
                     Color.clear.preference(key: ChatContainerWidthKey.self, value: geo.size.width)
@@ -285,18 +286,18 @@ struct ChatView: View {
             // Drop target overlay
             if isDropTargeted {
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .stroke(VColor.accent, style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
+                    .stroke(VColor.primaryBase, style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
                     .background(
                         RoundedRectangle(cornerRadius: VRadius.lg)
-                            .fill(VColor.accent.opacity(0.08))
+                            .fill(VColor.primaryBase.opacity(0.08))
                     )
                     .overlay {
                         VStack(spacing: VSpacing.sm) {
                             VIconView(.arrowDownToLine, size: 28)
-                                .foregroundColor(VColor.accent)
+                                .foregroundColor(VColor.primaryBase)
                             Text("Drop files here")
                                 .font(VFont.bodyMedium)
-                                .foregroundColor(VColor.accent)
+                                .foregroundColor(VColor.primaryBase)
                         }
                     }
                     .padding(VSpacing.lg)
@@ -304,52 +305,72 @@ struct ChatView: View {
                     .transition(.opacity)
             }
         }
-        .overlay(alignment: .top) {
-            VStack(spacing: VSpacing.xs) {
-                if !hasAPIKey {
-                    ChatSessionErrorToast(
-                        message: "API key not set. Add one in Settings to start chatting.",
-                        icon: .keyRound,
-                        accentColor: VColor.warning,
-                        actionLabel: "Open Settings",
-                        onAction: onOpenSettings
-                    )
-                }
-
-                if let sessionError {
-                    ChatSessionErrorToast(
-                        error: sessionError,
-                        onRetry: onRetry,
-                        onCopyDebugInfo: onCopyDebugInfo,
-                        onDismiss: onDismissSessionError
-                    )
-                }
-
-                if let errorText, sessionError == nil {
-                    ChatSessionErrorToast(
-                        message: errorText,
-                        subtitle: isConnectionError ? connectionDiagnosticHint : nil,
-                        actionLabel: isSecretBlockError ? "Send Anyway" : (isRetryableError || (isConnectionError && hasRetryPayload)) ? "Retry" : nil,
-                        onAction: isSecretBlockError ? onSendAnyway : (isRetryableError || (isConnectionError && hasRetryPayload)) ? onRetryError : nil,
-                        onDismiss: onDismissError
-                    )
-                }
-            }
-            .padding(.horizontal, VSpacing.xl)
-            .padding(.top, VSpacing.sm)
-            .animation(VAnimation.fast, value: hasAPIKey)
-            .animation(VAnimation.fast, value: sessionError != nil)
-            .animation(VAnimation.fast, value: errorText != nil)
-        }
         .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
         }
         .onKeyPress(.escape) {
+            if isSearchActive {
+                dismissSearch()
+                return .handled
+            }
             if btwResponse != nil {
                 onDismissBtw?()
                 return .handled
             }
             return .ignored
+        }
+        .onKeyPress("f", phases: .down) { press in
+            guard press.modifiers == .command else { return .ignored }
+            activateSearch()
+            return .handled
+        }
+        .overlay(alignment: .topTrailing) {
+            if isSearchActive {
+                ChatSearchBar(
+                    searchText: $searchText,
+                    matchCount: searchMatches.count,
+                    currentMatchIndex: currentMatchIndex,
+                    onPrevious: { navigateMatch(delta: -1) },
+                    onNext: { navigateMatch(delta: 1) },
+                    onDismiss: { dismissSearch() }
+                )
+                .padding(.trailing, VSpacing.xl)
+                .padding(.top, VSpacing.sm)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .animation(VAnimation.fast, value: isSearchActive)
+        .onChange(of: searchText) {
+            // Reset to first match when query changes
+            currentMatchIndex = 0
+            scrollToCurrentMatch()
+        }
+        .onChange(of: searchMatches.count) {
+            // Clamp currentMatchIndex when matches change (e.g. streaming, deletion)
+            // to avoid "4 of 2" display or broken navigation.
+            let count = searchMatches.count
+            if currentMatchIndex >= count {
+                currentMatchIndex = max(count - 1, 0)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .activateChatSearch)) { notification in
+            // Scope to the active thread so only the visible ChatView activates.
+            if let targetId = notification.object as? UUID, targetId != threadId {
+                return
+            }
+            activateSearch()
+        }
+        .onChange(of: shouldShowSkeleton, initial: true) { _, shouldShow in
+            skeletonDebounceTask?.cancel()
+            if shouldShow {
+                skeletonDebounceTask = Task {
+                    try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
+                    guard !Task.isCancelled else { return }
+                    showSkeleton = true
+                }
+            } else {
+                showSkeleton = false
+            }
         }
     }
 
@@ -367,11 +388,11 @@ struct ChatView: View {
                 HStack {
                     Text("/btw")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     Spacer()
                     Button(action: { onDismissBtw?() }) {
                         VIconView(.x, size: 12)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Dismiss btw response")
@@ -379,17 +400,17 @@ struct ChatView: View {
 
                 Text(btwText.isEmpty && btwLoading ? "Thinking..." : btwText)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .textSelection(.enabled)
 
                 if !btwLoading {
                     Text("Press Escape to dismiss")
                         .font(VFont.small)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
             .padding(VSpacing.md)
-            .background(VColor.surface)
+            .background(VColor.surfaceBase)
             .cornerRadius(VRadius.md)
             .vShadow(VShadow.sm)
             .padding(.horizontal, VSpacing.lg)
@@ -403,6 +424,11 @@ struct ChatView: View {
     /// is used as a fallback for providers without a backing file (e.g. screenshot
     /// thumbnails or images dragged from certain apps).
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
+        // Reset overlay immediately — SwiftUI's isTargeted binding may not
+        // reset reliably when AppKit's NSDraggingDestination (e.g. the
+        // NSTextView inside the composer) intercepts the drag session.
+        isDropTargeted = false
+
         var urls: [URL] = []
         var imageDataItems: [NSItemProvider] = []
         let group = DispatchGroup()
@@ -413,7 +439,7 @@ struct ChatView: View {
                     || provider.hasItemConformingToTypeIdentifier(UTType.png.identifier)
                     || provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier)
                 group.enter()
-                _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                _ = provider.loadObject(ofClass: URL.self) { url, error in
                     DispatchQueue.main.async {
                         if let url, FileManager.default.fileExists(atPath: url.path) {
                             urls.append(url)
@@ -432,10 +458,22 @@ struct ChatView: View {
                                 DispatchQueue.main.async {
                                     if let data {
                                         onDropImageData(data, suggestedName)
+                                    } else if let url, url.isFileURL {
+                                        // Image data load failed — fall back to
+                                        // the file URL (may be a file promise).
+                                        urls.append(url)
                                     }
                                     group.leave()
                                 }
                             }
+                        } else if let url, url.isFileURL {
+                            // File URL doesn't exist on disk yet (e.g. file
+                            // promises from Music.app, Voice Memos) and no
+                            // image data fallback is available. Try the URL
+                            // anyway — the attachment loader will report an
+                            // error if the file is truly inaccessible.
+                            urls.append(url)
+                            group.leave()
                         } else {
                             group.leave()
                         }
@@ -475,6 +513,31 @@ struct ChatView: View {
         }
         return true
     }
+
+    // MARK: - Search Helpers
+
+    private func activateSearch() {
+        isSearchActive = true
+    }
+
+    private func dismissSearch() {
+        isSearchActive = false
+        searchText = ""
+        currentMatchIndex = 0
+    }
+
+    private func navigateMatch(delta: Int) {
+        let matches = searchMatches
+        guard !matches.isEmpty else { return }
+        currentMatchIndex = (currentMatchIndex + delta + matches.count) % matches.count
+        scrollToCurrentMatch()
+    }
+
+    private func scrollToCurrentMatch() {
+        let matches = searchMatches
+        guard !matches.isEmpty, currentMatchIndex < matches.count else { return }
+        anchorMessageId = matches[currentMatchIndex]
+    }
 }
 
 // MARK: - Bootstrap Loading View
@@ -497,6 +560,42 @@ private struct ChatBootstrapLoadingView: View {
                     visible = true
                 }
             }
+    }
+}
+
+/// Shown during first-launch bootstrap when the daemon fails to connect
+/// within the timeout window. Mirrors the hatch-failure pattern from
+/// onboarding: a centered error message.
+private struct ChatBootstrapTimeoutView: View {
+    @State private var visible = false
+
+    var body: some View {
+        VStack(spacing: VSpacing.lg) {
+            Spacer()
+
+            VIconView(.triangleAlert, size: 28)
+                .foregroundColor(VColor.systemNegativeHover)
+
+            VStack(spacing: VSpacing.sm) {
+                Text("Something went wrong")
+                    .font(.system(size: 24, weight: .regular, design: .serif))
+                    .foregroundColor(VColor.contentDefault)
+                Text("Your assistant didn\u{2019}t connect in time. Please quit and reopen the app.")
+                    .font(.system(size: 14))
+                    .foregroundColor(VColor.contentSecondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 320)
+            }
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .opacity(visible ? 1 : 0)
+        .onAppear {
+            withAnimation(VAnimation.standard) {
+                visible = true
+            }
+        }
     }
 }
 
@@ -528,21 +627,20 @@ struct ScrollWheelDetector: NSViewRepresentable {
             guard view.bounds.width > 0, view.bounds.contains(locationInView) else { return event }
 
             if event.scrollingDeltaY > 3 && event.momentumPhase.isEmpty {
-                // Direct user scroll up (toward older content) — untether,
-                // but only if actually scrolled away from the bottom.
+                // Direct user scroll up (toward older content) — untether immediately.
                 // Momentum events are excluded so a flick doesn't accidentally untether.
-                // Deferred to next run-loop tick so clipBounds reflects the post-scroll position;
-                // reading it synchronously in the event monitor sees the pre-scroll state.
-                DispatchQueue.main.async {
-                    if let scrollView = coordinator.findEnclosingScrollView() {
-                        let clipBounds = scrollView.contentView.bounds
-                        let docHeight = scrollView.documentView?.frame.height ?? 0
-                        if docHeight - clipBounds.maxY >= 20 {
-                            coordinator.onScrollUp?()
-                        }
-                    } else {
+                // Called synchronously so isNearBottom is cleared before any competing
+                // layout pass can trigger an auto-scroll-to-bottom.
+                // Guard: only untether if content is actually scrollable (prevents false
+                // untethers on short threads that can't scroll).
+                if let scrollView = coordinator.findEnclosingScrollView() {
+                    let clipHeight = scrollView.contentView.bounds.height
+                    let docHeight = scrollView.documentView?.frame.height ?? 0
+                    if docHeight > clipHeight {
                         coordinator.onScrollUp?()
                     }
+                } else {
+                    coordinator.onScrollUp?()
                 }
             } else if event.scrollingDeltaY < -1 {
                 // Scrolling down (direct or momentum) — re-tether if at bottom.
@@ -580,11 +678,43 @@ struct ScrollWheelDetector: NSViewRepresentable {
         var onScrollToBottom: (() -> Void)?
         var monitor: Any?
 
+        /// Resolves the chat's vertical NSScrollView.
+        /// The detector sits in a `.background` modifier (sibling of the scroll view),
+        /// so walking up the superview chain may miss it or find a wrong parent.
+        /// The hit-test fallback searches for a *vertical* scroll view to avoid
+        /// resolving to nested horizontal scrollers (e.g. markdown code blocks).
         func findEnclosingScrollView() -> NSScrollView? {
+            // Fast path: walk up the superview chain.
+            if let sv = view?.enclosingScrollView, sv.hasVerticalScroller { return sv }
             var current = view?.superview
             while let v = current {
-                if let sv = v as? NSScrollView { return sv }
+                if let sv = v as? NSScrollView, sv.hasVerticalScroller { return sv }
                 current = v.superview
+            }
+            // Fallback: hit-test from the window root for a vertical scroll view.
+            guard let window = view?.window, let contentView = window.contentView else { return nil }
+            let probe = view?.convert(
+                NSPoint(x: view?.bounds.midX ?? 0, y: view?.bounds.midY ?? 0),
+                to: nil
+            ) ?? .zero
+            return Self.verticalScrollView(in: contentView, containing: probe)
+        }
+
+        /// Finds the outermost vertical NSScrollView containing `windowPoint`.
+        /// Stops at the first vertical match so nested horizontal scrollers
+        /// (e.g. code-block scroll views) are not returned.
+        private static func verticalScrollView(in view: NSView, containing windowPoint: NSPoint) -> NSScrollView? {
+            let localPoint = view.convert(windowPoint, from: nil)
+            guard view.bounds.contains(localPoint) else { return nil }
+            // If this is a vertical scroll view, return it immediately — don't
+            // recurse into children which may contain nested horizontal scrollers.
+            if let sv = view as? NSScrollView, sv.hasVerticalScroller {
+                return sv
+            }
+            for sub in view.subviews.reversed() {
+                if let sv = verticalScrollView(in: sub, containing: windowPoint) {
+                    return sv
+                }
             }
             return nil
         }
@@ -656,13 +786,6 @@ struct ScrollWheelPassthrough: NSViewRepresentable {
 // MARK: - Preview
 
 #if DEBUG
-struct ChatView_Preview: PreviewProvider {
-    static var previews: some View {
-        ChatViewPreviewWrapper()
-            .frame(width: 600, height: 500)
-            .previewDisplayName("ChatView")
-    }
-}
 
 private struct ChatViewPreviewWrapper: View {
     @State private var text = ""
@@ -680,27 +803,19 @@ private struct ChatViewPreviewWrapper: View {
 
     var body: some View {
         ZStack {
-            VColor.background.ignoresSafeArea()
+            VColor.surfaceOverlay.ignoresSafeArea()
             ChatView(
                 messages: sampleMessages,
                 inputText: $text,
                 hasAPIKey: true,
                 isThinking: true,
+                isCompacting: false,
                 isSending: false,
-                errorText: nil,
-                pendingQueuedCount: 0,
                 suggestion: "That sounds great, thanks!",
                 pendingAttachments: [],
                 isRecording: false,
-                onOpenSettings: {},
                 onSend: {},
                 onStop: {},
-                onDismissError: {},
-                isRetryableError: false,
-                onRetryError: {},
-                isConnectionError: false,
-                isSecretBlockError: false,
-                onSendAnyway: {},
                 onAcceptSuggestion: {},
                 onAttach: {},
                 onRemoveAttachment: { _ in },
@@ -716,10 +831,6 @@ private struct ChatViewPreviewWrapper: View {
                 onConfirmationDeny: { _ in },
                 onAlwaysAllow: { _, _, _, _ in },
                 onSurfaceAction: { _, _, _ in },
-                sessionError: nil,
-                onRetry: {},
-                onDismissSessionError: {},
-                onCopyDebugInfo: {},
                 watchSession: nil,
                 onStopWatch: {},
                 subagentDetailStore: SubagentDetailStore(),

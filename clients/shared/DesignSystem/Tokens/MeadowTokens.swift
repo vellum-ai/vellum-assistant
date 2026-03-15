@@ -4,23 +4,23 @@ import SwiftUI
 public enum Meadow {
     // Panel
     public static let panelBackground = adaptiveColor(
-        light: Color.white.opacity(0.85),
-        dark: Moss._900.opacity(0.75)
+        light: VColor.auxWhite.opacity(0.85),
+        dark: VColor.surfaceOverlay.opacity(0.75)
     )
     public static let panelBorder = adaptiveColor(
-        light: Stone._200.opacity(0.6),
-        dark: Moss._700.opacity(0.4)
+        light: VColor.surfaceBase.opacity(0.6),
+        dark: VColor.surfaceActive.opacity(0.4)
     )
 
     // Egg glow
-    public static let eggGlow = Amber._500
-    public static let eggGlowIntense = Amber._400
-    public static let crackLight = Amber._200
+    public static let eggGlow = VColor.systemNegativeHover
+    public static let eggGlowIntense = VColor.systemNegativeHover
+    public static let crackLight = VColor.systemNegativeWeak
 
     // Bottom caption
     public static let captionText = adaptiveColor(
-        light: Color.black.opacity(0.4),
-        dark: Color.white.opacity(0.5)
+        light: VColor.auxBlack.opacity(0.4),
+        dark: VColor.auxWhite.opacity(0.5)
     )
 
     // Pixel scaling factor
@@ -30,8 +30,8 @@ public enum Meadow {
     public static let artPixelSize: CGFloat = 5.0
 
     // Interview palette
-    public static let avatarGradientStart = Forest._600
-    public static let avatarGradientEnd = Forest._400
-    public static let userBubbleGradientStart = Forest._600
-    public static let userBubbleGradientEnd = Forest._400
+    public static let avatarGradientStart = VColor.primaryBase
+    public static let avatarGradientEnd = VColor.systemPositiveWeak
+    public static let userBubbleGradientStart = VColor.primaryBase
+    public static let userBubbleGradientEnd = VColor.systemPositiveWeak
 }

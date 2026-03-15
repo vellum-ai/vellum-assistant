@@ -848,15 +848,15 @@ describe("OpenAIProvider", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Managed proxy initialization
+// Custom baseURL initialization
 // ---------------------------------------------------------------------------
 
-describe("managed proxy initialization", () => {
+describe("custom baseURL initialization", () => {
   beforeEach(() => {
     lastConstructorOptions = null;
   });
 
-  test("OpenAIProvider initializes with managed proxy base URL", () => {
+  test("OpenAIProvider forwards a custom baseURL", () => {
     const managed = new OpenAIProvider("ast-key-123", "gpt-4o", {
       baseURL: "https://platform.example.com/v1/runtime-proxy/openai",
     });
@@ -877,7 +877,7 @@ describe("managed proxy initialization", () => {
     });
   });
 
-  test("FireworksProvider initializes with managed proxy base URL", () => {
+  test("FireworksProvider forwards a custom baseURL", () => {
     const managed = new FireworksProvider(
       "ast-key-123",
       "accounts/fireworks/models/llama-v3p1-70b-instruct",
@@ -893,7 +893,7 @@ describe("managed proxy initialization", () => {
     });
   });
 
-  test("FireworksProvider without managed baseURL uses default Fireworks URL", () => {
+  test("FireworksProvider without custom baseURL uses default Fireworks URL", () => {
     new FireworksProvider(
       "fw-user-key",
       "accounts/fireworks/models/llama-v3p1-70b-instruct",
@@ -905,7 +905,7 @@ describe("managed proxy initialization", () => {
     });
   });
 
-  test("OpenRouterProvider initializes with managed proxy base URL", () => {
+  test("OpenRouterProvider forwards a custom baseURL", () => {
     const managed = new OpenRouterProvider("ast-key-123", "openai/gpt-4o", {
       baseURL: "https://platform.example.com/v1/runtime-proxy/openrouter",
     });
@@ -917,7 +917,7 @@ describe("managed proxy initialization", () => {
     });
   });
 
-  test("OpenRouterProvider without managed baseURL uses default OpenRouter URL", () => {
+  test("OpenRouterProvider without custom baseURL uses default OpenRouter URL", () => {
     new OpenRouterProvider("or-user-key", "openai/gpt-4o");
 
     expect(lastConstructorOptions).toEqual({

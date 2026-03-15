@@ -23,6 +23,7 @@ public enum SFSymbolMapping {
         "chevron.right": .chevronRight,
         "arrow.up": .arrowUp,
         "arrow.down": .arrowDown,
+        "arrow.left": .arrowLeft,
         "arrow.right": .arrowRight,
         "arrow.up.right": .arrowUpRight,
         "arrow.up.right.square": .externalLink,
@@ -275,6 +276,8 @@ public enum SFSymbolMapping {
         "paintbrush": .paintbrush,
 
         // Misc
+        "dice": .dices,
+        "dice.fill": .dices,
         "sparkles": .sparkles,
         "sparkle": .sparkle,
         "ant": .bug,

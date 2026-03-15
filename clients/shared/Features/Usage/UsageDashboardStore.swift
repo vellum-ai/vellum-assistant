@@ -1,5 +1,52 @@
 import Foundation
 
+// MARK: - Usage Client Protocol
+
+/// Abstraction for fetching usage data, decoupled from the full DaemonClientProtocol.
+@MainActor
+public protocol UsageClientProtocol {
+    func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse?
+    func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse?
+    func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse?
+}
+
+/// Fetches usage data via GatewayHTTPClient.
+@MainActor
+public struct UsageClient: UsageClientProtocol {
+    /// A restricted character set for encoding query parameter values.
+    /// `.urlQueryAllowed` permits `&`, `=`, `+`, and `#` which are
+    /// query-string metacharacters that would break parameter parsing.
+    private static let queryValueAllowed: CharacterSet = {
+        var cs = CharacterSet.urlQueryAllowed
+        cs.remove(charactersIn: "&=+#")
+        return cs
+    }()
+
+    nonisolated public init() {}
+
+    public func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? {
+        let result: (UsageTotalsResponse?, GatewayHTTPClient.Response)? = try? await GatewayHTTPClient.get(
+            path: "usage/totals?from=\(from)&to=\(to)", timeout: 10
+        )
+        return result?.0
+    }
+
+    public func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse? {
+        let result: (UsageDailyResponse?, GatewayHTTPClient.Response)? = try? await GatewayHTTPClient.get(
+            path: "usage/daily?from=\(from)&to=\(to)", timeout: 10
+        )
+        return result?.0
+    }
+
+    public func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? {
+        let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? groupBy
+        let result: (UsageBreakdownResponse?, GatewayHTTPClient.Response)? = try? await GatewayHTTPClient.get(
+            path: "usage/breakdown?from=\(from)&to=\(to)&groupBy=\(encoded)", timeout: 10
+        )
+        return result?.0
+    }
+}
+
 // MARK: - Time Range Selection
 
 /// Predefined time ranges for the usage dashboard.
@@ -118,21 +165,25 @@ public final class UsageDashboardStore {
 
     // MARK: - Dependencies
 
-    private var client: any DaemonClientProtocol
+    private var client: any UsageClientProtocol
 
     /// Generation counters to discard results from stale in-flight requests
     /// when the user changes filters faster than fetches complete.
     private var refreshGeneration: UInt = 0
     private var breakdownGeneration: UInt = 0
 
-    public init(client: any DaemonClientProtocol) {
+    public init(client: any UsageClientProtocol = UsageClient()) {
         self.client = client
     }
 
-    /// Replace the underlying client and reset all loaded data so the next
-    /// `refresh()` fetches from the new client.
-    public func updateClient(_ newClient: any DaemonClientProtocol) {
+    /// Replace the underlying client and reset all loaded data.
+    public func updateClient(_ newClient: any UsageClientProtocol) {
         client = newClient
+        reset()
+    }
+
+    /// Reset all loaded data so the next `refresh()` re-fetches.
+    public func reset() {
         refreshGeneration &+= 1
         breakdownGeneration &+= 1
         totalsState = .idle

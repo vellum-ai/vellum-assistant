@@ -18,7 +18,7 @@ export async function run(
   }
 
   try {
-    const connection = getSlackConnection();
+    const connection = await getSlackConnection();
     await updateMessage(connection, channel, timestamp, text);
     return ok(`Message updated.`);
   } catch (e) {

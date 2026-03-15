@@ -11,7 +11,7 @@ struct ConfirmationView: View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             HStack(spacing: VSpacing.md) {
                 VIconView(.triangleAlert, size: 20)
-                    .foregroundStyle(VColor.warning)
+                    .foregroundStyle(VColor.systemNegativeHover)
                 Text("Action Requires Confirmation")
                     .font(VFont.headline)
             }
@@ -27,7 +27,7 @@ struct ConfirmationView: View {
                     onStop()
                 }
                 .buttonStyle(.bordered)
-                .tint(.red)
+                .tint(VColor.systemNegativeStrong)
 
                 Button("Block") {
                     onBlock()

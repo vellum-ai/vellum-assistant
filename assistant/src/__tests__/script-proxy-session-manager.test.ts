@@ -19,10 +19,13 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 }));
 
 // Stub ensureLocalCA so tests never run openssl
-mock.module("../tools/network/script-proxy/certs.js", () => ({
+mock.module("../outbound-proxy/certs.js", () => ({
   ensureLocalCA: async () => {},
+  ensureCombinedCABundle: async () => null,
   issueLeafCert: async () => ({ cert: "", key: "" }),
   getCAPath: (dataDir: string) => `${dataDir}/proxy-ca/ca.pem`,
+  getCombinedCAPath: (dataDir: string) =>
+    `${dataDir}/proxy-ca/combined-ca-bundle.pem`,
 }));
 
 import {

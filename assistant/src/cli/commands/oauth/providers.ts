@@ -1,14 +1,39 @@
-import { type Command, InvalidArgumentError } from "commander";
+import { type Command } from "commander";
 
+import { loadConfig } from "../../../config/loader.js";
+import { getOAuthCallbackUrl } from "../../../inbound/public-ingress-urls.js";
 import {
   getProvider,
   listProviders,
   registerProvider,
 } from "../../../oauth/oauth-store.js";
+import { getProviderBehavior } from "../../../oauth/provider-behaviors.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 
 const log = getCliLogger("cli");
+
+const LOOPBACK_CALLBACK_PATH = "/oauth/callback";
+
+/** Resolve the redirect URI for a provider based on its callback transport. */
+function resolveRedirectUri(
+  providerKey: string,
+  callbackTransport: string | null,
+): string | null {
+  const transport = callbackTransport ?? "loopback";
+  if (transport === "loopback") {
+    const behavior = getProviderBehavior(providerKey);
+    const port = behavior?.loopbackPort;
+    if (!port) return null;
+    return `http://localhost:${port}${LOOPBACK_CALLBACK_PATH}`;
+  }
+  // Gateway transport — resolve from public ingress config
+  try {
+    return getOAuthCallbackUrl(loadConfig());
+  } catch {
+    return null;
+  }
+}
 
 /** Parse stored JSON string fields into their native types. */
 function parseProviderRow(row: ReturnType<typeof getProvider>) {
@@ -18,6 +43,7 @@ function parseProviderRow(row: ReturnType<typeof getProvider>) {
     defaultScopes: row.defaultScopes ? JSON.parse(row.defaultScopes) : [],
     scopePolicy: row.scopePolicy ? JSON.parse(row.scopePolicy) : {},
     extraParams: row.extraParams ? JSON.parse(row.extraParams) : null,
+    redirectUri: resolveRedirectUri(row.providerKey, row.callbackTransport),
     createdAt: new Date(row.createdAt).toISOString(),
     updatedAt: new Date(row.updatedAt).toISOString(),
   };
@@ -39,7 +65,7 @@ authorization URL, token URL, default scopes, and other endpoint details.
 They are seeded on startup for built-in integrations (e.g. Gmail, Twitter,
 Slack) but can also be registered dynamically via the "register" subcommand.
 
-Each provider is identified by a provider key (e.g. "integration:gmail").`,
+Each provider is identified by a provider key (e.g. "integration:google").`,
   );
 
   // ---------------------------------------------------------------------------
@@ -115,7 +141,7 @@ Examples:
       "after",
       `
 Arguments:
-  provider-key   The full provider key (e.g. "integration:gmail").
+  provider-key   The full provider key (e.g. "integration:google").
                  Must match the key used during registration or seeding.
 
 Returns the full provider configuration including auth URL, token URL,
@@ -123,7 +149,7 @@ default scopes, scope policy, and extra parameters. Exits with code 1
 if the provider key is not found.
 
 Examples:
-  $ assistant oauth providers get integration:gmail
+  $ assistant oauth providers get integration:google
   $ assistant oauth providers get integration:twitter --json`,
     )
     .action((providerKey: string, _opts: unknown, cmd: Command) => {
@@ -162,15 +188,10 @@ Examples:
     .option("--scopes <scopes>", "Comma-separated default scopes")
     .option("--token-auth-method <method>", "Token endpoint auth method")
     .option("--callback-transport <transport>", "Callback transport")
-    .option("--loopback-port <port>", "Loopback port", (value: string) => {
-      const port = parseInt(value, 10);
-      if (isNaN(port) || port <= 0 || port > 65535) {
-        throw new InvalidArgumentError(
-          "Port must be a number between 1 and 65535",
-        );
-      }
-      return port;
-    })
+    .option(
+      "--ping-url <url>",
+      "Health-check endpoint URL for token validation",
+    )
     .addHelpText(
       "after",
       `
@@ -185,7 +206,9 @@ Arguments (via options):
   --token-auth-method   How the client authenticates at the token endpoint
                         (e.g. "client_secret_post", "client_secret_basic").
   --callback-transport  Transport method for the OAuth callback.
-  --loopback-port       Port number for the local loopback callback server (1-65535).
+  --ping-url            Optional URL for a lightweight health-check endpoint.
+                        Used by "connections ping" to validate that a stored token
+                        is still functional (e.g. "https://api.example.com/user").
 
 Registers a new OAuth provider configuration in the local store. This is
 used for custom integrations not covered by the built-in provider seeds.
@@ -200,7 +223,12 @@ Examples:
       --provider-key integration:my-service \\
       --auth-url https://my-service.com/auth \\
       --token-url https://my-service.com/token \\
-      --scopes read,write --json`,
+      --scopes read,write --json
+  $ assistant oauth providers register \\
+      --provider-key integration:custom-api \\
+      --auth-url https://example.com/auth \\
+      --token-url https://example.com/token \\
+      --ping-url https://example.com/user`,
     )
     .action(
       (
@@ -213,7 +241,7 @@ Examples:
           scopes?: string;
           tokenAuthMethod?: string;
           callbackTransport?: string;
-          loopbackPort?: number;
+          pingUrl?: string;
         },
         cmd: Command,
       ) => {
@@ -228,7 +256,7 @@ Examples:
             scopePolicy: {},
             tokenEndpointAuthMethod: opts.tokenAuthMethod,
             callbackTransport: opts.callbackTransport,
-            loopbackPort: opts.loopbackPort,
+            pingUrl: opts.pingUrl,
           });
 
           writeOutput(cmd, parseProviderRow(row));

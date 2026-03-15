@@ -6,7 +6,6 @@ metadata:
   emoji: "\U0001F441\uFE0F"
   vellum:
     display-name: "Screen Watch"
-    user-invocable: true
 ---
 
 Start observing the screen at regular intervals for a specified duration. Captures OCR text from the active window and provides periodic commentary.

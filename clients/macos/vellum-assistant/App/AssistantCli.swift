@@ -374,7 +374,7 @@ final class AssistantCli {
             #if DEBUG
             env["VELLUM_PLATFORM_URL"] = "https://dev-assistant.vellum.ai"
             #else
-            env["VELLUM_PLATFORM_URL"] = "https://assistant.vellum.ai"
+            env["VELLUM_PLATFORM_URL"] = "https://vellum.ai"
             #endif
         }
 

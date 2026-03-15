@@ -6,7 +6,6 @@ metadata:
   emoji: "🌐"
   vellum:
     display-name: "Browser"
-    user-invocable: true
     feature-flag: "browser"
 ---
 

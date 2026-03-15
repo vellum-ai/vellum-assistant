@@ -6,8 +6,6 @@ metadata:
   emoji: "🍎"
   vellum:
     display-name: "macOS Automation"
-    user-invocable: false
-    os: ["darwin"]
 ---
 
 Use this skill to interact with native macOS apps and system-level features via `osascript` (AppleScript) through `host_bash`. Always prefer osascript over browser automation or computer-use for anything involving a native macOS app.

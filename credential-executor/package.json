@@ -1,0 +1,33 @@
+{
+  "name": "@vellumai/credential-executor",
+  "version": "0.4.55",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "bin": {
+    "credential-executor": "./src/main.ts",
+    "credential-executor-managed": "./src/managed-main.ts"
+  },
+  "scripts": {
+    "dev": "bun run src/main.ts",
+    "dev:managed": "CES_MODE=managed bun run src/managed-main.ts",
+    "typecheck": "bunx tsc --noEmit",
+    "test": "bun test src/",
+    "prepack": "node ../scripts/prepack-bundled-deps.mjs"
+  },
+  "dependencies": {
+    "@vellumai/ces-contracts": "file:../packages/ces-contracts",
+    "@vellumai/credential-storage": "file:../packages/credential-storage",
+    "@vellumai/egress-proxy": "file:../packages/egress-proxy"
+  },
+  "bundledDependencies": [
+    "@vellumai/ces-contracts",
+    "@vellumai/credential-storage",
+    "@vellumai/egress-proxy"
+  ],
+  "devDependencies": {
+    "@types/bun": "^1.2.4",
+    "typescript": "^5.7.3"
+  }
+}

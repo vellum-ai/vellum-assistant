@@ -26,7 +26,7 @@ const RECORDING_MIME_TYPES = new Map<string, string>([
 
 // ─── Deterministic maps ──────────────────────────────────────────────────────
 // These ensure stop resolves the exact active recording for a conversation,
-// prevent ambiguous cross-thread stop behavior, and maintain conversation
+// prevent ambiguous cross-conversation stop behavior, and maintain conversation
 // linkage for future file attachment (M4).
 
 /** Maps recordingId -> conversationId. */

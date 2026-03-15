@@ -53,7 +53,6 @@ mock.module("../config/loader.js", () => ({
 
     model: "test",
     provider: "test",
-    apiKeys: {},
     memory: { enabled: false },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     secretDetection: { enabled: false },
@@ -62,7 +61,6 @@ mock.module("../config/loader.js", () => ({
   loadConfig: () => ({
     model: "test",
     provider: "test",
-    apiKeys: {},
     memory: { enabled: false },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     secretDetection: { enabled: false },
@@ -105,7 +103,7 @@ mock.module("../calls/twilio-config.js", () => ({
 
 // Mock secure keys
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKey: () => null,
+  getSecureKeyAsync: async () => null,
 }));
 
 mock.module("../calls/voice-ingress-preflight.js", () => ({
@@ -193,9 +191,9 @@ describe("runtime call routes — HTTP layer", () => {
   });
 
   async function startServer(): Promise<void> {
-    port = 19000 + Math.floor(Math.random() * 1000);
-    server = new RuntimeHttpServer({ port, bearerToken: TEST_TOKEN });
+    server = new RuntimeHttpServer({ port: 0, bearerToken: TEST_TOKEN });
     await server.start();
+    port = server.actualPort;
   }
 
   async function stopServer(): Promise<void> {

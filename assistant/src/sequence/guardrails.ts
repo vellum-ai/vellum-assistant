@@ -45,10 +45,6 @@ export function setGuardrailConfig(
   return { ...config };
 }
 
-export function resetGuardrailConfig(): void {
-  config = { ...DEFAULT_CONFIG };
-}
-
 // ── Send tracking (in-memory, resets on daemon restart) ─────────────
 
 interface SendRecord {

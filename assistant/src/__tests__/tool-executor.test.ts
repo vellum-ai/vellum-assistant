@@ -26,7 +26,6 @@ import type {
 const mockConfig = {
   provider: "anthropic",
   model: "test",
-  apiKeys: {},
   maxTokens: 4096,
   dataDir: "/tmp",
   timeouts: {
@@ -197,7 +196,7 @@ describe("ToolExecutor allowedToolNames gating", () => {
     }
   });
 
-  test("executes normally when allowedToolNames is not set (backward compat)", async () => {
+  test("executes normally when allowedToolNames is not set", async () => {
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
       "file_read",

@@ -5,9 +5,9 @@
  * is testable and swappable independently of the tool adapter.
  */
 
-import { getConfig } from "../config/loader.js";
 import { resolveModelIntent } from "../providers/model-intents.js";
 import type { ModelIntent } from "../providers/types.js";
+import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import type {
   SwarmWorkerBackend,
@@ -28,9 +28,9 @@ export function createClaudeCodeBackend(): SwarmWorkerBackend {
   return {
     name: "claude_code",
 
-    isAvailable(): boolean {
-      const config = getConfig();
-      const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
+    async isAvailable(): Promise<boolean> {
+      const apiKey =
+        (await getSecureKeyAsync("anthropic")) ?? process.env.ANTHROPIC_API_KEY;
       return !!apiKey;
     },
 
@@ -39,9 +39,9 @@ export function createClaudeCodeBackend(): SwarmWorkerBackend {
       const stderrLines: string[] = [];
       try {
         const { query } = await import("@anthropic-ai/claude-agent-sdk");
-        const config = getConfig();
         const apiKey =
-          config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
+          (await getSecureKeyAsync("anthropic")) ??
+          process.env.ANTHROPIC_API_KEY;
         if (!apiKey) {
           return {
             success: false,

@@ -6,7 +6,6 @@ metadata:
   emoji: "📬"
   vellum:
     display-name: "Email CLI Ops"
-    user-invocable: true
 ---
 
 ## How to run

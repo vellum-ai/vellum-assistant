@@ -5,7 +5,10 @@ on:
     types: [labeled, synchronize, opened, reopened]
     paths:
       - 'assistant/**'
+      - 'credential-executor/**'
+      - 'packages/**'
       - 'scripts/skills/**'
+      - 'meta/feature-flags/**'
       - '.github/workflows/pr-assistant.yaml'
 
 concurrency:
@@ -41,8 +44,17 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Install linked package dependencies
+        run: cd ../packages/ces-contracts && bun install --frozen-lockfile
+
+      - name: Sync feature flag registry
+        run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
+
       - name: Lint
         run: bun run lint
+
+      - name: Lint unused code
+        run: bun run lint:unused
 
   typecheck:
     if: contains(github.event.pull_request.labels.*.name, 'preview')
@@ -71,6 +83,12 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Install linked package dependencies
+        run: cd ../packages/ces-contracts && bun install --frozen-lockfile
+
+      - name: Sync feature flag registry
+        run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
 
       - name: Type check
         run: bunx tsc --noEmit
@@ -102,6 +120,12 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Install linked package dependencies
+        run: cd ../packages/ces-contracts && bun install --frozen-lockfile
+
+      - name: Sync feature flag registry
+        run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
 
       - name: Test
         run: bun run test

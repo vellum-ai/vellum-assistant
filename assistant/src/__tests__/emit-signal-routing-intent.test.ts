@@ -40,7 +40,7 @@ mock.module("../notifications/adapters/telegram.js", () => ({
 mock.module("../notifications/broadcaster.js", () => ({
   NotificationBroadcaster: class {
     constructor(_adapters: unknown[]) {}
-    setOnThreadCreated(_fn: unknown) {}
+    setOnConversationCreated(_fn: unknown) {}
   },
 }));
 

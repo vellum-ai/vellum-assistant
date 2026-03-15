@@ -199,8 +199,8 @@ extension SessionCreateRequest {
         #endif
     }
 
-    public init(title: String?, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: SessionTransportMetadata? = nil, threadType: String? = nil, preactivatedSkillIds: [String]? = nil, initialMessage: String? = nil) {
-        self.init(type: "session_create", title: title, systemPromptOverride: systemPromptOverride, maxResponseTokens: maxResponseTokens, correlationId: correlationId, transport: transport, threadType: threadType, preactivatedSkillIds: preactivatedSkillIds, initialMessage: initialMessage)
+    public init(title: String?, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: SessionTransportMetadata? = nil, conversationType: String? = nil, preactivatedSkillIds: [String]? = nil, initialMessage: String? = nil) {
+        self.init(type: "session_create", title: title, systemPromptOverride: systemPromptOverride, maxResponseTokens: maxResponseTokens, correlationId: correlationId, transport: transport, conversationType: conversationType, preactivatedSkillIds: preactivatedSkillIds, initialMessage: initialMessage)
     }
 
     public init(
@@ -225,7 +225,7 @@ extension SessionCreateRequest {
                 hints: transportHints,
                 uxBrief: transportUxBrief
             ),
-            threadType: nil,
+            conversationType: nil,
             preactivatedSkillIds: nil,
             initialMessage: nil
         )
@@ -602,8 +602,8 @@ extension SkillsDraftRequest {
 public typealias SkillsCreateMessage = SkillsCreateRequest
 
 extension SkillsCreateRequest {
-    public init(skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String, userInvocable: Bool? = nil, disableModelInvocation: Bool? = nil, overwrite: Bool? = nil) {
-        self.init(type: "skills_create", skillId: skillId, name: name, description: description, emoji: emoji, bodyMarkdown: bodyMarkdown, userInvocable: userInvocable, disableModelInvocation: disableModelInvocation, overwrite: overwrite)
+    public init(skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String, overwrite: Bool? = nil) {
+        self.init(type: "skills_create", skillId: skillId, name: name, description: description, emoji: emoji, bodyMarkdown: bodyMarkdown, overwrite: overwrite)
     }
 }
 
@@ -645,15 +645,6 @@ extension GetSigningIdentityResponse {
 // compatibility with existing call sites (the generated structs
 // include a `type` field that the old hand-maintained types omitted).
 
-/// Session-level error from the server.
-public typealias CuErrorMessage = CuError
-
-extension CuError {
-    public init(sessionId: String, message: String) {
-        self.init(type: "cu_error", sessionId: sessionId, message: message)
-    }
-}
-
 /// Echoes a user message back to the client (e.g. relay_prompt from a surface action).
 /// Backed by generated `UserMessageEcho`.
 public typealias UserMessageEchoMessage = UserMessageEcho
@@ -692,8 +683,8 @@ extension MessageComplete {
 public typealias SessionInfoMessage = SessionInfo
 
 extension SessionInfo {
-    public init(sessionId: String, title: String, correlationId: String? = nil, threadType: String? = nil) {
-        self.init(type: "session_info", sessionId: sessionId, title: title, correlationId: correlationId, threadType: threadType)
+    public init(sessionId: String, title: String, correlationId: String? = nil, conversationType: String? = nil) {
+        self.init(type: "session_info", sessionId: sessionId, title: title, correlationId: correlationId, conversationType: conversationType)
     }
 }
 
@@ -715,18 +706,14 @@ extension MemoryRecalled {
     public init(
         provider: String,
         model: String,
-        lexicalHits: Double,
         semanticHits: Double,
         recencyHits: Double,
-        entityHits: Double,
-        relationSeedEntityCount: Int? = nil,
-        relationTraversedEdgeCount: Int? = nil,
-        relationNeighborEntityCount: Int? = nil,
-        relationExpandedItemCount: Int? = nil,
-        earlyTerminated: Bool? = nil,
+        tier1Count: Int? = nil,
+        tier2Count: Int? = nil,
+        hybridSearchLatencyMs: Double? = nil,
+        sparseVectorUsed: Bool? = nil,
         mergedCount: Int,
         selectedCount: Int,
-        rerankApplied: Bool,
         injectedTokens: Int,
         latencyMs: Double,
         topCandidates: [MemoryRecalledCandidateDebug]
@@ -735,18 +722,14 @@ extension MemoryRecalled {
             type: "memory_recalled",
             provider: provider,
             model: model,
-            lexicalHits: lexicalHits,
             semanticHits: semanticHits,
             recencyHits: recencyHits,
-            entityHits: entityHits,
-            relationSeedEntityCount: relationSeedEntityCount,
-            relationTraversedEdgeCount: relationTraversedEdgeCount,
-            relationNeighborEntityCount: relationNeighborEntityCount,
-            relationExpandedItemCount: relationExpandedItemCount,
-            earlyTerminated: earlyTerminated,
+            tier1Count: tier1Count,
+            tier2Count: tier2Count,
+            hybridSearchLatencyMs: hybridSearchLatencyMs,
+            sparseVectorUsed: sparseVectorUsed,
             mergedCount: mergedCount,
             selectedCount: selectedCount,
-            rerankApplied: rerankApplied,
             injectedTokens: injectedTokens,
             latencyMs: latencyMs,
             topCandidates: topCandidates
@@ -928,10 +911,6 @@ public typealias AppDataResponseMessage = AppDataResponse
 /// Backed by generated `SkillsListResponseSkillClawhub`.
 public typealias ClawhubInfo = SkillsListResponseSkillClawhub
 
-/// Missing requirements preventing a skill from full operation.
-/// Backed by generated `SkillsListResponseSkillMissingRequirements`.
-public typealias MissingRequirements = SkillsListResponseSkillMissingRequirements
-
 /// Provenance metadata indicating whether a skill is first-party, third-party, or local.
 /// Backed by generated `SkillsListResponseSkillProvenance`.
 public typealias SkillProvenance = SkillsListResponseSkillProvenance
@@ -945,7 +924,7 @@ extension SkillsListResponseSkill: Identifiable {}
 extension SkillsListResponseSkill {
     /// Returns a copy with a different `state`, preserving all other fields including `id`.
     public func withState(_ newState: String) -> Self {
-        Self(id: id, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: newState, degraded: degraded, missingRequirements: missingRequirements, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, userInvocable: userInvocable, clawhub: clawhub, provenance: provenance)
+        Self(id: id, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: newState, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, clawhub: clawhub, provenance: provenance)
     }
 }
 
@@ -1264,6 +1243,8 @@ public enum SessionErrorCode: String, CaseIterable, Codable, Sendable {
     case providerRateLimit = "PROVIDER_RATE_LIMIT"
     case providerApi = "PROVIDER_API"
     case providerBilling = "PROVIDER_BILLING"
+    case providerOrdering = "PROVIDER_ORDERING"
+    case providerWebSearch = "PROVIDER_WEB_SEARCH"
     case contextTooLarge = "CONTEXT_TOO_LARGE"
     case sessionAborted = "SESSION_ABORTED"
     case sessionProcessingFailed = "SESSION_PROCESSING_FAILED"
@@ -1288,17 +1269,20 @@ public struct SessionErrorMessage: Decodable, Sendable {
     public let userMessage: String
     public let retryable: Bool
     public let debugDetails: String?
+    /// Machine-readable error category for log report metadata and triage.
+    public let errorCategory: String?
     /// Non-nil when the error is a client-side HTTP send failure.
     /// Contains the message content that failed to send, used to mark
     /// the specific user message as `.sendFailed` in the chat.
     public let failedMessageContent: String?
 
-    public init(sessionId: String, code: SessionErrorCode, userMessage: String, retryable: Bool, debugDetails: String? = nil, failedMessageContent: String? = nil) {
+    public init(sessionId: String, code: SessionErrorCode, userMessage: String, retryable: Bool, debugDetails: String? = nil, errorCategory: String? = nil, failedMessageContent: String? = nil) {
         self.sessionId = sessionId
         self.code = code
         self.userMessage = userMessage
         self.retryable = retryable
         self.debugDetails = debugDetails
+        self.errorCategory = errorCategory
         self.failedMessageContent = failedMessageContent
     }
 }
@@ -1382,6 +1366,8 @@ public struct HostBashRequest: Decodable, Sendable {
     public let command: String
     public let workingDir: String?
     public let timeoutSeconds: Double?
+    /// Extra environment variables to inject into the subprocess (e.g. VELLUM_UNTRUSTED_SHELL).
+    public let env: [String: String]?
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -1390,6 +1376,7 @@ public struct HostBashRequest: Decodable, Sendable {
         case command
         case workingDir = "working_dir"
         case timeoutSeconds = "timeout_seconds"
+        case env
     }
 }
 
@@ -2086,7 +2073,6 @@ public struct SubagentEventMessage: Decodable, Sendable {
 /// Decodes via the `"type"` field in the JSON payload.
 public enum ServerMessage: Decodable, Sendable {
     case authResult(AuthResultMessage)
-    case cuError(CuErrorMessage)
     case sessionError(SessionErrorMessage)
     case userMessageEcho(UserMessageEchoMessage)
     case assistantTextDelta(AssistantTextDeltaMessage)
@@ -2129,7 +2115,7 @@ public enum ServerMessage: Decodable, Sendable {
     case toolOutputChunk(ToolOutputChunkMessage)
     case toolResult(ToolResultMessage)
     case notificationIntent(NotificationIntentMessage)
-    case notificationThreadCreated(NotificationThreadCreated)
+    case notificationConversationCreated(NotificationConversationCreated)
     case watchStarted(WatchStartedMessage)
     case watchCompleteRequest(WatchCompleteRequestMessage)
     case traceEvent(TraceEventMessage)
@@ -2189,8 +2175,8 @@ public enum ServerMessage: Decodable, Sendable {
     case workItemPreflightResponse(WorkItemPreflightResponse)
     case workItemApprovePermissionsResponse(WorkItemApprovePermissionsResponse)
     case workItemCancelResponse(WorkItemCancelResponse)
-    case taskRunThreadCreated(TaskRunThreadCreated)
-    case scheduleThreadCreated(ScheduleThreadCreated)
+    case taskRunConversationCreated(TaskRunConversationCreated)
+    case scheduleConversationCreated(ScheduleConversationCreated)
     case subagentSpawned(SubagentSpawned)
     case subagentStatusChanged(SubagentStatusChanged)
     indirect case subagentEvent(SubagentEventMessage)
@@ -2238,9 +2224,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "auth_result":
             let message = try AuthResultMessage(from: decoder)
             self = .authResult(message)
-        case "cu_error":
-            let message = try CuErrorMessage(from: decoder)
-            self = .cuError(message)
         case "session_error":
             let message = try SessionErrorMessage(from: decoder)
             self = .sessionError(message)
@@ -2383,8 +2366,8 @@ public enum ServerMessage: Decodable, Sendable {
             let message = try NotificationIntentMessage(from: decoder)
             self = .notificationIntent(message)
         case "notification_thread_created":
-            let message = try NotificationThreadCreated(from: decoder)
-            self = .notificationThreadCreated(message)
+            let message = try NotificationConversationCreated(from: decoder)
+            self = .notificationConversationCreated(message)
         case "watch_started":
             let message = try WatchStartedMessage(from: decoder)
             self = .watchStarted(message)
@@ -2547,12 +2530,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "work_item_cancel_response":
             let message = try WorkItemCancelResponse(from: decoder)
             self = .workItemCancelResponse(message)
-        case "task_run_thread_created":
-            let message = try TaskRunThreadCreated(from: decoder)
-            self = .taskRunThreadCreated(message)
-        case "schedule_thread_created":
-            let message = try ScheduleThreadCreated(from: decoder)
-            self = .scheduleThreadCreated(message)
+        case "task_run_conversation_created":
+            let message = try TaskRunConversationCreated(from: decoder)
+            self = .taskRunConversationCreated(message)
+        case "schedule_conversation_created":
+            let message = try ScheduleConversationCreated(from: decoder)
+            self = .scheduleConversationCreated(message)
         case "subagent_spawned":
             let message = try SubagentSpawned(from: decoder)
             self = .subagentSpawned(message)
@@ -2859,6 +2842,38 @@ extension ContactPayload: Identifiable {}
 
 
 extension ContactChannelPayload: Identifiable {}
+
+extension ContactChannelPayload: Equatable {
+    public static func == (lhs: ContactChannelPayload, rhs: ContactChannelPayload) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.type == rhs.type &&
+        lhs.address == rhs.address &&
+        lhs.isPrimary == rhs.isPrimary &&
+        lhs.externalUserId == rhs.externalUserId &&
+        lhs.status == rhs.status &&
+        lhs.policy == rhs.policy &&
+        lhs.verifiedAt == rhs.verifiedAt &&
+        lhs.verifiedVia == rhs.verifiedVia &&
+        lhs.lastSeenAt == rhs.lastSeenAt &&
+        lhs.interactionCount == rhs.interactionCount &&
+        lhs.lastInteraction == rhs.lastInteraction &&
+        lhs.revokedReason == rhs.revokedReason &&
+        lhs.blockedReason == rhs.blockedReason
+    }
+}
+
+extension ContactPayload: Equatable {
+    public static func == (lhs: ContactPayload, rhs: ContactPayload) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.displayName == rhs.displayName &&
+        lhs.role == rhs.role &&
+        lhs.notes == rhs.notes &&
+        lhs.contactType == rhs.contactType &&
+        lhs.lastInteraction == rhs.lastInteraction &&
+        lhs.interactionCount == rhs.interactionCount &&
+        lhs.channels == rhs.channels
+    }
+}
 
 // MARK: - Work Item Helpers
 

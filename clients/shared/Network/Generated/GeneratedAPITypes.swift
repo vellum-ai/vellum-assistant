@@ -891,10 +891,12 @@ public struct ContactChannelPayload: Codable, Sendable {
     public let verifiedAt: Int?
     public let verifiedVia: String?
     public let lastSeenAt: Int?
+    public let interactionCount: Int?
+    public let lastInteraction: Int?
     public let revokedReason: String?
     public let blockedReason: String?
 
-    public init(id: String, type: String, address: String, isPrimary: Bool, externalUserId: String? = nil, status: String, policy: String, verifiedAt: Int? = nil, verifiedVia: String? = nil, lastSeenAt: Int? = nil, revokedReason: String? = nil, blockedReason: String? = nil) {
+    public init(id: String, type: String, address: String, isPrimary: Bool, externalUserId: String? = nil, status: String, policy: String, verifiedAt: Int? = nil, verifiedVia: String? = nil, lastSeenAt: Int? = nil, interactionCount: Int? = nil, lastInteraction: Int? = nil, revokedReason: String? = nil, blockedReason: String? = nil) {
         self.id = id
         self.type = type
         self.address = address
@@ -905,6 +907,8 @@ public struct ContactChannelPayload: Codable, Sendable {
         self.verifiedAt = verifiedAt
         self.verifiedVia = verifiedVia
         self.lastSeenAt = lastSeenAt
+        self.interactionCount = interactionCount
+        self.lastInteraction = lastInteraction
         self.revokedReason = revokedReason
         self.blockedReason = blockedReason
     }
@@ -1243,95 +1247,6 @@ public struct CuComplete: Codable, Sendable {
         self.summary = summary
         self.stepCount = stepCount
         self.isResponse = isResponse
-    }
-}
-
-public struct CuError: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-    public let message: String
-
-    public init(type: String, sessionId: String, message: String) {
-        self.type = type
-        self.sessionId = sessionId
-        self.message = message
-    }
-}
-
-public struct CuObservation: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-    public let axTree: String?
-    public let axDiff: String?
-    public let secondaryWindows: String?
-    public let screenshot: String?
-    /// Screenshot image width in pixels (`Px`).
-    public let screenshotWidthPx: Double?
-    /// Screenshot image height in pixels (`Px`).
-    public let screenshotHeightPx: Double?
-    /// Screen width in macOS points (`Pt`) used by native execution.
-    public let screenWidthPt: Double?
-    /// Screen height in macOS points (`Pt`) used by native execution.
-    public let screenHeightPt: Double?
-    /// Coordinate origin convention used by the observation payload.
-    public let coordinateOrigin: String?
-    /// Display ID used by screenshot capture for this observation.
-    public let captureDisplayId: Double?
-    public let executionResult: String?
-    public let executionError: String?
-    public let axTreeBlob: BlobRef?
-    public let screenshotBlob: BlobRef?
-    /// Free-form guidance from the user, injected mid-turn to steer the agent.
-    public let userGuidance: String?
-
-    public init(type: String, sessionId: String, axTree: String? = nil, axDiff: String? = nil, secondaryWindows: String? = nil, screenshot: String? = nil, screenshotWidthPx: Double? = nil, screenshotHeightPx: Double? = nil, screenWidthPt: Double? = nil, screenHeightPt: Double? = nil, coordinateOrigin: String? = nil, captureDisplayId: Double? = nil, executionResult: String? = nil, executionError: String? = nil, axTreeBlob: BlobRef? = nil, screenshotBlob: BlobRef? = nil, userGuidance: String? = nil) {
-        self.type = type
-        self.sessionId = sessionId
-        self.axTree = axTree
-        self.axDiff = axDiff
-        self.secondaryWindows = secondaryWindows
-        self.screenshot = screenshot
-        self.screenshotWidthPx = screenshotWidthPx
-        self.screenshotHeightPx = screenshotHeightPx
-        self.screenWidthPt = screenWidthPt
-        self.screenHeightPt = screenHeightPt
-        self.coordinateOrigin = coordinateOrigin
-        self.captureDisplayId = captureDisplayId
-        self.executionResult = executionResult
-        self.executionError = executionError
-        self.axTreeBlob = axTreeBlob
-        self.screenshotBlob = screenshotBlob
-        self.userGuidance = userGuidance
-    }
-}
-
-public struct CuSessionAbort: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-
-    public init(type: String, sessionId: String) {
-        self.type = type
-        self.sessionId = sessionId
-    }
-}
-
-public struct CuSessionCreate: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-    public let task: String
-    public let screenWidth: Int
-    public let screenHeight: Int
-    public let attachments: [UserMessageAttachment]?
-    public let interactionType: String?
-
-    public init(type: String, sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [UserMessageAttachment]? = nil, interactionType: String? = nil) {
-        self.type = type
-        self.sessionId = sessionId
-        self.task = task
-        self.screenWidth = screenWidth
-        self.screenHeight = screenHeight
-        self.attachments = attachments
-        self.interactionType = interactionType
     }
 }
 
@@ -2542,39 +2457,31 @@ public struct MemoryRecalled: Codable, Sendable {
     public let provider: String
     public let model: String
     public let degradation: MemoryRecalledDegradation?
-    public let lexicalHits: Double
     public let semanticHits: Double
     public let recencyHits: Double
-    public let entityHits: Double
-    public let relationSeedEntityCount: Int?
-    public let relationTraversedEdgeCount: Int?
-    public let relationNeighborEntityCount: Int?
-    public let relationExpandedItemCount: Int?
-    public let earlyTerminated: Bool?
+    public let tier1Count: Int?
+    public let tier2Count: Int?
+    public let hybridSearchLatencyMs: Double?
+    public let sparseVectorUsed: Bool?
     public let mergedCount: Int
     public let selectedCount: Int
-    public let rerankApplied: Bool
     public let injectedTokens: Int
     public let latencyMs: Double
     public let topCandidates: [MemoryRecalledCandidateDebug]
 
-    public init(type: String, provider: String, model: String, degradation: MemoryRecalledDegradation? = nil, lexicalHits: Double, semanticHits: Double, recencyHits: Double, entityHits: Double, relationSeedEntityCount: Int? = nil, relationTraversedEdgeCount: Int? = nil, relationNeighborEntityCount: Int? = nil, relationExpandedItemCount: Int? = nil, earlyTerminated: Bool? = nil, mergedCount: Int, selectedCount: Int, rerankApplied: Bool, injectedTokens: Int, latencyMs: Double, topCandidates: [MemoryRecalledCandidateDebug]) {
+    public init(type: String, provider: String, model: String, degradation: MemoryRecalledDegradation? = nil, semanticHits: Double, recencyHits: Double, tier1Count: Int? = nil, tier2Count: Int? = nil, hybridSearchLatencyMs: Double? = nil, sparseVectorUsed: Bool? = nil, mergedCount: Int, selectedCount: Int, injectedTokens: Int, latencyMs: Double, topCandidates: [MemoryRecalledCandidateDebug]) {
         self.type = type
         self.provider = provider
         self.model = model
         self.degradation = degradation
-        self.lexicalHits = lexicalHits
         self.semanticHits = semanticHits
         self.recencyHits = recencyHits
-        self.entityHits = entityHits
-        self.relationSeedEntityCount = relationSeedEntityCount
-        self.relationTraversedEdgeCount = relationTraversedEdgeCount
-        self.relationNeighborEntityCount = relationNeighborEntityCount
-        self.relationExpandedItemCount = relationExpandedItemCount
-        self.earlyTerminated = earlyTerminated
+        self.tier1Count = tier1Count
+        self.tier2Count = tier2Count
+        self.hybridSearchLatencyMs = hybridSearchLatencyMs
+        self.sparseVectorUsed = sparseVectorUsed
         self.mergedCount = mergedCount
         self.selectedCount = selectedCount
-        self.rerankApplied = rerankApplied
         self.injectedTokens = injectedTokens
         self.latencyMs = latencyMs
         self.topCandidates = topCandidates
@@ -2586,16 +2493,14 @@ public struct MemoryRecalledCandidateDebug: Codable, Sendable {
     public let type: String
     public let kind: String
     public let finalScore: Double
-    public let lexical: Double
     public let semantic: Double
     public let recency: Double
 
-    public init(key: String, type: String, kind: String, finalScore: Double, lexical: Double, semantic: Double, recency: Double) {
+    public init(key: String, type: String, kind: String, finalScore: Double, semantic: Double, recency: Double) {
         self.key = key
         self.type = type
         self.kind = kind
         self.finalScore = finalScore
-        self.lexical = lexical
         self.semantic = semantic
         self.recency = recency
     }
@@ -2621,15 +2526,8 @@ public struct MemoryStatus: Codable, Sendable {
     public let reason: String?
     public let provider: String?
     public let model: String?
-    public let conflictsPending: Double
-    public let conflictsResolved: Double
-    public let oldestPendingConflictAgeMs: Double?
-    public let cleanupResolvedJobsPending: Double
-    public let cleanupSupersededJobsPending: Double
-    public let cleanupResolvedJobsCompleted24h: Double
-    public let cleanupSupersededJobsCompleted24h: Double
 
-    public init(type: String, enabled: Bool, degraded: Bool, degradation: MemoryRecalledDegradation? = nil, reason: String? = nil, provider: String? = nil, model: String? = nil, conflictsPending: Double, conflictsResolved: Double, oldestPendingConflictAgeMs: Double?, cleanupResolvedJobsPending: Double, cleanupSupersededJobsPending: Double, cleanupResolvedJobsCompleted24h: Double, cleanupSupersededJobsCompleted24h: Double) {
+    public init(type: String, enabled: Bool, degraded: Bool, degradation: MemoryRecalledDegradation? = nil, reason: String? = nil, provider: String? = nil, model: String? = nil) {
         self.type = type
         self.enabled = enabled
         self.degraded = degraded
@@ -2637,13 +2535,6 @@ public struct MemoryStatus: Codable, Sendable {
         self.reason = reason
         self.provider = provider
         self.model = model
-        self.conflictsPending = conflictsPending
-        self.conflictsResolved = conflictsResolved
-        self.oldestPendingConflictAgeMs = oldestPendingConflictAgeMs
-        self.cleanupResolvedJobsPending = cleanupResolvedJobsPending
-        self.cleanupSupersededJobsPending = cleanupSupersededJobsPending
-        self.cleanupResolvedJobsCompleted24h = cleanupResolvedJobsCompleted24h
-        self.cleanupSupersededJobsCompleted24h = cleanupSupersededJobsCompleted24h
     }
 }
 
@@ -2844,13 +2735,13 @@ public struct NotificationIntentResult: Codable, Sendable {
     }
 }
 
-/// Server push — broadcast when a notification creates a new vellum conversation thread.
-public struct NotificationThreadCreated: Codable, Sendable {
+/// Server push — broadcast when a notification creates a new vellum conversation.
+public struct NotificationConversationCreated: Codable, Sendable {
     public let type: String
     public let conversationId: String
     public let title: String
     public let sourceEventName: String
-    /// When set, this thread was created for a guardian-sensitive notification
+    /// When set, this conversation was created for a guardian-sensitive notification
     /// and should only be surfaced by clients bound to this guardian identity.
     public let targetGuardianPrincipalId: String?
 
@@ -3194,17 +3085,17 @@ public struct RemoveTrustRule: Codable, Sendable {
     }
 }
 
-public struct ReorderThreadsRequest: Codable, Sendable {
+public struct ReorderConversationsRequest: Codable, Sendable {
     public let type: String
-    public let updates: [ReorderThreadsRequestUpdate]
+    public let updates: [ReorderConversationsRequestUpdate]
 
-    public init(type: String, updates: [ReorderThreadsRequestUpdate]) {
+    public init(type: String, updates: [ReorderConversationsRequestUpdate]) {
         self.type = type
         self.updates = updates
     }
 }
 
-public struct ReorderThreadsRequestUpdate: Codable, Sendable {
+public struct ReorderConversationsRequestUpdate: Codable, Sendable {
     public let sessionId: String
     public let displayOrder: Double?
     public let isPinned: Bool
@@ -3303,7 +3194,7 @@ public struct SchedulesListResponseSchedule: Codable, Sendable {
 }
 
 /// Server push — broadcast when a schedule creates a conversation, so the client can show it as a chat thread.
-public struct ScheduleThreadCreated: Codable, Sendable {
+public struct ScheduleConversationCreated: Codable, Sendable {
     public let type: String
     public let conversationId: String
     public let scheduleJobId: String
@@ -3410,20 +3301,20 @@ public struct SessionCreateRequest: Codable, Sendable {
     public let correlationId: String?
     /// Lightweight session transport metadata for channel identity and natural-language guidance.
     public let transport: SessionTransportMetadata?
-    public let threadType: String?
+    public let conversationType: String?
     /// Skill IDs to pre-activate in the new session (loaded before the first message).
     public let preactivatedSkillIds: [String]?
     /// If provided, automatically sent as the first user message after session creation.
     public let initialMessage: String?
 
-    public init(type: String, title: String? = nil, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: SessionTransportMetadata? = nil, threadType: String? = nil, preactivatedSkillIds: [String]? = nil, initialMessage: String? = nil) {
+    public init(type: String, title: String? = nil, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: SessionTransportMetadata? = nil, conversationType: String? = nil, preactivatedSkillIds: [String]? = nil, initialMessage: String? = nil) {
         self.type = type
         self.title = title
         self.systemPromptOverride = systemPromptOverride
         self.maxResponseTokens = maxResponseTokens
         self.correlationId = correlationId
         self.transport = transport
-        self.threadType = threadType
+        self.conversationType = conversationType
         self.preactivatedSkillIds = preactivatedSkillIds
         self.initialMessage = initialMessage
     }
@@ -3434,14 +3325,14 @@ public struct SessionInfo: Codable, Sendable {
     public let sessionId: String
     public let title: String
     public let correlationId: String?
-    public let threadType: String?
+    public let conversationType: String?
 
-    public init(type: String, sessionId: String, title: String, correlationId: String? = nil, threadType: String? = nil) {
+    public init(type: String, sessionId: String, title: String, correlationId: String? = nil, conversationType: String? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.title = title
         self.correlationId = correlationId
-        self.threadType = threadType
+        self.conversationType = conversationType
     }
 }
 
@@ -3477,7 +3368,7 @@ public struct SessionListResponseSession: Codable, Sendable {
     public let title: String
     public let createdAt: Int?
     public let updatedAt: Int
-    public let threadType: String?
+    public let conversationType: String?
     public let source: String?
     public let scheduleJobId: String?
     /// Channel binding metadata exposed in session/conversation list APIs.
@@ -3489,12 +3380,12 @@ public struct SessionListResponseSession: Codable, Sendable {
     public let displayOrder: Double?
     public let isPinned: Bool?
 
-    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, threadType: String? = nil, source: String? = nil, scheduleJobId: String? = nil, channelBinding: ChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: AssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil) {
+    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, conversationType: String? = nil, source: String? = nil, scheduleJobId: String? = nil, channelBinding: ChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: AssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
         self.updatedAt = updatedAt
-        self.threadType = threadType
+        self.conversationType = conversationType
         self.source = source
         self.scheduleJobId = scheduleJobId
         self.channelBinding = channelBinding
@@ -3760,19 +3651,15 @@ public struct SkillsCreateRequest: Codable, Sendable {
     public let description: String
     public let emoji: String?
     public let bodyMarkdown: String
-    public let userInvocable: Bool?
-    public let disableModelInvocation: Bool?
     public let overwrite: Bool?
 
-    public init(type: String, skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String, userInvocable: Bool? = nil, disableModelInvocation: Bool? = nil, overwrite: Bool? = nil) {
+    public init(type: String, skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String, overwrite: Bool? = nil) {
         self.type = type
         self.skillId = skillId
         self.name = name
         self.description = description
         self.emoji = emoji
         self.bodyMarkdown = bodyMarkdown
-        self.userInvocable = userInvocable
-        self.disableModelInvocation = disableModelInvocation
         self.overwrite = overwrite
     }
 }
@@ -3983,16 +3870,13 @@ public struct SkillsListResponseSkill: Codable, Sendable {
     public let homepage: String?
     public let source: String
     public let state: String
-    public let degraded: Bool
-    public let missingRequirements: SkillsListResponseSkillMissingRequirements?
     public let installedVersion: String?
     public let latestVersion: String?
     public let updateAvailable: Bool
-    public let userInvocable: Bool
     public let clawhub: SkillsListResponseSkillClawhub?
     public let provenance: SkillsListResponseSkillProvenance?
 
-    public init(id: String, name: String, description: String, emoji: String? = nil, homepage: String? = nil, source: String, state: String, degraded: Bool, missingRequirements: SkillsListResponseSkillMissingRequirements? = nil, installedVersion: String? = nil, latestVersion: String? = nil, updateAvailable: Bool, userInvocable: Bool, clawhub: SkillsListResponseSkillClawhub? = nil, provenance: SkillsListResponseSkillProvenance? = nil) {
+    public init(id: String, name: String, description: String, emoji: String? = nil, homepage: String? = nil, source: String, state: String, installedVersion: String? = nil, latestVersion: String? = nil, updateAvailable: Bool, clawhub: SkillsListResponseSkillClawhub? = nil, provenance: SkillsListResponseSkillProvenance? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -4000,12 +3884,9 @@ public struct SkillsListResponseSkill: Codable, Sendable {
         self.homepage = homepage
         self.source = source
         self.state = state
-        self.degraded = degraded
-        self.missingRequirements = missingRequirements
         self.installedVersion = installedVersion
         self.latestVersion = latestVersion
         self.updateAvailable = updateAvailable
-        self.userInvocable = userInvocable
         self.clawhub = clawhub
         self.provenance = provenance
     }
@@ -4027,18 +3908,6 @@ public struct SkillsListResponseSkillClawhub: Codable, Sendable {
     }
 }
 
-public struct SkillsListResponseSkillMissingRequirements: Codable, Sendable {
-    public let bins: [String]?
-    public let env: [String]?
-    public let permissions: [String]?
-
-    public init(bins: [String]? = nil, env: [String]? = nil, permissions: [String]? = nil) {
-        self.bins = bins
-        self.env = env
-        self.permissions = permissions
-    }
-}
-
 public struct SkillsListResponseSkillProvenance: Codable, Sendable {
     public let kind: String
     public let provider: String?
@@ -4050,6 +3919,46 @@ public struct SkillsListResponseSkillProvenance: Codable, Sendable {
         self.provider = provider
         self.originId = originId
         self.sourceUrl = sourceUrl
+    }
+}
+
+// MARK: - Skill Detail Response (GET /v1/skills/:id)
+
+public struct SkillDetailHTTPResponse: Codable, Sendable {
+    public let skill: SkillsListResponseSkill
+
+    public init(skill: SkillsListResponseSkill) {
+        self.skill = skill
+    }
+}
+
+// MARK: - Skill Detail Files Response (GET /v1/skills/:id/files)
+
+public struct SkillDetailFilesHTTPResponse: Codable, Sendable {
+    public let skill: SkillsListResponseSkill
+    public let files: [SkillFileEntry]
+
+    public init(skill: SkillsListResponseSkill, files: [SkillFileEntry]) {
+        self.skill = skill
+        self.files = files
+    }
+}
+
+public struct SkillFileEntry: Codable, Sendable {
+    public let path: String
+    public let name: String
+    public let size: Int
+    public let mimeType: String
+    public let isBinary: Bool
+    public let content: String?
+
+    public init(path: String, name: String, size: Int, mimeType: String, isBinary: Bool, content: String? = nil) {
+        self.path = path
+        self.name = name
+        self.size = size
+        self.mimeType = mimeType
+        self.isBinary = isBinary
+        self.content = content
     }
 }
 
@@ -4285,26 +4194,8 @@ public struct SurfaceAction: Codable, Sendable {
     }
 }
 
-public struct TaskRouted: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-    public let interactionType: String
-    /// The task text passed to the escalated session.
-    public let task: String?
-    /// Set when a text_qa session escalates to computer_use via computer_use_request_control.
-    public let escalatedFrom: String?
-
-    public init(type: String, sessionId: String, interactionType: String, task: String? = nil, escalatedFrom: String? = nil) {
-        self.type = type
-        self.sessionId = sessionId
-        self.interactionType = interactionType
-        self.task = task
-        self.escalatedFrom = escalatedFrom
-    }
-}
-
 /// Server push — broadcast when a task run creates a conversation, so the client can show it as a chat thread.
-public struct TaskRunThreadCreated: Codable, Sendable {
+public struct TaskRunConversationCreated: Codable, Sendable {
     public let type: String
     public let conversationId: String
     public let workItemId: String
@@ -4376,6 +4267,7 @@ public struct TelegramConfigResponse: Codable, Sendable {
     public let type: String
     public let success: Bool
     public let hasBotToken: Bool
+    public let botId: String?
     public let botUsername: String?
     public let connected: Bool
     public let hasWebhookSecret: Bool
@@ -4386,10 +4278,11 @@ public struct TelegramConfigResponse: Codable, Sendable {
     /// Non-fatal warning (e.g. commands registration failed during setup but token was configured).
     public let warning: String?
 
-    public init(type: String, success: Bool, hasBotToken: Bool, botUsername: String? = nil, connected: Bool, hasWebhookSecret: Bool, lastError: String? = nil, error: String? = nil, commandsRegistered: [String]? = nil, warning: String? = nil) {
+    public init(type: String, success: Bool, hasBotToken: Bool, botId: String? = nil, botUsername: String? = nil, connected: Bool, hasWebhookSecret: Bool, lastError: String? = nil, error: String? = nil, commandsRegistered: [String]? = nil, warning: String? = nil) {
         self.type = type
         self.success = success
         self.hasBotToken = hasBotToken
+        self.botId = botId
         self.botUsername = botUsername
         self.connected = connected
         self.hasWebhookSecret = hasWebhookSecret

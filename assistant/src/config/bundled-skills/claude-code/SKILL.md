@@ -6,7 +6,6 @@ metadata:
   emoji: "💻"
   vellum:
     display-name: "Claude Code"
-    user-invocable: true
 ---
 
 You are delegating a coding task to Claude Code, an autonomous AI coding agent. Use this skill when the user needs hands-on software engineering work done.
@@ -46,7 +45,7 @@ Do NOT delegate when:
 
 Claude Code supports scoped worker profiles that restrict tool access:
 
-- **general** (default) — Full access to all tools. Backward-compatible with existing behavior.
+- **general** (default) — Full access to all tools.
 - **researcher** — Read-only access. Can search, read files, and browse the web but cannot write or execute commands.
 - **coder** — Full read/write/execute access optimized for implementation tasks.
 - **reviewer** — Read-only access tailored for code review, with emphasis on analysis and feedback.

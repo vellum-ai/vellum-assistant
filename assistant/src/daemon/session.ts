@@ -23,6 +23,7 @@ import type {
 } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import { ContextWindowManager } from "../context/window-manager.js";
+import type { CesClient } from "../credential-execution/client.js";
 import { EventBus } from "../events/bus.js";
 import type { AssistantDomainEvents } from "../events/domain-events.js";
 import { createToolAuditListener } from "../events/tool-audit-listener.js";
@@ -45,8 +46,8 @@ import type { Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import type { AuthContext } from "../runtime/auth/types.js";
+import * as approvalOverrides from "../runtime/conversation-approval-overrides.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
-import * as approvalOverrides from "../runtime/session-approval-overrides.js";
 import { ToolExecutor } from "../tools/executor.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
@@ -65,7 +66,6 @@ import type {
   ConfirmationStateChanged,
 } from "./message-types/messages.js";
 import { runAgentLoopImpl } from "./session-agent-loop.js";
-import { ConflictGate } from "./session-conflict-gate.js";
 import type { HistorySessionContext } from "./session-history.js";
 import {
   regenerate as regenerateImpl,
@@ -159,7 +159,6 @@ export class Session {
   /** @internal */ contextCompactedMessageCount = 0;
   /** @internal */ contextCompactedAt: number | null = null;
   /** @internal */ currentRequestId?: string;
-  /** @internal */ conflictGate = new ConflictGate();
   /** @internal */ hasNoClient = false;
   /** @internal */ hasAttachments = false;
   /** @internal */ headlessLock = false;
@@ -168,6 +167,7 @@ export class Session {
   /** @internal */ hostBashProxy?: HostBashProxy;
   /** @internal */ hostCuProxy?: HostCuProxy;
   /** @internal */ hostFileProxy?: HostFileProxy;
+  /** @internal */ cesClient?: CesClient;
   /** @internal */ readonly queue = new MessageQueue();
   /** @internal */ currentActiveSurfaceId?: string;
   /** @internal */ currentPage?: string;
@@ -208,6 +208,7 @@ export class Session {
   /** @internal */ workspaceTopLevelContext: string | null = null;
   /** @internal */ workspaceTopLevelDirty = true;
   public readonly traceEmitter: TraceEmitter;
+  public readonly hasSystemPromptOverride: boolean;
   public memoryPolicy: SessionMemoryPolicy;
   /** @internal */ streamThinking: boolean;
   /** @internal */ turnCount = 0;
@@ -234,6 +235,7 @@ export class Session {
     workingDir: string,
     broadcastToAllClients?: (msg: ServerMessage) => void,
     memoryPolicy?: SessionMemoryPolicy,
+    sharedCesClient?: CesClient,
   ) {
     this.conversationId = conversationId;
     this.systemPrompt = systemPrompt;
@@ -313,12 +315,21 @@ export class Session {
 
     const config = getConfig();
     this.streamThinking = config.thinking.streamThinking ?? false;
+
+    // CES (Credential Execution Service) — use the shared server-level client.
+    // The CES sidecar accepts exactly one bootstrap connection, so the
+    // client is owned by DaemonServer and passed in here.
+    if (sharedCesClient) {
+      this.cesClient = sharedCesClient;
+    }
+
     const resolveTools = createResolveToolsCallback(toolDefs, this);
 
     const configuredMaxTokens = maxTokens;
     // When a systemPromptOverride was provided, use it as-is; otherwise
     // rebuild the full prompt each turn (picks up any workspace file changes).
     const hasSystemPromptOverride = systemPrompt !== buildSystemPrompt();
+    this.hasSystemPromptOverride = hasSystemPromptOverride;
 
     const resolveSystemPromptCallback = (
       _history: import("../providers/types.js").Message[],
@@ -350,6 +361,7 @@ export class Session {
       provider,
       systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
       config: config.contextWindow,
+      toolTokenBudget: this.agentLoop.getToolTokenBudget(),
     });
 
     void getHookManager().trigger("session-start", {
@@ -444,6 +456,9 @@ export class Session {
     this.hostBashProxy?.dispose();
     this.hostCuProxy?.dispose();
     this.hostFileProxy?.dispose();
+    // CES client is owned by DaemonServer — just drop the reference.
+    // Do NOT close it here; the server manages the CES lifecycle.
+    this.cesClient = undefined;
     disposeSession(this);
   }
 
@@ -547,7 +562,7 @@ export class Session {
       decisionContext,
     );
 
-    // Mode activation (setTimedMode / setThreadMode) is intentionally NOT
+    // Mode activation (setTimedMode / setConversationMode) is intentionally NOT
     // done here. It is handled in permission-checker.ts where the
     // guardian trust-class and conversation context are available.
 
@@ -594,7 +609,7 @@ export class Session {
    * After resolving one confirmation, auto-resolve other pending
    * confirmations in the same conversation that match the decision.
    *
-   * - allow_10m / allow_thread → approve ALL pending in conversation
+   * - allow_10m / allow_conversation → approve ALL pending in conversation
    * - always_allow / always_allow_high_risk → approve pattern-matching pending
    * - always_deny → deny pattern-matching pending
    * - allow / deny (one-time) → no cascading
@@ -667,7 +682,7 @@ export class Session {
     details?: import("../runtime/pending-interactions.js").ConfirmationDetails,
   ): { allow: boolean } | null {
     // Temporary overrides apply to the entire conversation
-    if (decision === "allow_10m" || decision === "allow_thread") {
+    if (decision === "allow_10m" || decision === "allow_conversation") {
       return { allow: true };
     }
 
@@ -820,6 +835,18 @@ export class Session {
 
   setPreactivatedSkillIds(ids: string[] | undefined): void {
     this.preactivatedSkillIds = ids;
+  }
+
+  /**
+   * Add a skill ID to the preactivated set without replacing existing entries.
+   * No-op if the ID is already present.
+   */
+  addPreactivatedSkillId(id: string): void {
+    if (!this.preactivatedSkillIds) {
+      this.preactivatedSkillIds = [id];
+    } else if (!this.preactivatedSkillIds.includes(id)) {
+      this.preactivatedSkillIds.push(id);
+    }
   }
 
   setTurnChannelContext(ctx: TurnChannelContext): void {

@@ -92,10 +92,10 @@ struct ModelsServicesSection: View {
         } label: {
             HStack {
                 Text(provider.displayName)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 Spacer()
                 VIconView(hasKey ? .circleCheck : .info, size: 14)
-                    .foregroundColor(hasKey ? VColor.success : VColor.textMuted)
+                    .foregroundColor(hasKey ? VColor.systemPositiveStrong : VColor.contentTertiary)
             }
         }
         .accessibilityLabel("\(provider.displayName), \(hasKey ? "key saved" : "no key set")")
@@ -156,7 +156,7 @@ private struct APIKeyDetailSheet: View {
                     if hasExistingKey {
                         HStack {
                             VIconView(.circleCheck, size: 16)
-                                .foregroundColor(VColor.success)
+                                .foregroundColor(VColor.systemPositiveStrong)
                             Text("API key saved")
                             Spacer()
                         }

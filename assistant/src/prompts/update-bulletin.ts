@@ -13,7 +13,9 @@ import { APP_VERSION } from "../version.js";
 import { stripCommentLines } from "./system-prompt.js";
 import {
   appendReleaseBlock,
+  extractContentMarkers,
   hasReleaseBlock,
+  releaseMarker,
 } from "./update-bulletin-format.js";
 import {
   addActiveRelease,
@@ -103,12 +105,22 @@ export function syncUpdateBulletinOnStartup(): void {
   } else {
     const existing = readFileSync(workspacePath, "utf-8");
     if (!hasReleaseBlock(existing, currentReleaseId)) {
-      const updated = appendReleaseBlock(
-        existing,
-        currentReleaseId,
-        templateContent,
-      );
-      atomicWriteFileSync(workspacePath, updated);
+      // Guard: skip if the template's content markers already exist in the
+      // workspace file. This prevents the same update notes from being
+      // appended on every version bump when the template isn't cleared.
+      const contentMarkers = extractContentMarkers(templateContent);
+      const allContentAlreadyPresent =
+        contentMarkers.length > 0 &&
+        contentMarkers.every((m) => existing.includes(releaseMarker(m)));
+
+      if (!allContentAlreadyPresent) {
+        const updated = appendReleaseBlock(
+          existing,
+          currentReleaseId,
+          templateContent,
+        );
+        atomicWriteFileSync(workspacePath, updated);
+      }
     }
   }
 

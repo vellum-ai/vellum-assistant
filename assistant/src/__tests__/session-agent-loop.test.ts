@@ -39,7 +39,6 @@ mock.module("../config/loader.js", () => ({
       },
     },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
-    apiKeys: {},
     workspaceGit: { turnCommitMaxWaitMs: 10 },
     ui: {},
   }),
@@ -119,7 +118,7 @@ mock.module("../hooks/manager.js", () => ({
 }));
 
 mock.module("../memory/conversation-crud.js", () => ({
-  getConversationThreadType: () => "default",
+  getConversationType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationUsage: () => {},
   getMessages: () => [],
@@ -149,13 +148,12 @@ mock.module("../memory/retriever.js", () => ({
     enabled: false,
     degraded: false,
     injectedText: "",
-    lexicalHits: 0,
+
     semanticHits: 0,
     recencyHits: 0,
     injectedTokens: 0,
     latencyMs: 0,
   }),
-  injectMemoryRecallIntoUserMessage: (msg: Message) => msg,
   stripMemoryRecallMessages: (msgs: Message[]) => msgs,
 }));
 
@@ -181,25 +179,21 @@ mock.module("../daemon/session-memory.js", () => ({
       enabled: false,
       degraded: false,
       injectedText: "",
-      lexicalHits: 0,
+
       semanticHits: 0,
       recencyHits: 0,
       injectedTokens: 0,
       latencyMs: 0,
+      tier1Count: 0,
+      tier2Count: 0,
+      hybridSearchMs: 0,
     },
-    dynamicProfile: { text: "" },
-    recallInjectionStrategy: "prepend_user_block" as const,
   }),
 }));
 
 mock.module("../daemon/session-runtime-assembly.js", () => ({
   applyRuntimeInjections: (msgs: Message[]) => msgs,
   stripInjectedContext: (msgs: Message[]) => msgs,
-}));
-
-mock.module("../daemon/session-dynamic-profile.js", () => ({
-  stripDynamicProfileMessages: (msgs: Message[]) => msgs,
-  injectDynamicProfileIntoUserMessage: (msg: Message) => msg,
 }));
 
 mock.module("../daemon/date-context.js", () => ({
@@ -276,6 +270,7 @@ mock.module("../daemon/session-error.js", () => ({
     code: "SESSION_PROCESSING_FAILED",
     userMessage: "Something went wrong processing your message.",
     retryable: false,
+    errorCategory: "processing_failed",
   }),
   isUserCancellation: (err: unknown, ctx: { aborted?: boolean }) => {
     if (!ctx.aborted) return false;
@@ -357,6 +352,7 @@ function makeCtx(
 
     agentLoop: {
       run: agentLoopRun,
+      getToolTokenBudget: () => 0,
     } as unknown as AgentLoopSessionContext["agentLoop"],
     provider: {
       name: "mock-provider",
@@ -376,9 +372,6 @@ function makeCtx(
     contextCompactedMessageCount: 0,
     contextCompactedAt: null,
 
-    conflictGate: {
-      evaluate: async () => null,
-    } as unknown as AgentLoopSessionContext["conflictGate"],
     memoryPolicy: { scopeId: "default", includeDefaultFallback: true },
 
     currentActiveSurfaceId: undefined,
@@ -1300,6 +1293,7 @@ describe("session-agent-loop", () => {
             turnIndex: 0,
             toolCount: 1,
             hasToolUse: true,
+            history: messages,
           });
           if (decision === "yield") {
             return [
@@ -1363,7 +1357,12 @@ describe("session-agent-loop", () => {
           providerDurationMs: 100,
         });
         if (onCheckpoint) {
-          onCheckpoint({ turnIndex: 0, toolCount: 1, hasToolUse: true });
+          onCheckpoint({
+            turnIndex: 0,
+            toolCount: 1,
+            hasToolUse: true,
+            history: messages,
+          });
         }
         return [
           ...messages,
@@ -1425,7 +1424,12 @@ describe("session-agent-loop", () => {
           providerDurationMs: 100,
         });
         if (onCheckpoint) {
-          onCheckpoint({ turnIndex: 0, toolCount: 1, hasToolUse: true });
+          onCheckpoint({
+            turnIndex: 0,
+            toolCount: 1,
+            hasToolUse: true,
+            history: messages,
+          });
         }
         return [
           ...messages,

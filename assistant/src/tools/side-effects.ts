@@ -1,7 +1,7 @@
 // Side-effect tool classification — single source of truth.
 // Tools that modify state outside the assistant (filesystem writes,
 // shell commands, network requests that trigger actions, etc.).
-// Used by private-thread gating and permission simulation to decide
+// Used by private-conversation gating and permission simulation to decide
 // whether a tool invocation requires explicit approval.
 
 const SIDE_EFFECT_TOOLS: ReadonlySet<string> = new Set([
@@ -26,6 +26,7 @@ const SIDE_EFFECT_TOOLS: ReadonlySet<string> = new Set([
   "schedule_create",
   "schedule_update",
   "schedule_delete",
+  "manage_secure_command_tool",
 ]);
 
 /**

@@ -6,7 +6,6 @@ metadata:
   emoji: "⬆️"
   vellum:
     display-name: "Self Upgrade"
-    user-invocable: true
 ---
 
 You are performing a self-upgrade of the Vellum assistant. Follow these steps **in order**. Use the `bash` tool to run each command. Confirm each step succeeds before moving to the next.

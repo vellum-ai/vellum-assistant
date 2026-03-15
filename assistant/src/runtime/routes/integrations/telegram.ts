@@ -20,8 +20,8 @@ import type { RouteDefinition } from "../../http-router.js";
 /**
  * GET /v1/integrations/telegram/config
  */
-export function handleGetTelegramConfig(): Response {
-  const result = getTelegramConfig();
+export async function handleGetTelegramConfig(): Promise<Response> {
+  const result = await getTelegramConfig();
   return Response.json(result);
 }
 

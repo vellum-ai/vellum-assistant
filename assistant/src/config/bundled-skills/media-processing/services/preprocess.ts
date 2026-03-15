@@ -18,6 +18,7 @@ import {
   type ProcessingStage,
   updateProcessingStage,
 } from "../../../../memory/media-store.js";
+import { silentlyWithLog } from "../../../../util/silently.js";
 import {
   FFMPEG_PALETTE_TIMEOUT_MS,
   FFMPEG_PREPROCESS_TIMEOUT_MS,
@@ -629,7 +630,10 @@ export async function preprocessForAsset(
 
     return manifest;
   } catch (err) {
-    await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await silentlyWithLog(
+      rm(tempDir, { recursive: true, force: true }),
+      "preprocess temp cleanup",
+    );
     const msg = (err as Error).message;
     updateProcessingStage(stage.id, {
       status: "failed",

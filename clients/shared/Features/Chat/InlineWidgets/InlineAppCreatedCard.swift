@@ -34,20 +34,20 @@ struct InlineAppCreatedCard: View {
 
                 Text(preview.title)
                     .font(VFont.bodyBold)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .lineLimit(2)
             }
 
             if let description = preview.description, !description.isEmpty {
                 Text(description)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .lineLimit(3)
             }
 
             // Action buttons
             HStack(spacing: VSpacing.sm) {
-                VButton(label: "Open App", leftIcon: VIcon.arrowUpRight.rawValue, style: .primary, size: .small) {
+                VButton(label: "Open App", leftIcon: VIcon.arrowUpRight.rawValue, style: .primary) {
                     onOpenApp()
                 }
 
@@ -55,8 +55,7 @@ struct InlineAppCreatedCard: View {
                     VButton(
                         label: isPinned ? "Unpin" : "Pin to Nav",
                         leftIcon: isPinned ? VIcon.pinOff.rawValue : VIcon.pin.rawValue,
-                        style: .tertiary,
-                        size: .small
+                        style: .outlined
                     ) {
                         onTogglePin(isPinned)
                     }
@@ -66,7 +65,7 @@ struct InlineAppCreatedCard: View {
             }
         }
         .padding(16)
-        .background(RoundedRectangle(cornerRadius: VRadius.lg).fill(VColor.appCardBackground))
+        .background(RoundedRectangle(cornerRadius: VRadius.lg).fill(VColor.surfaceOverlay))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .onAppear {
             previewImage = preview.previewImage
@@ -107,22 +106,5 @@ struct InlineAppCreatedCard: View {
 }
 
 #if DEBUG
-#Preview("InlineAppCreatedCard") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        InlineAppCreatedCard(
-            preview: DynamicPagePreview(
-                title: "Kanban Board",
-                description: "Here's a simple dashboard with drag-and-drop task management.",
-                icon: "🎯"
-            ),
-            appId: "test-app-id",
-            onOpenApp: {}
-        )
-        .frame(width: 400)
-        .padding()
-    }
-    .frame(width: 500, height: 400)
-}
 #endif
 #endif

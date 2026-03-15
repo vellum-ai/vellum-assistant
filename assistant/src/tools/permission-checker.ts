@@ -10,9 +10,9 @@ import type { PermissionPrompter } from "../permissions/prompter.js";
 import { addRule } from "../permissions/trust-store.js";
 import {
   getEffectiveMode,
-  setThreadMode,
+  setConversationMode,
   setTimedMode,
-} from "../runtime/session-approval-overrides.js";
+} from "../runtime/conversation-approval-overrides.js";
 import { getLogger } from "../util/logger.js";
 import { buildPolicyContext } from "./policy-context.js";
 import { isSideEffectTool } from "./side-effects.js";
@@ -89,7 +89,7 @@ export class PermissionChecker {
         context.signal,
       );
 
-      // Private threads force prompting for side-effect tools even when a
+      // Private conversations force prompting for side-effect tools even when a
       // trust/allow rule would auto-allow. Deny decisions are preserved —
       // only allow → prompt promotion happens here.
       if (
@@ -99,7 +99,18 @@ export class PermissionChecker {
       ) {
         result.decision = "prompt";
         result.reason =
-          "Private thread: side-effect tools require explicit approval";
+          "Private conversation: side-effect tools require explicit approval";
+      }
+
+      // requireFreshApproval independently promotes allow → prompt so that
+      // cached grants, persistent trust rules, and auto-approve shortcuts
+      // cannot bypass the interactive prompt. This is separate from the
+      // forcePromptSideEffects path above to ensure requireFreshApproval
+      // is self-sufficient without relying on SIDE_EFFECT_TOOLS membership.
+      if (context.requireFreshApproval && result.decision === "allow") {
+        result.decision = "prompt";
+        result.reason =
+          "Fresh approval required: per-invocation human review enforced";
       }
 
       if (result.decision === "deny") {
@@ -130,9 +141,12 @@ export class PermissionChecker {
         // Guardian-trust sessions (e.g. scheduled jobs, reminders) should be
         // able to use bundled tools without interactive approval. The guardian
         // is the owner — prompting makes no sense when there is no client.
+        // Exception: requireFreshApproval tools cannot be auto-approved —
+        // without a human present, bundle installation must be denied.
         if (
           context.isInteractive === false &&
-          context.trustClass === "guardian"
+          context.trustClass === "guardian" &&
+          !context.requireFreshApproval
         ) {
           log.info(
             { toolName: name, riskLevel },
@@ -176,13 +190,17 @@ export class PermissionChecker {
         }
 
         // Temporary approval override: if the guardian has enabled a
-        // conversation-scoped "allow all" mode (allow_10m or allow_thread),
+        // conversation-scoped "allow all" mode (allow_10m or allow_conversation),
         // skip the interactive prompt and auto-approve. Only applies to
         // guardian actors — untrusted actors cannot leverage this to bypass
         // guardian-required gates (those are enforced in pre-execution gates).
+        // Exception: requireFreshApproval tools must always show the prompt —
+        // cached temporary overrides cannot substitute for per-invocation
+        // human review.
         if (
           context.trustClass === "guardian" &&
-          getEffectiveMode(context.conversationId) !== undefined
+          getEffectiveMode(context.conversationId) !== undefined &&
+          !context.requireFreshApproval
         ) {
           log.info(
             {
@@ -218,14 +236,16 @@ export class PermissionChecker {
           sandboxed = wrapped.sandboxed;
         }
 
-        const persistentDecisionsAllowed = true;
+        const persistentDecisionsAllowed = !context.requireFreshApproval;
 
-        // Offer temporary approval options to guardians.
+        // Offer temporary approval options to guardians. Suppressed when
+        // requireFreshApproval is true — temporary overrides would be
+        // misleading since future invocations still require fresh approval.
         const temporaryOptionsAvailable:
-          | Array<"allow_10m" | "allow_thread">
+          | Array<"allow_10m" | "allow_conversation">
           | undefined =
-          context.trustClass === "guardian"
-            ? ["allow_10m", "allow_thread"]
+          context.trustClass === "guardian" && !context.requireFreshApproval
+            ? ["allow_10m", "allow_conversation"]
             : undefined;
 
         emitLifecycleEvent({
@@ -402,7 +422,7 @@ export class PermissionChecker {
         }
 
         // Activate temporary approval mode when the user chooses a
-        // time-limited or thread-scoped override. Subsequent tool
+        // time-limited or conversation-scoped override. Subsequent tool
         // invocations in this conversation will auto-approve without
         // prompting (checked above in the temporary override block).
         if (response.decision === "allow_10m") {
@@ -411,11 +431,11 @@ export class PermissionChecker {
             { toolName: name, conversationId: context.conversationId },
             "Activated timed (10m) temporary approval mode",
           );
-        } else if (response.decision === "allow_thread") {
-          setThreadMode(context.conversationId);
+        } else if (response.decision === "allow_conversation") {
+          setConversationMode(context.conversationId);
           log.info(
             { toolName: name, conversationId: context.conversationId },
-            "Activated thread-scoped temporary approval mode",
+            "Activated conversation-scoped temporary approval mode",
           );
         }
 

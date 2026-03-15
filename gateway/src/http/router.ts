@@ -1,3 +1,5 @@
+import type { Server } from "bun";
+
 import type { Scope } from "../auth/types.js";
 import type { AuthRateLimiter } from "../auth-rate-limiter.js";
 import {
@@ -79,10 +81,16 @@ export function createRouter(
   req: Request,
   url: URL,
   getClientIp: GetClientIp,
+  server?: Server<unknown>,
 ) => Promise<Response> | Response | null {
   const { authRateLimiter } = deps;
 
-  return (req: Request, url: URL, getClientIp: GetClientIp) => {
+  return (
+    req: Request,
+    url: URL,
+    getClientIp: GetClientIp,
+    server?: Server<unknown>,
+  ) => {
     for (const route of routes) {
       const matchResult = matchRoute(route, url.pathname, req.method);
       if (!matchResult) continue;
@@ -105,7 +113,7 @@ export function createRouter(
             authRateLimiter,
             getClientIp,
           );
-          const authError = requireEdgeAuth(req);
+          const authError = requireEdgeAuth(req, server);
           if (authError) return authError;
           return route.handler(req, matchResult.params, getClientIp);
         }
@@ -115,7 +123,7 @@ export function createRouter(
             authRateLimiter,
             getClientIp,
           );
-          const authError = requireEdgeAuthWithScope(req, route.scope!);
+          const authError = requireEdgeAuthWithScope(req, route.scope!, server);
           if (authError) return authError;
           return route.handler(req, matchResult.params, getClientIp);
         }

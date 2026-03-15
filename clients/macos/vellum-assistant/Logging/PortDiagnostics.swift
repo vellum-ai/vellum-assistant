@@ -1,4 +1,5 @@
 import Foundation
+import VellumAssistantShared
 import os
 
 private let log = Logger(

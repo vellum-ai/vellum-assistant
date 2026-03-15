@@ -17,7 +17,7 @@ public enum ManagedBootstrapError: LocalizedError, Sendable {
     case hatchFailed(String)
     case unexpectedResponse(String)
     case multipleOrganizations
-    case assistantUnavailable(String)
+    case accessRevoked(String)
 
     public var errorDescription: String? {
         switch self {
@@ -33,8 +33,8 @@ public enum ManagedBootstrapError: LocalizedError, Sendable {
             return "Unexpected response format: \(message)"
         case .multipleOrganizations:
             return "Multiple organizations found. Multi-org support is not yet available — please contact support."
-        case .assistantUnavailable(let id):
-            return "Selected assistant \(id) is no longer available. Please sign out and sign in again to set up a new assistant."
+        case .accessRevoked(let id):
+            return "Access to assistant \(id) has been revoked. Please sign out and sign in again to set up a new assistant."
         }
     }
 }
@@ -43,8 +43,9 @@ public enum ManagedBootstrapError: LocalizedError, Sendable {
 ///
 /// The bootstrap flow:
 /// 1. If a `connectedAssistantId` exists, fetch that specific assistant via GET /assistants/{id}/.
-///    If it returns 404/403, surface an error instead of silently hatching a replacement.
-/// 2. Otherwise, fall back to GET /assistants/current/ to discover the user's assistant.
+///    - 404 (deleted): clear the stale ID and fall through to step 2.
+///    - 403 (access revoked): surface an `accessRevoked` error so the user knows.
+/// 2. Fall back to GET /assistants/current/ to discover the user's assistant.
 /// 3. If none exists (404), create one via hatch and return `.createdNew`.
 /// 4. Any other error is surfaced as a typed `ManagedBootstrapError`.
 @MainActor
@@ -65,7 +66,6 @@ public final class ManagedAssistantBootstrapService {
         let organizationId = try await resolveOrganizationId()
 
         // If we already have a selected managed assistant, retrieve it directly.
-        // Do NOT fall back to current/ or hatch/ — surface an error if unavailable.
         if let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId") {
             log.info("Found connectedAssistantId: \(connectedId, privacy: .public), retrieving directly")
             let result: PlatformAssistantResult
@@ -80,16 +80,19 @@ public final class ManagedAssistantBootstrapService {
                 log.info("Retrieved connected assistant: \(assistant.id, privacy: .public)")
                 return .reusedExisting(assistant)
             case .notFound:
-                // Clear the stale ID so retries fall through to current/ + hatch
-                // instead of hitting the same 404 in a loop.
-                log.error("Connected assistant \(connectedId, privacy: .public) not found — clearing stale ID")
+                // Clear the stale ID and fall through to current/ + hatch
+                // so the user doesn't have to manually retry.
+                log.warning("Connected assistant \(connectedId, privacy: .public) not found — clearing stale ID and falling through to discovery")
                 UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
-                throw ManagedBootstrapError.assistantUnavailable(connectedId)
+            case .accessDenied:
+                log.error("Access to connected assistant \(connectedId, privacy: .public) has been revoked")
+                UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+                throw ManagedBootstrapError.accessRevoked(connectedId)
             }
         }
 
-        // No selected assistant — discover via current/ or hatch a new one.
-        log.info("No connectedAssistantId set, falling back to current/ discovery")
+        // No selected assistant (or stale one was cleared) — discover via current/ or hatch a new one.
+        log.info("Falling back to current/ discovery")
         let currentResult: PlatformAssistantResult
         do {
             currentResult = try await authService.getCurrentAssistant(organizationId: organizationId)
@@ -101,6 +104,9 @@ public final class ManagedAssistantBootstrapService {
         case .found(let assistant):
             log.info("Found existing managed assistant: \(assistant.id, privacy: .public)")
             return .reusedExisting(assistant)
+
+        case .accessDenied:
+            throw ManagedBootstrapError.authenticationRequired
 
         case .notFound:
             log.info("No managed assistant found, hatching a new one")

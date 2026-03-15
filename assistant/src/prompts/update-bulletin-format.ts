@@ -41,6 +41,22 @@ export function appendReleaseBlock(
   return `${content}${separator}${block}\n`;
 }
 
+/**
+ * Extracts content-level markers (non-version feature markers) from the
+ * template body. These are markers like `schedule-reminder-unification`
+ * that identify the _content_ rather than the release version.
+ */
+export function extractContentMarkers(body: string): string[] {
+  const ids: string[] = [];
+  const regex = /<!-- vellum-update-release:(.+?) -->/g;
+  let match: RegExpExecArray | null;
+  // eslint-disable-next-line no-restricted-syntax -- RegExp.exec returns null
+  while ((match = regex.exec(body)) !== null) {
+    ids.push(match[1]);
+  }
+  return ids;
+}
+
 /** Extracts all version strings from release markers found in `content`. */
 export function extractReleaseIds(content: string): string[] {
   const ids: string[] = [];

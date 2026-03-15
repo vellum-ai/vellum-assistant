@@ -58,16 +58,48 @@ public final class AuthService {
         return normalized.isEmpty ? nil : normalized
     }
 
+    private struct AuthRequestConfig {
+        let path: String
+        let method: String
+        let body: Any?
+        let headers: [String: String]
+        let retryAfterSession410: Bool
+
+        init(
+            path: String,
+            method: String = "GET",
+            body: Any? = nil,
+            headers: [String: String] = [:],
+            retryAfterSession410: Bool = false
+        ) {
+            self.path = path
+            self.method = method
+            self.body = body
+            self.headers = headers
+            self.retryAfterSession410 = retryAfterSession410
+        }
+    }
+
+    private struct AuthAttemptResult {
+        let data: Data
+        let httpResponse: HTTPURLResponse?
+        let didSendSessionToken: Bool
+
+        var statusCode: Int {
+            httpResponse?.statusCode ?? 0
+        }
+    }
+
     public func getConfig() async throws -> AllauthResponse<ConfigData> {
-        try await request(path: "config")
+        try await request(AuthRequestConfig(path: "config", retryAfterSession410: true))
     }
 
     public func getSession() async throws -> AllauthResponse<SessionData> {
-        try await request(path: "auth/session")
+        try await request(AuthRequestConfig(path: "auth/session"))
     }
 
     public func logout() async throws -> AllauthResponse<EmptyData> {
-        try await request(path: "auth/session", method: "DELETE")
+        try await request(AuthRequestConfig(path: "auth/session", method: "DELETE"))
     }
 
     public func authenticateWithProviderToken(
@@ -86,7 +118,7 @@ public final class AuthService {
             "process": process,
             "token": token,
         ]
-        return try await request(path: "auth/provider/token", method: "POST", body: body)
+        return try await request(AuthRequestConfig(path: "auth/provider/token", method: "POST", body: body))
     }
 
     public func fetchOIDCDiscovery(url: String) async throws -> OIDCDiscovery {
@@ -271,10 +303,12 @@ public final class AuthService {
 
         log.debug("Platform request GET assistants/\(id)/ -> \(statusCode)")
 
-        // 404 = deleted, 403 = access revoked. Both mean this specific
-        // assistant is no longer available to the current user.
-        if statusCode == 404 || statusCode == 403 {
+        if statusCode == 404 {
             return .notFound
+        }
+
+        if statusCode == 403 {
+            return .accessDenied
         }
 
         if statusCode == 401 {
@@ -481,54 +515,27 @@ public final class AuthService {
 
     // MARK: - Allauth Requests
 
-    private func request<T: Codable>(
-        path: String,
-        method: String = "GET",
-        body: Any? = nil,
-        headers: [String: String] = [:]
-    ) async throws -> AllauthResponse<T> {
-        let urlString = "\(baseURL)/_allauth/app/v1/\(path)"
-        guard let url = URL(string: urlString) else {
-            throw AuthServiceError.invalidURL
+    private func request<T: Codable>(_ requestConfig: AuthRequestConfig) async throws -> AllauthResponse<T> {
+        var attempt = try await executeRequestAttempt(
+            requestConfig: requestConfig,
+            includeSessionToken: true
+        )
+        log.debug("Auth request \(requestConfig.method, privacy: .public) \(requestConfig.path, privacy: .public) -> \(attempt.statusCode, privacy: .public)")
+
+        if await shouldRetryAfterSessionTokenGone(for: requestConfig, firstAttempt: attempt) {
+            attempt = try await executeRequestAttempt(
+                requestConfig: requestConfig,
+                includeSessionToken: false
+            )
+            log.debug("Auth request retry \(requestConfig.method, privacy: .public) \(requestConfig.path, privacy: .public) -> \(attempt.statusCode, privacy: .public)")
         }
-
-        var urlRequest = URLRequest(url: url)
-        urlRequest.httpMethod = method
-        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
-        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        if let token = await SessionTokenManager.getTokenAsync() {
-            urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
-        }
-
-        for (key, value) in headers {
-            urlRequest.setValue(value, forHTTPHeaderField: key)
-        }
-
-        if let body {
-            urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
-        }
-
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await URLSession.shared.data(for: urlRequest)
-        } catch {
-            log.error("Auth request \(method, privacy: .public) \(urlString, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
-            throw AuthServiceError.networkError(error)
-        }
-
-        let httpResponse = response as? HTTPURLResponse
-        let statusCode = httpResponse?.statusCode ?? 0
-
-        log.debug("Auth request \(method, privacy: .public) \(urlString, privacy: .public) -> \(statusCode, privacy: .public)")
 
         let decoded: AllauthResponse<T>
         do {
-            decoded = try JSONDecoder().decode(AllauthResponse<T>.self, from: data)
+            decoded = try JSONDecoder().decode(AllauthResponse<T>.self, from: attempt.data)
         } catch {
-            let rawBody = String(data: data, encoding: .utf8) ?? "<non-utf8>"
-            log.error("Failed to decode auth response for \(method, privacy: .public) \(path, privacy: .public): \(error)\nRaw body: \(rawBody, privacy: .private)")
+            let rawBody = String(data: attempt.data, encoding: .utf8) ?? "<non-utf8>"
+            log.error("Failed to decode auth response for \(requestConfig.method, privacy: .public) \(requestConfig.path, privacy: .public): \(error)\nRaw body: \(rawBody, privacy: .private)")
             throw AuthServiceError.decodingError(error)
         }
 
@@ -537,5 +544,69 @@ public final class AuthService {
         }
 
         return decoded
+    }
+
+    private func shouldRetryAfterSessionTokenGone(
+        for requestConfig: AuthRequestConfig,
+        firstAttempt: AuthAttemptResult
+    ) async -> Bool {
+        guard firstAttempt.statusCode == 410, firstAttempt.didSendSessionToken else {
+            return false
+        }
+
+        log.warning("Auth request \(requestConfig.method, privacy: .public) \(requestConfig.path, privacy: .public) returned 410 with a session token; clearing stored session token.")
+        await SessionTokenManager.deleteTokenAsync()
+
+        guard requestConfig.retryAfterSession410 else {
+            log.warning("Auth request \(requestConfig.method, privacy: .public) \(requestConfig.path, privacy: .public) returned 410 with a session token; endpoint policy disables retry.")
+            return false
+        }
+
+        log.debug("Retrying auth request \(requestConfig.method, privacy: .public) \(requestConfig.path, privacy: .public) once without session token after 410.")
+        return true
+    }
+
+    private func executeRequestAttempt(
+        requestConfig: AuthRequestConfig,
+        includeSessionToken: Bool
+    ) async throws -> AuthAttemptResult {
+        let urlString = "\(baseURL)/_allauth/app/v1/\(requestConfig.path)"
+        guard let url = URL(string: urlString) else {
+            throw AuthServiceError.invalidURL
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = requestConfig.method
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        var didSendSessionToken = false
+        if includeSessionToken, let token = await SessionTokenManager.getTokenAsync() {
+            urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
+            didSendSessionToken = true
+        }
+
+        for (key, value) in requestConfig.headers {
+            urlRequest.setValue(value, forHTTPHeaderField: key)
+        }
+
+        if let body = requestConfig.body {
+            urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
+        }
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: urlRequest)
+        } catch {
+            log.error("Auth request \(requestConfig.method, privacy: .public) \(urlString, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            throw AuthServiceError.networkError(error)
+        }
+
+        return AuthAttemptResult(
+            data: data,
+            httpResponse: response as? HTTPURLResponse,
+            didSendSessionToken: didSendSessionToken
+        )
     }
 }

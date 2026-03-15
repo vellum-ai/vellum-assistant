@@ -40,8 +40,8 @@ private struct AttachmentChip: View {
             // Remove button
             Button(action: onRemove) {
                 VIconView(.circleX, size: 14)
-                    .foregroundStyle(.white)
-                    .background(Circle().fill(.black.opacity(0.6)))
+                    .foregroundStyle(VColor.auxWhite)
+                    .background(Circle().fill(VColor.auxBlack.opacity(0.6)))
             }
             .accessibilityLabel("Remove \(attachment.filename)")
             .offset(x: 6, y: -6)

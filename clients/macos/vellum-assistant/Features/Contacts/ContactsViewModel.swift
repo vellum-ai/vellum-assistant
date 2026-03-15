@@ -38,14 +38,16 @@ final class ContactsViewModel: ObservableObject {
 
     // MARK: - Computed Properties
 
-    /// Contacts filtered by the current search query, matching against
-    /// displayName and channel addresses.
+    /// Non-guardian contacts filtered by the current search query, matching
+    /// against displayName and channel addresses. Guardians are excluded
+    /// because they have a dedicated section in the list.
     var filteredContacts: [ContactPayload] {
+        let nonGuardian = contacts.filter { $0.role != "guardian" }
         guard !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return contacts
+            return nonGuardian
         }
         let query = searchQuery.lowercased()
-        return contacts.filter { contact in
+        return nonGuardian.filter { contact in
             if contact.displayName.lowercased().contains(query) {
                 return true
             }
@@ -56,8 +58,10 @@ final class ContactsViewModel: ObservableObject {
     }
 
     /// The guardian contact, if present.
+    /// Uses the unfiltered contacts array so the guardian is always found
+    /// regardless of the active search query.
     var guardianContact: ContactPayload? {
-        filteredContacts.first { $0.role == "guardian" }
+        contacts.first { $0.role == "guardian" }
     }
 
     /// All non-guardian contacts from the filtered set.

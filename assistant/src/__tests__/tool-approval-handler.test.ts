@@ -84,7 +84,7 @@ afterAll(() => {
 // ---------------------------------------------------------------------------
 
 function mintParams(overrides: Partial<MintGrantParams> = {}): MintGrantParams {
-  const futureExpiry = new Date(Date.now() + 60_000).toISOString();
+  const futureExpiry = Date.now() + 60_000;
   return {
     scopeMode: "tool_signature",
     requestChannel: "telegram",
@@ -298,7 +298,7 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
     const toolName = "bash";
     const input = { command: "ls" };
     const digest = computeToolApprovalDigest(toolName, input);
-    const pastExpiry = new Date(Date.now() - 60_000).toISOString();
+    const pastExpiry = Date.now() - 60_000;
 
     mintGrantFromDecision(
       mintParams({

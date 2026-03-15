@@ -62,24 +62,6 @@ export function buildSkillLoadHistory(
 }
 
 /**
- * Assert that a set of tool names is exactly the expected set (order-independent).
- */
-export function expectToolNamesEqual(
-  actual: string[],
-  expected: readonly string[],
-): void {
-  const sorted = [...actual].sort();
-  const expectedSorted = [...expected].sort();
-  if (JSON.stringify(sorted) !== JSON.stringify(expectedSorted)) {
-    throw new Error(
-      `Tool names mismatch.\nExpected: ${JSON.stringify(
-        expectedSorted,
-      )}\nActual: ${JSON.stringify(sorted)}`,
-    );
-  }
-}
-
-/**
  * Assert that all browser tool names are present in a given set.
  */
 export function assertBrowserToolsPresent(toolNames: string[]): void {

@@ -45,13 +45,6 @@ private func resolveInstanceDirFromLockfile() -> String? {
     return instanceDir
 }
 
-/// Resolve the runtime HTTP bearer token path.
-/// Uses BASE_DATA_DIR when set to match daemon root resolution.
-/// Available on all platforms since HTTP transport is used on both macOS and iOS.
-public func resolveHttpTokenPath(environment: [String: String]? = nil) -> String {
-    return resolveVellumDir(environment: environment) + "/http-token"
-}
-
 /// Resolve the feature-flag bearer token path.
 /// Uses BASE_DATA_DIR when set to match daemon root resolution.
 public func resolveFeatureFlagTokenPath(environment: [String: String]? = nil) -> String {
@@ -94,9 +87,6 @@ public protocol DaemonClientProtocol {
     func startSSE()
     func stopSSE()
     func fetchSurfaceData(surfaceId: String, sessionId: String) async -> SurfaceData?
-    func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse?
-    func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse?
-    func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse?
     func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error>
 }
 
@@ -107,9 +97,6 @@ extension DaemonClientProtocol {
 
     /// Default no-op implementation for clients that don't support HTTP surface fetches.
     public func fetchSurfaceData(surfaceId: String, sessionId: String) async -> SurfaceData? { nil }
-    public func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? { nil }
-    public func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse? { nil }
-    public func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? { nil }
 
     /// Default no-op implementation for clients that don't support btw side-chain.
     public func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error> {
@@ -364,8 +351,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon emits a generic `notification_intent` payload.
     public var onNotificationIntent: ((NotificationIntentMessage) -> Void)?
 
-    /// Called when a notification delivery creates a new vellum conversation thread.
-    public var onNotificationThreadCreated: ((NotificationThreadCreated) -> Void)?
+    /// Called when a notification delivery creates a new vellum conversation.
+    public var onNotificationConversationCreated: ((NotificationConversationCreated) -> Void)?
 
     /// Called when the daemon sends a `trust_rules_list_response` message.
     public var onTrustRulesListResponse: (([TrustRuleItem]) -> Void)?
@@ -533,10 +520,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     public var onError: ((ErrorMessage) -> Void)?
 
     /// Called when a task run creates a conversation so the client can show it as a visible chat thread.
-    public var onTaskRunThreadCreated: ((TaskRunThreadCreated) -> Void)?
+    public var onTaskRunConversationCreated: ((TaskRunConversationCreated) -> Void)?
 
     /// Called when a schedule creates a conversation so the client can show it as a visible chat thread.
-    public var onScheduleThreadCreated: ((ScheduleThreadCreated) -> Void)?
+    public var onScheduleConversationCreated: ((ScheduleConversationCreated) -> Void)?
 
     /// Called when the daemon requests pairing approval from macOS.
     public var onPairingApprovalRequest: ((PairingApprovalRequestMessage) -> Void)?
@@ -828,37 +815,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
     }
 
-    // MARK: - Usage Reporting
-
-    /// Fetch aggregate usage totals for a time range (epoch milliseconds).
-    /// Delegates to HTTPTransport for remote connections, or calls the local daemon HTTP server.
-    public func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? {
-        if let httpTransport {
-            return await httpTransport.fetchUsageTotals(from: from, to: to)
-        }
-
-        return await executeLocalRequest(path: "v1/usage/totals?from=\(from)&to=\(to)", timeout: 10)
-    }
-
-    /// Fetch per-day usage buckets for a time range (epoch milliseconds).
-    public func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse? {
-        if let httpTransport {
-            return await httpTransport.fetchUsageDaily(from: from, to: to)
-        }
-
-        return await executeLocalRequest(path: "v1/usage/daily?from=\(from)&to=\(to)", timeout: 10)
-    }
-
-    /// Fetch grouped usage breakdown for a time range (epoch milliseconds).
-    public func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? {
-        if let httpTransport {
-            return await httpTransport.fetchUsageBreakdown(from: from, to: to, groupBy: groupBy)
-        }
-
-        let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? groupBy
-        return await executeLocalRequest(path: "v1/usage/breakdown?from=\(from)&to=\(to)&groupBy=\(encoded)", timeout: 10)
-    }
-
     // MARK: - BTW Side-Chain
 
     /// Send a /btw side-chain question and stream the response text.
@@ -957,37 +913,44 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Fetch the workspace directory tree.
     /// Delegates to HTTPTransport for remote connections, or calls the local daemon HTTP server.
-    public func fetchWorkspaceTree(path: String = "") async -> WorkspaceTreeResponse? {
+    public func fetchWorkspaceTree(path: String = "", showHidden: Bool = false) async -> WorkspaceTreeResponse? {
         if let httpTransport {
-            return await httpTransport.fetchWorkspaceTree(path: path)
+            return await httpTransport.fetchWorkspaceTree(path: path, showHidden: showHidden)
         }
 
         let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-        let queryPath = path.isEmpty ? "v1/workspace/tree" : "v1/workspace/tree?path=\(encoded)"
+        var params: [String] = []
+        if !path.isEmpty { params.append("path=\(encoded)") }
+        if showHidden { params.append("showHidden=true") }
+        let queryPath = params.isEmpty ? "v1/workspace/tree" : "v1/workspace/tree?\(params.joined(separator: "&"))"
         return await executeLocalRequest(path: queryPath, timeout: 10)
     }
 
     /// Fetch a single workspace file's metadata and optional content.
     /// Delegates to HTTPTransport for remote connections, or calls the local daemon HTTP server.
-    public func fetchWorkspaceFile(path: String) async -> WorkspaceFileResponse? {
+    public func fetchWorkspaceFile(path: String, showHidden: Bool = false) async -> WorkspaceFileResponse? {
         if let httpTransport {
-            return await httpTransport.fetchWorkspaceFile(path: path)
+            return await httpTransport.fetchWorkspaceFile(path: path, showHidden: showHidden)
         }
 
         let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-        return await executeLocalRequest(path: "v1/workspace/file?path=\(encoded)", timeout: 10)
+        var query = "path=\(encoded)"
+        if showHidden { query += "&showHidden=true" }
+        return await executeLocalRequest(path: "v1/workspace/file?\(query)", timeout: 10)
     }
 
     /// Build a URL for streaming/downloading workspace file content.
     /// For remote connections, delegates to HTTPTransport. For local, builds against daemon HTTP port.
-    public func workspaceFileContentURL(path: String) -> URL? {
+    public func workspaceFileContentURL(path: String, showHidden: Bool = false) -> URL? {
         if let httpTransport {
-            return httpTransport.workspaceFileContentURL(path: path)
+            return httpTransport.workspaceFileContentURL(path: path, showHidden: showHidden)
         }
 
         let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
+        var query = "path=\(encoded)"
+        if showHidden { query += "&showHidden=true" }
         guard let port = httpPort else { return nil }
-        return URL(string: "http://localhost:\(port)/v1/workspace/file/content?path=\(encoded)")
+        return URL(string: "http://localhost:\(port)/v1/workspace/file/content?\(query)")
     }
 
     // MARK: - Workspace Write Operations
@@ -1406,8 +1369,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
     /// Create a new managed skill.
-    public func createSkill(skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String, userInvocable: Bool? = nil, disableModelInvocation: Bool? = nil, overwrite: Bool? = nil) throws {
-        try send(SkillsCreateMessage(skillId: skillId, name: name, description: description, emoji: emoji, bodyMarkdown: bodyMarkdown, userInvocable: userInvocable, disableModelInvocation: disableModelInvocation, overwrite: overwrite))
+    public func createSkill(skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String, overwrite: Bool? = nil) throws {
+        try send(SkillsCreateMessage(skillId: skillId, name: name, description: description, emoji: emoji, bodyMarkdown: bodyMarkdown, overwrite: overwrite))
     }
 
     // MARK: - Queue Management
@@ -1425,6 +1388,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
     // MARK: - Sessions
+
+    /// Delete a single conversation on the backend (fire-and-forget).
+    public func deleteConversation(_ conversationId: String) {
+        guard let httpTransport else { return }
+        Task { await httpTransport.deleteConversation(conversationId) }
+    }
 
     /// Request the list of past sessions from the daemon.
     public func sendSessionList(offset: Int? = nil, limit: Int? = nil) throws {
@@ -1631,7 +1600,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     private enum LocalHTTPTarget {
         /// The daemon runtime HTTP server (port from httpPort, default 7821).
         case daemon
-        /// The gateway server (port from GATEWAY_PORT env, default 7830).
+        /// The gateway server (port resolved via LockfilePaths: env > lockfile > 7830).
         case gateway
     }
 
@@ -1658,8 +1627,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             guard let port = httpPort else { return nil }
             baseURL = "http://localhost:\(port)"
         case .gateway:
-            let port = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
-                .flatMap(Int.init) ?? 7830
+            let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+            let port = LockfilePaths.resolveGatewayPort(connectedAssistantId: connectedId)
             baseURL = "http://127.0.0.1:\(port)"
         }
 
@@ -2040,10 +2009,14 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         sourceChannel: String,
         note: String? = nil,
         maxUses: Int? = nil,
-        contactName: String? = nil
-    ) async throws -> (inviteId: String, token: String, shareUrl: String?, inviteCode: String?, guardianInstruction: String?, channelHandle: String?)? {
+        contactName: String? = nil,
+        contactId: String? = nil,
+        expectedExternalUserId: String? = nil,
+        friendName: String? = nil,
+        guardianName: String? = nil
+    ) async throws -> (inviteId: String, token: String?, shareUrl: String?, inviteCode: String?, voiceCode: String?, guardianInstruction: String?, channelHandle: String?)? {
         if let httpTransport {
-            return try await httpTransport.createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses, contactName: contactName)
+            return try await httpTransport.createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses, contactName: contactName, contactId: contactId, expectedExternalUserId: expectedExternalUserId, friendName: friendName, guardianName: guardianName)
         }
 
         #if os(macOS)
@@ -2054,6 +2027,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         if let note { body["note"] = note }
         if let maxUses { body["maxUses"] = maxUses }
         if let contactName { body["contactName"] = contactName }
+        if let contactId { body["contactId"] = contactId }
+        if let expectedExternalUserId { body["expectedExternalUserId"] = expectedExternalUserId }
+        if let friendName { body["friendName"] = friendName }
+        if let guardianName { body["guardianName"] = guardianName }
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
@@ -2069,6 +2046,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                 let token: String?
                 let share: ShareData?
                 let inviteCode: String?
+                let voiceCode: String?
                 let guardianInstruction: String?
                 let channelHandle: String?
             }
@@ -2078,10 +2056,25 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             }
         }
         let decoded = try JSONDecoder().decode(CreateInviteResponse.self, from: data)
-        guard let invite = decoded.invite, let token = invite.token else { return nil }
-        return (inviteId: invite.id, token: token, shareUrl: invite.share?.url, inviteCode: invite.inviteCode, guardianInstruction: invite.guardianInstruction, channelHandle: invite.channelHandle)
+        guard let invite = decoded.invite else { return nil }
+        return (inviteId: invite.id, token: invite.token, shareUrl: invite.share?.url, inviteCode: invite.inviteCode, voiceCode: invite.voiceCode, guardianInstruction: invite.guardianInstruction, channelHandle: invite.channelHandle)
         #else
         return nil
+        #endif
+    }
+
+    /// Trigger an invite call via `POST /v1/contacts/invites/:id/call`.
+    public func triggerInviteCall(inviteId: String) async throws -> Bool {
+        if let httpTransport { return try await httpTransport.triggerInviteCall(inviteId: inviteId) }
+        #if os(macOS)
+        guard var request = buildLocalRequest(target: .gateway, path: "v1/contacts/invites/\(inviteId)/call", method: "POST") else { return false }
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [:] as [String: Any])
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...201).contains(http.statusCode) else { return false }
+        return true
+        #else
+        return false
         #endif
     }
 
@@ -2412,6 +2405,137 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             case .requestFailed(let code):
                 return "Feature-flag request failed (HTTP \(code))"
             }
+        }
+    }
+
+    // MARK: - Memory Items
+
+    /// Fetch a paginated list of memory items with optional filters.
+    public func fetchMemoryItems(
+        kind: String? = nil,
+        status: String? = "active",
+        search: String? = nil,
+        sort: String? = "lastSeenAt",
+        order: String? = "desc",
+        limit: Int = 100,
+        offset: Int = 0
+    ) async -> MemoryItemsListResponse? {
+        if let httpTransport {
+            return await httpTransport.fetchMemoryItems(
+                kind: kind, status: status, search: search,
+                sort: sort, order: order, limit: limit, offset: offset
+            )
+        }
+
+        var queryParts = ["limit=\(limit)", "offset=\(offset)"]
+        if let kind { queryParts.append("kind=\(kind.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? kind)") }
+        if let status { queryParts.append("status=\(status)") }
+        if let search, !search.isEmpty { queryParts.append("search=\(search.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? search)") }
+        if let sort { queryParts.append("sort=\(sort)") }
+        if let order { queryParts.append("order=\(order)") }
+        let qs = queryParts.joined(separator: "&")
+        return await executeLocalRequest(path: "v1/memory-items?\(qs)")
+    }
+
+    /// Fetch a single memory item by ID.
+    public func fetchMemoryItem(id: String) async -> MemoryItemPayload? {
+        if let httpTransport {
+            return await httpTransport.fetchMemoryItem(id: id)
+        }
+
+        struct Wrapper: Decodable { let item: MemoryItemPayload }
+        let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        guard let wrapper: Wrapper = await executeLocalRequest(path: "v1/memory-items/\(encoded)") else { return nil }
+        return wrapper.item
+    }
+
+    /// Create a new memory item.
+    public func createMemoryItem(
+        kind: String,
+        subject: String,
+        statement: String,
+        importance: Double? = nil
+    ) async -> MemoryItemPayload? {
+        if let httpTransport {
+            return await httpTransport.createMemoryItem(
+                kind: kind, subject: subject, statement: statement, importance: importance
+            )
+        }
+
+        var body: [String: Any] = [
+            "kind": kind,
+            "subject": subject,
+            "statement": statement
+        ]
+        if let importance { body["importance"] = importance }
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+
+        struct Wrapper: Decodable { let item: MemoryItemPayload }
+        guard let wrapper: Wrapper = await executeLocalRequest(path: "v1/memory-items", method: "POST", body: bodyData) else { return nil }
+        return wrapper.item
+    }
+
+    /// Update an existing memory item.
+    public func updateMemoryItem(
+        id: String,
+        subject: String? = nil,
+        statement: String? = nil,
+        kind: String? = nil,
+        status: String? = nil,
+        importance: Double? = nil,
+        verificationState: String? = nil
+    ) async -> MemoryItemPayload? {
+        if let httpTransport {
+            return await httpTransport.updateMemoryItem(
+                id: id, subject: subject, statement: statement,
+                kind: kind, status: status, importance: importance,
+                verificationState: verificationState
+            )
+        }
+
+        var body: [String: Any] = [:]
+        if let subject { body["subject"] = subject }
+        if let statement { body["statement"] = statement }
+        if let kind { body["kind"] = kind }
+        if let status { body["status"] = status }
+        if let importance { body["importance"] = importance }
+        if let verificationState { body["verificationState"] = verificationState }
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+
+        let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        struct Wrapper: Decodable { let item: MemoryItemPayload }
+        guard let wrapper: Wrapper = await executeLocalRequest(path: "v1/memory-items/\(encoded)", method: "PATCH", body: bodyData) else { return nil }
+        return wrapper.item
+    }
+
+    /// Delete a memory item by ID.
+    public func deleteMemoryItem(id: String) async -> Bool {
+        if let httpTransport {
+            return await httpTransport.deleteMemoryItem(id: id)
+        }
+
+        let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        guard let request = buildLocalRequest(target: .daemon, path: "v1/memory-items/\(encoded)", method: "DELETE") else { return false }
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return false }
+
+            if http.statusCode == 401 {
+                guard let platform = recoveryPlatform, let deviceId = recoveryDeviceId else { return false }
+                let success = await bootstrapActorToken(platform: platform, deviceId: deviceId)
+                guard success else { return false }
+
+                guard let retryRequest = buildLocalRequest(target: .daemon, path: "v1/memory-items/\(encoded)", method: "DELETE") else { return false }
+                let (_, retryResponse) = try await URLSession.shared.data(for: retryRequest)
+                guard let retryHttp = retryResponse as? HTTPURLResponse else { return false }
+                return retryHttp.statusCode == 204
+            }
+
+            return http.statusCode == 204
+        } catch {
+            log.error("deleteMemoryItem failed: \(error.localizedDescription)")
+            return false
         }
     }
 

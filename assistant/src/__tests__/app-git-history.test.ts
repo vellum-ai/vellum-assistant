@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { _resetAppGitState } from "../memory/app-git-service.js";
 import { _resetGitServiceRegistry } from "../workspace/git-service.js";
 
 // Mock getDataDir to use a temp directory
@@ -35,7 +34,6 @@ describe("App Git History", () => {
     );
     mkdirSync(join(testDataDir, "apps"), { recursive: true });
     _resetGitServiceRegistry();
-    _resetAppGitState();
   });
 
   afterEach(() => {

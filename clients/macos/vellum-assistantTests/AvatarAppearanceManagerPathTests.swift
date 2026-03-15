@@ -5,12 +5,12 @@ final class AvatarAppearanceManagerPathTests: XCTestCase {
 
     func testWorkspacePathUsesVellumWorkspaceDirectory() {
         let url = AvatarAppearanceManager.workspaceCustomAvatarURL(homeDirectory: "/Users/testuser")
-        XCTAssertEqual(url.path, "/Users/testuser/.vellum/workspace/data/avatar/custom-avatar.png")
+        XCTAssertEqual(url.path, "/Users/testuser/.vellum/workspace/data/avatar/avatar-image.png")
     }
 
     func testWorkspacePathDefaultsToRealHomeDirectory() {
         let url = AvatarAppearanceManager.workspaceCustomAvatarURL()
-        XCTAssertTrue(url.path.hasSuffix("/.vellum/workspace/data/avatar/custom-avatar.png"))
+        XCTAssertTrue(url.path.hasSuffix("/.vellum/workspace/data/avatar/avatar-image.png"))
         XCTAssertFalse(url.path.isEmpty)
     }
 

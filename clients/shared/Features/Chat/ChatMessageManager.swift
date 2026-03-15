@@ -30,6 +30,7 @@ public final class ChatMessageManager: ObservableObject {
     @Published public var assistantActivityAnchor: String = "global"
     @Published public var assistantActivityReason: String?
     @Published public var assistantStatusText: String?
+    @Published public var isCompacting: Bool = false
     @Published public var pendingQueuedCount: Int = 0
     @Published public var suggestion: String?
     @Published public var isRecording: Bool = false

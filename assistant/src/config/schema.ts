@@ -91,27 +91,16 @@ export {
   MemoryRetentionConfigSchema,
 } from "./schemas/memory-lifecycle.js";
 export type {
-  MemoryConflictsConfig,
-  MemoryEntityConfig,
   MemoryExtractionConfig,
-  MemoryProfileConfig,
   MemorySummarizationConfig,
 } from "./schemas/memory-processing.js";
 export {
-  MemoryConflictsConfigSchema,
-  MemoryEntityConfigSchema,
   MemoryExtractionConfigSchema,
-  MemoryProfileConfigSchema,
   MemorySummarizationConfigSchema,
 } from "./schemas/memory-processing.js";
-export type {
-  MemoryRerankingConfig,
-  MemoryRetrievalConfig,
-} from "./schemas/memory-retrieval.js";
+export type { MemoryRetrievalConfig } from "./schemas/memory-retrieval.js";
 export {
   MemoryDynamicBudgetConfigSchema,
-  MemoryEarlyTerminationConfigSchema,
-  MemoryRerankingConfigSchema,
   MemoryRetrievalConfigSchema,
 } from "./schemas/memory-retrieval.js";
 export type {
@@ -243,12 +232,6 @@ export const AssistantConfigSchema = z
     imageGenModel: z
       .string({ error: "imageGenModel must be a string" })
       .default("gemini-2.5-flash-image"),
-    apiKeys: z
-      .record(
-        z.string(),
-        z.string({ error: "Each apiKeys value must be a string" }),
-      )
-      .default({} as Record<string, string>),
     webSearchProvider: z
       .enum(VALID_WEB_SEARCH_PROVIDERS, {
         error: `webSearchProvider must be one of: ${VALID_WEB_SEARCH_PROVIDERS.join(

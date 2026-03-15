@@ -133,10 +133,10 @@ export async function handleGuardianActionDecision(
  *
  * Uses the conversation scope helper to union requests whose source
  * `conversationId` matches AND requests delivered to this conversation.
- * This allows guardian destination threads (including macOS Vellum threads)
+ * This allows guardian destination conversations (including macOS Vellum conversations)
  * to surface prompts for all canonical kinds.
  *
- * The returned prompts normalize `conversationId` to the queried thread ID
+ * The returned prompts normalize `conversationId` to the queried conversation ID
  * for client rendering stability.
  */
 export function listGuardianDecisionPrompts(params: {
@@ -201,9 +201,9 @@ function mapCanonicalRequestToPrompt(
     toolName: req.toolName ?? null,
     actions,
     expiresAt,
-    // Normalize to the queried thread ID for client rendering stability.
+    // Normalize to the queried conversation ID for client rendering stability.
     // The canonical request's source conversationId may differ from the
-    // guardian destination thread the client is viewing.
+    // guardian destination conversation the client is viewing.
     conversationId,
     callSessionId: req.callSessionId ?? null,
     kind: req.kind,

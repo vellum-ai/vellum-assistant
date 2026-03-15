@@ -98,8 +98,7 @@ function buildSkillSummary(
     directoryPath: `/fake/skills/${id}`,
     skillFilePath: `/fake/skills/${id}/SKILL.md`,
     bundled: source === "bundled",
-    userInvocable: true,
-    disableModelInvocation: false,
+
     source,
     featureFlag,
   };

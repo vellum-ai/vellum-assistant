@@ -1,196 +1,282 @@
 import SwiftUI
 
 public struct VButton: View {
-    public enum Style: Hashable { case primary, secondary, tertiary, danger, ghost, outlined, success }
-    public enum Size: Hashable { case small, medium, large }
+    public enum Style: Hashable { case primary, danger, dangerOutline, outlined, ghost, contrast }
+    public enum Size: Hashable { case regular, pill }
 
     public let label: String
     public var leftIcon: String? = nil
     public var rightIcon: String? = nil
+    public var iconOnly: String? = nil
     public var style: Style = .primary
-    public var size: Size = .small
     public var isFullWidth: Bool = false
     public var isDisabled: Bool = false
+    public var isActive: Bool = false
+    public var iconSize: CGFloat? = nil
+    public var size: Size = .regular
+    public var tooltip: String? = nil
     public var accessibilityID: String? = nil
     public let action: () -> Void
 
     @State private var isHovered = false
+    @FocusState private var isFocused: Bool
 
-    public init(label: String, icon: String? = nil, leftIcon: String? = nil, rightIcon: String? = nil, style: Style = .primary, size: Size = .small, isFullWidth: Bool = false, isDisabled: Bool = false, accessibilityID: String? = nil, action: @escaping () -> Void) {
+    public init(label: String, icon: String? = nil, leftIcon: String? = nil, rightIcon: String? = nil, iconOnly: String? = nil, style: Style = .primary, size: Size = .regular, isFullWidth: Bool = false, isDisabled: Bool = false, isActive: Bool = false, iconSize: CGFloat? = nil, tooltip: String? = nil, accessibilityID: String? = nil, action: @escaping () -> Void) {
         self.label = label
         self.leftIcon = leftIcon ?? icon
         self.rightIcon = rightIcon
+        self.iconOnly = iconOnly
         self.style = style
-        self.size = size
         self.isFullWidth = isFullWidth
         self.isDisabled = isDisabled
+        self.isActive = isActive
+        self.iconSize = iconSize
+        self.size = size
+        self.tooltip = tooltip
         self.accessibilityID = accessibilityID
         self.action = action
     }
 
     public var body: some View {
         Button(action: action) {
-            HStack(spacing: VSpacing.sm) {
-                if let leftIcon {
-                    VIconView(.resolve(leftIcon), size: iconSize)
+            if let iconOnly {
+                HStack(spacing: VSpacing.xs) {
+                    VIconView(.resolve(iconOnly), size: 13)
+                        .frame(width: 20, height: 20)
                 }
-                Text(label)
-                    .font(labelFont)
-                    .fontWeight(style == .ghost || style == .tertiary ? .medium : .regular)
-                if isFullWidth && (leftIcon != nil || rightIcon != nil) {
-                    Spacer(minLength: 0)
-                }
-                if let rightIcon {
-                    VIconView(.resolve(rightIcon), size: iconSize)
+                .foregroundColor(iconOnlyForegroundColor)
+            } else {
+                HStack(spacing: VSpacing.sm) {
+                    if let leftIcon {
+                        VIconView(.resolve(leftIcon), size: textIconSize)
+                    }
+                    Text(label)
+                        .font(size == .pill ? VFont.captionMedium : VFont.bodyMedium)
+                    if isFullWidth && (leftIcon != nil || rightIcon != nil) {
+                        Spacer(minLength: 0)
+                    }
+                    if let rightIcon {
+                        VIconView(.resolve(rightIcon), size: textIconSize)
+                    }
                 }
             }
         }
-        .buttonStyle(VButtonStyle(style: style, size: size, isHovered: isHovered, isFullWidth: isFullWidth))
+        .focused($isFocused)
+        .buttonStyle(VButtonStyle(
+            style: style,
+            size: size,
+            isHovered: isHovered,
+            isFullWidth: isFullWidth,
+            isIconOnly: iconOnly != nil,
+            isActive: isActive,
+            isFocused: isFocused,
+            iconSize: iconSize
+        ))
         .onHover { hovering in
             isHovered = isDisabled ? false : hovering
         }
         .pointerCursor()
         .disabled(isDisabled)
-        .opacity(isDisabled ? 0.5 : 1.0)
+        .accessibilityLabel(iconOnly != nil ? label : "")
         .accessibilityHint(isDisabled ? "Button is currently disabled" : "")
         .optionalAccessibilityIdentifier(accessibilityID)
+        .modifier(OptionalHelpModifier(tooltip: tooltip))
     }
 
-    private var iconSize: CGFloat { 13 }
+    private var textIconSize: CGFloat { 13 }
 
-    private var labelFont: Font {
-        switch size {
-        case .small: return VFont.caption
-        case .medium: return VFont.bodyMedium
-        case .large: return VFont.buttonLarge
+    private var iconOnlyForegroundColor: Color {
+        switch style {
+        case .primary, .danger:
+            return VColor.auxWhite
+        case .contrast:
+            return VColor.contentInset
+        case .ghost, .outlined, .dangerOutline:
+            if isActive { return VColor.primaryActive }
+            return VColor.primaryBase
         }
     }
 }
 
-private struct VButtonStyle: ButtonStyle {
+public struct VButtonStyle: ButtonStyle {
     let style: VButton.Style
     let size: VButton.Size
     let isHovered: Bool
     let isFullWidth: Bool
+    let isIconOnly: Bool
+    let isActive: Bool
+    let isFocused: Bool
+    let iconSize: CGFloat?
 
-    func makeBody(configuration: Configuration) -> some View {
+    /// Creates an icon-only button style for custom button compositions.
+    public static func iconOnly(style: VButton.Style = .ghost, isHovered: Bool, isFocused: Bool = false, isActive: Bool = false, iconSize: CGFloat? = nil) -> VButtonStyle {
+        VButtonStyle(style: style, size: .regular, isHovered: isHovered, isFullWidth: false, isIconOnly: true, isActive: isActive, isFocused: isFocused, iconSize: iconSize)
+    }
+
+    init(style: VButton.Style, size: VButton.Size = .regular, isHovered: Bool, isFullWidth: Bool, isIconOnly: Bool = false, isActive: Bool = false, isFocused: Bool = false, iconSize: CGFloat? = nil) {
+        self.style = style
+        self.size = size
+        self.isHovered = isHovered
+        self.isFullWidth = isFullWidth
+        self.isIconOnly = isIconOnly
+        self.isActive = isActive
+        self.isFocused = isFocused
+        self.iconSize = iconSize
+    }
+
+    @Environment(\.isEnabled) private var isEnabled
+
+    public func makeBody(configuration: Configuration) -> some View {
+        let cornerRadius = size == .pill ? VRadius.pill : VRadius.md
+        let shape = RoundedRectangle(cornerRadius: cornerRadius)
+
         configuration.label
             .foregroundColor(foregroundColor)
-            .padding(.horizontal, horizontalPadding)
-            .padding(.vertical, VSpacing.buttonV)
-            .frame(height: height)
-            .frame(maxWidth: isFullWidth ? .infinity : nil)
-            .background(backgroundColor(isPressed: configuration.isPressed))
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+            .modifier(ButtonLayoutModifier(
+                style: style,
+                size: size,
+                isIconOnly: isIconOnly,
+                isFullWidth: isFullWidth,
+                iconSize: iconSize
+            ))
+            .background(shape.fill(backgroundColor(isPressed: configuration.isPressed)))
             .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius)
-                    .strokeBorder(borderColor(isPressed: configuration.isPressed), lineWidth: borderLineWidth)
+                shape.strokeBorder(
+                    borderColor(isPressed: configuration.isPressed),
+                    lineWidth: borderLineWidth
+                )
             )
-            .contentShape(RoundedRectangle(cornerRadius: cornerRadius))
-            .shadow(color: configuration.isPressed ? .clear : shadowColor, radius: 0, x: 0, y: 2)
+            .clipShape(shape)
+            .contentShape(shape)
+            .focusEffectDisabled()
             .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
             .animation(VAnimation.fast, value: configuration.isPressed)
             .animation(VAnimation.fast, value: isHovered)
     }
 
-    private var cornerRadius: CGFloat {
-        return VRadius.md
-    }
-
     private var borderLineWidth: CGFloat {
         switch style {
-        case .tertiary: return 2
-        case .outlined: return 2.5
+        case .outlined, .dangerOutline: return 2
+        case .ghost:
+            return isEnabled && isFocused ? 1.25 : 1
         default: return 0
-        }
-    }
-
-    private var height: CGFloat {
-        switch size {
-        case .small: return 24
-        case .medium: return 28
-        case .large: return 32
-        }
-    }
-
-    private var horizontalPadding: CGFloat {
-        switch size {
-        case .small: return VSpacing.md
-        case .medium: return VSpacing.md
-        case .large: return VSpacing.lg
-        }
-    }
-
-    private var shadowColor: Color {
-        switch style {
-        case .primary:
-            return .clear
-        case .danger:
-            return .clear
-        case .tertiary, .ghost:
-            return .clear
-        case .secondary:
-            return .clear
-        case .outlined, .success:
-            return .clear
         }
     }
 
     private func backgroundColor(isPressed: Bool) -> Color {
         switch style {
         case .primary:
-            if isPressed { return VColor.buttonPrimaryPressed }
-            if isHovered { return VColor.buttonPrimaryHover }
-            return VColor.buttonPrimary
-        case .secondary:
-            if isPressed { return VColor.buttonSecondaryBgPressed }
-            if isHovered { return VColor.buttonSecondaryBgHover }
-            return VColor.buttonSecondaryBg
+            guard isEnabled else { return VColor.primaryDisabled }
+            if isPressed { return VColor.primaryActive }
+            if isHovered { return VColor.primaryHover }
+            return VColor.primaryBase
         case .danger:
-            if isPressed { return VColor.buttonDangerPressed }
-            if isHovered { return VColor.buttonDangerHover }
-            return VColor.buttonDanger
-        case .tertiary:
-            if isPressed { return VColor.ghostPressed }
-            if isHovered { return VColor.ghostHover }
+            guard isEnabled else { return VColor.primaryDisabled }
+            if isPressed { return VColor.systemNegativeHover }
+            if isHovered { return VColor.systemNegativeHover }
+            return VColor.systemNegativeStrong
+        case .outlined, .dangerOutline:
+            if isIconOnly {
+                if isPressed { return VColor.surfaceActive }
+                if isHovered { return VColor.surfaceBase }
+            }
             return .clear
         case .ghost:
-            if isPressed { return VColor.ghostPressed }
-            if isHovered { return VColor.ghostHover }
-            return .clear
-        case .outlined:
-            return .clear
-        case .success:
-            if isPressed { return VColor.buttonSuccessBgPressed }
-            if isHovered { return VColor.buttonSuccessBgHover }
-            return VColor.buttonSuccessBg
+            guard isEnabled else {
+                return isActive ? VColor.borderDisabled : .clear
+            }
+            if isActive {
+                if isPressed { return VColor.surfaceActive }
+                if isHovered { return VColor.surfaceActive }
+                return VColor.surfaceBase
+            } else {
+                if isPressed { return VColor.surfaceActive }
+                if isHovered { return VColor.surfaceBase }
+                return .clear
+            }
+        case .contrast:
+            guard isEnabled else { return VColor.primaryDisabled }
+            if isPressed { return VColor.contentEmphasized }
+            if isHovered { return VColor.contentSecondary }
+            return VColor.contentDefault
         }
     }
 
     private var foregroundColor: Color {
+        guard isEnabled else { return VColor.contentDisabled }
         switch style {
-        case .primary: return .white
-        case .tertiary: return VColor.buttonSecondaryText
-        case .secondary: return VColor.buttonSecondaryText
-        case .danger: return .white
-        case .ghost: return VColor.buttonPrimary
-        case .outlined: return VColor.buttonSecondaryText
-        case .success: return VColor.activeIconForeground
+        case .primary: return VColor.auxWhite
+        case .danger: return VColor.auxWhite
+        case .contrast: return VColor.contentInset
+        case .outlined: return isHovered ? VColor.primaryHover : VColor.primaryBase
+        case .dangerOutline: return isHovered ? VColor.systemNegativeHover : VColor.systemNegativeStrong
+        case .ghost:
+            if isHovered { return VColor.primaryActive }
+            return VColor.primaryBase
         }
     }
 
     private func borderColor(isPressed: Bool) -> Color {
         switch style {
-        case .tertiary:
-            if isPressed { return VColor.ghostPressed }
-            return VColor.buttonSecondaryBorder
         case .outlined:
-            if isPressed { return VColor.buttonSecondaryBorder.opacity(0.7) }
-            return VColor.buttonSecondaryBorder
-        case .secondary, .ghost, .success:
-            return .clear
+            if isIconOnly {
+                return VColor.borderActive
+            }
+            guard isEnabled else { return VColor.primaryDisabled }
+            if isPressed { return VColor.primaryActive }
+            if isHovered { return VColor.primaryHover }
+            return VColor.primaryBase
+        case .dangerOutline:
+            guard isEnabled else { return VColor.primaryDisabled }
+            if isPressed { return VColor.systemNegativeHover }
+            if isHovered { return VColor.systemNegativeHover }
+            return VColor.systemNegativeStrong
+        case .ghost:
+            guard isEnabled, isFocused else { return .clear }
+            return VColor.primaryBase.opacity(0.72)
         default:
             return .clear
+        }
+    }
+}
+
+private struct ButtonLayoutModifier: ViewModifier {
+    let style: VButton.Style
+    let size: VButton.Size
+    let isIconOnly: Bool
+    let isFullWidth: Bool
+    let iconSize: CGFloat?
+
+    func body(content: Content) -> some View {
+        if isIconOnly {
+            content
+                .frame(width: iconSize ?? 32, height: iconSize ?? 32)
+        } else if size == .pill {
+            content
+                .padding(.horizontal, VSpacing.sm)
+                .frame(height: 24)
+                .frame(maxWidth: isFullWidth ? .infinity : nil)
+        } else {
+            content
+                .padding(.horizontal, VSpacing.md)
+                .padding(.vertical, VSpacing.buttonV)
+                .frame(height: 32)
+                .frame(maxWidth: isFullWidth ? .infinity : nil)
+        }
+    }
+}
+
+/// Applies `.help()` only when a tooltip string is provided, avoiding an
+/// empty help wrapper that can affect hit-testing and hover behavior.
+private struct OptionalHelpModifier: ViewModifier {
+    let tooltip: String?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let tooltip {
+            content.help(tooltip)
+        } else {
+            content
         }
     }
 }
@@ -204,28 +290,4 @@ private extension View {
             self
         }
     }
-}
-
-#Preview("VButton") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        VStack(spacing: 16) {
-            VButton(label: "Primary", style: .primary, size: .medium) {}
-            VButton(label: "Secondary", style: .secondary, size: .medium) {}
-            VButton(label: "Tertiary", style: .tertiary, size: .medium) {}
-            VButton(label: "Danger", style: .danger, size: .medium) {}
-            VButton(label: "Ghost", style: .ghost, size: .medium) {}
-            VButton(label: "Record", style: .outlined, size: .large) {}
-            HStack(spacing: 12) {
-                VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
-                VButton(label: "Disconnect", style: .danger, size: .medium) {}
-            }
-            VButton(label: "Connect", style: .primary, size: .medium) {}
-            VButton(label: "With Icon", leftIcon: VIcon.plus.rawValue, style: .primary, size: .small) {}
-            VButton(label: "Full Width", style: .primary, isFullWidth: true) {}
-            VButton(label: "Disabled", style: .primary, isDisabled: true) {}
-        }
-        .padding()
-    }
-    .frame(width: 320, height: 580)
 }

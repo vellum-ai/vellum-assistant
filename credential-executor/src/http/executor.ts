@@ -1,0 +1,685 @@
+/**
+ * HTTP executor for the Credential Execution Service.
+ *
+ * Implements the full `make_authenticated_request` flow:
+ *
+ * 1. Resolve the credential handle to a local or managed subject.
+ * 2. Check grants (policy evaluation) — block off-grant requests before
+ *    any network call.
+ * 3. Materialise the credential through the appropriate backend.
+ * 4. Inject auth into the outbound request according to the subject's
+ *    handle type.
+ * 5. Perform the HTTP request.
+ * 6. Reject redirect hops that would violate the grant policy.
+ * 7. Filter the response through the PR 21 sanitisation pipeline.
+ * 8. Generate a token-free audit summary.
+ *
+ * Security invariants:
+ * - Off-grant requests never reach the network.
+ * - Caller-supplied raw auth headers are rejected.
+ * - Redirect hops to domains/paths outside the grant's scope are blocked.
+ * - The assistant runtime only sees sanitised HTTP results and audit
+ *   summaries — never raw tokens or secrets.
+ * - Audit summaries are always token-free.
+ */
+
+import type {
+  MakeAuthenticatedRequest,
+  MakeAuthenticatedRequestResponse,
+} from "@vellumai/ces-contracts";
+import { HandleType, parseHandle, hashProposal } from "@vellumai/ces-contracts";
+import type { InjectionTemplate } from "@vellumai/credential-storage";
+
+import { evaluateHttpPolicy, type PolicyResult } from "./policy.js";
+import { filterHttpResponse, type RawHttpResponse } from "./response-filter.js";
+import { generateHttpAuditSummary } from "./audit.js";
+
+import type { AuditStore } from "../audit/store.js";
+import type { PersistentGrantStore } from "../grants/persistent-store.js";
+import type { TemporaryGrantStore } from "../grants/temporary-store.js";
+
+import type { LocalMaterialiser, MaterialisedCredential } from "../materializers/local.js";
+import { materializeManagedToken, type ManagedMaterializerOptions } from "../materializers/managed-platform.js";
+import { resolveLocalSubject, type LocalSubjectResolverDeps } from "../subjects/local.js";
+import { checkCredentialPolicy } from "../subjects/policy.js";
+import { resolveManagedSubject, type ManagedSubjectResolverOptions } from "../subjects/managed.js";
+import type { SessionIdRef } from "../server.js";
+
+// ---------------------------------------------------------------------------
+// Auth injection constants
+// ---------------------------------------------------------------------------
+
+/**
+ * Headers that are forbidden in caller-supplied requests. This is
+ * enforced at the policy layer, but we double-check before injection
+ * as defense-in-depth.
+ */
+const AUTH_HEADERS_TO_STRIP = new Set([
+  "authorization",
+  "cookie",
+  "proxy-authorization",
+  "x-api-key",
+  "x-auth-token",
+]);
+
+// ---------------------------------------------------------------------------
+// Executor dependencies
+// ---------------------------------------------------------------------------
+
+export interface HttpExecutorDeps {
+  /** Persistent grant store for policy evaluation. */
+  persistentGrantStore: PersistentGrantStore;
+  /** Temporary grant store for policy evaluation. */
+  temporaryGrantStore: TemporaryGrantStore;
+  /** Local materialiser for local_static and local_oauth handles. */
+  localMaterialiser: LocalMaterialiser;
+  /** Dependencies for local subject resolution. */
+  localSubjectDeps: LocalSubjectResolverDeps;
+  /** Options for managed subject resolution (null if managed mode is unavailable). */
+  managedSubjectOptions?: ManagedSubjectResolverOptions;
+  /** Options for managed token materialisation (null if managed mode is unavailable). */
+  managedMaterializerOptions?: ManagedMaterializerOptions;
+  /** Audit store for persisting token-free audit records. */
+  auditStore: AuditStore;
+  /** Mutable reference to the session ID for audit records. Updated to the handshake session ID once the RPC handshake completes. */
+  sessionId: SessionIdRef;
+  /** Optional custom fetch implementation (for testing). */
+  fetch?: typeof globalThis.fetch;
+  /** Optional logger. */
+  logger?: Pick<Console, "log" | "warn" | "error">;
+}
+
+// ---------------------------------------------------------------------------
+// Redirect policy
+// ---------------------------------------------------------------------------
+
+/**
+ * Maximum number of redirects to follow before aborting.
+ */
+const MAX_REDIRECTS = 5;
+
+/**
+ * HTTP status codes that indicate a redirect.
+ */
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+// ---------------------------------------------------------------------------
+// Executor implementation
+// ---------------------------------------------------------------------------
+
+/**
+ * Execute an authenticated HTTP request through the full CES pipeline.
+ *
+ * This is the handler implementation for the `make_authenticated_request`
+ * RPC method. It is pure logic with injected dependencies, making it
+ * testable without real network calls or credential stores.
+ */
+export async function executeAuthenticatedHttpRequest(
+  request: MakeAuthenticatedRequest,
+  deps: HttpExecutorDeps,
+): Promise<MakeAuthenticatedRequestResponse> {
+  const logger = deps.logger ?? console;
+
+  // 1. Parse the handle to determine source (local vs managed)
+  const parseResult = parseHandle(request.credentialHandle);
+  if (!parseResult.ok) {
+    return {
+      success: false,
+      error: {
+        code: "INVALID_HANDLE",
+        message: parseResult.error,
+      },
+    };
+  }
+
+  // 2. Evaluate grant policy — blocks off-grant requests before network
+  const policyResult = evaluateHttpPolicy(
+    {
+      credentialHandle: request.credentialHandle,
+      method: request.method,
+      url: request.url,
+      headers: request.headers,
+      purpose: request.purpose,
+      grantId: request.grantId,
+      conversationId: request.conversationId,
+    },
+    deps.persistentGrantStore,
+    deps.temporaryGrantStore,
+  );
+
+  if (!policyResult.allowed) {
+    if (policyResult.reason === "forbidden_headers") {
+      return {
+        success: false,
+        error: {
+          code: "FORBIDDEN_HEADERS",
+          message: `Request contains forbidden auth headers that the agent must not set: ${policyResult.forbiddenHeaders.join(", ")}. CES injects authentication — the caller must not supply raw auth headers.`,
+        },
+      };
+    }
+
+    // approval_required — return the proposal so the assistant can prompt
+    return {
+      success: false,
+      error: {
+        code: "APPROVAL_REQUIRED",
+        message: `No active grant covers this request. Approval is required.`,
+        details: {
+          proposal: policyResult.proposal,
+          proposalHash: hashProposal(policyResult.proposal),
+        },
+      },
+    };
+  }
+
+  const grantId = policyResult.grantId;
+
+  // 3. Materialise the credential
+  const materialiseResult = await materialiseCredential(
+    parseResult.handle.type,
+    request.credentialHandle,
+    deps,
+  );
+
+  if (!materialiseResult.ok) {
+    const audit = generateHttpAuditSummary({
+      credentialHandle: request.credentialHandle,
+      grantId,
+      sessionId: deps.sessionId.current,
+      method: request.method,
+      url: request.url,
+      success: false,
+      errorMessage: materialiseResult.error,
+    });
+
+    try { deps.auditStore.append(audit); } catch { /* audit persistence must not block execution */ }
+
+    return {
+      success: false,
+      error: {
+        code: "MATERIALISATION_FAILED",
+        message: materialiseResult.error,
+      },
+      auditId: audit.auditId,
+    };
+  }
+
+  const { credential, secrets } = materialiseResult;
+
+  // 4. Build the outbound request with injected auth
+  const authenticated = buildAuthenticatedRequest(
+    request.url,
+    request.headers ?? {},
+    credential,
+  );
+
+  // 5. Perform the HTTP request with redirect enforcement
+  let rawResponse: RawHttpResponse;
+  try {
+    rawResponse = await performHttpRequest(
+      request.method,
+      authenticated.url,
+      authenticated.headers,
+      request.body,
+      policyResult,
+      request.credentialHandle,
+      deps,
+      credential,
+      request.headers ?? {},
+    );
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    // Sanitise error messages to avoid leaking secrets
+    const safeError = sanitiseErrorMessage(errorMessage, secrets);
+
+    const audit = generateHttpAuditSummary({
+      credentialHandle: request.credentialHandle,
+      grantId,
+      sessionId: deps.sessionId.current,
+      method: request.method,
+      url: request.url,
+      success: false,
+      errorMessage: safeError,
+    });
+
+    try { deps.auditStore.append(audit); } catch { /* audit persistence must not block execution */ }
+
+    return {
+      success: false,
+      error: {
+        code: "HTTP_REQUEST_FAILED",
+        message: safeError,
+      },
+      auditId: audit.auditId,
+    };
+  }
+
+  // 6. Filter the response through the sanitisation pipeline
+  const filtered = filterHttpResponse(rawResponse, secrets);
+
+  // 7. Generate and persist audit summary
+  const audit = generateHttpAuditSummary({
+    credentialHandle: request.credentialHandle,
+    grantId,
+    sessionId: deps.sessionId.current,
+    method: request.method,
+    url: request.url,
+    success: true,
+    statusCode: rawResponse.statusCode,
+  });
+
+  try { deps.auditStore.append(audit); } catch { /* audit persistence must not block execution */ }
+
+  logger.log(
+    `[ces-http] ${request.method} ${request.url} -> ${rawResponse.statusCode} (grant=${grantId})`,
+  );
+
+  return {
+    success: true,
+    statusCode: filtered.statusCode,
+    responseHeaders: filtered.headers,
+    responseBody: filtered.body,
+    auditId: audit.auditId,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Credential materialisation dispatch
+// ---------------------------------------------------------------------------
+
+interface MaterialiseSuccess {
+  ok: true;
+  credential: MaterialisedCredential;
+  /** Secret values to scrub from response bodies (defense-in-depth). */
+  secrets: string[];
+}
+
+interface MaterialiseFailure {
+  ok: false;
+  error: string;
+}
+
+type MaterialiseResult = MaterialiseSuccess | MaterialiseFailure;
+
+async function materialiseCredential(
+  handleType: string,
+  rawHandle: string,
+  deps: HttpExecutorDeps,
+): Promise<MaterialiseResult> {
+  switch (handleType) {
+    case HandleType.LocalStatic:
+    case HandleType.LocalOAuth: {
+      // Resolve local subject
+      const subjectResult = resolveLocalSubject(rawHandle, deps.localSubjectDeps);
+      if (!subjectResult.ok) {
+        return { ok: false, error: subjectResult.error };
+      }
+
+      // Enforce credential-level policies for local static handles.
+      // OAuth connections don't carry allowedTools/allowedDomains in the
+      // same way, so policy checks are skipped for OAuth.
+      if (subjectResult.subject.type === HandleType.LocalStatic) {
+        const policyCheck = checkCredentialPolicy(
+          subjectResult.subject.metadata,
+          "make_authenticated_request",
+        );
+        if (!policyCheck.ok) {
+          return { ok: false, error: policyCheck.error! };
+        }
+      }
+
+      // Materialise through the local materialiser
+      const matResult = await deps.localMaterialiser.materialise(subjectResult.subject);
+      if (!matResult.ok) {
+        return { ok: false, error: matResult.error };
+      }
+
+      return {
+        ok: true,
+        credential: matResult.credential,
+        secrets: [matResult.credential.value],
+      };
+    }
+
+    case HandleType.PlatformOAuth: {
+      if (!deps.managedSubjectOptions || !deps.managedMaterializerOptions) {
+        return {
+          ok: false,
+          error: "Managed OAuth is not configured. Platform URL and API key are required.",
+        };
+      }
+
+      // Resolve managed subject
+      const subjectResult = await resolveManagedSubject(
+        rawHandle,
+        deps.managedSubjectOptions,
+      );
+      if (!subjectResult.ok) {
+        return { ok: false, error: subjectResult.error.message };
+      }
+
+      // Materialise through the managed materialiser
+      const matResult = await materializeManagedToken(
+        subjectResult.subject,
+        deps.managedMaterializerOptions,
+      );
+      if (!matResult.ok) {
+        return { ok: false, error: matResult.error.message };
+      }
+
+      return {
+        ok: true,
+        credential: {
+          value: matResult.token.accessToken,
+          handleType: HandleType.PlatformOAuth,
+          expiresAt: matResult.token.expiresAt,
+        },
+        secrets: [matResult.token.accessToken],
+      };
+    }
+
+    default:
+      return {
+        ok: false,
+        error: `Unsupported handle type "${handleType}" for HTTP execution`,
+      };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Auth injection
+// ---------------------------------------------------------------------------
+
+/**
+ * Result of building an authenticated request — may contain a modified URL
+ * (e.g. when the credential is injected as a query parameter).
+ */
+interface AuthenticatedRequest {
+  headers: Record<string, string>;
+  url: string;
+}
+
+/**
+ * Build the outbound request by:
+ * 1. Stripping any caller-supplied auth headers (defense-in-depth).
+ * 2. Injecting the credential using the appropriate strategy.
+ *
+ * For `local_static` handles, the credential's `injectionTemplates` are
+ * checked for a template matching the target URL's hostname. If found,
+ * the template controls how the credential is injected (header name,
+ * value prefix, or query parameter). If no matching template exists,
+ * falls back to `Authorization: Bearer <value>`.
+ *
+ * OAuth handles always use `Authorization: Bearer <value>`.
+ */
+function buildAuthenticatedRequest(
+  url: string,
+  callerHeaders: Record<string, string>,
+  credential: MaterialisedCredential,
+): AuthenticatedRequest {
+  const headers: Record<string, string> = {};
+
+  // Copy caller headers, stripping any auth headers
+  for (const [key, value] of Object.entries(callerHeaders)) {
+    if (!AUTH_HEADERS_TO_STRIP.has(key.toLowerCase())) {
+      headers[key] = value;
+    }
+  }
+
+  let finalUrl = url;
+
+  // Inject credential based on handle type
+  switch (credential.handleType) {
+    case HandleType.LocalStatic: {
+      // Check for a matching injection template
+      const template = findMatchingTemplate(url, credential.injectionTemplates);
+      if (template) {
+        if (template.injectionType === "header") {
+          const headerName = template.headerName ?? "Authorization";
+          const prefix = template.valuePrefix ?? "";
+          headers[headerName] = `${prefix}${credential.value}`;
+        } else if (template.injectionType === "query") {
+          const paramName = template.queryParamName ?? "api_key";
+          finalUrl = appendQueryParam(url, paramName, credential.value);
+        }
+      } else {
+        // No matching template — fall back to Bearer auth
+        headers["Authorization"] = `Bearer ${credential.value}`;
+      }
+      break;
+    }
+
+    case HandleType.LocalOAuth:
+    case HandleType.PlatformOAuth:
+      // OAuth tokens are always Bearer tokens.
+      headers["Authorization"] = `Bearer ${credential.value}`;
+      break;
+
+    default:
+      // Unknown type — inject as Bearer (fail-open on injection is OK
+      // because the grant policy already vetted the request).
+      headers["Authorization"] = `Bearer ${credential.value}`;
+      break;
+  }
+
+  return { headers, url: finalUrl };
+}
+
+/**
+ * Find the first injection template whose `hostPattern` matches the
+ * target URL's hostname. Returns undefined if no template matches or
+ * no templates are defined.
+ */
+function findMatchingTemplate(
+  url: string,
+  templates: InjectionTemplate[] | undefined,
+): InjectionTemplate | undefined {
+  if (!templates || templates.length === 0) return undefined;
+
+  let hostname: string;
+  try {
+    hostname = new URL(url).hostname;
+  } catch {
+    return undefined;
+  }
+
+  return templates.find((t) => matchHostPattern(t.hostPattern, hostname));
+}
+
+/**
+ * Simple glob-style host pattern matching.
+ *
+ * Supports:
+ * - Exact match: `"api.fal.ai"` matches `"api.fal.ai"`
+ * - Leading wildcard: `"*.fal.ai"` matches `"api.fal.ai"`, `"queue.fal.ai"`
+ * - Bare wildcard: `"*"` matches everything
+ */
+function matchHostPattern(pattern: string, hostname: string): boolean {
+  const lPattern = pattern.toLowerCase();
+  const lHostname = hostname.toLowerCase();
+  if (lPattern === "*") return true;
+  if (lPattern.startsWith("*.")) {
+    const suffix = lPattern.slice(1); // e.g. ".fal.ai"
+    return lHostname.endsWith(suffix) || lHostname === lPattern.slice(2);
+  }
+  return lPattern === lHostname;
+}
+
+/**
+ * Append a query parameter to a URL, preserving existing query params.
+ */
+function appendQueryParam(url: string, name: string, value: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.set(name, value);
+    return parsed.toString();
+  } catch {
+    // If URL parsing fails, fall back to naive append
+    const separator = url.includes("?") ? "&" : "?";
+    return `${url}${separator}${encodeURIComponent(name)}=${encodeURIComponent(value)}`;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// HTTP request execution with redirect enforcement
+// ---------------------------------------------------------------------------
+
+/**
+ * Perform an HTTP request, following redirects only when each hop
+ * independently satisfies the grant policy.
+ */
+async function performHttpRequest(
+  method: string,
+  url: string,
+  headers: Record<string, string>,
+  body: unknown | undefined,
+  originalPolicy: PolicyResult & { allowed: true },
+  credentialHandle: string,
+  deps: HttpExecutorDeps,
+  credential?: MaterialisedCredential,
+  callerHeaders?: Record<string, string>,
+): Promise<RawHttpResponse> {
+  const fetchFn = deps.fetch ?? globalThis.fetch;
+
+  // Preserve the original caller headers (before auth injection) so that
+  // redirect re-authentication starts from a clean slate on each hop.
+  // This prevents previously injected auth headers from being treated as
+  // caller headers and leaking credentials across redirect hops.
+  const originalCallerHeaders = callerHeaders ?? headers;
+
+  let currentUrl = url;
+  let currentMethod = method;
+  let currentHeaders = headers;
+  let currentBody = body;
+  let redirectCount = 0;
+
+  while (true) {
+    // Build fetch options — disable automatic redirect following so we
+    // can enforce grant policy on each hop.
+    const fetchOptions: RequestInit = {
+      method: currentMethod,
+      headers: currentHeaders,
+      redirect: "manual",
+    };
+
+    if (currentBody !== undefined && currentBody !== null) {
+      fetchOptions.body =
+        typeof currentBody === "string"
+          ? currentBody
+          : JSON.stringify(currentBody);
+    }
+
+    const response = await fetchFn(currentUrl, fetchOptions);
+
+    // Check for redirect
+    if (REDIRECT_STATUSES.has(response.status)) {
+      redirectCount++;
+      if (redirectCount > MAX_REDIRECTS) {
+        throw new Error(
+          `Too many redirects (exceeded ${MAX_REDIRECTS}). Aborting.`,
+        );
+      }
+
+      const locationHeader = response.headers.get("location");
+      if (!locationHeader) {
+        throw new Error(
+          `Redirect response (${response.status}) missing Location header.`,
+        );
+      }
+
+      // Resolve the redirect URL (may be relative)
+      const redirectUrl = new URL(locationHeader, currentUrl).toString();
+
+      // Determine the method that will actually be used on the next hop.
+      // 303 converts any method to GET (per RFC 9110 §15.4.4); other
+      // redirect statuses preserve the method.
+      const nextMethod = response.status === 303 ? "GET" : currentMethod;
+
+      // Enforce grant policy on the redirect target — the redirect must
+      // independently satisfy the same credential handle's grant policy
+      // using the method we will actually send.
+      // Sanitise purpose string to avoid leaking query-injected secrets.
+      const redirectPolicy = evaluateHttpPolicy(
+        {
+          credentialHandle,
+          method: nextMethod,
+          url: redirectUrl,
+          purpose: `redirect from ${sanitiseUrl(currentUrl)}`,
+        },
+        deps.persistentGrantStore,
+        deps.temporaryGrantStore,
+      );
+
+      if (!redirectPolicy.allowed) {
+        throw new Error(
+          `Redirect to ${sanitiseUrl(redirectUrl)} denied: the redirect target does not satisfy the grant policy for credential handle "${credentialHandle}".`,
+        );
+      }
+
+      // Apply the method/body changes for 303 redirects
+      if (response.status === 303) {
+        currentMethod = "GET";
+        currentBody = undefined;
+      }
+
+      // Re-apply auth injection for the redirect URL starting from the
+      // original caller headers — not currentHeaders which already contain
+      // auth injected on the previous hop. This prevents credential leakage
+      // across multi-redirect flows.
+      if (credential) {
+        const reAuthenticated = buildAuthenticatedRequest(
+          redirectUrl,
+          originalCallerHeaders,
+          credential,
+        );
+        currentUrl = reAuthenticated.url;
+        currentHeaders = reAuthenticated.headers;
+      } else {
+        currentUrl = redirectUrl;
+      }
+      continue;
+    }
+
+    // Not a redirect — read the response
+    const responseBody = await response.text();
+    const responseHeaders: Record<string, string> = {};
+    response.headers.forEach((value, key) => {
+      responseHeaders[key] = value;
+    });
+
+    return {
+      statusCode: response.status,
+      headers: responseHeaders,
+      body: responseBody,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Sanitise a URL for error messages by stripping query parameters
+ * (which may contain sensitive values).
+ */
+function sanitiseUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
+  } catch {
+    return "[invalid-url]";
+  }
+}
+
+/**
+ * Sanitise error messages to avoid leaking secret values.
+ */
+function sanitiseErrorMessage(message: string, secrets: string[]): string {
+  let result = message;
+  for (const secret of secrets) {
+    if (secret.length < 8) continue;
+    result = result.replaceAll(secret, "[CES:REDACTED]");
+  }
+  return result;
+}

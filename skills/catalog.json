@@ -9,8 +9,22 @@
       "metadata": {
         "emoji": "📬",
         "vellum": {
-          "display-name": "Email CLI Ops",
-          "user-invocable": "true"
+          "display-name": "Email CLI Ops"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "airtable-oauth-setup",
+      "name": "airtable-oauth-setup",
+      "description": "Set up Airtable OAuth credentials using a collaborative guided flow",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "Airtable OAuth Setup",
+          "includes": [
+            "collaborative-oauth-flow"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -22,8 +36,7 @@
       "metadata": {
         "emoji": "📦",
         "vellum": {
-          "display-name": "Amazon",
-          "user-invocable": "true"
+          "display-name": "Amazon"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -35,8 +48,22 @@
       "metadata": {
         "emoji": "🗺️",
         "vellum": {
-          "display-name": "API Mapping",
-          "user-invocable": "true"
+          "display-name": "API Mapping"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "asana-oauth-setup",
+      "name": "asana-oauth-setup",
+      "description": "Set up Asana OAuth credentials using a collaborative guided flow",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "Asana OAuth Setup",
+          "includes": [
+            "collaborative-oauth-flow"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -48,8 +75,19 @@
       "metadata": {
         "emoji": "🔍",
         "vellum": {
-          "display-name": "CLI Discovery",
-          "user-invocable": "false"
+          "display-name": "CLI Discovery"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "collaborative-oauth-flow",
+      "name": "collaborative-oauth-flow",
+      "description": "Reusable pattern for walking users through OAuth app setup via AppleScript browser navigation",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "Collaborative OAuth Flow"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -67,14 +105,28 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "discord-oauth-setup",
+      "name": "discord-oauth-setup",
+      "description": "Set up Discord OAuth credentials using a collaborative guided flow",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "Discord OAuth Setup",
+          "includes": [
+            "collaborative-oauth-flow"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "document-writer",
       "name": "document-writer",
       "description": "Create and edit long-form documents like blog posts, articles, essays, and reports using the built-in rich text editor",
       "metadata": {
         "emoji": "📝",
         "vellum": {
-          "display-name": "Document Writer",
-          "user-invocable": "true"
+          "display-name": "Document Writer"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -86,12 +138,22 @@
       "metadata": {
         "emoji": "🍕",
         "vellum": {
-          "display-name": "DoorDash",
-          "user-invocable": "true",
-          "cli": {
-            "command": "doordash",
-            "entry": "scripts/doordash-entry.ts"
-          }
+          "display-name": "DoorDash"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "dropbox-oauth-setup",
+      "name": "dropbox-oauth-setup",
+      "description": "Set up Dropbox OAuth credentials using a collaborative guided flow",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "Dropbox OAuth Setup",
+          "includes": [
+            "collaborative-oauth-flow"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -103,8 +165,7 @@
       "metadata": {
         "emoji": "🗣️",
         "vellum": {
-          "display-name": "ElevenLabs Voice",
-          "user-invocable": "true"
+          "display-name": "ElevenLabs Voice"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -117,8 +178,22 @@
         "emoji": "📧",
         "vellum": {
           "display-name": "Email Setup",
-          "user-invocable": "true",
           "feature-flag": "email-channel"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "figma-oauth-setup",
+      "name": "figma-oauth-setup",
+      "description": "Set up Figma OAuth credentials using a collaborative guided flow",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "Figma OAuth Setup",
+          "includes": [
+            "collaborative-oauth-flow"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -133,6 +208,21 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "github-oauth-setup",
+      "name": "github-oauth-setup",
+      "description": "Set up GitHub OAuth credentials using a collaborative guided flow",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "GitHub OAuth Setup",
+          "includes": [
+            "collaborative-oauth-flow"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "google-oauth-applescript",
       "name": "google-oauth-applescript",
       "description": "Set up Google Cloud OAuth credentials for Gmail and Calendar using a collaborative guided flow",
@@ -140,8 +230,9 @@
         "emoji": "🔑",
         "vellum": {
           "display-name": "Google OAuth Setup",
-          "user-invocable": "true",
-          "credential-setup-for": "gmail"
+          "includes": [
+            "collaborative-oauth-flow"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -153,8 +244,22 @@
       "metadata": {
         "emoji": "🔐",
         "vellum": {
-          "display-name": "Guardian Verify Setup",
-          "user-invocable": "true"
+          "display-name": "Guardian Verify Setup"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "hubspot-oauth-setup",
+      "name": "hubspot-oauth-setup",
+      "description": "Set up HubSpot OAuth credentials using a collaborative guided flow",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "HubSpot OAuth Setup",
+          "includes": [
+            "collaborative-oauth-flow"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -166,8 +271,22 @@
       "metadata": {
         "emoji": "🔍",
         "vellum": {
-          "display-name": "Influencer Research",
-          "user-invocable": "true"
+          "display-name": "Influencer Research"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "linear-oauth-setup",
+      "name": "linear-oauth-setup",
+      "description": "Set up Linear OAuth credentials using a collaborative guided flow",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "Linear OAuth Setup",
+          "includes": [
+            "collaborative-oauth-flow"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -179,11 +298,7 @@
       "metadata": {
         "emoji": "🍎",
         "vellum": {
-          "display-name": "macOS Automation",
-          "user-invocable": "false",
-          "os": [
-            "darwin"
-          ]
+          "display-name": "macOS Automation"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -195,8 +310,7 @@
       "metadata": {
         "emoji": "🔌",
         "vellum": {
-          "display-name": "MCP Setup",
-          "user-invocable": "false"
+          "display-name": "MCP Setup"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -208,8 +322,7 @@
       "metadata": {
         "emoji": "📝",
         "vellum": {
-          "display-name": "Notion",
-          "user-invocable": "false"
+          "display-name": "Notion"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -217,15 +330,13 @@
     {
       "id": "notion-oauth-setup",
       "name": "notion-oauth-setup",
-      "description": "Create a Notion integration and OAuth credentials for Notion integration using browser automation",
+      "description": "Set up Notion OAuth credentials for Notion integration using a collaborative guided flow",
       "metadata": {
         "emoji": "🔑",
         "vellum": {
           "display-name": "Notion OAuth Setup",
-          "user-invocable": "true",
           "includes": [
-            "browser",
-            "public-ingress"
+            "collaborative-oauth-flow"
           ]
         }
       },
@@ -234,14 +345,13 @@
     {
       "id": "oauth-setup",
       "name": "oauth-setup",
-      "description": "Connect any OAuth service — create app credentials and authorize via browser automation",
+      "description": "Connect any OAuth service — walk users through app setup via a collaborative guided flow",
       "metadata": {
         "emoji": "🔑",
         "vellum": {
           "display-name": "OAuth Setup",
-          "user-invocable": "true",
           "includes": [
-            "browser"
+            "collaborative-oauth-flow"
           ]
         }
       },
@@ -254,8 +364,7 @@
       "metadata": {
         "emoji": "🌍",
         "vellum": {
-          "display-name": "Public Ingress",
-          "user-invocable": "true"
+          "display-name": "Public Ingress"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -268,11 +377,9 @@
         "emoji": "🍽️",
         "vellum": {
           "display-name": "Restaurant Reservation Booking",
-          "user-invocable": "true",
           "includes": [
             "browser"
-          ],
-          "disable-model-invocation": "true"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -284,10 +391,7 @@
       "metadata": {
         "emoji": "🎬",
         "vellum": {
-          "display-name": "Screen Recording",
-          "os": [
-            "darwin"
-          ]
+          "display-name": "Screen Recording"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -299,8 +403,7 @@
       "metadata": {
         "emoji": "⬆️",
         "vellum": {
-          "display-name": "Self Upgrade",
-          "user-invocable": "true"
+          "display-name": "Self Upgrade"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -308,12 +411,11 @@
     {
       "id": "skills-catalog",
       "name": "skills-catalog",
-      "description": "Discover bundled skills and search/install community skills from Clawhub",
+      "description": "Discover bundled skills and search/install community skills from the skills.sh registry",
       "metadata": {
         "emoji": "🧩",
         "vellum": {
-          "display-name": "Skills Catalog",
-          "user-invocable": "true"
+          "display-name": "Skills Catalog"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -326,7 +428,6 @@
         "emoji": "💬",
         "vellum": {
           "display-name": "Slack App Setup",
-          "user-invocable": "true",
           "includes": [
             "guardian-verify-setup"
           ]
@@ -342,7 +443,6 @@
         "emoji": "📊",
         "vellum": {
           "display-name": "Slack Digest Setup",
-          "user-invocable": "true",
           "includes": [
             "slack",
             "schedule"
@@ -354,14 +454,28 @@
     {
       "id": "slack-oauth-setup",
       "name": "slack-oauth-setup",
-      "description": "Create Slack App and OAuth credentials for Slack integration using browser automation",
+      "description": "Set up Slack OAuth credentials for Slack integration using a collaborative guided flow",
       "metadata": {
         "emoji": "🔑",
         "vellum": {
           "display-name": "Slack OAuth Setup",
-          "user-invocable": "true",
           "includes": [
-            "browser"
+            "collaborative-oauth-flow"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "spotify-oauth-setup",
+      "name": "spotify-oauth-setup",
+      "description": "Set up Spotify OAuth credentials using a collaborative guided flow",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "Spotify OAuth Setup",
+          "includes": [
+            "collaborative-oauth-flow"
           ]
         }
       },
@@ -374,8 +488,7 @@
       "metadata": {
         "emoji": "🌅",
         "vellum": {
-          "display-name": "Start the Day",
-          "user-invocable": "true"
+          "display-name": "Start the Day"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -388,7 +501,6 @@
         "emoji": "🤖",
         "vellum": {
           "display-name": "Telegram Setup",
-          "user-invocable": "true",
           "includes": [
             "public-ingress"
           ]
@@ -409,6 +521,21 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "todoist-oauth-setup",
+      "name": "todoist-oauth-setup",
+      "description": "Set up Todoist OAuth credentials using a collaborative guided flow",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "Todoist OAuth Setup",
+          "includes": [
+            "collaborative-oauth-flow"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "twilio-setup",
       "name": "twilio-setup",
       "description": "Configure Twilio credentials and phone numbers for voice calls",
@@ -416,9 +543,23 @@
         "emoji": "📱",
         "vellum": {
           "display-name": "Twilio Setup",
-          "user-invocable": "true",
           "includes": [
             "public-ingress"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "twitter-oauth-setup",
+      "name": "twitter-oauth-setup",
+      "description": "Set up Twitter/X OAuth credentials for Twitter integration using a collaborative guided flow",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "Twitter / X OAuth Setup",
+          "includes": [
+            "collaborative-oauth-flow"
           ]
         }
       },
@@ -431,8 +572,19 @@
       "metadata": {
         "emoji": "🧪",
         "vellum": {
-          "display-name": "TypeScript Evaluation",
-          "user-invocable": "false"
+          "display-name": "TypeScript Evaluation"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "vellum-avatar",
+      "name": "vellum-avatar",
+      "description": "Customize the assistant's avatar — build a native character, upload an image, or generate one with AI",
+      "metadata": {
+        "emoji": "🎨",
+        "vellum": {
+          "display-name": "Avatar"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -447,8 +599,7 @@
           "display-name": "Vercel Token Setup",
           "includes": [
             "browser"
-          ],
-          "credential-setup-for": "vercel:api_token"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -461,10 +612,6 @@
         "emoji": "🎙️",
         "vellum": {
           "display-name": "Voice Setup",
-          "user-invocable": "true",
-          "os": [
-            "darwin"
-          ],
           "includes": [
             "elevenlabs-voice"
           ]

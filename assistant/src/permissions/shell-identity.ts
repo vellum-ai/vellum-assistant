@@ -33,11 +33,6 @@ export async function cachedParse(command: string): Promise<ParsedCommand> {
   return result;
 }
 
-/** Clear the shell parse cache. Exposed for testing. */
-export function clearShellParseCache(): void {
-  parseCache.clear();
-}
-
 export interface ShellActionKey {
   /** e.g. "action:gh", "action:gh pr", "action:gh pr view" */
   key: string;

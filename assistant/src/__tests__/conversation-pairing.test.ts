@@ -3,7 +3,7 @@
  *
  * Validates that pairDeliveryWithConversation materializes conversations
  * and messages according to the channel's conversation strategy, handles
- * thread reuse decisions, binding-key reuse for continue_existing channels,
+ * conversation reuse decisions, binding-key reuse for continue_existing channels,
  * and that errors in pairing never break the notification pipeline.
  */
 
@@ -52,7 +52,7 @@ const getConversationMock = mock((id: string) => {
 });
 
 mock.module("../memory/conversation-crud.js", () => ({
-  getConversationThreadType: () => "default",
+  getConversationType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
@@ -99,10 +99,10 @@ mock.module("../memory/external-conversation-store.js", () => ({
 import { pairDeliveryWithConversation } from "../notifications/conversation-pairing.js";
 import type { NotificationSignal } from "../notifications/signal.js";
 import type {
+  ConversationAction,
   DestinationBindingContext,
   NotificationChannel,
   RenderedChannelCopy,
-  ThreadAction,
 } from "../notifications/types.js";
 
 // ── Test helpers ────────────────────────────────────────────────────────
@@ -156,7 +156,7 @@ describe("pairDeliveryWithConversation", () => {
 
   test("creates a conversation and message for start_new_conversation strategy", async () => {
     const signal = makeSignal();
-    const copy = makeCopy({ threadTitle: "Alert Thread" });
+    const copy = makeCopy({ conversationTitle: "Alert Thread" });
 
     const result = await pairDeliveryWithConversation(
       signal,
@@ -168,19 +168,19 @@ describe("pairDeliveryWithConversation", () => {
     expect(result.messageId).toBe("msg-001");
     expect(result.strategy).toBe("start_new_conversation");
     expect(result.createdNewConversation).toBe(true);
-    expect(result.threadDecisionFallbackUsed).toBe(false);
+    expect(result.conversationFallbackUsed).toBe(false);
     expect(createConversationMock).toHaveBeenCalledTimes(1);
     expect(addMessageMock).toHaveBeenCalledTimes(1);
     const callArgs = createConversationMock.mock.calls[0]![0] as Record<
       string,
       unknown
     >;
-    expect(callArgs.threadType).toBe("standard");
+    expect(callArgs.conversationType).toBe("standard");
   });
 
-  test("uses threadTitle for conversation title when available", async () => {
+  test("uses conversationTitle for conversation title when available", async () => {
     const signal = makeSignal();
-    const copy = makeCopy({ threadTitle: "Custom Thread Title" });
+    const copy = makeCopy({ conversationTitle: "Custom Thread Title" });
 
     await pairDeliveryWithConversation(
       signal,
@@ -196,7 +196,7 @@ describe("pairDeliveryWithConversation", () => {
     expect(callArgs.title).toBe("Custom Thread Title");
   });
 
-  test("falls back to copy title when threadTitle is absent", async () => {
+  test("falls back to copy title when conversationTitle is absent", async () => {
     const signal = makeSignal();
     const copy = makeCopy({ title: "Notification Title" });
 
@@ -213,10 +213,10 @@ describe("pairDeliveryWithConversation", () => {
     expect(callArgs.title).toBe("Notification Title");
   });
 
-  test("uses threadSeedMessage for message content when present and sane", async () => {
+  test("uses conversationSeedMessage for message content when present and sane", async () => {
     const signal = makeSignal();
     const copy = makeCopy({
-      threadSeedMessage: "Custom seed message with enough length",
+      conversationSeedMessage: "Custom seed message with enough length",
     });
 
     await pairDeliveryWithConversation(
@@ -230,7 +230,7 @@ describe("pairDeliveryWithConversation", () => {
     expect(contentArg).toBe("Custom seed message with enough length");
   });
 
-  test("rejects threadSeedMessage that is a JSON dump and uses runtime composer", async () => {
+  test("rejects conversationSeedMessage that is a JSON dump and uses runtime composer", async () => {
     const signal = makeSignal({
       sourceEventName: "schedule.notify",
       contextPayload: { message: "Daily standup" },
@@ -238,7 +238,7 @@ describe("pairDeliveryWithConversation", () => {
     const copy = makeCopy({
       title: "Reminder",
       body: "Daily standup",
-      threadSeedMessage: '{"raw": "json dump payload"}',
+      conversationSeedMessage: '{"raw": "json dump payload"}',
     });
 
     await pairDeliveryWithConversation(
@@ -254,7 +254,7 @@ describe("pairDeliveryWithConversation", () => {
     expect(contentArg).toContain("Reminder");
   });
 
-  test("rejects very short threadSeedMessage and uses runtime composer", async () => {
+  test("rejects very short conversationSeedMessage and uses runtime composer", async () => {
     const signal = makeSignal({
       sourceEventName: "schedule.notify",
       contextPayload: { message: "Test" },
@@ -262,7 +262,7 @@ describe("pairDeliveryWithConversation", () => {
     const copy = makeCopy({
       title: "Reminder",
       body: "Test reminder",
-      threadSeedMessage: "Hi",
+      conversationSeedMessage: "Hi",
     });
 
     await pairDeliveryWithConversation(
@@ -312,7 +312,7 @@ describe("pairDeliveryWithConversation", () => {
       string,
       unknown
     >;
-    expect(callArgs.threadType).toBe("background");
+    expect(callArgs.conversationType).toBe("background");
   });
 
   // ── Binding-key reuse (continue_existing + bindingContext) ────────
@@ -331,7 +331,7 @@ describe("pairDeliveryWithConversation", () => {
 
     const signal = makeSignal();
     const copy = makeCopy({
-      threadSeedMessage: "Second notification to same chat",
+      conversationSeedMessage: "Second notification to same chat",
     });
     const bindingContext: DestinationBindingContext = {
       sourceChannel: "telegram" as NotificationChannel,
@@ -348,7 +348,7 @@ describe("pairDeliveryWithConversation", () => {
     expect(result.conversationId).toBe("conv-bound");
     expect(result.messageId).toBe("msg-001");
     expect(result.createdNewConversation).toBe(false);
-    expect(result.threadDecisionFallbackUsed).toBe(false);
+    expect(result.conversationFallbackUsed).toBe(false);
     expect(result.strategy).toBe("continue_existing_conversation");
     // Should append to existing, not create new
     expect(createConversationMock).not.toHaveBeenCalled();
@@ -373,7 +373,7 @@ describe("pairDeliveryWithConversation", () => {
 
     const signal = makeSignal();
     const copy = makeCopy({
-      threadSeedMessage: "Delivery to legacy binding",
+      conversationSeedMessage: "Delivery to legacy binding",
     });
     const bindingContext: DestinationBindingContext = {
       sourceChannel: "telegram" as NotificationChannel,
@@ -427,7 +427,7 @@ describe("pairDeliveryWithConversation", () => {
 
     expect(result.conversationId).toBe("conv-001");
     expect(result.createdNewConversation).toBe(true);
-    expect(result.threadDecisionFallbackUsed).toBe(false);
+    expect(result.conversationFallbackUsed).toBe(false);
     expect(createConversationMock).toHaveBeenCalledTimes(1);
     // Should upsert the binding for the new conversation
     expect(upsertOutboundBindingMock).toHaveBeenCalledTimes(1);
@@ -506,9 +506,9 @@ describe("pairDeliveryWithConversation", () => {
 
     const signal = makeSignal();
     const copy = makeCopy({
-      threadSeedMessage: "Follow-up to explicit reuse target",
+      conversationSeedMessage: "Follow-up to explicit reuse target",
     });
-    const threadAction: ThreadAction = {
+    const conversationAction: ConversationAction = {
       action: "reuse_existing",
       conversationId: "conv-explicit",
     };
@@ -521,7 +521,7 @@ describe("pairDeliveryWithConversation", () => {
       signal,
       "telegram" as NotificationChannel,
       copy,
-      { threadAction, bindingContext },
+      { conversationAction, bindingContext },
     );
 
     expect(result.conversationId).toBe("conv-explicit");
@@ -541,7 +541,7 @@ describe("pairDeliveryWithConversation", () => {
     // Target does not exist — falls back to new conversation
     const signal = makeSignal();
     const copy = makeCopy();
-    const threadAction: ThreadAction = {
+    const conversationAction: ConversationAction = {
       action: "reuse_existing",
       conversationId: "conv-gone",
     };
@@ -554,12 +554,12 @@ describe("pairDeliveryWithConversation", () => {
       signal,
       "slack" as NotificationChannel,
       copy,
-      { threadAction, bindingContext },
+      { conversationAction, bindingContext },
     );
 
     expect(result.conversationId).toBe("conv-001");
     expect(result.createdNewConversation).toBe(true);
-    expect(result.threadDecisionFallbackUsed).toBe(true);
+    expect(result.conversationFallbackUsed).toBe(true);
     // Should bind the new conversation to the destination
     expect(upsertOutboundBindingMock).toHaveBeenCalledTimes(1);
     const upsertArgs = upsertOutboundBindingMock.mock.calls[0]![0] as Record<
@@ -591,9 +591,9 @@ describe("pairDeliveryWithConversation", () => {
 
     const signal = makeSignal();
     const copy = makeCopy({
-      threadSeedMessage: "Message for explicit reuse target",
+      conversationSeedMessage: "Message for explicit reuse target",
     });
-    const threadAction: ThreadAction = {
+    const conversationAction: ConversationAction = {
       action: "reuse_existing",
       conversationId: "conv-explicit",
     };
@@ -606,7 +606,7 @@ describe("pairDeliveryWithConversation", () => {
       signal,
       "telegram" as NotificationChannel,
       copy,
-      { threadAction, bindingContext },
+      { conversationAction, bindingContext },
     );
 
     // Should use the explicit target, not the binding
@@ -677,7 +677,7 @@ describe("pairDeliveryWithConversation", () => {
 
   // ── Thread reuse (reuse_existing) ─────────────────────────────────
 
-  test("reuses existing conversation when threadAction is reuse_existing and target is valid", async () => {
+  test("reuses existing conversation when conversationAction is reuse_existing and target is valid", async () => {
     mockExistingConversations["conv-existing"] = {
       id: "conv-existing",
       source: "notification",
@@ -686,9 +686,9 @@ describe("pairDeliveryWithConversation", () => {
 
     const signal = makeSignal();
     const copy = makeCopy({
-      threadSeedMessage: "Follow-up notification message content",
+      conversationSeedMessage: "Follow-up notification message content",
     });
-    const threadAction: ThreadAction = {
+    const conversationAction: ConversationAction = {
       action: "reuse_existing",
       conversationId: "conv-existing",
     };
@@ -697,13 +697,13 @@ describe("pairDeliveryWithConversation", () => {
       signal,
       "vellum" as NotificationChannel,
       copy,
-      { threadAction },
+      { conversationAction },
     );
 
     expect(result.conversationId).toBe("conv-existing");
     expect(result.messageId).toBe("msg-001");
     expect(result.createdNewConversation).toBe(false);
-    expect(result.threadDecisionFallbackUsed).toBe(false);
+    expect(result.conversationFallbackUsed).toBe(false);
     // Should NOT have created a new conversation — only addMessage should be called
     expect(createConversationMock).not.toHaveBeenCalled();
     expect(addMessageMock).toHaveBeenCalledTimes(1);
@@ -715,7 +715,7 @@ describe("pairDeliveryWithConversation", () => {
     // No existing conversations — target is stale/invalid
     const signal = makeSignal();
     const copy = makeCopy();
-    const threadAction: ThreadAction = {
+    const conversationAction: ConversationAction = {
       action: "reuse_existing",
       conversationId: "conv-nonexistent",
     };
@@ -724,13 +724,13 @@ describe("pairDeliveryWithConversation", () => {
       signal,
       "vellum" as NotificationChannel,
       copy,
-      { threadAction },
+      { conversationAction },
     );
 
     expect(result.conversationId).toBe("conv-001");
     expect(result.messageId).toBe("msg-001");
     expect(result.createdNewConversation).toBe(true);
-    expect(result.threadDecisionFallbackUsed).toBe(true);
+    expect(result.conversationFallbackUsed).toBe(true);
     expect(createConversationMock).toHaveBeenCalledTimes(1);
   });
 
@@ -744,7 +744,7 @@ describe("pairDeliveryWithConversation", () => {
 
     const signal = makeSignal();
     const copy = makeCopy();
-    const threadAction: ThreadAction = {
+    const conversationAction: ConversationAction = {
       action: "reuse_existing",
       conversationId: "conv-user",
     };
@@ -753,33 +753,33 @@ describe("pairDeliveryWithConversation", () => {
       signal,
       "vellum" as NotificationChannel,
       copy,
-      { threadAction },
+      { conversationAction },
     );
 
     expect(result.conversationId).toBe("conv-001");
     expect(result.createdNewConversation).toBe(true);
-    expect(result.threadDecisionFallbackUsed).toBe(true);
+    expect(result.conversationFallbackUsed).toBe(true);
   });
 
-  test("creates new conversation when threadAction is start_new", async () => {
+  test("creates new conversation when conversationAction is start_new", async () => {
     const signal = makeSignal();
     const copy = makeCopy();
-    const threadAction: ThreadAction = { action: "start_new" };
+    const conversationAction: ConversationAction = { action: "start_new" };
 
     const result = await pairDeliveryWithConversation(
       signal,
       "vellum" as NotificationChannel,
       copy,
-      { threadAction },
+      { conversationAction },
     );
 
     expect(result.conversationId).toBe("conv-001");
     expect(result.createdNewConversation).toBe(true);
-    expect(result.threadDecisionFallbackUsed).toBe(false);
+    expect(result.conversationFallbackUsed).toBe(false);
     expect(createConversationMock).toHaveBeenCalledTimes(1);
   });
 
-  test("creates new conversation when threadAction is undefined (default)", async () => {
+  test("creates new conversation when conversationAction is undefined (default)", async () => {
     const signal = makeSignal();
     const copy = makeCopy();
 
@@ -791,7 +791,7 @@ describe("pairDeliveryWithConversation", () => {
 
     expect(result.conversationId).toBe("conv-001");
     expect(result.createdNewConversation).toBe(true);
-    expect(result.threadDecisionFallbackUsed).toBe(false);
+    expect(result.conversationFallbackUsed).toBe(false);
   });
 
   // ── Error resilience ──────────────────────────────────────────────

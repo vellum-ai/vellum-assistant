@@ -6,7 +6,6 @@ metadata:
   emoji: "🔍"
   vellum:
     display-name: "CLI Discovery"
-    user-invocable: false
 ---
 
 # CLI Discovery

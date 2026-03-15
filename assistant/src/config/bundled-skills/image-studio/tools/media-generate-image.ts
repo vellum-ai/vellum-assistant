@@ -9,12 +9,13 @@ import {
   mapGeminiError,
 } from "../../../../media/gemini-image-service.js";
 import { getAttachmentsByIds } from "../../../../memory/attachments-store.js";
-import { getConversationThreadType } from "../../../../memory/conversation-crud.js";
+import { getConversationType } from "../../../../memory/conversation-crud.js";
 import {
   buildManagedBaseUrl,
   resolveManagedProxyContext,
 } from "../../../../providers/managed-proxy/context.js";
 import type { ImageContent } from "../../../../providers/types.js";
+import { getSecureKeyAsync } from "../../../../security/secure-keys.js";
 import { getAttachmentSourceConversations } from "../../../../tools/assets/search.js";
 import type {
   ToolContext,
@@ -33,11 +34,11 @@ function isAttachmentAccessible(
   if (sources.length === 0) {
     return true; // orphan attachments are universally visible
   }
-  const hasStandard = sources.some((s) => s.threadType !== "private");
+  const hasStandard = sources.some((s) => s.conversationType !== "private");
   if (hasStandard) {
     return true;
   }
-  // All sources are private — visible only if the caller is in one of those threads
+  // All sources are private — visible only if the caller is in one of those conversations
   return sources.some((s) =>
     isAttachmentVisible(
       { conversationId: s.conversationId, isPrivate: true },
@@ -51,16 +52,16 @@ export async function run(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const config = getConfig();
-  const apiKey = config.apiKeys.gemini ?? process.env.GEMINI_API_KEY;
+  const apiKey = await getSecureKeyAsync("gemini");
 
   // Resolve credentials: prefer direct API key, fall back to managed proxy
   let credentials: ImageGenCredentials | undefined;
   if (apiKey) {
     credentials = { type: "direct", apiKey };
   } else {
-    const managedBaseUrl = buildManagedBaseUrl("vertex");
+    const managedBaseUrl = await buildManagedBaseUrl("vertex");
     if (managedBaseUrl) {
-      const ctx = resolveManagedProxyContext();
+      const ctx = await resolveManagedProxyContext();
       credentials = {
         type: "managed-proxy",
         assistantApiKey: ctx.assistantApiKey,
@@ -90,10 +91,10 @@ export async function run(
     const attachments = getAttachmentsByIds(attachmentIds);
 
     // Build visibility context for the current conversation
-    const threadType = getConversationThreadType(context.conversationId);
+    const conversationType = getConversationType(context.conversationId);
     const currentContext: AttachmentContext = {
       conversationId: context.conversationId,
-      isPrivate: threadType === "private",
+      isPrivate: conversationType === "private",
     };
 
     // Filter to only visible attachments using their originating context

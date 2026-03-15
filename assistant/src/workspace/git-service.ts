@@ -1,5 +1,11 @@
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
@@ -252,6 +258,33 @@ export class WorkspaceGitService {
     );
   }
 
+  /** Age threshold (ms) beyond which an index.lock is considered stale. */
+  private static readonly LOCK_STALE_THRESHOLD_MS = 30_000;
+
+  /**
+   * Remove `.git/index.lock` only if it is stale — older than
+   * {@link LOCK_STALE_THRESHOLD_MS}. A recently-created lock may belong to a
+   * concurrent git process outside our mutex (e.g. a user-initiated CLI
+   * command), so we leave it alone.
+   */
+  private cleanStaleLockFile(): void {
+    const lockPath = join(this.workspaceDir, ".git", "index.lock");
+    try {
+      const stat = statSync(lockPath);
+      const ageMs = Date.now() - stat.mtimeMs;
+      if (ageMs < WorkspaceGitService.LOCK_STALE_THRESHOLD_MS) {
+        log.debug(
+          `index.lock exists but is only ${Math.round(ageMs / 1000)}s old — leaving it`,
+        );
+        return;
+      }
+      unlinkSync(lockPath);
+      log.debug(`Removed stale index.lock (${Math.round(ageMs / 1000)}s old)`);
+    } catch {
+      // File doesn't exist or can't be stat'd/removed — move on.
+    }
+  }
+
   /**
    * Ensure the git repository is initialized.
    * Idempotent: safe to call multiple times.
@@ -297,6 +330,11 @@ export class WorkspaceGitService {
           }
 
           const gitDir = join(this.workspaceDir, ".git");
+
+          // Clean up stale lock files before any git operations.
+          if (existsSync(gitDir)) {
+            this.cleanStaleLockFile();
+          }
 
           if (existsSync(gitDir)) {
             // Validate existing repo is not corrupted before marking as ready.
@@ -418,7 +456,9 @@ export class WorkspaceGitService {
             ? "Initial commit: migrated existing workspace"
             : "Initial commit: new workspace";
 
-          await this.execGit(["commit", "-m", message, "--allow-empty"]);
+          await this.execGit(
+            this.buildSafeCommitArgs(["-m", message, "--allow-empty"]),
+          );
 
           this.initialized = true;
           this.recordInitSuccess();
@@ -440,6 +480,8 @@ export class WorkspaceGitService {
     await this.ensureInitialized();
 
     await this.mutex.withLock(async () => {
+      this.cleanStaleLockFile();
+
       // Stage all changes
       await this.execGit(["add", "-A"]);
 
@@ -454,7 +496,9 @@ export class WorkspaceGitService {
       }
 
       // Commit (will succeed even if no changes)
-      await this.execGit(["commit", "-m", fullMessage, "--allow-empty"]);
+      await this.execGit(
+        this.buildSafeCommitArgs(["-m", fullMessage, "--allow-empty"]),
+      );
     });
   }
 
@@ -513,6 +557,8 @@ export class WorkspaceGitService {
 
     try {
       const result = await this.mutex.withLock(async () => {
+        this.cleanStaleLockFile();
+
         // Re-check breaker under lock: a queued call that started before the
         // breaker opened should not proceed with expensive git work now that
         // the breaker is open.
@@ -592,7 +638,7 @@ export class WorkspaceGitService {
               .join("\n");
         }
 
-        await this.execGit(["commit", "-m", fullMessage]);
+        await this.execGit(this.buildSafeCommitArgs(["-m", fullMessage]));
         return { committed: true, status, didRunGit: true as const };
       });
       if (result.didRunGit) {
@@ -829,6 +875,16 @@ export class WorkspaceGitService {
   }
 
   /**
+   * Build commit args that disable all git hook execution.
+   *
+   * Workspace contents are model-writable, so hooks in `.git/hooks` (or via
+   * `core.hooksPath`) are untrusted. Auto-commit paths must not execute them.
+   */
+  private buildSafeCommitArgs(args: string[]): string[] {
+    return ["-c", "core.hooksPath=/dev/null", "commit", "--no-verify", ...args];
+  }
+
+  /**
    * Run an arbitrary read-only git command in the workspace directory.
    * Uses the same clean env and timeout as other git operations.
    * Does NOT acquire the mutex — callers must ensure they are not
@@ -853,7 +909,14 @@ export class WorkspaceGitService {
   ): Promise<void> {
     await this.ensureInitialized();
     await this.mutex.withLock(async () => {
-      await fn((args) => this.execGit(args));
+      this.cleanStaleLockFile();
+      await fn((args) => {
+        // Intercept commit commands to enforce hook hardening.
+        if (args[0] === "commit") {
+          return this.execGit(this.buildSafeCommitArgs(args.slice(1)));
+        }
+        return this.execGit(args);
+      });
     });
   }
 

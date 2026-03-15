@@ -25,16 +25,9 @@ extension DaemonClient {
 
         log.info("connect: establishing HTTP transport to \(baseURL, privacy: .public)")
 
-        // The bearer token may be nil at config time (e.g. managed mode or
-        // local HTTP where the token isn't known until bootstrap).
-        // Resolve lazily from disk so connections started after a previous
-        // bootstrap carry the persisted JWT.
-        let tokenEnv = config.instanceDir.map { ["BASE_DATA_DIR": $0] }
-        let resolvedToken = bearerToken ?? (try? String(contentsOfFile: resolveHttpTokenPath(environment: tokenEnv), encoding: .utf8)).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-
         let transport = HTTPTransport(
             baseURL: baseURL,
-            bearerToken: resolvedToken,
+            bearerToken: bearerToken,
             conversationKey: conversationKey,
             transportMetadata: config.transportMetadata
         )

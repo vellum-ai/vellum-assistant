@@ -6,8 +6,16 @@
  * so adding/removing tools only requires editing this manifest.
  */
 
+import { getConfig } from "../config/loader.js";
+import {
+  isCesSecureInstallEnabled,
+  isCesToolsEnabled,
+} from "../credential-execution/feature-gates.js";
 import { assetMaterializeTool } from "./assets/materialize.js";
 import { assetSearchTool } from "./assets/search.js";
+import { makeAuthenticatedRequestTool } from "./credential-execution/make-authenticated-request.js";
+import { manageSecureCommandTool } from "./credential-execution/manage-secure-command-tool.js";
+import { runAuthenticatedCommandTool } from "./credential-execution/run-authenticated-command.js";
 import { credentialStoreTool } from "./credentials/vault.js";
 import { fileEditTool } from "./filesystem/edit.js";
 import { fileReadTool } from "./filesystem/read.js";
@@ -15,7 +23,6 @@ import { fileWriteTool } from "./filesystem/write.js";
 import { memoryManageTool, memoryRecallTool } from "./memory/register.js";
 import { webFetchTool } from "./network/web-fetch.js";
 import { webSearchTool } from "./network/web-search.js";
-import type { LazyToolDescriptor } from "./registry.js";
 import { skillExecuteTool } from "./skills/execute.js";
 import { skillLoadTool } from "./skills/load.js";
 import { requestSystemPermissionTool } from "./system/request-permission.js";
@@ -86,11 +93,37 @@ export const explicitTools: Tool[] = [
   credentialStoreTool,
 ];
 
-// ── Lazy tool descriptors ───────────────────────────────────────────
-// Tools that defer module loading until first invocation.
-// bash was previously lazy but is now eagerly registered via side-effect
-// imports above, preserving its full definition (including the `reason` field)
-// and fixing bun --compile module-not-found crashes.
-// swarm_delegate has been moved to the orchestration bundled skill.
+// ── CES tools (feature-flag gated) ──────────────────────────────────
+// Credential Execution Service tools are only registered when the
+// CES feature flag (`feature_flags.ces-tools.enabled`) is enabled.
+// This list is intentionally separate from `explicitTools` so that
+// initializeTools() in registry.ts can conditionally include them.
 
-export const lazyTools: LazyToolDescriptor[] = [];
+/** All CES tools — stable references for the manifest snapshot. */
+export const cesTools: Tool[] = [
+  makeAuthenticatedRequestTool,
+  runAuthenticatedCommandTool,
+  manageSecureCommandTool,
+];
+
+/**
+ * Return CES tools only if the CES feature flag is enabled.
+ * Returns an empty array when the flag is disabled so callers can
+ * unconditionally iterate the result.
+ */
+export function getCesToolsIfEnabled(): Tool[] {
+  try {
+    const config = getConfig();
+    if (isCesToolsEnabled(config)) {
+      // manage_secure_command_tool is additionally gated behind the
+      // ces-secure-install flag so it can be rolled out independently.
+      const secureInstallEnabled = isCesSecureInstallEnabled(config);
+      return cesTools.filter(
+        (t) => t.name !== "manage_secure_command_tool" || secureInstallEnabled,
+      );
+    }
+  } catch {
+    // Config not yet loaded (e.g. during test setup) — CES tools stay off.
+  }
+  return [];
+}

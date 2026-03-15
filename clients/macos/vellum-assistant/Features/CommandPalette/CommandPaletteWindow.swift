@@ -19,8 +19,14 @@ final class CommandPaletteWindow {
     private var isDismissing = false
     private let viewModel = CommandPaletteViewModel()
 
-    /// Callback invoked when the user selects a conversation to navigate to.
+    /// Callback invoked when the user selects a recent conversation to navigate to.
     var onSelectConversation: ((UUID) -> Void)?
+
+    /// Callback invoked when the user selects a search result conversation (by daemon session ID).
+    var onSelectSearchConversation: ((String) -> Void)?
+
+    /// Callback invoked when the user selects a memory search result (by memory ID).
+    var onSelectMemory: ((String) -> Void)?
 
     /// Static actions to show in the palette.
     var actions: [CommandPaletteAction] = []
@@ -60,8 +66,10 @@ final class CommandPaletteWindow {
                 self?.onSelectConversation?(threadId)
             },
             onSelectConversation: { [weak self] convId in
-                guard let uuid = UUID(uuidString: convId) else { return }
-                self?.onSelectConversation?(uuid)
+                self?.onSelectSearchConversation?(convId)
+            },
+            onSelectMemory: { [weak self] memoryId in
+                self?.onSelectMemory?(memoryId)
             }
         )
 

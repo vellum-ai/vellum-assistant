@@ -18,7 +18,7 @@ export async function run(
   }
 
   try {
-    const connection = getSlackConnection();
+    const connection = await getSlackConnection();
     await addReaction(connection, channel, timestamp, emoji);
     return ok(`Added :${emoji}: reaction.`);
   } catch (e) {

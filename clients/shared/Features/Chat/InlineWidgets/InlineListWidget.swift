@@ -38,12 +38,12 @@ public struct InlineListWidget: View {
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(item.title)
                     .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 if let subtitle = item.subtitle {
                     Text(subtitle)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .lineLimit(1)
                 }
             }
@@ -52,13 +52,13 @@ public struct InlineListWidget: View {
 
             if data.selectionMode != .none {
                 VIconView(isSelected ? .circleCheck : .circle, size: 14)
-                    .foregroundColor(isSelected ? VColor.accent : VColor.textMuted)
+                    .foregroundColor(isSelected ? VColor.primaryBase : VColor.contentTertiary)
             }
         }
         .padding(.vertical, VSpacing.sm)
         .background(
             RoundedRectangle(cornerRadius: VRadius.sm)
-                .fill(isSelected ? VColor.accent.opacity(0.1) : Color.clear)
+                .fill(isSelected ? VColor.primaryBase.opacity(0.1) : Color.clear)
         )
         .contentShape(Rectangle())
         .onTapGesture {
@@ -78,22 +78,4 @@ public struct InlineListWidget: View {
 }
 
 #if DEBUG
-#Preview("InlineListWidget") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        InlineListWidget(
-            data: ListSurfaceData(
-                items: [
-                    ListItemData(id: "1", title: "Option A", subtitle: "First choice", icon: nil, selected: false),
-                    ListItemData(id: "2", title: "Option B", subtitle: "Second choice", icon: nil, selected: true),
-                    ListItemData(id: "3", title: "Option C", subtitle: nil, icon: nil, selected: false),
-                ],
-                selectionMode: .single
-            ),
-            onAction: { _, _ in }
-        )
-        .padding()
-    }
-    .frame(width: 400, height: 250)
-}
 #endif

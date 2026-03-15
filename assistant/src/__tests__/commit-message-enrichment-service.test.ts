@@ -1,5 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -59,9 +65,34 @@ describe("CommitEnrichmentService", () => {
   }
 
   async function createCommit(): Promise<string> {
-    writeFileSync(join(testDir, `file-${Date.now()}.txt`), "content");
-    await gitService.commitChanges("test commit");
-    return await gitService.getHeadHash();
+    const filename = `file-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`;
+    writeFileSync(join(testDir, filename), "content");
+    // Use execFileSync directly for test setup commits to avoid async
+    // timing issues that can leave stale index.lock files on loaded CI runners.
+    const lockPath = join(testDir, ".git", "index.lock");
+    try {
+      unlinkSync(lockPath);
+    } catch {
+      /* no lock to clean */
+    }
+    execFileSync("git", ["add", "-A"], { cwd: testDir });
+    execFileSync(
+      "git",
+      [
+        "-c",
+        "core.hooksPath=/dev/null",
+        "commit",
+        "--no-verify",
+        "-m",
+        "test commit",
+        "--allow-empty",
+      ],
+      { cwd: testDir },
+    );
+    return execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: testDir,
+      encoding: "utf-8",
+    }).trim();
   }
 
   async function waitForDrain(

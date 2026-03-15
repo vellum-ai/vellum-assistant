@@ -31,20 +31,20 @@ public struct VSkillTypePill: View {
 
         var foregroundColor: Color {
             switch self {
-            case .core: return VColor.skillCoreForeground
-            case .installed: return VColor.skillInstalledForeground
-            case .created: return VColor.skillCreatedForeground
-            case .extra: return VColor.skillExtraForeground
+            case .core: return VColor.contentDefault
+            case .installed: return VColor.systemPositiveStrong
+            case .created: return VColor.contentSecondary
+            case .extra: return VColor.contentTertiary
             case .custom(_, _, let fg, _): return fg
             }
         }
 
         var backgroundColor: Color {
             switch self {
-            case .core: return VColor.skillCoreBackground
-            case .installed: return VColor.skillInstalledBackground
-            case .created: return VColor.skillCreatedBackground
-            case .extra: return VColor.skillExtraBackground
+            case .core: return VColor.surfaceBase
+            case .installed: return VColor.systemPositiveWeak
+            case .created: return VColor.surfaceBase
+            case .extra: return VColor.surfaceOverlay
             case .custom(_, _, _, let bg): return bg
             }
         }
@@ -71,8 +71,8 @@ public struct VSkillTypePill: View {
             self.type = .custom(
                 label: source.replacingOccurrences(of: "-", with: " ").capitalized,
                 icon: VIcon.puzzle.rawValue,
-                foreground: VColor.skillExtraForeground,
-                background: VColor.skillExtraBackground
+                foreground: VColor.contentTertiary,
+                background: VColor.surfaceOverlay
             )
         }
     }

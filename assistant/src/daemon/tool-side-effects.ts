@@ -15,7 +15,6 @@ import { getApp, getAppsDir, isMultifileApp } from "../memory/app-store.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
 import { isDoordashCommand, updateDoordashProgress } from "./doordash-steps.js";
 import type { ServerMessage } from "./message-protocol.js";
 import { refreshSurfacesForApp } from "./session-surfaces.js";
@@ -191,21 +190,6 @@ registerHook(
         status,
       });
     }
-  },
-);
-
-// Broadcast avatar change to all connected clients so every
-// macOS/iOS instance reloads the avatar image.
-registerHook(
-  "set_avatar",
-  (_name, _input, _result, { broadcastToAllClients }) => {
-    const avatarPath = join(
-      getWorkspaceDir(),
-      "data",
-      "avatar",
-      "custom-avatar.png",
-    );
-    broadcastToAllClients?.({ type: "avatar_updated", avatarPath });
   },
 );
 

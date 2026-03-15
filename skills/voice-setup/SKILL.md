@@ -6,8 +6,6 @@ metadata:
   emoji: "🎙️"
   vellum:
     display-name: "Voice Setup"
-    user-invocable: true
-    os: ["darwin"]
     includes: ["elevenlabs-voice"]
 ---
 

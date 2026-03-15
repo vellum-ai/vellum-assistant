@@ -6,8 +6,8 @@
  * host_bash_request, host_file_request, or host_cu_request, the onEvent
  * callback registers the interaction here. Standalone HTTP endpoints
  * (/v1/confirm, /v1/secret, /v1/trust-rules, /v1/host-bash-result,
- * /v1/host-file-result, /v1/host-cu-result) look up the session from
- * this tracker to resolve the interaction.
+ * /v1/host-file-result, /v1/host-cu-result) look up the session from this
+ * tracker to resolve the interaction.
  */
 
 import type { Session } from "../daemon/session.js";
@@ -24,7 +24,7 @@ export interface ConfirmationDetails {
   }>;
   scopeOptions: Array<{ label: string; scope: string }>;
   persistentDecisionsAllowed?: boolean;
-  temporaryOptionsAvailable?: Array<"allow_10m" | "allow_thread">;
+  temporaryOptionsAvailable?: Array<"allow_10m" | "allow_conversation">;
 }
 
 export interface PendingInteraction {

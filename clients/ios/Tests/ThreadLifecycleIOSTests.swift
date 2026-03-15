@@ -77,16 +77,16 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(sessionCreates.count, 1, "Should send exactly one session_create")
     }
 
-    func testCreateSessionWithThreadTypeSetsThreadType() {
+    func testCreateSessionWithConversationTypeSetsConversationType() {
         let vm = ChatViewModel(daemonClient: mockClient)
-        vm.createSessionIfNeeded(threadType: "private")
+        vm.createSessionIfNeeded(conversationType: "private")
 
-        XCTAssertEqual(vm.threadType, "private")
+        XCTAssertEqual(vm.conversationType, "private")
     }
 
-    func testCreateSessionWithThreadTypeSendsThreadType() {
+    func testCreateSessionWithConversationTypeSendsConversationType() {
         let vm = ChatViewModel(daemonClient: mockClient)
-        vm.createSessionIfNeeded(threadType: "private")
+        vm.createSessionIfNeeded(conversationType: "private")
 
         let expectation = XCTestExpectation(description: "session_create sent")
         var cancelled = false
@@ -103,7 +103,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         cancelled = true
 
         let sessionCreates = mockClient.sentMessages.compactMap { $0 as? SessionCreateMessage }
-        XCTAssertEqual(sessionCreates.first?.threadType, "private")
+        XCTAssertEqual(sessionCreates.first?.conversationType, "private")
     }
 
     // MARK: - Session Info Backfill (Thread Session Assignment)
@@ -815,9 +815,9 @@ final class ThreadLifecycleIOSTests: XCTestCase {
 
     func testPinningConnectedThreadUpdatesLocalStateAndEmitsReorder() {
         let daemonClient = DaemonClient()
-        var reorderRequests: [ReorderThreadsRequest] = []
+        var reorderRequests: [ReorderConversationsRequest] = []
         daemonClient.sendOverride = { message in
-            if let request = message as? ReorderThreadsRequest {
+            if let request = message as? ReorderConversationsRequest {
                 reorderRequests.append(request)
             }
         }
@@ -906,9 +906,9 @@ final class ThreadLifecycleIOSTests: XCTestCase {
 
     func testUnpinningConnectedThreadRecompactsPinnedOrderAndEmitsReorder() {
         let daemonClient = DaemonClient()
-        var reorderRequests: [ReorderThreadsRequest] = []
+        var reorderRequests: [ReorderConversationsRequest] = []
         daemonClient.sendOverride = { message in
-            if let request = message as? ReorderThreadsRequest {
+            if let request = message as? ReorderConversationsRequest {
                 reorderRequests.append(request)
             }
         }

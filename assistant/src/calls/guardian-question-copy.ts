@@ -1,8 +1,8 @@
 /**
- * Generative copy for guardian question threads.
+ * Generative copy for guardian question conversations.
  *
  * Uses the configured provider to generate an attention-oriented emoji-prefixed
- * thread title and a richer initial message. Falls back to deterministic copy
+ * conversation title and a richer initial message. Falls back to deterministic copy
  * when the provider is unavailable or generation fails/times out.
  */
 
@@ -20,7 +20,7 @@ const log = getLogger("guardian-question-copy");
 const GENERATION_TIMEOUT_MS = 5_000;
 
 export interface GuardianCopy {
-  threadTitle: string;
+  conversationTitle: string;
   initialMessage: string;
 }
 
@@ -29,7 +29,7 @@ export interface GuardianCopy {
  */
 export function buildFallbackCopy(questionText: string): GuardianCopy {
   return {
-    threadTitle: `\u26A0\uFE0F ${questionText.slice(0, 70)}`,
+    conversationTitle: `\u26A0\uFE0F ${questionText.slice(0, 70)}`,
     initialMessage: [
       "Your assistant needs your input during a phone call.",
       "",
@@ -41,7 +41,7 @@ export function buildFallbackCopy(questionText: string): GuardianCopy {
 }
 
 /**
- * Generate guardian thread copy (title + initial message) via the configured
+ * Generate guardian conversation copy (title + initial message) via the configured
  * LLM provider. Returns deterministic fallback when the provider is unavailable,
  * generation times out, or any error occurs.
  */
@@ -52,7 +52,7 @@ export async function generateGuardianCopy(
   const fallback = buildFallbackCopy(questionText);
 
   // If no provider is configured, return fallback immediately
-  const resolved = resolveConfiguredProvider();
+  const resolved = await resolveConfiguredProvider();
   if (!resolved) {
     log.debug(
       "No provider available for guardian copy generation, using fallback",
@@ -64,7 +64,7 @@ export async function generateGuardianCopy(
 
   try {
     const prompt = [
-      "Generate a thread title and initial message for a guardian question during a live phone call.",
+      "Generate a conversation title and initial message for a guardian question during a live phone call.",
       "",
       `Question: ${questionText}`,
       ...(requestCode ? [`Reference code: ${requestCode}`] : []),
@@ -134,5 +134,5 @@ function parseGeneratedCopy(text: string): GuardianCopy | null {
     return null;
   }
 
-  return { threadTitle: title, initialMessage: message };
+  return { conversationTitle: title, initialMessage: message };
 }

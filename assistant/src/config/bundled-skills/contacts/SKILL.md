@@ -6,7 +6,6 @@ metadata:
   emoji: "👥"
   vellum:
     display-name: "Contacts"
-    user-invocable: true
     feature-flag: "contacts"
 ---
 
@@ -168,6 +167,8 @@ Replace `<channel_id>` with the channel's `id` from the contact's `channels` arr
 
 Invite links let the guardian share a link or code that automatically grants access when used. Telegram invites use a deep link; voice invites use a phone number + numeric code; email, WhatsApp, and Slack invites use a 6-digit code that the invitee sends to the assistant on the respective channel.
 
+**Every invite must be bound to a contact.** Before creating an invite, look up the contact with `assistant contacts list` or create one with `assistant contacts upsert`, then pass the contact's `id` via the required `--contact-id` flag.
+
 ### Create a Telegram invite link
 
 Use this when the guardian wants to invite someone to message the assistant on Telegram without needing their user ID upfront. The invite link is a shareable Telegram deep link -- when someone opens it, they automatically get trusted-contact access.
@@ -175,7 +176,7 @@ Use this when the guardian wants to invite someone to message the assistant on T
 **Important**: The shell snippet below emits a `<vellum-sensitive-output>` directive containing the raw invite token. The tool executor automatically strips this directive and replaces the raw token with a placeholder so the LLM never sees it. The placeholder is resolved back to the real token in the final assistant reply.
 
 ```bash
-INVITE_JSON=$(assistant contacts invites create --source-channel telegram --max-uses 1 --note "<optional note, e.g. the person it is for>" --json)
+INVITE_JSON=$(assistant contacts invites create --source-channel telegram --contact-id "<contact_id>" --max-uses 1 --note "<optional note, e.g. the person it is for>" --json)
 
 INVITE_TOKEN=$(printf '%s' "$INVITE_JSON" | python3 -c "
 import json, sys
@@ -210,6 +211,11 @@ echo "<vellum-sensitive-output kind=\"invite_code\" value=\"$INVITE_TOKEN\" />"
 echo "$INVITE_URL"
 ```
 
+Required flags:
+
+- `--source-channel` -- must be `telegram`
+- `--contact-id` -- the ID of the contact this invite is for. Look up or create the contact first with `assistant contacts list` or `assistant contacts upsert`.
+
 Optional flags:
 
 - `--max-uses` -- how many times the link can be used (default: 1). Use a higher number for group invites.
@@ -242,12 +248,13 @@ Use this when the guardian wants to authorize a specific phone number to call th
 **Important**: The response includes a `voiceCode` field that is only returned at creation time and cannot be retrieved later. Extract and present it clearly.
 
 ```bash
-assistant contacts invites create --source-channel phone --expected-external-user-id "<phone_E164>" --friend-name "<invitee_name>" --guardian-name "<guardian_name>" --max-uses 1 --note "<optional note, e.g. the person it is for>" --json
+assistant contacts invites create --source-channel phone --contact-id "<contact_id>" --expected-external-user-id "<phone_E164>" --friend-name "<invitee_name>" --guardian-name "<guardian_name>" --max-uses 1 --note "<optional note, e.g. the person it is for>" --json
 ```
 
 Required flags:
 
 - `--source-channel` -- must be `phone`
+- `--contact-id` -- the ID of the contact this invite is for. Look up or create the contact first with `assistant contacts list` or `assistant contacts upsert`.
 - `--expected-external-user-id` -- the invitee's phone number in E.164 format (e.g., `+15551234567`)
 - `--friend-name` -- the invitee's display name (e.g., "Mom", "Dr. Smith"). Used during the voice verification call to personalize the experience.
 - `--guardian-name` -- the guardian's display name (e.g., "Alex"). Used during the voice verification call so the invitee knows who invited them.
@@ -287,8 +294,13 @@ If the user provides a phone number without the `+` country code prefix, ask the
 Use this when the guardian wants to invite someone to message the assistant via email. Email invites use a 6-digit code — the invitee sends the code to the assistant's email address to redeem access.
 
 ```bash
-assistant contacts invites create --source-channel email --contact-name "<invitee_name>" --max-uses 1 --note "<optional note, e.g. the person it is for>" --json
+assistant contacts invites create --source-channel email --contact-id "<contact_id>" --contact-name "<invitee_name>" --max-uses 1 --note "<optional note, e.g. the person it is for>" --json
 ```
+
+Required flags:
+
+- `--source-channel` -- must be `email`
+- `--contact-id` -- the ID of the contact this invite is for. Look up or create the contact first with `assistant contacts list` or `assistant contacts upsert`.
 
 The response contains `{ ok: true, invite: { id, token, inviteCode, guardianInstruction, channelHandle, ... } }`.
 
@@ -313,8 +325,13 @@ If the assistant's email address is not available (AgentMail not configured), te
 Use this when the guardian wants to invite someone to message the assistant on WhatsApp. WhatsApp invites use a 6-digit code — the invitee sends the code to the assistant's WhatsApp number to redeem access.
 
 ```bash
-assistant contacts invites create --source-channel whatsapp --contact-name "<invitee_name>" --max-uses 1 --note "<optional note, e.g. the person it is for>" --json
+assistant contacts invites create --source-channel whatsapp --contact-id "<contact_id>" --contact-name "<invitee_name>" --max-uses 1 --note "<optional note, e.g. the person it is for>" --json
 ```
+
+Required flags:
+
+- `--source-channel` -- must be `whatsapp`
+- `--contact-id` -- the ID of the contact this invite is for. Look up or create the contact first with `assistant contacts list` or `assistant contacts upsert`.
 
 The response contains `{ ok: true, invite: { id, token, inviteCode, guardianInstruction, channelHandle?, ... } }`.
 
@@ -341,8 +358,13 @@ If the assistant's WhatsApp integration is not configured at all (Meta WhatsApp 
 Use this when the guardian wants to invite someone to message the assistant on Slack. Slack invites use a 6-digit code -- the invitee sends the code as a direct message to the assistant's Slack bot to redeem access.
 
 ```bash
-assistant contacts invites create --source-channel slack --contact-name "<invitee_name>" --max-uses 1 --note "<optional note, e.g. the person it is for>" --json
+assistant contacts invites create --source-channel slack --contact-id "<contact_id>" --contact-name "<invitee_name>" --max-uses 1 --note "<optional note, e.g. the person it is for>" --json
 ```
+
+Required flags:
+
+- `--source-channel` -- must be `slack`
+- `--contact-id` -- the ID of the contact this invite is for. Look up or create the contact first with `assistant contacts list` or `assistant contacts upsert`.
 
 The response follows the same shape as email and WhatsApp invites (`inviteCode`, `guardianInstruction`, `channelHandle`).
 
@@ -456,6 +478,7 @@ Each channel has:
   - `Channel already blocked` -- the channel has already been blocked.
   - `Cannot revoke a blocked channel` -- the channel is blocked; blocking is stronger than revoking. Tell the user the contact is already blocked.
   - `sourceChannel is required for create` -- when creating an invite, always pass `--source-channel`.
+  - `contactId is required for create` -- when creating an invite, always pass `--contact-id`. Look up or create the contact first.
   - `expectedExternalUserId is required for voice invites` -- voice invites must include the invitee's phone number via `--expected-external-user-id`.
   - `expectedExternalUserId must be in E.164 format` -- the phone number must start with `+` followed by country code and number (e.g., `+15551234567`).
   - `friendName is required for voice invites` -- voice invites must include the invitee's display name via `--friend-name`.
@@ -480,21 +503,21 @@ Each channel has:
 
 **"Show me blocked contacts"** -- List contacts with `assistant contacts list --json` and filter for channels with `status: "blocked"`.
 
-**"Create a Telegram invite link"** / **"Invite someone on Telegram"** -- Create an invite with `assistant contacts invites create --source-channel telegram`, look up the bot username, build the deep link, and present it with sharing instructions.
+**"Create a Telegram invite link"** / **"Invite someone on Telegram"** -- Look up or create the contact first, then create an invite with `assistant contacts invites create --source-channel telegram --contact-id <contact_id>`, look up the bot username, build the deep link, and present it with sharing instructions.
 
-**"Invite someone by email"** / **"Send an email invite"** -- Create an invite with `assistant contacts invites create --source-channel email`. Present the 6-digit invite code and the assistant's email address. Tell the guardian to share both with the invitee.
+**"Invite someone by email"** / **"Send an email invite"** -- Look up or create the contact first, then create an invite with `assistant contacts invites create --source-channel email --contact-id <contact_id>`. Present the 6-digit invite code and the assistant's email address. Tell the guardian to share both with the invitee.
 
-**"Invite someone on WhatsApp"** -- Create an invite with `assistant contacts invites create --source-channel whatsapp`. Present the 6-digit invite code. If `channelHandle` is returned, also present the assistant's WhatsApp number; otherwise, tell the guardian to share the code and instruct the invitee to send it to the assistant on WhatsApp.
+**"Invite someone on WhatsApp"** -- Look up or create the contact first, then create an invite with `assistant contacts invites create --source-channel whatsapp --contact-id <contact_id>`. Present the 6-digit invite code. If `channelHandle` is returned, also present the assistant's WhatsApp number; otherwise, tell the guardian to share the code and instruct the invitee to send it to the assistant on WhatsApp.
 
-**"Invite someone on Slack"** -- Create an invite with `assistant contacts invites create --source-channel slack`. Present the 6-digit invite code and tell the guardian to have the invitee DM the code to the assistant's Slack bot.
+**"Invite someone on Slack"** -- Look up or create the contact first, then create an invite with `assistant contacts invites create --source-channel slack --contact-id <contact_id>`. Present the 6-digit invite code and tell the guardian to have the invitee DM the code to the assistant's Slack bot.
 
 **"Show my invites"** / **"List active invite links"** -- List invites with `assistant contacts invites list --source-channel telegram --json`, present active invites with uses remaining and expiration info. Use the appropriate `--source-channel` value for other channels.
 
 **"Revoke invite"** / **"Cancel invite link"** -- List invites to identify the target, confirm, then revoke with `assistant contacts invites revoke <invite_id> --json`.
 
-**"Create a voice invite for +15551234567"** -- Create a voice invite with `assistant contacts invites create --source-channel phone --expected-external-user-id "+15551234567" --friend-name "<name>" --guardian-name "<name>"`. Present the invite code and instructions: the person must call from that number and enter the code.
+**"Create a voice invite for +15551234567"** -- Look up or create the contact first, then create a voice invite with `assistant contacts invites create --source-channel phone --contact-id <contact_id> --expected-external-user-id "+15551234567" --friend-name "<name>" --guardian-name "<name>"`. Present the invite code and instructions: the person must call from that number and enter the code.
 
-**"Let my mom call in"** / **"Invite someone by phone"** -- Ask for the phone number in E.164 format, create a voice invite with `assistant contacts invites create --source-channel phone`, and present the code + calling instructions.
+**"Let my mom call in"** / **"Invite someone by phone"** -- Ask for the phone number in E.164 format, look up or create the contact first, then create a voice invite with `assistant contacts invites create --source-channel phone --contact-id <contact_id>`, and present the code + calling instructions.
 
 **"Show my voice invites"** / **"List phone invites"** -- List invites with `assistant contacts invites list --source-channel phone --json`, present active invites with bound phone number and expiration info.
 

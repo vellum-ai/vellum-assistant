@@ -15,7 +15,7 @@ struct AvatarCustomizationPanel: View {
                 HStack(alignment: .center, spacing: VSpacing.sm) {
                     Button(action: onClose) {
                         VIconView(.chevronLeft, size: 14)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                             .frame(width: 28, height: 28)
                             .contentShape(Rectangle())
                     }
@@ -23,24 +23,20 @@ struct AvatarCustomizationPanel: View {
                     .accessibilityLabel("Back to identity")
                     Text("Customize Avatar")
                         .font(VFont.panelTitle)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                     Spacer()
                 }
                 .padding(.top, VSpacing.xxl)
                 .padding(.bottom, VSpacing.xl)
 
-                Divider().background(VColor.surfaceBorder)
+                Divider().background(VColor.borderBase)
                     .padding(.bottom, VSpacing.xl)
 
                 VStack(alignment: .leading, spacing: VSpacing.xl) {
                     // Avatar preview
                     HStack {
                         Spacer()
-                        Image(nsImage: appearance.fullAvatarImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: 120, height: 120)
-                            .clipShape(Circle())
+                        VAvatarImage(image: appearance.fullAvatarImage, size: 120, showBorder: false)
                         Spacer()
                     }
 
@@ -54,7 +50,7 @@ struct AvatarCustomizationPanel: View {
             .padding(.horizontal, VSpacing.xxl)
             .frame(maxWidth: .infinity)
         }
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
     }
 
     // MARK: - Profile Picture
@@ -64,26 +60,22 @@ struct AvatarCustomizationPanel: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Profile Picture")
                 .font(VFont.headline)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
 
             if let customImage = appearance.customAvatarImage {
                 HStack(spacing: VSpacing.md) {
-                    Image(nsImage: customImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: 48, height: 48)
-                        .clipShape(Circle())
+                    VAvatarImage(image: customImage, size: 48, showBorder: false)
 
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Button("Change") { pickImage() }
                             .buttonStyle(.plain)
                             .font(VFont.bodyMedium)
-                            .foregroundColor(VColor.accent)
+                            .foregroundColor(VColor.primaryBase)
 
                         Button("Remove") { appearance.clearCustomAvatar() }
                             .buttonStyle(.plain)
                             .font(VFont.bodyMedium)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
                 }
             } else {
@@ -95,12 +87,12 @@ struct AvatarCustomizationPanel: View {
                         Text("Upload Custom Image")
                             .font(VFont.bodyMedium)
                     }
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .padding(.horizontal, VSpacing.lg)
                     .padding(.vertical, VSpacing.sm)
                     .background(
                         RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                            .stroke(VColor.borderBase, lineWidth: 1)
                     )
                 }
                 .buttonStyle(.plain)
@@ -117,6 +109,6 @@ struct AvatarCustomizationPanel: View {
 
         guard panel.runModal() == .OK, let url = panel.url,
               let image = NSImage(contentsOf: url) else { return }
-        appearance.setCustomAvatar(image)
+        appearance.saveAvatar(image)
     }
 }

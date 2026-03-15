@@ -6,11 +6,17 @@ describe("HostCuProxy", () => {
   let proxy: InstanceType<typeof HostCuProxy>;
   let sentMessages: unknown[];
   let sendToClient: (msg: unknown) => void;
+  let resolvedRequestIds: string[];
 
   function setup(maxSteps?: number) {
     sentMessages = [];
+    resolvedRequestIds = [];
     sendToClient = (msg: unknown) => sentMessages.push(msg);
-    proxy = new HostCuProxy(sendToClient as never, maxSteps);
+    proxy = new HostCuProxy(
+      sendToClient as never,
+      (requestId: string) => resolvedRequestIds.push(requestId),
+      maxSteps,
+    );
   }
 
   afterEach(() => {
@@ -364,6 +370,60 @@ describe("HostCuProxy", () => {
       );
     });
 
+    test("does not emit spurious warning on first observation", async () => {
+      setup();
+
+      // First ever request — no previous AX tree exists
+      proxy.recordAction("computer_use_click", { element_id: 1 });
+      const p1 = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+      );
+      const sent1 = sentMessages[0] as Record<string, unknown>;
+      proxy.resolve(sent1.requestId as string, {
+        axTree: "Button [1]",
+        // No axDiff on first observation — this is normal, not unchanged
+      });
+      const result1 = await p1;
+      expect(result1.content).not.toContain("NO VISIBLE EFFECT");
+    });
+
+    test("skips unchanged warning after computer_use_wait", async () => {
+      setup();
+
+      // Establish previous AX tree
+      const p1 = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+      );
+      proxy.recordAction("computer_use_click", { element_id: 1 });
+      const sent1 = sentMessages[0] as Record<string, unknown>;
+      proxy.resolve(sent1.requestId as string, {
+        axTree: "Button [1]",
+      });
+      await p1;
+
+      // Wait action with unchanged screen — should NOT warn
+      const p2 = proxy.request(
+        "computer_use_wait",
+        { duration_ms: 2000 },
+        "session-1",
+        2,
+      );
+      proxy.recordAction("computer_use_wait", { duration_ms: 2000 });
+      const sent2 = sentMessages[1] as Record<string, unknown>;
+      proxy.resolve(sent2.requestId as string, {
+        axTree: "Button [1]",
+        // No axDiff — screen unchanged, but that's expected after wait
+      });
+      const result2 = await p2;
+      expect(result2.content).not.toContain("NO VISIBLE EFFECT");
+    });
+
     test("resets consecutive count when diff is present", async () => {
       setup();
 
@@ -507,6 +567,35 @@ describe("HostCuProxy", () => {
       expect(result.content).toMatch(/<\/ax-tree>$/m);
     });
 
+    test("includes secondaryWindows after AX tree with cross-window note", () => {
+      setup();
+
+      const result = proxy.formatObservation({
+        axTree: "Button [1]\nLabel [2]",
+        secondaryWindows: "Safari — Window [10]\n  Link [11]",
+      });
+
+      expect(result.content).toContain("Safari — Window [10]");
+      expect(result.content).toContain("Link [11]");
+      expect(result.content).toContain(
+        "Note: The element [ID]s above are from other windows",
+      );
+      // secondaryWindows should appear after the AX tree
+      const axTreeEnd = result.content.indexOf("</ax-tree>");
+      const secondaryIdx = result.content.indexOf("Safari — Window [10]");
+      expect(axTreeEnd).toBeLessThan(secondaryIdx);
+    });
+
+    test("omits secondaryWindows section when field is absent", () => {
+      setup();
+
+      const result = proxy.formatObservation({
+        axTree: "Button [1]",
+      });
+
+      expect(result.content).not.toContain("other windows");
+    });
+
     test("includes diff when present", () => {
       setup();
 
@@ -576,7 +665,7 @@ describe("HostCuProxy", () => {
   // -------------------------------------------------------------------------
 
   describe("dispose", () => {
-    test("rejects all pending requests", () => {
+    test("rejects all pending requests", async () => {
       setup();
 
       const resultPromise = proxy.request(
@@ -593,7 +682,80 @@ describe("HostCuProxy", () => {
       proxy.dispose();
 
       expect(proxy.hasPendingRequest(requestId)).toBe(false);
-      expect(resultPromise).rejects.toThrow("Host CU proxy disposed");
+      await expect(resultPromise).rejects.toThrow("Host CU proxy disposed");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // onInternalResolve callback
+  // -------------------------------------------------------------------------
+
+  describe("onInternalResolve", () => {
+    test("calls onInternalResolve when abort signal fires", async () => {
+      setup();
+
+      const controller = new AbortController();
+      const resultPromise = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+        undefined,
+        controller.signal,
+      );
+
+      const sent = sentMessages[0] as Record<string, unknown>;
+      const requestId = sent.requestId as string;
+
+      controller.abort();
+
+      await resultPromise;
+      expect(resolvedRequestIds).toContain(requestId);
+    });
+
+    test("calls onInternalResolve on dispose", async () => {
+      setup();
+
+      const resultPromise = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+      );
+
+      const sent = sentMessages[0] as Record<string, unknown>;
+      const requestId = sent.requestId as string;
+
+      proxy.dispose();
+
+      // dispose rejects pending requests — catch to avoid unhandled rejection
+      await resultPromise.catch(() => {});
+
+      expect(resolvedRequestIds).toContain(requestId);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // isAvailable
+  // -------------------------------------------------------------------------
+
+  describe("isAvailable", () => {
+    test("returns false by default", () => {
+      setup();
+      expect(proxy.isAvailable()).toBe(false);
+    });
+
+    test("returns true after updateSender with clientConnected=true", () => {
+      setup();
+      proxy.updateSender(sendToClient as never, true);
+      expect(proxy.isAvailable()).toBe(true);
+    });
+
+    test("returns false after updateSender with clientConnected=false", () => {
+      setup();
+      proxy.updateSender(sendToClient as never, true);
+      proxy.updateSender(sendToClient as never, false);
+      expect(proxy.isAvailable()).toBe(false);
     });
   });
 

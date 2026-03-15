@@ -106,7 +106,7 @@ final class PermissionPromptOverlay {
         let imageView = NSImageView()
         if let img = vicon.nsImage(size: 32) {
             imageView.image = img
-            imageView.contentTintColor = NSColor(VColor.warning)
+            imageView.contentTintColor = NSColor(VColor.systemNegativeHover)
         }
         imageView.widthAnchor.constraint(equalToConstant: 32).isActive = true
         imageView.heightAnchor.constraint(equalToConstant: 32).isActive = true
@@ -114,13 +114,13 @@ final class PermissionPromptOverlay {
         // Title
         let titleLabel = NSTextField(labelWithString: title)
         titleLabel.font = NSFont.systemFont(ofSize: 14, weight: .semibold)
-        titleLabel.textColor = NSColor(VColor.textPrimary)
+        titleLabel.textColor = NSColor(VColor.contentDefault)
         titleLabel.alignment = .center
 
         // Body
         let bodyLabel = NSTextField(wrappingLabelWithString: body)
         bodyLabel.font = NSFont.systemFont(ofSize: 12)
-        bodyLabel.textColor = NSColor(VColor.textSecondary)
+        bodyLabel.textColor = NSColor(VColor.contentSecondary)
         bodyLabel.alignment = .center
         bodyLabel.maximumNumberOfLines = 3
         bodyLabel.preferredMaxLayoutWidth = 300
@@ -166,12 +166,12 @@ final class PermissionPromptOverlay {
         button.font = NSFont.systemFont(ofSize: 12, weight: .medium)
 
         if isPrimary {
-            button.contentTintColor = .white
-            button.layer?.backgroundColor = NSColor(VColor.accent).cgColor
+            button.contentTintColor = NSColor(VColor.auxWhite)
+            button.layer?.backgroundColor = NSColor(VColor.primaryBase).cgColor
             button.layer?.cornerRadius = VRadius.md
         } else {
-            button.contentTintColor = NSColor(VColor.textSecondary)
-            button.layer?.backgroundColor = NSColor(VColor.backgroundSubtle).cgColor
+            button.contentTintColor = NSColor(VColor.contentSecondary)
+            button.layer?.backgroundColor = NSColor(VColor.surfaceBase).cgColor
             button.layer?.cornerRadius = VRadius.md
         }
 
@@ -205,9 +205,9 @@ private class PermissionOverlayBackground: NSView {
     override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
-        layer?.backgroundColor = NSColor(VColor.surface).withAlphaComponent(0.95).cgColor
+        layer?.backgroundColor = NSColor(VColor.surfaceBase).withAlphaComponent(0.95).cgColor
         layer?.cornerRadius = VRadius.lg
         layer?.borderWidth = 1
-        layer?.borderColor = NSColor(VColor.surfaceBorder).cgColor
+        layer?.borderColor = NSColor(VColor.borderBase).cgColor
     }
 }

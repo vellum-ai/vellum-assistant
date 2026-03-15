@@ -81,18 +81,18 @@ extension AppDelegate {
         ])
     }
 
-    /// Handles notification permission when a notification thread arrives while
+    /// Handles notification permission when a notification conversation arrives while
     /// the app is active. This provides user-visible context for the OS prompt
     /// and gives an immediate recovery path when the app is already denied.
-    func maybePromptNotificationAuthorizationForThreadCreated() {
+    func maybePromptNotificationAuthorizationForConversationCreated() {
         Task { @MainActor in
             let settings = await UNUserNotificationCenter.current().notificationSettings()
             switch settings.authorizationStatus {
             case .authorized, .provisional, .ephemeral:
                 return
             case .notDetermined:
-                guard !hasRequestedNotificationAuthorizationFromThreadSignal else { return }
-                hasRequestedNotificationAuthorizationFromThreadSignal = true
+                guard !hasRequestedNotificationAuthorizationFromConversationSignal else { return }
+                hasRequestedNotificationAuthorizationFromConversationSignal = true
                 log.info("Requesting notification authorization from notification_thread_created signal")
                 requestNotificationAuthorization(trigger: "notification_thread_created", showDeniedToast: true)
             case .denied:

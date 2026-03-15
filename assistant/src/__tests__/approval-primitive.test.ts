@@ -54,7 +54,7 @@ afterAll(() => {
 // ---------------------------------------------------------------------------
 
 function mintParams(overrides: Partial<MintGrantParams> = {}): MintGrantParams {
-  const futureExpiry = new Date(Date.now() + 60_000).toISOString();
+  const futureExpiry = Date.now() + 60_000;
   return {
     scopeMode: "request_id",
     requestChannel: "telegram",
@@ -293,7 +293,7 @@ describe("approval-primitive / consumeGrantForInvocation", () => {
   });
 
   test("miss: grant expired", async () => {
-    const pastExpiry = new Date(Date.now() - 60_000).toISOString();
+    const pastExpiry = Date.now() - 60_000;
     mintGrantFromDecision(
       mintParams({
         scopeMode: "request_id",

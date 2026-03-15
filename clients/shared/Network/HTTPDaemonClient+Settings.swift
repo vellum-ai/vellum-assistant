@@ -98,7 +98,7 @@ extension HTTPTransport {
 
             // --- Suggestion ---
             if let msg = message as? SuggestionRequest {
-                Task { await self.sendEncodablePost(.suggestion, body: msg, label: "suggestion_request") }
+                Task { await self.sendSuggestionGetAndDispatch(sessionId: msg.sessionId, requestId: msg.requestId) }
                 return true
             }
 
@@ -151,18 +151,46 @@ extension HTTPTransport {
                 Task { await self.sendEncodablePost(.integrationsSlackConfig, body: msg, label: "slack_webhook_config") }
                 return true
             }
-            // ingress_config and platform_config do not have HTTP routes yet;
-            // they continue to use SSE message handlers and are not dispatched here.
+            if let msg = message as? IngressConfigRequestMessage {
+                if msg.action == "get" {
+                    Task { await self.sendEncodablePostAndDispatch(.integrationsIngressConfig, body: msg, method: "GET", messageType: "ingress_config_response", label: "ingress_config_get") }
+                } else {
+                    Task { await self.sendEncodablePostAndDispatch(.integrationsIngressConfig, body: msg, method: "PUT", messageType: "ingress_config_response", label: "ingress_config_set") }
+                }
+                return true
+            }
+            // platform_config does not have HTTP routes yet;
+            // it continues to use SSE message handlers and is not dispatched here.
             if let msg = message as? VercelApiConfigRequestMessage {
                 Task { await self.sendEncodablePost(.integrationsVercelConfig, body: msg, label: "vercel_api_config") }
                 return true
             }
             if let msg = message as? TelegramConfigRequestMessage {
-                Task { await self.sendEncodablePostAndDispatch(.integrationsTelegramConfig, body: msg, messageType: "telegram_config_response", label: "telegram_config") }
+                switch msg.action {
+                case "get":
+                    Task { await self.sendEncodablePostAndDispatch(.integrationsTelegramConfig, body: msg, method: "GET", messageType: "telegram_config_response", label: "telegram_config_get") }
+                case "clear":
+                    Task { await self.sendEncodablePostAndDispatch(.integrationsTelegramConfig, body: msg, method: "DELETE", messageType: "telegram_config_response", label: "telegram_config_clear") }
+                default:
+                    // "set" and any future actions use POST
+                    Task { await self.sendEncodablePostAndDispatch(.integrationsTelegramConfig, body: msg, messageType: "telegram_config_response", label: "telegram_config_set") }
+                }
                 return true
             }
             if let msg = message as? ChannelVerificationSessionRequestMessage {
-                Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessions, body: msg, messageType: "channel_verification_session_response", label: "channel_verification_session") }
+                switch msg.action {
+                case "status":
+                    let channel = msg.channel ?? "telegram"
+                    Task { await self.sendVerificationStatusGetAndDispatch(channel: channel) }
+                case "cancel_session":
+                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessions, body: msg, method: "DELETE", messageType: "channel_verification_session_response", label: "channel_verification_cancel") }
+                case "revoke":
+                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessionsRevoke, body: msg, messageType: "channel_verification_session_response", label: "channel_verification_revoke") }
+                case "resend_session":
+                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessionsResend, body: msg, messageType: "channel_verification_session_response", label: "channel_verification_resend") }
+                default:
+                    Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessions, body: msg, messageType: "channel_verification_session_response", label: "channel_verification_session") }
+                }
                 return true
             }
             // --- Publishing ---
@@ -361,6 +389,36 @@ extension HTTPTransport {
 
             if !(200...299).contains(http.statusCode) {
                 log.error("\(label) failed: \(http.statusCode)")
+                // Try to extract an error message from the response body,
+                // then dispatch a synthetic error so UI callbacks fire and
+                // loading states are cleared (avoids infinite spinner).
+                var errorMessage = "HTTP \(http.statusCode)"
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let error = json["error"] as? [String: Any],
+                   let message = error["message"] as? String {
+                    errorMessage = message
+                } else if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          let message = json["error"] as? String {
+                    errorMessage = message
+                }
+                // Build a minimal synthetic JSON that satisfies the required
+                // fields of whichever response type `messageType` maps to.
+                var syntheticJSON: [String: Any] = [
+                    "type": messageType,
+                    "success": false,
+                    "error": errorMessage,
+                ]
+                // TelegramConfigResponse requires these non-optional Bools.
+                if messageType == "telegram_config_response" {
+                    syntheticJSON["hasBotToken"] = false
+                    syntheticJSON["connected"] = false
+                    syntheticJSON["hasWebhookSecret"] = false
+                }
+                if let syntheticData = try? JSONSerialization.data(withJSONObject: syntheticJSON),
+                   let serverMessage = try? decoder.decode(ServerMessage.self, from: syntheticData) {
+                    onMessage?(serverMessage)
+                }
+                return
             }
 
             // Inject the `type` discriminant so ServerMessage can decode it.
@@ -374,6 +432,112 @@ extension HTTPTransport {
             onMessage?(serverMessage)
         } catch {
             log.error("\(label) error: \(error.localizedDescription)")
+        }
+    }
+
+    /// Fetch channel verification status via GET with a channel query parameter,
+    /// then dispatch the response through the message handler chain.
+    private func sendVerificationStatusGetAndDispatch(channel: String) async {
+        guard var url = buildURL(for: .channelVerificationSessionsStatus) else {
+            log.error("Failed to build URL for channel_verification_status")
+            return
+        }
+        // Append the channel query parameter
+        if var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            var items = components.queryItems ?? []
+            items.append(URLQueryItem(name: "channel", value: channel))
+            components.queryItems = items
+            if let resolved = components.url {
+                url = resolved
+            }
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if !(200...299).contains(http.statusCode) {
+                log.error("channel_verification_status failed: \(http.statusCode)")
+                var errorMessage = "HTTP \(http.statusCode)"
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let error = json["error"] as? [String: Any],
+                   let message = error["message"] as? String {
+                    errorMessage = message
+                } else if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          let message = json["error"] as? String {
+                    errorMessage = message
+                }
+                let syntheticJSON: [String: Any] = [
+                    "type": "channel_verification_session_response",
+                    "success": false,
+                    "error": errorMessage,
+                ]
+                if let syntheticData = try? JSONSerialization.data(withJSONObject: syntheticJSON),
+                   let serverMessage = try? decoder.decode(ServerMessage.self, from: syntheticData) {
+                    onMessage?(serverMessage)
+                }
+                return
+            }
+
+            guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                log.error("channel_verification_status: failed to parse response JSON")
+                return
+            }
+            json["type"] = "channel_verification_session_response"
+            let enriched = try JSONSerialization.data(withJSONObject: json)
+            let serverMessage = try decoder.decode(ServerMessage.self, from: enriched)
+            onMessage?(serverMessage)
+        } catch {
+            log.error("channel_verification_status error: \(error.localizedDescription)")
+        }
+    }
+
+    /// Fetch a follow-up suggestion via GET and dispatch the response through
+    /// the message handler chain so `suggestionResponse` fires in the view model.
+    private func sendSuggestionGetAndDispatch(sessionId: String, requestId: String) async {
+        guard var url = buildURL(for: .suggestion) else {
+            log.error("Failed to build URL for suggestion_request")
+            return
+        }
+        if var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            var items = components.queryItems ?? []
+            items.append(URLQueryItem(name: "conversationKey", value: sessionId))
+            components.queryItems = items
+            if let resolved = components.url {
+                url = resolved
+            }
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if !(200...299).contains(http.statusCode) {
+                log.error("suggestion_request failed: \(http.statusCode)")
+                return
+            }
+
+            guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                log.error("suggestion_request: failed to parse response JSON")
+                return
+            }
+            json["type"] = "suggestion_response"
+            json["requestId"] = requestId
+            let enriched = try JSONSerialization.data(withJSONObject: json)
+            let serverMessage = try decoder.decode(ServerMessage.self, from: enriched)
+            onMessage?(serverMessage)
+        } catch {
+            log.error("suggestion_request error: \(error.localizedDescription)")
         }
     }
 }

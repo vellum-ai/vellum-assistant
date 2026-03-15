@@ -15,6 +15,7 @@ import {
   sanitizeToolList,
 } from "../tasks/tool-sanitizer.js";
 import { getLogger } from "../util/logger.js";
+import { resolveRequiredTools } from "./resolve-required-tools.js";
 import {
   getWorkItem,
   updateWorkItem,
@@ -117,15 +118,15 @@ export function runWorkItemInBackground(workItemId: string): RunWorkItemResult {
     };
   }
 
-  // Resolve required tools
-  let requiredTools: string[];
-  if (workItem.requiredTools != null) {
-    requiredTools = sanitizeToolList(JSON.parse(workItem.requiredTools));
-  } else {
-    requiredTools = task.requiredTools
-      ? sanitizeToolList(JSON.parse(task.requiredTools))
-      : getRegisteredToolNames();
-  }
+  // Resolve required tools — falls back to task-level tools when the
+  // snapshot is empty, preventing an empty-snapshot permission bypass.
+  const taskRequiredTools = task.requiredTools
+    ? sanitizeToolList(JSON.parse(task.requiredTools))
+    : getRegisteredToolNames();
+  const requiredTools = resolveRequiredTools(
+    workItem.requiredTools,
+    taskRequiredTools,
+  );
 
   // Auto-approve all required tools for chat-initiated runs.
   // The user explicitly asked to run the task, so we treat that as consent.
@@ -154,7 +155,7 @@ export function runWorkItemInBackground(workItemId: string): RunWorkItemResult {
             session = await getOrCreateSession(conversationId);
 
             broadcast({
-              type: "task_run_thread_created",
+              type: "task_run_conversation_created",
               conversationId,
               workItemId,
               title: workItem.title,

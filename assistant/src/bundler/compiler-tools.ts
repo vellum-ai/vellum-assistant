@@ -6,6 +6,7 @@
  * same pattern as EmbeddingRuntimeManager.
  */
 
+import { createHash } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -54,11 +55,69 @@ function npmTarballUrl(pkg: string, version: string): string {
   return `https://registry.npmjs.org/${encoded}/-/${basename}-${version}.tgz`;
 }
 
+async function fetchNpmIntegrity(
+  pkg: string,
+  version: string,
+): Promise<string> {
+  const encoded = pkg.replace("/", "%2f");
+  const metadataUrl = `https://registry.npmjs.org/${encoded}/${version}`;
+  const response = await fetch(metadataUrl);
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch npm metadata for ${pkg}@${version}: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const data = (await response.json()) as {
+    dist?: { integrity?: string; shasum?: string };
+  };
+
+  if (
+    typeof data.dist?.integrity === "string" &&
+    data.dist.integrity.length > 0
+  ) {
+    return data.dist.integrity;
+  }
+
+  if (typeof data.dist?.shasum === "string" && data.dist.shasum.length > 0) {
+    return `sha1-${Buffer.from(data.dist.shasum, "hex").toString("base64")}`;
+  }
+
+  throw new Error(`Missing npm integrity metadata for ${pkg}@${version}`);
+}
+
+function verifyIntegrity(
+  tarball: Uint8Array,
+  integrity: string,
+  pkg: string,
+  version: string,
+): void {
+  const [algorithm, expectedDigest] = integrity.split("-", 2);
+  if (!algorithm || !expectedDigest) {
+    throw new Error(`Invalid integrity metadata for ${pkg}@${version}`);
+  }
+
+  if (algorithm !== "sha512" && algorithm !== "sha1") {
+    throw new Error(
+      `Unsupported integrity algorithm ${algorithm} for ${pkg}@${version}`,
+    );
+  }
+
+  const actualDigest = createHash(algorithm).update(tarball).digest("base64");
+  if (actualDigest !== expectedDigest) {
+    throw new Error(`Integrity verification failed for ${pkg}@${version}`);
+  }
+}
+
 async function downloadAndExtract(
+  pkg: string,
+  version: string,
   url: string,
   targetDir: string,
 ): Promise<void> {
-  log.info({ url, targetDir }, "Downloading npm package");
+  log.info({ pkg, version, url, targetDir }, "Downloading npm package");
+
+  const integrity = await fetchNpmIntegrity(pkg, version);
 
   const response = await fetch(url);
   if (!response.ok) {
@@ -67,7 +126,8 @@ async function downloadAndExtract(
     );
   }
 
-  const tarball = await response.arrayBuffer();
+  const tarball = new Uint8Array(await response.arrayBuffer());
+  verifyIntegrity(tarball, integrity, pkg, version);
   mkdirSync(targetDir, { recursive: true });
 
   const tmpTar = join(targetDir, `download-${Date.now()}.tgz`);
@@ -191,10 +251,14 @@ async function install(baseDir: string): Promise<void> {
     // Download esbuild binary + preact in parallel
     await Promise.all([
       downloadAndExtract(
+        `@esbuild/${esbuildPlatform}`,
+        ESBUILD_VERSION,
         npmTarballUrl(`@esbuild/${esbuildPlatform}`, ESBUILD_VERSION),
         join(tmpDir, "esbuild-pkg"),
       ),
       downloadAndExtract(
+        "preact",
+        PREACT_VERSION,
         npmTarballUrl("preact", PREACT_VERSION),
         join(tmpDir, "node_modules", "preact"),
       ),

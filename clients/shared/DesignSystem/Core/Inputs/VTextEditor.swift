@@ -23,35 +23,28 @@ public struct VTextEditor: View {
             .lineLimit(1...100)
             .textFieldStyle(.plain)
             .font(VFont.body)
-            .foregroundColor(VColor.textPrimary)
+            .foregroundColor(VColor.contentDefault)
             .focused($isFocused)
             .frame(minHeight: minHeight, maxHeight: maxHeight, alignment: .topLeading)
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
-            .background(VColor.inputBackground)
+            .background(VColor.surfaceActive)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(isFocused ? VColor.surfaceBorder : VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                    .stroke(isFocused ? VColor.borderBase : VColor.borderBase.opacity(0.5), lineWidth: 1)
             )
     }
 }
 
 #if DEBUG
-struct VTextEditor_Preview: PreviewProvider {
-    static var previews: some View {
-        VTextEditorPreviewWrapper()
-            .frame(width: 400, height: 350)
-            .previewDisplayName("VTextEditor")
-    }
-}
 
 private struct VTextEditorPreviewWrapper: View {
     @State private var text = ""
 
     var body: some View {
         ZStack {
-            VColor.background.ignoresSafeArea()
+            VColor.surfaceOverlay.ignoresSafeArea()
             VStack(spacing: 16) {
                 VTextEditor(placeholder: "Write something...", text: $text)
                 VTextEditor(placeholder: "Short editor", text: $text, minHeight: 40, maxHeight: 80)

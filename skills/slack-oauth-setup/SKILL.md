@@ -1,166 +1,205 @@
 ---
 name: slack-oauth-setup
-description: Create Slack App and OAuth credentials for Slack integration using browser automation
+description: Set up Slack OAuth credentials for Slack integration using a collaborative guided flow
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🔑"
   vellum:
     display-name: "Slack OAuth Setup"
-    user-invocable: true
-    includes: ["browser"]
+    includes: ["collaborative-oauth-flow"]
 ---
 
-You are helping your user create a Slack App and OAuth credentials so the Messaging integration can connect to their Slack workspace. Walk through each step below using `browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_click`, `browser_type`, and `browser_extract` tools.
+You are helping your user set up Slack OAuth credentials so the Slack messaging integration can connect to their workspace.
 
-**Tone:** Be friendly and reassuring throughout. Narrate what you're doing in plain language so the user always knows what's happening. After each step, briefly confirm what was accomplished before moving on.
+This skill follows the **Collaborative Guided Flow** pattern from the included `collaborative-oauth-flow` skill. That reference covers the navigation helper setup, step rhythm, rules, tone, error handling, and guardrails. This file defines only the Slack-specific steps.
 
-## Before You Start
+## Provider Details
 
-Tell the user:
+- **Provider key:** `integration:slack`
+- **Auth URL:** `https://slack.com/oauth/v2/authorize`
+- **Token URL:** `https://slack.com/api/oauth.v2.access`
+- **Ping URL:** `https://slack.com/api/auth.test`
+- **Callback transport:** Loopback (port 17322)
+- **Requires secret:** Yes (token endpoint needs both client ID and secret)
 
-- "I'll walk you through creating a Slack App so Vellum can connect to your workspace. The whole process takes a few minutes."
-- "I'll be automating the Slack API website in the browser — you'll be able to see everything I'm doing."
-- "I'll ask for your approval before each major step, so nothing happens without your say-so."
-- "No sensitive credentials will be shown in the conversation."
+## Slack-Specific Flow
 
-## Step 1: Navigate to Slack API
+The flow has 8 steps total, takes about 3-5 minutes.
 
-Tell the user: "First, let me open the Slack API dashboard."
+### Step 0: Prerequisite Check
 
-Use `browser_navigate` to go to `https://api.slack.com/apps`.
+> Before we start — do you have a Slack workspace where you have permission to install apps?
 
-Take a `browser_screenshot` to show the user what loaded, then take a `browser_snapshot` to check the page state:
+If no workspace or no admin access, explain that workspace admin approval may be needed and offer to proceed anyway (some workspaces allow member-installed apps).
 
-- **If a sign-in page appears:** Tell the user "Please sign in to your Slack account in the browser window. Let me know when you're done." Wait for their confirmation, then take another snapshot.
-- **If the apps dashboard loads:** Tell the user "Slack API dashboard is loaded. Let's create your app!" and continue to Step 2.
+---
 
-## Step 2: Create a Slack App
+### Step 1: Open Slack API Dashboard
 
-**Ask for approval before proceeding.** Use `ui_show` with `surface_type: "confirmation"` and this message:
+Open: `https://api.slack.com/apps`
 
-> **Create a Slack App**
+> I've opened the Slack API dashboard. If it's asking you to sign in, go ahead and do that first — then let me know.
+
+---
+
+### Step 2: Create a New Slack App
+
+> Look for the **Create New App** button (usually green, top-right area). Go ahead and click it.
+
+After the user clicks:
+
+> You should see two options — **From scratch** and **From an app manifest**. Pick **From scratch**.
+
+Then:
+
+> Set the app name to **Vellum Assistant** and select your workspace from the dropdown. Then click **Create App**.
+
+**Known issues:**
+
+- If the workspace dropdown is empty, the user may need to sign in to a different workspace
+- Some workspaces require admin approval for new apps — if blocked, explain that they'll need an admin to approve the app
+
+**Milestone (2 of 8):** "App created — now let's add the permissions it needs."
+
+---
+
+### Step 3: Add User Token Scopes
+
+Open: the app's **OAuth & Permissions** page. Look for it in the left sidebar, or navigate directly if you have the app URL.
+
+> In the left sidebar, click **OAuth & Permissions**. Scroll down until you see **User Token Scopes**.
 >
-> I'm about to create a new Slack App called "Vellum Assistant" in your workspace. This app will only have the permissions you approve in the next step. It won't post anything or access any data until you explicitly authorize it.
-
-Wait for the user to approve. If they decline, explain that the app is required for OAuth and offer to try again or cancel.
-
-Once approved:
-
-1. Click "Create New App"
-2. Select "From scratch"
-3. Enter app name: "Vellum Assistant"
-4. Select the user's workspace from the dropdown
-5. Click "Create App"
-
-Take a `browser_screenshot` to show the result.
-
-Tell the user: "App created! Now let's configure the permissions it needs."
-
-## Step 3: Configure OAuth Scopes
-
-**Ask for approval before proceeding.** Use `ui_show` with `surface_type: "confirmation"` and this message:
-
-> **Configure Slack Permissions**
+> You'll need to click **Add an OAuth Scope** and add each of these scopes one at a time:
 >
-> I'm about to add the following User Token Scopes to your Slack App. These let Vellum read your messages and channels, send messages on your behalf, search your message history, and add emoji reactions:
+> - `channels:read` — view basic channel info
+> - `channels:history` — read public channel messages
+> - `groups:read` — view private channel info
+> - `groups:history` — read private channel messages
+> - `im:read` — view direct message info
+> - `im:history` — read direct messages
+> - `im:write` — start and send direct messages
+> - `mpim:read` — view group DM info
+> - `mpim:history` — read group DM messages
+> - `users:read` — view user profiles
+> - `chat:write` — send messages
+> - `search:read` — search messages
+> - `reactions:write` — add emoji reactions
 >
-> - `channels:read` — View basic channel info
-> - `channels:history` — Read message history in public channels
-> - `groups:read` — View private channel info
-> - `groups:history` — Read message history in private channels
-> - `im:read` — View direct message info
-> - `im:history` — Read direct message history
-> - `im:write` — Open and send direct messages
-> - `mpim:read` — View group DM info
-> - `mpim:history` — Read group DM history
-> - `users:read` — View user profiles
-> - `chat:write` — Send messages
-> - `search:read` — Search messages
-> - `reactions:write` — Add emoji reactions
+> You can start typing the scope name to filter the dropdown — it goes pretty fast once you get the rhythm.
 
-Wait for the user to approve.
+Wait for the user to confirm all 13 scopes are added.
 
-Once approved:
+**Milestone (3 of 8):** "Permissions are set — now let's handle the redirect URL."
 
-1. Navigate to "OAuth & Permissions" in the left sidebar (or go to the app's OAuth page directly)
-2. Scroll to "User Token Scopes"
-3. Add each scope listed above using the "Add an OAuth Scope" button
+---
 
-Take a `browser_screenshot` after adding all scopes.
+### Step 4: Set Up Redirect URL
 
-Tell the user: "Permissions configured! Now let's set up the redirect URL and get the credentials."
+Before this step, resolve the redirect URI:
 
-## Step 4: Add Redirect URL
+```
+bash:
+  command: assistant oauth providers list --provider-key "integration:slack" --json
+```
 
-Navigate to the "OAuth & Permissions" page if not already there.
-
-Before entering the redirect URL, resolve the exact value from the well-known OAuth config:
+Check the `redirectUri` from `credential_store describe`:
 
 ```
 credential_store describe:
   service: "integration:slack"
 ```
 
-Read the `redirectUri` field from that response and use it exactly as shown.
+- If `redirectUri` mentions `ingress.publicBaseUrl` or says "not currently configured", stop and help the user configure public ingress first.
+- Otherwise (including loopback URIs like `http://localhost:17322/callback`), tell the user to scroll up to the **Redirect URLs** section on the same OAuth & Permissions page, click **Add New Redirect URL**, paste the URI, click **Add**, then **Save URLs**.
 
-In the "Redirect URLs" section:
+> Slack requires the redirect URL to be registered even for local loopback callbacks. Without it, the authorization step will fail with a redirect mismatch error.
 
-1. If `redirectUri` says "automatic", skip adding a redirect URL for this provider.
-2. If `redirectUri` mentions "not currently configured" or `ingress.publicBaseUrl`, stop and ask the user to configure public ingress first.
-3. Otherwise, click "Add New Redirect URL" and enter the `redirectUri` value exactly as returned.
-4. Click "Add" then "Save URLs"
+---
 
-Take a `browser_snapshot` to confirm.
+### Step 5: Get Client ID and Client Secret
 
-Tell the user: "Redirect URL configured using the redirect URI from Vellum's Slack OAuth profile."
+> Now let's grab the credentials. In the left sidebar, click **Basic Information**.
 
-## Step 5: Extract Client ID and Client Secret
+Open: the app's **Basic Information** page via the sidebar.
 
-Navigate to "Basic Information" in the left sidebar.
+> Scroll down to the **App Credentials** section. You should see **Client ID** and **Client Secret** listed there.
 
-Use `browser_extract` to read:
+**Milestone (5 of 8):** "Almost there — just need to save these credentials."
 
-1. **Client ID** from the "App Credentials" section
-2. **Client Secret** — click "Show" first, then extract the value
+---
 
-**Important:** Slack requires a client secret for the token exchange (unlike Google which uses PKCE). Both values are needed.
+### Step 6: Store Credentials
 
-Tell the user: "Credentials extracted! Now let's connect your Slack workspace."
+Collect Client ID conversationally:
 
-## Step 6: Connect Slack
+> Copy the **Client ID** and paste it here in the chat.
 
-Tell the user: "Opening Slack authorization so you can grant Vellum access to your workspace. You'll see a Slack consent page — just click 'Allow'."
-
-Use the `credential_store` tool to connect Slack via OAuth2:
+Collect Client Secret via secure prompt:
 
 ```
-action: "oauth2_connect"
-service: "integration:slack"
-client_id: "<the extracted Client ID>"
-client_secret: "<the extracted Client Secret>"
-scopes: ["channels:read", "channels:history", "groups:read", "groups:history", "im:read", "im:history", "im:write", "mpim:read", "mpim:history", "users:read", "chat:write", "search:read", "reactions:write"]
+credential_store prompt:
+  service: "integration:slack"
+  field: "client_secret"
+  label: "Slack OAuth Client Secret"
+  description: "Copy the Client Secret from the Basic Information page (you may need to click Show first) and paste it here."
+  placeholder: "..."
 ```
 
-This will open the Slack authorization page in the user's browser. Wait for the flow to complete.
+Register the OAuth app:
 
-## Step 7: Celebrate!
+```
+bash:
+  command: |
+    assistant oauth apps upsert --provider integration:slack --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ) --client-secret-credential-path "credential/integration:slack/client_secret"
+```
 
-Once connected, tell the user:
+**Milestone (6 of 8):** "Credentials saved — just the authorization step left."
 
-"**Slack is connected!** You're all set. You can now read channels, search messages, send messages, and manage your Slack workspace through Vellum. Try asking me to check your unread Slack messages!"
+---
 
-Summarize what was accomplished:
+### Step 7: Authorize
 
-- Created a Slack App called "Vellum Assistant"
-- Configured User Token Scopes for reading, writing, and searching
-- Set up the OAuth redirect URL from the Slack OAuth profile
-- Connected your Slack workspace
+> I'll start the Slack authorization flow now. You should see a Slack consent page asking you to allow **Vellum Assistant** to access your workspace.
+>
+> Review the permissions and click **Allow**.
 
-## Error Handling
+```
+bash:
+  command: |
+    assistant oauth connections connect integration:slack --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    )
+```
 
-- **Page load failures:** Retry navigation once. If it still fails, tell the user and ask them to check their internet connection.
-- **Workspace selection issues:** The user may need admin permissions to install apps. Explain this clearly.
-- **Element not found for click/type:** Take a fresh `browser_snapshot` to re-assess the page layout. Slack's UI may have changed; adapt your selectors.
-- **User declines an approval gate:** Don't push back. Explain briefly why the step matters, offer to try again, or cancel gracefully.
-- **OAuth flow timeout or failure:** Tell the user what happened and offer to retry. The app is already created, so they only need to re-run the connect step.
-- **Any unexpected state:** Take a `browser_screenshot` and `browser_snapshot`, describe what you see, and ask the user for guidance.
+---
+
+### Step 8: Verify Connection
+
+Use the ping URL to verify the connection:
+
+```
+bash:
+  command: |
+    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:slack --client-id $(cat <<'EOF'
+    <client-id>
+    EOF
+    ))" "https://slack.com/api/auth.test" | python3 -m json.tool
+```
+
+**On success:** "Slack is connected! You can now ask me to check your Slack messages, search conversations, send messages, and react to posts."
+
+---
+
+## Path B: Manual Channel Setup
+
+For non-interactive channels, see [references/path-b-manual-setup.md](references/path-b-manual-setup.md).
+
+Key Slack-specific differences for Path B:
+
+- Loopback callback won't work from a remote channel — need public ingress configured
+- Add the ingress-based redirect URI under **Redirect URLs** on the OAuth & Permissions page
+- Client Secret doesn't have a known prefix that triggers scanners, but still use `credential_store prompt` or `credential_store store` for security

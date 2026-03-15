@@ -77,7 +77,7 @@ struct ObservationSummaryView: View {
                     if showProposal {
                         Text(proposalText)
                             .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                             .textSelection(.enabled)
                             .transition(.opacity.combined(with: .offset(y: 6)))
                             .onAppear {
@@ -132,12 +132,12 @@ private struct InsightRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
             VIconView(.sparkles, size: 12)
-                .foregroundColor(VColor.accent)
+                .foregroundColor(VColor.primaryBase)
                 .padding(.top, 2)
 
             Text(text)
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .textSelection(.enabled)
         }
         .opacity(appeared ? 1 : 0)

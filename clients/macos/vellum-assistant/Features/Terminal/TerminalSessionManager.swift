@@ -25,7 +25,6 @@ final class TerminalSessionManager: ObservableObject {
 
     // MARK: - Configuration
 
-    private let assistantId: String
     private let apiClient: TerminalAPIClient
 
     /// Called with base64-encoded PTY output bytes as they arrive from the stream.
@@ -53,8 +52,7 @@ final class TerminalSessionManager: ObservableObject {
 
     // MARK: - Init
 
-    init(assistantId: String, apiClient: TerminalAPIClient) {
-        self.assistantId = assistantId
+    init(apiClient: TerminalAPIClient) {
         self.apiClient = apiClient
     }
 
@@ -76,8 +74,8 @@ final class TerminalSessionManager: ObservableObject {
     func reconnect() {
         guard status == .connected || isError else { return }
         teardownStream()
-        if let sessionId, !assistantId.isEmpty {
-            Task { await apiClient.destroySession(assistantId: assistantId, sessionId: sessionId) }
+        if let sessionId {
+            Task { await apiClient.destroySession(sessionId: sessionId) }
         }
         sessionId = nil
         status = .reconnecting
@@ -87,11 +85,10 @@ final class TerminalSessionManager: ObservableObject {
     /// Closes the terminal session cleanly.
     func close() {
         teardownStream()
-        if let sessionId, !assistantId.isEmpty {
-            let aid = assistantId
+        if let sessionId {
             let sid = sessionId
             let client = apiClient
-            Task { await client.destroySession(assistantId: aid, sessionId: sid) }
+            Task { await client.destroySession(sessionId: sid) }
         }
         sessionId = nil
         status = .closed
@@ -106,7 +103,7 @@ final class TerminalSessionManager: ObservableObject {
     func sendResize(cols: Int, rows: Int) {
         lastDimensions = (cols, rows)
 
-        guard status == .connected, let sessionId else { return }
+        guard status == .connected, sessionId != nil else { return }
 
         pendingResize = (cols, rows)
         resizeTimer?.invalidate()
@@ -115,7 +112,6 @@ final class TerminalSessionManager: ObservableObject {
                 guard let self, let pending = self.pendingResize, let sid = self.sessionId else { return }
                 self.pendingResize = nil
                 try? await self.apiClient.resize(
-                    assistantId: self.assistantId,
                     sessionId: sid,
                     cols: pending.cols,
                     rows: pending.rows
@@ -136,7 +132,7 @@ final class TerminalSessionManager: ObservableObject {
 
         Task { @MainActor in
             do {
-                let sid = try await apiClient.createSession(assistantId: assistantId)
+                let sid = try await apiClient.createSession()
                 self.sessionId = sid
                 self.startSSEStream(sessionId: sid)
                 self.startInputFlushTimer(sessionId: sid)
@@ -145,7 +141,6 @@ final class TerminalSessionManager: ObservableObject {
                 // Flush last known dimensions so the PTY matches the view.
                 if let dims = self.lastDimensions {
                     try? await self.apiClient.resize(
-                        assistantId: self.assistantId,
                         sessionId: sid,
                         cols: dims.cols,
                         rows: dims.rows
@@ -162,7 +157,7 @@ final class TerminalSessionManager: ObservableObject {
     }
 
     private func startSSEStream(sessionId: String) {
-        let (stream, cancel) = apiClient.subscribeEvents(assistantId: assistantId, sessionId: sessionId)
+        let (stream, cancel) = apiClient.subscribeEvents(sessionId: sessionId)
         cancelSSE = cancel
 
         sseTask = Task { @MainActor [weak self] in
@@ -198,7 +193,6 @@ final class TerminalSessionManager: ObservableObject {
                 guard !buffered.isEmpty else { return }
                 self.inputBuffer = ""
                 try? await self.apiClient.sendInput(
-                    assistantId: self.assistantId,
                     sessionId: sessionId,
                     data: buffered
                 )

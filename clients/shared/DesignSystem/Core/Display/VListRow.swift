@@ -30,7 +30,7 @@ public struct VListRow<Content: View>: View {
             .padding(.vertical, VSpacing.sm)
             .padding(.horizontal, VSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(VColor.navHover.opacity(isHovered ? 1 : 0))
+            .background(VColor.surfaceBase.opacity(isHovered ? 1 : 0))
             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
             .onHover { hovering in
                 isHovered = hovering
@@ -38,25 +38,3 @@ public struct VListRow<Content: View>: View {
     }
 }
 
-#Preview("VListRow") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        VStack(spacing: 0) {
-            VListRow(onTap: {}) {
-                HStack {
-                    VIconView(.fileText, size: 14)
-                        .foregroundColor(VColor.accent)
-                    Text("Tappable row")
-                        .foregroundColor(VColor.textPrimary)
-                }
-            }
-            Divider()
-            VListRow {
-                Text("Static row")
-                    .foregroundColor(VColor.textSecondary)
-            }
-        }
-        .padding()
-    }
-    .frame(width: 300, height: 150)
-}

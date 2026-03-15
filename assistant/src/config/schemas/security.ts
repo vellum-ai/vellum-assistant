@@ -5,7 +5,7 @@ const VALID_PERMISSIONS_MODES = ["strict", "workspace"] as const;
 
 export { VALID_PERMISSIONS_MODES, VALID_SECRET_ACTIONS };
 
-export const CustomSecretPatternSchema = z.object({
+const CustomSecretPatternSchema = z.object({
   label: z.string({
     error: "secretDetection.customPatterns[].label must be a string",
   }),
@@ -49,6 +49,5 @@ export const PermissionsConfigSchema = z.object({
     .default("workspace"),
 });
 
-export type CustomSecretPattern = z.infer<typeof CustomSecretPatternSchema>;
 export type SecretDetectionConfig = z.infer<typeof SecretDetectionConfigSchema>;
 export type PermissionsConfig = z.infer<typeof PermissionsConfigSchema>;

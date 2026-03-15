@@ -130,9 +130,9 @@ private struct TrustRuleRow: View {
 
     private func decisionColor(_ decision: String) -> Color {
         switch decision {
-        case "allow": return VColor.success
-        case "ask": return VColor.warning
-        default: return VColor.error
+        case "allow": return VColor.systemPositiveStrong
+        case "ask": return VColor.systemNegativeHover
+        default: return VColor.systemNegativeStrong
         }
     }
 
@@ -178,7 +178,7 @@ private struct TrustRuleRow: View {
                     onDelete()
                 } label: {
                     VIconView(.trash, size: 14)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(VColor.systemNegativeStrong)
                 }
                 .buttonStyle(.borderless)
             }

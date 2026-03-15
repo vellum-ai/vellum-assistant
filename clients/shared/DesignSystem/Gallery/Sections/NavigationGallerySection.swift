@@ -26,9 +26,9 @@ struct NavigationGallerySection: View {
                 VStack(alignment: .leading, spacing: VSpacing.xl) {
                     Text("Selected: \(segmentItems[segmentSelection])")
                         .font(VFont.mono)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     VSegmentedControl(items: segmentItems, selection: $segmentSelection)
 
@@ -36,14 +36,14 @@ struct NavigationGallerySection: View {
                     VCard {
                         Text("Content for \"\(segmentItems[segmentSelection])\" tab")
                             .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                             .frame(maxWidth: .infinity)
                             .padding(VSpacing.xl)
                     }
                 }
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - VSegmentedControl (Pill)
             GallerySectionHeader(
@@ -55,9 +55,9 @@ struct NavigationGallerySection: View {
                 VStack(alignment: .leading, spacing: VSpacing.xl) {
                     Text("Selected: \(pillSelection)")
                         .font(VFont.mono)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     VSegmentedControl(
                         items: [
@@ -72,7 +72,7 @@ struct NavigationGallerySection: View {
                 }
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - VTabBar + VTab
             GallerySectionHeader(
@@ -99,38 +99,38 @@ struct NavigationGallerySection: View {
                     VStack {
                         Text(tabs[selectedTab].label)
                             .font(VFont.title)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                         Text("Tab content area")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
                     .frame(maxWidth: .infinity)
                     .frame(height: 120)
-                    .background(VColor.background)
+                    .background(VColor.surfaceOverlay)
                 }
             }
 
             // Tab states
             Text("Tab States (Pill)")
                 .font(VFont.headline)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
 
             VCard {
                 HStack(spacing: VSpacing.lg) {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Default").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        Text("Default").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                         VTab(label: "Tab", icon: VIcon.file.rawValue, onSelect: {})
                     }
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Selected").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        Text("Selected").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                         VTab(label: "Tab", icon: VIcon.file.rawValue, isSelected: true, onSelect: {})
                     }
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Not closeable").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        Text("Not closeable").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                         VTab(label: "Tab", icon: VIcon.file.rawValue, isCloseable: false, onSelect: {})
                     }
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("No icon").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        Text("No icon").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                         VTab(label: "Plain Tab", isCloseable: false, onSelect: {})
                     }
                 }
@@ -139,24 +139,24 @@ struct NavigationGallerySection: View {
             // Flat-style tab states
             Text("Tab States (Flat)")
                 .font(VFont.headline)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
 
             VCard {
                 HStack(spacing: VSpacing.lg) {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Default").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        Text("Default").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                         VTab(label: "Thread 1", style: .flat, onSelect: {})
                     }
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Selected").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        Text("Selected").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                         VTab(label: "Thread 1", isSelected: true, style: .flat, onSelect: {})
                     }
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Closeable").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        Text("Closeable").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                         VTab(label: "Thread 2", style: .flat, onSelect: {}, onClose: {})
                     }
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Selected + Closeable").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        Text("Selected + Closeable").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                         VTab(label: "Thread 2", isSelected: true, style: .flat, onSelect: {}, onClose: {})
                     }
                 }
@@ -165,24 +165,24 @@ struct NavigationGallerySection: View {
             // Rectangular-style tab states
             Text("Tab States (Rectangular)")
                 .font(VFont.headline)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
 
             VCard {
                 HStack(spacing: VSpacing.lg) {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Default").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        Text("Default").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                         VTab(label: "Tab", icon: VIcon.file.rawValue, style: .rectangular, onSelect: {})
                     }
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Selected").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        Text("Selected").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                         VTab(label: "Tab", icon: VIcon.file.rawValue, isSelected: true, style: .rectangular, onSelect: {})
                     }
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Closeable").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        Text("Closeable").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                         VTab(label: "Tab", icon: VIcon.file.rawValue, style: .rectangular, onSelect: {}, onClose: {})
                     }
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Selected + Closeable").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        Text("Selected + Closeable").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                         VTab(label: "Tab", icon: VIcon.file.rawValue, isSelected: true, style: .rectangular, onSelect: {}, onClose: {})
                     }
                 }

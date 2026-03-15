@@ -8,6 +8,7 @@
  * 2. No X-Actor-Token references in production code.
  * 3. No legacy gateway-origin proof in production code.
  * 4. Scope profile contract — every profile resolves to the expected scopes.
+ * 5. CURRENT_POLICY_EPOCH sync — the constant matches across all packages.
  */
 
 import { execSync } from "node:child_process";
@@ -327,6 +328,65 @@ describe("scope profile contract", () => {
     for (const profile of profiles) {
       const scopes = resolveScopeProfile(profile);
       expect(scopes.size).toBeGreaterThan(0);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5. CURRENT_POLICY_EPOCH sync across packages
+// ---------------------------------------------------------------------------
+
+describe("CURRENT_POLICY_EPOCH sync", () => {
+  /**
+   * The policy epoch constant is duplicated in assistant, gateway, and cli
+   * packages. This test reads the exported value from each source file and
+   * asserts they are all equal.
+   */
+
+  const EPOCH_FILES = [
+    {
+      label: "assistant",
+      path: resolve(PROJECT_ROOT, "assistant/src/runtime/auth/policy.ts"),
+    },
+    {
+      label: "gateway",
+      path: resolve(PROJECT_ROOT, "gateway/src/auth/policy.ts"),
+    },
+  ];
+
+  function extractEpoch(filePath: string): number {
+    const src = readFileSync(filePath, "utf-8");
+    const match = src.match(
+      /export\s+const\s+CURRENT_POLICY_EPOCH\s*=\s*(\d+)/,
+    );
+    if (!match) {
+      throw new Error(`Could not find CURRENT_POLICY_EPOCH in ${filePath}`);
+    }
+    return parseInt(match[1], 10);
+  }
+
+  test("all non-skill packages export the same CURRENT_POLICY_EPOCH value", () => {
+    const values = EPOCH_FILES.map((f) => ({
+      label: f.label,
+      epoch: extractEpoch(f.path),
+    }));
+
+    const canonical = values[0];
+    const mismatches = values.filter((v) => v.epoch !== canonical.epoch);
+
+    if (mismatches.length > 0) {
+      const summary = values
+        .map((v) => `  - ${v.label}: ${v.epoch}`)
+        .join("\n");
+      const message = [
+        "CURRENT_POLICY_EPOCH is out of sync across packages:",
+        "",
+        summary,
+        "",
+        "All locations must have the same value.",
+        "The canonical source is assistant/src/runtime/auth/policy.ts.",
+      ].join("\n");
+      expect(mismatches, message).toEqual([]);
     }
   });
 });

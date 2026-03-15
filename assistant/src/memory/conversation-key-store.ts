@@ -2,7 +2,7 @@
  * Maps conversation keys to internal conversation IDs.
  *
  * The web UI identifies conversations by an opaque `conversationKey` (e.g.
- * a user ID, a channel thread ID).  This store resolves those keys to the
+ * a user ID, a channel chat ID).  This store resolves those keys to the
  * daemon's internal conversation IDs, creating new conversations on
  * first contact.
  */
@@ -94,17 +94,49 @@ export function setConversationKeyIfAbsent(
 }
 
 /**
+ * Resolve a value that may be either a conversation ID or a conversation key
+ * to the daemon's internal conversation ID.
+ *
+ * Returns the internal conversation ID, or `null` if neither lookup succeeds.
+ * Useful for endpoints (regenerate, undo, seen) that receive IDs from clients
+ * which may be conversation keys rather than internal IDs.
+ */
+export function resolveConversationId(idOrKey: string): string | null {
+  const db = getDb();
+
+  // Fast path: check if it's already a valid conversation ID.
+  const direct = db
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(eq(conversations.id, idOrKey))
+    .get();
+  if (direct) return direct.id;
+
+  // Slow path: check if it's a conversation key.
+  const mapping = db
+    .select()
+    .from(conversationKeys)
+    .where(eq(conversationKeys.conversationKey, idOrKey))
+    .get();
+  return mapping?.conversationId ?? null;
+}
+
+/**
  * Get or create a conversation for the given conversationKey.
  *
  * If a mapping already exists, returns the existing conversation ID.
  * Otherwise, creates a new conversation and mapping atomically within a
  * single transaction to prevent race conditions and orphaned rows.
  */
-export function getOrCreateConversation(conversationKey: string): {
+export function getOrCreateConversation(
+  conversationKey: string,
+  opts?: { conversationType?: "standard" | "private" },
+): {
   conversationId: string;
   created: boolean;
 } {
   const db = getDb();
+  const conversationType = opts?.conversationType ?? "standard";
 
   return db.transaction((tx) => {
     const existing = tx
@@ -118,7 +150,7 @@ export function getOrCreateConversation(conversationKey: string): {
     }
 
     // Check if the conversationKey itself is an existing conversation ID.
-    // This happens when the client loads a thread from the conversations list
+    // This happens when the client loads a conversation from the conversations list
     // and uses the server's conversationId as its local sessionId / conversationKey.
     const existingConversation = tx
       .select({ id: conversations.id })
@@ -140,6 +172,8 @@ export function getOrCreateConversation(conversationKey: string): {
 
     const now = Date.now();
     const conversationId = uuid();
+    const memoryScopeId =
+      conversationType === "private" ? `private:${conversationId}` : "default";
 
     tx.insert(conversations)
       .values({
@@ -153,6 +187,8 @@ export function getOrCreateConversation(conversationKey: string): {
         contextSummary: null,
         contextCompactedMessageCount: 0,
         contextCompactedAt: null,
+        conversationType,
+        memoryScopeId,
       })
       .run();
 

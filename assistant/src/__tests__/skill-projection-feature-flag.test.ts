@@ -30,7 +30,6 @@ const DECLARED_FLAG_KEY = "feature_flags.hatch-new-assistant.enabled";
 
 mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => mockCatalog,
-  checkSkillRequirements: () => ({ satisfied: true, missing: [] }),
 }));
 
 mock.module("../config/loader.js", () => ({
@@ -54,7 +53,6 @@ mock.module("../config/assistant-feature-flags.js", () => ({
   },
   loadDefaultsRegistry: () => ({}),
   getAssistantFeatureFlagDefaults: () => ({}),
-  _resetDefaultsCache: () => {},
 }));
 
 mock.module("../config/skill-state.js", () => ({
@@ -231,8 +229,7 @@ function makeSkill(id: string, featureFlag?: string): SkillSummary {
     description: `Skill ${id}`,
     directoryPath: `/skills/${id}`,
     skillFilePath: `/skills/${id}/SKILL.md`,
-    userInvocable: true,
-    disableModelInvocation: false,
+
     source: "managed",
     featureFlag,
   };

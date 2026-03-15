@@ -2,7 +2,7 @@ import { eq, like } from "drizzle-orm";
 
 import { getConfig } from "../../config/loader.js";
 import { getLogger } from "../../util/logger.js";
-import { getDb, rawExec } from "../db.js";
+import { getDb } from "../db.js";
 import { selectedBackendSupportsMultimodal } from "../embedding-backend.js";
 import { asString, BackendUnavailableError } from "../job-utils.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
@@ -20,13 +20,8 @@ import {
 
 const log = getLogger("memory-jobs-worker");
 
-export function rebuildIndexJob(): void {
+export async function rebuildIndexJob(): Promise<void> {
   const db = getDb();
-  rawExec(/*sql*/ `DELETE FROM memory_segment_fts`);
-  rawExec(/*sql*/ `
-    INSERT INTO memory_segment_fts(segment_id, text)
-    SELECT id, text FROM memory_segments
-  `);
   db.delete(memoryEmbeddings).run();
 
   const items = db
@@ -57,7 +52,7 @@ export function rebuildIndexJob(): void {
   // Re-enqueue multimodal embedding jobs only when the resolved embedding
   // backend supports multimodal inputs. Without this gate, embed_media and
   // embed_attachment jobs would all fail for text-only backends.
-  if (selectedBackendSupportsMultimodal(getConfig())) {
+  if (await selectedBackendSupportsMultimodal(getConfig())) {
     const assets = db
       .select({ id: mediaAssets.id })
       .from(mediaAssets)

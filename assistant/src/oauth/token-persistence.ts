@@ -8,24 +8,43 @@
  * Writes exclusively to the SQLite tables (oauth_app, oauth_connection)
  * and new-format secure keys (`oauth_app/{id}/...`,
  * `oauth_connection/{id}/...`).
+ *
+ * Token storage key paths and secure-key persistence are delegated to
+ * the shared `@vellumai/credential-storage` package.
  */
 
-import type {
-  OAuth2FlowResult,
-  TokenEndpointAuthMethod,
-} from "../security/oauth2.js";
+import {
+  oauthAppClientSecretPath,
+  persistOAuthTokens,
+  type SecureKeyBackend,
+} from "@vellumai/credential-storage";
+
+import type { OAuth2FlowResult } from "../security/oauth2.js";
 import {
   deleteSecureKeyAsync,
+  getSecureKeyAsync,
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
-import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
 import { runPostConnectHook } from "../tools/credentials/post-connect-hooks.js";
 import {
   createConnection,
+  getApp,
   getConnectionByProvider,
+  getConnectionByProviderAndAccount,
   updateConnection,
   upsertApp,
 } from "./oauth-store.js";
+
+// ---------------------------------------------------------------------------
+// Secure-key backend adapter
+// ---------------------------------------------------------------------------
+
+const secureKeyBackend: SecureKeyBackend = {
+  get: (key: string) => getSecureKeyAsync(key),
+  set: (key: string, value: string) => setSecureKeyAsync(key, value),
+  delete: async (key: string) => deleteSecureKeyAsync(key),
+  list: async () => [],
+};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -38,11 +57,7 @@ export interface StoreOAuth2TokensParams {
   rawTokenResponse: Record<string, unknown>;
   clientId: string;
   clientSecret?: string;
-  tokenUrl: string;
-  tokenEndpointAuthMethod?: TokenEndpointAuthMethod;
   userinfoUrl?: string;
-  allowedTools?: string[];
-  wellKnownInjectionTemplates?: CredentialInjectionTemplate[];
   /** Fallback account info from an identity verifier (e.g. @username, email). */
   identityAccountInfo?: string;
   /** Pre-resolved oauth_app ID — skips the upsertApp() call if provided. */
@@ -101,13 +116,20 @@ export async function storeOAuth2Tokens(
 
   // 1. Upsert the oauth_app row (or use the pre-resolved ID).
   const app = params.oauthAppId
-    ? { id: params.oauthAppId }
-    : await upsertApp(service, clientId, clientSecret);
+    ? (getApp(params.oauthAppId) ?? {
+        id: params.oauthAppId,
+        clientSecretCredentialPath: oauthAppClientSecretPath(params.oauthAppId),
+      })
+    : await upsertApp(
+        service,
+        clientId,
+        clientSecret ? { clientSecretValue: clientSecret } : undefined,
+      );
 
   // When oauthAppId is pre-resolved, still persist clientSecret if provided.
   if (params.oauthAppId && clientSecret) {
     const stored = await setSecureKeyAsync(
-      `oauth_app/${params.oauthAppId}/client_secret`,
+      app.clientSecretCredentialPath,
       clientSecret,
     );
     if (!stored) {
@@ -115,14 +137,28 @@ export async function storeOAuth2Tokens(
     }
   }
 
-  // 2. Upsert oauth_connection — reuse existing active connection for this
-  //    provider, or create a new one.
-  const existingConn = getConnectionByProvider(service);
+  // 2. Upsert oauth_connection — reuse existing active connection for the
+  //    same account, or create a new one for a different account.
+  //    First try to match by account info (email); fall back to provider-only
+  //    lookup so that re-auth without userinfo still updates the right row.
+  const existingConn = resolvedAccountInfo
+    ? getConnectionByProviderAndAccount(service, resolvedAccountInfo)
+    : getConnectionByProvider(service);
   let connId: string;
 
   const hasRefreshToken = !!tokens.refreshToken;
 
-  if (existingConn) {
+  // Only reuse the existing connection if it's the same account (or we can't
+  // tell). When the user connects a different account for the same service,
+  // create a separate connection so we don't overwrite the first account's
+  // tokens.
+  const isNewAccount =
+    existingConn &&
+    resolvedAccountInfo !== undefined &&
+    existingConn.accountInfo !== undefined &&
+    resolvedAccountInfo !== existingConn.accountInfo;
+
+  if (existingConn && !isNewAccount) {
     connId = existingConn.id;
     updateConnection(connId, {
       oauthAppId: app.id,
@@ -145,27 +181,11 @@ export async function storeOAuth2Tokens(
     connId = conn.id;
   }
 
-  // 3. Write access_token: oauth_connection/{conn.id}/access_token
-  const tokenStored = await setSecureKeyAsync(
-    `oauth_connection/${connId}/access_token`,
-    tokens.accessToken,
-  );
-  if (!tokenStored) {
-    throw new Error("Failed to store access token in secure storage");
-  }
-
-  // 4. Write or clear refresh_token: oauth_connection/{conn.id}/refresh_token
-  if (tokens.refreshToken) {
-    await setSecureKeyAsync(
-      `oauth_connection/${connId}/refresh_token`,
-      tokens.refreshToken,
-    );
-  } else {
-    // Re-auth grants that omit refresh_token must clear any stale stored
-    // token — otherwise withValidToken() will attempt refresh with invalid
-    // credentials.
-    await deleteSecureKeyAsync(`oauth_connection/${connId}/refresh_token`);
-  }
+  // 3-4. Persist access + refresh tokens via shared helper
+  await persistOAuthTokens(secureKeyBackend, connId, {
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+  });
 
   // Run any provider-specific post-connect actions (e.g. Slack welcome DM)
   await runPostConnectHook({ service, rawTokenResponse });

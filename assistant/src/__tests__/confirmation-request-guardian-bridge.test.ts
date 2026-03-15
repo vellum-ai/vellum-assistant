@@ -36,7 +36,7 @@ mock.module("../util/logger.js", () => ({
 
 // Mock notification emission — capture calls without running the full pipeline
 const emittedSignals: Array<Record<string, unknown>> = [];
-const mockOnThreadCreatedCallbacks: Array<
+const mockOnConversationCreatedCallbacks: Array<
   (info: {
     conversationId: string;
     title: string;
@@ -46,10 +46,10 @@ const mockOnThreadCreatedCallbacks: Array<
 mock.module("../notifications/emit-signal.js", () => ({
   emitNotificationSignal: async (params: Record<string, unknown>) => {
     emittedSignals.push(params);
-    // Capture onThreadCreated callback so tests can invoke it
-    if (typeof params.onThreadCreated === "function") {
-      mockOnThreadCreatedCallbacks.push(
-        params.onThreadCreated as (info: {
+    // Capture onConversationCreated callback so tests can invoke it
+    if (typeof params.onConversationCreated === "function") {
+      mockOnConversationCreatedCallbacks.push(
+        params.onConversationCreated as (info: {
           conversationId: string;
           title: string;
           sourceEventName: string;
@@ -129,7 +129,7 @@ function makeCanonicalRequest(overrides: Record<string, unknown> = {}) {
     toolName: "bash",
     status: "pending",
     requestCode: generateCanonicalRequestCode(),
-    expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+    expiresAt: Date.now() + 5 * 60 * 1000,
     ...overrides,
   });
 }
@@ -157,7 +157,7 @@ describe("bridgeConfirmationRequestToGuardian", () => {
   beforeEach(() => {
     resetTables();
     emittedSignals.length = 0;
-    mockOnThreadCreatedCallbacks.length = 0;
+    mockOnConversationCreatedCallbacks.length = 0;
   });
 
   test("emits guardian.question for trusted-contact sessions", () => {
@@ -302,7 +302,7 @@ describe("bridgeConfirmationRequestToGuardian", () => {
     );
   });
 
-  test("creates vellum delivery row via onThreadCreated callback", () => {
+  test("creates vellum delivery row via onConversationCreated callback", () => {
     const canonicalRequest = makeCanonicalRequest();
     const trustContext = makeTrustedContactContext();
 
@@ -313,11 +313,11 @@ describe("bridgeConfirmationRequestToGuardian", () => {
       toolName: "bash",
     });
 
-    expect(mockOnThreadCreatedCallbacks).toHaveLength(1);
+    expect(mockOnConversationCreatedCallbacks).toHaveLength(1);
 
-    // Simulate the broadcaster invoking onThreadCreated
-    mockOnThreadCreatedCallbacks[0]({
-      conversationId: "guardian-thread-1",
+    // Simulate the broadcaster invoking onConversationCreated
+    mockOnConversationCreatedCallbacks[0]({
+      conversationId: "guardian-conversation-1",
       title: "Guardian question",
       sourceEventName: "guardian.question",
     });
@@ -325,7 +325,9 @@ describe("bridgeConfirmationRequestToGuardian", () => {
     const deliveries = listCanonicalGuardianDeliveries(canonicalRequest.id);
     expect(deliveries).toHaveLength(1);
     expect(deliveries[0].destinationChannel).toBe("vellum");
-    expect(deliveries[0].destinationConversationId).toBe("guardian-thread-1");
+    expect(deliveries[0].destinationConversationId).toBe(
+      "guardian-conversation-1",
+    );
   });
 
   test("uses custom assistantId when provided", () => {

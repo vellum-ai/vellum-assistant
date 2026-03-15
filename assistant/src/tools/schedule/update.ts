@@ -25,8 +25,15 @@ const VALID_ROUTING_INTENTS: RoutingIntent[] = [
 
 export async function executeScheduleUpdate(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  if (context.trustClass !== "guardian") {
+    return {
+      content:
+        "Error: schedule_update is restricted to guardian actors because schedules execute with elevated privileges.",
+      isError: true,
+    };
+  }
   const jobId = input.job_id as string;
   if (!jobId || typeof jobId !== "string") {
     return { content: "Error: job_id is required", isError: true };

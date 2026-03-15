@@ -144,7 +144,7 @@ The design system uses a two-tier architecture with functional subgrouping:
 DesignSystem/
 ├── Tokens/              (VColor, VFont, VSpacing, VRadius, VShadow, VAnimation)
 ├── Core/                (atomic building blocks — single-responsibility controls)
-│   ├── Buttons/         (VButton, VIconButton)
+│   ├── Buttons/         (VButton)
 │   ├── Inputs/          (VSlider, VTextEditor, VTextField, VToggle)
 │   ├── Feedback/        (VBadge, VLoadingIndicator, VShortcutTag, VToast)
 │   ├── Display/         (VListRow)
@@ -167,12 +167,15 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 <details>
 <summary><strong>Token reference</strong></summary>
 
-**VColor** — Semantic color tokens mapped to Tailwind-style scales (Slate, Violet, Emerald, Rose, Amber, Indigo):
-- Backgrounds: `background` (Slate._950), `backgroundSubtle` (Slate._800), `surface` (Slate._800), `surfaceBorder` (Slate._700)
-- Text: `textPrimary` (Slate._50), `textSecondary` (Slate._400), `textMuted` (Slate._500)
-- Accent: `accent` (Violet._600), `accentSubtle` (Violet._100)
-- Status: `success` (Emerald._600), `error` (Rose._600), `warning` (Amber._600)
-- Use raw scales (e.g. `Slate._300`, `Violet._700`) only when semantic tokens don't cover the need.
+**VColor** — Adaptive semantic color tokens sourced from Figma. Each token resolves to a light/dark pair via `adaptiveColor()`:
+- Surface: `surfaceBase`, `surfaceOverlay`, `surfaceActive`, `surfaceLift`
+- Border: `borderDisabled`, `borderBase`, `borderHover`, `borderActive`
+- Content: `contentEmphasized`, `contentDefault`, `contentSecondary`, `contentTertiary`, `contentDisabled`, `contentBackground`, `contentInset`
+- Primary: `primaryDisabled`, `primaryBase`, `primaryHover`, `primaryActive`
+- System: `systemPositiveStrong`/`Weak`, `systemNegativeStrong`/`Hover`/`Weak`, `systemMidStrong`/`Weak`
+- Utility: `auxWhite`, `auxBlack` (non-adaptive)
+- Fun: `funYellow`, `funRed`, `funPurple`, `funPink`, `funCoral`, `funTeal`, `funGreen` (non-adaptive, decorative)
+- Raw palettes (Moss, Stone/Slate, Forest/Sage, Emerald, Danger, Amber) are internal — use semantic tokens above.
 
 **VFont** — macOS HIG-aligned type scale:
 - `largeTitle` (26pt bold), `title` (22pt semibold), `headline` (13pt bold)
@@ -184,7 +187,7 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 
 **VSpacing** — 4pt grid: `xxs`(2), `xs`(4), `sm`(8), `md`(12), `lg`(16), `xl`(24), `xxl`(32), `xxxl`(48). Semantic aliases: `inline`=sm, `content`=lg, `section`=xl, `page`=xxl.
 
-**VRadius** — `xs`(2), `sm`(4), `md`(8), `lg`(12), `xl`(16), `pill`(999).
+**VRadius** — `xs`(2), `sm`(4), `md`(8), `window`(10), `lg`(12), `xl`(16), `pill`(999).
 
 **VAnimation** — `snappy` (0.12s easeOut), `fast` (0.15s easeOut), `standard` (0.25s easeInOut), `slow` (0.4s easeInOut), `spring`, `panel` (gentle spring for panels), `bouncy` (celebratory spring).
 
@@ -212,7 +215,7 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 - **`@MainActor` on all ObservableObject classes** — all view models and managers that touch UI must be `@MainActor`.
 - **Nested ObservableObject**: When a view reads properties from a nested ObservableObject (e.g. `threadManager.activeViewModel.messages`), the parent must subscribe to the child's `objectWillChange` and forward it. See `ThreadManager.subscribeToActiveViewModel()`.
 - **Dependency injection**: Pass dependencies (DaemonClient, AmbientAgent) through init parameters, not singletons. Session dependencies use protocols for testability.
-- **Previews**: Add `#Preview("ComponentName")` blocks to every new view. Wrap in `ZStack { VColor.background.ignoresSafeArea() ... }` to match the dark theme. Use `#if DEBUG` guards for preview-only code. Keep preview frames reasonable (400-600pt wide). **Never use `@Previewable`** — it's not supported on CI's Xcode 16.2. If a preview needs `@State`, use a `PreviewProvider` with a wrapper view instead (see `ThreadTabBar.swift` for the pattern).
+- **Previews**: Do not add `#Preview` or `PreviewProvider` blocks. Use the Component Gallery as the single visual review surface.
 - **Gallery**: When adding or modifying a design system primitive/component, update the corresponding Gallery section file (`Gallery/Sections/`) so the visual catalog stays current.
 - **Accessibility**: Add `.accessibilityLabel()` to icon-only buttons, `.accessibilityHidden(true)` to decorative elements, and `.accessibilityValue()` to stateful controls. See existing components for patterns.
 
@@ -234,7 +237,6 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 - **LSUIElement app** — no dock icon; uses `.accessory` activation policy. Must temporarily switch to `.regular` when showing Settings window.
 - **`Bundle.main.bundleIdentifier` is nil** in SPM builds. All `os.Logger` instances use hardcoded fallback `"com.vellum.vellum-assistant"`.
 - **Adding .swift files**: Auto-picked up by SPM. No manual project file edits needed. New files go in `vellum-assistant/` (library target); only `@main` entry point lives in `vellum-assistant-app/`.
-- **Chrome special handling** — `ChromeAccessibilityHelper` detects when Chrome's AX tree lacks web content and auto-restarts Chrome with `--force-renderer-accessibility`.
 - **Popover close delay** — 300ms initial delay before session starts to let the popover close and target app regain focus.
 - **SessionState enum** must stay in sync with `SessionOverlayView` pattern matching.
 - **SourceKit false positives** — SourceKit may report "Cannot find X in scope" for design system types (VColor, VFont, etc.) due to SPM module resolution. These are false positives — `swift build` succeeds. Do not "fix" these by adding imports or changing code.
@@ -254,7 +256,7 @@ The macOS app pairs with iOS devices via QR code with Mac-side approval. The Con
 - **QR Code Pairing (v4):** Settings > Connect > Show QR Code generates a v4 payload containing a one-time `pairingRequestId` and `pairingSecret` (no bearer token in the QR). The QR is pre-registered with the daemon. iOS scans the QR, sends a pairing request, and waits for Mac-side approval.
 - **Approval flow:** When iOS sends a pairing request, macOS shows a floating approval prompt with Deny, Approve Once, and Always Allow options. "Always Allow" persists the device in `~/.vellum/protected/approved-devices.json` for auto-approval on future pairings.
 - **LAN pairing:** Disabled by default for security. To enable, set `VELLUM_ENABLE_INSECURE_LAN_PAIRING=1`. When enabled, the QR payload includes `localLanUrl` (the gateway's LAN address). iOS tries LAN first, falls back to cloud gateway. HTTP is permitted for local/private addresses via `LocalAddressValidator.isLocalAddress()`.
-- **Connect Tab Layout:** Pairing hero (QR + status) → Approved Devices list → Gateway (URL config, collapsed if set) → Advanced (bearer token, URL/token overrides) → Diagnostics (test connection) → Channels (Telegram, SMS, Voice).
+- **Connect Tab Layout:** Pairing hero (QR + status) → Approved Devices list → Gateway (URL config, collapsed if set) → Advanced (bearer token, URL/token overrides) → Diagnostics (test connection) → Channels (Telegram, Voice).
 - **Bearer Token:** Managed via JWT authentication. The pairing hero shows a "Generate Token" button when missing and a "Regenerate Token" link when present.
 
 ---

@@ -13,7 +13,7 @@ import {
   addMessage,
   getConversationOriginChannel,
   getConversationRecentProvenanceTrustClass,
-  getConversationThreadType,
+  getConversationType,
 } from "../memory/conversation-crud.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -80,7 +80,7 @@ export function resetPointerMessageProcessor(): void {
  *
  * Trusted when:
  * - recent message provenance trust class is 'guardian' or 'trusted_contact'
- * - conversation threadType is 'private' (local desktop-origin context)
+ * - conversation conversationType is 'private' (local desktop-origin context)
  * - conversation origin channel is 'vellum' (desktop app)
  *
  * Untrusted by default when insufficient evidence.
@@ -89,14 +89,14 @@ function resolvePointerAudienceTrust(conversationId: string): boolean {
   try {
     // Check provenance trust class on recent messages first — this catches
     // trusted contacts who initiate calls from gateway channels (e.g. WhatsApp)
-    // where the conversation itself isn't a desktop-origin private thread.
+    // where the conversation itself isn't a desktop-origin private conversation.
     const provenance =
       getConversationRecentProvenanceTrustClass(conversationId);
     if (provenance === "guardian" || provenance === "trusted_contact")
       return true;
 
-    const threadType = getConversationThreadType(conversationId);
-    if (threadType === "private") return true;
+    const conversationType = getConversationType(conversationId);
+    if (conversationType === "private") return true;
 
     const originChannel = getConversationOriginChannel(conversationId);
     if (originChannel === "vellum") return true;
@@ -183,9 +183,9 @@ export async function addPointerMessage(
   const text = getPointerFallbackMessage(context);
 
   // Pointer messages are assistant-generated status updates in the initiating
-  // desktop thread. Do not set userMessageChannel — doing so would mark the
+  // desktop conversation. Do not set userMessageChannel — doing so would mark the
   // conversation's origin channel as voice, causing it to leak into the
-  // desktop thread list as a channel-bound session.
+  // desktop conversation list as a channel-bound session.
   await addMessage(
     conversationId,
     "assistant",

@@ -7,7 +7,7 @@ let mockGetMessages: (
   conversationId: string,
 ) => Array<{ role: string; content: string }> | null = () => null;
 mock.module("../memory/conversation-crud.js", () => ({
-  getConversationThreadType: () => "default",
+  getConversationType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},

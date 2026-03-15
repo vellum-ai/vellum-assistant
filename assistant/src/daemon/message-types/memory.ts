@@ -11,7 +11,6 @@ export interface MemoryRecalledCandidateDebug {
   type: string;
   kind: string;
   finalScore: number;
-  lexical: number;
   semantic: number;
   recency: number;
 }
@@ -21,18 +20,14 @@ export interface MemoryRecalled {
   provider: string;
   model: string;
   degradation?: MemoryRecalledDegradation;
-  lexicalHits: number;
   semanticHits: number;
   recencyHits: number;
-  entityHits: number;
-  relationSeedEntityCount?: number;
-  relationTraversedEdgeCount?: number;
-  relationNeighborEntityCount?: number;
-  relationExpandedItemCount?: number;
-  earlyTerminated?: boolean;
+  tier1Count: number;
+  tier2Count: number;
+  hybridSearchLatencyMs: number;
+  sparseVectorUsed: boolean;
   mergedCount: number;
   selectedCount: number;
-  rerankApplied: boolean;
   injectedTokens: number;
   latencyMs: number;
   topCandidates: MemoryRecalledCandidateDebug[];
@@ -46,13 +41,6 @@ export interface MemoryStatus {
   reason?: string;
   provider?: string;
   model?: string;
-  conflictsPending: number;
-  conflictsResolved: number;
-  oldestPendingConflictAgeMs: number | null;
-  cleanupResolvedJobsPending: number;
-  cleanupSupersededJobsPending: number;
-  cleanupResolvedJobsCompleted24h: number;
-  cleanupSupersededJobsCompleted24h: number;
 }
 
 // --- Domain-level union aliases (consumed by the barrel file) ---

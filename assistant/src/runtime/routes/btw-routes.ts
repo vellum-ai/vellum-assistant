@@ -1,19 +1,25 @@
 /**
  * HTTP route handler for the POST /v1/btw SSE-streaming side-chain endpoint.
  *
- * Runs an ephemeral LLM call that reuses the session's provider, system prompt,
- * tool definitions, and message history for prompt-cache efficiency. The response
- * is streamed as SSE events (`btw_text_delta`, `btw_complete`, `btw_error`).
+ * Runs an ephemeral LLM call that reuses the session's provider, tool
+ * definitions, and message history for prompt-cache efficiency. Uses the
+ * session's system prompt when a conversation-specific override is active;
+ * otherwise builds a fresh prompt excluding BOOTSTRAP.md so first-run
+ * onboarding instructions don't leak into cosmetic UI calls like identity
+ * intro generation. The response is streamed as SSE events (`btw_text_delta`,
+ * `btw_complete`, `btw_error`).
  *
  * No messages are persisted. `session.processing` is never set or checked.
  */
 
 import { buildToolDefinitions } from "../../daemon/session-tool-setup.js";
-import { getOrCreateConversation } from "../../memory/conversation-key-store.js";
+import { getConversationByKey } from "../../memory/conversation-key-store.js";
+import { buildSystemPrompt } from "../../prompts/system-prompt.js";
 import {
   createTimeout,
   userMessage,
 } from "../../providers/provider-send-message.js";
+import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { getLogger } from "../../util/logger.js";
 import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
@@ -53,12 +59,35 @@ async function handleBtw(
     );
   }
 
-  const mapping = getOrCreateConversation(conversationKey);
-  const session = await deps.sendMessageDeps.getOrCreateSession(
-    mapping.conversationId,
-  );
+  const trimmedContent = content.trim();
+  const ingressCheck = checkIngressForSecrets(trimmedContent);
+  if (ingressCheck.blocked) {
+    log.warn(
+      { detectedTypes: ingressCheck.detectedTypes },
+      "Blocked /v1/btw message containing secrets",
+    );
+    return Response.json(
+      {
+        accepted: false,
+        error: "secret_blocked",
+        message: ingressCheck.userNotice,
+        detectedTypes: ingressCheck.detectedTypes,
+      },
+      { status: 422 },
+    );
+  }
 
-  const messages = [...session.getMessages(), userMessage(content.trim())];
+  // Look up an existing conversation — never create one.  BTW is ephemeral
+  // (the file header promises "No messages are persisted"), so we must not
+  // call getOrCreateConversation which would insert a DB row.  When no
+  // conversation exists (e.g. greeting generation for a draft conversation), we
+  // still get a usable session via getOrCreateSession with the raw key; the
+  // session lives only in memory and disappears on restart.
+  const mapping = getConversationByKey(conversationKey);
+  const sessionId = mapping?.conversationId ?? conversationKey;
+  const session = await deps.sendMessageDeps.getOrCreateSession(sessionId);
+
+  const messages = [...session.getMessages(), userMessage(trimmedContent)];
   const tools = buildToolDefinitions();
   const { signal: timeoutSignal, cleanup: cleanupTimeout } =
     createTimeout(30_000);
@@ -78,28 +107,31 @@ async function handleBtw(
     start(controller) {
       (async () => {
         try {
-          await session.provider.sendMessage(
-            messages,
-            tools,
-            session.systemPrompt,
-            {
-              config: {
-                max_tokens: 1024,
-                tool_choice: { type: "none" },
-                modelIntent: "latency-optimized",
-              },
-              onEvent: (event) => {
-                if (event.type === "text_delta") {
-                  controller.enqueue(
-                    encoder.encode(
-                      `event: btw_text_delta\ndata: ${JSON.stringify({ text: event.text })}\n\n`,
-                    ),
-                  );
-                }
-              },
-              signal: combinedSignal,
+          // Preserve any conversation-specific systemPromptOverride so
+          // side-chain responses match the active session contract.  Only
+          // fall back to a fresh prompt (excluding BOOTSTRAP.md) for
+          // default sessions where no override was provided.
+          const systemPrompt = session.hasSystemPromptOverride
+            ? session.systemPrompt
+            : buildSystemPrompt({ excludeBootstrap: true });
+
+          await session.provider.sendMessage(messages, tools, systemPrompt, {
+            config: {
+              max_tokens: 1024,
+              tool_choice: { type: "none" },
+              modelIntent: "latency-optimized",
             },
-          );
+            onEvent: (event) => {
+              if (event.type === "text_delta") {
+                controller.enqueue(
+                  encoder.encode(
+                    `event: btw_text_delta\ndata: ${JSON.stringify({ text: event.text })}\n\n`,
+                  ),
+                );
+              }
+            },
+            signal: combinedSignal,
+          });
 
           controller.enqueue(
             encoder.encode(`event: btw_complete\ndata: {}\n\n`),

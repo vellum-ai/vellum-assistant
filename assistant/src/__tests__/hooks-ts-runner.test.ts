@@ -60,8 +60,11 @@ describe("TypeScript hooks runner", () => {
       "ts-hook",
       "run.ts",
       `
-import { readFileSync } from 'node:fs';
-const data = JSON.parse(readFileSync('/dev/stdin', 'utf-8'));
+const chunks: Buffer[] = [];
+for await (const chunk of Bun.stdin.stream()) {
+  chunks.push(Buffer.from(chunk));
+}
+const data = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
 console.log(JSON.stringify({ event: data.event, ok: true }));
 `,
     );
@@ -80,8 +83,11 @@ console.log(JSON.stringify({ event: data.event, ok: true }));
       "stdin-hook",
       "handler.ts",
       `
-import { readFileSync } from 'node:fs';
-const data = JSON.parse(readFileSync('/dev/stdin', 'utf-8'));
+const chunks: Buffer[] = [];
+for await (const chunk of Bun.stdin.stream()) {
+  chunks.push(Buffer.from(chunk));
+}
+const data = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
 console.log(data.customField);
 `,
     );

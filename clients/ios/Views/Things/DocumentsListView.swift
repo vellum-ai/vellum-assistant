@@ -89,22 +89,22 @@ struct DocumentsListView: View {
     private func documentRow(_ doc: DocumentListItem) -> some View {
         HStack(spacing: VSpacing.md) {
             VIconView(.fileText, size: 24)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(doc.title)
                     .font(VFont.bodyBold)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
 
                 HStack(spacing: VSpacing.sm) {
                     Text("\(doc.wordCount) words")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
 
                     Text(formattedDate(doc.updatedAt))
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
 
@@ -123,7 +123,7 @@ struct DocumentsListView: View {
             ProgressView()
             Text("Loading documents...")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -131,11 +131,11 @@ struct DocumentsListView: View {
     private var emptyView: some View {
         VStack(spacing: VSpacing.md) {
             VIconView(.fileText, size: 48)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .accessibilityHidden(true)
             Text("No documents yet")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .combine)

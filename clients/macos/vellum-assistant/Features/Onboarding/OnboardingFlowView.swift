@@ -22,14 +22,21 @@ struct OnboardingFlowView: View {
         return NSImage(contentsOfFile: path)
     }()
 
+    private var managedSignInEnabled: Bool {
+        MacOSClientFeatureFlagManager.shared.isEnabled("managed_sign_in_enabled")
+    }
+
     private var maxOnboardingStep: Int {
-        state.userHostedEnabled ? 3 : 2
+        if managedSignInEnabled {
+            return 2
+        }
+        return 2
     }
 
     var body: some View {
         GeometryReader { geometry in
         ZStack {
-            VColor.background.ignoresSafeArea()
+            VColor.surfaceOverlay.ignoresSafeArea()
 
             if state.isHatching {
                 HatchingStepView(state: state)
@@ -37,8 +44,8 @@ struct OnboardingFlowView: View {
                     .background(
                         RadialGradient(
                             colors: [
-                                VColor.background,
-                                VColor.onboardingHatchGradientOuter
+                                VColor.surfaceOverlay,
+                                VColor.surfaceOverlay
                             ],
                             center: .center,
                             startRadius: 0,
@@ -47,11 +54,11 @@ struct OnboardingFlowView: View {
                         .ignoresSafeArea()
                     )
             } else if (0...maxOnboardingStep).contains(state.currentStep) {
-                // Trimmed onboarding flow.
-                // When userHostedEnabled: WakeUp → APIKey → CloudCredentials → ImproveExperience (steps 0–3)
-                // Otherwise: WakeUp → APIKey → ImproveExperience (steps 0–2)
+                // Onboarding flow: WakeUp → HostingSelector → (APIKeyEntry|ImproveExperience) (steps 0–2)
                 VStack(spacing: 0) {
-                    Spacer()
+                    // Fixed top inset — positions the icon consistently
+                    // across all steps regardless of bottom content weight.
+                    Color.clear.frame(height: geometry.size.height * 0.2)
 
                     if let nsImage = Self.appIcon {
                         Image(nsImage: nsImage)
@@ -89,15 +96,21 @@ struct OnboardingFlowView: View {
                                     }
                                 )
                             case 1:
-                                APIKeyStepView(state: state)
+                                APIKeyStepView(
+                                    state: state,
+                                    isAuthenticated: authManager.isAuthenticated,
+                                    onHatchManaged: {
+                                        Task {
+                                            await performManagedBootstrap()
+                                        }
+                                    }
+                                )
                             case 2:
-                                if state.needsCloudCredentials {
-                                    CloudCredentialsStepView(state: state)
+                                if managedSignInEnabled {
+                                    APIKeyEntryStepView(state: state)
                                 } else {
                                     ImproveExperienceStepView(state: state)
                                 }
-                            case 3:
-                                ImproveExperienceStepView(state: state)
                             default:
                                 EmptyView()
                             }
@@ -115,8 +128,8 @@ struct OnboardingFlowView: View {
                 .background(
                     RadialGradient(
                         colors: [
-                            VColor.onboardingGradientEdge,
-                            VColor.onboardingGradientOuter
+                            VColor.surfaceBase,
+                            VColor.surfaceOverlay
                         ],
                         center: .center,
                         startRadius: 0,
@@ -132,6 +145,9 @@ struct OnboardingFlowView: View {
             if !authManager.isAuthenticated {
                 await authManager.checkSession()
             }
+            if managedSignInEnabled && authManager.isAuthenticated && state.currentStep == 0 {
+                state.advance()
+            }
         }
         .onChange(of: state.currentStep) { _, newStep in
             if newStep == 0 {
@@ -146,9 +162,21 @@ struct OnboardingFlowView: View {
             log.info(
                 "Observed auth state change in onboarding: isAuthenticated=\(isAuthenticated, privacy: .public) managedBootstrapEnabled=\(self.managedBootstrapEnabled, privacy: .public) lockfileAssistantId=\(currentAssistant?.assistantId ?? "<none>", privacy: .public)"
             )
+            if !isAuthenticated && managedSignInEnabled && state.currentStep > 0 {
+                log.info("User signed out during managed onboarding — returning to welcome screen")
+                isBootstrappingManaged = false
+                managedBootstrapError = nil
+                withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
+                    state.currentStep = 0
+                }
+                return
+            }
             if isAuthenticated {
                 if let assistant = currentAssistant {
-                    if assistant.isManaged {
+                    if assistant.isManaged && managedSignInEnabled && state.currentStep == 0 {
+                        log.info("Authenticated with managed assistant \(assistant.assistantId, privacy: .public); advancing to hosting selector")
+                        state.advance()
+                    } else if assistant.isManaged {
                         log.info("Authenticated with managed assistant \(assistant.assistantId, privacy: .public); starting managed bootstrap")
                         Task {
                             await performManagedBootstrap()
@@ -161,9 +189,11 @@ struct OnboardingFlowView: View {
                         onComplete()
                     }
                 } else if managedBootstrapEnabled {
-                    log.info("Authenticated with no lockfile assistant; starting managed bootstrap")
-                    Task {
-                        await performManagedBootstrap()
+                    if managedSignInEnabled && state.currentStep == 0 {
+                        log.info("Authenticated with no lockfile assistant; advancing to hosting selector")
+                        state.advance()
+                    } else {
+                        log.info("Session restored with no lockfile assistant — staying on welcome screen for user-initiated hatch")
                     }
                 } else {
                     log.info("Auth completed with no lockfile assistant — proceeding to app")
@@ -185,7 +215,7 @@ struct OnboardingFlowView: View {
         case .startLogin:
             await authManager.startWorkOSLogin()
         case .bootstrap:
-            await performManagedBootstrap()
+            state.advance()
         }
     }
 
@@ -199,17 +229,17 @@ struct OnboardingFlowView: View {
                         .progressViewStyle(.circular)
                     Text("Setting up your assistant...")
                         .font(VFont.monoMedium)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
             } else {
                 Text("Setup failed")
                     .font(VFont.title)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 if let error = managedBootstrapError {
                     Text(error)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.error)
+                        .foregroundColor(VColor.systemNegativeStrong)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 280)
                 }
@@ -229,6 +259,7 @@ struct OnboardingFlowView: View {
     private func performManagedBootstrap() async {
         isBootstrappingManaged = true
         managedBootstrapError = nil
+        state.hasExistingManagedAssistant = false
         log.info("Beginning managed assistant bootstrap")
 
         do {
@@ -238,6 +269,7 @@ struct OnboardingFlowView: View {
             switch outcome {
             case .reusedExisting(let existing):
                 assistant = existing
+                state.hasExistingManagedAssistant = true
                 log.info("Managed bootstrap reused existing assistant \(assistant.id, privacy: .public)")
             case .createdNew(let created):
                 assistant = created
@@ -249,7 +281,7 @@ struct OnboardingFlowView: View {
             isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             let hatchedAt = isoFormatter.string(from: Date())
 
-            let success = LockfileAssistant.upsertManagedEntry(
+            let success = LockfileAssistant.ensureManagedEntry(
                 assistantId: assistant.id,
                 runtimeUrl: runtimeUrl,
                 hatchedAt: hatchedAt
@@ -265,12 +297,58 @@ struct OnboardingFlowView: View {
             SentryDeviceInfo.updateAssistantTag(assistant.id)
 
             isBootstrappingManaged = false
-            log.info("Managed bootstrap completed for assistant \(assistant.id, privacy: .public); proceeding to app")
-            onComplete()
+            state.isManagedHatch = true
+            state.isHatching = true
+            log.info("Managed bootstrap completed for assistant \(assistant.id, privacy: .public); waiting for daemon connection")
+
+            await awaitManagedAssistantReady(assistantId: assistant.id)
         } catch {
             log.error("Managed bootstrap failed: \(error.localizedDescription)")
             managedBootstrapError = error.localizedDescription
         }
+    }
+
+    /// Polls the gateway health endpoint for the managed assistant until it
+    /// responds successfully or the timeout elapses.
+    private func awaitManagedAssistantReady(assistantId: String) async {
+        let timeout: TimeInterval = 15
+        let start = CFAbsoluteTimeGetCurrent()
+        var lastError: Error?
+        var lastStatusCode: Int?
+
+        while CFAbsoluteTimeGetCurrent() - start < timeout {
+            do {
+                let (_, response): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
+                    path: "assistants/\(assistantId)/healthz",
+                    timeout: 5
+                ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
+                if response.isSuccess {
+                    log.info("Managed assistant \(assistantId, privacy: .public) is ready")
+                    state.hatchCompleted = true
+                    return
+                }
+                lastStatusCode = response.statusCode
+                lastError = nil
+                let body = String(data: response.data, encoding: .utf8) ?? "<non-utf8>"
+                log.warning("Health check returned status \(response.statusCode) for assistant \(assistantId, privacy: .public): \(body, privacy: .public)")
+            } catch {
+                lastError = error
+                lastStatusCode = nil
+                log.warning("Health check request failed for assistant \(assistantId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
+        }
+
+        if let error = lastError {
+            log.error("Managed assistant \(assistantId, privacy: .public) not ready after \(timeout)s; last error: \(error.localizedDescription, privacy: .public)")
+        } else if let statusCode = lastStatusCode {
+            log.error("Managed assistant \(assistantId, privacy: .public) not ready after \(timeout)s; last status code: \(statusCode)")
+        } else {
+            log.error("Managed assistant \(assistantId, privacy: .public) not ready after \(timeout)s; no health check attempts completed")
+        }
+        state.hatchFailed = true
     }
 }
 

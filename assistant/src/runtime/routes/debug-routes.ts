@@ -35,7 +35,7 @@ function getMemoryItemCount(): number {
   }
 }
 
-export function handleDebug(): Response {
+function handleDebug(): Response {
   const now = Date.now();
   const uptimeSeconds = Math.floor((now - startedAt) / 1000);
 

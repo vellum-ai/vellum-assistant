@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { chmodSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { config as dotenvConfig } from "dotenv";
@@ -26,13 +25,20 @@ import { closeSentry, initSentry } from "../instrument.js";
 import { disableLogfire, initLogfire } from "../logfire.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
+import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
 import {
   deleteMessageById,
-  getConversationThreadType,
+  getConversationType,
   getMessages,
+  purgePrivateConversations,
 } from "../memory/conversation-crud.js";
+import { resolveConversationId } from "../memory/conversation-key-store.js";
 import { initializeDb } from "../memory/db.js";
-import { selectEmbeddingBackend } from "../memory/embedding-backend.js";
+import {
+  selectEmbeddingBackend,
+  SPARSE_EMBEDDING_VERSION,
+} from "../memory/embedding-backend.js";
+import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import { startMemoryJobsWorker } from "../memory/jobs-worker.js";
 import { initQdrantClient } from "../memory/qdrant-client.js";
 import { QdrantManager } from "../memory/qdrant-manager.js";
@@ -57,17 +63,23 @@ import {
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { startScheduler } from "../schedule/scheduler.js";
+import { BOOTSTRAPPED_ACTOR_HTTP_TOKEN } from "../security/credential-key.js";
+import { setSecureKeyAsync } from "../security/secure-keys.js";
+import { UsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { getLogger, initLogger } from "../util/logger.js";
 import {
   ensureDataDir,
   getInterfacesDir,
   getRootDir,
+  getWorkspaceDir,
 } from "../util/platform.js";
 import {
   listWorkItems,
   updateWorkItem,
 } from "../work-items/work-item-store.js";
 import { WorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
+import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
+import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
 import {
   createApprovalConversationGenerator,
   createApprovalCopyGenerator,
@@ -88,8 +100,7 @@ import {
   renameSession,
   switchSession,
   undoLastMessage,
-} from "./handlers/sessions.js";
-import { installCliLaunchers } from "./install-cli-launchers.js";
+} from "./handlers/conversations.js";
 import type { ServerMessage } from "./message-protocol.js";
 import {
   initializeProvidersAndTools,
@@ -133,6 +144,7 @@ export async function runDaemon(): Promise<void> {
     await initLogfire();
 
     ensureDataDir();
+    await runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
 
     // Load (or generate + persist) the auth signing key so tokens survive
     // daemon restarts. Must happen after ensureDataDir() creates the
@@ -148,22 +160,71 @@ export async function runDaemon(): Promise<void> {
     installTemplates();
     ensurePromptFiles();
 
-    try {
-      installCliLaunchers();
-    } catch (err) {
-      log.warn(
-        { err },
-        "CLI launcher installation failed — continuing startup",
-      );
-    }
     initializeDb();
     // Seed well-known OAuth provider configurations (insert-if-not-exists)
     seedOAuthProviders();
     // Backfill oauth_connection rows for manual-token providers (Telegram,
     // Slack channel) that already have keychain credentials from before the
     // oauth_connection migration. Safe to call on every startup.
-    await backfillManualTokenConnections();
+    try {
+      await backfillManualTokenConnections();
+    } catch (err) {
+      log.warn(
+        { err },
+        "Manual-token connection backfill failed — continuing startup",
+      );
+    }
     log.info("Daemon startup: DB initialized");
+
+    // Purge private (temporary) conversations from the previous session.
+    // These are ephemeral by design and should not survive daemon restarts.
+    const { count: purgedCount, deletedMemory } = purgePrivateConversations();
+    if (purgedCount > 0) {
+      log.info(
+        { purgedCount },
+        `Purged ${purgedCount} private conversation(s) from previous session`,
+      );
+      // Qdrant may not be ready at startup, so enqueue vector cleanup jobs
+      // rather than attempting direct deletion.
+      for (const segId of deletedMemory.segmentIds) {
+        enqueueMemoryJob("delete_qdrant_vectors", {
+          targetType: "segment",
+          targetId: segId,
+        });
+      }
+      for (const itemId of deletedMemory.orphanedItemIds) {
+        enqueueMemoryJob("delete_qdrant_vectors", {
+          targetType: "item",
+          targetId: itemId,
+        });
+      }
+      if (
+        deletedMemory.segmentIds.length > 0 ||
+        deletedMemory.orphanedItemIds.length > 0
+      ) {
+        log.info(
+          {
+            segments: deletedMemory.segmentIds.length,
+            orphanedItems: deletedMemory.orphanedItemIds.length,
+          },
+          "Enqueued Qdrant vector cleanup jobs for purged private conversations",
+        );
+      }
+    }
+
+    // Expire pending interaction-bound canonical guardian requests left over
+    // from before this process started.  Their in-memory pending-interaction
+    // session references are gone, so they can never be completed.  Only
+    // interaction-bound kinds (tool_approval, pending_question) are expired;
+    // persistent kinds (access_request, tool_grant_request) remain valid
+    // across restarts.
+    const expiredCount = expireAllPendingCanonicalRequests();
+    if (expiredCount > 0) {
+      log.info(
+        { event: "startup_expired_stale_requests", expiredCount },
+        `Expired ${expiredCount} stale interaction-bound canonical request(s) from previous process`,
+      );
+    }
 
     // Ensure a vellum guardian binding exists and mint the CLI edge token
     // as an actor token bound to the guardian principal.
@@ -191,15 +252,15 @@ export async function runDaemon(): Promise<void> {
         hashedDeviceId,
       });
 
-      // DEPRECATED: The http-token file is deprecated. Readers will be
-      // migrated to use the credential store instead. This write is kept
-      // for backward compatibility until all consumers are updated.
-      const httpTokenPath = join(getRootDir(), "http-token");
-      writeFileSync(httpTokenPath, credentials.accessToken, { mode: 0o600 });
-      chmodSync(httpTokenPath, 0o600);
-      log.info(
-        "Daemon startup: CLI edge token written to credential store and http-token",
+      const stored = await setSecureKeyAsync(
+        BOOTSTRAPPED_ACTOR_HTTP_TOKEN,
+        credentials.accessToken,
       );
+      if (!stored) {
+        log.warn("Failed to persist CLI edge token in credential store");
+      } else {
+        log.info("Daemon startup: CLI edge token written to credential store");
+      }
     } else {
       log.warn("No guardian principal available — CLI edge token not written");
     }
@@ -270,6 +331,13 @@ export async function runDaemon(): Promise<void> {
       await closeSentry();
     }
 
+    let telemetryReporter: UsageTelemetryReporter | null = null;
+    if (collectUsageData) {
+      telemetryReporter = new UsageTelemetryReporter();
+      telemetryReporter.start();
+      log.info("Usage telemetry reporter started");
+    }
+
     // If Logfire observability is not explicitly enabled, disable it so
     // wrapWithLogfire() calls during provider setup become no-ops. Logfire
     // is initialized eagerly (before config loads) for the same reason as
@@ -303,11 +371,11 @@ export async function runDaemon(): Promise<void> {
     const qdrantManager = new QdrantManager({ url: qdrantUrl });
     try {
       await qdrantManager.start();
-      const embeddingSelection = selectEmbeddingBackend(config);
+      const embeddingSelection = await selectEmbeddingBackend(config);
       const embeddingModel = embeddingSelection.backend
-        ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}`
+        ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}:sparse-v${SPARSE_EMBEDDING_VERSION}`
         : undefined;
-      initQdrantClient({
+      const qdrantClient = initQdrantClient({
         url: qdrantUrl,
         collection: config.memory.qdrant.collection,
         vectorSize: config.memory.qdrant.vectorSize,
@@ -315,6 +383,17 @@ export async function runDaemon(): Promise<void> {
         quantization: config.memory.qdrant.quantization,
         embeddingModel,
       });
+
+      // Eagerly ensure the collection exists so we detect migrations
+      // (unnamed→named vectors, dimension/model changes) at startup.
+      // If a destructive migration occurred, enqueue a rebuild_index job
+      // to re-embed all memory items from the SQLite cache.
+      const { migrated } = await qdrantClient.ensureCollection();
+      if (migrated) {
+        enqueueMemoryJob("rebuild_index", {});
+        log.info("Qdrant collection was migrated — enqueued rebuild_index job");
+      }
+
       log.info("Qdrant vector store initialized");
     } catch (err) {
       log.warn(
@@ -386,6 +465,7 @@ export async function runDaemon(): Promise<void> {
             scheduleId: schedule.id,
             name: schedule.name,
           },
+          dedupeKey: `schedule:complete:${schedule.id}:${Date.now()}`,
         });
       },
       (notification) => {
@@ -424,7 +504,7 @@ export async function runDaemon(): Promise<void> {
       },
       (info) => {
         server.broadcast({
-          type: "schedule_thread_created",
+          type: "schedule_conversation_created",
           conversationId: info.conversationId,
           scheduleJobId: info.scheduleJobId,
           title: info.title,
@@ -440,8 +520,7 @@ export async function runDaemon(): Promise<void> {
 
     const hostname = getRuntimeHttpHost();
 
-    // Mint a JWT bearer token for the pairing flow. This replaces the
-    // old static http-token that was removed — the pairing handler
+    // Mint a JWT bearer token for the pairing flow. The pairing handler
     // and HTTP auto-approve logic both guard on a non-empty bearer token.
     const pairingBearerToken = mintPairingBearerToken();
 
@@ -495,15 +574,19 @@ export async function runDaemon(): Promise<void> {
         clearAllSessions: () => clearAllSessions(server.getHandlerContext()),
         cancelGeneration: (sessionId) =>
           cancelGeneration(sessionId, server.getHandlerContext()),
+        destroySession: (sessionId) => server.destroySession(sessionId),
         undoLastMessage: (sessionId) =>
           undoLastMessage(sessionId, server.getHandlerContext()),
         regenerateResponse: (sessionId) => {
+          // Resolve conversation key up front so SSE events are tagged with
+          // the internal conversation ID, not the raw client key.
+          const resolvedId = resolveConversationId(sessionId) ?? sessionId;
           let hubChain: Promise<void> = Promise.resolve();
           const sendEvent = (event: ServerMessage) => {
             const ae = buildAssistantEvent(
               DAEMON_INTERNAL_ASSISTANT_ID,
               event,
-              sessionId,
+              resolvedId,
             );
             hubChain = (async () => {
               await hubChain;
@@ -549,6 +632,7 @@ export async function runDaemon(): Promise<void> {
       getRecordingDeps: () => ({
         getHandlerContext: () => server.getHandlerContext(),
       }),
+      getCesClient: () => server.getCesClient(),
     });
 
     // Inject voice bridge deps BEFORE attempting to start the HTTP server.
@@ -564,8 +648,8 @@ export async function runDaemon(): Promise<void> {
           data: a.dataBase64,
         })),
       deriveDefaultStrictSideEffects: (conversationId) => {
-        const threadType = getConversationThreadType(conversationId);
-        return threadType === "private";
+        const conversationType = getConversationType(conversationId);
+        return conversationType === "private";
       },
     });
     try {
@@ -800,6 +884,7 @@ export async function runDaemon(): Promise<void> {
       memoryWorker,
       qdrantManager,
       mcpManager,
+      telemetryReporter,
       cleanupPidFile,
     });
   } catch (err) {

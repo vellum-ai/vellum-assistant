@@ -110,7 +110,9 @@ struct MainWindowView: View {
 
     private func toggleTemporaryChat() {
         withAnimation(VAnimation.standard) {
-            if threadManager.activeThread?.kind == .private {
+            if let privateThread = threadManager.activeThread, privateThread.kind == .private {
+                let privateId = privateThread.id
+
                 // Restore the thread the user was on before entering temporary chat.
                 // Fall back to visibleThreads.first only if the stored thread no longer exists.
                 if let savedId = preTemporaryChatThreadId,
@@ -122,6 +124,9 @@ struct MainWindowView: View {
                     threadManager.enterDraftMode()
                 }
                 preTemporaryChatThreadId = nil
+
+                // Delete the private thread and its backend conversation.
+                threadManager.removePrivateThread(id: privateId)
             } else {
                 preTemporaryChatThreadId = threadManager.activeThreadId
                 threadManager.createPrivateThread()
@@ -338,28 +343,34 @@ struct MainWindowView: View {
         return false
     }
 
+    /// Navigates to the Billing settings tab.
+    private func openBillingSettings() {
+        settingsStore.pendingSettingsTab = .billing
+        windowState.selection = .panel(.settings)
+    }
+
     /// Top bar extracted to break up type-checker complexity.
     private var topBarView: some View {
         HStack(spacing: VSpacing.sm) {
             if !isSettingsOpen {
-                VIconButton(label: "Sidebar", icon: VIcon.panelLeft.rawValue, iconOnly: true, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
+                VButton(label: "Sidebar", iconOnly: VIcon.panelLeft.rawValue, style: .ghost, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
                     withAnimation(VAnimation.panel) {
                         sidebarExpanded.toggle()
                     }
                 }
 
-                VIconButton(label: "Search", icon: VIcon.search.rawValue, iconOnly: true, tooltip: "Search (\u{2318}K)") {
+                VButton(label: "Search", iconOnly: VIcon.search.rawValue, style: .ghost, tooltip: "Search (\u{2318}K)") {
                     AppDelegate.shared?.toggleCommandPalette()
                 }
 
                 HStack(spacing: 0) {
-                    VIconButton(label: "Back", icon: VIcon.chevronLeft.rawValue, iconOnly: true, tooltip: "Back (\u{2318}[)") {
+                    VButton(label: "Back", iconOnly: VIcon.chevronLeft.rawValue, style: .ghost, tooltip: "Back (\u{2318}[)") {
                         windowState.navigateBack()
                     }
                     .disabled(!windowState.navigationHistory.canGoBack)
                     .opacity(windowState.navigationHistory.canGoBack ? 1 : 0.35)
 
-                    VIconButton(label: "Forward", icon: VIcon.chevronRight.rawValue, iconOnly: true, tooltip: "Forward (\u{2318}])") {
+                    VButton(label: "Forward", iconOnly: VIcon.chevronRight.rawValue, style: .ghost, tooltip: "Forward (\u{2318}])") {
                         windowState.navigateForward()
                     }
                     .disabled(!windowState.navigationHistory.canGoForward)
@@ -419,8 +430,8 @@ struct MainWindowView: View {
         }
         .padding(.leading, trafficLightPadding)
         .padding(.trailing, VSpacing.lg)
-        .frame(height: 36)
-        .background(VColor.backgroundSubtle)
+        .frame(height: 48)
+        .background(VColor.surfaceOverlay)
     }
 
     /// Core layout extracted to break up type-checker complexity.
@@ -506,6 +517,7 @@ struct MainWindowView: View {
                         let dividerHeight: CGFloat = 1 + SidebarLayoutMetrics.dividerVerticalPadding * 2
                         let drawerY = bottomPad + SidebarLayoutMetrics.rowMinHeight + dividerHeight + VSpacing.xs
                         DrawerMenuView(
+                            authManager: authManager,
                             onSettings: {
                                 sidebar.showPreferencesDrawer = false
                                 windowState.selection = .panel(.settings)
@@ -521,6 +533,11 @@ struct MainWindowView: View {
                             onLogOut: {
                                 sidebar.showPreferencesDrawer = false
                                 AppDelegate.shared?.performLogout()
+                            },
+                            onOpenBilling: {
+                                sidebar.showPreferencesDrawer = false
+                                settingsStore.pendingSettingsTab = .billing
+                                windowState.selection = .panel(.settings)
                             }
                         )
                         .frame(width: drawerWidth)
@@ -566,7 +583,7 @@ struct MainWindowView: View {
                 }
             }
             .ignoresSafeArea(edges: .top)
-            .background(VColor.background.ignoresSafeArea())
+            .background(VColor.surfaceBase.ignoresSafeArea())
             .frame(width: geometry.size.width / zoomManager.zoomLevel,
                    height: geometry.size.height / zoomManager.zoomLevel)
             .scaleEffect(zoomManager.zoomLevel, anchor: .topLeading)
@@ -579,10 +596,41 @@ struct MainWindowView: View {
                 ZoomIndicatorView(percentage: zoomManager.zoomPercentage)
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .padding(.top, 40)
-                    .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+                    .shadow(color: VColor.auxBlack.opacity(0.15), radius: 8, y: 2)
             }
         }
         .animation(VAnimation.fast, value: zoomManager.showZoomIndicator)
+        .overlay(alignment: .top) {
+            Group {
+                if let viewModel = threadManager.activeViewModel {
+                    ErrorToastOverlay(
+                        errorManager: viewModel.errorManager,
+                        hasAPIKey: windowState.hasAPIKey,
+                        onOpenSettings: { windowState.selection = .panel(.settings) },
+                        onRetrySessionError: { viewModel.retryAfterSessionError() },
+                        onCopyDebugInfo: { viewModel.copySessionErrorDebugDetails() },
+                        onDismissSessionError: { viewModel.dismissSessionError() },
+                        onAddFunds: { openBillingSettings() },
+                        onSendAnyway: { viewModel.sendAnyway() },
+                        onRetryLastMessage: { viewModel.retryLastMessage() },
+                        onDismissError: { viewModel.dismissError() }
+                    )
+                } else if !windowState.hasAPIKey {
+                    ChatSessionErrorToast(
+                        message: "API key not set. Add one in Settings to start chatting.",
+                        icon: .keyRound,
+                        accentColor: VColor.systemMidStrong,
+                        actionLabel: "Open Settings",
+                        onAction: { windowState.selection = .panel(.settings) }
+                    )
+                    .fixedSize(horizontal: true, vertical: false)
+                    .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
+                    .padding(.top, VSpacing.sm)
+                    .animation(VAnimation.fast, value: windowState.hasAPIKey)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
+        }
         .overlay(alignment: .bottom) {
             if let toast = windowState.toastInfo {
                 VToast(
@@ -813,4 +861,77 @@ struct MainWindowView: View {
         // SidebarInteractionState.setThreadHover(threadId:hovering:)
     }
 
+}
+
+// MARK: - Error Toast Overlay
+
+/// Wrapper view that directly observes a `ChatViewModel` via `@ObservedObject`,
+/// ensuring error state changes (sessionError, errorText) trigger UI updates
+/// even though MainWindowView only observes ThreadManager.
+///
+/// By capturing the viewModel reference at render-time, closures always act on
+/// the correct thread's ViewModel — even if the user switches threads while a
+/// toast is visible.
+private struct ErrorToastOverlay: View {
+    @ObservedObject var errorManager: ChatErrorManager
+    let hasAPIKey: Bool
+    let onOpenSettings: () -> Void
+    let onRetrySessionError: () -> Void
+    let onCopyDebugInfo: () -> Void
+    let onDismissSessionError: () -> Void
+    let onAddFunds: () -> Void
+    let onSendAnyway: () -> Void
+    let onRetryLastMessage: () -> Void
+    let onDismissError: () -> Void
+
+    var body: some View {
+        VStack(alignment: .center, spacing: VSpacing.xs) {
+            if !hasAPIKey {
+                ChatSessionErrorToast(
+                    message: "API key not set. Add one in Settings to start chatting.",
+                    icon: .keyRound,
+                    accentColor: VColor.systemMidStrong,
+                    actionLabel: "Open Settings",
+                    onAction: onOpenSettings
+                )
+                .fixedSize(horizontal: true, vertical: false)
+                .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
+            }
+
+            if let sessionError = errorManager.sessionError {
+                if sessionError.isCreditsExhausted {
+                    CreditsExhaustedBanner(
+                        onAddFunds: onAddFunds,
+                        onDismiss: onDismissSessionError
+                    )
+                    .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
+                } else {
+                    ChatSessionErrorToast(
+                        error: sessionError,
+                        onRetry: onRetrySessionError,
+                        onCopyDebugInfo: onCopyDebugInfo,
+                        onDismiss: onDismissSessionError
+                    )
+                    .fixedSize(horizontal: true, vertical: false)
+                    .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
+                }
+            }
+
+            if let errorText = errorManager.errorText, errorManager.sessionError == nil {
+                ChatSessionErrorToast(
+                    message: errorText,
+                    subtitle: errorManager.isConnectionError ? errorManager.connectionDiagnosticHint : nil,
+                    actionLabel: errorManager.isSecretBlockError ? "Send Anyway" : (errorManager.isRetryableError || (errorManager.isConnectionError && errorManager.hasRetryPayload)) ? "Retry" : nil,
+                    onAction: errorManager.isSecretBlockError ? onSendAnyway : (errorManager.isRetryableError || (errorManager.isConnectionError && errorManager.hasRetryPayload)) ? onRetryLastMessage : nil,
+                    onDismiss: onDismissError
+                )
+                .fixedSize(horizontal: true, vertical: false)
+                .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
+            }
+        }
+        .padding(.top, VSpacing.sm)
+        .animation(VAnimation.fast, value: hasAPIKey)
+        .animation(VAnimation.fast, value: errorManager.sessionError != nil)
+        .animation(VAnimation.fast, value: errorManager.errorText != nil)
+    }
 }

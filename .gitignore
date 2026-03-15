@@ -21,8 +21,13 @@ coverage/
 /build
 dist
 
+# Generated from meta/feature-flags/feature-flag-registry.json
+assistant/src/config/feature-flag-registry.json
+gateway/src/feature-flag-registry.json
+
 # misc
 worktrees/
+.worktrees/
 .DS_Store
 .githooks/.githooks
 *.pem
@@ -94,5 +99,8 @@ next-env.d.ts
 # bun build artifacts
 *.bun-build
 vellum-assistant-safe-do-permissions
+
+# macOS binary
+clients/macos/assistant-bin/vellum-assistant
 
 .agents/

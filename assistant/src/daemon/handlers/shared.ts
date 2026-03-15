@@ -128,7 +128,7 @@ export interface SessionCreateOptions {
   /** Whether this turn can block on interactive approval prompts. */
   isInteractive?: boolean;
   memoryScopeId?: string;
-  isPrivateThread?: boolean;
+  isPrivateConversation?: boolean;
   strictPrivateSideEffects?: boolean;
   /** Channel command intent metadata (e.g. Telegram /start). */
   commandIntent?: { type: string; payload?: string; languageCode?: string };
@@ -174,22 +174,6 @@ export function formatBytes(sizeBytes: number): string {
 function clampAttachmentText(text: string): string {
   if (text.length <= HISTORY_ATTACHMENT_TEXT_LIMIT) return text;
   return `${text.slice(0, HISTORY_ATTACHMENT_TEXT_LIMIT)}<truncated />`;
-}
-
-function renderImageBlockForHistory(block: Record<string, unknown>): string {
-  const source = isRecord(block.source) ? block.source : null;
-  const mediaType =
-    source && typeof source.media_type === "string"
-      ? source.media_type
-      : "image/*";
-  const sizeBytes =
-    source && typeof source.data === "string"
-      ? estimateBase64Bytes(source.data)
-      : 0;
-  if (sizeBytes <= 0) {
-    return `[Image attachment] ${mediaType}`;
-  }
-  return `[Image attachment] ${mediaType}, ${formatBytes(sizeBytes)}`;
 }
 
 function renderFileBlockForHistory(block: Record<string, unknown>): string {
@@ -328,7 +312,9 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       continue;
     }
     if (block.type === "image") {
-      attachmentParts.push(renderImageBlockForHistory(block));
+      // Image data is sent as a separate attachment — skip the placeholder
+      // text so the client doesn't render both "[Image attachment]" and the
+      // actual image thumbnail.
       continue;
     }
     if (block.type === "tool_use") {

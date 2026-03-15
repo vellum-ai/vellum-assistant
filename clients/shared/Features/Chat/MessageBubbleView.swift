@@ -116,10 +116,10 @@ public struct MessageBubbleView: View {
                 if message.status == .pendingOffline {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.history, size: 11)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                         Text("Pending")
                             .font(VFont.small)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
                     .padding(.horizontal, VSpacing.sm)
                 }
@@ -128,16 +128,16 @@ public struct MessageBubbleView: View {
                 if message.role == .user && message.status == .sendFailed {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.triangleAlert, size: 11)
-                            .foregroundColor(VColor.error)
+                            .foregroundColor(VColor.systemNegativeStrong)
                         Text("Failed to send")
                             .font(VFont.small)
-                            .foregroundColor(VColor.error)
+                            .foregroundColor(VColor.systemNegativeStrong)
                         Button {
                             onRetryFailedMessage?(message.id)
                         } label: {
                             Text("Retry")
                                 .font(VFont.small.weight(.medium))
-                                .foregroundColor(VColor.accent)
+                                .foregroundColor(VColor.primaryBase)
                         }
                         .buttonStyle(.plain)
                     }
@@ -150,7 +150,7 @@ public struct MessageBubbleView: View {
                         HStack(spacing: VSpacing.xs) {
                             ForEach(0..<3, id: \.self) { index in
                                 Circle()
-                                    .fill(VColor.textSecondary)
+                                    .fill(VColor.contentSecondary)
                                     .frame(width: 4, height: 4)
                                     .scaleEffect(streamingScale(for: index, at: context.date))
                             }
@@ -246,28 +246,28 @@ public struct MessageBubbleView: View {
         if isUser {
             Text(text)
                 .font(VFont.body)
-                .foregroundColor(VColor.userBubbleText)
+                .foregroundColor(VColor.contentDefault)
                 .padding(VSpacing.md)
-                .background(VColor.userBubble)
+                .background(VColor.surfaceActive)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                 .textSelection(.enabled)
         } else if message.isError {
             HStack(alignment: .top, spacing: VSpacing.sm) {
                 VIconView(.triangleAlert, size: 13)
-                    .foregroundColor(VColor.error)
+                    .foregroundColor(VColor.systemNegativeStrong)
                     .padding(.top, 1)
                 Text(text)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(VSpacing.md)
-            .background(VColor.error.opacity(0.1))
+            .background(VColor.systemNegativeStrong.opacity(0.1))
             .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .strokeBorder(VColor.error.opacity(0.3), lineWidth: 1)
+                    .strokeBorder(VColor.systemNegativeStrong.opacity(0.3), lineWidth: 1)
             )
             .contextMenu {
                 if let onRegenerate {
@@ -281,7 +281,7 @@ public struct MessageBubbleView: View {
         } else {
             MarkdownRenderer(text: text)
                 .padding(VSpacing.md)
-                .background(VColor.surface)
+                .background(VColor.surfaceBase)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                 .contextMenu {
                     if let onRegenerate {
@@ -313,51 +313,5 @@ public struct MessageBubbleView: View {
     }
 }
 
-#Preview("User Message") {
-    VStack(spacing: VSpacing.md) {
-        MessageBubbleView(
-            message: ChatMessage(
-                role: .user,
-                text: "Hello! Can you help me with something?"
-            ),
-            onConfirmationResponse: nil,
-            onSurfaceAction: nil,
-            onRegenerate: nil
-        )
-    }
-    .padding()
-    .background(VColor.background)
-}
 
-#Preview("Assistant Message") {
-    VStack(spacing: VSpacing.md) {
-        MessageBubbleView(
-            message: ChatMessage(
-                role: .assistant,
-                text: "Of course! I'd be happy to help. What do you need assistance with?\n\n**Bold text** and _italic_ and `code` all render via markdown."
-            ),
-            onConfirmationResponse: nil,
-            onSurfaceAction: nil,
-            onRegenerate: { log.debug("Preview: Regenerate tapped") }
-        )
-    }
-    .padding()
-    .background(VColor.background)
-}
 
-#Preview("Streaming") {
-    VStack(spacing: VSpacing.md) {
-        MessageBubbleView(
-            message: ChatMessage(
-                role: .assistant,
-                text: "I'm thinking about",
-                isStreaming: true
-            ),
-            onConfirmationResponse: nil,
-            onSurfaceAction: nil,
-            onRegenerate: nil
-        )
-    }
-    .padding()
-    .background(VColor.background)
-}

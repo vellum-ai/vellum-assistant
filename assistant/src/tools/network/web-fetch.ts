@@ -361,7 +361,7 @@ function extractHtmlMetadata(html: string): {
   const stripped = candidate.replace(/<script[\s>][\s\S]*?<\/script>/gi, "");
   const headEnd = stripped.search(/<\/head[\s>]/i);
   const searchRegion =
-    headEnd > 0 ? stripped.slice(0, headEnd + 10) : stripped.slice(0, 50_000);
+    headEnd >= 0 ? stripped.slice(0, headEnd + 10) : stripped.slice(0, 50_000);
 
   const title = extractFirstMatch(
     searchRegion,

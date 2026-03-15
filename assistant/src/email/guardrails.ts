@@ -104,7 +104,7 @@ export function setDailySendCap(cap: number): void {
   saveState(state);
 }
 
-export function isAddressAllowed(email: string): {
+function isAddressAllowed(email: string): {
   allowed: boolean;
   reason?: string;
   rule?: AddressRule;

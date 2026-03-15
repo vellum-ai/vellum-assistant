@@ -125,7 +125,7 @@ export interface SwarmWorkerBackendInput {
 export interface SwarmWorkerBackend {
   readonly name: string;
   /** Check whether the backend is available (e.g. API key present). */
-  isAvailable(): boolean;
+  isAvailable(): boolean | Promise<boolean>;
   /** Run a task with the given input. */
   runTask(input: SwarmWorkerBackendInput): Promise<SwarmWorkerBackendResult>;
 }

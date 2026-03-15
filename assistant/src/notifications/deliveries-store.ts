@@ -30,9 +30,9 @@ export interface NotificationDeliveryRow {
   conversationId: string | null;
   messageId: string | null;
   conversationStrategy: string | null;
-  threadAction: string | null;
-  threadTargetConversationId: string | null;
-  threadDecisionFallbackUsed: number | null;
+  conversationAction: string | null;
+  conversationTargetId: string | null;
+  conversationFallbackUsed: number | null;
   clientDeliveryStatus: string | null;
   clientDeliveryError: string | null;
   clientDeliveryAt: number | null;
@@ -58,9 +58,9 @@ function rowToDelivery(
     conversationId: row.conversationId,
     messageId: row.messageId,
     conversationStrategy: row.conversationStrategy,
-    threadAction: row.threadAction,
-    threadTargetConversationId: row.threadTargetConversationId,
-    threadDecisionFallbackUsed: row.threadDecisionFallbackUsed,
+    conversationAction: row.conversationAction,
+    conversationTargetId: row.conversationTargetId,
+    conversationFallbackUsed: row.conversationFallbackUsed,
     clientDeliveryStatus: row.clientDeliveryStatus,
     clientDeliveryError: row.clientDeliveryError,
     clientDeliveryAt: row.clientDeliveryAt,
@@ -84,9 +84,9 @@ export interface CreateDeliveryParams {
   conversationId?: string;
   messageId?: string;
   conversationStrategy?: string;
-  threadAction?: string;
-  threadTargetConversationId?: string;
-  threadDecisionFallbackUsed?: boolean;
+  conversationAction?: string;
+  conversationTargetId?: string;
+  conversationFallbackUsed?: boolean;
 }
 
 /** Create a new delivery audit record. */
@@ -111,11 +111,11 @@ export function createDelivery(
     conversationId: params.conversationId ?? null,
     messageId: params.messageId ?? null,
     conversationStrategy: params.conversationStrategy ?? null,
-    threadAction: params.threadAction ?? null,
-    threadTargetConversationId: params.threadTargetConversationId ?? null,
-    threadDecisionFallbackUsed:
-      params.threadDecisionFallbackUsed != null
-        ? params.threadDecisionFallbackUsed
+    conversationAction: params.conversationAction ?? null,
+    conversationTargetId: params.conversationTargetId ?? null,
+    conversationFallbackUsed:
+      params.conversationFallbackUsed != null
+        ? params.conversationFallbackUsed
           ? 1
           : 0
         : null,
@@ -154,45 +154,6 @@ export function updateDeliveryStatus(
   db.update(notificationDeliveries)
     .set(updates)
     .where(eq(notificationDeliveries.id, id))
-    .run();
-
-  return rawChanges() > 0;
-}
-
-/**
- * Update a delivery record with the client-side outcome of posting the
- * notification via UNUserNotificationCenter.add().
- *
- * Returns true if a row was updated, false otherwise (e.g. unknown deliveryId).
- */
-export function updateDeliveryClientOutcome(
-  deliveryId: string,
-  success: boolean,
-  error?: { code?: string; message?: string },
-): boolean {
-  const db = getDb();
-  const now = Date.now();
-
-  const updates: Record<string, unknown> = {
-    clientDeliveryStatus: success ? "delivered" : "client_failed",
-    clientDeliveryAt: now,
-    updatedAt: now,
-  };
-
-  if (success) {
-    // Clear any stale error from previous failed attempts
-    updates.clientDeliveryError = null;
-  } else if (error?.message) {
-    updates.clientDeliveryError = error.code
-      ? `[${error.code}] ${error.message}`
-      : error.message;
-  } else if (error?.code) {
-    updates.clientDeliveryError = error.code;
-  }
-
-  db.update(notificationDeliveries)
-    .set(updates)
-    .where(eq(notificationDeliveries.id, deliveryId))
     .run();
 
   return rawChanges() > 0;

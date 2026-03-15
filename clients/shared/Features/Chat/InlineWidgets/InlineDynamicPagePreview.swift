@@ -28,10 +28,10 @@ public struct InlineDynamicPagePreview: View {
                                         .aspectRatio(contentMode: .fit)
                                 case .failure:
                                     RoundedRectangle(cornerRadius: VRadius.sm)
-                                        .fill(VColor.surfaceSubtle)
+                                        .fill(VColor.surfaceOverlay)
                                 default:
                                     RoundedRectangle(cornerRadius: VRadius.sm)
-                                        .fill(VColor.surfaceSubtle)
+                                        .fill(VColor.surfaceOverlay)
                                 }
                             }
                             .frame(width: 32, height: 32)
@@ -45,13 +45,13 @@ public struct InlineDynamicPagePreview: View {
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         Text(preview.title)
                             .font(VFont.bodyBold)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                             .lineLimit(2)
 
                         if let subtitle = preview.subtitle {
                             Text(subtitle)
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                                 .lineLimit(1)
                         }
                     }
@@ -60,7 +60,7 @@ public struct InlineDynamicPagePreview: View {
                 if let description = preview.description, !description.isEmpty {
                     Text(description)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .lineLimit(3)
                 }
 
@@ -84,39 +84,18 @@ public struct InlineDynamicPagePreview: View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
             Text(label)
                 .font(VFont.small)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
             Text(value)
                 .font(VFont.captionMedium)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .lineLimit(1)
         }
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)
-        .background(VColor.surfaceSubtle)
+        .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
     }
 }
 
 #if DEBUG
-#Preview("InlineDynamicPagePreview") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        InlineDynamicPagePreview(
-            preview: DynamicPagePreview(
-                title: "Expense Tracker",
-                subtitle: "Personal Finance App",
-                description: "Track your daily expenses with category breakdowns and monthly summaries.",
-                icon: "\u{1F4B0}",
-                metrics: [
-                    (label: "Records", value: "24"),
-                    (label: "Categories", value: "8"),
-                    (label: "Total", value: "$1,234"),
-                ]
-            ),
-            onViewOutput: {}
-        )
-        .padding()
-    }
-    .frame(width: 400, height: 300)
-}
 #endif

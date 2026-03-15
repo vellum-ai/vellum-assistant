@@ -4,8 +4,6 @@
  * Validates that:
  * - Built-in slash commands (/status, /model, /commands) are intercepted and
  *   do NOT trigger the agent loop.
- * - Skill slash commands are rewritten and forwarded to the agent loop with
- *   preactivated skill IDs.
  * - Regular messages pass through to the agent loop unchanged.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -30,7 +28,6 @@ mock.module("../config/loader.js", () => ({
     ui: {},
     model: "claude-opus-4-6",
     provider: "anthropic",
-    apiKeys: { anthropic: "test-key" },
     memory: { enabled: false },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     secretDetection: { enabled: false },
@@ -204,6 +201,7 @@ function makeSession() {
     setHostBashProxy: () => {},
     setHostFileProxy: () => {},
     setHostCuProxy: () => {},
+    addPreactivatedSkillId: () => {},
     usageStats: {
       inputTokens: 1000,
       outputTokens: 500,
@@ -280,43 +278,6 @@ describe("handleSendMessage slash command interception", () => {
     expect(roles).toEqual(["user", "assistant"]);
     expect(persistUserMessage).not.toHaveBeenCalled();
     expect(runAgentLoop).not.toHaveBeenCalled();
-  });
-
-  test("rewrites skill slash commands and calls agent loop with rewritten content", async () => {
-    resolveSlashMock.mockReturnValue({
-      kind: "rewritten",
-      content: "[SKILL INVOCATION] Run the weather skill",
-      skillId: "weather",
-    });
-
-    const {
-      session,
-      persistUserMessage,
-      runAgentLoop,
-      setPreactivatedSkillIds,
-    } = makeSession();
-    const res = await handleSendMessage(
-      makeRequest("/weather San Diego"),
-      makeDeps(session),
-      testAuthContext,
-    );
-
-    expect(res.status).toBe(202);
-
-    // Slash command was resolved
-    expect(resolveSlashMock).toHaveBeenCalledTimes(1);
-
-    // Skill IDs preactivated
-    expect(setPreactivatedSkillIds).toHaveBeenCalledWith(["weather"]);
-
-    // Agent loop called with rewritten content
-    expect(persistUserMessage).toHaveBeenCalledTimes(1);
-    expect(runAgentLoop).toHaveBeenCalledTimes(1);
-    const loopContent = runAgentLoop.mock.calls[0][0];
-    expect(loopContent).toBe("[SKILL INVOCATION] Run the weather skill");
-
-    // addMessage NOT called (agent loop handles persistence)
-    expect(addMessageMock).not.toHaveBeenCalled();
   });
 
   test("passes regular messages through to agent loop unchanged", async () => {

@@ -6,6 +6,11 @@ on:
     paths:
       - 'clients/macos/**'
       - 'clients/shared/**'
+      - 'clients/Package.swift'
+      - 'clients/.periphery.yml'
+      - 'clients/.periphery_baseline.json'
+      - 'clients/scripts/periphery-scan.sh'
+      - 'packages/ces-contracts/**'
       - '.github/workflows/pr-macos.yaml'
 
 concurrency:
@@ -13,6 +18,43 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint-unused:
+    if: contains(github.event.pull_request.labels.*.name, 'preview')
+    name: Lint Unused Code
+    runs-on: macos-15
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: clients
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 26.2
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
+
+      - name: Cache SPM build artifacts
+        uses: actions/cache@v4
+        with:
+          path: clients/.build
+          key: macos-spm-${{ hashFiles('clients/Package.resolved') }}-${{ hashFiles('clients/**/*.swift') }}
+          restore-keys: |
+            macos-spm-${{ hashFiles('clients/Package.resolved') }}-
+            macos-spm-
+
+      - name: Lint unused code
+        run: bash scripts/periphery-scan.sh --ci
+
+      - name: Upload baseline artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: periphery-baseline
+          path: clients/.periphery_baseline.json
+          if-no-files-found: ignore
+          retention-days: 7
+          include-hidden-files: true
+
   build-check:
     if: contains(github.event.pull_request.labels.*.name, 'preview')
     name: macOS Build
@@ -101,6 +143,10 @@ jobs:
       - name: Design token guard
         working-directory: .
         run: bash clients/scripts/check-design-tokens.sh --mode=strict
+
+      - name: Install linked package dependencies
+        working-directory: .
+        run: cd packages/ces-contracts && bun install --frozen-lockfile
 
       - name: Build binaries
         run: ./build.sh binaries

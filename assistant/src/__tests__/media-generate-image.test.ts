@@ -22,9 +22,14 @@ let lastGenerateCredentials: unknown = null;
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
-
-    apiKeys: { gemini: mockApiKey },
   }),
+}));
+
+mock.module("../security/secure-keys.js", () => ({
+  getSecureKeyAsync: async (account: string) => {
+    if (account === "gemini") return mockApiKey;
+    return undefined;
+  },
 }));
 
 mock.module("../media/gemini-image-service.js", () => ({
@@ -50,8 +55,8 @@ let mockManagedProxyContext = {
 };
 
 mock.module("../providers/managed-proxy/context.js", () => ({
-  buildManagedBaseUrl: () => mockManagedBaseUrl,
-  resolveManagedProxyContext: () => mockManagedProxyContext,
+  buildManagedBaseUrl: async () => mockManagedBaseUrl,
+  resolveManagedProxyContext: async () => mockManagedProxyContext,
 }));
 
 let mockAttachments: Array<{
@@ -116,7 +121,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   }),
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
-  getConversationThreadType: () => "standard",
+  getConversationType: () => "standard",
 }));
 
 mock.module("../daemon/media-visibility-policy.js", () => ({

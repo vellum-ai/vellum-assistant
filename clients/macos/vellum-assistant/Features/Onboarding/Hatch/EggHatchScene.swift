@@ -55,8 +55,8 @@ final class EggHatchScene: SKScene {
         // Build creature node (colored circle, starts invisible)
         let creatureRadius: CGFloat = 40
         creatureNode = SKShapeNode(circleOfRadius: creatureRadius)
-        creatureNode.fillColor = NSColor(Forest._600)
-        creatureNode.strokeColor = NSColor(Forest._800)
+        creatureNode.fillColor = NSColor(VColor.primaryBase)
+        creatureNode.strokeColor = NSColor(VColor.borderActive)
         creatureNode.lineWidth = 2
         creatureNode.position = CGPoint(x: 0, y: 10)
         creatureNode.zPosition = 8
@@ -295,7 +295,7 @@ final class EggHatchScene: SKScene {
         let shakeSeq = SKAction.sequence([shakeRight, shakeLeft, shakeCenter])
         let shake = SKAction.repeat(shakeSeq, count: 6)
 
-        let flash = SKSpriteNode(color: .white, size: CGSize(width: 300, height: 300))
+        let flash = SKSpriteNode(color: NSColor(VColor.auxWhite), size: CGSize(width: 300, height: 300))
         flash.position = eggContainer.position
         flash.alpha = 0
         flash.zPosition = 50
@@ -334,7 +334,7 @@ final class EggHatchScene: SKScene {
         eggContainer.removeAllActions()
         creatureNode?.removeAllActions()
 
-        let flash = SKSpriteNode(color: .white, size: CGSize(width: 400, height: 400))
+        let flash = SKSpriteNode(color: NSColor(VColor.auxWhite), size: CGSize(width: 400, height: 400))
         flash.position = eggContainer.position
         flash.alpha = 0
         flash.zPosition = 50

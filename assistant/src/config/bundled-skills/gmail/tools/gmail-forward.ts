@@ -67,6 +67,7 @@ export async function run(
   input: Record<string, unknown>,
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  const account = input.account as string | undefined;
   const messageId = input.message_id as string;
   const forwardTo = input.to as string;
   const additionalText = input.text as string | undefined;
@@ -75,7 +76,10 @@ export async function run(
   if (!forwardTo) return err("to is required.");
 
   try {
-    const connection = resolveOAuthConnection("integration:gmail");
+    const connection = await resolveOAuthConnection(
+      "integration:google",
+      account,
+    );
     const message = await getMessage(connection, messageId, "full");
     const headers = message.payload?.headers ?? [];
     const originalFrom = extractHeader(headers, "From");

@@ -17,25 +17,25 @@ public struct SkillInvocationChip: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Using skill")
                     .font(VFont.captionMedium)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
 
                 Text(data.name)
                     .font(VFont.mono)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 Text(data.description)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .lineLimit(2)
             }
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.md)
-        .background(VColor.inputBackground)
+        .background(VColor.surfaceActive)
         .clipShape(PixelBorderShape())
         .overlay(
             PixelBorderShape()
-                .stroke(VColor.skillChipBorder.opacity(0.6), lineWidth: 2)
+                .stroke(VColor.borderActive.opacity(0.6), lineWidth: 2)
         )
     }
 }

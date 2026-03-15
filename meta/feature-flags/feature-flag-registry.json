@@ -26,19 +26,11 @@
       "defaultEnabled": true
     },
     {
-      "id": "messaging",
-      "scope": "assistant",
-      "key": "feature_flags.messaging.enabled",
-      "label": "Messaging",
-      "description": "Enable messaging skill section in the system prompt",
-      "defaultEnabled": true
-    },
-    {
       "id": "collect-usage-data",
       "scope": "assistant",
       "key": "feature_flags.collect-usage-data.enabled",
       "label": "Collect usage data",
-      "description": "Send crash reports and error diagnostics to help improve the app",
+      "description": "Send crash reports, error diagnostics, and anonymized usage telemetry to help improve the app",
       "defaultEnabled": true
     },
     {
@@ -47,14 +39,6 @@
       "key": "user_hosted_enabled",
       "label": "User Hosted Enabled",
       "description": "Enable user-hosted onboarding flow",
-      "defaultEnabled": false
-    },
-    {
-      "id": "command-palette",
-      "scope": "assistant",
-      "key": "feature_flags.command-palette.enabled",
-      "label": "Command Palette",
-      "description": "Enable the CMD+K command palette for unified search across conversations, memories, schedules, and contacts",
       "defaultEnabled": false
     },
     {
@@ -74,14 +58,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "outbound-proxy-sidecar",
-      "scope": "assistant",
-      "key": "feature_flags.outbound-proxy-sidecar.enabled",
-      "label": "Outbound Proxy Sidecar",
-      "description": "Route proxy session management through the sidecar process instead of running in-process",
-      "defaultEnabled": false
-    },
-    {
       "id": "app-builder-multifile",
       "scope": "assistant",
       "key": "feature_flags.app-builder-multifile.enabled",
@@ -98,20 +74,12 @@
       "defaultEnabled": false
     },
     {
-      "id": "gmail",
-      "scope": "assistant",
-      "key": "feature_flags.gmail.enabled",
-      "label": "Gmail",
-      "description": "Enable Gmail management skill (archive, label, declutter)",
-      "defaultEnabled": true
-    },
-    {
-      "id": "sequences",
-      "scope": "assistant",
-      "key": "feature_flags.sequences.enabled",
-      "label": "Email Sequences",
-      "description": "Enable email sequence management skill",
-      "defaultEnabled": true
+      "id": "mobile-pairing",
+      "scope": "macos",
+      "key": "mobile_pairing_enabled",
+      "label": "Mobile Pairing",
+      "description": "Show the Mobile (iOS) pairing card in Settings > Account",
+      "defaultEnabled": false
     },
     {
       "id": "settings-developer-nav",
@@ -122,11 +90,67 @@
       "defaultEnabled": true
     },
     {
+      "id": "developer-menu-items",
+      "scope": "macos",
+      "key": "developer_menu_items_enabled",
+      "label": "Developer Menu Items",
+      "description": "Show Component Gallery and Replay Onboarding in the menu bar",
+      "defaultEnabled": false
+    },
+    {
       "id": "logfire",
       "scope": "assistant",
       "key": "feature_flags.logfire.enabled",
       "label": "Logfire LLM Observability",
       "description": "Enable Logfire tracing for LLM request/response telemetry when LOGFIRE_TOKEN is set",
+      "defaultEnabled": false
+    },
+    {
+      "id": "ces-tools",
+      "scope": "assistant",
+      "key": "feature_flags.ces-tools.enabled",
+      "label": "CES Tool Exposure",
+      "description": "Register Credential Execution Service tools (credential-grant, credential-revoke, credential-list) in the agent loop",
+      "defaultEnabled": false
+    },
+    {
+      "id": "ces-shell-lockdown",
+      "scope": "assistant",
+      "key": "feature_flags.ces-shell-lockdown.enabled",
+      "label": "CES Shell Lockdown",
+      "description": "Enforce untrusted-agent shell lockdown when CES credentials are active, restricting direct shell access to credentialed services",
+      "defaultEnabled": false
+    },
+    {
+      "id": "ces-secure-install",
+      "scope": "assistant",
+      "key": "feature_flags.ces-secure-install.enabled",
+      "label": "CES Secure Command Installation",
+      "description": "Enable secure tool/command installation via CES instead of direct shell execution for untrusted agents",
+      "defaultEnabled": false
+    },
+    {
+      "id": "ces-grant-audit",
+      "scope": "assistant",
+      "key": "feature_flags.ces-grant-audit.enabled",
+      "label": "CES Grant & Audit Inspection",
+      "description": "Surface credential grant and audit inspection endpoints for reviewing active grants and access logs",
+      "defaultEnabled": false
+    },
+    {
+      "id": "ces-managed-sidecar",
+      "scope": "assistant",
+      "key": "feature_flags.ces-managed-sidecar.enabled",
+      "label": "CES Managed Sidecar Transport",
+      "description": "Use managed sidecar transport for CES communication when running in a containerized environment",
+      "defaultEnabled": false
+    },
+    {
+      "id": "settings-billing",
+      "scope": "macos",
+      "key": "settings_billing_enabled",
+      "label": "Billing Settings Tab",
+      "description": "Show the Billing tab in Settings when signed in, displaying credits balance and top-up",
       "defaultEnabled": false
     }
   ]

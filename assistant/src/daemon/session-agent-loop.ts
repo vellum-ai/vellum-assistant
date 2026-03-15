@@ -13,6 +13,7 @@ import type {
   AgentEvent,
   AgentLoop,
   CheckpointDecision,
+  CheckpointInfo,
 } from "../agent/loop.js";
 import { createAssistantMessage } from "../agent/message-types.js";
 import type {
@@ -26,6 +27,10 @@ import { estimatePromptTokens } from "../context/token-estimator.js";
 import type { ContextWindowManager } from "../context/window-manager.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
 import { getHookManager } from "../hooks/manager.js";
+import {
+  clearSentrySessionContext,
+  setSentrySessionContext,
+} from "../instrument.js";
 import { commitAppTurnChanges } from "../memory/app-git-service.js";
 import { getApp, listAppFiles } from "../memory/app-store.js";
 import {
@@ -68,7 +73,7 @@ import {
 } from "./context-overflow-reducer.js";
 import {
   buildTemporalContext,
-  extractUserTimeZoneFromDynamicProfile,
+  extractUserTimeZoneFromRecall,
 } from "./date-context.js";
 import { deepRepairHistory, repairHistory } from "./history-repair.js";
 import type {
@@ -88,8 +93,6 @@ import {
   formatAttachmentWarnings,
   resolveAssistantAttachments,
 } from "./session-attachments.js";
-import type { ConflictGate } from "./session-conflict-gate.js";
-import { stripDynamicProfileMessages } from "./session-dynamic-profile.js";
 import {
   buildSessionErrorMessage,
   classifySessionError,
@@ -121,6 +124,40 @@ import { recordUsage } from "./session-usage.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 
 const log = getLogger("session-agent-loop");
+
+/**
+ * Parse the actual token count reported by the provider in a context-too-large
+ * error message. Providers typically include the prompt size, e.g.:
+ *   "prompt is too long: 242201 tokens > 200000 maximum"
+ *   "too many input tokens: 242201 > 200000"
+ *
+ * Returns the actual token count or null if it cannot be parsed.
+ */
+export function parseActualTokensFromError(
+  errorMessage: string | null,
+): number | null {
+  if (!errorMessage) return null;
+
+  // Match patterns like "242201 tokens > 200000" or "242201 > 200000 maximum"
+  const match = errorMessage.match(
+    /(\d[\d,]*)\s*tokens?\s*[>≥]|:\s*(\d[\d,]*)\s*[>≥]/i,
+  );
+  if (match) {
+    const raw = (match[1] || match[2]).replace(/,/g, "");
+    const parsed = parseInt(raw, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+
+  // Fallback: match "too many input tokens: N > M"
+  const fallback = errorMessage.match(/(\d[\d,]*)\s*[>≥]\s*\d/);
+  if (fallback) {
+    const raw = fallback[1].replace(/,/g, "");
+    const parsed = parseInt(raw, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+
+  return null;
+}
 
 /** Title-cased friendly labels for tool names, used in confirmation chips. */
 const TOOL_FRIENDLY_LABEL: Record<string, string> = {
@@ -165,7 +202,6 @@ export interface AgentLoopSessionContext {
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
 
-  readonly conflictGate: ConflictGate;
   readonly memoryPolicy: { scopeId: string; includeDefaultFallback: boolean };
 
   currentActiveSurfaceId?: string;
@@ -231,6 +267,7 @@ export interface AgentLoopSessionContext {
       | "tool_result_received"
       | "confirmation_requested"
       | "confirmation_resolved"
+      | "context_compacting"
       | "message_complete"
       | "generation_cancelled"
       | "error_terminal",
@@ -350,6 +387,18 @@ export async function runAgentLoopImpl(
   ctx.profiler.startRequest();
   let turnStarted = false;
 
+  // Populate Sentry scope with session-specific tags so any exception
+  // captured during this turn (e.g. inside agent/loop.ts) can be
+  // filtered by conversation, assistant, or user in the dashboard.
+  setSentrySessionContext({
+    assistantId: ctx.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+    conversationId: ctx.conversationId,
+    messageCount: ctx.messages.length,
+    userIdentifier:
+      ctx.trustContext?.guardianPrincipalId ??
+      ctx.trustContext?.requesterExternalUserId,
+  });
+
   try {
     // Auto-complete stale interactive surfaces from previous turns.
     // Only dismiss when the user sends a new message (not a surface action
@@ -379,7 +428,7 @@ export async function runAgentLoopImpl(
         ctx.messages.pop();
         deleteMessageById(userMessageId);
       }
-      // Replace loading placeholder so the thread isn't stuck as "Generating title..."
+      // Replace loading placeholder so the conversation isn't stuck as "Generating title..."
       const currentConv = getConversation(ctx.conversationId);
       if (
         isReplaceableTitle(currentConv?.title ?? null) &&
@@ -432,10 +481,9 @@ export async function runAgentLoopImpl(
     if (compactCheck.needed) {
       ctx.emitActivityState(
         "thinking",
-        "thinking_delta",
+        "context_compacting",
         "assistant_turn",
         reqId,
-        "Compacting context",
       );
     }
     const compacted = await ctx.contextWindowManager.maybeCompact(
@@ -528,12 +576,9 @@ export async function runAgentLoopImpl(
         messages: ctx.messages,
         systemPrompt: ctx.systemPrompt,
         provider: ctx.provider,
-        conflictGate: ctx.conflictGate,
         scopeId: ctx.memoryPolicy.scopeId,
         includeDefaultFallback: ctx.memoryPolicy.includeDefaultFallback,
         trustClass: resolveTrustClass(ctx.trustContext),
-        isInteractive:
-          options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock),
       },
       content,
       userMessageId,
@@ -541,7 +586,7 @@ export async function runAgentLoopImpl(
       onEvent,
     );
 
-    const { recall, dynamicProfile, recallInjectionStrategy } = memoryResult;
+    const { recall } = memoryResult;
     runMessages = memoryResult.runMessages;
 
     // Build active surface context
@@ -574,16 +619,16 @@ export async function runAgentLoopImpl(
 
     // Compute fresh temporal context each turn for date grounding.
     // Absolute "now" is always anchored to assistant host clock, while local
-    // date semantics prefer configured user timezone, then profile memory.
+    // date semantics prefer configured user timezone, then recalled memory.
     const hostTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const userTimeZone = extractUserTimeZoneFromDynamicProfile(
-      dynamicProfile.text,
-    );
     const configuredUserTimeZone = getConfig().ui.userTimezone ?? null;
+    const recalledUserTimeZone = extractUserTimeZoneFromRecall(
+      recall.injectedText,
+    );
     const temporalContext = buildTemporalContext({
       hostTimeZone,
       configuredUserTimeZone,
-      userTimeZone,
+      userTimeZone: recalledUserTimeZone,
     });
 
     // Use the channel/interface context captured at the top of this function
@@ -656,14 +701,20 @@ export async function runAgentLoopImpl(
     const config = getConfig();
     const overflowRecovery = config.contextWindow.overflowRecovery;
     const providerMaxTokens = config.contextWindow.maxInputTokens;
-    const safetyMargin = overflowRecovery.safetyMarginRatio;
+    // Widen safety margin for large conversations where estimation error
+    // compounds across many messages with tool results.
+    const baseSafetyMargin = overflowRecovery.safetyMarginRatio;
+    const messageCount = ctx.messages.length;
+    const safetyMargin =
+      messageCount > 50 ? Math.max(baseSafetyMargin, 0.15) : baseSafetyMargin;
     const preflightBudget = Math.floor(providerMaxTokens * (1 - safetyMargin));
     let reducerState: ReducerState | undefined;
 
+    const toolTokenBudget = ctx.agentLoop.getToolTokenBudget(runMessages);
     const preflightTokens = estimatePromptTokens(
       runMessages,
       ctx.systemPrompt,
-      { providerName: ctx.provider.name },
+      { providerName: ctx.provider.name, toolTokenBudget },
     );
 
     if (overflowRecovery.enabled && preflightTokens > preflightBudget) {
@@ -686,10 +737,9 @@ export async function runAgentLoopImpl(
         preflightAttempts++;
         ctx.emitActivityState(
           "thinking",
-          "thinking_delta",
+          "context_compacting",
           "assistant_turn",
           reqId,
-          "Compacting context",
         );
         const step = await reduceContextOverflow(
           ctx.messages,
@@ -698,6 +748,7 @@ export async function runAgentLoopImpl(
             systemPrompt: ctx.systemPrompt,
             contextWindow: config.contextWindow,
             targetTokens: preflightBudget,
+            toolTokenBudget,
           },
           reducerState,
           (msgs, signal, opts) =>
@@ -790,7 +841,9 @@ export async function runAgentLoopImpl(
     const eventHandler = (event: AgentEvent) =>
       dispatchAgentEvent(state, deps, event);
 
-    const onCheckpoint = (): CheckpointDecision => {
+    let yieldedForBudget = false;
+
+    const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
       const turnTools = state.currentTurnToolNames;
       state.currentTurnToolNames = [];
 
@@ -803,6 +856,27 @@ export async function runAgentLoopImpl(
           return "yield";
         }
       }
+
+      // Mid-loop token budget check: estimate current context size and
+      // yield if we're approaching the preflight budget. This lets the
+      // session-agent-loop run compaction before the provider rejects.
+      if (overflowRecovery.enabled) {
+        const midLoopThreshold = preflightBudget * 0.85;
+        const estimated = estimatePromptTokens(
+          checkpoint.history,
+          ctx.systemPrompt,
+          { providerName: ctx.provider.name, toolTokenBudget },
+        );
+        if (estimated > midLoopThreshold) {
+          rlog.warn(
+            { phase: "mid-loop", estimated, threshold: midLoopThreshold },
+            "Token estimate approaching budget — yielding for compaction",
+          );
+          yieldedForBudget = true;
+          return "yield";
+        }
+      }
+
       return "continue";
     };
 
@@ -817,6 +891,126 @@ export async function runAgentLoopImpl(
       reqId,
       onCheckpoint,
     );
+
+    // ── Proactive mid-loop compaction ───────────────────────────────
+    // When the agent loop yielded because the token budget check in
+    // onCheckpoint detected approaching limits, run compaction on the
+    // accumulated history and re-enter the agent loop. This is distinct
+    // from the reactive convergence loop below that fires after a
+    // provider rejection — here we compact *before* hitting the limit.
+    let midLoopCompactAttempts = 0;
+    while (
+      yieldedForBudget &&
+      midLoopCompactAttempts < overflowRecovery.maxAttempts &&
+      !state.contextTooLargeDetected &&
+      !abortController.signal.aborted
+    ) {
+      midLoopCompactAttempts++;
+      yieldedForBudget = false;
+
+      rlog.info(
+        { phase: "mid-loop-compact" },
+        "Running compaction after checkpoint yield",
+      );
+
+      // Strip injected context from updated history before compacting,
+      // so we compact the "raw" persistent messages.
+      const rawHistory = stripInjectedContext(updatedHistory, {
+        stripRecall: (msgs) =>
+          stripMemoryRecallMessages(
+            msgs,
+            recall.injectedText,
+            "separate_context_message",
+          ),
+      });
+      ctx.messages = rawHistory;
+
+      ctx.emitActivityState(
+        "thinking",
+        "context_compacting",
+        "assistant_turn",
+        reqId,
+        "Compacting context",
+      );
+      const midLoopCompact = await ctx.contextWindowManager.maybeCompact(
+        ctx.messages,
+        abortController.signal,
+        {
+          lastCompactedAt: ctx.contextCompactedAt ?? undefined,
+          force: true,
+          targetInputTokensOverride: preflightBudget,
+        },
+      );
+      if (midLoopCompact.compacted) {
+        ctx.messages = midLoopCompact.messages;
+        ctx.contextCompactedMessageCount +=
+          midLoopCompact.compactedPersistedMessages;
+        ctx.contextCompactedAt = Date.now();
+        updateConversationContextWindow(
+          ctx.conversationId,
+          midLoopCompact.summaryText,
+          ctx.contextCompactedMessageCount,
+        );
+        onEvent({
+          type: "context_compacted",
+          previousEstimatedInputTokens:
+            midLoopCompact.previousEstimatedInputTokens,
+          estimatedInputTokens: midLoopCompact.estimatedInputTokens,
+          maxInputTokens: midLoopCompact.maxInputTokens,
+          thresholdTokens: midLoopCompact.thresholdTokens,
+          compactedMessages: midLoopCompact.compactedMessages,
+          summaryCalls: midLoopCompact.summaryCalls,
+          summaryInputTokens: midLoopCompact.summaryInputTokens,
+          summaryOutputTokens: midLoopCompact.summaryOutputTokens,
+          summaryModel: midLoopCompact.summaryModel,
+        });
+        emitUsage(
+          ctx,
+          midLoopCompact.summaryInputTokens,
+          midLoopCompact.summaryOutputTokens,
+          midLoopCompact.summaryModel,
+          onEvent,
+          "context_compactor",
+          reqId,
+          midLoopCompact.summaryCacheCreationInputTokens ?? 0,
+          midLoopCompact.summaryCacheReadInputTokens ?? 0,
+          collapseRawResponses(midLoopCompact.summaryRawResponses),
+        );
+      }
+
+      // Re-inject runtime context and re-enter the agent loop
+      runMessages = applyRuntimeInjections(ctx.messages, {
+        ...injectionOpts,
+        mode: currentInjectionMode,
+      });
+      preRepairMessages = runMessages;
+      preRunHistoryLength = runMessages.length;
+
+      updatedHistory = await ctx.agentLoop.run(
+        runMessages,
+        eventHandler,
+        abortController.signal,
+        reqId,
+        onCheckpoint,
+      );
+    }
+
+    // If mid-loop compaction exhausted all attempts but the agent loop
+    // still yielded (yieldedForBudget is true), the turn is incomplete.
+    // Escalate to the convergence loop's more aggressive reducer tiers
+    // (tool-result truncation, media stubbing, injection downgrade)
+    // instead of silently treating an incomplete turn as done.
+    if (yieldedForBudget && !abortController.signal.aborted) {
+      rlog.warn(
+        {
+          phase: "mid-loop-compact",
+          midLoopCompactAttempts,
+          maxAttempts: overflowRecovery.maxAttempts,
+        },
+        "Mid-loop compaction exhausted all attempts — escalating to convergence loop",
+      );
+      state.contextTooLargeDetected = true;
+    }
 
     // One-shot ordering error retry
     if (
@@ -855,12 +1049,57 @@ export async function runAgentLoopImpl(
     // reducer tiers (forced compaction, tool-result truncation, media
     // stubbing, injection downgrade) with optional approval gating for
     // interactive latest-turn compression.
-    if (
-      state.contextTooLargeDetected &&
-      updatedHistory.length === preRunHistoryLength
-    ) {
+    //
+    // When progress was made (agent added messages before hitting the
+    // limit), incorporate those new messages into ctx.messages so the
+    // convergence loop operates on the full (larger) history.
+    if (state.contextTooLargeDetected) {
+      if (updatedHistory.length > preRunHistoryLength) {
+        ctx.messages = stripInjectedContext(updatedHistory, {
+          stripRecall: (msgs) =>
+            stripMemoryRecallMessages(
+              msgs,
+              recall.injectedText,
+              "separate_context_message",
+            ),
+        });
+        preRepairMessages = updatedHistory;
+        preRunHistoryLength = updatedHistory.length;
+      }
       if (!reducerState) {
         reducerState = createInitialReducerState();
+      }
+
+      // When the provider reveals the actual token count in its error
+      // message (e.g. "242201 tokens > 200000"), use it to correct the
+      // compaction target. The estimator may significantly underestimate
+      // (e.g. estimated 185k but actual was 242k), so using the
+      // uncorrected preflightBudget would still be too high.
+      const actualTokens = parseActualTokensFromError(
+        state.contextTooLargeErrorMessage,
+      );
+      const estimatedTokensAtOverflow = estimatePromptTokens(
+        ctx.messages,
+        ctx.systemPrompt,
+        { providerName: ctx.provider.name, toolTokenBudget },
+      );
+      let correctedTarget = preflightBudget;
+      if (actualTokens && estimatedTokensAtOverflow > 0) {
+        const estimationErrorRatio = actualTokens / estimatedTokensAtOverflow;
+        if (estimationErrorRatio > 1.0) {
+          correctedTarget = Math.floor(preflightBudget / estimationErrorRatio);
+          rlog.warn(
+            {
+              phase: "convergence",
+              actualTokens,
+              estimatedTokens: estimatedTokensAtOverflow,
+              estimationErrorRatio: estimationErrorRatio.toFixed(2),
+              preflightBudget,
+              correctedTarget,
+            },
+            "Adjusting compaction target based on observed estimation error",
+          );
+        }
       }
 
       let convergenceAttempts = 0;
@@ -883,10 +1122,9 @@ export async function runAgentLoopImpl(
 
         ctx.emitActivityState(
           "thinking",
-          "thinking_delta",
+          "context_compacting",
           "assistant_turn",
           reqId,
-          "Compacting context",
         );
         const step = await reduceContextOverflow(
           ctx.messages,
@@ -894,7 +1132,8 @@ export async function runAgentLoopImpl(
             providerName: ctx.provider.name,
             systemPrompt: ctx.systemPrompt,
             contextWindow: config.contextWindow,
-            targetTokens: preflightBudget,
+            targetTokens: correctedTarget,
+            toolTokenBudget,
           },
           reducerState,
           (msgs, signal, opts) =>
@@ -961,6 +1200,8 @@ export async function runAgentLoopImpl(
 
       // All reducer tiers exhausted but provider still rejects —
       // consult the overflow policy for latest-turn compression.
+      // Emergency compaction is deferred to the policy-gated paths below
+      // so that `request_user_approval` sessions collect consent first.
       if (state.contextTooLargeDetected) {
         const action = resolveOverflowAction({
           overflowRecovery,
@@ -982,7 +1223,7 @@ export async function runAgentLoopImpl(
                   lastCompactedAt: ctx.contextCompactedAt ?? undefined,
                   force: true,
                   minKeepRecentUserTurns: 0,
-                  targetInputTokensOverride: preflightBudget,
+                  targetInputTokensOverride: correctedTarget,
                 },
               );
             if (emergencyCompact.compacted) {
@@ -1044,7 +1285,7 @@ export async function runAgentLoopImpl(
             const denyText =
               "The conversation has grown too long for the model to process, " +
               "and compression was declined. Please start a new conversation " +
-              "or manually shorten the thread to continue.";
+              "or manually shorten the conversation to continue.";
             const loopChannelMeta = {
               ...provenanceFromTrustContext(ctx.trustContext),
               userMessageChannel: capturedTurnChannelContext.userMessageChannel,
@@ -1075,10 +1316,9 @@ export async function runAgentLoopImpl(
           // Non-interactive — auto-compress without asking
           ctx.emitActivityState(
             "thinking",
-            "thinking_delta",
+            "context_compacting",
             "assistant_turn",
             reqId,
-            "Compacting context",
           );
           const emergencyCompact = await ctx.contextWindowManager.maybeCompact(
             ctx.messages,
@@ -1087,7 +1327,7 @@ export async function runAgentLoopImpl(
               lastCompactedAt: ctx.contextCompactedAt ?? undefined,
               force: true,
               minKeepRecentUserTurns: 0,
-              targetInputTokensOverride: preflightBudget,
+              targetInputTokensOverride: correctedTarget,
             },
           );
           if (emergencyCompact.compacted) {
@@ -1154,19 +1394,6 @@ export async function runAgentLoopImpl(
         );
         onEvent(buildSessionErrorMessage(ctx.conversationId, classified));
       }
-    } else if (state.contextTooLargeDetected) {
-      // Progress was made (updatedHistory grew), so the retry path above was
-      // skipped. Surface the error so clients are not left with a silent failure.
-      rlog.warn(
-        { phase: "post_run" },
-        "Context too large after progress — surfacing error without retry",
-      );
-      const classified = classifySessionError(
-        new Error("context_length_exceeded"),
-        { phase: "agent_loop" },
-      );
-      onEvent(buildSessionErrorMessage(ctx.conversationId, classified));
-      state.providerErrorUserMessage = classified.userMessage;
     }
 
     if (state.deferredOrderingError) {
@@ -1280,10 +1507,8 @@ export async function runAgentLoopImpl(
         stripMemoryRecallMessages(
           msgs,
           recall.injectedText,
-          recallInjectionStrategy,
+          "separate_context_message",
         ),
-      stripDynamicProfile: (msgs) =>
-        stripDynamicProfileMessages(msgs, dynamicProfile.text),
     });
 
     emitUsage(
@@ -1451,12 +1676,17 @@ export async function runAgentLoopImpl(
       const message = err instanceof Error ? err.message : String(err);
       const errorClass = err instanceof Error ? err.constructor.name : "Error";
       rlog.error({ err }, "Session processing error");
+      const classified = classifySessionError(err, errorCtx);
       ctx.traceEmitter.emit("request_error", truncate(message, 200, ""), {
         requestId: reqId,
         status: "error",
-        attributes: { errorClass, message: truncate(message, 500, "") },
+        attributes: {
+          errorClass,
+          message: truncate(message, 500, ""),
+          errorCategory: classified.errorCategory,
+          errorCode: classified.code,
+        },
       });
-      const classified = classifySessionError(err, errorCtx);
       onEvent({ type: "error", message: classified.userMessage });
       onEvent(buildSessionErrorMessage(ctx.conversationId, classified));
       void getHookManager().trigger("on-error", {
@@ -1515,6 +1745,10 @@ export async function runAgentLoopImpl(
     }
 
     ctx.drainQueue(yieldedForHandoff ? "checkpoint_handoff" : "loop_complete");
+
+    // Clear session tags so they don't leak into unrelated error captures
+    // (e.g. unhandledRejection from a different async chain).
+    clearSentrySessionContext();
   }
 }
 

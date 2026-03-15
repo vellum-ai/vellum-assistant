@@ -28,7 +28,7 @@ export interface WatcherProvider {
   id: string;
   /** Human-readable name. */
   displayName: string;
-  /** Credential service required (e.g. 'integration:gmail'). */
+  /** Credential service required (e.g. 'integration:google'). */
   requiredCredentialService: string;
 
   /**

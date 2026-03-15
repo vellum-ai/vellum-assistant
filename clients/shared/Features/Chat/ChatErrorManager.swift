@@ -28,6 +28,20 @@ public final class ChatErrorManager: ObservableObject {
     /// Nil when no connection error is active or the error has been dismissed.
     @Published public var connectionDiagnosticHint: String? = nil
 
+    // MARK: - Retry state
+
+    /// Whether the current error is a daemon/assistant connection failure.
+    @Published public var isConnectionError: Bool = false
+
+    /// Whether the current error is a secret-ingress block that can be bypassed.
+    @Published public var isSecretBlockError: Bool = false
+
+    /// Whether the current error is retryable (send failure, not a connection error).
+    @Published public var isRetryableError: Bool = false
+
+    /// Whether there is a failed user message that can be retried.
+    @Published public var hasRetryPayload: Bool = false
+
     // MARK: - Connection diagnostics
 
     /// Map a raw connection error to a short, actionable diagnostic hint.

@@ -21,6 +21,7 @@ import { chmodSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { hostname, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 
+import { getIsContainerized } from "../config/env-registry.js";
 import { ensureDir, pathExists } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
 import { getPlatformName, getRootDir } from "../util/platform.js";
@@ -76,7 +77,7 @@ export function _setStorePath(path: string | null): void {
 // Machine entropy for key derivation
 // ---------------------------------------------------------------------------
 
-function getMachineEntropy(): string {
+export function getMachineEntropy(): string {
   const parts: string[] = [];
   try {
     parts.push(hostname());
@@ -152,12 +153,66 @@ function readStore(): StoreFile | null {
   }
 }
 
+/**
+ * Well-known filename for the persisted machine entropy.
+ * Written alongside `keys.enc` so the CES sidecar (which mounts the
+ * assistant data volume read-only) can derive the same AES key.
+ */
+const ENTROPY_FILENAME = "entropy.key";
+
+/**
+ * Persist the current machine entropy next to the key store so the managed
+ * CES sidecar can read it and derive the same decryption key.
+ *
+ * Only writes in containerized (managed) mode — in local mode, CES runs on
+ * the same machine and derives the same entropy natively, so the file is
+ * unnecessary and would weaken offline security by persisting entropy to disk.
+ */
+function persistEntropy(protectedDir: string): void {
+  if (!getIsContainerized()) return;
+  try {
+    const entropyPath = join(protectedDir, ENTROPY_FILENAME);
+    const tmpPath = entropyPath + `.tmp.${process.pid}`;
+    writeFileSync(tmpPath, getMachineEntropy(), { mode: 0o600 });
+    chmodSync(tmpPath, 0o600);
+    renameSync(tmpPath, entropyPath);
+  } catch {
+    // Best-effort — managed mode will log a clear error if it's missing.
+  }
+}
+
+/**
+ * Backfill `entropy.key` for existing encrypted stores that predate the
+ * entropy persistence feature. If the store file exists but `entropy.key`
+ * does not, write it now so the managed CES sidecar can derive the key.
+ */
+function backfillEntropyIfMissing(): void {
+  if (!getIsContainerized()) return;
+  try {
+    const protectedDir = dirname(getStorePath());
+    const entropyPath = join(protectedDir, ENTROPY_FILENAME);
+    if (!pathExists(entropyPath)) {
+      persistEntropy(protectedDir);
+    }
+  } catch {
+    // Best-effort — don't break reads if backfill fails.
+  }
+}
+
 function writeStore(store: StoreFile): void {
   const path = getStorePath();
-  ensureDir(dirname(path));
-  writeFileSync(path, JSON.stringify(store, null, 2), { mode: 0o600 });
-  // Enforce 0600 even if the file already existed with permissive bits
-  chmodSync(path, 0o600);
+  const protectedDir = dirname(path);
+  ensureDir(protectedDir);
+  // Atomic write: write to temp file then rename to avoid partial/corrupt writes.
+  // Use pid suffix to prevent cross-process collisions while ensuring same-process
+  // retries overwrite the stale temp file (avoids orphaned temp files on failure).
+  const tmpPath = path + `.tmp.${process.pid}`;
+  writeFileSync(tmpPath, JSON.stringify(store, null, 2), { mode: 0o600 });
+  chmodSync(tmpPath, 0o600);
+  renameSync(tmpPath, path);
+
+  // Keep entropy.key in sync so the managed CES sidecar can decrypt.
+  persistEntropy(protectedDir);
 }
 
 function getOrCreateStore(): StoreFile {
@@ -220,6 +275,10 @@ export function getKey(account: string): string | undefined {
   try {
     const store = readStore();
     if (!store) return undefined;
+
+    // Backfill entropy.key for existing stores that were created before
+    // entropy persistence was added. Only needed in managed mode.
+    backfillEntropyIfMissing();
 
     const entry = store.entries[account];
     if (!entry) return undefined;

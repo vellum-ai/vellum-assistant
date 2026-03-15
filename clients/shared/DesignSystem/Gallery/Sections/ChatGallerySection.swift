@@ -16,21 +16,21 @@ struct ChatGallerySection: View {
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
                     Text("Without dismiss")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     ChatErrorBanner(message: "Connection lost.")
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     Text("Medium message")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     ChatErrorBanner(message: "The AI provider returned an error. Please try again later.")
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     Text("With dismiss action")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     ChatErrorBanner(
                         message: "Your session has expired. Please start a new conversation.",
                         onDismiss: {}
@@ -38,7 +38,7 @@ struct ChatGallerySection: View {
                 }
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - Voice Composer
             GallerySectionHeader(
@@ -51,41 +51,41 @@ struct ChatGallerySection: View {
                     HStack {
                         Text("Amplitude: \(String(format: "%.2f", voiceComposerAmplitude))")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                         Slider(value: $voiceComposerAmplitude, in: 0...1, step: 0.05)
                             .frame(maxWidth: 200)
                     }
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     Text("Conversation style (voice mode)")
                         .font(VFont.captionMedium)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                     VStreamingWaveform(
                         amplitude: voiceComposerAmplitude,
                         isActive: true,
                         style: .conversation,
-                        foregroundColor: VColor.accent
+                        foregroundColor: VColor.primaryBase
                     )
                     .frame(width: 120, height: 60)
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     Text("Dictation style (inline dictation)")
                         .font(VFont.captionMedium)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                     VStreamingWaveform(
                         amplitude: voiceComposerAmplitude,
                         isActive: true,
                         style: .dictation,
-                        foregroundColor: VColor.accent
+                        foregroundColor: VColor.primaryBase
                     )
                     .frame(height: 24)
                     .frame(maxWidth: .infinity)
                 }
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - Skill Invocation
             GallerySectionHeader(
@@ -113,7 +113,7 @@ struct ChatGallerySection: View {
                 }
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - Subagent Status
             GallerySectionHeader(
@@ -125,7 +125,7 @@ struct ChatGallerySection: View {
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
                     Text("SubagentStatusChip")
                         .font(VFont.captionMedium)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
 
                     SubagentStatusChip(
                         subagent: SubagentInfo(id: "g-1", label: "Research Agent", status: .running)
@@ -153,7 +153,7 @@ struct ChatGallerySection: View {
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
                     Text("SubagentThreadView")
                         .font(VFont.captionMedium)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
 
                     SubagentThreadView(
                         subagent: SubagentInfo(id: "t-1", label: "Research Agent", status: .running),
@@ -185,7 +185,7 @@ struct ChatGallerySection: View {
                 }
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - Tool Chips
             GallerySectionHeader(
@@ -197,7 +197,7 @@ struct ChatGallerySection: View {
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
                     Text("Completed (success)")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     ToolCallChip(toolCall: ToolCallData(
                         toolName: "bash",
                         inputSummary: "ls -la /Users/test/project",
@@ -205,11 +205,11 @@ struct ChatGallerySection: View {
                         isComplete: true
                     ))
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     Text("Completed (error)")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     ToolCallChip(toolCall: ToolCallData(
                         toolName: "bash",
                         inputSummary: "rm -rf /important",
@@ -218,11 +218,11 @@ struct ChatGallerySection: View {
                         isComplete: true
                     ))
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     Text("File edit (success)")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     ToolCallChip(toolCall: ToolCallData(
                         toolName: "file_edit",
                         inputSummary: "/src/Config.swift",
@@ -230,11 +230,11 @@ struct ChatGallerySection: View {
                         isComplete: true
                     ))
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     Text("In progress")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     ToolCallChip(toolCall: ToolCallData(
                         toolName: "file_read",
                         inputSummary: "/src/main.swift",
@@ -243,7 +243,7 @@ struct ChatGallerySection: View {
                 }
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - Step Indicators
             GallerySectionHeader(
@@ -255,7 +255,7 @@ struct ChatGallerySection: View {
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
                     Text("CurrentStepIndicator — in progress with multiple steps")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     CurrentStepIndicator(
                         toolCalls: [
                             ToolCallData(
@@ -278,11 +278,11 @@ struct ChatGallerySection: View {
                         onTap: {}
                     )
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     Text("CurrentStepIndicator — completed")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     CurrentStepIndicator(
                         toolCalls: [
                             ToolCallData(
@@ -306,7 +306,7 @@ struct ChatGallerySection: View {
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
                     Text("ToolCallProgressBar — multi-step with one in progress")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     ToolCallProgressBar(toolCalls: [
                         ToolCallData(
                             toolName: "Web Search",
@@ -331,11 +331,11 @@ struct ChatGallerySection: View {
                         )
                     ])
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     Text("ToolCallProgressBar — completed with error")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     ToolCallProgressBar(toolCalls: [
                         ToolCallData(
                             toolName: "Web Search",
@@ -358,7 +358,7 @@ struct ChatGallerySection: View {
                 }
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - Completion Lists
             GallerySectionHeader(
@@ -370,7 +370,7 @@ struct ChatGallerySection: View {
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
                     Text("Completed 3 steps (mix of success and error)")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
 
                     UsedToolsListCompact(toolCalls: [
                         ToolCallData(
@@ -399,11 +399,11 @@ struct ChatGallerySection: View {
                         ),
                     ])
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     Text("Single step (shows action description instead of count)")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
 
                     UsedToolsListCompact(toolCalls: [
                         ToolCallData(
@@ -418,7 +418,7 @@ struct ChatGallerySection: View {
                 }
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - Progress Indicators
             GallerySectionHeader(
@@ -430,34 +430,34 @@ struct ChatGallerySection: View {
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
                     Text("TypingIndicatorView — animated dots while assistant is thinking")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
 
                     HStack {
                         TypingIndicatorView()
                         Spacer()
                     }
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     Text("AssistantProgressView — macOS only (clients/macos/)")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     Text("Unified container for all tool progress states. Smoothly morphs between thinking, running, streaming code, and completed phases. Not available in the shared gallery because it depends on macOS-only imports.")
                         .font(VFont.small)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     Text("RunningIndicator — macOS only (clients/macos/)")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     Text("Spinning arc indicator used alongside tool progress views. Not available in the shared gallery because it depends on macOS-only imports.")
                         .font(VFont.small)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - Tool Confirmations
             GallerySectionHeader(
@@ -469,7 +469,7 @@ struct ChatGallerySection: View {
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
                     Text("Collapsed — approved")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     ToolConfirmationBubble(
                         confirmation: ToolConfirmationData(
                             requestId: "gallery-approved",
@@ -484,11 +484,11 @@ struct ChatGallerySection: View {
                         onAlwaysAllow: { _, _, _, _ in }
                     )
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     Text("Collapsed — denied")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     ToolConfirmationBubble(
                         confirmation: ToolConfirmationData(
                             requestId: "gallery-denied",
@@ -503,11 +503,11 @@ struct ChatGallerySection: View {
                         onAlwaysAllow: { _, _, _, _ in }
                     )
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     Text("Collapsed — timed out")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     ToolConfirmationBubble(
                         confirmation: ToolConfirmationData(
                             requestId: "gallery-timeout",
@@ -528,7 +528,7 @@ struct ChatGallerySection: View {
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
                     Text("Pending — low risk")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     ToolConfirmationBubble(
                         confirmation: ToolConfirmationData(
                             requestId: "gallery-low",
@@ -543,11 +543,11 @@ struct ChatGallerySection: View {
                         onAlwaysAllow: { _, _, _, _ in }
                     )
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     Text("Pending — medium risk with always-allow")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     ToolConfirmationBubble(
                         confirmation: ToolConfirmationData(
                             requestId: "gallery-medium",
@@ -572,11 +572,11 @@ struct ChatGallerySection: View {
                         onAlwaysAllow: { _, _, _, _ in }
                     )
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     Text("Pending — high risk")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     ToolConfirmationBubble(
                         confirmation: ToolConfirmationData(
                             requestId: "gallery-high",

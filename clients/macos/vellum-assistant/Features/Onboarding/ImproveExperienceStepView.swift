@@ -13,14 +13,14 @@ struct ImproveExperienceStepView: View {
     var body: some View {
         Text("Improve Experience")
             .font(VFont.onboardingTitle)
-            .foregroundColor(VColor.textPrimary)
+            .foregroundColor(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
 
         Text("Send anonymised performance metrics to help us improve responsiveness. No personal data or message content is included.")
             .font(VFont.onboardingSubtitle)
-            .foregroundColor(VColor.textSecondary)
+            .foregroundColor(VColor.contentSecondary)
             .multilineTextAlignment(.center)
             .padding(.horizontal, VSpacing.xxl)
             .opacity(showTitle ? 1 : 0)
@@ -30,7 +30,7 @@ struct ImproveExperienceStepView: View {
             HStack {
                 Text("Collect usage data")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                 Spacer()
                 VToggle(isOn: Binding(
                     get: { collectUsageData },
@@ -49,7 +49,7 @@ struct ImproveExperienceStepView: View {
             HStack {
                 Text("Share performance metrics")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                 Spacer()
                 VToggle(isOn: Binding(
                     get: { sharePerformanceMetrics },
@@ -79,7 +79,7 @@ struct ImproveExperienceStepView: View {
             Button(action: { goBack() }) {
                 Text("Back")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
             .buttonStyle(.plain)
             .pointerCursor()
@@ -97,13 +97,6 @@ struct ImproveExperienceStepView: View {
                 UserDefaults.standard.set(true, forKey: "sendPerformanceReports")
             }
 
-            // Reset stale cloud provider when the user didn't go through CloudCredentials
-            // (e.g., user_hosted_enabled was turned off after a previous session set cloudProvider to "aws").
-            // Preserve "docker" since Docker users intentionally chose that path.
-            if !state.needsCloudCredentials && state.cloudProvider != "local" && state.cloudProvider != "docker" {
-                state.cloudProvider = "local"
-            }
-
             withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
                 showTitle = true
             }
@@ -112,7 +105,7 @@ struct ImproveExperienceStepView: View {
             }
         }
 
-        OnboardingFooter(currentStep: state.currentStep, totalSteps: state.needsCloudCredentials ? 4 : 3)
+        OnboardingFooter(currentStep: state.currentStep, totalSteps: 3)
             .padding(.bottom, VSpacing.lg)
     }
 
@@ -121,16 +114,4 @@ struct ImproveExperienceStepView: View {
             state.currentStep -= 1
         }
     }
-}
-
-#Preview("ImproveExperienceStepView") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        ImproveExperienceStepView(state: {
-            let s = OnboardingState()
-            s.currentStep = 1
-            return s
-        }())
-    }
-    .frame(width: 520, height: 500)
 }

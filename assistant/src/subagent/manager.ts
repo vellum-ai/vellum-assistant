@@ -87,6 +87,13 @@ export class SubagentManager {
    */
   sharedRequestTimestamps: number[] = [];
 
+  /**
+   * Broadcast callback from the daemon server.
+   * Set by DaemonServer at startup so subagent sessions can broadcast
+   * to all connected clients (e.g. app_files_changed side-effects).
+   */
+  broadcastToAllClients?: (msg: ServerMessage) => void;
+
   // ── Spawn ───────────────────────────────────────────────────────────
 
   /**
@@ -112,7 +119,7 @@ export class SubagentManager {
     // ── Create conversation ─────────────────────────────────────────
     const subagentId = uuid();
     const conversation = bootstrapConversation({
-      threadType: "background",
+      conversationType: "background",
       origin: "subagent",
       systemHint: `Subagent: ${config.label}`,
     });
@@ -184,7 +191,7 @@ export class SubagentManager {
       maxTokens,
       wrappedSendToClient,
       workingDir,
-      undefined, // no broadcastToAllClients for subagents
+      this.broadcastToAllClients, // forward parent's broadcast so tool side-effects (e.g. app_files_changed) reach all clients
       memoryPolicy,
     );
 
@@ -310,7 +317,7 @@ export class SubagentManager {
     if (parentSendToClient) {
       // Route the status update through the stored parent sender so the
       // owning session's UI chip updates, even when the abort comes from a
-      // different socket (e.g. after thread switching). Fall back to the
+      // different socket (e.g. after conversation switching). Fall back to the
       // caller-provided sender if no stored sender exists.
       const statusSender = managed.parentSendToClient ?? parentSendToClient;
       this.setStatus(subagentId, "aborted", statusSender);
@@ -324,7 +331,7 @@ export class SubagentManager {
         try {
           // Use the managed subagent's stored parentSendToClient so the
           // notification routes to the parent session's socket, not the
-          // aborting socket (which may be a different thread after switching).
+          // aborting socket (which may be a different conversation after switching).
           this.onSubagentFinished(
             managed.state.config.parentSessionId,
             message,

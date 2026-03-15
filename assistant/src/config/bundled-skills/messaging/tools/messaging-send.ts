@@ -45,14 +45,15 @@ export async function run(
   }
 
   try {
-    const provider = resolveProvider(platform);
+    const provider = await resolveProvider(platform);
 
     // Non-Gmail platforms: reject attachment_paths
     if (provider.id !== "gmail" && attachmentPaths?.length) {
       return err("Attachments are only supported on Gmail.");
     }
 
-    const conn = getProviderConnection(provider);
+    const account = input.account as string | undefined;
+    const conn = await getProviderConnection(provider, account);
 
     // Gmail: create a draft instead of sending directly
     if (provider.id === "gmail") {

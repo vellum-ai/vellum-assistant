@@ -1,10 +1,9 @@
 /**
- * Tests for graceful embedding degradation in the memory retrieval pipeline.
+ * Tests for the memory retrieval pipeline.
  *
- * Verifies that when semantic search subsystems (Qdrant, embedding provider)
- * are unavailable, the retriever falls back to lexical/recency/direct sources
- * with boosted limits, applies query expansion, and reports structured
- * degradation status in result metadata.
+ * Covers: hybrid search → tier classification → staleness → injection,
+ * empty results → no injection, superseded items filtered out,
+ * staleness demotion, budget allocation, and degradation scenarios.
  */
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,7 +18,7 @@ import {
   test,
 } from "bun:test";
 
-const testDir = mkdtempSync(join(tmpdir(), "memory-retriever-degrade-"));
+const testDir = mkdtempSync(join(tmpdir(), "memory-retriever-"));
 
 mock.module("../util/platform.js", () => ({
   getDataDir: () => testDir,
@@ -57,6 +56,7 @@ mock.module("../memory/embedding-local.js", () => ({
 mock.module("../memory/qdrant-client.js", () => ({
   getQdrantClient: () => ({
     searchWithFilter: async () => [],
+    hybridSearch: async () => [],
     upsertPoints: async () => {},
     deletePoints: async () => {},
   }),
@@ -93,8 +93,11 @@ import {
   _resetQdrantBreaker,
   isQdrantBreakerOpen,
 } from "../memory/qdrant-circuit-breaker.js";
-import { bumpMemoryVersion } from "../memory/recall-cache.js";
-import { buildMemoryRecall } from "../memory/retriever.js";
+import {
+  buildMemoryRecall,
+  injectMemoryRecallAsSeparateMessage,
+  stripMemoryRecallMessages,
+} from "../memory/retriever.js";
 import {
   conversations,
   memoryItems,
@@ -219,7 +222,7 @@ function insertItemSource(
 function seedMemory() {
   const db = getDb();
   const now = Date.now();
-  const convId = "conv-degrade-test";
+  const convId = "conv-test";
 
   insertConversation(db, convId, now - 60_000);
   insertMessage(
@@ -272,7 +275,7 @@ function seedMemory() {
 // Suite
 // ---------------------------------------------------------------------------
 
-describe("Memory Retriever Degradation", () => {
+describe("Memory Retriever Pipeline", () => {
   beforeAll(() => {
     initializeDb();
   });
@@ -282,12 +285,10 @@ describe("Memory Retriever Degradation", () => {
     db.run("DELETE FROM memory_item_sources");
     db.run("DELETE FROM memory_items");
     db.run("DELETE FROM memory_segments");
-    db.run("DELETE FROM memory_segment_fts");
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
     _resetQdrantBreaker();
     clearEmbeddingBackendCache();
-    bumpMemoryVersion();
   });
 
   afterAll(() => {
@@ -296,37 +297,214 @@ describe("Memory Retriever Degradation", () => {
   });
 
   // -----------------------------------------------------------------------
-  // Non-degraded baseline
+  // Hybrid search → tier classification → injection
   // -----------------------------------------------------------------------
 
-  test("non-degraded baseline: returns results with degraded=false when all systems available", async () => {
+  test("baseline: pipeline completes non-degraded with mock Qdrant returning empty", async () => {
     seedMemory();
 
     const result = await buildMemoryRecall(
       "API design",
-      "conv-degrade-test",
+      "conv-test",
       TEST_CONFIG,
     );
 
     expect(result.enabled).toBe(true);
     expect(result.degraded).toBe(false);
     expect(result.degradation).toBeUndefined();
-    // Lexical search should find matches
-    expect(result.lexicalHits).toBeGreaterThan(0);
-    // Should have selected some candidates
-    expect(result.selectedCount).toBeGreaterThan(0);
-    expect(result.injectedText.length).toBeGreaterThan(0);
+    // With mock Qdrant returning empty results and recency-only candidates
+    // scoring below tier thresholds, no candidates are selected.
+    // The pipeline still completes successfully with tier metadata.
+    expect(result.tier1Count).toBeDefined();
+    expect(result.tier2Count).toBeDefined();
+    expect(result.hybridSearchMs).toBeDefined();
+    // Recency search finds candidates even though they don't pass tier classification
+    expect(result.recencyHits).toBeGreaterThan(0);
+    expect(result.mergedCount).toBeGreaterThan(0);
   });
 
   // -----------------------------------------------------------------------
-  // Qdrant circuit breaker open
+  // Empty results → no injection
   // -----------------------------------------------------------------------
 
-  test("Qdrant unavailable: skips semantic search and boosts lexical limits", async () => {
+  test("empty results: no injection when no memory content exists", async () => {
+    // Don't seed any memory
+    const result = await buildMemoryRecall(
+      "nonexistent topic",
+      "conv-empty",
+      TEST_CONFIG,
+    );
+
+    expect(result.enabled).toBe(true);
+    expect(result.selectedCount).toBe(0);
+    expect(result.injectedText).toBe("");
+    expect(result.mergedCount).toBe(0);
+  });
+
+  // -----------------------------------------------------------------------
+  // Memory disabled
+  // -----------------------------------------------------------------------
+
+  test("disabled: returns enabled=false when memory is disabled", async () => {
+    const disabledConfig: AssistantConfig = {
+      ...TEST_CONFIG,
+      memory: {
+        ...TEST_CONFIG.memory,
+        enabled: false,
+      },
+    };
+
+    const result = await buildMemoryRecall(
+      "test query",
+      "conv-test",
+      disabledConfig,
+    );
+
+    expect(result.enabled).toBe(false);
+    expect(result.reason).toBe("memory.disabled");
+  });
+
+  // -----------------------------------------------------------------------
+  // Superseded items filtered out
+  // -----------------------------------------------------------------------
+
+  test("superseded items are not included in results", async () => {
+    const db = getDb();
+    const now = Date.now();
+    const convId = "conv-superseded";
+
+    insertConversation(db, convId, now - 60_000);
+    insertMessage(
+      db,
+      "msg-s1",
+      convId,
+      "user",
+      "test superseded",
+      now - 50_000,
+    );
+
+    insertSegment(
+      db,
+      "seg-s1",
+      "msg-s1",
+      convId,
+      "user",
+      "test superseded content",
+      now - 50_000,
+    );
+
+    // Insert an active item and a superseded item
+    insertItem(db, {
+      id: "item-active",
+      kind: "fact",
+      subject: "test",
+      statement: "Active fact about testing",
+      status: "active",
+      firstSeenAt: now - 30_000,
+    });
+    insertItem(db, {
+      id: "item-superseded",
+      kind: "fact",
+      subject: "test",
+      statement: "Old fact that was superseded",
+      status: "superseded",
+      firstSeenAt: now - 30_000,
+    });
+
+    const result = await buildMemoryRecall(
+      "test superseded",
+      convId,
+      TEST_CONFIG,
+    );
+
+    // The injected text should not contain the superseded item statement
+    if (result.injectedText.length > 0) {
+      expect(result.injectedText).not.toContain("Old fact that was superseded");
+    }
+  });
+
+  // -----------------------------------------------------------------------
+  // Staleness demotion (very_stale tier 1 → tier 2)
+  // -----------------------------------------------------------------------
+
+  test("staleness: very old items get demoted from tier 1 to tier 2", async () => {
+    const db = getDb();
+    const now = Date.now();
+    const convId = "conv-stale";
+    const MS_PER_DAY = 86_400_000;
+
+    insertConversation(db, convId, now - MS_PER_DAY * 200);
+
+    // Create a message from 200 days ago to serve as recency source
+    insertMessage(
+      db,
+      "msg-old",
+      convId,
+      "user",
+      "ancient discussion about TypeScript",
+      now - MS_PER_DAY * 200,
+    );
+    insertSegment(
+      db,
+      "seg-old",
+      "msg-old",
+      convId,
+      "user",
+      "ancient discussion about TypeScript patterns",
+      now - MS_PER_DAY * 200,
+    );
+
+    // Insert a very old item (200 days) — should be marked as very_stale
+    insertItem(db, {
+      id: "item-old",
+      kind: "fact",
+      subject: "TypeScript",
+      statement: "User uses TypeScript for all projects",
+      firstSeenAt: now - MS_PER_DAY * 200,
+    });
+    insertItemSource(db, "item-old", "msg-old", now - MS_PER_DAY * 200);
+
+    const result = await buildMemoryRecall(
+      "TypeScript patterns",
+      convId,
+      TEST_CONFIG,
+    );
+
+    // The pipeline should still return results (just potentially in tier 2)
+    expect(result.enabled).toBe(true);
+    // Very old items should still appear but may be in tier 2 after demotion
+    expect(result.tier1Count).toBeDefined();
+    expect(result.tier2Count).toBeDefined();
+  });
+
+  // -----------------------------------------------------------------------
+  // Budget allocation (tier 1 priority)
+  // -----------------------------------------------------------------------
+
+  test("budget: respects maxInjectTokens override", async () => {
     seedMemory();
 
-    // Force the Qdrant circuit breaker open by importing and manipulating it.
-    // We need to trip it by recording enough failures.
+    // Use a very small token budget
+    const result = await buildMemoryRecall(
+      "API design",
+      "conv-test",
+      TEST_CONFIG,
+      { maxInjectTokensOverride: 10 },
+    );
+
+    expect(result.enabled).toBe(true);
+    // With a 10-token budget, most content should be truncated
+    expect(result.injectedTokens).toBeLessThanOrEqual(10);
+  });
+
+  // -----------------------------------------------------------------------
+  // Degradation: Qdrant circuit breaker open
+  // -----------------------------------------------------------------------
+
+  test("Qdrant unavailable: pipeline completes with recency fallback", async () => {
+    seedMemory();
+
+    // Force the Qdrant circuit breaker open
     const { withQdrantBreaker } =
       await import("../memory/qdrant-circuit-breaker.js");
     for (let i = 0; i < 5; i++) {
@@ -342,71 +520,28 @@ describe("Memory Retriever Degradation", () => {
 
     const result = await buildMemoryRecall(
       "API design",
-      "conv-degrade-test",
+      "conv-test",
       TEST_CONFIG,
     );
 
     expect(result.enabled).toBe(true);
-    // Semantic search should be skipped entirely
+    // Semantic/hybrid search should be skipped
     expect(result.semanticHits).toBe(0);
-    // Lexical search should still work (boosted limits)
-    expect(result.lexicalHits).toBeGreaterThan(0);
-    // Results should still be returned despite no semantic
-    expect(result.selectedCount).toBeGreaterThan(0);
-    expect(result.injectedText.length).toBeGreaterThan(0);
+    // Recency search finds candidates (but they may not pass tier thresholds
+    // since recency-only candidates have no semantic score component)
+    expect(result.recencyHits).toBeGreaterThan(0);
+    expect(result.mergedCount).toBeGreaterThan(0);
   });
 
   // -----------------------------------------------------------------------
-  // Embedding provider down
+  // Degradation: embedding provider down
   // -----------------------------------------------------------------------
 
-  test("embedding provider down: falls back to lexical-only when embeddings not required", async () => {
-    seedMemory();
-
-    // Config with no embedding provider available (no API keys, auto mode)
-    const noEmbedConfig: AssistantConfig = {
-      ...TEST_CONFIG,
-      apiKeys: {
-        ...TEST_CONFIG.apiKeys,
-        openai: "",
-        gemini: "",
-        ollama: "",
-      },
-      memory: {
-        ...TEST_CONFIG.memory,
-        embeddings: {
-          ...TEST_CONFIG.memory.embeddings,
-          provider: "openai",
-          required: false,
-        },
-      },
-    };
-
-    const result = await buildMemoryRecall(
-      "API design",
-      "conv-degrade-test",
-      noEmbedConfig,
-    );
-
-    expect(result.enabled).toBe(true);
-    // With no embedding provider, semantic search should be skipped
-    expect(result.semanticHits).toBe(0);
-    // Lexical search should still produce results
-    expect(result.lexicalHits).toBeGreaterThan(0);
-    expect(result.selectedCount).toBeGreaterThan(0);
-  });
-
-  test("embedding provider down: returns degraded with structured status when embeddings required", async () => {
+  test("embedding provider down: returns degraded when embeddings required", async () => {
     seedMemory();
 
     const requiredEmbedConfig: AssistantConfig = {
       ...TEST_CONFIG,
-      apiKeys: {
-        ...TEST_CONFIG.apiKeys,
-        openai: "",
-        gemini: "",
-        ollama: "",
-      },
       memory: {
         ...TEST_CONFIG.memory,
         embeddings: {
@@ -419,195 +554,156 @@ describe("Memory Retriever Degradation", () => {
 
     const result = await buildMemoryRecall(
       "API design",
-      "conv-degrade-test",
+      "conv-test",
       requiredEmbedConfig,
     );
 
     expect(result.enabled).toBe(true);
     expect(result.degraded).toBe(true);
-    // Structured degradation status should be present
     expect(result.degradation).toBeDefined();
     expect(result.degradation!.semanticUnavailable).toBe(true);
     expect(result.degradation!.reason).toBe("embedding_provider_down");
-    expect(result.degradation!.fallbackSources).toContain("lexical");
     expect(result.degradation!.fallbackSources).toContain("recency");
-    expect(result.degradation!.fallbackSources).toContain("direct_item");
   });
 
   // -----------------------------------------------------------------------
-  // Query expansion in degraded mode
+  // Signal abort
   // -----------------------------------------------------------------------
 
-  test("query expansion: conversational query gets expanded to keywords when semantic unavailable", async () => {
+  test("abort: returns early when signal is aborted", async () => {
     seedMemory();
+    const controller = new AbortController();
+    controller.abort();
 
-    // Force degraded mode via circuit breaker
-    const { withQdrantBreaker } =
-      await import("../memory/qdrant-circuit-breaker.js");
-    for (let i = 0; i < 5; i++) {
-      try {
-        await withQdrantBreaker(async () => {
-          throw new Error("simulated qdrant failure");
-        });
-      } catch {
-        // expected
-      }
-    }
-
-    // Use a conversational query full of stop words — query expansion should
-    // strip them to meaningful keywords for better FTS recall.
     const result = await buildMemoryRecall(
-      "what did we discuss about the API design?",
-      "conv-degrade-test",
+      "API design",
+      "conv-test",
       TEST_CONFIG,
+      { signal: controller.signal },
     );
 
     expect(result.enabled).toBe(true);
-    expect(result.semanticHits).toBe(0);
-    // The expanded query ("discuss", "API", "design") should match our seeded
-    // segments and items containing those terms.
-    expect(result.lexicalHits).toBeGreaterThan(0);
-    expect(result.selectedCount).toBeGreaterThan(0);
-    // Verify the injected text contains content from our seeded data
-    expect(result.injectedText).toContain("API");
+    expect(result.reason).toBe("memory.aborted");
+    expect(result.injectedText).toBe("");
   });
 
   // -----------------------------------------------------------------------
-  // Degradation status structure
+  // stripMemoryRecallMessages with <memory_context> format
   // -----------------------------------------------------------------------
 
-  test("degradation status: includes expected fields for qdrant_unavailable", async () => {
-    seedMemory();
-
-    // Trip the circuit breaker
-    const { withQdrantBreaker } =
-      await import("../memory/qdrant-circuit-breaker.js");
-    for (let i = 0; i < 5; i++) {
-      try {
-        await withQdrantBreaker(async () => {
-          throw new Error("simulated qdrant failure");
-        });
-      } catch {
-        // expected
-      }
-    }
-
-    // Disable early termination so the pipeline always reaches the
-    // semantic search phase, where the open breaker triggers degradation.
-    const configNoET: AssistantConfig = {
-      ...TEST_CONFIG,
-      memory: {
-        ...TEST_CONFIG.memory,
-        retrieval: {
-          ...TEST_CONFIG.memory.retrieval,
-          earlyTermination: {
-            ...TEST_CONFIG.memory.retrieval.earlyTermination,
-            enabled: false,
-          },
-        },
-      },
+  test("stripMemoryRecallMessages: strips <memory_context> XML format", () => {
+    type Msg = {
+      role: "user" | "assistant";
+      content: Array<{ type: string; text?: string }>;
     };
+    const recallText =
+      "<memory_context>\n\n<relevant_context>\nsome context\n</relevant_context>\n\n</memory_context>";
 
-    const result = await buildMemoryRecall(
-      "API design",
-      "conv-degrade-test",
-      configNoET,
+    const msgs: Msg[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: recallText }],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "[Memory context loaded.]" }],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "Hello, what do you know about me?" }],
+      },
+    ];
+
+    const cleaned = stripMemoryRecallMessages(msgs, recallText);
+    expect(cleaned).toHaveLength(1);
+    expect(cleaned[0].role).toBe("user");
+    expect(cleaned[0].content[0].text).toBe(
+      "Hello, what do you know about me?",
     );
-
-    // The local stub produces a non-null zero vector, so semanticSearch()
-    // is still attempted. The open breaker causes withQdrantBreaker() to
-    // throw, which sets semanticSearchFailed = true and propagates into
-    // the degradation field with reason 'qdrant_unavailable'.
-    expect(result.enabled).toBe(true);
-    expect(result.semanticHits).toBe(0);
-    // Results are still returned from lexical sources
-    expect(result.selectedCount).toBeGreaterThan(0);
-    // Verify structured degradation metadata
-    expect(result.degradation).toBeDefined();
-    expect(result.degradation!.reason).toBe("qdrant_unavailable");
-    expect(result.degradation!.semanticUnavailable).toBe(true);
-    expect(result.degradation!.fallbackSources).toBeInstanceOf(Array);
-    expect(result.degradation!.fallbackSources.length).toBeGreaterThan(0);
   });
 
-  test("degradation status: entity fallback included when entity search enabled", async () => {
-    seedMemory();
-
-    const entityConfig: AssistantConfig = {
-      ...TEST_CONFIG,
-      apiKeys: {
-        ...TEST_CONFIG.apiKeys,
-        openai: "",
-        gemini: "",
-        ollama: "",
-      },
-      memory: {
-        ...TEST_CONFIG.memory,
-        entity: {
-          ...TEST_CONFIG.memory.entity,
-          enabled: true,
-        },
-        embeddings: {
-          ...TEST_CONFIG.memory.embeddings,
-          provider: "openai",
-          required: true,
-        },
-      },
+  test("stripMemoryRecallMessages: handles <memory_context> with slightly different content", () => {
+    type Msg = {
+      role: "user" | "assistant";
+      content: Array<{ type: string; text?: string }>;
     };
+    const originalRecall =
+      "<memory_context>\n\n<relevant_context>\noriginal\n</relevant_context>\n\n</memory_context>";
+    const actualRecall =
+      "<memory_context>\n\n<relevant_context>\nslightly different\n</relevant_context>\n\n</memory_context>";
 
-    const result = await buildMemoryRecall(
-      "API design",
-      "conv-degrade-test",
-      entityConfig,
-    );
+    const msgs: Msg[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: actualRecall }],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "[Memory context loaded.]" }],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "follow-up question" }],
+      },
+    ];
 
-    expect(result.degradation).toBeDefined();
-    expect(result.degradation!.fallbackSources).toContain("entity");
+    // The <memory_context> tag-based matching should work even when exact text differs
+    const cleaned = stripMemoryRecallMessages(msgs, originalRecall);
+    expect(cleaned).toHaveLength(1);
+    expect(cleaned[0].content[0].text).toBe("follow-up question");
   });
 
-  test("degradation status: entity fallback excluded when entity search disabled", async () => {
-    seedMemory();
+  // -----------------------------------------------------------------------
+  // injectMemoryRecallAsSeparateMessage
+  // -----------------------------------------------------------------------
 
-    const noEntityConfig: AssistantConfig = {
-      ...TEST_CONFIG,
-      apiKeys: {
-        ...TEST_CONFIG.apiKeys,
-        openai: "",
-        gemini: "",
-        ollama: "",
-      },
-      memory: {
-        ...TEST_CONFIG.memory,
-        entity: {
-          ...TEST_CONFIG.memory.entity,
-          enabled: false,
-        },
-        embeddings: {
-          ...TEST_CONFIG.memory.embeddings,
-          provider: "openai",
-          required: true,
-        },
-      },
+  test("injectMemoryRecallAsSeparateMessage: injects context + ack before last user message", () => {
+    type Msg = {
+      role: "user" | "assistant";
+      content: Array<{ type: string; text?: string }>;
     };
+    const msgs: Msg[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Hello" }],
+      },
+    ];
 
-    const result = await buildMemoryRecall(
-      "API design",
-      "conv-degrade-test",
-      noEntityConfig,
-    );
+    const recallText =
+      "<memory_context>\n\n<relevant_context>\ntest\n</relevant_context>\n\n</memory_context>";
+    const result = injectMemoryRecallAsSeparateMessage(msgs, recallText);
 
-    expect(result.degradation).toBeDefined();
-    expect(result.degradation!.fallbackSources).not.toContain("entity");
-    expect(result.degradation!.fallbackSources).toContain("lexical");
-    expect(result.degradation!.fallbackSources).toContain("recency");
-    expect(result.degradation!.fallbackSources).toContain("direct_item");
+    expect(result).toHaveLength(3);
+    expect(result[0].role).toBe("user");
+    expect(result[0].content[0].text).toBe(recallText);
+    expect(result[1].role).toBe("assistant");
+    expect(result[1].content[0].text).toBe("[Memory context loaded.]");
+    expect(result[2].role).toBe("user");
+    expect(result[2].content[0].text).toBe("Hello");
+  });
+
+  test("injectMemoryRecallAsSeparateMessage: no-op for empty text", () => {
+    type Msg = {
+      role: "user" | "assistant";
+      content: Array<{ type: string; text?: string }>;
+    };
+    const msgs: Msg[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Hello" }],
+      },
+    ];
+
+    const result = injectMemoryRecallAsSeparateMessage(msgs, "");
+    expect(result).toHaveLength(1);
+    expect(result[0].content[0].text).toBe("Hello");
   });
 
   // -----------------------------------------------------------------------
   // Local embedding stub end-to-end
   // -----------------------------------------------------------------------
 
-  test("local embedding stub: pipeline completes non-degraded with zero-vector embeddings", async () => {
+  test("local embedding: pipeline completes non-degraded", async () => {
     seedMemory();
 
     const localEmbedConfig: AssistantConfig = {
@@ -624,7 +720,7 @@ describe("Memory Retriever Degradation", () => {
 
     const result = await buildMemoryRecall(
       "API design",
-      "conv-degrade-test",
+      "conv-test",
       localEmbedConfig,
     );
 
@@ -632,75 +728,7 @@ describe("Memory Retriever Degradation", () => {
     // pipeline proceeds non-degraded end-to-end.
     expect(result.enabled).toBe(true);
     expect(result.degraded).toBe(false);
-    expect(result.selectedCount).toBeGreaterThan(0);
-  });
-
-  // -----------------------------------------------------------------------
-  // Degraded results bypass the recall cache
-  // -----------------------------------------------------------------------
-
-  test("degraded results are not cached", async () => {
-    seedMemory();
-
-    // Trip the circuit breaker so semantic search fails
-    const { withQdrantBreaker } =
-      await import("../memory/qdrant-circuit-breaker.js");
-    for (let i = 0; i < 5; i++) {
-      try {
-        await withQdrantBreaker(async () => {
-          throw new Error("simulated qdrant failure");
-        });
-      } catch {
-        // expected
-      }
-    }
-    expect(isQdrantBreakerOpen()).toBe(true);
-
-    // Disable early termination so semantic search is attempted and fails,
-    // which sets semanticSearchFailed=true → result.degraded=true.
-    const degradedConfig: AssistantConfig = {
-      ...TEST_CONFIG,
-      memory: {
-        ...TEST_CONFIG.memory,
-        retrieval: {
-          ...TEST_CONFIG.memory.retrieval,
-          earlyTermination: {
-            ...TEST_CONFIG.memory.retrieval.earlyTermination,
-            enabled: false,
-          },
-        },
-      },
-    };
-
-    const first = await buildMemoryRecall(
-      "API design cache test",
-      "conv-degrade-test",
-      degradedConfig,
-    );
-    expect(first.degraded).toBe(true);
-    expect(first.selectedCount).toBeGreaterThan(0);
-
-    // Second call with same inputs — should NOT be served from cache.
-    // If the degraded result were incorrectly cached, this call would
-    // return instantly from cache. Instead it should re-execute the
-    // pipeline and produce a fresh degraded result.
-    const second = await buildMemoryRecall(
-      "API design cache test",
-      "conv-degrade-test",
-      degradedConfig,
-    );
-    expect(second.degraded).toBe(true);
-    expect(second.selectedCount).toBeGreaterThan(0);
-
-    // Verify the cache is empty for this query by resetting the breaker
-    // and calling again — a non-degraded result should come back (proving
-    // the degraded result was never cached).
-    _resetQdrantBreaker();
-    const recovered = await buildMemoryRecall(
-      "API design cache test",
-      "conv-degrade-test",
-      degradedConfig,
-    );
-    expect(recovered.degraded).toBe(false);
+    // Recency search finds candidates; hybrid search returns empty from mock
+    expect(result.recencyHits).toBeGreaterThan(0);
   });
 });

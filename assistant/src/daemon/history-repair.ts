@@ -1,6 +1,7 @@
 import type {
   ContentBlock,
   Message,
+  ServerToolUseContent,
   ToolResultContent,
   ToolUseContent,
 } from "../providers/types.js";
@@ -19,6 +20,11 @@ export interface RepairResult {
 
 const SYNTHETIC_RESULT =
   "<synthesized_result>tool result missing from history</synthesized_result>";
+
+const SYNTHETIC_WEB_SEARCH_ERROR = {
+  type: "web_search_tool_result_error",
+  error_code: "unavailable",
+};
 
 export function repairHistory(messages: Message[]): RepairResult {
   const stats: RepairStats = {
@@ -45,12 +51,15 @@ export function repairHistory(messages: Message[]): RepairResult {
         recoveredResults = new Map();
       }
 
-      // Strip tool_result blocks from assistant messages, preserving them
-      // so they can be migrated to the correct user message position
+      // Strip client-side tool_result blocks from assistant messages,
+      // preserving them so they can be migrated to the correct user message.
+      // Server-side tools (server_tool_use / web_search_tool_result) are
+      // self-paired within the assistant message and must NOT be separated.
       const cleanedContent: ContentBlock[] = [];
       const newRecovered = new Map<string, ToolResultContent>();
       for (const block of msg.content) {
         if (block.type === "tool_result") {
+          // guard:allow-tool-result-only — only client-side tool_result belongs in recovered; web_search_tool_result stays in the assistant message
           const tr = block as ToolResultContent;
           newRecovered.set(tr.tool_use_id, tr);
           stats.assistantToolResultsMigrated++;
@@ -59,9 +68,34 @@ export function repairHistory(messages: Message[]): RepairResult {
         }
       }
 
+      // Ensure every server_tool_use has a paired web_search_tool_result
+      // in the same assistant message (handles interrupted streams)
+      const serverToolIds = new Set(
+        cleanedContent
+          .filter(
+            (b): b is ServerToolUseContent => b.type === "server_tool_use",
+          )
+          .map((b) => b.id),
+      );
+      const matchedServerIds = new Set(
+        cleanedContent
+          .filter((b) => b.type === "web_search_tool_result")
+          .map((b) => (b as { tool_use_id: string }).tool_use_id),
+      );
+      for (const id of serverToolIds) {
+        if (!matchedServerIds.has(id)) {
+          cleanedContent.push({
+            type: "web_search_tool_result",
+            tool_use_id: id,
+            content: SYNTHETIC_WEB_SEARCH_ERROR,
+          });
+          stats.missingToolResultsInserted++;
+        }
+      }
+
       result.push({ role: "assistant", content: cleanedContent });
 
-      // Collect tool_use IDs from this assistant message
+      // Only track client-side tool_use IDs as pending (not server_tool_use)
       pendingToolUseIds = new Set(
         cleanedContent
           .filter((b): b is ToolUseContent => b.type === "tool_use")
@@ -76,14 +110,28 @@ export function repairHistory(messages: Message[]): RepairResult {
 
         for (const block of msg.content) {
           if (block.type === "tool_result") {
+            // guard:allow-tool-result-only — matches client-side tool_use; web_search_tool_result is handled separately below
             const tr = block as ToolResultContent;
             if (pendingToolUseIds.has(tr.tool_use_id)) {
               matchedIds.add(tr.tool_use_id);
               newContent.push(block);
             } else {
               stats.orphanToolResultsDowngraded++;
-              newContent.push(downgradeToolResult(tr));
+              newContent.push(downgradeResult(tr));
             }
+          } else if (block.type === "web_search_tool_result") {
+            // web_search_tool_result in a user message is orphaned — server-side
+            // results belong in the assistant message, not here
+            stats.orphanToolResultsDowngraded++;
+            newContent.push(
+              downgradeResult(
+                block as {
+                  type: "web_search_tool_result";
+                  tool_use_id: string;
+                  content: unknown;
+                },
+              ),
+            );
           } else {
             newContent.push(block);
           }
@@ -112,11 +160,21 @@ export function repairHistory(messages: Message[]): RepairResult {
         pendingToolUseIds = new Set();
         recoveredResults = new Map();
       } else {
-        // No pending tool_use — any tool_result here is orphaned
+        // No pending tool_use — any tool_result/web_search_tool_result here is orphaned
         const newContent: ContentBlock[] = msg.content.map((block) => {
           if (block.type === "tool_result") {
             stats.orphanToolResultsDowngraded++;
-            return downgradeToolResult(block as ToolResultContent);
+            return downgradeResult(block as ToolResultContent);
+          }
+          if (block.type === "web_search_tool_result") {
+            stats.orphanToolResultsDowngraded++;
+            return downgradeResult(
+              block as {
+                type: "web_search_tool_result";
+                tool_use_id: string;
+                content: unknown;
+              },
+            );
           }
           return block;
         });
@@ -207,9 +265,15 @@ export function deepRepairHistory(messages: Message[]): RepairResult {
   return repairHistory(merged);
 }
 
-function downgradeToolResult(tr: ToolResultContent): ContentBlock {
+function downgradeResult(tr: {
+  type: string;
+  tool_use_id: string;
+  content?: unknown;
+}): ContentBlock {
+  const content =
+    tr.type === "tool_result" ? tr.content : "[web search result]"; // guard:allow-tool-result-only — distinguishes content format between the two types
   return {
     type: "text",
-    text: `[orphaned tool_result for ${tr.tool_use_id}]: ${tr.content}`,
+    text: `[orphaned ${tr.type} for ${tr.tool_use_id}]: ${content}`,
   };
 }

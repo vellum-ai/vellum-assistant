@@ -2,11 +2,29 @@ import type { Command } from "commander";
 
 import { API_KEY_PROVIDERS } from "../../config/loader.js";
 import {
-  deleteSecureKey,
-  getSecureKey,
-  setSecureKey,
+  deleteSecureKeyAsync,
+  getSecureKeyAsync,
+  setSecureKeyAsync,
 } from "../../security/secure-keys.js";
 import { log } from "../logger.js";
+
+// ---------------------------------------------------------------------------
+// CES shell lockdown guard
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true when the current process is running inside an untrusted shell
+ * (CES shell lockdown active). CLI commands that store or delete API keys
+ * must check this and fail deterministically.
+ */
+function isUntrustedShell(): boolean {
+  return process.env.VELLUM_UNTRUSTED_SHELL === "1";
+}
+
+/** Error message for commands blocked by CES shell lockdown. */
+const UNTRUSTED_SHELL_ERROR =
+  "This command is not available in untrusted shell mode. " +
+  "API key management is restricted when running under CES shell lockdown.";
 
 export function registerKeysCommand(program: Command): void {
   const keys = program
@@ -40,10 +58,10 @@ omitted from the output.
 Examples:
   $ assistant keys list`,
     )
-    .action(() => {
+    .action(async () => {
       const stored: string[] = [];
       for (const provider of API_KEY_PROVIDERS) {
-        const value = getSecureKey(provider);
+        const value = await getSecureKeyAsync(provider);
         if (value) stored.push(provider);
       }
       if (stored.length === 0) {
@@ -74,8 +92,14 @@ Examples:
   $ assistant keys set openai sk-proj-xyz789
   $ assistant keys set fireworks fw-abc123`,
     )
-    .action((provider: string, key: string) => {
-      if (setSecureKey(provider, key)) {
+    .action(async (provider: string, key: string) => {
+      // CES shell lockdown: deny key storage in untrusted shells.
+      if (isUntrustedShell()) {
+        log.error(UNTRUSTED_SHELL_ERROR);
+        process.exit(1);
+      }
+
+      if (await setSecureKeyAsync(provider, key)) {
         log.info(`Stored API key for "${provider}"`);
       } else {
         log.error(`Failed to store API key for "${provider}"`);
@@ -99,8 +123,14 @@ Examples:
   $ assistant keys delete openai
   $ assistant keys delete anthropic`,
     )
-    .action((provider: string) => {
-      const result = deleteSecureKey(provider);
+    .action(async (provider: string) => {
+      // CES shell lockdown: deny key deletion in untrusted shells.
+      if (isUntrustedShell()) {
+        log.error(UNTRUSTED_SHELL_ERROR);
+        process.exit(1);
+      }
+
+      const result = await deleteSecureKeyAsync(provider);
       if (result === "deleted") {
         log.info(`Deleted API key for "${provider}"`);
       } else if (result === "error") {

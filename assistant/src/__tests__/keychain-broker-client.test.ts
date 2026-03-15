@@ -264,7 +264,7 @@ describe("keychain-broker-client", () => {
 
       const client = createBrokerClient();
       const result = await client.set("my-key", "new-value");
-      expect(result).toBe(true);
+      expect(result).toEqual({ status: "ok" });
     });
 
     test("del returns true on success", async () => {
@@ -434,11 +434,11 @@ describe("keychain-broker-client", () => {
       expect(result).toBeNull();
     });
 
-    test("set returns false when socket file does not exist", async () => {
+    test("set returns unreachable when socket file does not exist", async () => {
       writeFileSync(TOKEN_PATH, TEST_TOKEN);
       const client = createBrokerClient();
       const result = await client.set("test-key", "value");
-      expect(result).toBe(false);
+      expect(result).toEqual({ status: "unreachable" });
     });
 
     test("del returns false when socket file does not exist", async () => {
@@ -470,7 +470,7 @@ describe("keychain-broker-client", () => {
       }
       const client = createBrokerClient();
       expect(await client.get("key")).toBeNull();
-      expect(await client.set("key", "val")).toBe(false);
+      expect(await client.set("key", "val")).toEqual({ status: "unreachable" });
       expect(await client.del("key")).toBe(false);
       expect(await client.list()).toEqual([]);
       expect(await client.ping()).toBeNull();
@@ -506,6 +506,156 @@ describe("keychain-broker-client", () => {
       await client.ping();
 
       expect(connectionCount).toBe(1);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Cooldown-based retry
+  // -----------------------------------------------------------------------
+  describe("cooldown-based retry", () => {
+    const originalDateNow = Date.now;
+    let fakeNow: number;
+
+    beforeEach(() => {
+      fakeNow = originalDateNow.call(Date);
+      Date.now = () => fakeNow;
+      writeFileSync(TOKEN_PATH, TEST_TOKEN);
+    });
+
+    afterEach(() => {
+      Date.now = originalDateNow;
+    });
+
+    test("retries connection after cooldown period elapses", async () => {
+      // No socket file — two connection failures (first + immediate retry)
+      const client = createBrokerClient();
+      const result = await client.ping();
+      expect(result).toBeNull();
+
+      // Client should be in cooldown — isAvailable() returns false even with
+      // socket + token files present.
+      writeFileSync(SOCKET_PATH, "");
+      expect(client.isAvailable()).toBe(false);
+
+      // Advance time past the first cooldown (30s)
+      fakeNow += 30_001;
+      expect(client.isAvailable()).toBe(true);
+
+      // Now start a real broker and verify the client reconnects
+      rmSync(SOCKET_PATH, { force: true });
+      const broker = createMockBroker();
+      broker.setHandler(() => ({ ok: true, result: { pong: true } }));
+      await broker.start();
+
+      const retryResult = await client.ping();
+      expect(retryResult).toEqual({ pong: true });
+
+      await broker.stop();
+    });
+
+    test("resets failure count after successful reconnection", async () => {
+      // No socket file — two connection failures
+      const client = createBrokerClient();
+      await client.ping();
+
+      // Advance past first cooldown (30s)
+      fakeNow += 30_001;
+
+      // Start broker — reconnection should succeed and reset counters
+      const broker = createMockBroker();
+      broker.setHandler(() => ({ ok: true, result: { pong: true } }));
+      await broker.start();
+
+      const result = await client.ping();
+      expect(result).toEqual({ pong: true });
+
+      // Stop broker and remove socket — simulate another disconnection.
+      // Yield after stop so the client socket receives the close event
+      // before the next ping (otherwise ensureConnected returns the stale
+      // socket and sendRequest waits REQUEST_TIMEOUT_MS for a response).
+      await broker.stop();
+      await new Promise((r) => setTimeout(r, 50));
+      rmSync(SOCKET_PATH, { force: true });
+
+      // This new failure should start from the beginning of the cooldown
+      // schedule (30s), not escalated.
+      await client.ping();
+
+      // Verify cooldown is back to 30s (not 60s)
+      writeFileSync(SOCKET_PATH, "");
+      expect(client.isAvailable()).toBe(false);
+
+      // 30s should be enough to clear cooldown
+      fakeNow += 30_001;
+      expect(client.isAvailable()).toBe(true);
+    }, 15_000);
+
+    test("escalates cooldown on repeated failures", async () => {
+      const client = createBrokerClient();
+
+      // First failure round: two attempts (first + immediate retry) ->
+      // consecutiveFailures=2, cooldown index = max(2-2,0) = 0 -> 30s.
+      await client.ping();
+
+      writeFileSync(SOCKET_PATH, "");
+      expect(client.isAvailable()).toBe(false);
+
+      // 30s should clear the first cooldown
+      fakeNow += 30_001;
+      expect(client.isAvailable()).toBe(true);
+
+      // Remove socket to trigger another failure. After cooldown elapses,
+      // ensureConnected clears unavailableSince and tries connect().
+      // This failure increments consecutiveFailures to 3 (no immediate retry
+      // since consecutiveFailures > 1 after increment).
+      // Cooldown index = max(3-2,0) = 1 -> 60s.
+      rmSync(SOCKET_PATH, { force: true });
+      await client.ping();
+
+      writeFileSync(SOCKET_PATH, "");
+      expect(client.isAvailable()).toBe(false);
+
+      fakeNow += 30_001;
+      expect(client.isAvailable()).toBe(false); // 30s not enough
+
+      fakeNow += 30_000; // total 60_001ms since this cooldown started
+      expect(client.isAvailable()).toBe(true);
+
+      // Another failure -> consecutiveFailures=4, index = max(4-2,0) = 2 -> 120s (2min)
+      rmSync(SOCKET_PATH, { force: true });
+      await client.ping();
+
+      writeFileSync(SOCKET_PATH, "");
+      expect(client.isAvailable()).toBe(false);
+
+      fakeNow += 60_001;
+      expect(client.isAvailable()).toBe(false);
+
+      fakeNow += 60_000; // total 120_001ms
+      expect(client.isAvailable()).toBe(true);
+
+      // Another failure -> consecutiveFailures=5, index = max(5-2,0) = 3 -> 300s (5min)
+      rmSync(SOCKET_PATH, { force: true });
+      await client.ping();
+
+      writeFileSync(SOCKET_PATH, "");
+      expect(client.isAvailable()).toBe(false);
+
+      fakeNow += 120_001;
+      expect(client.isAvailable()).toBe(false);
+
+      fakeNow += 180_000; // total 300_001ms
+      expect(client.isAvailable()).toBe(true);
+
+      // Another failure -> consecutiveFailures=6, index = min(max(6-2,0), 3) = 3 -> 300s (capped)
+      rmSync(SOCKET_PATH, { force: true });
+      await client.ping();
+
+      writeFileSync(SOCKET_PATH, "");
+      expect(client.isAvailable()).toBe(false);
+
+      fakeNow += 300_001;
+      expect(client.isAvailable()).toBe(true);
     });
   });
 });

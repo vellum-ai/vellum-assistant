@@ -33,15 +33,6 @@ export const MemoryCleanupConfigSchema = z.object({
     .int("memory.cleanup.enqueueIntervalMs must be an integer")
     .positive("memory.cleanup.enqueueIntervalMs must be a positive integer")
     .default(6 * 60 * 60 * 1000),
-  resolvedConflictRetentionMs: z
-    .number({
-      error: "memory.cleanup.resolvedConflictRetentionMs must be a number",
-    })
-    .int("memory.cleanup.resolvedConflictRetentionMs must be an integer")
-    .positive(
-      "memory.cleanup.resolvedConflictRetentionMs must be a positive integer",
-    )
-    .default(30 * 24 * 60 * 60 * 1000),
   supersededItemRetentionMs: z
     .number({
       error: "memory.cleanup.supersededItemRetentionMs must be a number",

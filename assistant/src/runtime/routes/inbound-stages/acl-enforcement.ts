@@ -334,7 +334,7 @@ export async function enforceIngressAcl(
                   dmCallbackUrl,
                   {
                     chatId: senderUserId,
-                    text: "I've notified the owner. They'll share a verification code with you if they approve access. You can reply with the code here.",
+                    text: "I've notified the owner that you'd like to chat with me. If they approve your request, they'll share a 6-digit verification code with you. You can reply with the code here.",
                     assistantId,
                   },
                   mintBearerToken(),
@@ -423,11 +423,12 @@ export async function enforceIngressAcl(
 
     if (resolvedMember) {
       if (resolvedMember.channel.status !== "active") {
+        const isBlockedMember = resolvedMember.channel.status === "blocked";
         // Same bypass logic as the no-member branch: verification codes and
-        // bootstrap commands must pass through even when the member record is
-        // revoked/blocked — otherwise the user can never re-verify.
+        // bootstrap commands must pass through for re-verifiable states
+        // (pending/revoked), but never for blocked members.
         let denyInactiveMember = true;
-        if (isGuardianVerifyCode) {
+        if (!isBlockedMember && isGuardianVerifyCode) {
           const hasPendingChallenge = !!getPendingSession(sourceChannel);
           const hasActiveOutboundSession = !!findActiveSession(sourceChannel);
           if (hasPendingChallenge || hasActiveOutboundSession) {
@@ -444,7 +445,7 @@ export async function enforceIngressAcl(
             );
           }
         }
-        if (isBootstrapCommand) {
+        if (!isBlockedMember && isBootstrapCommand) {
           const bootstrapPayload = (
             rawCommandIntentForAcl as Record<string, unknown>
           ).payload as string;
@@ -471,9 +472,11 @@ export async function enforceIngressAcl(
         }
 
         // ── Invite token intercept (inactive member) ──
-        // Same as the non-member branch: invite tokens can reactivate
-        // revoked/pending members without requiring guardian approval.
-        if (inviteToken && denyInactiveMember) {
+        // Invite tokens can reactivate revoked/pending members without
+        // requiring guardian approval, but blocked members are excluded so
+        // they are short-circuited at the ACL layer rather than entering the
+        // redemption path.
+        if (!isBlockedMember && inviteToken && denyInactiveMember) {
           const inviteResult = await handleInviteTokenIntercept({
             rawToken: inviteToken,
             sourceChannel,
@@ -496,9 +499,15 @@ export async function enforceIngressAcl(
         }
 
         // ── 6-digit invite code intercept (inactive member) ──
-        // Same as the non-member branch: codes can reactivate revoked/pending
-        // members. Non-matching codes fall through to normal processing.
-        if (denyInactiveMember && /^\d{6}$/.test(trimmedContent)) {
+        // Codes can reactivate revoked/pending members; non-matching codes
+        // fall through. Blocked members are excluded here for consistency —
+        // the redemption service would reject them anyway, but early exit
+        // avoids unnecessary work.
+        if (
+          !isBlockedMember &&
+          denyInactiveMember &&
+          /^\d{6}$/.test(trimmedContent)
+        ) {
           const codeInterceptResult = await handleInviteCodeIntercept({
             code: trimmedContent,
             sourceChannel,
@@ -579,7 +588,7 @@ export async function enforceIngressAcl(
                     dmCallbackUrl,
                     {
                       chatId: senderUserId,
-                      text: "I've notified the owner. They'll share a verification code with you if they approve access. You can reply with the code here.",
+                      text: "I've notified the owner that you'd like to chat with me. If they approve your request, they'll share a 6-digit verification code with you. You can reply with the code here.",
                       assistantId,
                     },
                     mintBearerToken(),

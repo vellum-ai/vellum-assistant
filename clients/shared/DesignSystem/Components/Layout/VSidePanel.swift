@@ -23,17 +23,17 @@ public struct VSidePanel<PinnedContent: View, Content: View>: View {
             HStack {
                 Text(uppercased ? title.uppercased() : title)
                     .font(titleFont)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 Spacer()
                 if let onClose = onClose {
-                    VIconButton(label: "Close", icon: "xmark", iconOnly: true, action: onClose)
+                    VButton(label: "Close", iconOnly: "xmark", style: .ghost, action: onClose)
                 }
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.lg)
 
             Divider()
-                .background(VColor.surfaceBorder)
+                .background(VColor.borderBase)
 
             // Pinned content (not scrollable)
             pinnedContent()
@@ -50,52 +50,29 @@ public struct VSidePanel<PinnedContent: View, Content: View>: View {
     }
 }
 
-#Preview("VSidePanel") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        VSidePanel(title: "Inspector", onClose: {}, pinnedContent: { EmptyView() }) {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Panel content here")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                Text("With scrollable content area")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-            }
-        }
-    }
-    .frame(width: 300, height: 300)
-}
 
 #if DEBUG
-struct VSidePanel_PinnedContent_Preview: PreviewProvider {
-    static var previews: some View {
-        VSidePanelPinnedPreviewWrapper()
-            .frame(width: 400, height: 350)
-            .previewDisplayName("VSidePanel with Pinned Content")
-    }
-}
 
 private struct VSidePanelPinnedPreviewWrapper: View {
     @State private var tab = 1
 
     var body: some View {
         ZStack {
-            VColor.background.ignoresSafeArea()
+            VColor.surfaceOverlay.ignoresSafeArea()
             VSidePanel(title: "Control", onClose: {}, pinnedContent: {
                 VSegmentedControl(
                     items: ["Profile", "Settings", "Channels", "Overview"],
                     selection: $tab
                 )
-                Divider().background(VColor.surfaceBorder)
+                Divider().background(VColor.borderBase)
             }) {
                 VStack(alignment: .leading, spacing: VSpacing.md) {
                     Text("Tab content here")
                         .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                     Text("The tab bar above stays pinned while this scrolls.")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
             }
         }

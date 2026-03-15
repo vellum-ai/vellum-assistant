@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import { getConfig } from "../../../../config/loader.js";
 import { getMediaAssetById } from "../../../../memory/media-store.js";
+import { getSecureKeyAsync } from "../../../../security/secure-keys.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -29,8 +29,7 @@ export async function mapSegmentsForAsset(
   options: MapSegmentsOptions,
   onProgress?: (msg: string) => void,
 ): Promise<MapOutput> {
-  const config = getConfig();
-  const apiKey = config.apiKeys.gemini;
+  const apiKey = await getSecureKeyAsync("gemini");
 
   if (!apiKey) {
     throw new Error(
@@ -122,8 +121,7 @@ export async function run(
     let output: MapOutput;
 
     if (mode === "direct_video") {
-      const config = getConfig();
-      const apiKey = config.apiKeys.gemini;
+      const apiKey = await getSecureKeyAsync("gemini");
       if (!apiKey) {
         return {
           content:

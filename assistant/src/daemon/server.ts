@@ -13,6 +13,14 @@ import {
 } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import { onContactChange } from "../contacts/contact-events.js";
+import type { CesClient } from "../credential-execution/client.js";
+import { createCesClient } from "../credential-execution/client.js";
+import { isCesToolsEnabled } from "../credential-execution/feature-gates.js";
+import {
+  type CesProcessManager,
+  CesUnavailableError,
+  createCesProcessManager,
+} from "../credential-execution/process-manager.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
 import {
@@ -22,12 +30,14 @@ import {
 import {
   addMessage,
   getConversationMemoryScopeId,
-  getConversationThreadType,
+  getConversationType,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
 } from "../memory/conversation-crud.js";
+import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
+import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import {
   getFailoverProvider,
@@ -40,6 +50,10 @@ import { getSigningKeyFingerprint } from "../runtime/auth/token-service.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { checkIngressForSecrets } from "../security/secret-ingress.js";
+import { registerCancelCallback } from "../signals/cancel.js";
+import { registerConversationUndoCallback } from "../signals/conversation-undo.js";
+import { appendEventToStream } from "../signals/event-stream.js";
+import { registerUserMessageCallback } from "../signals/user-message.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { IngressBlockedError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
@@ -49,6 +63,7 @@ import {
 } from "../util/platform.js";
 import { registerDaemonCallbacks } from "../work-items/work-item-runner.js";
 import { ConfigWatcher } from "./config-watcher.js";
+import { undoLastMessage } from "./handlers/conversations.js";
 import { parseIdentityFields } from "./handlers/identity.js";
 import type {
   HandlerContext,
@@ -176,7 +191,7 @@ function makePendingInteractionRegistrar(
           toolName: msg.toolName,
           status: "pending",
           requestCode: generateCanonicalRequestCode(),
-          expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+          expiresAt: Date.now() + 5 * 60 * 1000,
         });
 
         // For trusted-contact sessions, bridge to guardian.question so the
@@ -237,10 +252,26 @@ export class DaemonServer {
   // Composed subsystems
   private configWatcher = new ConfigWatcher();
 
+  // CES (Credential Execution Service) — process-level singleton.
+  // The CES sidecar accepts exactly one bootstrap connection, so we must
+  // hold that connection at the server level rather than per-session.
+  private cesProcessManager?: CesProcessManager;
+  private cesClientPromise?: Promise<CesClient | undefined>;
+  private cesInitAbortController?: AbortController;
+  private cesClientRef?: CesClient;
+
   /**
    * Logical assistant identifier used when publishing to the assistant-events hub.
    */
-  assistantId: string = "default";
+  assistantId: string = DAEMON_INTERNAL_ASSISTANT_ID;
+
+  /**
+   * Return the CES client reference (if available).
+   * Used by routes that need to push updates to CES (e.g. secret-routes).
+   */
+  getCesClient(): CesClient | undefined {
+    return this.cesClientRef;
+  }
 
   /** Optional heartbeat service reference for "Run Now" from the UI. */
   private _heartbeatService?: HeartbeatService;
@@ -250,8 +281,8 @@ export class DaemonServer {
   }
 
   private deriveMemoryPolicy(conversationId: string): SessionMemoryPolicy {
-    const threadType = getConversationThreadType(conversationId);
-    if (threadType === "private") {
+    const conversationType = getConversationType(conversationId);
+    if (conversationType === "private") {
       return {
         scopeId: getConversationMemoryScopeId(conversationId),
         includeDefaultFallback: true,
@@ -276,6 +307,7 @@ export class DaemonServer {
   constructor() {
     this.evictor = new SessionEvictor(this.sessions);
     getSubagentManager().sharedRequestTimestamps = this.sharedRequestTimestamps;
+    getSubagentManager().broadcastToAllClients = (msg) => this.broadcast(msg);
     this.evictor.onEvict = (sessionId: string) => {
       getSubagentManager().abortAllForParent(sessionId);
     };
@@ -337,7 +369,7 @@ export class DaemonServer {
    * always observe events in send order.
    */
   private publishAssistantEvent(msg: ServerMessage, sessionId?: string): void {
-    const id = this.assistantId ?? "default";
+    const id = this.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
     const event = buildAssistantEvent(id, msg, sessionId);
     this._hubChain = this._hubChain
       .then(() => assistantEventHub.publish(event))
@@ -347,6 +379,16 @@ export class DaemonServer {
           "assistant-events hub subscriber threw during broadcast",
         );
       });
+
+    // Dual-write to file-based stream for cross-process consumers.
+    // No-op when no subscriber files exist for this conversation.
+    if (sessionId) {
+      try {
+        appendEventToStream(sessionId, event);
+      } catch {
+        // Best-effort; file I/O failures must not block the hub chain.
+      }
+    }
   }
 
   broadcast(msg: ServerMessage): void {
@@ -378,7 +420,7 @@ export class DaemonServer {
 
   async start(): Promise<void> {
     const config = getConfig();
-    initializeProviders(config);
+    await initializeProviders(config);
     this.configWatcher.initFingerprint(config);
 
     this.evictor.start();
@@ -387,6 +429,55 @@ export class DaemonServer {
       getOrCreateSession: (conversationId) =>
         this.getOrCreateSession(conversationId),
       broadcast: (msg) => this.broadcast(msg),
+    });
+
+    registerCancelCallback((sessionId) => {
+      const session = this.sessions.get(sessionId);
+      if (!session) return false;
+      this.evictor.touch(sessionId);
+      session.abort();
+      getSubagentManager().abortAllForParent(sessionId);
+      return true;
+    });
+
+    registerConversationUndoCallback((sessionId) =>
+      undoLastMessage(sessionId, this.handlerContext()),
+    );
+
+    registerUserMessageCallback(async (params) => {
+      const { conversationId } = getOrCreateConversation(
+        params.conversationKey,
+      );
+      const session = await this.getOrCreateSession(conversationId);
+      if (session.isProcessing()) {
+        const requestId = crypto.randomUUID();
+        const resolvedChannel = resolveTurnChannel(params.sourceChannel);
+        const resolvedInterface = resolveTurnInterface(params.sourceInterface);
+        const result = session.enqueueMessage(
+          params.content,
+          [],
+          () => {},
+          requestId,
+          undefined,
+          undefined,
+          {
+            userMessageChannel: resolvedChannel,
+            assistantMessageChannel: resolvedChannel,
+            userMessageInterface: resolvedInterface,
+            assistantMessageInterface: resolvedInterface,
+          },
+        );
+        return { accepted: !result.rejected };
+      }
+      await this.persistAndProcessMessage(
+        conversationId,
+        params.content,
+        undefined,
+        undefined,
+        params.sourceChannel,
+        params.sourceInterface,
+      );
+      return { accepted: true };
     });
 
     this.configWatcher.start(
@@ -398,6 +489,73 @@ export class DaemonServer {
     this.unsubscribeContactChange = onContactChange(() => {
       this.broadcast({ type: "contacts_changed" });
     });
+
+    // CES lifecycle — start the CES process and perform the RPC handshake
+    // once at server level. The managed sidecar accepts exactly one bootstrap
+    // connection, so this must be a process-level singleton.
+    if (isCesToolsEnabled(config)) {
+      const pm = createCesProcessManager({ assistantConfig: config });
+      this.cesProcessManager = pm;
+      const abortController = new AbortController();
+      this.cesInitAbortController = abortController;
+      this.cesClientPromise = (async () => {
+        try {
+          const transport = await pm.start();
+          if (abortController.signal.aborted) {
+            throw new Error("CES initialization aborted during shutdown");
+          }
+          const client = createCesClient(transport);
+          this.cesClientRef = client;
+          // Resolve the assistant API key so CES can use it for platform
+          // credential materialisation. In managed mode the key is provisioned
+          // after hatch and stored in the credential store — CES can't read
+          // the env var, so we pass it via the handshake.
+          const proxyCtx = await resolveManagedProxyContext();
+          const { accepted, reason } = await client.handshake(
+            proxyCtx.assistantApiKey
+              ? { assistantApiKey: proxyCtx.assistantApiKey }
+              : undefined,
+          );
+          if (abortController.signal.aborted) {
+            client.close();
+            throw new Error("CES initialization aborted during shutdown");
+          }
+          if (accepted) {
+            log.info(
+              "CES client initialized and handshake accepted (server-level)",
+            );
+            return client;
+          }
+          log.warn(
+            { reason },
+            "CES handshake rejected — CES tools will be unavailable",
+          );
+          client.close();
+          this.cesClientRef = undefined;
+          await pm.stop();
+          // Reset so next session can retry initialization
+          this.cesClientPromise = undefined;
+          return undefined;
+        } catch (err) {
+          if (err instanceof CesUnavailableError) {
+            log.info(
+              { reason: err.message },
+              "CES is not available — CES tools will be unavailable",
+            );
+          } else {
+            log.warn(
+              { error: err instanceof Error ? err.message : String(err) },
+              "Failed to initialize CES client — CES tools will be unavailable",
+            );
+          }
+          await pm.stop().catch(() => {});
+          // Reset so next session can retry initialization
+          this.cesClientRef = undefined;
+          this.cesClientPromise = undefined;
+          return undefined;
+        }
+      })();
+    }
 
     log.info("DaemonServer started (HTTP-only mode)");
   }
@@ -415,6 +573,34 @@ export class DaemonServer {
       session.dispose();
     }
     this.sessions.clear();
+
+    // Abort any in-flight CES initialization so it fails fast instead of
+    // blocking shutdown for up to ~15s (socket connect + handshake timeouts).
+    if (this.cesInitAbortController) {
+      this.cesInitAbortController.abort();
+      this.cesInitAbortController = undefined;
+    }
+    // Force-stop the CES process immediately — forceStop() works even if
+    // start() hasn't finished (unlike stop() which is a no-op when !running).
+    if (this.cesProcessManager) {
+      await this.cesProcessManager.forceStop().catch(() => {});
+    }
+    // Cancel in-flight handshake/RPC timers by closing the client directly.
+    // Without this, the handshake setTimeout (~10s) keeps the init promise
+    // pending even after the transport is killed.
+    if (this.cesClientRef) {
+      this.cesClientRef.close();
+      this.cesClientRef = undefined;
+    }
+    // Now await the init promise (which should settle immediately since we
+    // killed the transport and cancelled pending timers above).
+    if (this.cesClientPromise) {
+      await this.cesClientPromise.catch(() => undefined);
+      this.cesClientPromise = undefined;
+    }
+    if (this.cesProcessManager) {
+      this.cesProcessManager = undefined;
+    }
 
     log.info("Daemon server stopped");
   }
@@ -446,6 +632,20 @@ export class DaemonServer {
     return count;
   }
 
+  /**
+   * Abort and dispose a single in-memory session, removing it from the session
+   * map. No-op if no session exists for the given ID.
+   */
+  destroySession(sessionId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    this.evictor.remove(sessionId);
+    getSubagentManager().abortAllForParent(sessionId);
+    session.dispose();
+    this.sessions.delete(sessionId);
+    this.sessionOptions.delete(sessionId);
+  }
+
   private evictSessionsForReload(): void {
     const subagentManager = getSubagentManager();
     for (const [id, session] of this.sessions) {
@@ -468,8 +668,8 @@ export class DaemonServer {
     this.configWatcher.lastFingerprint = value;
   }
 
-  refreshConfigFromSources(): boolean {
-    const changed = this.configWatcher.refreshConfigFromSources();
+  async refreshConfigFromSources(): Promise<boolean> {
+    const changed = await this.configWatcher.refreshConfigFromSources();
     if (changed) this.evictSessionsForReload();
     return changed;
   }
@@ -526,6 +726,10 @@ export class DaemonServer {
         const maxTokens = storedOptions?.maxResponseTokens ?? config.maxTokens;
 
         const memoryPolicy = this.deriveMemoryPolicy(conversationId);
+        // Resolve the shared CES client (may still be initializing).
+        const sharedCesClient = this.cesClientPromise
+          ? await this.cesClientPromise
+          : undefined;
         const newSession = new Session(
           conversationId,
           provider,
@@ -535,9 +739,26 @@ export class DaemonServer {
           workingDir,
           (msg) => this.broadcast(msg),
           memoryPolicy,
+          sharedCesClient,
         );
         newSession.updateClient(sendToClient, true);
         await newSession.loadFromDb();
+        // Restore trust/auth context and assistant ID from stored options so
+        // that evicted sessions rehydrated by undo/regenerate don't run with
+        // unscoped history.  Without this, an untrusted actor could operate
+        // on the full conversation after eviction.
+        if (storedOptions?.assistantId) {
+          newSession.setAssistantId(storedOptions.assistantId);
+        }
+        if (storedOptions?.trustContext) {
+          newSession.setTrustContext(storedOptions.trustContext);
+        }
+        if (storedOptions?.authContext) {
+          newSession.setAuthContext(storedOptions.authContext);
+        }
+        if (storedOptions?.trustContext || storedOptions?.authContext) {
+          await newSession.ensureActorScopedHistory();
+        }
         this.applyTransportMetadata(newSession, storedOptions);
         this.sessions.set(conversationId, newSession);
         return newSession;
@@ -639,7 +860,12 @@ export class DaemonServer {
     session.setAuthContext(options?.authContext ?? null);
     await session.ensureActorScopedHistory();
     session.setChannelCapabilities(
-      resolveChannelCapabilities(sourceChannel, sourceInterface),
+      resolveChannelCapabilities(
+        sourceChannel,
+        sourceInterface,
+        null,
+        options?.transport?.chatType,
+      ),
     );
     // Only create the host bash proxy for desktop client interfaces that can
     // execute commands on the user's machine. Non-desktop sessions (CLI,
@@ -663,8 +889,13 @@ export class DaemonServer {
         );
       }
       if (!session.isProcessing() || !session.hostCuProxy) {
-        session.setHostCuProxy(new HostCuProxy(session.getCurrentSender()));
+        session.setHostCuProxy(
+          new HostCuProxy(session.getCurrentSender(), (requestId) => {
+            pendingInteractions.resolve(requestId);
+          }),
+        );
       }
+      session.addPreactivatedSkillId("computer-use");
     } else if (!session.isProcessing()) {
       session.setHostBashProxy(undefined);
       session.setHostFileProxy(undefined);
@@ -773,7 +1004,7 @@ export class DaemonServer {
       sourceInterface,
     );
 
-    const slashResult = resolveSlash(content);
+    const slashResult = await resolveSlash(content);
 
     if (slashResult.kind === "unknown") {
       const serverTurnCtx = session.getTurnChannelContext();
@@ -844,22 +1075,12 @@ export class DaemonServer {
 
     const resolvedContent = slashResult.content;
 
-    if (slashResult.kind === "rewritten") {
-      session.setPreactivatedSkillIds([slashResult.skillId]);
-    }
-
     const requestId = crypto.randomUUID();
-    let messageId: string;
-    try {
-      messageId = await session.persistUserMessage(
-        resolvedContent,
-        attachments,
-        requestId,
-      );
-    } catch (err) {
-      session.setPreactivatedSkillIds(undefined);
-      throw err;
-    }
+    const messageId = await session.persistUserMessage(
+      resolvedContent,
+      attachments,
+      requestId,
+    );
 
     // Register pending interactions so channel approval interception can
     // find the session by requestId when confirmation/secret events fire.

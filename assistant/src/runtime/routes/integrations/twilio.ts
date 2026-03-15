@@ -66,10 +66,10 @@ function pruneAssistantPhoneNumbers(
 /**
  * GET /v1/integrations/twilio/config
  */
-export function handleGetTwilioConfig(): Response {
-  const hasCredentials = hasTwilioCredentials();
+export async function handleGetTwilioConfig(): Promise<Response> {
+  const hasCredentials = await hasTwilioCredentials();
   const accountSid = hasCredentials
-    ? getTwilioCredentials().accountSid
+    ? (await getTwilioCredentials()).accountSid
     : undefined;
   const raw = loadRawConfig();
   const twilio = (raw?.twilio ?? {}) as Record<string, unknown>;
@@ -100,7 +100,7 @@ export async function handleSetTwilioCredentials(
     return Response.json(
       {
         success: false,
-        hasCredentials: hasTwilioCredentials(),
+        hasCredentials: await hasTwilioCredentials(),
         error: "accountSid and authToken are required",
       },
       { status: 400 },
@@ -120,7 +120,7 @@ export async function handleSetTwilioCredentials(
       const errBody = await res.text();
       return Response.json({
         success: false,
-        hasCredentials: hasTwilioCredentials(),
+        hasCredentials: await hasTwilioCredentials(),
         error: `Twilio API validation failed (${res.status}): ${errBody}`,
       });
     }
@@ -128,7 +128,7 @@ export async function handleSetTwilioCredentials(
     const message = err instanceof Error ? err.message : String(err);
     return Response.json({
       success: false,
-      hasCredentials: hasTwilioCredentials(),
+      hasCredentials: await hasTwilioCredentials(),
       error: `Failed to validate Twilio credentials: ${message}`,
     });
   }
@@ -231,7 +231,7 @@ export async function handleClearTwilioCredentials(): Promise<Response> {
  * GET /v1/integrations/twilio/numbers
  */
 export async function handleListTwilioNumbers(): Promise<Response> {
-  if (!hasTwilioCredentials()) {
+  if (!(await hasTwilioCredentials())) {
     return Response.json({
       success: false,
       hasCredentials: false,
@@ -239,7 +239,7 @@ export async function handleListTwilioNumbers(): Promise<Response> {
     });
   }
 
-  const { accountSid, authToken } = getTwilioCredentials();
+  const { accountSid, authToken } = await getTwilioCredentials();
   const numbers = await listIncomingPhoneNumbers(accountSid, authToken);
 
   return Response.json({ success: true, hasCredentials: true, numbers });
@@ -253,7 +253,7 @@ export async function handleListTwilioNumbers(): Promise<Response> {
 export async function handleProvisionTwilioNumber(
   req: Request,
 ): Promise<Response> {
-  if (!hasTwilioCredentials()) {
+  if (!(await hasTwilioCredentials())) {
     return Response.json({
       success: false,
       hasCredentials: false,
@@ -265,7 +265,7 @@ export async function handleProvisionTwilioNumber(
     country?: string;
     areaCode?: string;
   };
-  const { accountSid, authToken } = getTwilioCredentials();
+  const { accountSid, authToken } = await getTwilioCredentials();
   const country = body.country ?? "US";
 
   const available = await searchAvailableNumbers(
@@ -324,7 +324,7 @@ export async function handleAssignTwilioNumber(
     return Response.json(
       {
         success: false,
-        hasCredentials: hasTwilioCredentials(),
+        hasCredentials: await hasTwilioCredentials(),
         error: "phoneNumber is required",
       },
       { status: 400 },
@@ -339,9 +339,9 @@ export async function handleAssignTwilioNumber(
 
   // Best-effort webhook configuration when credentials are available
   let webhookWarning: string | undefined;
-  if (hasTwilioCredentials()) {
+  if (await hasTwilioCredentials()) {
     const { accountSid: acctSid, authToken: acctToken } =
-      getTwilioCredentials();
+      await getTwilioCredentials();
     const webhookResult = await syncTwilioWebhooks(
       body.phoneNumber,
       acctSid,
@@ -353,7 +353,7 @@ export async function handleAssignTwilioNumber(
 
   return Response.json({
     success: true,
-    hasCredentials: hasTwilioCredentials(),
+    hasCredentials: await hasTwilioCredentials(),
     phoneNumber: body.phoneNumber,
     warning: webhookWarning,
   });
@@ -367,7 +367,7 @@ export async function handleAssignTwilioNumber(
 export async function handleReleaseTwilioNumber(
   req: Request,
 ): Promise<Response> {
-  if (!hasTwilioCredentials()) {
+  if (!(await hasTwilioCredentials())) {
     return Response.json({
       success: false,
       hasCredentials: false,
@@ -389,7 +389,7 @@ export async function handleReleaseTwilioNumber(
     });
   }
 
-  const { accountSid, authToken } = getTwilioCredentials();
+  const { accountSid, authToken } = await getTwilioCredentials();
 
   await releasePhoneNumber(accountSid, authToken, phoneNumber);
 
@@ -416,7 +416,7 @@ export function twilioRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "integrations/twilio/config",
       method: "GET",
-      handler: () => handleGetTwilioConfig(),
+      handler: async () => handleGetTwilioConfig(),
     },
     {
       endpoint: "integrations/twilio/credentials",

@@ -1,9 +1,14 @@
 import { describe, expect, it } from "bun:test";
+import { chmodSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 import {
   type DoorDashSession,
   getCookieHeader,
   getCsrfToken,
+  loadSession,
+  saveSession,
 } from "../lib/session.js";
 
 function makeCookie(
@@ -40,6 +45,54 @@ function makeSession(overrides?: Partial<DoorDashSession>): DoorDashSession {
 }
 
 describe("DoorDash session helpers", () => {
+  describe("session persistence", () => {
+    it("writes session directory and file with restrictive permissions", () => {
+      const tempDir = mkdtempSync(join(tmpdir(), "doordash-session-"));
+      const previousDataDir = process.env.VELLUM_DATA_DIR;
+      process.env.VELLUM_DATA_DIR = tempDir;
+
+      try {
+        saveSession(makeSession());
+
+        const sessionDir = join(tempDir, "doordash");
+        const sessionPath = join(sessionDir, "session.json");
+
+        expect(statSync(sessionDir).mode & 0o777).toBe(0o700);
+        expect(statSync(sessionPath).mode & 0o777).toBe(0o600);
+        expect(loadSession()).not.toBeNull();
+      } finally {
+        if (previousDataDir === undefined) delete process.env.VELLUM_DATA_DIR;
+        else process.env.VELLUM_DATA_DIR = previousDataDir;
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("enforces restrictive permissions when overwriting an existing world-readable file", () => {
+      const tempDir = mkdtempSync(
+        join(tmpdir(), "doordash-session-overwrite-"),
+      );
+      const previousDataDir = process.env.VELLUM_DATA_DIR;
+      process.env.VELLUM_DATA_DIR = tempDir;
+
+      try {
+        // First save creates the file correctly
+        saveSession(makeSession());
+        // Simulate a pre-existing file with insecure permissions (e.g. created before this fix)
+        const sessionPath = join(tempDir, "doordash", "session.json");
+        chmodSync(sessionPath, 0o644);
+        expect(statSync(sessionPath).mode & 0o777).toBe(0o644);
+
+        // Second save must re-enforce permissions even on overwrite
+        saveSession(makeSession());
+        expect(statSync(sessionPath).mode & 0o777).toBe(0o600);
+      } finally {
+        if (previousDataDir === undefined) delete process.env.VELLUM_DATA_DIR;
+        else process.env.VELLUM_DATA_DIR = previousDataDir;
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe("getCookieHeader", () => {
     it("joins all cookies into a single header string", () => {
       const session = makeSession();

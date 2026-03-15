@@ -13,27 +13,27 @@ struct NamingStepView: View {
             VStack(spacing: VSpacing.md) {
                 Text("Every creature needs a name.")
                     .font(VFont.onboardingTitle)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 Text("What should this one be called?")
                     .font(VFont.onboardingSubtitle)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
             }
             .opacity(showInput ? 1 : 0)
 
             TextField("Name your agent\u{2026}", text: $state.assistantName)
                 .textFieldStyle(.plain)
                 .font(.system(size: 18, weight: .medium))
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 20)
                 .padding(.vertical, VSpacing.lg)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(VColor.surface.opacity(0.5))
+                        .fill(VColor.surfaceBase.opacity(0.5))
                         .overlay(
                             RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                                .stroke(VColor.borderBase.opacity(0.5), lineWidth: 1)
                         )
                 )
                 .frame(maxWidth: 260)
@@ -72,7 +72,7 @@ struct NamingStepView: View {
 
 #Preview {
     ZStack {
-        VColor.background
+        VColor.surfaceOverlay
         NamingStepView(state: {
             let s = OnboardingState()
             s.currentStep = 1

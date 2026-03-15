@@ -25,13 +25,13 @@ struct AppSharePanelView: View {
         .onDisappear {
             hoveredServiceIndex = nil
         }
-        .background(VColor.surfaceSubtle)
+        .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                .stroke(VColor.borderBase, lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+        .shadow(color: VColor.auxBlack.opacity(0.15), radius: 6, y: 2)
         .onAppear {
             services = Self.availableSharingServices(for: fileURL)
         }
@@ -49,7 +49,7 @@ struct AppSharePanelView: View {
             header
                 .padding(VSpacing.lg)
 
-            VColor.surfaceBorder.frame(height: 1)
+            VColor.borderBase.frame(height: 1)
 
             // Services list
             ScrollView {
@@ -75,7 +75,7 @@ struct AppSharePanelView: View {
                         }
                     }
 
-                    VColor.surfaceBorder.frame(height: 1)
+                    VColor.borderBase.frame(height: 1)
                         .padding(.horizontal, VSpacing.xs)
                         .padding(.vertical, VSpacing.xs)
 
@@ -110,10 +110,10 @@ struct AppSharePanelView: View {
                     // Fallback: first letter of app name
                     ZStack {
                         RoundedRectangle(cornerRadius: VRadius.md)
-                            .fill(VColor.backgroundSubtle)
+                            .fill(VColor.surfaceBase)
                         Text(String(appName.prefix(1)).uppercased())
                             .font(.system(size: 28, weight: .bold))
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
                 }
             }
@@ -123,12 +123,12 @@ struct AppSharePanelView: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text(appName)
                     .font(VFont.headline)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .lineLimit(2)
 
                 Text(formattedFileSize)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
         }
     }
@@ -154,13 +154,13 @@ struct AppSharePanelView: View {
 
                 Text(title)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 Spacer()
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
-            .background(VColor.navHover.opacity(hoveredServiceIndex == index ? 1 : 0))
+            .background(VColor.surfaceBase.opacity(hoveredServiceIndex == index ? 1 : 0))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

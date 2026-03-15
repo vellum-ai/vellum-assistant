@@ -22,7 +22,7 @@ export async function run(
   }
 
   try {
-    const provider = resolveProvider(platform);
+    const provider = await resolveProvider(platform);
 
     if (!provider.archiveByQuery) {
       return err(
@@ -30,7 +30,8 @@ export async function run(
       );
     }
 
-    const conn = getProviderConnection(provider);
+    const account = input.account as string | undefined;
+    const conn = await getProviderConnection(provider, account);
     const result = await provider.archiveByQuery!(conn, query);
 
     if (result.archived === 0) {

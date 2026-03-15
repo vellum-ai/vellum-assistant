@@ -32,7 +32,7 @@ git config core.hooksPath .githooks
 # ---------------------------------------------------------------------------
 # Install dependencies and register local packages as linkable
 # ---------------------------------------------------------------------------
-for dir in cli gateway assistant; do
+for dir in cli gateway assistant credential-executor; do
   info "Installing dependencies in ${dir}/"
   (cd "${REPO_ROOT}/${dir}" && bun install)
   info "Registering ${dir}/ as a linkable package"
@@ -40,10 +40,20 @@ for dir in cli gateway assistant; do
 done
 
 # ---------------------------------------------------------------------------
+# Install dependencies for packages in packages/
+# ---------------------------------------------------------------------------
+for dir in "${REPO_ROOT}"/packages/*/; do
+  [ -f "${dir}/package.json" ] || continue
+  pkg="$(basename "${dir}")"
+  info "Installing dependencies in packages/${pkg}/"
+  (cd "${dir}" && bun install)
+done
+
+# ---------------------------------------------------------------------------
 # Link local packages into meta so it resolves to local source
 # ---------------------------------------------------------------------------
 info "Linking local packages into meta/"
-(cd "${REPO_ROOT}/meta" && bun link @vellumai/cli @vellumai/assistant @vellumai/vellum-gateway)
+(cd "${REPO_ROOT}/meta" && bun link @vellumai/cli @vellumai/assistant @vellumai/vellum-gateway @vellumai/credential-executor)
 
 # ---------------------------------------------------------------------------
 # Link the global `vellum` command to this repo's meta package

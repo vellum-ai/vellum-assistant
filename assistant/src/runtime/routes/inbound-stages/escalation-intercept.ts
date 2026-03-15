@@ -119,7 +119,7 @@ export function handleEscalationIntercept(
       guardianPrincipalId: binding.guardianPrincipalId,
       toolName: "ingress_message",
       questionText: "Ingress policy requires guardian approval",
-      expiresAt: new Date(Date.now() + GUARDIAN_APPROVAL_TTL_MS).toISOString(),
+      expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
     });
   } catch (err) {
     log.warn(

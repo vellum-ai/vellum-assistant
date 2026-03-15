@@ -1,7 +1,7 @@
 import { getConfig } from "../../config/loader.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
-import { getSecureKey } from "../../security/secure-keys.js";
+import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import {
   DEFAULT_BASE_DELAY_MS,
@@ -50,21 +50,15 @@ function getWebSearchProvider(): WebSearchProvider {
   return configured as WebSearchProvider;
 }
 
-function getApiKey(provider: WebSearchProvider): string | undefined {
+async function getApiKey(
+  provider: WebSearchProvider,
+): Promise<string | undefined> {
   if (provider === "brave") {
-    if (process.env.BRAVE_API_KEY) return process.env.BRAVE_API_KEY;
-    const secureKey = getSecureKey("brave");
-    if (secureKey) return secureKey;
-    const config = getConfig();
-    return config.apiKeys.brave;
+    return (await getSecureKeyAsync("brave")) ?? undefined;
   }
 
   // Perplexity
-  if (process.env.PERPLEXITY_API_KEY) return process.env.PERPLEXITY_API_KEY;
-  const secureKey = getSecureKey("perplexity");
-  if (secureKey) return secureKey;
-  const config = getConfig();
-  return config.apiKeys.perplexity;
+  return (await getSecureKeyAsync("perplexity")) ?? undefined;
 }
 
 function formatBraveResults(
@@ -321,13 +315,13 @@ class WebSearchTool implements Tool {
     }
 
     let provider = getWebSearchProvider();
-    let apiKey = getApiKey(provider);
+    let apiKey = await getApiKey(provider);
 
     // Fallback: if the configured provider has no key, try the other provider
     if (!apiKey) {
       const fallback: WebSearchProvider =
         provider === "perplexity" ? "brave" : "perplexity";
-      const fallbackKey = getApiKey(fallback);
+      const fallbackKey = await getApiKey(fallback);
       if (fallbackKey) {
         log.info(
           { from: provider, to: fallback },
@@ -338,7 +332,7 @@ class WebSearchTool implements Tool {
       } else {
         return {
           content:
-            "Error: No web search API key configured. Set a PERPLEXITY_API_KEY or BRAVE_API_KEY environment variable, or configure it from the Settings page under API Keys.",
+            "Error: No web search API key configured. Set it via `keys set perplexity <key>` or `keys set brave <key>`, or configure it from the Settings page under API Keys.",
           isError: true,
         };
       }

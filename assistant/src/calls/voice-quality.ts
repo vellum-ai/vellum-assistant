@@ -44,7 +44,7 @@ export function buildElevenLabsVoiceSpec(config: {
  *
  * Always uses ElevenLabs TTS via Twilio ConversationRelay.
  * The voice ID comes from the shared `elevenlabs.voiceId` config
- * (defaults to Rachel — 21m00Tcm4TlvDq8ikWAM).
+ * (defaults to Amelia — ZF6FPAbjXT4488VcRRnw).
  */
 export function resolveVoiceQualityProfile(
   config?: ReturnType<typeof loadConfig>,

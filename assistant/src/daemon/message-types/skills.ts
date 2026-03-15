@@ -71,8 +71,6 @@ export interface SkillsCreateRequest {
   description: string;
   emoji?: string;
   bodyMarkdown: string;
-  userInvocable?: boolean;
-  disableModelInvocation?: boolean;
   overwrite?: boolean;
 }
 
@@ -87,17 +85,10 @@ export interface SkillsListResponse {
     emoji?: string;
     homepage?: string;
     source: "bundled" | "managed" | "workspace" | "clawhub" | "extra";
-    state: "enabled" | "disabled" | "available";
-    degraded: boolean;
-    missingRequirements?: {
-      bins?: string[];
-      env?: string[];
-      permissions?: string[];
-    };
+    state: "enabled" | "disabled";
     installedVersion?: string;
     latestVersion?: string;
     updateAvailable: boolean;
-    userInvocable: boolean;
     clawhub?: {
       author: string;
       stars: number;

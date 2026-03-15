@@ -16,7 +16,7 @@ import {
   type AttachmentContext,
   isAttachmentVisible,
 } from "../../daemon/media-visibility-policy.js";
-import { getConversationThreadType } from "../../memory/conversation-crud.js";
+import { getConversationType } from "../../memory/conversation-crud.js";
 import { getDb } from "../../memory/db.js";
 import { attachments } from "../../memory/schema.js";
 import { RiskLevel } from "../../permissions/types.js";
@@ -162,32 +162,32 @@ class AssetMaterializeTool implements Tool {
     }
 
     // --- Visibility check ---------------------------------------------------
-    // Reject materialization of attachments from private threads the caller
-    // does not belong to. This prevents cross-thread data leakage.
+    // Reject materialization of attachments from private conversations the caller
+    // does not belong to. This prevents cross-conversation data leakage.
 
-    const currentThreadType = getConversationThreadType(context.conversationId);
+    const currentConversationType = getConversationType(context.conversationId);
     const currentContext: AttachmentContext = {
       conversationId: context.conversationId,
-      isPrivate: currentThreadType === "private",
+      isPrivate: currentConversationType === "private",
     };
 
     const sources = getAttachmentSourceConversations(attachmentId);
     if (sources.length > 0) {
-      const hasStandard = sources.some((s) => s.threadType !== "private");
+      const hasStandard = sources.some((s) => s.conversationType !== "private");
       if (!hasStandard) {
-        // All sources are private — check if the caller is in any of those threads
-        const callerInSourceThread = sources.some((s) =>
+        // All sources are private — check if the caller is in any of those conversations
+        const callerInSourceConversation = sources.some((s) =>
           isAttachmentVisible(
             { conversationId: s.conversationId, isPrivate: true },
             currentContext,
           ),
         );
-        if (!callerInSourceThread) {
+        if (!callerInSourceConversation) {
           return {
             content:
-              `Error: Attachment "${attachment.originalFilename}" is from a private thread ` +
+              `Error: Attachment "${attachment.originalFilename}" is from a private conversation ` +
               `and cannot be accessed from this context. You can only access this ` +
-              `attachment from within the private thread where it was shared.`,
+              `attachment from within the private conversation where it was shared.`,
             isError: true,
           };
         }

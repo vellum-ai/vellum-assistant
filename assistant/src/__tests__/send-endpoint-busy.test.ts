@@ -48,7 +48,6 @@ mock.module("../config/loader.js", () => ({
 
     model: "test",
     provider: "test",
-    apiKeys: {},
     memory: { enabled: false },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     secretDetection: { enabled: false },
@@ -118,6 +117,7 @@ function makeCompletingSession(): Session {
     setHostBashProxy: () => {},
     setHostFileProxy: () => {},
     setHostCuProxy: () => {},
+    addPreactivatedSkillId: () => {},
     hasAnyPendingConfirmation: () => false,
     hasPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
@@ -175,6 +175,7 @@ function makeHangingSession(): Session {
     setHostBashProxy: () => {},
     setHostFileProxy: () => {},
     setHostCuProxy: () => {},
+    addPreactivatedSkillId: () => {},
     hasAnyPendingConfirmation: () => false,
     hasPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
@@ -260,6 +261,7 @@ function makePendingApprovalSession(
     setHostBashProxy: () => {},
     setHostFileProxy: () => {},
     setHostCuProxy: () => {},
+    addPreactivatedSkillId: () => {},
     hasAnyPendingConfirmation: () => pending.size > 0,
     hasPendingConfirmation: (candidateRequestId: string) =>
       pending.has(candidateRequestId),
@@ -441,7 +443,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       guardianPrincipalId: "test-principal-id",
       status: "pending",
       requestCode: "ABC123",
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      expiresAt: Date.now() + 5 * 60 * 1000,
     });
 
     await startServer(() => session);
@@ -501,7 +503,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       status: "pending",
       guardianPrincipalId: "test-principal-id",
       requestCode: "C0FFEE",
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      expiresAt: Date.now() + 5 * 60 * 1000,
     });
 
     const approvalConversationGenerator: ApprovalConversationGenerator = async (
@@ -569,7 +571,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       status: "pending",
       guardianPrincipalId: "test-principal-id",
       requestCode: "DEF456",
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      expiresAt: Date.now() + 5 * 60 * 1000,
     });
 
     await startServer(() => session);
@@ -629,7 +631,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       status: "pending",
       guardianPrincipalId: "test-principal-id",
       requestCode: "Q2D456",
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      expiresAt: Date.now() + 5 * 60 * 1000,
     });
 
     await startServer(() => session);
@@ -689,7 +691,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       status: "pending",
       guardianPrincipalId: "test-principal-id",
       requestCode: "GHI789",
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      expiresAt: Date.now() + 5 * 60 * 1000,
     });
 
     await startServer(() => session);
@@ -747,7 +749,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       status: "pending",
       guardianPrincipalId: "test-principal-id",
       requestCode: "JKL012",
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      expiresAt: Date.now() + 5 * 60 * 1000,
     });
 
     await startServer(() => session);

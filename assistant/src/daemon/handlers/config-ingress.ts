@@ -30,6 +30,29 @@ export function computeGatewayTarget(): string {
 }
 
 /**
+ * Read the current ingress config from the raw workspace config file.
+ * Extracted so it can be called from both the daemon message handler
+ * and the HTTP route handler.
+ */
+export function getIngressConfigResult(): {
+  enabled: boolean;
+  publicBaseUrl: string;
+  localGatewayTarget: string;
+  success: boolean;
+} {
+  const raw = loadRawConfig();
+  const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
+  const publicBaseUrl = (ingress.publicBaseUrl as string) ?? "";
+  const enabled = (ingress.enabled as boolean | undefined) ?? false;
+  return {
+    enabled,
+    publicBaseUrl,
+    localGatewayTarget: computeGatewayTarget(),
+    success: true,
+  };
+}
+
+/**
  * Best-effort Twilio webhook sync helper.
  *
  * Computes the voice and status-callback webhook URLs from the current
@@ -80,16 +103,10 @@ export async function handleIngressConfig(
   const localGatewayTarget = computeGatewayTarget();
   try {
     if (msg.action === "get") {
-      const raw = loadRawConfig();
-      const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
-      const publicBaseUrl = (ingress.publicBaseUrl as string) ?? "";
-      const enabled = (ingress.enabled as boolean | undefined) ?? false;
+      const result = getIngressConfigResult();
       ctx.send({
         type: "ingress_config_response",
-        enabled,
-        publicBaseUrl,
-        localGatewayTarget,
-        success: true,
+        ...result,
       });
     } else if (msg.action === "set") {
       const value = (msg.publicBaseUrl ?? "").trim().replace(/\/+$/, "");
@@ -161,7 +178,7 @@ export async function handleIngressConfig(
       // Best-effort Twilio webhook reconciliation: when ingress is being
       // enabled/updated and Twilio numbers are assigned with valid credentials,
       // push the new webhook URLs to Twilio so calls route correctly.
-      if (isEnabled && hasTwilioCredentials()) {
+      if (isEnabled && (await hasTwilioCredentials())) {
         const currentConfig = loadRawConfig();
         const twilioConfig = (currentConfig?.twilio ?? {}) as Record<
           string,
@@ -188,7 +205,7 @@ export async function handleIngressConfig(
 
         if (assignedNumbers.size > 0) {
           const { accountSid: acctSid, authToken: acctToken } =
-            getTwilioCredentials();
+            await getTwilioCredentials();
           // Fire-and-forget: webhook sync failure must not block the ingress save.
           // Reconcile every assigned number so assistant-scoped mappings do not
           // retain stale Twilio webhook URLs after ingress URL changes.

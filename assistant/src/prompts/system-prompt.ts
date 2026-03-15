@@ -7,6 +7,7 @@ import { getBaseDataDir, getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { skillFlagKey } from "../config/skill-state.js";
 import { loadSkillCatalog, type SkillSummary } from "../config/skills.js";
+import { shouldUsePlatformCallbacks } from "../inbound/platform-callback-registration.js";
 import { listConnections } from "../oauth/oauth-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
@@ -111,6 +112,7 @@ export function isOnboardingComplete(): boolean {
  */
 export interface BuildSystemPromptOptions {
   hasNoClient?: boolean;
+  excludeBootstrap?: boolean;
 }
 
 export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
@@ -135,7 +137,7 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   if (identity) parts.push(identity);
   if (soul) parts.push(soul);
   if (user) parts.push(user);
-  if (bootstrap) {
+  if (bootstrap && !options?.excludeBootstrap) {
     parts.push(
       "# First-Run Ritual\n\n" +
         "BOOTSTRAP.md is present — this is your first conversation. Follow its instructions.\n\n" +
@@ -309,7 +311,7 @@ export function buildStarterTaskPlaybookSection(): string {
     '3. Let the user pick one. Accept color names, hex values, or descriptions (e.g. "something warm").',
     '4. Confirm the selection: "I\'ll set your accent color to **{label}** ({hex}). Sound good?"',
     "5. On confirmation:",
-    '   - Use `app_file_edit` to update the `## Dashboard Color Preference` section in USER.md with `label`, `hex`, `source: "user_selected"`, and `applied: true`.',
+    '   - Use `app_file_edit` to update the `## Color Preference` section in USER.md with `label`, `hex`, and `source: "user_selected"`.',
     "   - Use `app_file_edit` to update the `## Onboarding Tasks` section: set `make_it_yours` to `done`.",
     "6. If the user declines or wants to skip, set `make_it_yours` to `skipped` in USER.md and move on.",
     "",
@@ -344,9 +346,17 @@ function buildInChatConfigurationSection(): string {
     "When the user needs to configure a value (API keys, OAuth credentials, webhook URLs, or any setting that can be changed from the Settings page), **always collect it conversationally in the chat first** rather than directing them to the Settings page.",
     "",
     "**How to collect credentials and secrets:**",
-    '- Use `credential_store` with `action: "prompt"` to present a secure input field. The value never appears in the conversation.',
-    '- For OAuth flows, use `credential_store` with `action: "oauth2_connect"` to handle the authorization in-browser. Some services (e.g. Twitter/X) define their own auth flow via dedicated skill instructions — check the service\'s skill documentation for provider-specific setup steps.',
-    "- For non-secret config values (e.g. a public URL, a webhook URL), ask the user directly in the conversation and use the appropriate config tool to persist the value.",
+    ...(shouldUsePlatformCallbacks()
+      ? [
+          "- Secrets and API keys are managed through the platform's credential system. Users connect credentials via OAuth or platform-managed secrets — the `credential_store` prompt flow for API keys is not available in managed deployments.",
+          "- For OAuth flows, guide the user to connect through the platform. After connecting, run `assistant oauth connections list` to find the connection ID, and use the `platform_oauth:<connectionId>` handle with CES tools (`make_authenticated_request`, `run_authenticated_command`) for authenticated work.",
+          "- For non-secret config values (e.g. a public URL, a webhook URL), ask the user directly in the conversation and use the appropriate config tool to persist the value.",
+        ]
+      : [
+          '- Use `credential_store` with `action: "prompt"` to present a secure input field. The value never appears in the conversation. Once stored, run `assistant credentials list` to find the service:field identifiers, construct the CES handle as `local_static:<service>/<field>`, and use CES tools (`make_authenticated_request`, `run_authenticated_command`) for authenticated work.',
+          '- For OAuth flows, use `credential_store` with `action: "oauth2_connect"` to handle the authorization in-browser. Some services (e.g. Twitter/X) define their own auth flow via dedicated skill instructions — check the service\'s skill documentation for provider-specific setup steps. After connecting, run `assistant oauth connections list` to find the provider key, construct the CES handle, and use CES tools.',
+          "- For non-secret config values (e.g. a public URL, a webhook URL), ask the user directly in the conversation and use the appropriate config tool to persist the value.",
+        ]),
     "",
     '**After saving a value**, confirm success with a message like: "Great, saved! You can always update this from the Settings page."',
     "",
@@ -354,9 +364,9 @@ function buildInChatConfigurationSection(): string {
     "",
     "### Avatar Customisation",
     "",
-    'You can change your avatar appearance using the `set_avatar` tool. When the user asks to change, update, or customise your avatar, use `set_avatar` with a `description` parameter describing the desired appearance (e.g. "a friendly purple cat with green eyes wearing a tiny hat"). The tool generates an avatar image and updates all connected clients automatically.',
+    "When the user asks to change, update, or customise your avatar, load the **vellum-avatar** skill using `skill_load`. The skill covers building a native character from traits, uploading an image, or generating one with AI.",
     "",
-    "**After generating a new avatar**, always update the `## Avatar` section in `IDENTITY.md` with a brief description of the current avatar appearance. This ensures you remember what you look like across sessions. Example:",
+    "**After any avatar change**, always update the `## Avatar` section in `IDENTITY.md` with a brief description of the current avatar appearance. This ensures you remember what you look like across sessions. Example:",
     "```",
     "## Avatar",
     "A friendly purple cat with green eyes wearing a tiny hat",
@@ -434,7 +444,7 @@ function buildToolPermissionSection(): string {
     "",
     "**CRITICAL RULE:** You MUST ALWAYS output a text message BEFORE calling any tool that requires approval. NEVER call a permission-gated tool without preceding text. Your user needs context to decide whether to allow.",
     "",
-    '**IMPORTANT:** If your user has already granted broad approval for the current conversation (e.g. via "Allow for 10 minutes", "Allow for this thread", or "Always Allow"), do NOT ask for permission again. Instead, just briefly describe what you\'re about to do and proceed. Only ask "Can you allow?" on the FIRST tool call when you haven\'t been granted permission yet.',
+    '**IMPORTANT:** If your user has already granted broad approval for the current conversation (e.g. via "Allow for 10 minutes", "Allow for this conversation", or "Always Allow"), do NOT ask for permission again. Instead, just briefly describe what you\'re about to do and proceed. Only ask "Can you allow?" on the FIRST tool call when you haven\'t been granted permission yet.',
     "",
     "Your text should follow this pattern:",
     "1. **Acknowledge** the request conversationally.",
@@ -466,7 +476,7 @@ function buildToolPermissionSection(): string {
     "",
     "### Always-Available Tools (No Approval Required)",
     "",
-    "- **file_read** on your workspace directory — You can freely read any file under your `.vellum` workspace at any time. Use this proactively to check files, load context, and inform your responses without asking. **Always use `file_read` for workspace files (IDENTITY.md, USER.md, SOUL.md, etc.), never `host_file_read`.**",
+    "- **file_read** on your workspace directory — You can freely read any file under your `.vellum` workspace at any time. Use this proactively to check files, load context, and inform your responses without asking. **Always use `file_read` for workspace files, never `host_file_read`.** Note: your core prompt files (IDENTITY.md, SOUL.md, USER.md) are already loaded into your system prompt — no need to re-read them at the start of a conversation.",
     "- **web_search** — You can search the web at any time without approval. Use this to look up documentation, current information, or anything you need.",
   ].join("\n");
 }
@@ -511,17 +521,8 @@ export function buildChannelAwarenessSection(): string {
     "- When the user asks about voice input or push-to-talk settings, use the tool to apply changes directly rather than directing them to settings.",
     "- When `microphone_permission_granted` is `false`, guide the user to grant microphone access in System Settings before using voice features.",
     "",
-    "### Group chat etiquette",
-    "- In group chats, you are a **participant**, not the user's proxy. Think before you speak.",
-    "- **Respond when:** directly mentioned, you can add genuine value, something witty fits naturally, or correcting important misinformation.",
-    '- **Stay silent when:** it\'s casual banter between humans, someone already answered, your response would just be "yeah" or "nice", or the conversation flows fine without you.',
-    "- **The human rule:** humans don't respond to every message in a group chat. Neither should you. Quality over quantity.",
-    "- On platforms with reactions (Discord, Slack), use emoji reactions naturally to acknowledge without cluttering.",
-    "",
     "### Platform formatting",
-    "- **Discord/WhatsApp:** Do not use markdown tables — use bullet lists instead.",
-    "- **Discord links:** Wrap multiple links in `<>` to suppress embeds.",
-    "- **WhatsApp:** No markdown headers — use **bold** or CAPS for emphasis.",
+    "- **WhatsApp:** Do not use markdown tables — use bullet lists instead. No markdown headers — use **bold** or CAPS for emphasis.",
   ].join("\n");
 }
 
@@ -603,22 +604,26 @@ function buildAccessPreferenceSection(hasNoClient: boolean): string {
     "   Only fall back to host tools when you genuinely need access to the user's local files,",
     "   environment, or host-specific resources (e.g. their local git repos, host-installed CLIs",
     "   with existing auth, macOS-specific apps).",
-    "2. **CLI tools via host_bash** — If you need access to the user's host environment and a CLI",
+    "2. **CES tools for authenticated work** — When a task requires credentials (API keys, OAuth tokens),",
+    "   discover available handles with `assistant credentials list` or `assistant oauth connections list`,",
+    "   then use CES tools (`make_authenticated_request`, `run_authenticated_command`). CES injects",
+    "   credentials securely without exposing raw secrets to the assistant.",
+    "3. **CLI tools via host_bash** — If you need access to the user's host environment and a CLI",
     "   is installed on their machine (gh, slack, linear, jira, aws, gcloud, etc.), use it.",
     "   CLIs handle auth, pagination, and output formatting.",
     "   Use --json or equivalent flags for structured output when available.",
-    "3. **Direct API calls via host_bash** — Use curl/httpie with API tokens from credential_store.",
-    "   Faster and more reliable than browser automation.",
+    "   Note: `host_bash` is approval-gated and outside the CES secrecy boundary.",
     "4. **web_fetch** — For public endpoints or simple API calls that don't need auth.",
     "5. **Browser automation as last resort** — Only when the task genuinely requires a browser",
     "   (e.g., no API exists, visual interaction needed, or OAuth consent screen).",
     "",
     "Before reaching for host tools or browser automation, ask yourself:",
     "- Can I do this entirely in my sandbox? (install tools, clone repos, run commands)",
+    "- Can I use CES tools for authenticated requests instead of extracting raw tokens?",
     "- Do I actually need something from the user's host machine?",
     "",
-    "If you can do it in your sandbox, do it there. Only use host tools when you need the user's",
-    "local files, credentials, or host-specific capabilities.",
+    "If you can do it in your sandbox or through CES, do it there. Only use host tools when you need the user's",
+    "local files or host-specific capabilities.",
     ...(isMacOS()
       ? [
           "",
@@ -690,7 +695,7 @@ function buildMemoryRecallSection(): string {
     "- The auto-injected memory context doesn't contain what you need",
     "- The user references something from a previous session",
     "",
-    "The tool searches across semantic, lexical, entity graph, and recency sources. Be specific in your query for best results.",
+    "The tool uses hybrid search (dense and sparse vectors) supplemented by recency. Be specific in your query for best results.",
   ].join("\n");
 }
 
@@ -715,7 +720,7 @@ function buildLearningMemorySection(): string {
     "",
     "When you make a mistake, hit a dead end, or discover something non-obvious, save it to memory so you don't repeat it.",
     "",
-    'Use `memory_manage` with `op: "save", kind: "learning"` for:',
+    'Use `memory_manage` with `op: "save", kind: "constraint"` for:',
     "- **Mistakes and corrections** — wrong assumptions, failed approaches, gotchas you ran into",
     "- **Discoveries** — undocumented behaviors, surprising API quirks, things that weren't obvious",
     "- **Working solutions** — the approach that actually worked after trial and error",
@@ -724,8 +729,8 @@ function buildLearningMemorySection(): string {
     "The statement should capture both what happened and the takeaway. Write it as advice to your future self.",
     "",
     "Examples:",
-    '- `memory_manage({ op: "save", kind: "learning", subject: "macOS Shortcuts CLI", statement: "shortcuts CLI requires full disk access to export shortcuts — if permission is denied, guide the user to grant it in System Settings rather than retrying." })`',
-    '- `memory_manage({ op: "save", kind: "learning", subject: "Gmail API pagination", statement: "Gmail search returns max 100 results per page. Always check nextPageToken and loop if the user asks for \'all\' messages." })`',
+    '- `memory_manage({ op: "save", kind: "constraint", subject: "macOS Shortcuts CLI", statement: "shortcuts CLI requires full disk access to export shortcuts — if permission is denied, guide the user to grant it in System Settings rather than retrying." })`',
+    '- `memory_manage({ op: "save", kind: "constraint", subject: "Gmail API pagination", statement: "Gmail search returns max 100 results per page. Always check nextPageToken and loop if the user asks for \'all\' messages." })`',
     "",
     "Don't overthink it. If you catch yourself thinking \"I'll remember that for next time,\" save it.",
   ].join("\n");
@@ -802,7 +807,7 @@ function buildConfigSection(hasNoClient: boolean): string {
     "",
     "### Heartbeat",
     "",
-    "The heartbeat feature runs your `HEARTBEAT.md` checklist periodically in a background thread. To enable it, set `heartbeat.enabled: true` and `heartbeat.intervalMs` (default: 3600000 = 1 hour) in `config.json`. You can also set `heartbeat.activeHoursStart` and `heartbeat.activeHoursEnd` (0-23) to restrict runs to certain hours. When asked to set up a heartbeat, edit both the config and `HEARTBEAT.md` directly — no restart is needed for checklist changes, but toggling `heartbeat.enabled` requires a daemon restart.",
+    "The heartbeat feature runs your `HEARTBEAT.md` checklist periodically in a background conversation. To enable it, set `heartbeat.enabled: true` and `heartbeat.intervalMs` (default: 3600000 = 1 hour) in `config.json`. You can also set `heartbeat.activeHoursStart` and `heartbeat.activeHoursEnd` (0-23) to restrict runs to certain hours. When asked to set up a heartbeat, edit both the config and `HEARTBEAT.md` directly — no restart is needed for checklist changes, but toggling `heartbeat.enabled` requires a daemon restart.",
     "",
     "### Proactive Workspace Editing",
     "",
@@ -845,13 +850,41 @@ export function buildCliReferenceSection(): string {
   return [
     "## Assistant CLI",
     "",
-    "The `assistant` CLI is installed on the user's machine and available via `bash`.",
-    "For account and authentication work, prefer real `assistant` CLI workflows over any legacy account-record abstraction.",
-    "- Use `assistant credentials ...` for stored secrets and credential metadata.",
-    "- Use `assistant oauth connections token <provider-key>` for connected integration tokens.",
-    "- Use `assistant mcp auth <name>` when an MCP server needs OAuth login.",
-    "- Use `assistant platform status` for platform-linked deployment and auth context.",
+    "The `assistant` CLI is available in the sandbox. Always use the `bash` tool (never `host_bash`) when running `assistant` commands.",
+    "",
+    "### Credential Discovery and Authenticated Work",
+    "",
+    "When you need to make authenticated requests or run commands that require credentials, follow this workflow:",
+    "",
+    "1. **Discover available credentials** by running:",
+    "   - `assistant credentials list` — lists local credentials with their service:field identifiers",
+    "   - `assistant oauth connections list` — lists OAuth connections with provider keys",
+    "   - `assistant credentials list --search <query>` — filter by service, field, or description",
+    ...(shouldUsePlatformCallbacks()
+      ? [
+          "   In managed deployments, credential handles use the `platform_oauth:<connectionId>` format (shown in the `handle` field of `assistant oauth connections list`). Local credential handles (`local_static`, `local_oauth`) are not available in managed mode.",
+        ]
+      : [
+          "   For local credentials, construct the CES handle as `local_static:<service>/<field>` from the listed identifiers. For local OAuth connections, the handle is `local_oauth:<providerKey>/<connectionId>` (shown in the `handle` field of `assistant oauth connections list`). Platform-managed entries use `platform_oauth:<connectionId>` handles, also shown in their `handle` field.",
+        ]),
+    "",
+    "2. **Use CES tools** with the handle to perform authenticated work:",
+    "   - `make_authenticated_request` — authenticated HTTP requests (API calls, webhooks). CES injects the credential and returns the response; the assistant never sees raw secrets.",
+    "   - `run_authenticated_command` — run a command with credential environment variables injected by CES. The command runs inside the CES sandbox.",
+    "   - `manage_secure_command_tool` — install, update, or remove secure command tool bundles. Accepts only bundle metadata for guardian review.",
+    "",
+    "3. **Never reveal raw secrets.** Do not use `assistant credentials reveal` or `assistant oauth connections token` to extract raw token values and pass them to `bash` or `host_bash`. Always route authenticated work through CES tools.",
+    "",
+    "For account setup and credential management (not execution), use:",
+    "- `assistant credentials set ...` — store a new credential",
+    "- `assistant oauth connections connect <provider>` — initiate an OAuth flow",
+    "- `assistant mcp auth <name>` — when an MCP server needs OAuth login",
+    "- `assistant platform status` — platform-linked deployment and auth context",
     "- If a bundled skill documents a service-specific `assistant <service>` auth or session flow, follow that CLI exactly.",
+    "",
+    "### host_bash and Credentials",
+    "",
+    "`host_bash` is approval-gated and runs on the user's host machine. It is outside the CES secrecy boundary. Do not use `host_bash` to run commands with injected credentials or tokens. If you need authenticated command execution, use `run_authenticated_command` (CES tool) instead.",
     "",
     "```",
     cachedCliHelp,
@@ -902,6 +935,22 @@ function readPromptFile(path: string): string | null {
     log.warn({ err, path }, "Failed to read prompt file");
     return null;
   }
+}
+
+/**
+ * Reads the core identity/personality prompt files (SOUL.md, IDENTITY.md, USER.md)
+ * and concatenates whichever exist. Returns null if none are present.
+ *
+ * This is useful for injecting identity context into subsystems (e.g. memory
+ * extraction) that run outside the main system prompt pipeline.
+ */
+export function buildCoreIdentityContext(): string | null {
+  const parts: string[] = [];
+  for (const file of PROMPT_FILES) {
+    const content = readPromptFile(getWorkspacePromptPath(file));
+    if (content) parts.push(content);
+  }
+  return parts.length > 0 ? parts.join("\n\n") : null;
 }
 
 function appendSkillsCatalog(basePrompt: string): string {
@@ -960,6 +1009,22 @@ function buildDynamicSkillWorkflowSection(
     );
   }
 
+  lines.push(
+    "",
+    "### Community Skills Discovery",
+    "",
+    "When no built-in skill satisfies a request, search the community skills.sh registry:",
+    "1. Run `assistant skills search <query>` to find community skills. Results include install counts and security audit badges (ATH, Socket, Snyk).",
+    "2. Present the search results to the user, highlighting the security audit status. ATH is Gen Agent Trust Hub. Audits show PASS (safe/low risk), WARN (medium risk), or FAIL (high/critical risk) for each provider.",
+    "3. Check the skill's **source owner** to determine the trust level:",
+    "   - **Vellum-owned** (source starts with `vellum-ai/`): These are first-party skills published by the Vellum team. Install them directly without prompting — they are vetted and trusted.",
+    "   - **Third-party** (any other owner): Ask the user for permission before installing. Say something like: \"I found a community skill that could help with this, but it's published by a third party — we haven't vetted it. Want to install it anyway?\" Share the skill name, source, audit results, and install count.",
+    "4. Install with `assistant skills add <owner>/<repo>@<skill-name>` (e.g., `assistant skills add vercel-labs/skills@find-skills`).",
+    "5. After installation, load the skill with `skill_load` as usual.",
+    "",
+    "**Never install third-party community skills without explicit user confirmation.** Vellum-owned skills (`vellum-ai/*`) can be installed automatically.",
+  );
+
   return lines.join("\n");
 }
 
@@ -988,13 +1053,7 @@ function getMcpSetupDescription(): string {
 }
 
 function formatSkillsCatalog(skills: SkillSummary[]): string {
-  // Filter out skills with disableModelInvocation or unsupported OS
-  const visible = skills.filter((s) => {
-    if (s.disableModelInvocation) return false;
-    const os = s.metadata?.os;
-    if (os && os.length > 0 && !os.includes(process.platform)) return false;
-    return true;
-  });
+  const visible = skills;
   if (visible.length === 0) return "";
 
   const lines = ["<available_skills>"];
@@ -1006,11 +1065,8 @@ function formatSkillsCatalog(skills: SkillSummary[]): string {
         ? escapeXml(getMcpSetupDescription())
         : escapeXml(skill.description);
     const locAttr = escapeXml(skill.directoryPath);
-    const credAttr = skill.credentialSetupFor
-      ? ` credential-setup-for="${escapeXml(skill.credentialSetupFor)}"`
-      : "";
     lines.push(
-      `<skill id="${idAttr}" name="${nameAttr}" description="${descAttr}" location="${locAttr}"${credAttr} />`,
+      `<skill id="${idAttr}" name="${nameAttr}" description="${descAttr}" location="${locAttr}" />`,
     );
   }
   lines.push("</available_skills>");
@@ -1018,7 +1074,6 @@ function formatSkillsCatalog(skills: SkillSummary[]): string {
   return [
     "## Available Skills",
     "The following skills are available. Before executing one, call `skill_load` to load the full instructions, then use `skill_execute` to invoke the skill's tools.",
-    "When a credential is missing, check if any skill declares `credential-setup-for` matching that service — if so, load that skill.",
     "",
     lines.join("\n"),
     "",

@@ -27,11 +27,11 @@ struct WorkspaceBrowserView: View {
             } else if entries.isEmpty {
                 VStack(spacing: VSpacing.md) {
                     VIconView(.folder, size: 36)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .accessibilityHidden(true)
                     Text("Empty directory")
                         .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -266,13 +266,13 @@ struct WorkspaceBrowserView: View {
     private func directoryRow(_ entry: WorkspaceTreeEntry) -> some View {
         HStack(spacing: VSpacing.sm) {
             VIconView(.folder, size: 16)
-                .foregroundColor(VColor.accent)
+                .foregroundColor(VColor.primaryBase)
                 .frame(width: 24)
                 .accessibilityHidden(true)
 
             Text(entry.name)
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             Spacer()
         }
@@ -283,26 +283,26 @@ struct WorkspaceBrowserView: View {
     private func fileRow(_ entry: WorkspaceTreeEntry) -> some View {
         HStack(spacing: VSpacing.sm) {
             VIconView(iconForMimeType(entry.mimeType), size: 16)
-                .foregroundColor(VColor.accent)
+                .foregroundColor(VColor.primaryBase)
                 .frame(width: 24)
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.name)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 if let size = entry.size {
                     Text(formatFileSize(size))
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
 
             Spacer()
 
             VIconView(.chevronRight, size: 12)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .accessibilityHidden(true)
         }
         .accessibilityElement(children: .combine)

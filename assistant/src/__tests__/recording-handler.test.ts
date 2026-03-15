@@ -24,7 +24,6 @@ mock.module("../config/loader.js", () => ({
     daemon: { standaloneRecording: true },
     provider: "mock-provider",
     permissions: { mode: "workspace" },
-    apiKeys: {},
     sandbox: { enabled: false },
     timeouts: { toolExecutionTimeoutSec: 30, permissionTimeoutSec: 5 },
     skills: { load: { extraDirs: [] } },
@@ -51,7 +50,7 @@ const mockMessages: Array<{ id: string; role: string; content: string }> = [];
 let mockMessageIdCounter = 0;
 
 mock.module("../memory/conversation-crud.js", () => ({
-  getConversationThreadType: () => "default",
+  getConversationType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},

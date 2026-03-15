@@ -19,7 +19,6 @@ import {
   conversations,
   llmRequestLogs,
   memoryEmbeddings,
-  memoryItemEntities,
   memoryItems,
   memoryItemSources,
   memorySegments,
@@ -98,7 +97,7 @@ export interface ConversationRow {
   contextSummary: string | null;
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
-  threadType: string;
+  conversationType: string;
   source: string;
   memoryScopeId: string;
   originChannel: string | null;
@@ -121,7 +120,7 @@ export const parseConversation = createRowMapper<
   contextSummary: "contextSummary",
   contextCompactedMessageCount: "contextCompactedMessageCount",
   contextCompactedAt: "contextCompactedAt",
-  threadType: "threadType",
+  conversationType: "conversationType",
   source: "source",
   memoryScopeId: "memoryScopeId",
   originChannel: "originChannel",
@@ -170,7 +169,7 @@ export function createConversation(
     | string
     | {
         title?: string;
-        threadType?: "standard" | "private" | "background";
+        conversationType?: "standard" | "private" | "background";
         source?: string;
         scheduleJobId?: string;
       },
@@ -181,10 +180,11 @@ export function createConversation(
     typeof titleOrOpts === "string"
       ? { title: titleOrOpts }
       : (titleOrOpts ?? {});
-  const threadType = opts.threadType ?? "standard";
+  const conversationType = opts.conversationType ?? "standard";
   const source = opts.source ?? "user";
   const id = uuid();
-  const memoryScopeId = threadType === "private" ? `private:${id}` : "default";
+  const memoryScopeId =
+    conversationType === "private" ? `private:${id}` : "default";
   const conversation = {
     id,
     title: opts.title ?? null,
@@ -196,7 +196,7 @@ export function createConversation(
     contextSummary: null as string | null,
     contextCompactedMessageCount: 0,
     contextCompactedAt: null as number | null,
-    threadType,
+    conversationType,
     source,
     memoryScopeId,
     scheduleJobId: opts.scheduleJobId ?? null,
@@ -241,11 +241,11 @@ export function getConversation(id: string): ConversationRow | null {
   return row ? parseConversation(row) : null;
 }
 
-export function getConversationThreadType(
+export function getConversationType(
   conversationId: string,
 ): "standard" | "private" {
   const conv = getConversation(conversationId);
-  const raw = conv?.threadType;
+  const raw = conv?.conversationType;
   return raw === "private" ? "private" : "standard";
 }
 
@@ -255,22 +255,143 @@ export function getConversationMemoryScopeId(conversationId: string): string {
 }
 
 /**
- * Delete a conversation and all its messages.
- * Used for ephemeral conversations (e.g. secret-redirect placeholders)
- * that should not persist in session history.
+ * Delete a conversation and all its messages, cleaning up orphaned memory
+ * artifacts (items, embeddings). Returns segment and orphaned item IDs so
+ * callers can clean up the corresponding Qdrant vector entries.
  */
-export function deleteConversation(id: string): void {
+export function deleteConversation(id: string): DeletedMemoryIds {
   const db = getDb();
+  const result: DeletedMemoryIds = { segmentIds: [], orphanedItemIds: [] };
+
   db.transaction((tx) => {
-    tx.delete(llmRequestLogs)
-      .where(eq(llmRequestLogs.conversationId, id))
-      .run();
-    tx.delete(toolInvocations)
-      .where(eq(toolInvocations.conversationId, id))
-      .run();
-    tx.delete(messages).where(eq(messages.conversationId, id)).run();
+    // Collect all message IDs for this conversation.
+    const messageRows = tx
+      .select({ id: messages.id })
+      .from(messages)
+      .where(eq(messages.conversationId, id))
+      .all();
+    const messageIds = messageRows.map((r) => r.id);
+
+    if (messageIds.length > 0) {
+      // Collect memory segment IDs linked to these messages before cascade.
+      const linkedSegments = tx
+        .select({ id: memorySegments.id })
+        .from(memorySegments)
+        .where(inArray(memorySegments.messageId, messageIds))
+        .all();
+      result.segmentIds = linkedSegments.map((r) => r.id);
+
+      // Collect memory item IDs linked to these messages before cascade.
+      const linkedItems = tx
+        .select({ memoryItemId: memoryItemSources.memoryItemId })
+        .from(memoryItemSources)
+        .where(inArray(memoryItemSources.messageId, messageIds))
+        .all();
+      const candidateItemIds = [
+        ...new Set(linkedItems.map((r) => r.memoryItemId)),
+      ];
+
+      // Delete non-cascading tables first.
+      tx.delete(llmRequestLogs)
+        .where(eq(llmRequestLogs.conversationId, id))
+        .run();
+      tx.delete(toolInvocations)
+        .where(eq(toolInvocations.conversationId, id))
+        .run();
+      // Cascade deletes memory_segments, memory_item_sources, message_attachments.
+      tx.delete(messages).where(eq(messages.conversationId, id)).run();
+
+      // Clean up segment embeddings.
+      if (result.segmentIds.length > 0) {
+        tx.delete(memoryEmbeddings)
+          .where(
+            and(
+              eq(memoryEmbeddings.targetType, "segment"),
+              inArray(memoryEmbeddings.targetId, result.segmentIds),
+            ),
+          )
+          .run();
+      }
+
+      // Clean up orphaned memory items whose only sources were in this conversation.
+      if (candidateItemIds.length > 0) {
+        const surviving = tx
+          .select({ memoryItemId: memoryItemSources.memoryItemId })
+          .from(memoryItemSources)
+          .where(inArray(memoryItemSources.memoryItemId, candidateItemIds))
+          .all();
+        const survivingIds = new Set(surviving.map((r) => r.memoryItemId));
+        const orphanedIds = candidateItemIds.filter(
+          (itemId) => !survivingIds.has(itemId),
+        );
+        result.orphanedItemIds = orphanedIds;
+
+        if (orphanedIds.length > 0) {
+          tx.delete(memoryEmbeddings)
+            .where(
+              and(
+                eq(memoryEmbeddings.targetType, "item"),
+                inArray(memoryEmbeddings.targetId, orphanedIds),
+              ),
+            )
+            .run();
+          tx.delete(memoryItems)
+            .where(inArray(memoryItems.id, orphanedIds))
+            .run();
+        }
+      }
+    } else {
+      // No messages — just clean up non-message tables.
+      tx.delete(llmRequestLogs)
+        .where(eq(llmRequestLogs.conversationId, id))
+        .run();
+      tx.delete(toolInvocations)
+        .where(eq(toolInvocations.conversationId, id))
+        .run();
+    }
+
     tx.delete(conversations).where(eq(conversations.id, id)).run();
   });
+
+  return result;
+}
+
+/**
+ * Delete all private (temporary) conversations and their associated data.
+ * Called at daemon startup to clean up ephemeral conversations from previous sessions.
+ * Returns the count and aggregated deleted memory IDs for Qdrant cleanup.
+ */
+export function purgePrivateConversations(): {
+  count: number;
+  deletedMemory: DeletedMemoryIds;
+} {
+  const db = getDb();
+  const privateConvs = db
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(eq(conversations.conversationType, "private"))
+    .all();
+
+  if (privateConvs.length === 0) {
+    return { count: 0, deletedMemory: { segmentIds: [], orphanedItemIds: [] } };
+  }
+
+  const allSegmentIds: string[] = [];
+  const allOrphanedItemIds: string[] = [];
+
+  for (const conv of privateConvs) {
+    const deleted = deleteConversation(conv.id);
+    allSegmentIds.push(...deleted.segmentIds);
+    allOrphanedItemIds.push(...deleted.orphanedItemIds);
+  }
+
+  return {
+    count: privateConvs.length,
+    deletedMemory: {
+      segmentIds: allSegmentIds,
+      orphanedItemIds: allOrphanedItemIds,
+    },
+  };
 }
 
 export async function addMessage(
@@ -370,7 +491,7 @@ export async function addMessage(
       const provenanceTrustClass = parsed?.success
         ? parsed.data.provenanceTrustClass
         : undefined;
-      indexMessageNow(
+      await indexMessageNow(
         {
           messageId: message.id,
           conversationId: message.conversationId,
@@ -503,19 +624,6 @@ export function clearAll(): { conversations: number; messages: number } {
   // triggers so that the subsequent base-table DELETEs don't also fail
   // (SQLite triggers are atomic with the triggering statement, so a
   // corrupted FTS table would roll back every base-table DELETE).
-  let segmentFtsCorrupted = false;
-  try {
-    rawExec("DELETE FROM memory_segment_fts");
-  } catch (err) {
-    log.warn(
-      { err },
-      "clearAll: failed to clear memory_segment_fts — dropping triggers so base-table cleanup can proceed",
-    );
-    rawExec("DROP TRIGGER IF EXISTS memory_segments_ai");
-    rawExec("DROP TRIGGER IF EXISTS memory_segments_ad");
-    rawExec("DROP TRIGGER IF EXISTS memory_segments_au");
-    segmentFtsCorrupted = true;
-  }
   rawExec("DELETE FROM memory_item_sources");
   rawExec("DELETE FROM memory_segments");
   rawExec("DELETE FROM memory_items");
@@ -548,21 +656,6 @@ export function clearAll(): { conversations: number; messages: number } {
   // DELETEs have completed. Dropping the virtual table clears the corruption,
   // and recreating it + triggers means subsequent writes maintain FTS
   // consistency without requiring a daemon restart.
-  if (segmentFtsCorrupted) {
-    rawExec("DROP TABLE IF EXISTS memory_segment_fts");
-    rawExec(
-      `CREATE VIRTUAL TABLE IF NOT EXISTS memory_segment_fts USING fts5(segment_id UNINDEXED, text)`,
-    );
-    rawExec(
-      `CREATE TRIGGER IF NOT EXISTS memory_segments_ai AFTER INSERT ON memory_segments BEGIN INSERT INTO memory_segment_fts(segment_id, text) VALUES (new.id, new.text); END`,
-    );
-    rawExec(
-      `CREATE TRIGGER IF NOT EXISTS memory_segments_ad AFTER DELETE ON memory_segments BEGIN DELETE FROM memory_segment_fts WHERE segment_id = old.id; END`,
-    );
-    rawExec(
-      `CREATE TRIGGER IF NOT EXISTS memory_segments_au AFTER UPDATE ON memory_segments BEGIN DELETE FROM memory_segment_fts WHERE segment_id = old.id; INSERT INTO memory_segment_fts(segment_id, text) VALUES (new.id, new.text); END`,
-    );
-  }
   if (messagesFtsCorrupted) {
     rawExec("DROP TABLE IF EXISTS messages_fts");
     rawExec(
@@ -787,10 +880,6 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
       result.orphanedItemIds = orphanedIds;
 
       if (orphanedIds.length > 0) {
-        // Delete memory_item_entities (no FK cascade on this table).
-        tx.delete(memoryItemEntities)
-          .where(inArray(memoryItemEntities.memoryItemId, orphanedIds))
-          .run();
         // Delete embeddings referencing these items.
         tx.delete(memoryEmbeddings)
           .where(
@@ -875,7 +964,7 @@ export function getConversationOriginInterface(
  *
  * Used by the pointer message trust resolver to detect conversations
  * whose audience is a guardian or trusted_contact (even if the
- * conversation itself isn't a desktop-origin private thread).
+ * conversation itself isn't a desktop-origin private conversation).
  */
 export function getConversationRecentProvenanceTrustClass(
   conversationId: string,

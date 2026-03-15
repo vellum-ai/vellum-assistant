@@ -16,15 +16,15 @@ public enum VShadow {
         }
     }
 
-    public static let sm   = Definition(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
-    public static let md   = Definition(color: .black.opacity(0.3), radius: 8, x: 0, y: 4)
-    public static let lg   = Definition(color: .black.opacity(0.4), radius: 16, x: 0, y: 8)
+    public static let sm   = Definition(color: VColor.auxBlack.opacity(0.2), radius: 4, x: 0, y: 2)
+    public static let md   = Definition(color: VColor.auxBlack.opacity(0.3), radius: 8, x: 0, y: 4)
+    public static let lg   = Definition(color: VColor.auxBlack.opacity(0.4), radius: 16, x: 0, y: 8)
 
     /// Amber glow effect for brand elements (orb, highlights)
-    public static let glow = Definition(color: Amber._500.opacity(0.3), radius: 12, x: 0, y: 0)
+    public static let glow = Definition(color: VColor.systemNegativeHover.opacity(0.3), radius: 12, x: 0, y: 0)
 
     /// Forest glow for accent elements (focused inputs, active buttons)
-    public static let accentGlow = Definition(color: Forest._500.opacity(0.3), radius: 8, x: 0, y: 0)
+    public static let accentGlow = Definition(color: VColor.primaryActive.opacity(0.3), radius: 8, x: 0, y: 0)
 }
 
 public extension View {

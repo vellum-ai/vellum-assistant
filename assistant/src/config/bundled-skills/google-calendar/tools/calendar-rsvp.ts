@@ -9,11 +9,12 @@ export async function run(
   input: Record<string, unknown>,
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  const account = input.account as string | undefined;
   const eventId = input.event_id as string;
   const response = input.response as "accepted" | "declined" | "tentative";
   const calendarId = (input.calendar_id as string) ?? "primary";
 
-  const connection = getCalendarConnection();
+  const connection = await getCalendarConnection(account);
 
   // First get the event to find the user's attendee entry
   const event = await calendar.getEvent(connection, eventId, calendarId);

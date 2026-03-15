@@ -1,34 +1,51 @@
 import { randomUUID } from "node:crypto";
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname } from "node:path";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  watch,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 import * as readline from "node:readline";
 
-import { httpHealthCheck, httpSend, readHttpToken } from "./cli/http-client.js";
 import {
   type MainScreenLayout,
   renderMainScreen,
   updateDaemonText,
   updateStatusText,
 } from "./cli/main-screen.jsx";
-import { shouldAutoStartDaemon } from "./daemon/connection-policy.js";
-import { ensureDaemonRunning } from "./daemon/lifecycle.js";
+import { loadRawConfig, saveRawConfig } from "./config/loader.js";
+import { getModelInfo } from "./daemon/handlers/config-model.js";
+import { renderHistoryContent } from "./daemon/handlers/shared.js";
 import type {
   ConfirmationRequest,
   ServerMessage,
 } from "./daemon/message-protocol.js";
+import { MODEL_TO_PROVIDER } from "./daemon/session-slash.js";
+import { getConversation, getMessages } from "./memory/conversation-crud.js";
+import {
+  getConversationByKey,
+  getOrCreateConversation,
+  setConversationKeyIfAbsent,
+} from "./memory/conversation-key-store.js";
+import { listConversations } from "./memory/conversation-queries.js";
+import {
+  type EventStreamWatcher,
+  watchEventStream,
+} from "./signals/event-stream.js";
 import {
   copyToClipboard,
   extractLastCodeBlock,
   formatSessionForExport,
 } from "./util/clipboard.js";
 import { formatDiff, formatNewFileDiff } from "./util/diff.js";
-import { getHistoryPath } from "./util/platform.js";
+import { getHistoryPath, getSignalsDir } from "./util/platform.js";
 import { Spinner } from "./util/spinner.js";
 import { timeAgo } from "./util/time.js";
 import { truncate } from "./util/truncate.js";
-
-const RECONNECT_BASE_DELAY_MS = 1_000;
-const RECONNECT_MAX_DELAY_MS = 30_000;
 
 /** Stable conversation key used by the built-in CLI. */
 const CLI_CONVERSATION_KEY = "builtin-cli:default";
@@ -142,9 +159,7 @@ export async function startCli(): Promise<void> {
   let pendingConfirmation = false;
   let pendingCopySession = false;
   let toolStreaming = false;
-  let reconnecting = false;
-  let reconnectDelay = RECONNECT_BASE_DELAY_MS;
-  let sseAbortController: AbortController | null = null;
+  let eventSubscription: EventStreamWatcher | null = null;
   const spinner = new Spinner();
 
   process.stdout.write("\x1b[2J\x1b[H");
@@ -219,63 +234,151 @@ export async function startCli(): Promise<void> {
     rl.prompt();
   }
 
-  /** Send a confirmation decision via HTTP. */
-  async function sendConfirmation(
-    requestId: string,
-    decision: string,
-  ): Promise<void> {
+  /** Send a confirmation decision via signal file (read by the daemon). */
+  function sendConfirmation(requestId: string, decision: string): void {
     try {
-      await httpSend("/v1/confirm", {
-        method: "POST",
-        body: JSON.stringify({ requestId, decision }),
-      });
+      const signalsDir = getSignalsDir();
+      mkdirSync(signalsDir, { recursive: true });
+      writeFileSync(
+        join(signalsDir, "confirm"),
+        JSON.stringify({ requestId, decision }),
+      );
     } catch {
       process.stdout.write("[Failed to send confirmation]\n");
     }
   }
 
-  /** Add a trust rule and then confirm via HTTP. */
-  async function sendTrustRuleAndConfirm(
+  /** Add a trust rule via signal file, then confirm once the daemon acknowledges. */
+  function sendTrustRuleAndConfirm(
     requestId: string,
     pattern: string,
     scope: string,
     decision: "allow" | "deny",
     confirmDecision: string,
     options?: { allowHighRisk?: boolean },
-  ): Promise<void> {
+  ): void {
     try {
-      await httpSend("/v1/trust-rules", {
-        method: "POST",
-        body: JSON.stringify({
+      const signalsDir = getSignalsDir();
+      mkdirSync(signalsDir, { recursive: true });
+      const resultPath = join(signalsDir, "trust-rule.result");
+      writeFileSync(
+        join(signalsDir, "trust-rule"),
+        JSON.stringify({
           requestId,
           pattern,
           scope,
           decision,
           ...(options?.allowHighRisk ? { allowHighRisk: true } : {}),
         }),
+      );
+
+      let settled = false;
+
+      const onResult = (): void => {
+        try {
+          const raw = readFileSync(resultPath, "utf-8");
+          const result = JSON.parse(raw) as {
+            ok?: boolean;
+            requestId?: string;
+            error?: string;
+          };
+          if (result.requestId !== requestId) return;
+          settled = true;
+          watcher.close();
+          clearTimeout(timeoutId);
+          if (result.ok) {
+            sendConfirmation(requestId, confirmDecision);
+          } else {
+            process.stdout.write(
+              `[Failed to add trust rule: ${result.error ?? "unknown error"}]\n`,
+            );
+          }
+        } catch {
+          // Result file not yet readable; ignore.
+        }
+      };
+
+      const watcher = watch(signalsDir, (_event, filename) => {
+        if (filename === "trust-rule.result") {
+          onResult();
+        }
       });
-      await httpSend("/v1/confirm", {
-        method: "POST",
-        body: JSON.stringify({ requestId, decision: confirmDecision }),
-      });
+
+      const timeoutId = setTimeout(() => {
+        if (!settled) {
+          watcher.close();
+          process.stdout.write("[Trust rule timed out]\n");
+        }
+      }, 5_000);
+
+      if (existsSync(resultPath)) {
+        onResult();
+      }
     } catch {
       process.stdout.write("[Failed to send trust rule]\n");
     }
   }
 
-  /** Send a user message via HTTP POST. */
+  /** Send a user message via signal file to the daemon. */
   async function sendUserMessage(content: string): Promise<boolean> {
     try {
-      const response = await httpSend("/v1/messages", {
-        method: "POST",
-        body: JSON.stringify({
+      const signalsDir = getSignalsDir();
+      mkdirSync(signalsDir, { recursive: true });
+      const requestId = randomUUID();
+      const signalFile = `user-message.${requestId}`;
+      const resultFile = `${signalFile}.result`;
+      const resultPath = join(signalsDir, resultFile);
+      writeFileSync(
+        join(signalsDir, signalFile),
+        JSON.stringify({
           conversationKey,
           content,
           sourceChannel: "vellum",
           interface: "cli",
+          requestId,
         }),
+      );
+
+      const accepted = await new Promise<boolean>((resolve) => {
+        let settled = false;
+        const settle = (value: boolean): void => {
+          if (settled) return;
+          settled = true;
+          watcher.close();
+          clearTimeout(timeoutId);
+          resolve(value);
+        };
+
+        const checkResult = (): void => {
+          try {
+            const raw = readFileSync(resultPath, "utf-8");
+            const result = JSON.parse(raw) as {
+              ok?: boolean;
+              accepted?: boolean;
+              requestId?: string;
+            };
+            if (result.requestId === requestId) {
+              settle(result.ok === true && result.accepted !== false);
+            }
+          } catch {
+            // Result file not yet readable; ignore.
+          }
+        };
+
+        const watcher = watch(signalsDir, (_event, filename) => {
+          if (filename === resultFile) {
+            checkResult();
+          }
+        });
+
+        const timeoutId = setTimeout(() => settle(false), 10_000);
+
+        if (existsSync(resultPath)) {
+          checkResult();
+        }
       });
-      return response.ok || response.status === 202;
+
+      return accepted;
     } catch {
       return false;
     }
@@ -318,8 +421,8 @@ export async function startCli(): Promise<void> {
     if (req.temporaryOptionsAvailable?.includes("allow_10m")) {
       process.stdout.write(`\u2502 [t] Allow 10m\n`);
     }
-    if (req.temporaryOptionsAvailable?.includes("allow_thread")) {
-      process.stdout.write(`\u2502 [T] Allow Thread\n`);
+    if (req.temporaryOptionsAvailable?.includes("allow_conversation")) {
+      process.stdout.write(`\u2502 [T] Allow Conversation\n`);
     }
     process.stdout.write(`\u2502 [d] Deny once\n`);
     if (req.allowlistOptions.length > 0 && req.scopeOptions.length > 0) {
@@ -385,9 +488,9 @@ export async function startCli(): Promise<void> {
 
       if (
         trimmed === "T" &&
-        req.temporaryOptionsAvailable?.includes("allow_thread")
+        req.temporaryOptionsAvailable?.includes("allow_conversation")
       ) {
-        sendConfirmation(req.requestId, "allow_thread");
+        sendConfirmation(req.requestId, "allow_conversation");
         return;
       }
 
@@ -507,8 +610,7 @@ export async function startCli(): Promise<void> {
         conversationKey = `builtin-cli:${randomUUID()}`;
         sessionId = "";
         pendingSessionPick = false;
-        // Reconnect SSE with new conversation key
-        await reconnectSse();
+        reconnectEvents();
         process.stdout.write(
           `\n  New session started.\n  Type your message. Ctrl+D to detach.\n\n`,
         );
@@ -533,31 +635,22 @@ export async function startCli(): Promise<void> {
           prompt();
         } else {
           try {
-            const newKey = `builtin-cli:${selected.id}`;
-            const resp = await httpSend("/v1/conversations/switch", {
-              method: "POST",
-              body: JSON.stringify({
-                conversationId: selected.id,
-                conversationKey: newKey,
-              }),
-            });
-            if (resp.ok) {
-              const data = (await resp.json()) as {
-                sessionId: string;
-                title: string;
-              };
-              sessionId = data.sessionId;
-              conversationKey = newKey;
-              pendingSessionPick = false;
-              await reconnectSse();
-              process.stdout.write(
-                `\n  Session: ${data.title}\n  Type your message. Ctrl+D to detach.\n\n`,
-              );
-              prompt();
-            } else {
+            const conversation = getConversation(selected.id);
+            if (!conversation) {
               process.stdout.write("  Failed to switch session.\n");
               renderSessionPicker(sessions);
+              return;
             }
+            const newKey = `builtin-cli:${selected.id}`;
+            setConversationKeyIfAbsent(newKey, selected.id);
+            sessionId = conversation.id;
+            conversationKey = newKey;
+            pendingSessionPick = false;
+            reconnectEvents();
+            process.stdout.write(
+              `\n  Session: ${conversation.title ?? "Untitled"}\n  Type your message. Ctrl+D to detach.\n\n`,
+            );
+            prompt();
           } catch {
             process.stdout.write("  Failed to switch session.\n");
             renderSessionPicker(sessions);
@@ -637,7 +730,7 @@ export async function startCli(): Promise<void> {
       case "memory_recalled":
         spinner.stop();
         process.stdout.write(
-          `\n\x1B[2m[Memory recalled: ${msg.injectedTokens} tokens | lexical ${msg.lexicalHits} | semantic ${msg.semanticHits} | recency ${msg.recencyHits} | entity ${msg.entityHits} | merged ${msg.mergedCount} → selected ${msg.selectedCount}${msg.rerankApplied ? " (reranked)" : ""} | ${msg.provider}/${msg.model} | ${msg.latencyMs}ms]\x1B[0m\n`,
+          `\n\x1B[2m[Memory recalled: ${msg.injectedTokens} tokens | t1 ${msg.tier1Count} t2 ${msg.tier2Count} | semantic ${msg.semanticHits} | recency ${msg.recencyHits} | merged ${msg.mergedCount} → selected ${msg.selectedCount}${msg.sparseVectorUsed ? " (sparse)" : ""} | hybrid ${msg.hybridSearchLatencyMs}ms | ${msg.provider}/${msg.model} | ${msg.latencyMs}ms]\x1B[0m\n`,
         );
         spinner.start("Thinking...");
         break;
@@ -869,159 +962,30 @@ export async function startCli(): Promise<void> {
     }
   }
 
-  /** Disconnect the current SSE stream. */
-  function disconnectSse(): void {
-    if (sseAbortController) {
-      sseAbortController.abort();
-      sseAbortController = null;
+  /** Stop watching the current conversation's event stream file. */
+  function disconnectEvents(): void {
+    if (eventSubscription) {
+      eventSubscription.dispose();
+      eventSubscription = null;
     }
   }
 
-  /** Reconnect the SSE stream (e.g., after switching conversations). */
-  async function reconnectSse(): Promise<void> {
-    disconnectSse();
-    await connectSse();
+  /** Restart the file-stream watcher (e.g., after switching conversations). */
+  function reconnectEvents(): void {
+    disconnectEvents();
+    connectEvents();
   }
 
-  /** Connect the SSE event stream for the current conversation. */
-  async function connectSse(): Promise<void> {
-    const token = readHttpToken();
-    const controller = new AbortController();
-    sseAbortController = controller;
+  /** Watch the file-based event stream for the current conversation. */
+  function connectEvents(): void {
+    const mapping = getOrCreateConversation(conversationKey);
 
-    const url = `/v1/events?conversationKey=${encodeURIComponent(conversationKey)}`;
-    const headers: Record<string, string> = {
-      Accept: "text/event-stream",
-    };
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
-
-    try {
-      const response = await httpSend(url, {
-        method: "GET",
-        headers: { Accept: "text/event-stream" },
-        signal: controller.signal,
-      });
-
-      if (!response.ok || !response.body) {
-        throw new Error(`SSE connection failed: ${response.status}`);
+    eventSubscription = watchEventStream(mapping.conversationId, (event) => {
+      if (!sessionId && event.sessionId) {
+        sessionId = event.sessionId;
       }
-
-      // Read the SSE stream
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      const readLoop = async () => {
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-
-            // Parse SSE frames from the buffer
-            const frames = buffer.split("\n\n");
-            // Keep the last (potentially incomplete) frame in the buffer
-            buffer = frames.pop() ?? "";
-
-            for (const frame of frames) {
-              if (!frame.trim()) continue;
-              // Skip heartbeat comments
-              if (frame.startsWith(":")) continue;
-
-              // Parse event type and data
-              let data = "";
-              for (const line of frame.split("\n")) {
-                if (line.startsWith("data: ")) {
-                  data += line.slice(6);
-                }
-              }
-
-              if (!data) continue;
-
-              try {
-                const event = JSON.parse(data) as {
-                  message: ServerMessage;
-                  sessionId?: string;
-                };
-                // Extract the sessionId from the event envelope if we don't have one
-                if (!sessionId && event.sessionId) {
-                  sessionId = event.sessionId;
-                }
-                handleMessage(event.message);
-              } catch {
-                // Skip malformed events
-              }
-            }
-          }
-        } catch {
-          if (controller.signal.aborted) return; // intentional disconnect
-          // Connection lost — trigger reconnect
-        } finally {
-          reader.releaseLock();
-        }
-
-        // If not intentionally disconnected, reconnect
-        if (!controller.signal.aborted && !reconnecting) {
-          reconnect();
-        }
-      };
-
-      // Start reading in the background (don't await — it runs for the lifetime of the connection)
-      readLoop();
-    } catch (err) {
-      if (controller.signal.aborted) return;
-      throw err;
-    }
-  }
-
-  async function reconnect(): Promise<void> {
-    if (reconnecting) return;
-    reconnecting = true;
-    disconnectSse();
-    spinner.stop();
-
-    // Reset generation state — any in-flight request is lost
-    generating = false;
-    toolStreaming = false;
-    pendingSessionPick = false;
-    pendingConfirmation = false;
-    pendingCopySession = false;
-    lastUsage = null;
-
-    // Remove stale rl.once('line') handlers from confirmation/selection prompts
-    // and re-register the main line handler
-    rl.removeAllListeners("line");
-    rl.on("line", handleLine);
-
-    // Retry with exponential backoff (1s → 2s → 4s → … → 30s cap) until connected
-    while (true) {
-      const delaySec = (reconnectDelay / 1000).toFixed(0);
-      process.stdout.write(
-        `\n  Reconnecting to assistant in ${delaySec}s...\n`,
-      );
-      await new Promise((r) => setTimeout(r, reconnectDelay));
-
-      // Increase backoff for next attempt before trying
-      reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_DELAY_MS);
-
-      try {
-        if (shouldAutoStartDaemon()) await ensureDaemonRunning();
-        // Verify the daemon is healthy before attempting SSE
-        const healthy = await httpHealthCheck(2000);
-        if (!healthy) throw new Error("Health check failed");
-        await connectSse();
-        reconnectDelay = RECONNECT_BASE_DELAY_MS;
-        reconnecting = false;
-        updateDaemonText(mainScreenLayout, "connected");
-        updateStatusText(mainScreenLayout, "ready");
-        return;
-      } catch {
-        // Will retry with increased backoff
-      }
-    }
+      handleMessage(event.message);
+    });
   }
 
   function handleLine(line: string): void {
@@ -1029,7 +993,6 @@ export async function startCli(): Promise<void> {
     if (!content) return;
     if (pendingSessionPick) return;
     if (pendingConfirmation) return;
-    if (reconnecting) return;
 
     // Persist to history file (ensure parent directory exists)
     try {
@@ -1056,34 +1019,19 @@ export async function startCli(): Promise<void> {
 
     if (content === "/sessions") {
       pendingSessionPick = true;
-      // Fetch session list via HTTP
-      httpSend("/v1/conversations/search?q=*&limit=20", { method: "GET" })
-        .then(async (resp) => {
-          if (resp.ok) {
-            const data = (await resp.json()) as {
-              results: Array<{
-                conversationId: string;
-                title: string;
-                updatedAt: string;
-              }>;
-            };
-            const sessions = data.results.map((r) => ({
-              id: r.conversationId,
-              title: r.title || "Untitled",
-              updatedAt: new Date(r.updatedAt).getTime(),
-            }));
-            renderSessionPicker(sessions);
-          } else {
-            pendingSessionPick = false;
-            process.stdout.write("[Failed to fetch sessions]\n");
-            prompt();
-          }
-        })
-        .catch(() => {
-          pendingSessionPick = false;
-          process.stdout.write("[Failed to fetch sessions]\n");
-          prompt();
-        });
+      try {
+        const rows = listConversations(20);
+        const sessions = rows.map((r) => ({
+          id: r.id,
+          title: r.title || "Untitled",
+          updatedAt: r.updatedAt,
+        }));
+        renderSessionPicker(sessions);
+      } catch {
+        pendingSessionPick = false;
+        process.stdout.write("[Failed to fetch sessions]\n");
+        prompt();
+      }
       return;
     }
 
@@ -1104,45 +1052,45 @@ export async function startCli(): Promise<void> {
     }
 
     if (content === "/copy-session") {
-      // Fetch history via HTTP
-      httpSend(
-        `/v1/messages?conversationKey=${encodeURIComponent(conversationKey)}`,
-        { method: "GET" },
-      )
-        .then(async (resp) => {
-          if (resp.ok) {
-            const data = (await resp.json()) as {
-              messages: Array<{ role: string; content: string }>;
-            };
-            if (data.messages.length === 0) {
-              process.stdout.write("\n  No messages to copy.\n\n");
-            } else {
-              try {
-                const formatted = formatSessionForExport(
-                  data.messages.map((m) => ({
-                    role: m.role as "user" | "assistant",
-                    text: m.content,
-                  })),
-                );
-                copyToClipboard(formatted);
-                process.stdout.write(
-                  `\n  Copied session (${data.messages.length} messages) to clipboard.\n\n`,
-                );
-              } catch (err) {
-                process.stdout.write(
-                  `\n  Clipboard error: ${(err as Error).message}\n\n`,
-                );
-              }
+      try {
+        const mapping = getConversationByKey(conversationKey);
+        if (!mapping) {
+          process.stdout.write("\n  No messages to copy.\n\n");
+          prompt();
+          return;
+        }
+        const rawMessages = getMessages(mapping.conversationId);
+        if (rawMessages.length === 0) {
+          process.stdout.write("\n  No messages to copy.\n\n");
+        } else {
+          const rendered = rawMessages.map((msg) => {
+            let parsedContent: unknown;
+            try {
+              parsedContent = JSON.parse(msg.content);
+            } catch {
+              parsedContent = msg.content;
             }
-          } else {
-            process.stdout.write("[Failed to fetch history]\n");
+            return {
+              role: msg.role as "user" | "assistant",
+              text: renderHistoryContent(parsedContent).text,
+            };
+          });
+          try {
+            const formatted = formatSessionForExport(rendered);
+            copyToClipboard(formatted);
+            process.stdout.write(
+              `\n  Copied session (${rawMessages.length} messages) to clipboard.\n\n`,
+            );
+          } catch (err) {
+            process.stdout.write(
+              `\n  Clipboard error: ${(err as Error).message}\n\n`,
+            );
           }
-          prompt();
-        })
-        .catch(() => {
-          process.stdout.write("[Failed to fetch history]\n");
-          prompt();
-        });
+        }
+      } catch {
+        process.stdout.write("[Failed to fetch history]\n");
+      }
+      prompt();
       return;
     }
 
@@ -1150,12 +1098,11 @@ export async function startCli(): Promise<void> {
       // Create a new conversation by using a unique key
       conversationKey = `builtin-cli:${randomUUID()}`;
       sessionId = "";
-      reconnectSse().then(() => {
-        process.stdout.write(
-          `\n  New session started.\n  Type your message. Ctrl+D to detach.\n\n`,
-        );
-        prompt();
-      });
+      reconnectEvents();
+      process.stdout.write(
+        `\n  New session started.\n  Type your message. Ctrl+D to detach.\n\n`,
+      );
+      prompt();
       return;
     }
 
@@ -1175,84 +1122,68 @@ export async function startCli(): Promise<void> {
     if (content === "/model" || content.startsWith("/model ")) {
       const modelArg = content.slice("/model".length).trim();
       if (modelArg) {
-        httpSend("/v1/model", {
-          method: "PUT",
-          body: JSON.stringify({ modelId: modelArg }),
-        })
-          .then(async (resp) => {
-            if (resp.ok) {
-              const data = (await resp.json()) as {
-                model: string;
-                provider: string;
-              };
-              process.stdout.write(
-                `\n  Model: ${data.model} (${data.provider})\n\n`,
-              );
-            } else {
-              process.stdout.write("[Failed to set model]\n");
-            }
-            prompt();
-          })
-          .catch(() => {
-            process.stdout.write("[Failed to set model]\n");
-            prompt();
-          });
+        try {
+          const raw = loadRawConfig();
+          const provider = MODEL_TO_PROVIDER[modelArg];
+          raw.model = modelArg;
+          if (provider) raw.provider = provider;
+          saveRawConfig(raw);
+          process.stdout.write(
+            `\n  Model: ${modelArg} (${provider ?? raw.provider})\n\n`,
+          );
+        } catch {
+          process.stdout.write("[Failed to set model]\n");
+        }
       } else {
-        httpSend("/v1/model", { method: "GET" })
-          .then(async (resp) => {
-            if (resp.ok) {
-              const data = (await resp.json()) as {
-                model: string;
-                provider: string;
-              };
-              process.stdout.write(
-                `\n  Model: ${data.model} (${data.provider})\n\n`,
-              );
-            } else {
-              process.stdout.write("[Failed to get model info]\n");
-            }
+        getModelInfo()
+          .then((info) => {
+            process.stdout.write(
+              `\n  Model: ${info.model} (${info.provider})\n\n`,
+            );
             prompt();
           })
           .catch(() => {
             process.stdout.write("[Failed to get model info]\n");
             prompt();
           });
+        return;
       }
+      prompt();
       return;
     }
 
     if (content === "/history") {
-      httpSend(
-        `/v1/messages?conversationKey=${encodeURIComponent(conversationKey)}`,
-        { method: "GET" },
-      )
-        .then(async (resp) => {
-          if (resp.ok) {
-            const data = (await resp.json()) as {
-              messages: Array<{ role: string; content: string }>;
-            };
-            process.stdout.write("\n");
-            if (data.messages.length === 0) {
-              process.stdout.write("  No messages in this session.\n");
-            } else {
-              for (const m of data.messages) {
-                const label = m.role === "user" ? "you" : "assistant";
-                const preview = truncate(m.content, 120);
-                process.stdout.write(
-                  `  ${label}> ${preview.replace(/\n/g, " ")}\n`,
-                );
-              }
-            }
-            process.stdout.write("\n");
+      try {
+        const mapping = getConversationByKey(conversationKey);
+        process.stdout.write("\n");
+        if (!mapping) {
+          process.stdout.write("  No messages in this session.\n");
+        } else {
+          const rawMessages = getMessages(mapping.conversationId);
+          if (rawMessages.length === 0) {
+            process.stdout.write("  No messages in this session.\n");
           } else {
-            process.stdout.write("[Failed to fetch history]\n");
+            for (const msg of rawMessages) {
+              let parsedContent: unknown;
+              try {
+                parsedContent = JSON.parse(msg.content);
+              } catch {
+                parsedContent = msg.content;
+              }
+              const text = renderHistoryContent(parsedContent).text;
+              const label = msg.role === "user" ? "you" : "assistant";
+              const preview = truncate(text, 120);
+              process.stdout.write(
+                `  ${label}> ${preview.replace(/\n/g, " ")}\n`,
+              );
+            }
           }
-          prompt();
-        })
-        .catch(() => {
-          process.stdout.write("[Failed to fetch history]\n");
-          prompt();
-        });
+        }
+        process.stdout.write("\n");
+      } catch {
+        process.stdout.write("[Failed to fetch history]\n");
+      }
+      prompt();
       return;
     }
 
@@ -1262,29 +1193,79 @@ export async function startCli(): Promise<void> {
         prompt();
         return;
       }
-      httpSend(`/v1/conversations/${encodeURIComponent(sessionId)}/undo`, {
-        method: "POST",
-      })
-        .then(async (resp) => {
-          if (resp.ok) {
-            const data = (await resp.json()) as { removedCount: number };
-            if (data.removedCount === 0) {
-              process.stdout.write("\n  Nothing to undo.\n\n");
+      try {
+        const signalsDir = getSignalsDir();
+        mkdirSync(signalsDir, { recursive: true });
+        const resultPath = join(signalsDir, "conversation-undo.result");
+        try {
+          unlinkSync(resultPath);
+        } catch {
+          // May not exist yet.
+        }
+        const requestId = randomUUID();
+        writeFileSync(
+          join(signalsDir, "conversation-undo"),
+          JSON.stringify({ sessionId, requestId }),
+        );
+
+        let settled = false;
+
+        const onResult = (): void => {
+          try {
+            const raw = readFileSync(resultPath, "utf-8");
+            const result = JSON.parse(raw) as {
+              ok?: boolean;
+              removedCount?: number;
+              requestId?: string;
+              error?: string;
+            };
+            if (result.requestId !== requestId) return;
+            if (settled) return;
+            settled = true;
+            undoWatcher.close();
+            clearTimeout(undoTimeoutId);
+            if (result.ok && result.removedCount !== undefined) {
+              if (result.removedCount === 0) {
+                process.stdout.write("\n  Nothing to undo.\n\n");
+              } else {
+                lastResponse = "";
+                process.stdout.write(
+                  `\n  Removed last exchange (${result.removedCount} messages).\n\n`,
+                );
+              }
             } else {
-              lastResponse = "";
               process.stdout.write(
-                `\n  Removed last exchange (${data.removedCount} messages).\n\n`,
+                `[Failed to undo: ${result.error ?? "unknown error"}]\n`,
               );
             }
-          } else {
-            process.stdout.write("[Failed to undo]\n");
+            prompt();
+          } catch {
+            // Result file not yet readable; ignore.
           }
-          prompt();
-        })
-        .catch(() => {
-          process.stdout.write("[Failed to undo]\n");
-          prompt();
+        };
+
+        const undoWatcher = watch(signalsDir, (_event, filename) => {
+          if (filename === "conversation-undo.result") {
+            onResult();
+          }
         });
+
+        const undoTimeoutId = setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            undoWatcher.close();
+            process.stdout.write("[Undo timed out]\n");
+            prompt();
+          }
+        }, 5_000);
+
+        if (existsSync(resultPath)) {
+          onResult();
+        }
+      } catch {
+        process.stdout.write("[Failed to undo]\n");
+        prompt();
+      }
       return;
     }
 
@@ -1338,7 +1319,7 @@ export async function startCli(): Promise<void> {
   rl.on("line", handleLine);
 
   rl.on("close", () => {
-    disconnectSse();
+    disconnectEvents();
     process.stdout.write("\x1b[r\x1b[2J\x1b[H");
     process.stdout.write("\x1b[2mDetached.\x1b[0m\n");
     process.exit(0);
@@ -1348,11 +1329,16 @@ export async function startCli(): Promise<void> {
   process.on("SIGINT", () => {
     spinner.stop();
     if (generating && sessionId) {
-      httpSend(`/v1/conversations/${encodeURIComponent(sessionId)}/cancel`, {
-        method: "POST",
-      }).catch(() => {
+      try {
+        const signalsDir = getSignalsDir();
+        mkdirSync(signalsDir, { recursive: true });
+        writeFileSync(
+          join(signalsDir, "cancel"),
+          JSON.stringify({ sessionId }),
+        );
+      } catch {
         // Best-effort cancel
-      });
+      }
     } else {
       rl.close();
     }
@@ -1364,11 +1350,9 @@ export async function startCli(): Promise<void> {
   });
 
   // Initial connection
-  await connectSse();
+  connectEvents();
   updateDaemonText(mainScreenLayout, "connected");
   updateStatusText(mainScreenLayout, "ready");
-
-  // Show initial prompt since HTTP doesn't have the session_info flow
   process.stdout.write(`\n  Type your message. Ctrl+D to detach.\n\n`);
   prompt();
 }
