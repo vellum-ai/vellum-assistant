@@ -97,6 +97,25 @@ export type MakeAuthenticatedRequestResponse = z.infer<
 // run_authenticated_command
 // ---------------------------------------------------------------------------
 
+/**
+ * A file to stage from the assistant workspace into the CES scratch directory.
+ */
+const WorkspaceInputSchema = z.object({
+  /** Relative path within the assistant workspace directory. */
+  workspacePath: z.string(),
+});
+
+/**
+ * A file the command produces in the scratch directory that should be
+ * copied back to the assistant workspace after execution.
+ */
+const WorkspaceOutputSchema = z.object({
+  /** Relative path within the scratch directory where the command writes output. */
+  scratchPath: z.string(),
+  /** Relative path within the assistant workspace where the output is copied. */
+  workspacePath: z.string(),
+});
+
 export const RunAuthenticatedCommandSchema = z.object({
   /** CES credential handle to use for environment injection. */
   credentialHandle: z.string(),
@@ -106,6 +125,10 @@ export const RunAuthenticatedCommandSchema = z.object({
   envMappings: z.record(z.string(), z.string()).optional(),
   /** Optional working directory. */
   cwd: z.string().optional(),
+  /** Workspace files to stage as read-only inputs in the CES scratch directory. */
+  inputs: z.array(WorkspaceInputSchema).optional(),
+  /** Workspace files to copy back from the CES scratch directory after execution. */
+  outputs: z.array(WorkspaceOutputSchema).optional(),
   /** Human-readable purpose for audit logging. */
   purpose: z.string(),
   /** Existing grant ID to consume, if the caller holds one. */

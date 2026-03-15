@@ -57,6 +57,43 @@ class RunAuthenticatedCommandTool implements Tool {
             description:
               "Human-readable purpose for this command, shown in audit logs and approval prompts.",
           },
+          inputs: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                workspacePath: {
+                  type: "string",
+                  description:
+                    "Relative path within the assistant workspace to stage as a read-only input.",
+                },
+              },
+              required: ["workspacePath"],
+            },
+            description:
+              "Workspace files to stage as read-only inputs in the CES scratch directory before command execution.",
+          },
+          outputs: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                scratchPath: {
+                  type: "string",
+                  description:
+                    "Relative path within the scratch directory where the command writes output.",
+                },
+                workspacePath: {
+                  type: "string",
+                  description:
+                    "Relative path within the assistant workspace where the output is copied after execution.",
+                },
+              },
+              required: ["scratchPath", "workspacePath"],
+            },
+            description:
+              "Workspace files to copy back from the CES scratch directory after command execution.",
+          },
           grantId: {
             type: "string",
             description:
@@ -94,6 +131,10 @@ class RunAuthenticatedCommandTool implements Tool {
     const purpose = input.purpose as string;
     const envMappings = input.envMappings as Record<string, string> | undefined;
     const cwd = input.cwd as string | undefined;
+    const inputs = input.inputs as Array<{ workspacePath: string }> | undefined;
+    const outputs = input.outputs as
+      | Array<{ scratchPath: string; workspacePath: string }>
+      | undefined;
     const grantId = input.grantId as string | undefined;
 
     try {
@@ -103,6 +144,8 @@ class RunAuthenticatedCommandTool implements Tool {
         purpose,
         ...(envMappings ? { envMappings } : {}),
         ...(cwd ? { cwd } : {}),
+        ...(inputs ? { inputs } : {}),
+        ...(outputs ? { outputs } : {}),
         ...(grantId ? { grantId } : {}),
       });
 

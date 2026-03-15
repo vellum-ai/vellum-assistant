@@ -421,6 +421,8 @@ export function createRunAuthenticatedCommandHandler(
       credentialHandle: request.credentialHandle,
       argv: parseResult.argv,
       workspaceDir: request.cwd ?? options.defaultWorkspaceDir,
+      inputs: request.inputs,
+      outputs: request.outputs,
       purpose: request.purpose,
       grantId: request.grantId,
     };
