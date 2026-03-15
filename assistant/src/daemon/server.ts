@@ -63,8 +63,8 @@ import {
 } from "../util/platform.js";
 import { registerDaemonCallbacks } from "../work-items/work-item-runner.js";
 import { ConfigWatcher } from "./config-watcher.js";
+import { undoLastMessage } from "./handlers/conversations.js";
 import { parseIdentityFields } from "./handlers/identity.js";
-import { undoLastMessage } from "./handlers/sessions.js";
 import type {
   HandlerContext,
   SessionCreateOptions,

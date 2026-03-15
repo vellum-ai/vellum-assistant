@@ -9,7 +9,7 @@ import {
   hasActiveOverride,
   setConversationMode,
   setTimedMode,
-} from "../runtime/session-approval-overrides.js";
+} from "../runtime/conversation-approval-overrides.js";
 
 // ---------------------------------------------------------------------------
 // Tests
