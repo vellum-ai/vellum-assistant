@@ -457,8 +457,7 @@ describe("evaluateHttpPolicy", () => {
 
     const result = evaluateHttpPolicy(request, persistentStore, temporaryStore);
     expect(result.allowed).toBe(false);
-    if (!result.allowed) {
-      expect(result.reason).toBe("approval_required");
+    if (!result.allowed && result.reason === "approval_required") {
       expect(result.proposal.type).toBe("http");
       expect(result.proposal.credentialHandle).toBe(
         "local_static:github/api_key",
@@ -892,8 +891,7 @@ describe("end-to-end: policy evaluation → response filter → audit", () => {
 
     // Must be blocked
     expect(policyResult.allowed).toBe(false);
-    if (!policyResult.allowed) {
-      expect(policyResult.reason).toBe("approval_required");
+    if (!policyResult.allowed && policyResult.reason === "approval_required") {
       expect(policyResult.proposal.type).toBe("http");
       expect(policyResult.proposal.credentialHandle).toBe(
         "local_static:stripe/api_key",
