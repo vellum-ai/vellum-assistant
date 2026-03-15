@@ -224,6 +224,35 @@ public final class LocalAssistantBootstrapService {
         }
     }
 
+    /// Clears all managed proxy credentials from the daemon's secret store
+    /// by issuing `DELETE /v1/secrets` for each vellum-namespaced credential.
+    ///
+    /// Uses a direct HTTP call to the daemon (not GatewayHTTPClient) because
+    /// this is called during logout teardown when gateway routing may no
+    /// longer be available.
+    public static func clearDaemonCredentials(
+        daemonBaseURL: String,
+        daemonToken: String
+    ) async {
+        let credentialNames = [
+            "vellum:assistant_api_key",
+            "vellum:platform_base_url",
+            "vellum:platform_assistant_id",
+        ]
+        for name in credentialNames {
+            guard let url = URL(string: "\(daemonBaseURL)/v1/secrets") else { continue }
+            var request = URLRequest(url: url)
+            request.httpMethod = "DELETE"
+            request.timeoutInterval = 5
+            request.setValue("Bearer \(daemonToken)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            let body: [String: String] = ["type": "credential", "name": name]
+            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+            _ = try? await URLSession.shared.data(for: request)
+        }
+        log.info("Cleared managed proxy credentials from daemon")
+    }
+
     /// Resolves the current user ID from the auth session.
     private func resolveUserId() async throws -> String? {
         let session = try await authService.getSession()
