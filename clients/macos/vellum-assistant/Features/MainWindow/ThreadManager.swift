@@ -14,6 +14,7 @@ private let archivedSessionsKey = "archivedSessionIds"
 @MainActor
 protocol ConversationClientProtocol {
     func fetchConversationById(_ conversationId: String) async -> ConversationsListResponse.Session?
+    func deleteConversation(_ conversationId: String) async
 }
 
 /// Fetches conversation data via GatewayHTTPClient.
@@ -26,6 +27,13 @@ struct ConversationClient: ConversationClientProtocol {
             path: "assistants/{assistantId}/conversations/\(conversationId)", timeout: 10
         )
         return result?.0?.session
+    }
+
+    func deleteConversation(_ conversationId: String) async {
+        let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? conversationId
+        _ = try? await GatewayHTTPClient.delete(
+            path: "assistants/{assistantId}/conversations/\(encoded)", timeout: 10
+        )
     }
 }
 
@@ -421,7 +429,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
         // Delete the conversation on the backend (fire-and-forget)
         if let sessionId {
-            daemonClient.deleteConversation(sessionId)
+            Task { await conversationClient.deleteConversation(sessionId) }
         }
 
         log.info("Removed private thread \(id)")
