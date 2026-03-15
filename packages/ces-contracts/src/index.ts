@@ -91,11 +91,13 @@ export type ToolRequestBase = z.infer<typeof ToolRequestBaseSchema>;
  * payloads (e.g. `success: false` without `error`, or `success: true`
  * with `error`) are rejected at parse time.
  */
-const ToolResponseSuccessSchema = z.object({
-  success: z.literal(true),
-  /** Tool output. */
-  result: z.unknown().optional(),
-});
+const ToolResponseSuccessSchema = z
+  .object({
+    success: z.literal(true),
+    /** Tool output. */
+    result: z.unknown().optional(),
+  })
+  .strict();
 
 const ToolResponseErrorSchema = z.object({
   success: z.literal(false),
