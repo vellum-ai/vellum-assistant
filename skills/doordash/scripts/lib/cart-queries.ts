@@ -714,4 +714,3 @@ fragment ConsumerOrderCartDomainFragment on OrderCart {
   }
   __typename
 }`;
-
