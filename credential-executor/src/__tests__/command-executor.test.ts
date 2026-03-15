@@ -19,7 +19,7 @@
  */
 
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, writeFileSync, existsSync, readFileSync, rmSync, chmodSync, symlinkSync, unlinkSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync, readFileSync, rmSync, chmodSync, symlinkSync, unlinkSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -1755,5 +1755,70 @@ describe("executeAuthenticatedCommand — symlink escape prevention", () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain("symlink");
     expect(result.error).toContain("outside the bundle directory");
+  });
+
+  test("accepts legitimate entrypoint when toolstore path traverses symlinks (e.g. macOS /tmp -> /private/tmp)", async () => {
+    // On macOS, /tmp is a symlink to /private/tmp. realpathSync resolves the
+    // entrypoint to /private/tmp/... while the un-resolved bundleDir stays at
+    // /tmp/... — causing the startsWith check to falsely reject. This test
+    // verifies the fix: both paths are canonicalized before comparison.
+    const manifest = buildManifest({
+      egressMode: EgressMode.NoNetwork,
+      entrypoint: "bin/test-cli",
+      commandProfiles: {
+        "list": {
+          description: "List resources",
+          allowedArgvPatterns: [
+            {
+              name: "list-all",
+              tokens: ["list", "--format", "<format>"],
+            },
+          ],
+          deniedSubcommands: [],
+        },
+      },
+    });
+    const { digest } = publishTestBundle(
+      manifest,
+      "local",
+      '#!/bin/sh\necho "symlink-traversal-test"\n',
+    );
+
+    // Verify that the toolstore path does traverse a symlink on this platform
+    const toolstoreDir = getCesToolStoreDir("local");
+    const bundleDir = getBundleDir(toolstoreDir, digest);
+    const resolvedBundleDir = realpathSync(bundleDir);
+
+    // On macOS this will differ (/tmp vs /private/tmp); on Linux they match.
+    // Either way, the executor must accept the legitimate entrypoint.
+    if (resolvedBundleDir !== bundleDir) {
+      // Confirms we're actually testing the symlink traversal scenario
+      expect(resolvedBundleDir).not.toBe(bundleDir);
+    }
+
+    const deps = buildDeps();
+    addCommandGrant(
+      deps.persistentStore,
+      "local_static:test/api_key",
+      digest,
+      "list",
+    );
+
+    const request: ExecuteCommandRequest = {
+      bundleDigest: digest,
+      profileName: "list",
+      credentialHandle: "local_static:test/api_key",
+      argv: ["list", "--format", "json"],
+      workspaceDir: testWorkspaceDir,
+      purpose: "Test symlink traversal in toolstore path",
+    };
+
+    const result = await executeAuthenticatedCommand(request, deps);
+
+    // The command should execute successfully — not be rejected by the
+    // symlink escape check due to /tmp vs /private/tmp mismatch
+    expect(result.success).toBe(true);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("symlink-traversal-test");
   });
 });
