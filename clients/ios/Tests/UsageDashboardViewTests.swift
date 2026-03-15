@@ -16,7 +16,7 @@ final class UsageDashboardViewTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        store = UsageDashboardStore(client: NilUsageFetcher())
+        store = UsageDashboardStore(client: NilUsageClient())
     }
 
     override func tearDown() {
@@ -43,7 +43,7 @@ final class UsageDashboardViewTests: XCTestCase {
     // MARK: - Loading → Failed (mock returns nil)
 
     func testRefreshTransitionsToFailedWhenClientReturnsNil() async {
-        // NilUsageFetcher returns nil for all usage fetches,
+        // NilUsageClient returns nil for all usage fetches,
         // so refresh should transition to .failed.
         await store.refresh()
 
@@ -69,7 +69,7 @@ final class UsageDashboardViewTests: XCTestCase {
     // MARK: - Populated State
 
     func testRefreshPopulatesLoadedStateWithStubClient() async {
-        let stubClient = StubUsageFetcher()
+        let stubClient = StubUsageClient()
         let populatedStore = UsageDashboardStore(client: stubClient)
 
         await populatedStore.refresh()
@@ -133,13 +133,13 @@ final class UsageDashboardViewTests: XCTestCase {
     #if canImport(UIKit)
 
     func testViewRendersInIdleState() {
-        let store = UsageDashboardStore(client: NilUsageFetcher())
+        let store = UsageDashboardStore(client: NilUsageClient())
         let view = UsageDashboardView(store: store)
         let _ = view.body
     }
 
     func testViewRendersInFailedState() async {
-        let client = NilUsageFetcher()
+        let client = NilUsageClient()
         let store = UsageDashboardStore(client: client)
         await store.refresh()
 
@@ -153,7 +153,7 @@ final class UsageDashboardViewTests: XCTestCase {
     }
 
     func testViewRendersInLoadedState() async {
-        let client = StubUsageFetcher()
+        let client = StubUsageClient()
         let store = UsageDashboardStore(client: client)
         await store.refresh()
 
@@ -197,19 +197,19 @@ final class UsageDashboardViewTests: XCTestCase {
     }
 }
 
-// MARK: - Test Fetchers
+// MARK: - Test Clients
 
-/// A fetcher that always returns nil, simulating network failure.
+/// A client that always returns nil, simulating network failure.
 @MainActor
-private final class NilUsageFetcher: UsageClientProtocol {
+private final class NilUsageClient: UsageClientProtocol {
     func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? { nil }
     func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse? { nil }
     func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? { nil }
 }
 
-/// A fetcher that returns canned usage data for populated-state tests.
+/// A client that returns canned usage data for populated-state tests.
 @MainActor
-private final class StubUsageFetcher: UsageClientProtocol {
+private final class StubUsageClient: UsageClientProtocol {
     func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? {
         UsageTotalsResponse(
             totalInputTokens: 1000,
