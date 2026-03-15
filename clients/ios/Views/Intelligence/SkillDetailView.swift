@@ -6,6 +6,7 @@ struct SkillDetailView: View {
     let skill: SkillInfo
     @ObservedObject var skillsStore: SkillsStore
     @State private var showUninstallConfirmation = false
+    @State private var expandedFilePath: String?
     @Environment(\.dismiss) private var dismiss
 
     /// Whether this skill is currently installed (present in the installed skills list).
@@ -131,6 +132,30 @@ struct SkillDetailView: View {
                     }
                 }
             }
+
+            // Files section
+            if skillsStore.isLoadingSkillFiles {
+                Section("Files") {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                            .padding()
+                        Spacer()
+                    }
+                }
+            } else if let error = skillsStore.skillFilesError {
+                Section("Files") {
+                    Text(error)
+                        .font(VFont.body)
+                        .foregroundColor(.red)
+                }
+            } else if let filesResponse = skillsStore.selectedSkillFiles, !filesResponse.files.isEmpty {
+                Section("Files") {
+                    ForEach(filesResponse.files, id: \.path) { file in
+                        fileRow(file)
+                    }
+                }
+            }
         }
         .navigationTitle(skill.name)
         .navigationBarTitleDisplayMode(.inline)
@@ -139,9 +164,12 @@ struct SkillDetailView: View {
             if skill.clawhub != nil {
                 skillsStore.inspectSkill(slug: skill.id)
             }
+            skillsStore.fetchSkillFiles(skillId: skill.id)
         }
         .onDisappear {
             skillsStore.clearInspection()
+            skillsStore.clearSkillDetail()
+            expandedFilePath = nil
         }
         .alert("Uninstall Skill", isPresented: $showUninstallConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -202,6 +230,80 @@ struct SkillDetailView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(label): \(value)")
+    }
+
+    // MARK: - File Row
+
+    @ViewBuilder
+    private func fileRow(_ file: SkillFileEntry) -> some View {
+        let isText = !file.isBinary && file.content != nil
+        let isExpanded = expandedFilePath == file.path
+
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                if isText {
+                    withAnimation {
+                        expandedFilePath = isExpanded ? nil : file.path
+                    }
+                }
+            } label: {
+                HStack(spacing: VSpacing.sm) {
+                    VIconView(fileIcon(for: file.mimeType), size: 16)
+                        .foregroundColor(VColor.primaryBase)
+                        .frame(width: 24)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(file.path)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.contentDefault)
+                            .lineLimit(1)
+
+                        Text(formatFileSize(file.size))
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentTertiary)
+                    }
+
+                    Spacer()
+
+                    if isText {
+                        VIconView(isExpanded ? .chevronUp : .chevronDown, size: 12)
+                            .foregroundColor(VColor.contentTertiary)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded, let content = file.content {
+                Text(content)
+                    .font(VFont.mono)
+                    .foregroundColor(VColor.contentSecondary)
+                    .textSelection(.enabled)
+                    .padding(VSpacing.sm)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(VColor.surfaceBase)
+                    .cornerRadius(VRadius.sm)
+                    .padding(.top, VSpacing.xs)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(file.path), \(formatFileSize(file.size))\(file.isBinary ? ", binary" : "")")
+    }
+
+    // MARK: - File Helpers
+
+    private func fileIcon(for mimeType: String) -> VIcon {
+        if mimeType.hasPrefix("image/") { return .image }
+        if mimeType.hasPrefix("text/") { return .fileText }
+        if mimeType == "application/json" || mimeType == "application/javascript" || mimeType == "application/typescript" { return .fileCode }
+        return .file
+    }
+
+    private func formatFileSize(_ bytes: Int) -> String {
+        if bytes < 1024 { return "\(bytes) B" }
+        let kb = Double(bytes) / 1024.0
+        if kb < 1024 { return String(format: "%.1f KB", kb) }
+        let mb = kb / 1024.0
+        return String(format: "%.1f MB", mb)
     }
 }
 #endif
