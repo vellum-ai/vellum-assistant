@@ -164,7 +164,9 @@ export function validateRelativePath(
  * Verify that a resolved path is contained within the expected root
  * directory. When the path exists on disk, symlinks are fully resolved
  * via `realpathSync` so that symlinked segments cannot escape the root.
- * Falls back to lexical `resolve()` for paths that don't exist yet.
+ * When the path doesn't exist yet, its closest existing ancestor is
+ * resolved via `realpathSync` to ensure consistent symlink handling
+ * (e.g. `/tmp` → `/private/tmp` on macOS).
  */
 export function validateContainedPath(
   resolvedPath: string,
@@ -182,7 +184,16 @@ export function validateContainedPath(
   try {
     normalizedPath = realpathSync(resolvedPath);
   } catch {
-    normalizedPath = resolve(resolvedPath);
+    // Path doesn't exist yet — resolve its closest existing ancestor via
+    // realpathSync so that symlinks in parent dirs (e.g. /tmp → /private/tmp)
+    // are resolved consistently with the root directory.
+    const parent = dirname(resolvedPath);
+    const child = basename(resolvedPath);
+    try {
+      normalizedPath = join(realpathSync(parent), child);
+    } catch {
+      normalizedPath = resolve(resolvedPath);
+    }
   }
 
   const rootPrefix = normalizedRoot + "/";
