@@ -1758,67 +1758,83 @@ describe("executeAuthenticatedCommand — symlink escape prevention", () => {
   });
 
   test("accepts legitimate entrypoint when toolstore path traverses symlinks (e.g. macOS /tmp -> /private/tmp)", async () => {
-    // On macOS, /tmp is a symlink to /private/tmp. realpathSync resolves the
-    // entrypoint to /private/tmp/... while the un-resolved bundleDir stays at
-    // /tmp/... — causing the startsWith check to falsely reject. This test
-    // verifies the fix: both paths are canonicalized before comparison.
-    const manifest = buildManifest({
-      egressMode: EgressMode.NoNetwork,
-      entrypoint: "bin/test-cli",
-      commandProfiles: {
-        "list": {
-          description: "List resources",
-          allowedArgvPatterns: [
-            {
-              name: "list-all",
-              tokens: ["list", "--format", "<format>"],
-            },
-          ],
-          deniedSubcommands: [],
+    // Create a deliberate symlink so the symlink-traversal scenario is
+    // always exercised, regardless of OS/CI platform. Without the
+    // realpathSync(bundleDir) fix in the executor, this test fails because
+    // the resolved entrypoint path doesn't start with the un-resolved
+    // bundleDir.
+    const realDataDir = makeTempDir("ces-symlink-real");
+    const symlinkDataDir = join(tmpdir(), `ces-symlink-link-${randomUUID()}`);
+    symlinkSync(realpathSync(realDataDir), symlinkDataDir);
+
+    const origBaseDataDir = process.env["BASE_DATA_DIR"];
+    process.env["BASE_DATA_DIR"] = symlinkDataDir;
+    try {
+      const cesRoot = getCesDataRoot("local");
+      mkdirSync(cesRoot, { recursive: true });
+      mkdirSync(getCesToolStoreDir("local"), { recursive: true });
+
+      const manifest = buildManifest({
+        egressMode: EgressMode.NoNetwork,
+        entrypoint: "bin/test-cli",
+        commandProfiles: {
+          "list": {
+            description: "List resources",
+            allowedArgvPatterns: [
+              {
+                name: "list-all",
+                tokens: ["list", "--format", "<format>"],
+              },
+            ],
+            deniedSubcommands: [],
+          },
         },
-      },
-    });
-    const { digest } = publishTestBundle(
-      manifest,
-      "local",
-      '#!/bin/sh\necho "symlink-traversal-test"\n',
-    );
+      });
+      const { digest } = publishTestBundle(
+        manifest,
+        "local",
+        '#!/bin/sh\necho "symlink-traversal-test"\n',
+      );
 
-    // Verify that the toolstore path does traverse a symlink on this platform
-    const toolstoreDir = getCesToolStoreDir("local");
-    const bundleDir = getBundleDir(toolstoreDir, digest);
-    const resolvedBundleDir = realpathSync(bundleDir);
-
-    // On macOS this will differ (/tmp vs /private/tmp); on Linux they match.
-    // Either way, the executor must accept the legitimate entrypoint.
-    if (resolvedBundleDir !== bundleDir) {
-      // Confirms we're actually testing the symlink traversal scenario
+      // Confirm the symlink scenario is actually in effect
+      const toolstoreDir = getCesToolStoreDir("local");
+      const bundleDir = getBundleDir(toolstoreDir, digest);
+      const resolvedBundleDir = realpathSync(bundleDir);
       expect(resolvedBundleDir).not.toBe(bundleDir);
+
+      const deps = buildDeps();
+      addCommandGrant(
+        deps.persistentStore,
+        "local_static:test/api_key",
+        digest,
+        "list",
+      );
+
+      const request: ExecuteCommandRequest = {
+        bundleDigest: digest,
+        profileName: "list",
+        credentialHandle: "local_static:test/api_key",
+        argv: ["list", "--format", "json"],
+        workspaceDir: testWorkspaceDir,
+        purpose: "Test symlink traversal in toolstore path",
+      };
+
+      const result = await executeAuthenticatedCommand(request, deps);
+
+      // The command should execute successfully — not be rejected by the
+      // symlink escape check due to path mismatch through the symlink
+      expect(result.success).toBe(true);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("symlink-traversal-test");
+    } finally {
+      // Restore env and clean up
+      if (origBaseDataDir === undefined) {
+        delete process.env["BASE_DATA_DIR"];
+      } else {
+        process.env["BASE_DATA_DIR"] = origBaseDataDir;
+      }
+      try { unlinkSync(symlinkDataDir); } catch { /* best-effort */ }
+      try { rmSync(realDataDir, { recursive: true, force: true }); } catch { /* best-effort */ }
     }
-
-    const deps = buildDeps();
-    addCommandGrant(
-      deps.persistentStore,
-      "local_static:test/api_key",
-      digest,
-      "list",
-    );
-
-    const request: ExecuteCommandRequest = {
-      bundleDigest: digest,
-      profileName: "list",
-      credentialHandle: "local_static:test/api_key",
-      argv: ["list", "--format", "json"],
-      workspaceDir: testWorkspaceDir,
-      purpose: "Test symlink traversal in toolstore path",
-    };
-
-    const result = await executeAuthenticatedCommand(request, deps);
-
-    // The command should execute successfully — not be rejected by the
-    // symlink escape check due to /tmp vs /private/tmp mismatch
-    expect(result.success).toBe(true);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("symlink-traversal-test");
   });
 });
