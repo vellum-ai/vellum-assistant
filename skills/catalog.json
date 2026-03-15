@@ -331,10 +331,7 @@
         "emoji": "🍎",
         "vellum": {
           "display-name": "macOS Automation",
-          "user-invocable": "false",
-          "os": [
-            "darwin"
-          ]
+          "user-invocable": "false"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -435,10 +432,7 @@
       "metadata": {
         "emoji": "🎬",
         "vellum": {
-          "display-name": "Screen Recording",
-          "os": [
-            "darwin"
-          ]
+          "display-name": "Screen Recording"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -678,9 +672,6 @@
         "vellum": {
           "display-name": "Voice Setup",
           "user-invocable": "true",
-          "os": [
-            "darwin"
-          ],
           "includes": [
             "elevenlabs-voice"
           ]

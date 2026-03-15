@@ -39,7 +39,6 @@ const log = getLogger("skills");
 const VellumMetadataSchema = z
   .object({
     emoji: z.string().optional(),
-    os: z.array(z.string()).optional(),
     requires: z
       .object({
         bins: z.array(z.string()).optional(),
@@ -92,7 +91,6 @@ export interface SkillCliSpec {
 
 export interface VellumMetadata {
   emoji?: string;
-  os?: string[];
   requires?: SkillRequirements;
   primaryEnv?: string;
   install?: InstallerSpec[];
@@ -238,22 +236,6 @@ export function checkSkillRequirements(
 
   const missingBins: string[] = [];
   const missingEnv: string[] = [];
-
-  // OS check
-  if (vellum.os && vellum.os.length > 0) {
-    if (!vellum.os.includes(process.platform)) {
-      return {
-        eligible: false,
-        missing: {
-          bins: [
-            `(unsupported platform: ${
-              process.platform
-            }, requires: ${vellum.os.join(", ")})`,
-          ],
-        },
-      };
-    }
-  }
 
   const requires = vellum.requires;
   if (!requires) {
@@ -417,13 +399,6 @@ function parseFrontmatter(
         vellum = raw?.vellum as z.infer<typeof VellumMetadataSchema>;
         if (raw?.vellum && typeof raw.vellum === "object") {
           const vellumRaw = raw.vellum as Record<string, unknown>;
-
-          // Coerce `os` to string[] — a bare string is wrapped in an array.
-          if (vellumRaw.os !== undefined) {
-            vellumRaw.os = Array.isArray(vellumRaw.os)
-              ? vellumRaw.os
-              : [vellumRaw.os];
-          }
 
           // Coerce `requires` sub-fields to arrays.
           if (vellumRaw.requires && typeof vellumRaw.requires === "object") {

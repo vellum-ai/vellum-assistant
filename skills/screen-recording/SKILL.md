@@ -6,7 +6,6 @@ metadata:
   emoji: "🎬"
   vellum:
     display-name: "Screen Recording"
-    os: ["darwin"]
 ---
 
 Capture screen recordings as video files attached to the conversation.
