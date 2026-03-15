@@ -42,11 +42,18 @@ jobs:
             macos-spm-${{ hashFiles('clients/Package.resolved') }}-
             macos-spm-
 
-      - name: Install Periphery
-        run: brew install peripheryapp/periphery/periphery
-
       - name: Lint unused code
-        run: bash scripts/periphery-scan.sh
+        run: bash scripts/periphery-scan.sh --ci
+
+      - name: Upload baseline artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: periphery-baseline
+          path: clients/.periphery_baseline.json
+          if-no-files-found: ignore
+          retention-days: 7
+          include-hidden-files: true
 
   build-check:
     if: contains(github.event.pull_request.labels.*.name, 'preview')
