@@ -190,7 +190,7 @@ Swift's type checker has quadratic complexity with chained view modifiers. Compl
 ### Use Shared Components First
 - Before building any new UI element, check `clients/shared/DesignSystem/` for an existing component.
 - The design system is organized into layers:
-  - **Tokens** — `Tokens/` contains primitive values: `ColorTokens`, `SpacingTokens`, `TypographyTokens`, `RadiusTokens`, `ShadowTokens`, `AnimationTokens`, `IconTokens` (`VIcon` enum), `IconBundle`. Always use tokens instead of raw literals.
+  - **Tokens** — `Tokens/` contains primitive values: `ColorTokens`, `SpacingTokens`, `TypographyTokens`, `RadiusTokens`, `ShadowTokens`, `AnimationTokens`, `IconTokens` (`VIcon` enum). Always use tokens instead of raw literals.
   - **Core** — `Core/` contains foundational controls: `VButton`, `VIconButton`, `VIconView`, `VTextField`, `VTextEditor`, `VToggle`, `VSlider`, `VDropdown`, `VSearchBar`, `VBadge`, `VToast`, `VLoadingIndicator`, `VListRow`, `VDisclosureSection`, `VTab`, etc.
   - **Components** — `Components/` contains composed, higher-level components: `VCard`, `VEmptyState`, `VSplitView`, `VSidePanel`, `VToolbar`, `VTabBar`, `VSegmentedControl`, `VWaveformView`, etc.
   - **Modifiers** — `Modifiers/` contains reusable view modifiers: `CardModifier`, `HoverEffect`, `PanelBackground`, `InlineWidgetCardModifier`.
