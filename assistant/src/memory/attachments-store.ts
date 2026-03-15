@@ -311,7 +311,14 @@ export function getFilePathForAttachment(attachmentId: string): string | null {
 export function getAttachmentContent(attachmentId: string): Buffer | null {
   const filePath = getFilePathForAttachment(attachmentId);
   if (filePath) {
-    return readFileSync(filePath);
+    try {
+      return readFileSync(filePath);
+    } catch (err: unknown) {
+      if (err instanceof Error && "code" in err && err.code === "ENOENT") {
+        return null;
+      }
+      throw err;
+    }
   }
 
   // Fall back to inline base64 stored in the DB
