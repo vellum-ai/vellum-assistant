@@ -3,12 +3,7 @@
  * Subset of assistant/src/util/platform.ts — kept minimal.
  */
 
-import {
-  createDecipheriv,
-  createHmac,
-  pbkdf2Sync,
-  randomBytes,
-} from "node:crypto";
+import { createDecipheriv, pbkdf2Sync } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { arch, homedir, hostname, userInfo } from "node:os";
 import { join } from "node:path";
@@ -43,18 +38,6 @@ export function getHttpPort(): number {
 export function buildDaemonUrl(port?: number): string {
   return `http://127.0.0.1:${port ?? getHttpPort()}`;
 }
-
-/** Must stay in sync with assistant/src/runtime/auth/policy.ts. */
-const CURRENT_POLICY_EPOCH = 1;
-
-function base64urlEncode(data: Buffer | string): string {
-  const buf = typeof data === "string" ? Buffer.from(data, "utf-8") : data;
-  return buf.toString("base64url");
-}
-
-const JWT_HEADER = base64urlEncode(
-  JSON.stringify({ alg: "HS256", typ: "JWT" }),
-);
 
 // ---------------------------------------------------------------------------
 // Credential store reader (inlined subset of assistant/src/security/encrypted-store.ts)
@@ -118,37 +101,6 @@ export function readCredentialToken(): string | null {
     decipher.setAuthTag(tag);
     const decrypted = Buffer.concat([decipher.update(data), decipher.final()]);
     return decrypted.toString("utf-8") || null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * @deprecated Prefer {@link readCredentialToken} which reads from the
- * encrypted credential store instead of minting a JWT from the signing key.
- */
-export function readHttpToken(): string | null {
-  try {
-    const keyPath = join(getRootDir(), "protected", "actor-token-signing-key");
-    const key = readFileSync(keyPath);
-    if (key.length !== 32) return null;
-
-    const now = Math.floor(Date.now() / 1000);
-    const claims = {
-      iss: "vellum-auth",
-      aud: "vellum-gateway",
-      sub: "local:cli:cli",
-      scope_profile: "actor_client_v1",
-      exp: now + 300,
-      policy_epoch: CURRENT_POLICY_EPOCH,
-      iat: now,
-      jti: randomBytes(16).toString("hex"),
-    };
-
-    const payload = base64urlEncode(JSON.stringify(claims));
-    const sigInput = JWT_HEADER + "." + payload;
-    const sig = createHmac("sha256", key).update(sigInput).digest();
-    return sigInput + "." + base64urlEncode(sig);
   } catch {
     return null;
   }
