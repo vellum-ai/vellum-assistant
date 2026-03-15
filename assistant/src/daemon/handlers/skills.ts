@@ -274,6 +274,48 @@ export function listSkills(_ctx: SkillOperationContext): SkillListItem[] {
   return items;
 }
 
+/** Look up a single skill by ID from the resolved catalog, returning its SkillListItem. */
+function findSkillById(
+  skillId: string,
+): { item: SkillListItem; summary: SkillSummary } | undefined {
+  const config = getConfig();
+  const catalog = loadSkillCatalog();
+  const resolved = resolveSkillStates(catalog, config);
+  const match = resolved.find((r) => r.summary.id === skillId);
+  if (!match) return undefined;
+
+  const r = match;
+  const item: SkillListItem = {
+    id: r.summary.id,
+    name: r.summary.displayName,
+    description: r.summary.description,
+    emoji: r.summary.emoji,
+    homepage: r.summary.homepage,
+    source: r.summary.source,
+    state: (r.state === "degraded" ? "enabled" : r.state) as
+      | "enabled"
+      | "disabled"
+      | "available",
+    degraded: r.degraded,
+    missingRequirements: r.missingRequirements,
+    updateAvailable: false,
+    userInvocable: r.summary.userInvocable,
+    provenance: resolveProvenance(r.summary),
+  };
+  return { item, summary: r.summary };
+}
+
+export function getSkill(
+  skillId: string,
+  _ctx: SkillOperationContext,
+): { skill: SkillListItem } | { error: string; status: number } {
+  const found = findSkillById(skillId);
+  if (!found) {
+    return { error: `Skill "${skillId}" not found`, status: 404 };
+  }
+  return { skill: found.item };
+}
+
 export function enableSkill(
   skillId: string,
   ctx: SkillOperationContext,
