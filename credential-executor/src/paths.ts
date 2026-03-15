@@ -51,8 +51,14 @@ function getVellumRootDir(): string {
   return join(baseDataDir || homedir(), ".vellum");
 }
 
-/** Well-known managed CES data root (dedicated volume mount). */
-const MANAGED_CES_DATA_ROOT = "/ces-data";
+/**
+ * Well-known managed CES data root.
+ *
+ * Defaults to `/home/ces/.ces-data` so the non-root `ces` user (uid 1001)
+ * can write without extra chown/mkdir in the Dockerfile. Can be overridden
+ * via `CES_DATA_ROOT` for custom volume mounts.
+ */
+const MANAGED_CES_DATA_ROOT = process.env["CES_DATA_ROOT"] ?? "/home/ces/.ces-data";
 
 /**
  * Return the CES-private data root.
