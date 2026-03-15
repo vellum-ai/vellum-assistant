@@ -1648,7 +1648,7 @@ jobs:
 
       - name: Install linked package dependencies
         run: |
-          for pkg in ces-contracts credential-storage egress-proxy; do
+          for pkg in $(jq -r '.bundledDependencies[]' credential-executor/package.json | sed 's|@vellumai/||'); do
             cd packages/$pkg && bun install --frozen-lockfile && cd ../..;
           done
 
