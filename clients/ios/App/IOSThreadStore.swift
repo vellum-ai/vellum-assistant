@@ -285,7 +285,7 @@ class IOSThreadStore: ObservableObject {
         daemon.onMessageContentResponse = { [weak self] response in
             self?.handleMessageContentResponse(response)
         }
-        daemon.onScheduleThreadCreated = { [weak self] msg in
+        daemon.onScheduleConversationCreated = { [weak self] msg in
             guard let self else { return }
             // Avoid duplicates
             guard !self.threads.contains(where: { $0.sessionId == msg.conversationId }) else { return }
@@ -295,7 +295,7 @@ class IOSThreadStore: ObservableObject {
                 scheduleJobId: msg.scheduleJobId
             )
             // Remove the empty placeholder thread if it's still present (race:
-            // schedule_thread_created can arrive before the first session_list_response).
+            // schedule_conversation_created can arrive before the first session_list_response).
             if self.threads.count == 1,
                self.threads[0].sessionId == nil,
                self.viewModels[self.threads[0].id]?.messages.isEmpty ?? true,
@@ -385,7 +385,7 @@ class IOSThreadStore: ObservableObject {
             oldDaemon.onHistoryResponse = nil
             oldDaemon.onSubagentDetailResponse = nil
             oldDaemon.onMessageContentResponse = nil
-            oldDaemon.onScheduleThreadCreated = nil
+            oldDaemon.onScheduleConversationCreated = nil
         }
 
         daemonClient = newClient
@@ -446,7 +446,7 @@ class IOSThreadStore: ObservableObject {
             return
         }
 
-        let filteredSessions = response.sessions.filter { $0.threadType != "private" }
+        let filteredSessions = response.sessions.filter { $0.conversationType != "private" }
 
         // Handle confirmed-empty first-page response: clear stale cached sessions.
         // Only clear when hasMore is explicitly false (authoritative empty result).
@@ -849,8 +849,8 @@ class IOSThreadStore: ObservableObject {
     }
 
     /// Create a new private thread with the given name. The thread is immediately
-    /// backed by a daemon session with threadType "private" so it is persisted on
-    /// the daemon side and excluded from normal thread restoration.
+    /// backed by a daemon session with conversationType "private" so it is persisted on
+    /// the daemon side and excluded from normal conversation restoration.
     @discardableResult
     func newPrivateThread(name: String = "Private Thread") -> IOSThread {
         let thread = IOSThread(title: name, isPrivate: true)
@@ -858,7 +858,7 @@ class IOSThreadStore: ObservableObject {
         // Get or create the view model after appending so activity tracking
         // can find the thread in self.threads.
         let vm = viewModel(for: thread.id)
-        vm.createSessionIfNeeded(threadType: "private")
+        vm.createSessionIfNeeded(conversationType: "private")
         save()
         return thread
     }

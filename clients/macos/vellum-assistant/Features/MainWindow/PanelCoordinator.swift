@@ -73,7 +73,7 @@ extension MainWindowView {
                     }
                 },
                 onNewThread: {
-                    threadManager.ensureThreadAndSend(message: "What kind of apps can you build?")
+                    threadManager.openThread(message: "What kind of apps can you build?", forceNew: true)
                     windowState.selection = nil
                 }
             )
@@ -81,7 +81,7 @@ extension MainWindowView {
             IntelligencePanel(
                 onClose: { windowState.selection = nil },
                 onInvokeSkill: { skill in
-                    let vm = threadManager.ensureThreadAndSend(message: "Use the \(skill.name) skill") { vm in
+                    let vm = threadManager.openThread(message: "Use the \(skill.name) skill") { vm in
                         vm.pendingSkillInvocation = SkillInvocationData(
                             name: skill.name,
                             emoji: skill.emoji,
@@ -123,7 +123,7 @@ extension MainWindowView {
                        !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         // Ensure a thread exists so the prompt doesn't silently fail
                         // on fresh app launch before any chat thread is created.
-                        threadManager.ensureThreadAndSend(
+                        threadManager.openThread(
                             message: prompt.trimmingCharacters(in: .whitespacesAndNewlines)
                         ) { vm in
                             // Sync dock state before sending so the message is
@@ -272,7 +272,7 @@ extension MainWindowView {
                         }
                     },
                     onNewThread: {
-                        threadManager.ensureThreadAndSend(message: "What kind of apps can you build?")
+                        threadManager.openThread(message: "What kind of apps can you build?", forceNew: true)
                         windowState.selection = nil
                     }
                 )
@@ -443,7 +443,7 @@ extension MainWindowView {
                     }
                 },
                 onNewThread: {
-                    threadManager.ensureThreadAndSend(message: "What kind of apps can you build?")
+                    threadManager.openThread(message: "What kind of apps can you build?", forceNew: true)
                     windowState.dismissOverlay()
                 }
             )
@@ -453,7 +453,7 @@ extension MainWindowView {
             IntelligencePanel(
                 onClose: { windowState.dismissOverlay() },
                 onInvokeSkill: { skill in
-                    let vm = threadManager.ensureThreadAndSend(message: "Use the \(skill.name) skill") { vm in
+                    let vm = threadManager.openThread(message: "Use the \(skill.name) skill") { vm in
                         vm.pendingSkillInvocation = SkillInvocationData(
                             name: skill.name,
                             emoji: skill.emoji,

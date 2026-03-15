@@ -54,15 +54,15 @@ extension AppDelegate {
     /// Guardian questions are time-sensitive, so they are foregrounded when the
     /// app is active. All notification types get a fallback native alert when
     /// backgrounded to guarantee delivery if the notification_intent event is late.
-    func handleNotificationThreadCreated(_ msg: NotificationThreadCreated) {
-        // Guardian scoping: skip thread creation for notifications targeted at
+    func handleNotificationConversationCreated(_ msg: NotificationConversationCreated) {
+        // Guardian scoping: skip conversation creation for notifications targeted at
         // a different guardian identity. When the local principal is nil (not yet
         // bootstrapped), pass through all notifications so urgent prompts aren't
         // silently missed during startup.
         if let target = msg.targetGuardianPrincipalId {
             let localId = ActorTokenManager.getGuardianPrincipalId()
             if let localId, localId != target {
-                log.info("Skipping notification_thread_created for guardian \(target) — local guardian is \(localId)")
+                log.info("Skipping notification_conversation_created for guardian \(target) — local guardian is \(localId)")
                 return
             }
         }
@@ -75,7 +75,7 @@ extension AppDelegate {
         )
 
         if NSApp.isActive {
-            maybePromptNotificationAuthorizationForThreadCreated()
+            maybePromptNotificationAuthorizationForConversationCreated()
         }
 
         // Guardian questions get foregrounded immediately when the app is active.

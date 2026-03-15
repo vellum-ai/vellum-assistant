@@ -8,21 +8,75 @@ import { renderCharacterPng } from "./png-renderer.js";
 
 const log = getLogger("traits-png-sync");
 
-interface CharacterTraits {
+export interface CharacterTraits {
   bodyShape: string;
   eyeStyle: string;
   color: string;
 }
 
 /**
- * Reads character-traits.json from the avatar directory and regenerates
- * avatar-image.png to match. Called after traits are written to disk.
- * Returns true if PNG was generated, false if traits file is missing/invalid.
+ * Writes character-traits.json and regenerates avatar-image.png in one
+ * atomic operation.  Accepts the trait values directly so callers don't
+ * need to touch the filesystem first.
+ *
+ * Returns true if both the traits file and PNG were written successfully.
  */
-export function syncTraitsToPng(): boolean {
+export function writeTraitsAndRenderPng(traits: CharacterTraits): boolean {
+  if (!traits.bodyShape || !traits.eyeStyle || !traits.color) {
+    log.warn({ traits }, "Invalid character traits — missing required fields");
+    return false;
+  }
+
   const avatarDir = join(getWorkspaceDir(), "data", "avatar");
   const traitsPath = join(avatarDir, "character-traits.json");
   const pngPath = join(avatarDir, "avatar-image.png");
+
+  try {
+    mkdirSync(avatarDir, { recursive: true });
+
+    // Write traits file atomically
+    const traitsJson = JSON.stringify(traits, null, 2);
+    const traitsTmp = `${traitsPath}.${randomUUID()}.tmp`;
+    writeFileSync(traitsTmp, traitsJson);
+    renameSync(traitsTmp, traitsPath);
+
+    // Render and write PNG atomically
+    const pngBuffer = renderCharacterPng(
+      traits.bodyShape,
+      traits.eyeStyle,
+      traits.color,
+    );
+    const pngTmp = `${pngPath}.${randomUUID()}.tmp`;
+    writeFileSync(pngTmp, pngBuffer);
+    renameSync(pngTmp, pngPath);
+
+    log.info(
+      {
+        bodyShape: traits.bodyShape,
+        eyeStyle: traits.eyeStyle,
+        color: traits.color,
+      },
+      "Wrote character traits and regenerated avatar PNG",
+    );
+    return true;
+  } catch (err) {
+    log.error({ err }, "Failed to write traits / render avatar PNG");
+    return false;
+  }
+}
+
+/**
+ * Reads character-traits.json from the avatar directory and regenerates
+ * avatar-image.png to match. Kept for backward compatibility (e.g. the
+ * client-side file watcher triggers this path).
+ */
+export function syncTraitsToPng(): boolean {
+  const traitsPath = join(
+    getWorkspaceDir(),
+    "data",
+    "avatar",
+    "character-traits.json",
+  );
 
   let traits: CharacterTraits;
   try {
@@ -32,38 +86,5 @@ export function syncTraitsToPng(): boolean {
     return false;
   }
 
-  if (
-    !traits ||
-    typeof traits !== "object" ||
-    !traits.bodyShape ||
-    !traits.eyeStyle ||
-    !traits.color
-  ) {
-    log.warn({ traits }, "Invalid character traits — missing required fields");
-    return false;
-  }
-
-  try {
-    const pngBuffer = renderCharacterPng(
-      traits.bodyShape,
-      traits.eyeStyle,
-      traits.color,
-    );
-    mkdirSync(avatarDir, { recursive: true });
-    const tmpPath = `${pngPath}.${randomUUID()}.tmp`;
-    writeFileSync(tmpPath, pngBuffer);
-    renameSync(tmpPath, pngPath);
-    log.info(
-      {
-        bodyShape: traits.bodyShape,
-        eyeStyle: traits.eyeStyle,
-        color: traits.color,
-      },
-      "Regenerated avatar PNG from character traits",
-    );
-    return true;
-  } catch (err) {
-    log.error({ err }, "Failed to render avatar PNG from traits");
-    return false;
-  }
+  return writeTraitsAndRenderPng(traits);
 }

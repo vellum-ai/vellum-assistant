@@ -27,7 +27,7 @@ public struct ConversationsListResponse: Decodable {
         public let title: String
         public let createdAt: Int?
         public let updatedAt: Int
-        public let threadType: String?
+        public let conversationType: String?
         public let source: String?
         public let scheduleJobId: String?
         public let channelBinding: ChannelBinding?
@@ -42,8 +42,8 @@ public struct ConversationsListResponse: Decodable {
 }
 
 /// Response shape from `GET /v1/conversations/:id`.
-struct SingleConversationResponse: Decodable {
-    let session: ConversationsListResponse.Session
+public struct SingleConversationResponse: Decodable {
+    public let session: ConversationsListResponse.Session
 }
 
 private struct HTTPErrorEnvelope: Decodable {
@@ -187,7 +187,7 @@ public final class HTTPTransport {
     /// Host tool requests are only executed for these session IDs.
     private var locallyOwnedSessionIds: Set<String> = []
     /// Session IDs that belong to private (temporary) threads.
-    /// Populated when a session_create with threadType "private" is handled locally.
+    /// Populated when a session_create with conversationType "private" is handled locally.
     var privateSessionIds: Set<String> = []
 
     let decoder = JSONDecoder()
@@ -1716,7 +1716,7 @@ public final class HTTPTransport {
             body["attachmentIds"] = attachmentIds
         }
         if privateSessionIds.contains(sessionId) {
-            body["threadType"] = "private"
+            body["conversationType"] = "private"
         }
 
         do {
@@ -2935,7 +2935,7 @@ public final class HTTPTransport {
             do {
                 let decoded = try decoder.decode(ConversationsListResponse.self, from: data)
                 let sessions = decoded.sessions.map {
-                    SessionListResponseSession(id: $0.id, title: $0.title, createdAt: $0.createdAt ?? $0.updatedAt, updatedAt: $0.updatedAt, threadType: $0.threadType, source: $0.source, scheduleJobId: $0.scheduleJobId, channelBinding: $0.channelBinding, conversationOriginChannel: $0.conversationOriginChannel, conversationOriginInterface: $0.conversationOriginInterface, assistantAttention: $0.assistantAttention, displayOrder: $0.displayOrder, isPinned: $0.isPinned)
+                    SessionListResponseSession(id: $0.id, title: $0.title, createdAt: $0.createdAt ?? $0.updatedAt, updatedAt: $0.updatedAt, conversationType: $0.conversationType, source: $0.source, scheduleJobId: $0.scheduleJobId, channelBinding: $0.channelBinding, conversationOriginChannel: $0.conversationOriginChannel, conversationOriginInterface: $0.conversationOriginInterface, assistantAttention: $0.assistantAttention, displayOrder: $0.displayOrder, isPinned: $0.isPinned)
                 }
                 onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: sessions, hasMore: decoded.hasMore)))
             } catch {
@@ -2945,35 +2945,6 @@ public final class HTTPTransport {
         } catch {
             log.error("Fetch session list error: \(error.localizedDescription)")
             onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [], hasMore: nil)))
-        }
-    }
-
-    /// Fetch a single conversation by its daemon ID.
-    /// Returns `nil` if the conversation doesn't exist (404) or the request fails.
-    func fetchConversationById(_ conversationId: String, isRetry: Bool = false) async -> ConversationsListResponse.Session? {
-        guard let url = buildURL(for: .conversationById(id: conversationId)) else { return nil }
-
-        var request = URLRequest(url: url)
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-                if statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        return await fetchConversationById(conversationId, isRetry: true)
-                    }
-                }
-                log.error("Fetch conversation \(conversationId) failed (HTTP \(statusCode))")
-                return nil
-            }
-            let decoded = try decoder.decode(SingleConversationResponse.self, from: data)
-            return decoded.session
-        } catch {
-            log.error("Failed to fetch conversation \(conversationId): \(error.localizedDescription)")
-            return nil
         }
     }
 

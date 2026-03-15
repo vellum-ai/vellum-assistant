@@ -1158,7 +1158,7 @@ Rules enforced by guard tests:
 - Direct gateway `curl` + manual bearer headers are for control-plane writes/actions, not retrieval reads.
 - Bundled skill docs must not instruct direct keychain lookups (`security find-generic-password`, `secret-tool`) for retrieval.
 - `host_bash` is not used for Vellum CLI retrieval commands unless intentionally allowlisted.
-- Outbound credentialed API calls prefer proxied execution (`bash` with `network_mode: "proxied"` + `credential_ids`) so credentials are injected by policy-aware plumbing instead of copied into commands.
+- Outbound credentialed API calls use CES tools (`make_authenticated_request`, `run_authenticated_command`) so credentials never enter the assistant process. `host_bash` is available as a user-approved escape hatch but is outside the strong secrecy guarantee.
 
 ### Skill Directory Structure
 
@@ -1192,7 +1192,6 @@ The following capabilities ship as bundled skills in `assistant/src/config/bundl
 ```mermaid
 graph TB
     subgraph "Activation Sources"
-        SLASH["Slash command<br/>/skill-id → preactivate"]
         MARKER["&lt;loaded_skill id=&quot;...&quot; /&gt;<br/>marker in conversation history"]
         CONFIG["Config / session<br/>preactivatedSkillIds"]
     end
@@ -1214,7 +1213,6 @@ graph TB
         PROVIDER["LLM Provider<br/>receives full tool list"]
     end
 
-    SLASH --> CONFIG
     MARKER --> DERIVE
     CONFIG --> UNION
     DERIVE --> UNION
@@ -1229,7 +1227,7 @@ graph TB
     RESOLVE --> PROVIDER
 ```
 
-**Internal preactivation**: Some bundled skills are preactivated programmatically rather than by user slash commands or model discovery. For example, desktop sessions set `preactivatedSkillIds: ['computer-use']`, causing `projectSkillTools()` to load the 11 `computer_use_*` tool definitions from the bundled skill's `TOOLS.json` on the first turn. These proxy tools forward actions to the connected macOS client via `HostCuProxy`.
+**Internal preactivation**: Some bundled skills are preactivated programmatically rather than by model discovery. For example, desktop sessions set `preactivatedSkillIds: ['computer-use']`, causing `projectSkillTools()` to load the 11 `computer_use_*` tool definitions from the bundled skill's `TOOLS.json` on the first turn. These proxy tools forward actions to the connected macOS client via `HostCuProxy`.
 
 ### Skill Tool Execution
 
@@ -1800,7 +1798,7 @@ This ensures:
 
 1. Every delivery has an auditable conversation trail in the conversations table
 2. The macOS/iOS client can deep-link directly into the notification conversation
-3. Delivery audit rows in `notification_deliveries` carry `conversation_id`, `message_id`, `conversation_strategy`, `conversation_action`, `conversation_target_conversation_id`, and `conversation_decision_fallback_used` columns
+3. Delivery audit rows in `notification_deliveries` carry `conversation_id`, `message_id`, `conversation_strategy`, `conversation_action`, `conversation_target_id`, and `conversation_fallback_used` columns
 
 The pairing function (`pairDeliveryWithConversation`) is resilient — errors are caught and logged without breaking the delivery pipeline.
 
@@ -1830,12 +1828,12 @@ All events follow the same pattern: the daemon creates a server-side conversatio
 
 The decision engine produces per-channel conversation actions using a candidate-driven approach:
 
-1. **Candidate generation** (`thread-candidates.ts`): Queries recent notification-sourced conversations (24-hour window, up to 5 per channel) and enriches them with guardian context (pending request counts).
+1. **Candidate generation** (`conversation-candidates.ts`): Queries recent notification-sourced conversations (24-hour window, up to 5 per channel) and enriches them with guardian context (pending request counts).
 2. **LLM decision**: The candidate set is serialized into the system prompt. The LLM chooses `start_new` or `reuse_existing` (with a candidate `conversationId`) per channel.
 3. **Strict validation** (`validateConversationActions`): Reuse targets must exist in the candidate set. Invalid targets are downgraded to `start_new`.
 4. **Pairing execution**: `pairDeliveryWithConversation` executes the conversation action — appending to an existing conversation on reuse, creating a new one otherwise.
 5. **Creation-only gating**: `notification_conversation_created` fires only on actual creation, not on reuse.
-6. **Audit trail**: Conversation actions are persisted in both `notification_decisions.validation_results` and `notification_deliveries` columns (`conversation_action`, `conversation_target_conversation_id`, `conversation_decision_fallback_used`).
+6. **Audit trail**: Conversation actions are persisted in both `notification_decisions.validation_results` and `notification_deliveries` columns (`conversation_action`, `conversation_target_id`, `conversation_fallback_used`).
 
 ### Guardian Call Conversation Affinity
 
@@ -1879,7 +1877,7 @@ Connected channels are resolved at signal emission time: vellum is always includ
 | `assistant/src/notifications/deterministic-checks.ts`                      | Hard invariant checks (dedupe, source-active suppression, channel availability)                                                       |
 | `assistant/src/notifications/broadcaster.ts`                               | Dispatches decisions to channel adapters; emits `notification_conversation_created` SSE event (creation-only)                         |
 | `assistant/src/notifications/conversation-pairing.ts`                      | Materializes conversation + message per delivery; executes conversation reuse decisions                                               |
-| `assistant/src/notifications/thread-candidates.ts`                         | Builds per-channel candidate set of recent conversations for the decision engine                                                      |
+| `assistant/src/notifications/conversation-candidates.ts`                   | Builds per-channel candidate set of recent conversations for the decision engine                                                      |
 | `assistant/src/notifications/adapters/macos.ts`                            | Vellum adapter — broadcasts `notification_intent` via SSE with deep-link metadata                                                     |
 | `assistant/src/notifications/adapters/telegram.ts`                         | Telegram adapter — POSTs to gateway `/deliver/telegram`                                                                               |
 | `assistant/src/notifications/destination-resolver.ts`                      | Resolves per-channel endpoints (vellum SSE, Telegram chat ID from guardian binding)                                                   |
@@ -1889,7 +1887,7 @@ Connected channels are resolved at signal emission time: vellum is always includ
 | `assistant/src/config/bundled-skills/messaging/tools/send-notification.ts` | Explicit producer tool for user-requested notifications; emits signals into the same routing pipeline                                 |
 | `assistant/src/calls/guardian-dispatch.ts`                                 | Guardian question dispatch that reuses canonical notification pairing and records guardian delivery bookkeeping from pipeline results |
 
-**Audit trail (SQLite):** `notification_events` → `notification_decisions` (with `conversationActions` in validation results) → `notification_deliveries` (with `conversation_id`, `message_id`, `conversation_strategy`, `conversation_action`, `conversation_target_conversation_id`, `conversation_decision_fallback_used`)
+**Audit trail (SQLite):** `notification_events` → `notification_decisions` (with `conversationActions` in validation results) → `notification_deliveries` (with `conversation_id`, `message_id`, `conversation_strategy`, `conversation_action`, `conversation_target_id`, `conversation_fallback_used`)
 
 **Configuration:** `notifications.decisionModelIntent` in `config.json`.
 

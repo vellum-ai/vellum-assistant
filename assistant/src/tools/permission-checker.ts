@@ -130,9 +130,12 @@ export class PermissionChecker {
         // Guardian-trust sessions (e.g. scheduled jobs, reminders) should be
         // able to use bundled tools without interactive approval. The guardian
         // is the owner — prompting makes no sense when there is no client.
+        // Exception: requireFreshApproval tools cannot be auto-approved —
+        // without a human present, bundle installation must be denied.
         if (
           context.isInteractive === false &&
-          context.trustClass === "guardian"
+          context.trustClass === "guardian" &&
+          !context.requireFreshApproval
         ) {
           log.info(
             { toolName: name, riskLevel },
@@ -180,9 +183,13 @@ export class PermissionChecker {
         // skip the interactive prompt and auto-approve. Only applies to
         // guardian actors — untrusted actors cannot leverage this to bypass
         // guardian-required gates (those are enforced in pre-execution gates).
+        // Exception: requireFreshApproval tools must always show the prompt —
+        // cached temporary overrides cannot substitute for per-invocation
+        // human review.
         if (
           context.trustClass === "guardian" &&
-          getEffectiveMode(context.conversationId) !== undefined
+          getEffectiveMode(context.conversationId) !== undefined &&
+          !context.requireFreshApproval
         ) {
           log.info(
             {
@@ -218,7 +225,7 @@ export class PermissionChecker {
           sandboxed = wrapped.sandboxed;
         }
 
-        const persistentDecisionsAllowed = true;
+        const persistentDecisionsAllowed = !context.requireFreshApproval;
 
         // Offer temporary approval options to guardians.
         const temporaryOptionsAvailable:

@@ -221,6 +221,7 @@ function migrateSkill(dirName, skillDir) {
       "disable-model-invocation",
       "includes",
       "credential-setup-for",
+      "user-invocable",
       // Dead keys — strip during migration
       "cli",
       "requires",

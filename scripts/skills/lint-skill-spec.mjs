@@ -170,14 +170,12 @@ const STANDARD_FIELDS = new Set([
 /**
  * Known vellum-specific extension fields that should be migrated to metadata.vellum.
  */
-const VELLUM_EXTENSION_FIELDS = new Set([]);
+const VELLUM_EXTENSION_FIELDS = new Set(["includes"]);
 
 /**
  * Fields that should be migrated to the compatibility field.
  */
-const COMPATIBILITY_MIGRATION_FIELDS = new Set([
-  "includes",
-]);
+const COMPATIBILITY_MIGRATION_FIELDS = new Set([]);
 
 function validateName(name, dirName) {
   const errors = [];

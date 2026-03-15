@@ -3,7 +3,7 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Manages private (temporary) threads on iOS, mirroring the macOS private thread
-/// workflow. Private threads are backed by daemon sessions with threadType "private"
+/// workflow. Private threads are backed by daemon sessions with conversationType "private"
 /// so they are excluded from normal session restoration and the main thread list.
 struct PrivateThreadsSection: View {
     /// Shared with the main ThreadListView so both views read from and write to the

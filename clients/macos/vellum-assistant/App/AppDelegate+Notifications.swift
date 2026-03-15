@@ -81,20 +81,20 @@ extension AppDelegate {
         ])
     }
 
-    /// Handles notification permission when a notification thread arrives while
+    /// Handles notification permission when a notification conversation arrives while
     /// the app is active. This provides user-visible context for the OS prompt
     /// and gives an immediate recovery path when the app is already denied.
-    func maybePromptNotificationAuthorizationForThreadCreated() {
+    func maybePromptNotificationAuthorizationForConversationCreated() {
         Task { @MainActor in
             let settings = await UNUserNotificationCenter.current().notificationSettings()
             switch settings.authorizationStatus {
             case .authorized, .provisional, .ephemeral:
                 return
             case .notDetermined:
-                guard !hasRequestedNotificationAuthorizationFromThreadSignal else { return }
-                hasRequestedNotificationAuthorizationFromThreadSignal = true
-                log.info("Requesting notification authorization from notification_thread_created signal")
-                requestNotificationAuthorization(trigger: "notification_thread_created", showDeniedToast: true)
+                guard !hasRequestedNotificationAuthorizationFromConversationSignal else { return }
+                hasRequestedNotificationAuthorizationFromConversationSignal = true
+                log.info("Requesting notification authorization from notification_conversation_created signal")
+                requestNotificationAuthorization(trigger: "notification_conversation_created", showDeniedToast: true)
             case .denied:
                 showNotificationPermissionSettingsToastIfNeeded()
             @unknown default:
@@ -361,7 +361,7 @@ extension AppDelegate {
         )
     }
 
-    /// Schedules a fallback local notification for any notification_thread_created
+    /// Schedules a fallback local notification for any notification_conversation_created
     /// event. If the corresponding notification_intent event arrives within the
     /// delay window, the fallback is cancelled (preventing duplicates). Guardian
     /// questions use a specific body; all other event types use a generic body.

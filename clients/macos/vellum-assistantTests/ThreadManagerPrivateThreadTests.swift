@@ -53,7 +53,7 @@ final class ThreadManagerPrivateThreadTests: XCTestCase {
         let vm = threadManager.activeViewModel!
         XCTAssertTrue(vm.isSending, "Should be in sending state from createSessionIfNeeded bootstrap")
         XCTAssertTrue(vm.isBootstrapping, "Should be bootstrapping a session")
-        XCTAssertEqual(vm.threadType, "private", "threadType should be set to private")
+        XCTAssertEqual(vm.conversationType, "private", "conversationType should be set to private")
     }
 
     func testCreatePrivateThreadSendsSessionCreate() {
@@ -68,7 +68,7 @@ final class ThreadManagerPrivateThreadTests: XCTestCase {
 
         let sessionCreates = capturedMessages.compactMap { $0 as? SessionCreateMessage }
         XCTAssertEqual(sessionCreates.count, 1, "Should send exactly one session_create")
-        XCTAssertEqual(sessionCreates.first?.threadType, "private", "session_create should include private threadType")
+        XCTAssertEqual(sessionCreates.first?.conversationType, "private", "session_create should include private conversationType")
         XCTAssertNotNil(sessionCreates.first?.correlationId, "session_create should include correlationId")
     }
 

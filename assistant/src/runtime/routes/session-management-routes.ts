@@ -83,7 +83,12 @@ export function sessionManagementRouteDefinitions(
         if (body.conversationKey && typeof body.conversationKey === "string") {
           setConversationKeyIfAbsent(body.conversationKey, conversationId);
         }
-        return Response.json(result);
+        return Response.json({
+          sessionId: result.sessionId,
+          title: result.title,
+          conversationType:
+            result.conversationType === "private" ? "private" : "standard",
+        });
       },
     },
     {

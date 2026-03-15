@@ -8,6 +8,27 @@ import Combine
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ThreadManager")
 private let archivedSessionsKey = "archivedSessionIds"
 
+// MARK: - Conversation Client Protocol
+
+/// Abstraction for fetching individual conversations, decoupled from DaemonClient.
+@MainActor
+protocol ConversationClientProtocol {
+    func fetchConversationById(_ conversationId: String) async -> ConversationsListResponse.Session?
+}
+
+/// Fetches conversation data via GatewayHTTPClient.
+@MainActor
+struct ConversationClient: ConversationClientProtocol {
+    nonisolated init() {}
+
+    func fetchConversationById(_ conversationId: String) async -> ConversationsListResponse.Session? {
+        let result: (SingleConversationResponse?, GatewayHTTPClient.Response)? = try? await GatewayHTTPClient.get(
+            path: "assistants/{assistantId}/conversations/\(conversationId)", timeout: 10
+        )
+        return result?.0?.session
+    }
+}
+
 @MainActor
 final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     @AppStorage("restoreRecentThreads") private(set) var restoreRecentThreads = true
@@ -81,6 +102,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// Tracks access order for LRU eviction. Most-recently-accessed ID is at the end.
     private var vmAccessOrder: [UUID] = []
     private let daemonClient: DaemonClient
+    private let conversationClient: ConversationClientProtocol
     private let sessionRestorer: ThreadSessionRestorer
     private let activityNotificationService: ActivityNotificationService?
     /// Queued renames for threads that don't yet have a sessionId.
@@ -192,8 +214,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         return getOrCreateViewModel(for: activeThreadId)
     }
 
-    init(daemonClient: DaemonClient, activityNotificationService: ActivityNotificationService? = nil, isFirstLaunch: Bool = false) {
+    init(daemonClient: DaemonClient, conversationClient: ConversationClientProtocol = ConversationClient(), activityNotificationService: ActivityNotificationService? = nil, isFirstLaunch: Bool = false) {
         self.daemonClient = daemonClient
+        self.conversationClient = conversationClient
         self.activityNotificationService = activityNotificationService
         self.sessionRestorer = ThreadSessionRestorer(daemonClient: daemonClient)
         // On first launch (post-onboarding), skip session restoration — there are
@@ -231,20 +254,36 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         enterDraftMode()
     }
 
-    /// Ensures a thread exists and sends a message.
+    /// Opens a thread for interaction, optionally creating a new one and/or sending a message.
+    ///
     /// - Parameters:
-    ///   - message: The text to send.
-    ///   - configure: Optional closure to configure the view model before sending
-    ///     (e.g., set skill invocation data or dock state).
+    ///   - message: Text to place in the input field. When nil, the input is left unchanged.
+    ///   - forceNew: When true, always creates a fresh thread via `createThread()`
+    ///     even if one is already active. Defaults to false (reuse the active thread).
+    ///   - autoSend: When true **and** a message is provided, the message is sent
+    ///     immediately. When false the message is only placed in the input field.
+    ///     Defaults to true.
+    ///   - configure: Optional closure to configure the view model before the message
+    ///     is populated/sent (e.g., set skill invocation data or dock state).
+    /// - Returns: The active `ChatViewModel`, or nil if thread creation failed.
     @discardableResult
-    func ensureThreadAndSend(message: String, configure: ((ChatViewModel) -> Void)? = nil) -> ChatViewModel? {
-        if activeViewModel == nil {
+    func openThread(
+        message: String? = nil,
+        forceNew: Bool = false,
+        autoSend: Bool = true,
+        configure: ((ChatViewModel) -> Void)? = nil
+    ) -> ChatViewModel? {
+        if forceNew || activeViewModel == nil {
             createThread()
         }
         guard let viewModel = activeViewModel else { return nil }
         configure?(viewModel)
-        viewModel.inputText = message
-        viewModel.sendMessage()
+        if let message {
+            viewModel.inputText = message
+            if autoSend {
+                viewModel.sendMessage()
+            }
+        }
         return viewModel
     }
 
@@ -360,7 +399,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
         // Immediately create a daemon session so the thread is persisted
         // before the user sends any messages.
-        viewModel.createSessionIfNeeded(threadType: "private")
+        viewModel.createSessionIfNeeded(conversationType: "private")
 
         log.info("Created private thread \(thread.id)")
     }
@@ -389,7 +428,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     /// Create a visible thread bound to an existing task run conversation.
-    /// Called when the daemon broadcasts `task_run_thread_created` so the user
+    /// Called when the daemon broadcasts `task_run_conversation_created` so the user
     /// can see task execution messages streaming in real-time.
     func createTaskRunThread(conversationId: String, workItemId: String, title: String) {
         // Avoid creating a duplicate thread if one already exists for this conversation
@@ -420,7 +459,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     /// Create a visible thread bound to a schedule-created conversation.
-    /// Called when the daemon broadcasts `schedule_thread_created` so the user
+    /// Called when the daemon broadcasts `schedule_conversation_created` so the user
     /// sees scheduled threads in the sidebar without a full refresh.
     func createScheduleThread(conversationId: String, scheduleJobId: String, title: String) {
         // Avoid creating a duplicate thread if one already exists for this conversation
@@ -448,7 +487,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     /// Create a visible thread bound to a notification-created conversation.
-    /// Called when the daemon broadcasts `notification_thread_created` so the user
+    /// Called when the daemon broadcasts `notification_conversation_created` so the user
     /// can see notification threads and deep-link into them.
     func createNotificationThread(conversationId: String, title: String, sourceEventName: String) {
         // Avoid creating a duplicate thread if one already exists for this conversation
@@ -463,7 +502,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         viewModel.sessionId = conversationId
         // Do NOT set isHistoryLoaded here — notification threads have a
         // pre-existing seed message persisted by conversation-pairing before
-        // the notification_thread_created event is emitted. Leaving
+        // the notification_conversation_created event is emitted. Leaving
         // isHistoryLoaded false allows ThreadSessionRestorer.loadHistoryIfNeeded
         // to fetch that seed message when the thread is first selected.
         // The handleAssistantMessageArrival guard dropping updates is correct
@@ -643,7 +682,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         serverOffset += response.sessions.count
 
         let recentSessions = response.sessions.filter {
-            $0.threadType != "private" && $0.channelBinding?.sourceChannel == nil
+            $0.conversationType != "private" && $0.channelBinding?.sourceChannel == nil
         }
 
         // Compute the next pinnedOrder based on existing pinned threads AND
@@ -681,7 +720,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 pinnedOrder: isPinned ? (session.displayOrder.map { Int($0) } ?? nextPinnedOrder) : nil,
                 displayOrder: session.displayOrder.map { Int($0) },
                 lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
-                kind: session.threadType == "private" ? .private : .standard,
+                kind: session.conversationType == "private" ? .private : .standard,
                 source: session.source,
                 scheduleJobId: session.scheduleJobId,
                 hasUnseenLatestAssistantMessage: session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false,
@@ -762,8 +801,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             return true
         }
 
-        // Slow path: fetch the conversation from the daemon and insert it locally
-        guard let session = await daemonClient.fetchConversationById(sessionId) else {
+        // Slow path: fetch the conversation via the gateway and insert it locally
+        guard let session = await conversationClient.fetchConversationById(sessionId) else {
             return false
         }
 
@@ -774,7 +813,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
 
         // Don't insert external-channel or private threads into the main sidebar
-        if session.threadType == "private" || session.channelBinding?.sourceChannel != nil {
+        if session.conversationType == "private" || session.channelBinding?.sourceChannel != nil {
             return false
         }
 

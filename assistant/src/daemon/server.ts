@@ -265,6 +265,14 @@ export class DaemonServer {
    */
   assistantId: string = DAEMON_INTERNAL_ASSISTANT_ID;
 
+  /**
+   * Return the CES client reference (if available).
+   * Used by routes that need to push updates to CES (e.g. secret-routes).
+   */
+  getCesClient(): CesClient | undefined {
+    return this.cesClientRef;
+  }
+
   /** Optional heartbeat service reference for "Run Now" from the UI. */
   private _heartbeatService?: HeartbeatService;
 

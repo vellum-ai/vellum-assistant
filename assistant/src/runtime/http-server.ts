@@ -225,6 +225,7 @@ export class RuntimeHttpServer {
   private getModelSetContext?: RuntimeHttpServerOptions["getModelSetContext"];
   private getWatchDeps?: RuntimeHttpServerOptions["getWatchDeps"];
   private getRecordingDeps?: RuntimeHttpServerOptions["getRecordingDeps"];
+  private getCesClient?: RuntimeHttpServerOptions["getCesClient"];
   private router: HttpRouter;
 
   constructor(options: RuntimeHttpServerOptions = {}) {
@@ -246,6 +247,7 @@ export class RuntimeHttpServer {
     this.getModelSetContext = options.getModelSetContext;
     this.getWatchDeps = options.getWatchDeps;
     this.getRecordingDeps = options.getRecordingDeps;
+    this.getCesClient = options.getCesClient;
     this.router = new HttpRouter(this.buildRouteTable());
   }
 
@@ -726,7 +728,9 @@ export class RuntimeHttpServer {
       }),
       ...appRouteDefinitions(),
       ...appManagementRouteDefinitions(),
-      ...secretRouteDefinitions(),
+      ...secretRouteDefinitions({
+        getCesClient: this.getCesClient,
+      }),
       ...identityRouteDefinitions(),
       ...debugRouteDefinitions(),
       ...usageRouteDefinitions(),
@@ -846,7 +850,7 @@ export class RuntimeHttpServer {
                 title: c.title ?? "Untitled",
                 createdAt: c.createdAt,
                 updatedAt: c.updatedAt,
-                threadType:
+                conversationType:
                   c.conversationType === "private" ? "private" : "standard",
                 source: c.source ?? "user",
                 ...(c.scheduleJobId ? { scheduleJobId: c.scheduleJobId } : {}),
@@ -1024,7 +1028,7 @@ export class RuntimeHttpServer {
               title: conversation.title ?? "Untitled",
               createdAt: conversation.createdAt,
               updatedAt: conversation.updatedAt,
-              threadType:
+              conversationType:
                 conversation.conversationType === "private"
                   ? "private"
                   : "standard",

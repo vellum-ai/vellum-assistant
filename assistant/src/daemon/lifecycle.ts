@@ -632,6 +632,7 @@ export async function runDaemon(): Promise<void> {
       getRecordingDeps: () => ({
         getHandlerContext: () => server.getHandlerContext(),
       }),
+      getCesClient: () => server.getCesClient(),
     });
 
     // Inject voice bridge deps BEFORE attempting to start the HTTP server.

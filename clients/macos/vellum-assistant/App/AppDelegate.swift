@@ -123,8 +123,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// inside a short window is treated as a duplicate and suppressed.
     var fallbackDeliveredAtMs: [String: Double] = [:]
     /// Guard to avoid repeatedly re-requesting notification authorization when
-    /// multiple notification threads are created in quick succession.
-    var hasRequestedNotificationAuthorizationFromThreadSignal = false
+    /// multiple notification conversations are created in quick succession.
+    var hasRequestedNotificationAuthorizationFromConversationSignal = false
     /// Last time we surfaced the denied-notification permission toast.
     var lastNotificationPermissionToastAtMs: Double = 0
 

@@ -65,24 +65,12 @@ The user picks a body shape, eye style, and color. Present the options conversat
 
 ### Setting traits
 
-After the user chooses, write the selection to `data/avatar/character-traits.json` (relative to the workspace root):
-
-```json
-{
-  "bodyShape": "<chosen-body-shape>",
-  "eyeStyle": "<chosen-eye-style>",
-  "color": "<chosen-color>"
-}
-```
+After the user chooses, call the render endpoint with the chosen traits. This writes `character-traits.json` and generates the static PNG in one step:
 
 ```bash
-mkdir -p "$VELLUM_WORKSPACE_DIR/data/avatar"
-cat > "$VELLUM_WORKSPACE_DIR/data/avatar/character-traits.json" << 'TRAITS'
-{ "bodyShape": "<value>", "eyeStyle": "<value>", "color": "<value>" }
-TRAITS
-
-# Trigger assistant-side PNG rendering from the traits
-curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/avatar/render-from-traits"
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/avatar/render-from-traits" \
+  -H "Content-Type: application/json" \
+  -d '{"bodyShape": "<value>", "eyeStyle": "<value>", "color": "<value>"}'
 ```
 
 The client will detect the traits file and render the animated character. The assistant also generates a static PNG for use as dock icon and by other clients.
@@ -146,5 +134,5 @@ The client checks for character traits first — if `character-traits.json` exis
 
 Enforcement rules:
 
-- **Setting native character traits** → write `character-traits.json` and call `POST /v1/avatar/render-from-traits`. The assistant auto-generates the PNG.
+- **Setting native character traits** → call `POST /v1/avatar/render-from-traits` with `{ bodyShape, eyeStyle, color }`. This writes `character-traits.json` and auto-generates the PNG in one step.
 - **Uploading or generating a custom image** → write `avatar-image.png` and remove `character-traits.json`.
