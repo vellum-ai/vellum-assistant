@@ -2365,7 +2365,7 @@ public enum ServerMessage: Decodable, Sendable {
         case "notification_intent":
             let message = try NotificationIntentMessage(from: decoder)
             self = .notificationIntent(message)
-        case "notification_conversation_created":
+        case "notification_thread_created":
             let message = try NotificationConversationCreated(from: decoder)
             self = .notificationConversationCreated(message)
         case "watch_started":
