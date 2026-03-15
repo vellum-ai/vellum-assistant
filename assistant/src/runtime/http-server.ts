@@ -538,7 +538,7 @@ export class RuntimeHttpServer {
 
     // Strip trailing slashes so routes match regardless of whether the
     // caller includes one (e.g. platform proxy paths use Django's trailing-
-    // slash convention: /v1/assistants/{id}/memory-items/ → memory-items/).
+    // slash convention, so the gateway may forward paths with a trailing /).
     const endpoint = path.slice("/v1/".length).replace(/\/$/, "");
 
     if (!isHttpAuthDisabled()) {

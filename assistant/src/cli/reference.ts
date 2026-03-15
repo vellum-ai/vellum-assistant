@@ -11,7 +11,7 @@ Options:
 
 Commands:
   bash [options] <command>                 Execute a shell command through the assistant process for debugging
-  sessions                                 Manage sessions
+  conversations                            Manage conversations
   config                                   Manage configuration
   keys                                     Manage API keys in secure storage
   credentials [options]                    Manage credentials in the encrypted vault (API keys, tokens, passwords)
