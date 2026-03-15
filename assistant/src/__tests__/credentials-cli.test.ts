@@ -295,7 +295,11 @@ describe("assistant credentials CLI", () => {
       const result = await runCli(["list", "--json"]);
       expect(result.exitCode).toBe(0);
       const parsed = JSON.parse(result.stdout);
-      expect(parsed).toEqual({ ok: true, credentials: [] });
+      expect(parsed).toEqual({
+        ok: true,
+        credentials: [],
+        managedCredentials: [],
+      });
     });
 
     test("returns all credentials with correct shapes", async () => {
@@ -397,7 +401,11 @@ describe("assistant credentials CLI", () => {
       ]);
       expect(result.exitCode).toBe(0);
       const parsed = JSON.parse(result.stdout);
-      expect(parsed).toEqual({ ok: true, credentials: [] });
+      expect(parsed).toEqual({
+        ok: true,
+        credentials: [],
+        managedCredentials: [],
+      });
     });
 
     test("list items have the same shape as inspect output", async () => {
