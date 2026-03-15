@@ -416,7 +416,19 @@ export function deleteAttachment(attachmentId: string): DeleteAttachmentResult {
 
   if (refCount > 0) return "still_referenced";
 
+  // Collect file path BEFORE deleting the DB row (the row contains the path reference)
+  const filePath = getFilePathForAttachment(attachmentId);
+
   db.delete(attachments).where(eq(attachments.id, attachmentId)).run();
+
+  // Clean up on-disk file only after the DB row has been removed
+  if (filePath) {
+    try {
+      unlinkSync(filePath);
+    } catch {
+      /* file may already be gone */
+    }
+  }
 
   return "deleted";
 }
