@@ -83,7 +83,7 @@ struct APIKeyStepView: View {
     }
 
     private var showInlineCloudFields: Bool {
-        managedSignInEnabled && (hostingMode == .gcp || hostingMode == .aws || hostingMode == .customHardware)
+        hostingMode == .gcp || hostingMode == .aws || hostingMode == .customHardware
     }
 
     var body: some View {
@@ -159,7 +159,7 @@ struct APIKeyStepView: View {
         }
 
         if !managedSignInEnabled {
-            OnboardingFooter(currentStep: state.currentStep, totalSteps: userHostedEnabled ? 4 : 3)
+            OnboardingFooter(currentStep: state.currentStep, totalSteps: 3)
                 .padding(.bottom, VSpacing.lg)
         }
     }
@@ -254,6 +254,7 @@ struct APIKeyStepView: View {
                             guard !hatchButtonDisabled else { return }
                             saveAndHatch()
                         } else {
+                            guard !primaryButtonDisabled else { return }
                             saveAndContinue()
                         }
                     }
@@ -321,7 +322,20 @@ struct APIKeyStepView: View {
     // MARK: - Helpers
 
     private var primaryButtonDisabled: Bool {
-        apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return true
+        }
+        switch hostingMode {
+        case .gcp:
+            return state.gcpProjectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || state.gcpServiceAccountKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .aws:
+            return state.awsRoleArn.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .customHardware:
+            return state.customQRCodeImageData.isEmpty
+        default:
+            return false
+        }
     }
 
     private var hatchButtonDisabled: Bool {
@@ -377,8 +391,10 @@ struct APIKeyStepView: View {
     }
 
     private func saveAndContinue() {
-        if userHostedEnabled {
+        if showHostingSelector {
             state.cloudProvider = hostingMode.rawValue
+        } else {
+            state.cloudProvider = "local"
         }
 
         let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -386,15 +402,8 @@ struct APIKeyStepView: View {
         APIKeyManager.setKey(trimmed, for: "anthropic")
         APIKeyManager.syncKeyToDaemon(provider: "anthropic", value: trimmed)
 
-            saveModelToConfig("claude-opus-4-6")
-            if userHostedEnabled && hostingMode != .local && hostingMode != .docker {
-                state.advance()
-            } else if userHostedEnabled {
-                state.advance()
-            } else {
-                state.cloudProvider = "local"
-                state.advance()
-            }
+        saveModelToConfig("claude-opus-4-6")
+        state.advance()
     }
 
     private func saveModelToConfig(_ model: String) {

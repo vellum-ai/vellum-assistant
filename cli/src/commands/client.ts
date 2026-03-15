@@ -5,7 +5,7 @@ import {
   getActiveAssistant,
   loadLatestAssistant,
 } from "../lib/assistant-config";
-import { GATEWAY_PORT, type Species } from "../lib/constants";
+import { DAEMON_INTERNAL_ASSISTANT_ID, GATEWAY_PORT, type Species } from "../lib/constants";
 import { getLocalLanIPv4, getMacLocalHostname } from "../lib/local";
 
 const ANSI = {
@@ -15,7 +15,6 @@ const ANSI = {
 };
 
 const FALLBACK_RUNTIME_URL = `http://127.0.0.1:${GATEWAY_PORT}`;
-const FALLBACK_ASSISTANT_ID = "default";
 
 interface ParsedArgs {
   runtimeUrl: string;
@@ -83,7 +82,7 @@ function parseArgs(): ParsedArgs {
   }
 
   let runtimeUrl = entry?.localUrl || entry?.runtimeUrl || FALLBACK_RUNTIME_URL;
-  let assistantId = entry?.assistantId || FALLBACK_ASSISTANT_ID;
+  let assistantId = entry?.assistantId || DAEMON_INTERNAL_ASSISTANT_ID;
   const bearerToken = entry?.bearerToken || undefined;
   const species: Species = (entry?.species as Species) ?? "vellum";
 

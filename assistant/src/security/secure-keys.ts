@@ -11,6 +11,11 @@
  * Deletes clean up both stores regardless of mode.
  */
 
+import type {
+  SecureKeyBackend,
+  SecureKeyDeleteResult,
+} from "@vellumai/credential-storage";
+
 import { getLogger } from "../util/logger.js";
 import type { CredentialBackend, DeleteResult } from "./credential-backend.js";
 import {
@@ -19,6 +24,13 @@ import {
 } from "./credential-backend.js";
 
 export type { DeleteResult } from "./credential-backend.js";
+
+/**
+ * Re-export shared-package secure-key abstractions so downstream consumers
+ * can import from this module without a direct @vellumai/credential-storage
+ * dependency.
+ */
+export type { SecureKeyBackend, SecureKeyDeleteResult };
 
 const log = getLogger("secure-keys");
 

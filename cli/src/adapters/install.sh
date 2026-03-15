@@ -231,7 +231,7 @@ symlink_vellum() {
 
 # Append PATH setup to ~/.config/vellum/env so callers can pick up PATH
 # changes without restarting their shell:
-#   curl -fsSL https://assistant.vellum.ai/install.sh | bash && . ~/.config/vellum/env
+#   curl -fsSL https://vellum.ai/install.sh | bash && . ~/.config/vellum/env
 write_env_file() {
     local env_dir="${XDG_CONFIG_HOME:-$HOME/.config}/vellum"
     local env_file="$env_dir/env"

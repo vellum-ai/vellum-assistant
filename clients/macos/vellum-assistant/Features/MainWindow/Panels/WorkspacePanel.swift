@@ -311,6 +311,7 @@ private struct WorkspaceTreeSidebar: View {
                     }
                     .padding(.vertical, VSpacing.xs)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background {
                     GeometryReader { geo in
                         Color.clear
@@ -654,6 +655,16 @@ private struct WorkspaceFileViewer: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let detail = state.selectedFileDetail {
                 fileContent(detail)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .fill(VColor.surfaceBase)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .strokeBorder(VColor.borderBase, lineWidth: 1)
+                    )
+                    .padding(VSpacing.md)
             } else {
                 emptyState
             }

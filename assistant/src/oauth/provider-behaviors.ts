@@ -192,6 +192,7 @@ const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
   },
   "integration:github": {
     service: "integration:github",
+    loopbackPort: 17332,
     injectionTemplates: [
       {
         hostPattern: "api.github.com",
@@ -270,6 +271,7 @@ const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
 
   "integration:spotify": {
     service: "integration:spotify",
+    loopbackPort: 17333,
     injectionTemplates: [
       {
         hostPattern: "api.spotify.com",

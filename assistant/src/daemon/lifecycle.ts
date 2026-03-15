@@ -62,18 +62,23 @@ import {
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { startScheduler } from "../schedule/scheduler.js";
+import { BOOTSTRAPPED_ACTOR_HTTP_TOKEN } from "../security/credential-key.js";
+import { setSecureKeyAsync } from "../security/secure-keys.js";
 import { UsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { getLogger, initLogger } from "../util/logger.js";
 import {
   ensureDataDir,
   getInterfacesDir,
   getRootDir,
+  getWorkspaceDir,
 } from "../util/platform.js";
 import {
   listWorkItems,
   updateWorkItem,
 } from "../work-items/work-item-store.js";
 import { WorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
+import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
+import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
 import {
   createApprovalConversationGenerator,
   createApprovalCopyGenerator,
@@ -139,6 +144,7 @@ export async function runDaemon(): Promise<void> {
     await initLogfire();
 
     ensureDataDir();
+    runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
 
     // Load (or generate + persist) the auth signing key so tokens survive
     // daemon restarts. Must happen after ensureDataDir() creates the
@@ -247,13 +253,22 @@ export async function runDaemon(): Promise<void> {
       const hashedDeviceId = createHash("sha256")
         .update(cliDeviceId)
         .digest("hex");
-      mintCredentialPair({
+      const credentials = mintCredentialPair({
         platform: "cli",
         deviceId: cliDeviceId,
         guardianPrincipalId,
         hashedDeviceId,
       });
-      log.info("Daemon startup: CLI edge token written to credential store");
+
+      const stored = await setSecureKeyAsync(
+        BOOTSTRAPPED_ACTOR_HTTP_TOKEN,
+        credentials.accessToken,
+      );
+      if (!stored) {
+        log.warn("Failed to persist CLI edge token in credential store");
+      } else {
+        log.info("Daemon startup: CLI edge token written to credential store");
+      }
     } else {
       log.warn("No guardian principal available — CLI edge token not written");
     }

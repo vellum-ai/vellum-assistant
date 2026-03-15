@@ -6,7 +6,8 @@
  * secure key naming convention.
  */
 
-import { credentialKey } from "../../security/credential-key.js";
+import { credentialKey } from "@vellumai/credential-storage";
+
 import { matchHostPattern } from "./host-pattern-match.js";
 import {
   type CredentialMetadata,

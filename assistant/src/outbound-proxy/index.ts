@@ -1,4 +1,7 @@
-// Core proxy types
+// ---------------------------------------------------------------------------
+// Core types — re-exported from @vellumai/egress-proxy shared package
+// ---------------------------------------------------------------------------
+
 export type {
   CredentialInjectionTemplate,
   CredentialInjectionType,
@@ -17,9 +20,31 @@ export type {
   ProxySessionId,
   ProxySessionStatus,
   RequestTargetContext,
-} from "./types.js";
+} from "@vellumai/egress-proxy";
 
+// ---------------------------------------------------------------------------
+// Session core — re-exported from @vellumai/egress-proxy shared package
+// ---------------------------------------------------------------------------
+
+export type { ManagedSession, SessionStartHooks } from "@vellumai/egress-proxy";
+export {
+  cloneSession,
+  createSession,
+  credentialIdsMatch,
+  getActiveSession,
+  getOrStartSession,
+  getSessionEnv,
+  getSessionsForConversation,
+  SessionStore,
+  startSession,
+  stopAllSessions,
+  stopSession,
+} from "@vellumai/egress-proxy";
+
+// ---------------------------------------------------------------------------
 // Host pattern matching
+// ---------------------------------------------------------------------------
+
 export type {
   HostMatchKind,
   MatchHostPatternOptions,
@@ -53,7 +78,6 @@ export { handleConnect } from "./connect-tunnel.js";
 export { evaluateRequest, evaluateRequestWithApproval } from "./policy.js";
 
 // HTTP forwarder
-export type { PolicyCallback } from "./http-forwarder.js";
 export { forwardHttpRequest } from "./http-forwarder.js";
 
 // Proxy server
