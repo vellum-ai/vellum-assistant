@@ -302,11 +302,16 @@ function startHealthServer(port: number, signal: AbortSignal): ReturnType<typeof
         );
       }
       if (url.pathname === "/readyz") {
-        const ready = rpcConnected;
+        // Always return 200 — pod readiness must not depend on whether the
+        // assistant has connected.  When the CES feature flag is off the
+        // assistant never connects, and a 503 here would block pod
+        // scheduling during dark-launch.  The sidecar can't do useful work
+        // without a connection anyway, so readiness is purely about the
+        // process being up and able to accept a future connection.
         return new Response(
-          JSON.stringify({ ready, version: CES_PROTOCOL_VERSION }),
+          JSON.stringify({ ready: true, rpcConnected, version: CES_PROTOCOL_VERSION }),
           {
-            status: ready ? 200 : 503,
+            status: 200,
             headers: { "Content-Type": "application/json" },
           },
         );
