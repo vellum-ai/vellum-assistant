@@ -9,7 +9,10 @@ const metadataDeletes: Array<{ service: string; field: string }> = [];
 
 const PLATFORM_BASE_URL = "https://platform.example.com";
 const ASSISTANT_API_KEY_PATH = credentialKey("vellum", "assistant_api_key");
+const PLATFORM_BASE_URL_PATH = credentialKey("vellum", "platform_base_url");
 const MANAGED_PROVIDERS = ["anthropic", "gemini"] as const;
+
+let platformBaseUrlOverride: string | undefined;
 
 const mockConfig = {
   provider: "anthropic",
@@ -41,6 +44,9 @@ mock.module("@google/genai", () => ({
 
 mock.module("../config/env.js", () => ({
   getPlatformBaseUrl: () => PLATFORM_BASE_URL,
+  setPlatformBaseUrl: (value: string | undefined) => {
+    platformBaseUrlOverride = value;
+  },
 }));
 
 mock.module("../config/loader.js", () => ({
@@ -127,6 +133,7 @@ describe("secret routes managed proxy registry sync", () => {
     metadataUpserts.length = 0;
     metadataDeletes.length = 0;
     lastGeminiConstructorOpts = null;
+    platformBaseUrlOverride = undefined;
     await initializeProviders(mockConfig);
   });
 
@@ -171,5 +178,64 @@ describe("secret routes managed proxy registry sync", () => {
       { service: "vellum", field: "assistant_api_key" },
     ]);
     expect(listProviders()).toEqual([]);
+  });
+
+  test("storing vellum:platform_base_url sets override and triggers initializeProviders", async () => {
+    const res = await handleAddSecret(
+      makeAddCredentialRequest(
+        "vellum:platform_base_url",
+        "https://managed.example.com",
+      ),
+    );
+
+    expect(res.status).toBe(201);
+    expect(secureKeyStore[PLATFORM_BASE_URL_PATH]).toBe(
+      "https://managed.example.com",
+    );
+    expect(platformBaseUrlOverride).toBe("https://managed.example.com");
+    expect(metadataUpserts).toEqual([
+      { service: "vellum", field: "platform_base_url" },
+    ]);
+  });
+
+  test("storing both vellum:platform_base_url and vellum:assistant_api_key enables managed proxy", async () => {
+    expect(listProviders()).toEqual([]);
+
+    await handleAddSecret(
+      makeAddCredentialRequest(
+        "vellum:platform_base_url",
+        "https://managed.example.com",
+      ),
+    );
+    expect(platformBaseUrlOverride).toBe("https://managed.example.com");
+
+    const res = await handleAddSecret(
+      makeAddCredentialRequest("vellum:assistant_api_key", "ast-managed-key"),
+    );
+
+    expect(res.status).toBe(201);
+    const providers = listProviders();
+    expect(providers).toHaveLength(MANAGED_PROVIDERS.length);
+    for (const provider of MANAGED_PROVIDERS) {
+      expect(providers).toContain(provider);
+      expect(getProviderRoutingSource(provider)).toBe("managed-proxy");
+    }
+  });
+
+  test("deleting vellum:platform_base_url clears override and re-initializes providers", async () => {
+    // Set up: store the platform URL credential first
+    secureKeyStore[PLATFORM_BASE_URL_PATH] = "https://managed.example.com";
+    platformBaseUrlOverride = "https://managed.example.com";
+
+    const res = await handleDeleteSecret(
+      makeDeleteCredentialRequest("vellum:platform_base_url"),
+    );
+
+    expect(res.status).toBe(200);
+    expect(secureKeyStore[PLATFORM_BASE_URL_PATH]).toBeUndefined();
+    expect(platformBaseUrlOverride).toBeUndefined();
+    expect(metadataDeletes).toEqual([
+      { service: "vellum", field: "platform_base_url" },
+    ]);
   });
 });

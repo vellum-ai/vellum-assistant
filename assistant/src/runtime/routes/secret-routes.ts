@@ -1,3 +1,4 @@
+import { setPlatformBaseUrl } from "../../config/env.js";
 import {
   API_KEY_PROVIDERS,
   getConfig,
@@ -21,15 +22,14 @@ import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
 const log = getLogger("runtime-http");
-const MANAGED_PROXY_CREDENTIAL = {
-  service: "vellum",
-  field: "assistant_api_key",
-};
+const MANAGED_PROXY_CREDENTIALS = [
+  { service: "vellum", field: "assistant_api_key" },
+  { service: "vellum", field: "platform_base_url" },
+] as const;
 
 function isManagedProxyCredential(service: string, field: string): boolean {
-  return (
-    service === MANAGED_PROXY_CREDENTIAL.service &&
-    field === MANAGED_PROXY_CREDENTIAL.field
+  return MANAGED_PROXY_CREDENTIALS.some(
+    (c) => c.service === service && c.field === field,
   );
 }
 
@@ -142,28 +142,33 @@ export async function handleAddSecret(
         );
       }
       upsertCredentialMetadata(service, field, {});
+      if (service === "vellum" && field === "platform_base_url") {
+        setPlatformBaseUrl(value);
+      }
       if (isManagedProxyCredential(service, field)) {
         await initializeProviders(getConfig());
-        // Push the API key to CES so managed credential materialization
-        // works even though the handshake ran before the key was available.
-        const cesClient = getCesClient?.();
-        if (cesClient) {
-          if (cesClient.isReady()) {
-            try {
-              await cesClient.updateAssistantApiKey(value);
-              log.info(
-                "Pushed assistant API key to CES after managed proxy credential update",
-              );
-            } catch (err) {
-              log.warn(
-                { error: err instanceof Error ? err.message : String(err) },
-                "Failed to push assistant API key to CES (non-fatal)",
-              );
+        if (service === "vellum" && field === "assistant_api_key") {
+          // Push the API key to CES so managed credential materialization
+          // works even though the handshake ran before the key was available.
+          const cesClient = getCesClient?.();
+          if (cesClient) {
+            if (cesClient.isReady()) {
+              try {
+                await cesClient.updateAssistantApiKey(value);
+                log.info(
+                  "Pushed assistant API key to CES after managed proxy credential update",
+                );
+              } catch (err) {
+                log.warn(
+                  { error: err instanceof Error ? err.message : String(err) },
+                  "Failed to push assistant API key to CES (non-fatal)",
+                );
+              }
+            } else {
+              // CES handshake is still in flight — queue the key propagation
+              // so it fires once CES becomes ready.
+              void queueApiKeyPropagation(cesClient, value);
             }
-          } else {
-            // CES handshake is still in flight — queue the key propagation
-            // so it fires once CES becomes ready.
-            void queueApiKeyPropagation(cesClient, value);
           }
         }
       }
@@ -259,6 +264,9 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
         );
       }
       deleteCredentialMetadata(service, field);
+      if (service === "vellum" && field === "platform_base_url") {
+        setPlatformBaseUrl(undefined);
+      }
       if (isManagedProxyCredential(service, field)) {
         await initializeProviders(getConfig());
       }
