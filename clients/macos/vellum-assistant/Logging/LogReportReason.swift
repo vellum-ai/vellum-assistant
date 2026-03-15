@@ -36,10 +36,20 @@ enum LogReportReason: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// Determines what data the log export should include.
+enum LogExportScope: Sendable {
+    /// Full global export — all threads, all data.
+    case global
+    /// Scoped to a single thread/conversation.
+    case thread(conversationId: String, threadTitle: String,
+                startTime: Date? = nil, endTime: Date? = nil)
+}
+
 /// Aggregated form data collected from the log report sheet.
 struct LogReportFormData: Sendable {
     var reason: LogReportReason
     var name: String
     var message: String
     var email: String  // Required — used for follow-up via Sentry Feedback
+    var scope: LogExportScope = .global
 }
