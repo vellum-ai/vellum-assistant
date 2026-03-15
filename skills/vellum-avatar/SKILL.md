@@ -132,5 +132,5 @@ The client checks for character traits first — if `character-traits.json` exis
 
 Enforcement rules:
 
-- **Setting native character traits** → run `assistant avatar character update --body-shape X --eye-style Y --color Z`. This writes `character-traits.json` and auto-generates the PNG in one step.
+- **Setting native character traits** → run `assistant avatar character update --body-shape X --eye-style Y --color Z`. This writes `character-traits.json`, auto-generates the PNG, and creates ASCII art in one step.
 - **Uploading or generating a custom image** → write `avatar-image.png` and remove `character-traits.json`.

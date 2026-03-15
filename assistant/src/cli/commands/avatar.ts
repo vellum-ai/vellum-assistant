@@ -248,11 +248,20 @@ Examples:
         return;
       }
 
+      const width = parseInt(opts.width, 10);
+      if (!Number.isFinite(width) || width < 1) {
+        log.error(
+          `Invalid width: "${opts.width}". Must be a positive integer.`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+
       const asciiArt = renderCharacterAscii(
         traits.bodyShape,
         traits.eyeStyle,
         traits.color,
-        parseInt(opts.width, 10),
+        width,
       );
 
       process.stdout.write(asciiArt + "\n");
