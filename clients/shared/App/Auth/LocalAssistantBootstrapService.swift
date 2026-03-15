@@ -76,7 +76,7 @@ public final class LocalAssistantBootstrapService {
         daemonBaseURL: String,
         daemonToken: String
     ) async throws -> LocalBootstrapOutcome {
-        let installId = LocalInstallationIdStore.getOrCreate()
+        let installId = DeviceIdStore.getOrCreate()
 
         // Resolve the user's organization ID — required for all platform API calls.
         let organizationId: String
