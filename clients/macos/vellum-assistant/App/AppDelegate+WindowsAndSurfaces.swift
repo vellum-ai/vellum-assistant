@@ -618,9 +618,10 @@ extension AppDelegate {
     public func showAboutPanel() {
         var options: [NSApplication.AboutPanelOptionKey: Any] = [:]
 
+        let creditsString = NSMutableAttributedString()
+
         #if DEBUG
         let bundlePath = Bundle.main.bundlePath
-        let creditsString = NSMutableAttributedString()
 
         let headerAttributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
@@ -633,9 +634,25 @@ extension AppDelegate {
             .foregroundColor: NSColor.secondaryLabelColor
         ]
         creditsString.append(NSAttributedString(string: bundlePath, attributes: pathAttributes))
+        creditsString.append(NSAttributedString(string: "\n", attributes: pathAttributes))
+        #endif
+
+        let archLabel: String
+        #if arch(arm64)
+        archLabel = "Apple Silicon (arm64)"
+        #elseif arch(x86_64)
+        archLabel = "Intel (x86_64)"
+        #else
+        archLabel = "Unknown architecture"
+        #endif
+
+        let archAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .regular),
+            .foregroundColor: NSColor.secondaryLabelColor
+        ]
+        creditsString.append(NSAttributedString(string: archLabel, attributes: archAttributes))
 
         options[.credits] = creditsString
-        #endif
 
         NSApp.activate(ignoringOtherApps: true)
         NSApp.orderFrontStandardAboutPanel(options: options)
