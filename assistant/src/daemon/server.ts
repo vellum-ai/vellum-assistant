@@ -1049,17 +1049,11 @@ export class DaemonServer {
     const resolvedContent = slashResult.content;
 
     const requestId = crypto.randomUUID();
-    let messageId: string;
-    try {
-      messageId = await session.persistUserMessage(
-        resolvedContent,
-        attachments,
-        requestId,
-      );
-    } catch (err) {
-      session.setPreactivatedSkillIds(undefined);
-      throw err;
-    }
+    const messageId = await session.persistUserMessage(
+      resolvedContent,
+      attachments,
+      requestId,
+    );
 
     // Register pending interactions so channel approval interception can
     // find the session by requestId when confirmation/secret events fire.
