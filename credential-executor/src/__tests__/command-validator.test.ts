@@ -614,6 +614,45 @@ describe("validateCommand", () => {
     expect(result.reason).toContain("--unsafe-perm");
   });
 
+  test("denies --flag=value form of denied flags", () => {
+    const manifestWithDeniedFlags = buildManifest({
+      commandProfiles: {
+        "api-read": {
+          description: "Read-only GitHub API calls",
+          allowedArgvPatterns: [
+            {
+              name: "api-call",
+              tokens: ["api", "<endpoint>", "<args...>"],
+            },
+          ],
+          deniedSubcommands: [],
+          deniedFlags: ["--endpoint-url", "--exec"],
+          allowedNetworkTargets: [
+            { hostPattern: "api.github.com", protocols: ["https"] },
+          ],
+        },
+      },
+    });
+
+    // --flag=value combined form should be caught
+    const result = validateCommand(manifestWithDeniedFlags, [
+      "api",
+      "/repos",
+      "--endpoint-url=https://evil.example.com",
+    ]);
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("--endpoint-url");
+
+    // --flag value (separate tokens) should still be caught
+    const result2 = validateCommand(manifestWithDeniedFlags, [
+      "api",
+      "/repos",
+      "--exec",
+    ]);
+    expect(result2.allowed).toBe(false);
+    expect(result2.reason).toContain("--exec");
+  });
+
   // -- Multi-profile matching ------------------------------------------------
 
   test("matches across multiple profiles", () => {

@@ -531,13 +531,24 @@ export function validateCommand(
     }
   }
 
-  // Check denied flags
+  // Check denied flags — also handle --flag=value combined tokens
   for (const arg of argv) {
     if (allDeniedFlags.has(arg)) {
       return {
         allowed: false,
         reason: `Flag "${arg}" is explicitly denied.`,
       };
+    }
+
+    // Handle --flag=value form: extract the flag prefix before '='
+    if (arg.startsWith("-") && arg.includes("=")) {
+      const flagPrefix = arg.slice(0, arg.indexOf("="));
+      if (allDeniedFlags.has(flagPrefix)) {
+        return {
+          allowed: false,
+          reason: `Flag "${flagPrefix}" is explicitly denied (via "${arg}").`,
+        };
+      }
     }
   }
 
