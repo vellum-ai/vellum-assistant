@@ -13,12 +13,12 @@ You are helping the user customize their assistant's avatar. There are three way
 
 ## Avatar Modes
 
-The avatar system supports two mutually exclusive representations:
+The avatar system supports two representations:
 
-- **Native character** — Defined by `data/avatar/character-traits.json` (body shape, eye style, color). Rendered client-side as an animated character.
-- **Custom image** — A static PNG at `data/avatar/avatar-image.png`. Used for uploaded or AI-generated avatars.
+- **Native character** — Defined by `data/avatar/character-traits.json` (body shape, eye style, color). Rendered client-side as an animated character. A static PNG at `data/avatar/avatar-image.png` is auto-generated for use by other clients and the dock icon.
+- **Custom image** — A static PNG at `data/avatar/avatar-image.png`. Used for uploaded or AI-generated avatars. No traits file exists.
 
-These are mutually exclusive. Setting a native character must remove the custom image file, and setting a custom image (via upload or AI generation) must remove the character traits file. This ensures the client always knows which representation to display.
+See [Mutual Exclusivity Rule](#mutual-exclusivity-rule) for how these modes interact.
 
 ## Mode 1: Native Character Traits
 
@@ -83,12 +83,6 @@ cat > "$VELLUM_WORKSPACE_DIR/data/avatar/character-traits.json" << 'TRAITS'
 TRAITS
 ```
 
-Then remove the custom image file if it exists, since native character mode takes precedence:
-
-```bash
-rm -f "$VELLUM_WORKSPACE_DIR/data/avatar/avatar-image.png"
-```
-
 The client will detect the traits file and render the animated character.
 
 ## Mode 2: Upload a Custom Image
@@ -141,11 +135,14 @@ The generated avatar will appear automatically in the client.
 
 ## Mutual Exclusivity Rule
 
-`character-traits.json` and `avatar-image.png` represent different avatar modes. The client checks for a custom image first — if `avatar-image.png` exists, it displays that. Otherwise, it reads `character-traits.json` to render the native animated character.
+`character-traits.json` and `avatar-image.png` represent different avatar modes:
 
-Always enforce this rule:
+- **Native character** — `character-traits.json` is the source of truth. The client auto-generates `avatar-image.png` as a static representation, so both files coexist.
+- **Custom image** — `avatar-image.png` is user-provided (uploaded or AI-generated). No traits file exists.
 
-- **Setting native character traits** → remove `avatar-image.png`
-- **Uploading or generating a custom image** → remove `character-traits.json`
+The client checks for character traits first — if `character-traits.json` exists, it renders the animated character. Otherwise, it falls back to `avatar-image.png` for custom images.
 
-This prevents stale data from one mode leaking into the other.
+Enforcement rules:
+
+- **Setting native character traits** → write `character-traits.json` only. The client auto-generates the PNG.
+- **Uploading or generating a custom image** → write `avatar-image.png` and remove `character-traits.json`.
