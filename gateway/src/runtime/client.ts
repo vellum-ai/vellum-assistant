@@ -154,8 +154,13 @@ export type RuntimeAttachmentMeta = {
 };
 
 export type RuntimeAttachmentPayload = RuntimeAttachmentMeta & {
-  data: string; // base64-encoded
+  data?: string; // base64-encoded; absent for file-backed attachments until hydrated
   fileBacked?: boolean;
+};
+
+/** Attachment payload after hydration — `data` is guaranteed present. */
+export type HydratedAttachmentPayload = RuntimeAttachmentPayload & {
+  data: string;
 };
 
 export type RuntimeInboundResponse = {
@@ -342,7 +347,7 @@ export async function downloadAttachmentContent(
 export async function downloadAttachment(
   config: GatewayConfig,
   attachmentId: string,
-): Promise<RuntimeAttachmentPayload> {
+): Promise<HydratedAttachmentPayload> {
   cbBeforeRequest();
 
   const url = `${config.assistantRuntimeBaseUrl}/v1/attachments/${encodeURIComponent(attachmentId)}`;
@@ -366,17 +371,24 @@ export async function downloadAttachment(
     throw new Error(`Attachment download failed (${response.status}): ${body}`);
   }
 
-  cbOnSuccess();
   const payload = (await response.json()) as RuntimeAttachmentPayload;
 
   // Transparently hydrate file-backed attachments: fetch the binary content
   // from the dedicated /content endpoint and inline it as base64.
+  // Note: we defer cbOnSuccess() until after hydration so that a recurring
+  // pattern of metadata-200 + content-5xx correctly accumulates breaker
+  // failures instead of resetting the counter on every metadata success.
   if (payload.fileBacked && !payload.data) {
     const contentBuffer = await downloadAttachmentContent(config, attachmentId);
     payload.data = contentBuffer.toString("base64");
   }
 
-  return payload;
+  if (!payload.data) {
+    throw new Error(`Attachment ${attachmentId} has no data after hydration`);
+  }
+
+  cbOnSuccess();
+  return payload as HydratedAttachmentPayload;
 }
 
 // ── Twilio webhook forwarding ────────────────────────────────────────
