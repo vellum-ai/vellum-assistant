@@ -15,12 +15,12 @@ import crypto from "node:crypto";
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { watchSessions } from "../tools/watch/watch-state.js";
 import {
   fireWatchCompletionNotifier,
   fireWatchStartNotifier,
+  type WatchSession,
+  watchSessions,
 } from "../tools/watch/watch-state.js";
-import type { WatchSession } from "../tools/watch/watch-state.js";
 import { getLogger } from "../util/logger.js";
 import { getSignalsDir } from "../util/platform.js";
 
