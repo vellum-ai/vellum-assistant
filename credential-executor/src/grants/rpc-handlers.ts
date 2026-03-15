@@ -49,8 +49,8 @@ function projectGrant(
   return {
     grantId: grant.id,
     sessionId,
-    credentialHandle: grant.tool,
-    proposalType: "http",
+    credentialHandle: grant.scope,
+    proposalType: grant.tool as "http" | "command",
     proposalHash: grant.id,
     allowedPurposes: [grant.pattern],
     status: "active",
@@ -101,12 +101,12 @@ export function createRecordGrantHandler(
 
     const persistentGrant: PersistentGrant = {
       id: grantId,
-      tool: proposal.credentialHandle,
+      tool: proposal.type,
       pattern:
         proposal.type === "http"
           ? `${proposal.method} ${proposal.url}`
           : proposal.command,
-      scope: "everywhere",
+      scope: proposal.credentialHandle,
       createdAt: now,
     };
 
