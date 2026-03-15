@@ -1,8 +1,8 @@
 /**
  * Usage telemetry reporter.
  *
- * Periodically flushes LLM usage events from the local SQLite
- * `llm_usage_events` table and POSTs them to the platform telemetry endpoint.
+ * Periodically flushes LLM usage events and turn events (user messages) from
+ * the local SQLite database and POSTs them to the platform telemetry endpoint.
  *
  * Two auth modes:
  * - Authenticated: Api-Key header via managed proxy context
@@ -20,6 +20,7 @@ import {
   setMemoryCheckpoint,
 } from "../memory/checkpoints.js";
 import { queryUnreportedUsageEvents } from "../memory/llm-usage-store.js";
+import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
 import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
 import { getLogger } from "../util/logger.js";
 
@@ -31,6 +32,8 @@ const log = getLogger("usage-telemetry");
 
 const CHECKPOINT_KEY_WATERMARK = "telemetry:usage:last_reported_at";
 const CHECKPOINT_KEY_WATERMARK_ID = "telemetry:usage:last_reported_id";
+const CHECKPOINT_KEY_TURN_WATERMARK = "telemetry:turns:last_reported_at";
+const CHECKPOINT_KEY_TURN_WATERMARK_ID = "telemetry:turns:last_reported_id";
 const CHECKPOINT_KEY_INSTALL_ID = "telemetry:installation_id";
 const REPORT_INTERVAL_MS = 5 * 60 * 1000;
 const BATCH_SIZE = 500;
@@ -94,12 +97,19 @@ export class UsageTelemetryReporter {
     try {
       if (batchCount >= MAX_CONSECUTIVE_BATCHES) return;
 
-      // Read watermark (compound cursor: createdAt + id)
+      // Read usage watermark (compound cursor: createdAt + id)
       const watermark = Number(
         getMemoryCheckpoint(CHECKPOINT_KEY_WATERMARK) ?? "0",
       );
       const watermarkId =
         getMemoryCheckpoint(CHECKPOINT_KEY_WATERMARK_ID) ?? undefined;
+
+      // Read turn watermark (compound cursor: createdAt + id)
+      const turnWatermark = Number(
+        getMemoryCheckpoint(CHECKPOINT_KEY_TURN_WATERMARK) ?? "0",
+      );
+      const turnWatermarkId =
+        getMemoryCheckpoint(CHECKPOINT_KEY_TURN_WATERMARK_ID) ?? undefined;
 
       // Query unreported events
       const events = queryUnreportedUsageEvents(
@@ -107,7 +117,13 @@ export class UsageTelemetryReporter {
         watermarkId,
         BATCH_SIZE,
       );
-      if (events.length === 0) return;
+      const turnEvents = queryUnreportedTurnEvents(
+        turnWatermark,
+        turnWatermarkId,
+        BATCH_SIZE,
+      );
+
+      if (events.length === 0 && turnEvents.length === 0) return;
 
       // Resolve auth context — skip flush when neither auth mode is viable
       const proxyCtx = await resolveManagedProxyContext();
@@ -140,6 +156,10 @@ export class UsageTelemetryReporter {
           actor: e.actor,
           recorded_at: e.createdAt,
         })),
+        turn_events: turnEvents.map((e) => ({
+          daemon_event_id: e.id,
+          recorded_at: e.createdAt,
+        })),
       };
 
       // Send
@@ -162,16 +182,28 @@ export class UsageTelemetryReporter {
       }
       await resp.text(); // consume body to release connection
 
-      // Advance watermark (compound cursor)
-      const lastEvent = events[events.length - 1];
-      setMemoryCheckpoint(
-        CHECKPOINT_KEY_WATERMARK,
-        String(lastEvent.createdAt),
-      );
-      setMemoryCheckpoint(CHECKPOINT_KEY_WATERMARK_ID, lastEvent.id);
+      // Advance usage watermark (compound cursor)
+      if (events.length > 0) {
+        const lastEvent = events[events.length - 1];
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_WATERMARK,
+          String(lastEvent.createdAt),
+        );
+        setMemoryCheckpoint(CHECKPOINT_KEY_WATERMARK_ID, lastEvent.id);
+      }
 
-      // If we got a full batch, there may be more events — recurse
-      if (events.length === BATCH_SIZE) {
+      // Advance turn watermark (compound cursor)
+      if (turnEvents.length > 0) {
+        const lastTurn = turnEvents[turnEvents.length - 1];
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_TURN_WATERMARK,
+          String(lastTurn.createdAt),
+        );
+        setMemoryCheckpoint(CHECKPOINT_KEY_TURN_WATERMARK_ID, lastTurn.id);
+      }
+
+      // If we got a full batch of either type, there may be more — recurse
+      if (events.length === BATCH_SIZE || turnEvents.length === BATCH_SIZE) {
         await this._doFlush(batchCount + 1);
       }
     } catch (err) {

@@ -22,6 +22,7 @@ import {
 } from "@vellumai/ces-contracts";
 import type { Command } from "commander";
 
+import { getConfig } from "../../config/loader.js";
 import {
   type CesClient,
   createCesClient,
@@ -42,7 +43,7 @@ async function acquireCesClient(): Promise<{
   client: CesClient;
   cleanup: () => Promise<void>;
 }> {
-  const pm = createCesProcessManager();
+  const pm = createCesProcessManager({ assistantConfig: getConfig() });
   const transport = await pm.start();
   const client = createCesClient(transport);
   const hs = await client.handshake();

@@ -441,12 +441,21 @@ export async function getOrStartSession(
 
 /**
  * Stop all sessions and clear internal state. Useful for daemon shutdown.
+ *
+ * @param onError — optional callback invoked for each session that fails to
+ *   stop.  When omitted, errors are silently swallowed so shutdown always
+ *   completes.
  */
-export async function stopAllSessions(store: SessionStore): Promise<void> {
+export async function stopAllSessions(
+  store: SessionStore,
+  onError?: (sessionId: ProxySessionId, err: unknown) => void,
+): Promise<void> {
   const ids = [...store.sessions.keys()];
   await Promise.all(
     ids.map((id) =>
-      stopSession(id, store).catch(() => {}),
+      stopSession(id, store).catch((err) => {
+        onError?.(id, err);
+      }),
     ),
   );
   store.sessions.clear();

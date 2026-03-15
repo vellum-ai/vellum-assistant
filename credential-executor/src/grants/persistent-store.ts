@@ -105,7 +105,6 @@ export class PersistentGrantStore {
    */
   getAll(): PersistentGrant[] {
     this.assertNotCorrupt();
-    if (this.cache !== null) return [...this.cache];
     if (!existsSync(this.filePath)) return [];
     return [...this.loadFromDisk()];
   }

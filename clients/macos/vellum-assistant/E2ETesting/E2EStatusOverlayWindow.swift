@@ -28,7 +28,7 @@ final class E2EStatusOverlayWindow {
         let hostingController = NSHostingController(rootView: E2EStatusOverlayView(viewModel: vm))
 
         let overlayPanel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 72),
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 90),
             styleMask: [.nonactivatingPanel, .hudWindow, .utilityWindow],
             backing: .buffered,
             defer: false
@@ -162,7 +162,7 @@ struct E2EStatusOverlayView: View {
                     Text(status.summary)
                         .font(VFont.caption)
                         .foregroundColor(VColor.contentSecondary)
-                        .lineLimit(1)
+                        .lineLimit(2)
                         .truncationMode(.tail)
                 }
             } else {

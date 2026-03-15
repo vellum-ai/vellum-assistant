@@ -457,17 +457,20 @@ describe("evaluateHttpPolicy", () => {
 
     const result = evaluateHttpPolicy(request, persistentStore, temporaryStore);
     expect(result.allowed).toBe(false);
-    if (!result.allowed && result.reason === "approval_required") {
-      expect(result.proposal.type).toBe("http");
-      expect(result.proposal.credentialHandle).toBe(
-        "local_static:github/api_key",
-      );
-      expect(result.proposal.method).toBe("GET");
-      // Proposal should have allowedUrlPatterns with templated path
-      expect(result.proposal.allowedUrlPatterns).toBeDefined();
-      expect(result.proposal.allowedUrlPatterns![0]).toBe(
-        "https://api.github.com/repos/owner/repo/pulls/{:num}",
-      );
+    if (!result.allowed) {
+      expect(result.reason).toBe("approval_required");
+      if (result.reason === "approval_required") {
+        expect(result.proposal.type).toBe("http");
+        expect(result.proposal.credentialHandle).toBe(
+          "local_static:github/api_key",
+        );
+        expect(result.proposal.method).toBe("GET");
+        // Proposal should have allowedUrlPatterns with templated path
+        expect(result.proposal.allowedUrlPatterns).toBeDefined();
+        expect(result.proposal.allowedUrlPatterns![0]).toBe(
+          "https://api.github.com/repos/owner/repo/pulls/{:num}",
+        );
+      }
     }
   });
 
@@ -891,17 +894,20 @@ describe("end-to-end: policy evaluation → response filter → audit", () => {
 
     // Must be blocked
     expect(policyResult.allowed).toBe(false);
-    if (!policyResult.allowed && policyResult.reason === "approval_required") {
-      expect(policyResult.proposal.type).toBe("http");
-      expect(policyResult.proposal.credentialHandle).toBe(
-        "local_static:stripe/api_key",
-      );
-      // Must have specific URL pattern, not wildcard
-      expect(policyResult.proposal.allowedUrlPatterns).toBeDefined();
-      expect(policyResult.proposal.allowedUrlPatterns!.length).toBeGreaterThan(0);
-      for (const pattern of policyResult.proposal.allowedUrlPatterns!) {
-        expect(pattern).not.toBe("/*");
-        expect(pattern).not.toContain("*");
+    if (!policyResult.allowed) {
+      expect(policyResult.reason).toBe("approval_required");
+      if (policyResult.reason === "approval_required") {
+        expect(policyResult.proposal.type).toBe("http");
+        expect(policyResult.proposal.credentialHandle).toBe(
+          "local_static:stripe/api_key",
+        );
+        // Must have specific URL pattern, not wildcard
+        expect(policyResult.proposal.allowedUrlPatterns).toBeDefined();
+        expect(policyResult.proposal.allowedUrlPatterns!.length).toBeGreaterThan(0);
+        for (const pattern of policyResult.proposal.allowedUrlPatterns!) {
+          expect(pattern).not.toBe("/*");
+          expect(pattern).not.toContain("*");
+        }
       }
     }
   });

@@ -13,11 +13,10 @@
  * lifecycle; the process manager only manages the transport connection.
  *
  * Feature-flag gate: Managed sidecar mode is controlled by the
- * `ces-managed-sidecar` feature flag. When the flag is off, the process
- * manager skips managed discovery even in containerized environments,
- * ensuring rollback safety. Non-CES internal consumers continue working
- * unchanged because the process manager never alters the local code path
- * when the flag is disabled.
+ * `ces-managed-sidecar` feature flag (checked via the required
+ * AssistantConfig). When the flag is off, the process manager skips
+ * managed discovery even in containerized environments, ensuring
+ * rollback safety.
  *
  * Managed env contract:
  * - CES_BOOTSTRAP_SOCKET  — Path to the bootstrap Unix socket (shared emptyDir)
@@ -27,6 +26,7 @@
  */
 
 import { createConnection, type Socket } from "node:net";
+import { StringDecoder } from "node:string_decoder";
 
 import type { Subprocess } from "bun";
 
@@ -70,11 +70,10 @@ export const CES_PRIVATE_DATA_DIR = "/ces-data";
 export interface CesProcessManagerConfig {
   /**
    * Assistant configuration for feature-flag checks.
-   * When provided, the managed sidecar path is gated behind the
-   * `ces-managed-sidecar` feature flag. When omitted, managed mode
-   * is allowed unconditionally (for backward compat with CLI callers).
+   * The managed sidecar path is gated behind the `ces-managed-sidecar`
+   * feature flag via this config.
    */
-  assistantConfig?: AssistantConfig;
+  assistantConfig: AssistantConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -86,9 +85,9 @@ export interface CesProcessManager {
    * Start the CES process (local) or connect to the sidecar (managed).
    * Returns a CesTransport ready for use with createCesClient().
    *
-   * When an AssistantConfig is provided and the `ces-managed-sidecar`
-   * feature flag is off, managed mode is skipped even in containerized
-   * environments — the process manager falls back to local discovery.
+   * When the `ces-managed-sidecar` feature flag is off, managed mode
+   * is skipped even in containerized environments — the process manager
+   * falls back to local discovery.
    *
    * Throws if CES is unavailable.
    */
@@ -109,7 +108,7 @@ export interface CesProcessManager {
 // ---------------------------------------------------------------------------
 
 export function createCesProcessManager(
-  config?: CesProcessManagerConfig,
+  config: CesProcessManagerConfig,
 ): CesProcessManager {
   let childProcess: Subprocess | null = null;
   let managedSocket: Socket | null = null;
@@ -122,13 +121,11 @@ export function createCesProcessManager(
         throw new Error("CES process manager is already running");
       }
 
-      // Feature-flag gate: when the managed sidecar flag is off and we
-      // have a config to check, skip managed discovery entirely.
-      // This ensures rollback safety — disabling the flag leaves existing
-      // non-agent platform consumers intact.
-      const managedAllowed =
-        !config?.assistantConfig ||
-        isCesManagedSidecarEnabled(config.assistantConfig);
+      // Feature-flag gate: when the managed sidecar flag is off, skip
+      // managed discovery entirely. This ensures rollback safety —
+      // disabling the flag leaves existing non-agent platform consumers
+      // intact.
+      const managedAllowed = isCesManagedSidecarEnabled(config.assistantConfig);
 
       if (managedAllowed) {
         discoveryResult = await discoverCes();
@@ -248,6 +245,7 @@ function createStdioTransport(proc: Subprocess): CesTransport {
   // Read stdout line by line — narrow past `number` union arm from Subprocess type
   if (proc.stdout && typeof proc.stdout !== "number") {
     const reader = proc.stdout.getReader();
+    const decoder = new TextDecoder();
 
     void (async () => {
       try {
@@ -255,7 +253,7 @@ function createStdioTransport(proc: Subprocess): CesTransport {
           const { value, done } = await reader.read();
           if (done) break;
 
-          buffer += new TextDecoder().decode(value);
+          buffer += decoder.decode(value, { stream: true });
           let newlineIdx: number;
           while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
             const line = buffer.slice(0, newlineIdx).trim();
@@ -314,8 +312,10 @@ function createSocketTransport(socket: Socket): CesTransport {
   let buffer = "";
   let alive = true;
 
+  const decoder = new StringDecoder("utf8");
+
   socket.on("data", (chunk: Buffer | string) => {
-    buffer += chunk.toString();
+    buffer += typeof chunk === "string" ? chunk : decoder.write(chunk);
     let newlineIdx: number;
     while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
       const line = buffer.slice(0, newlineIdx).trim();

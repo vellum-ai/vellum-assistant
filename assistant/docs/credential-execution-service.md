@@ -252,23 +252,36 @@ Local deployments do not require image changes. Enabling `ces-tools` causes the 
 
 Turn off all CES feature flags. The assistant stops registering CES tools and reverts to the pre-CES credential broker for all credential operations. No data migration is needed — CES grant and audit state is CES-private and does not affect the assistant's own tables.
 
-Flag disable order (reverse of enable order):
+Flag disable order:
 
-1. `ces-managed-sidecar` — assistant reverts to local transport (or stops using CES if other flags are also off)
+> **Important — managed deployments**: In managed containers, the assistant image does not ship the `credential-executor` binary, so local CES transport is unavailable. Disabling `ces-managed-sidecar` while `ces-tools` is still enabled will break credentialed tool execution because the assistant cannot fall back to local discovery. Always disable `ces-tools` before `ces-managed-sidecar` in managed deployments.
+
+**Local deployments** (reverse of enable order):
+
+1. `ces-managed-sidecar` — assistant reverts to local child-process transport
 2. `ces-grant-audit` — inspection surfaces disappear
 3. `ces-secure-install` — tool installation reverts to direct shell
 4. `ces-shell-lockdown` — shell lockdown is lifted
 5. `ces-tools` — CES tools are unregistered from the agent loop
 
+**Managed deployments** (`ces-tools` must be disabled before the sidecar):
+
+1. `ces-grant-audit` — inspection surfaces disappear
+2. `ces-secure-install` — tool installation reverts to direct shell
+3. `ces-shell-lockdown` — shell lockdown is lifted
+4. `ces-tools` — CES tools are unregistered; assistant reverts to the pre-CES credential broker
+5. `ces-managed-sidecar` — sidecar transport is deactivated (safe now that no CES tools are registered)
+
 ### Removing the managed sidecar
 
 If the CES sidecar container causes pod scheduling issues or resource pressure:
 
-1. Disable `ces-managed-sidecar` on all assistants.
-2. Remove the CES container and its volume mounts from the pod template in vembda.
-3. CES grant/audit data on the `/ces-data` volume is orphaned and can be cleaned up at convenience.
+1. Disable `ces-tools` on all assistants first (prevents the assistant from attempting CES calls).
+2. Disable `ces-managed-sidecar` on all assistants.
+3. Remove the CES container and its volume mounts from the pod template in vembda.
+4. CES grant/audit data on the `/ces-data` volume is orphaned and can be cleaned up at convenience.
 
-The assistant continues to function with the local child-process CES transport (if `ces-tools` is still on) or without CES entirely.
+The assistant reverts to the pre-CES credential broker once `ces-tools` is disabled.
 
 ### Partial rollback
 

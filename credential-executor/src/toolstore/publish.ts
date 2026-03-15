@@ -103,16 +103,23 @@ const BUNDLE_FILENAME = "bundle.bin";
  * Return the content-addressed directory path for a given digest.
  *
  * Layout: `<toolstoreDir>/<digest>/`
+ *
+ * @throws {Error} if digest is not a valid SHA-256 hex string.
  */
 export function getBundleDir(
   toolstoreDir: string,
   digest: string,
 ): string {
+  if (!isValidSha256Hex(digest)) {
+    throw new Error(`Invalid digest "${digest}": must be a 64-character lowercase hex SHA-256 digest.`);
+  }
   return join(toolstoreDir, digest);
 }
 
 /**
  * Return the manifest file path for a given digest.
+ *
+ * @throws {Error} if digest is not a valid SHA-256 hex string.
  */
 export function getBundleManifestPath(
   toolstoreDir: string,
@@ -123,6 +130,8 @@ export function getBundleManifestPath(
 
 /**
  * Return the bundle content file path for a given digest.
+ *
+ * @throws {Error} if digest is not a valid SHA-256 hex string.
  */
 export function getBundleContentPath(
   toolstoreDir: string,
@@ -176,12 +185,13 @@ export function publishBundle(request: PublishRequest): PublishResult {
   // -- Reject workspace-origin paths in the URL ---------------------------
   try {
     const parsedUrl = new URL(sourceUrl);
-    if (isWorkspaceOriginPath(parsedUrl.pathname)) {
+    const decodedPathname = decodeURIComponent(parsedUrl.pathname);
+    if (isWorkspaceOriginPath(decodedPathname)) {
       return {
         success: false,
         deduplicated: false,
         bundlePath: "",
-        error: `Source URL path "${parsedUrl.pathname}" appears to be a workspace-origin path. ` +
+        error: `Source URL path "${decodedPathname}" appears to be a workspace-origin path. ` +
           `Workspace-origin binaries are never publishable.`,
       };
     }
@@ -208,6 +218,32 @@ export function publishBundle(request: PublishRequest): PublishResult {
       deduplicated: false,
       bundlePath: "",
       error: `Invalid secure command manifest: ${manifestValidation.errors.join("; ")}`,
+    };
+  }
+
+  // -- Validate manifest metadata matches request -------------------------
+  const metadataMismatches: string[] = [];
+  if (secureCommandManifest.bundleDigest !== expectedDigest) {
+    metadataMismatches.push(
+      `bundleDigest "${secureCommandManifest.bundleDigest}" does not match expectedDigest "${expectedDigest}"`,
+    );
+  }
+  if (secureCommandManifest.bundleId !== bundleId) {
+    metadataMismatches.push(
+      `bundleId "${secureCommandManifest.bundleId}" does not match request bundleId "${bundleId}"`,
+    );
+  }
+  if (secureCommandManifest.version !== version) {
+    metadataMismatches.push(
+      `version "${secureCommandManifest.version}" does not match request version "${version}"`,
+    );
+  }
+  if (metadataMismatches.length > 0) {
+    return {
+      success: false,
+      deduplicated: false,
+      bundlePath: "",
+      error: `Manifest metadata mismatch: ${metadataMismatches.join("; ")}`,
     };
   }
 
@@ -285,6 +321,14 @@ export function publishBundle(request: PublishRequest): PublishResult {
     } catch {
       // Best effort cleanup
     }
+    // Re-check: another process may have published the same digest concurrently
+    if (existsSync(bundleDir) && existsSync(manifestPath)) {
+      return {
+        success: true,
+        deduplicated: true,
+        bundlePath: bundleDir,
+      };
+    }
     return {
       success: false,
       deduplicated: false,
@@ -307,12 +351,17 @@ export function publishBundle(request: PublishRequest): PublishResult {
 /**
  * Read a published toolstore manifest by digest.
  *
- * Returns null if no bundle with the given digest is published.
+ * Returns null if no bundle with the given digest is published or if the
+ * digest is not a valid SHA-256 hex string.
  */
 export function readPublishedManifest(
   digest: string,
   cesMode?: CesMode,
 ): ToolstoreManifest | null {
+  if (!isValidSha256Hex(digest)) {
+    return null;
+  }
+
   const toolstoreDir = getCesToolStoreDir(cesMode);
   const manifestPath = getBundleManifestPath(toolstoreDir, digest);
 
@@ -330,11 +379,17 @@ export function readPublishedManifest(
 
 /**
  * Check if a bundle with the given digest is published in the toolstore.
+ *
+ * Returns false if the digest is not a valid SHA-256 hex string.
  */
 export function isBundlePublished(
   digest: string,
   cesMode?: CesMode,
 ): boolean {
+  if (!isValidSha256Hex(digest)) {
+    return false;
+  }
+
   const toolstoreDir = getCesToolStoreDir(cesMode);
   const bundleDir = getBundleDir(toolstoreDir, digest);
   const manifestPath = getBundleManifestPath(toolstoreDir, digest);

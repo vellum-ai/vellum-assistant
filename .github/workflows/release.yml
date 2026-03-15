@@ -109,7 +109,7 @@ jobs:
           git checkout -b "$BRANCH"
 
           # Bump all package.json files
-          for pkg in assistant cli gateway meta; do
+          for pkg in assistant cli credential-executor gateway meta; do
             jq --arg v "$VERSION" '.version = $v' $pkg/package.json > tmp && mv tmp $pkg/package.json
           done
 
@@ -117,6 +117,7 @@ jobs:
           jq --arg v "$VERSION" '
             .dependencies["@vellumai/assistant"] = $v |
             .dependencies["@vellumai/cli"] = $v |
+            .dependencies["@vellumai/credential-executor"] = $v |
             .dependencies["@vellumai/vellum-gateway"] = $v
           ' meta/package.json > tmp && mv tmp meta/package.json
 
@@ -749,14 +750,14 @@ jobs:
           echo "**Version:** \`${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
 
   publish-npm:
-    needs: [bump-and-tag, ci-cli, ci-gateway, ci-assistant, ci-playwright]
+    needs: [bump-and-tag, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
     strategy:
       matrix:
-        package: [assistant, cli, gateway]
+        package: [assistant, cli, credential-executor, gateway]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -1630,6 +1631,36 @@ jobs:
         run: bun run test
         working-directory: gateway
 
+  ci-credential-executor:
+    needs: bump-and-tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.9'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+        working-directory: credential-executor
+
+      - name: Install linked package dependencies
+        run: |
+          for pkg in $(jq -r '.bundledDependencies[]' credential-executor/package.json | sed 's|@vellumai/||'); do
+            cd packages/$pkg && bun install --frozen-lockfile && cd ../..;
+          done
+
+      - name: Typecheck
+        run: bun run typecheck
+        working-directory: credential-executor
+
+      - name: Test
+        run: bun run test
+        working-directory: credential-executor
+
   build-ios:
     needs: bump-and-tag
     runs-on: macos-15
@@ -1854,7 +1885,7 @@ jobs:
   notify-release:
     name: Slack Notification (Release)
     if: always() && !cancelled()
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, register-release, release, update-platform, ci-assistant, ci-cli, ci-gateway, ci-playwright]
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, register-release, release, update-platform, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -1892,6 +1923,7 @@ jobs:
 
           A=$(ci_icon "${{ needs.ci-assistant.result }}")
           C=$(ci_icon "${{ needs.ci-cli.result }}")
+          CE=$(ci_icon "${{ needs.ci-credential-executor.result }}")
           G=$(ci_icon "${{ needs.ci-gateway.result }}")
           P=$(ci_icon "${{ needs.ci-playwright.result }}")
           D=$(ci_icon "${{ needs.build-macos-arm64.result }}")
@@ -1909,7 +1941,7 @@ jobs:
             PLAYWRIGHT_LINE=" (<${RUN_URL}#artifacts|view report>)"
           fi
 
-          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s register-release' "$A" "$C" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$AI" "$GI" "$CEI" "$RR")
+          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s register-release' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$AI" "$GI" "$CEI" "$RR")
           META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "${{ github.actor }}")
 
           # Fetch release notes from GitHub release

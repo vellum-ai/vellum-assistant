@@ -451,6 +451,10 @@ public final class MainWindow {
             layoutObserver = nil
         }
         defaultTrafficLightOrigin = nil
+        // Detach the SwiftUI hosting view before closing so that pending
+        // view-graph updates cannot post constraint changes to a closed window,
+        // which would crash in the AppKit display cycle.
+        window?.contentViewController = nil
         window?.close()
         window = nil
     }

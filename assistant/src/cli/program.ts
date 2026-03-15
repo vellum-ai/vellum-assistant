@@ -22,6 +22,7 @@ import { registerNotificationsCommand } from "./commands/notifications.js";
 import { registerOAuthCommand } from "./commands/oauth/index.js";
 import { registerPlatformCommand } from "./commands/platform.js";
 import { registerSequenceCommand } from "./commands/sequence.js";
+import { registerShotgunCommand } from "./commands/shotgun.js";
 import { registerSessionsCommand } from "./commands/sessions.js";
 import { registerSkillsCommand } from "./commands/skills.js";
 import { registerTrustCommand } from "./commands/trust.js";
@@ -60,6 +61,7 @@ export function buildCliProgram(): Command {
   registerBrowserRelayCommand(program);
   registerUsageCommand(program);
 
+  registerShotgunCommand(program);
   registerSequenceCommand(program);
 
   return program;

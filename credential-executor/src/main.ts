@@ -31,6 +31,7 @@ import { PersistentGrantStore } from "./grants/persistent-store.js";
 import {
   createListAuditRecordsHandler,
   createListGrantsHandler,
+  createRecordGrantHandler,
   createRevokeGrantHandler,
 } from "./grants/rpc-handlers.js";
 import { TemporaryGrantStore } from "./grants/temporary-store.js";
@@ -45,8 +46,10 @@ import {
   buildHandlersWithHttp,
   CesRpcServer,
   registerCommandExecutionHandler,
+  registerManageSecureCommandToolHandler,
   type RpcHandlerRegistry,
 } from "./server.js";
+import { publishBundle } from "./toolstore/publish.js";
 import type { OAuthConnectionLookup } from "./subjects/local.js";
 
 // ---------------------------------------------------------------------------
@@ -166,7 +169,32 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
     defaultWorkspaceDir: join(vellumRoot, "workspace"),
   });
 
+  // Register manage_secure_command_tool handler
+  const toolRegistry = new Map<string, { toolName: string; credentialHandle: string; description: string; bundleDigest: string }>();
+
+  registerManageSecureCommandToolHandler(handlers, {
+    downloadBundle: async (sourceUrl: string) => {
+      const resp = await fetch(sourceUrl);
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+      }
+      return Buffer.from(await resp.arrayBuffer());
+    },
+    publishBundle: (request) => publishBundle({ ...request, cesMode: "local" }),
+    unregisterTool: (toolName: string) => {
+      return toolRegistry.delete(toolName);
+    },
+    registerTool: (entry) => {
+      toolRegistry.set(entry.toolName, entry);
+    },
+  });
+
   // Register grant management handlers
+  handlers[CesRpcMethod.RecordGrant] = createRecordGrantHandler({
+    persistentGrantStore,
+    temporaryGrantStore,
+  }) as typeof handlers[string];
+
   handlers[CesRpcMethod.ListGrants] = createListGrantsHandler({
     persistentGrantStore,
     sessionId,

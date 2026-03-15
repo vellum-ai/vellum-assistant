@@ -1,7 +1,6 @@
 {
   "name": "@vellumai/credential-executor",
-  "version": "0.0.1",
-  "private": true,
+  "version": "0.4.55",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"

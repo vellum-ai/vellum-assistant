@@ -1370,6 +1370,8 @@ public struct HostBashRequest: Decodable, Sendable {
     public let command: String
     public let workingDir: String?
     public let timeoutSeconds: Double?
+    /// Extra environment variables to inject into the subprocess (e.g. VELLUM_UNTRUSTED_SHELL).
+    public let env: [String: String]?
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -1378,6 +1380,7 @@ public struct HostBashRequest: Decodable, Sendable {
         case command
         case workingDir = "working_dir"
         case timeoutSeconds = "timeout_seconds"
+        case env
     }
 }
 

@@ -10,6 +10,7 @@ on:
       - 'clients/.periphery.yml'
       - 'clients/.periphery_baseline.json'
       - 'clients/scripts/periphery-scan.sh'
+      - 'packages/ces-contracts/**'
       - '.github/workflows/pr-macos.yaml'
 
 concurrency:
@@ -135,6 +136,10 @@ jobs:
       - name: Design token guard
         working-directory: .
         run: bash clients/scripts/check-design-tokens.sh --mode=strict
+
+      - name: Install linked package dependencies
+        working-directory: .
+        run: cd packages/ces-contracts && bun install --frozen-lockfile
 
       - name: Build binaries
         run: ./build.sh binaries

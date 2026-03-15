@@ -22,7 +22,7 @@ import { join } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import { getLogger } from "../util/logger.js";
-import { getDataDir, getRootDir } from "../util/platform.js";
+import { getRootDir } from "../util/platform.js";
 
 const log = getLogger("ces-discovery");
 
@@ -40,15 +40,13 @@ const MANAGED_BOOTSTRAP_SOCKET_PATH = "/run/ces/ces.sock";
  * Candidate locations for the local credential-executor binary, checked
  * in order. The first existing path wins.
  *
- * 1. `~/.vellum/bin/credential-executor` — installed alongside the assistant
- * 2. Relative to the repo root (development) — `credential-executor/src/index.ts`
- *    run via `bun run`.
+ * Only paths outside the sandbox working directory are eligible.
+ * `getDataDir()` (under `~/.vellum/workspace/data`) was previously included
+ * but is inside the sandbox write boundary, so a sandboxed tool could plant
+ * a malicious binary there. Removed to close the sandbox-escape vector.
  */
 function getLocalBinarySearchPaths(): string[] {
-  return [
-    join(getRootDir(), "bin", "credential-executor"),
-    join(getDataDir(), "bin", "credential-executor"),
-  ];
+  return [join(getRootDir(), "bin", "credential-executor")];
 }
 
 // ---------------------------------------------------------------------------

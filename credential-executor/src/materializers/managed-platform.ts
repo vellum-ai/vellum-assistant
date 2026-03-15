@@ -146,7 +146,7 @@ export async function materializeManagedToken(
   // -- Call platform token endpoint -----------------------------------------
   const fetchFn = options.fetch ?? globalThis.fetch;
   const materializeUrl =
-    `${options.platformBaseUrl}/v1/ces/connections/${subject.connectionId}/materialize`;
+    `${options.platformBaseUrl}/v1/ces/connections/${encodeURIComponent(subject.connectionId)}/materialize`;
 
   let response: Response;
   try {
