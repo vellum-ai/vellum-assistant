@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from "fs";
 import { randomUUID } from "node:crypto";
 import { homedir } from "os";
 import { dirname, join } from "path";
@@ -41,17 +41,6 @@ export function saveGuardianToken(
     mode: 0o600,
   });
   chmodSync(tokenPath, 0o600);
-}
-
-export function readGuardianToken(
-  assistantId: string,
-): GuardianTokenData | null {
-  try {
-    const raw = readFileSync(getGuardianTokenPath(assistantId), "utf-8");
-    return JSON.parse(raw) as GuardianTokenData;
-  } catch {
-    return null;
-  }
 }
 
 /**
