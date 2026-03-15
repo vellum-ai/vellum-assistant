@@ -31,6 +31,7 @@ import { PersistentGrantStore } from "./grants/persistent-store.js";
 import {
   createListAuditRecordsHandler,
   createListGrantsHandler,
+  createRecordGrantHandler,
   createRevokeGrantHandler,
 } from "./grants/rpc-handlers.js";
 import { TemporaryGrantStore } from "./grants/temporary-store.js";
@@ -167,6 +168,11 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
   });
 
   // Register grant management handlers
+  handlers[CesRpcMethod.RecordGrant] = createRecordGrantHandler({
+    persistentGrantStore,
+    temporaryGrantStore,
+  }) as typeof handlers[string];
+
   handlers[CesRpcMethod.ListGrants] = createListGrantsHandler({
     persistentGrantStore,
     sessionId,
