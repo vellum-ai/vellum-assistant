@@ -39,7 +39,6 @@ import {
   VALID_SPECIES,
 } from "../lib/constants";
 import type { RemoteHost, Species } from "../lib/constants";
-import { readCredential } from "../lib/credential-reader";
 import { hatchDocker } from "../lib/docker";
 import { hatchGcp } from "../lib/gcp";
 import type { PollResult, WatchHatchingResult } from "../lib/gcp";
@@ -682,6 +681,34 @@ async function displayPairingQRCode(
   }
 }
 
+/**
+ * Obtain a CLI actor token by calling the daemon's loopback-only bootstrap
+ * endpoint. Returns the access token on success, or undefined if the
+ * request fails (the daemon may not support the endpoint yet).
+ */
+async function bootstrapCliToken(
+  daemonPort: number,
+): Promise<string | undefined> {
+  try {
+    const res = await fetch(
+      `http://127.0.0.1:${daemonPort}/v1/guardian/init`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: "cli", deviceId: "hatch-cli" }),
+        signal: AbortSignal.timeout(5000),
+      },
+    );
+    if (!res.ok) return undefined;
+    const body = (await res.json()) as { accessToken?: string };
+    return typeof body.accessToken === "string"
+      ? body.accessToken
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function hatchLocal(
   species: Species,
   name: string | null,
@@ -795,12 +822,11 @@ async function hatchLocal(
     delete process.env.BASE_DATA_DIR;
   }
 
-  // Read the bootstrapped actor HTTP token from the encrypted credential store
-  // so the CLI can authenticate with the daemon/gateway.
-  const bearerToken = await readCredential(
-    resources.instanceDir,
-    "credential/bootstrapped_actor/http_token",
-  );
+  // Bootstrap a CLI actor token directly from the daemon. The daemon's
+  // /v1/guardian/init endpoint is unauthenticated and loopback-only, so the
+  // CLI can call it immediately after the daemon becomes ready. This avoids
+  // coupling to any particular credential backend (keychain vs encrypted file).
+  const bearerToken = await bootstrapCliToken(resources.daemonPort);
 
   const localEntry: AssistantEntry = {
     assistantId: instanceName,
