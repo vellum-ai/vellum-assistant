@@ -33,7 +33,6 @@ function makeResolved(
   return {
     summary: skill,
     state,
-    degraded: state === "degraded",
   };
 }
 

@@ -21,10 +21,15 @@ import {
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
-import { desc } from "drizzle-orm";
+import { and, desc, eq, gte, lte } from "drizzle-orm";
 
 import { getDb } from "../../memory/db.js";
-import { toolInvocations } from "../../memory/schema.js";
+import {
+  llmRequestLogs,
+  llmUsageEvents,
+  messages,
+  toolInvocations,
+} from "../../memory/schema.js";
 import { getLogger } from "../../util/logger.js";
 import {
   getDataDir,
@@ -45,6 +50,9 @@ const MAX_ARCHIVE_BYTES = 50 * 1024 * 1024;
 
 interface ExportRequestBody {
   auditLimit?: number;
+  conversationId?: string; // scope to a single thread
+  startTime?: number; // epoch ms — lower bound (inclusive)
+  endTime?: number; // epoch ms — upper bound (inclusive)
 }
 
 /**
@@ -61,21 +69,90 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
   const staging = mkdtempSync(join(tmpdir(), "vellum-export-"));
 
   try {
+    const { conversationId, startTime, endTime } = body;
+
     // --- Audit data ---
     const limit = body.auditLimit ?? 1000;
     const db = getDb();
-    const auditRows = db
-      .select()
-      .from(toolInvocations)
-      .orderBy(desc(toolInvocations.createdAt))
-      .limit(limit)
-      .all();
+
+    const auditQuery = db.select().from(toolInvocations);
+
+    const auditRows = conversationId
+      ? auditQuery
+          .where(
+            and(
+              eq(toolInvocations.conversationId, conversationId),
+              startTime ? gte(toolInvocations.createdAt, startTime) : undefined,
+              endTime ? lte(toolInvocations.createdAt, endTime) : undefined,
+            ),
+          )
+          .orderBy(desc(toolInvocations.createdAt))
+          .limit(limit)
+          .all()
+      : auditQuery.orderBy(desc(toolInvocations.createdAt)).limit(limit).all();
 
     writeFileSync(
       join(staging, "audit-data.json"),
       JSON.stringify(auditRows, null, 2),
       "utf-8",
     );
+
+    // --- Conversation-scoped data tables ---
+    if (conversationId) {
+      const messageRows = db
+        .select()
+        .from(messages)
+        .where(
+          and(
+            eq(messages.conversationId, conversationId),
+            startTime ? gte(messages.createdAt, startTime) : undefined,
+            endTime ? lte(messages.createdAt, endTime) : undefined,
+          ),
+        )
+        .orderBy(messages.createdAt)
+        .all();
+      writeFileSync(
+        join(staging, "messages.json"),
+        JSON.stringify(messageRows, null, 2),
+        "utf-8",
+      );
+
+      const llmLogRows = db
+        .select()
+        .from(llmRequestLogs)
+        .where(
+          and(
+            eq(llmRequestLogs.conversationId, conversationId),
+            startTime ? gte(llmRequestLogs.createdAt, startTime) : undefined,
+            endTime ? lte(llmRequestLogs.createdAt, endTime) : undefined,
+          ),
+        )
+        .orderBy(llmRequestLogs.createdAt)
+        .all();
+      writeFileSync(
+        join(staging, "llm-request-logs.json"),
+        JSON.stringify(llmLogRows, null, 2),
+        "utf-8",
+      );
+
+      const usageRows = db
+        .select()
+        .from(llmUsageEvents)
+        .where(
+          and(
+            eq(llmUsageEvents.conversationId, conversationId),
+            startTime ? gte(llmUsageEvents.createdAt, startTime) : undefined,
+            endTime ? lte(llmUsageEvents.createdAt, endTime) : undefined,
+          ),
+        )
+        .orderBy(llmUsageEvents.createdAt)
+        .all();
+      writeFileSync(
+        join(staging, "llm-usage-events.json"),
+        JSON.stringify(usageRows, null, 2),
+        "utf-8",
+      );
+    }
 
     // --- Daemon log files ---
     const daemonLogsDir = join(staging, "daemon-logs");
@@ -84,6 +161,7 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
     let logFileCount = 0;
 
     const logsDir = join(getDataDir(), "logs");
+    const collectedLogFiles: string[] = [];
     if (existsSync(logsDir)) {
       const entries = readdirSync(logsDir);
       for (const entry of entries) {
@@ -94,6 +172,7 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
           if (totalBytes + stat.size > MAX_LOG_PAYLOAD_BYTES) continue;
           const content = readFileSync(filePath, "utf-8");
           writeFileSync(join(daemonLogsDir, entry), content, "utf-8");
+          collectedLogFiles.push(join(daemonLogsDir, entry));
           totalBytes += stat.size;
           logFileCount++;
         } catch {
@@ -120,6 +199,30 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
       }
     }
 
+    // --- Daemon log grep for conversationId ---
+    if (conversationId && collectedLogFiles.length > 0) {
+      const matchingLines: string[] = [];
+      for (const logFile of collectedLogFiles) {
+        try {
+          const content = readFileSync(logFile, "utf-8");
+          for (const line of content.split("\n")) {
+            if (line.includes(conversationId)) {
+              matchingLines.push(line);
+            }
+          }
+        } catch {
+          // Skip unreadable files
+        }
+      }
+      if (matchingLines.length > 0) {
+        writeFileSync(
+          join(daemonLogsDir, "conversation-filtered.jsonl"),
+          matchingLines.join("\n") + "\n",
+          "utf-8",
+        );
+      }
+    }
+
     // --- Sanitized config snapshot ---
     const configSnapshot = readSanitizedConfig();
     if (configSnapshot) {
@@ -130,15 +233,38 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
       );
     }
 
-    // --- Workspace files ---
-    const workspaceFiles = collectWorkspaceFiles();
-    const workspaceDir = join(staging, "workspace");
-    mkdirSync(workspaceDir, { recursive: true });
-    for (const [relPath, content] of Object.entries(workspaceFiles)) {
-      const dest = join(workspaceDir, relPath);
-      mkdirSync(join(dest, ".."), { recursive: true });
-      writeFileSync(dest, content, "utf-8");
+    // --- Workspace files (skip for conversation-scoped exports) ---
+    let workspaceFileCount = 0;
+    if (!conversationId) {
+      const workspaceFiles = collectWorkspaceFiles();
+      const workspaceDir = join(staging, "workspace");
+      mkdirSync(workspaceDir, { recursive: true });
+      for (const [relPath, content] of Object.entries(workspaceFiles)) {
+        const dest = join(workspaceDir, relPath);
+        mkdirSync(join(dest, ".."), { recursive: true });
+        writeFileSync(dest, content, "utf-8");
+      }
+      workspaceFileCount = Object.keys(workspaceFiles).length;
     }
+
+    // --- Export manifest ---
+    const manifest = conversationId
+      ? {
+          type: "thread-export" as const,
+          conversationId,
+          ...(startTime !== undefined ? { startTime } : {}),
+          ...(endTime !== undefined ? { endTime } : {}),
+          exportedAt: new Date().toISOString(),
+        }
+      : {
+          type: "global-export" as const,
+          exportedAt: new Date().toISOString(),
+        };
+    writeFileSync(
+      join(staging, "export-manifest.json"),
+      JSON.stringify(manifest, null, 2),
+      "utf-8",
+    );
 
     log.info(
       {
@@ -146,7 +272,8 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
         logFileCount,
         totalBytes,
         hasConfig: configSnapshot !== undefined,
-        workspaceFileCount: Object.keys(workspaceFiles).length,
+        workspaceFileCount,
+        conversationId: conversationId ?? null,
       },
       "Export collected, creating tar.gz archive",
     );

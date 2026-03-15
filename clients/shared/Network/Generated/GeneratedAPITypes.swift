@@ -3872,8 +3872,6 @@ public struct SkillsListResponseSkill: Codable, Sendable {
     public let homepage: String?
     public let source: String
     public let state: String
-    public let degraded: Bool
-    public let missingRequirements: SkillsListResponseSkillMissingRequirements?
     public let installedVersion: String?
     public let latestVersion: String?
     public let updateAvailable: Bool
@@ -3881,7 +3879,7 @@ public struct SkillsListResponseSkill: Codable, Sendable {
     public let clawhub: SkillsListResponseSkillClawhub?
     public let provenance: SkillsListResponseSkillProvenance?
 
-    public init(id: String, name: String, description: String, emoji: String? = nil, homepage: String? = nil, source: String, state: String, degraded: Bool, missingRequirements: SkillsListResponseSkillMissingRequirements? = nil, installedVersion: String? = nil, latestVersion: String? = nil, updateAvailable: Bool, userInvocable: Bool, clawhub: SkillsListResponseSkillClawhub? = nil, provenance: SkillsListResponseSkillProvenance? = nil) {
+    public init(id: String, name: String, description: String, emoji: String? = nil, homepage: String? = nil, source: String, state: String, installedVersion: String? = nil, latestVersion: String? = nil, updateAvailable: Bool, userInvocable: Bool, clawhub: SkillsListResponseSkillClawhub? = nil, provenance: SkillsListResponseSkillProvenance? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -3889,8 +3887,6 @@ public struct SkillsListResponseSkill: Codable, Sendable {
         self.homepage = homepage
         self.source = source
         self.state = state
-        self.degraded = degraded
-        self.missingRequirements = missingRequirements
         self.installedVersion = installedVersion
         self.latestVersion = latestVersion
         self.updateAvailable = updateAvailable
@@ -3916,18 +3912,6 @@ public struct SkillsListResponseSkillClawhub: Codable, Sendable {
     }
 }
 
-public struct SkillsListResponseSkillMissingRequirements: Codable, Sendable {
-    public let bins: [String]?
-    public let env: [String]?
-    public let permissions: [String]?
-
-    public init(bins: [String]? = nil, env: [String]? = nil, permissions: [String]? = nil) {
-        self.bins = bins
-        self.env = env
-        self.permissions = permissions
-    }
-}
-
 public struct SkillsListResponseSkillProvenance: Codable, Sendable {
     public let kind: String
     public let provider: String?
@@ -3939,6 +3923,46 @@ public struct SkillsListResponseSkillProvenance: Codable, Sendable {
         self.provider = provider
         self.originId = originId
         self.sourceUrl = sourceUrl
+    }
+}
+
+// MARK: - Skill Detail Response (GET /v1/skills/:id)
+
+public struct SkillDetailHTTPResponse: Codable, Sendable {
+    public let skill: SkillsListResponseSkill
+
+    public init(skill: SkillsListResponseSkill) {
+        self.skill = skill
+    }
+}
+
+// MARK: - Skill Detail Files Response (GET /v1/skills/:id/files)
+
+public struct SkillDetailFilesHTTPResponse: Codable, Sendable {
+    public let skill: SkillsListResponseSkill
+    public let files: [SkillFileEntry]
+
+    public init(skill: SkillsListResponseSkill, files: [SkillFileEntry]) {
+        self.skill = skill
+        self.files = files
+    }
+}
+
+public struct SkillFileEntry: Codable, Sendable {
+    public let path: String
+    public let name: String
+    public let size: Int
+    public let mimeType: String
+    public let isBinary: Bool
+    public let content: String?
+
+    public init(path: String, name: String, size: Int, mimeType: String, isBinary: Bool, content: String? = nil) {
+        self.path = path
+        self.name = name
+        self.size = size
+        self.mimeType = mimeType
+        self.isBinary = isBinary
+        self.content = content
     }
 }
 

@@ -1191,6 +1191,7 @@ jobs:
 
           # Daemon
           (cd "$ASSISTANT_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
+          (cd packages/ces-contracts && bun install --frozen-lockfile 2>/dev/null || bun install)
           mkdir -p daemon-bin
           bun build --compile "${DAEMON_FLAGS[@]}" --target=bun-darwin-x64 \
             "$ASSISTANT_SRC_DIR/src/daemon/main.ts" --outfile daemon-bin/vellum-daemon
@@ -1565,6 +1566,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
         working-directory: assistant
+
+      - name: Install linked package dependencies
+        run: cd packages/ces-contracts && bun install --frozen-lockfile
 
       - name: Lint
         run: bun run lint

@@ -1,5 +1,11 @@
-import { existsSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from "node:fs";
+import { join, relative } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import {
@@ -37,6 +43,24 @@ import {
   type HandlerContext,
   log,
 } from "./shared.js";
+
+// ─── MIME detection helpers ───────────────────────────────────────────────────
+
+const TEXT_MIME_PREFIXES = [
+  "text/",
+  "application/json",
+  "application/javascript",
+  "application/typescript",
+  "application/xml",
+  "application/yaml",
+  "application/x-yaml",
+  "application/toml",
+  "application/x-sh",
+];
+function isTextMime(mimeType: string): boolean {
+  return TEXT_MIME_PREFIXES.some((prefix) => mimeType.startsWith(prefix));
+}
+const MAX_INLINE_SIZE = 2 * 1024 * 1024; // 2 MB
 
 // ─── Shared context for standalone functions ─────────────────────────────────
 
@@ -220,12 +244,6 @@ export interface SkillListItem {
   homepage?: string;
   source: "bundled" | "managed" | "workspace" | "clawhub" | "extra";
   state: "enabled" | "disabled" | "available";
-  degraded: boolean;
-  missingRequirements?: {
-    bins?: string[];
-    env?: string[];
-    permissions?: string[];
-  };
   updateAvailable: boolean;
   userInvocable: boolean;
   provenance: SkillProvenance;
@@ -251,12 +269,7 @@ export function listSkills(_ctx: SkillOperationContext): SkillListItem[] {
     emoji: r.summary.emoji,
     homepage: r.summary.homepage,
     source: r.summary.source,
-    state: (r.state === "degraded" ? "enabled" : r.state) as
-      | "enabled"
-      | "disabled"
-      | "available",
-    degraded: r.degraded,
-    missingRequirements: r.missingRequirements,
+    state: r.state as "enabled" | "disabled" | "available",
     updateAvailable: false,
     userInvocable: r.summary.userInvocable,
     provenance: resolveProvenance(r.summary),
@@ -272,6 +285,123 @@ export function listSkills(_ctx: SkillOperationContext): SkillListItem[] {
   });
 
   return items;
+}
+
+/** Look up a single skill by ID from the resolved catalog, returning its SkillListItem. */
+function findSkillById(
+  skillId: string,
+): { item: SkillListItem; summary: SkillSummary } | undefined {
+  const config = getConfig();
+  const catalog = loadSkillCatalog();
+  const resolved = resolveSkillStates(catalog, config);
+  const match = resolved.find((r) => r.summary.id === skillId);
+  if (!match) return undefined;
+
+  const r = match;
+  const item: SkillListItem = {
+    id: r.summary.id,
+    name: r.summary.displayName,
+    description: r.summary.description,
+    emoji: r.summary.emoji,
+    homepage: r.summary.homepage,
+    source: r.summary.source,
+    state: (r.state === "degraded" ? "enabled" : r.state) as
+      | "enabled"
+      | "disabled"
+      | "available",
+    degraded: r.degraded,
+    missingRequirements: r.missingRequirements,
+    updateAvailable: false,
+    userInvocable: r.summary.userInvocable,
+    provenance: resolveProvenance(r.summary),
+  };
+  return { item, summary: r.summary };
+}
+
+export function getSkill(
+  skillId: string,
+  _ctx: SkillOperationContext,
+): { skill: SkillListItem } | { error: string; status: number } {
+  const found = findSkillById(skillId);
+  if (!found) {
+    return { error: `Skill "${skillId}" not found`, status: 404 };
+  }
+  return { skill: found.item };
+}
+
+// ─── Skill file listing ──────────────────────────────────────────────────────
+
+export interface SkillFileEntry {
+  path: string; // relative to skill directory root (e.g. "SKILL.md", "tools/foo.ts")
+  name: string; // basename
+  size: number;
+  mimeType: string;
+  isBinary: boolean;
+  content: string | null; // inline text if ≤ 2 MB and text MIME, else null
+}
+
+const SKIP_DIRS = new Set(["node_modules", "__pycache__", ".git"]);
+
+function readDirRecursive(dir: string, rootDir: string): SkillFileEntry[] {
+  const entries: SkillFileEntry[] = [];
+  let dirents;
+  try {
+    dirents = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return entries;
+  }
+  for (const dirent of dirents) {
+    if (dirent.name.startsWith(".")) continue;
+    const fullPath = join(dir, dirent.name);
+    if (dirent.isDirectory()) {
+      if (SKIP_DIRS.has(dirent.name)) continue;
+      entries.push(...readDirRecursive(fullPath, rootDir));
+      continue;
+    }
+    if (!dirent.isFile()) continue;
+    try {
+      const stat = statSync(fullPath);
+      const mimeType = Bun.file(fullPath).type;
+      const isText = isTextMime(mimeType);
+      let content: string | null = null;
+      if (isText && stat.size <= MAX_INLINE_SIZE) {
+        content = readFileSync(fullPath, "utf-8");
+      }
+      entries.push({
+        path: relative(rootDir, fullPath),
+        name: dirent.name,
+        size: stat.size,
+        mimeType,
+        isBinary: !isText,
+        content,
+      });
+    } catch {
+      // Skip files that can't be stat'd
+    }
+  }
+  return entries;
+}
+
+export function getSkillFiles(
+  skillId: string,
+  _ctx: SkillOperationContext,
+):
+  | { skill: SkillListItem; files: SkillFileEntry[] }
+  | { error: string; status: number } {
+  const found = findSkillById(skillId);
+  if (!found) {
+    return { error: `Skill "${skillId}" not found`, status: 404 };
+  }
+
+  const dirPath = found.summary.directoryPath;
+  if (!existsSync(dirPath)) {
+    return { error: `Skill directory not found for "${skillId}"`, status: 404 };
+  }
+
+  const files = readDirRecursive(dirPath, dirPath);
+  files.sort((a, b) => a.path.localeCompare(b.path));
+
+  return { skill: found.item, files };
 }
 
 export function enableSkill(

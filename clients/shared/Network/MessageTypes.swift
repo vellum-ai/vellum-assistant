@@ -911,10 +911,6 @@ public typealias AppDataResponseMessage = AppDataResponse
 /// Backed by generated `SkillsListResponseSkillClawhub`.
 public typealias ClawhubInfo = SkillsListResponseSkillClawhub
 
-/// Missing requirements preventing a skill from full operation.
-/// Backed by generated `SkillsListResponseSkillMissingRequirements`.
-public typealias MissingRequirements = SkillsListResponseSkillMissingRequirements
-
 /// Provenance metadata indicating whether a skill is first-party, third-party, or local.
 /// Backed by generated `SkillsListResponseSkillProvenance`.
 public typealias SkillProvenance = SkillsListResponseSkillProvenance
@@ -928,7 +924,7 @@ extension SkillsListResponseSkill: Identifiable {}
 extension SkillsListResponseSkill {
     /// Returns a copy with a different `state`, preserving all other fields including `id`.
     public func withState(_ newState: String) -> Self {
-        Self(id: id, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: newState, degraded: degraded, missingRequirements: missingRequirements, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, userInvocable: userInvocable, clawhub: clawhub, provenance: provenance)
+        Self(id: id, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: newState, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, userInvocable: userInvocable, clawhub: clawhub, provenance: provenance)
     }
 }
 

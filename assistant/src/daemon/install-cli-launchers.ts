@@ -6,11 +6,6 @@
  * Each launcher is a shell script that hardcodes absolute paths to `bun`
  * and the CLI entrypoint, forwarding all arguments to the appropriate
  * subcommand.
- *
- * Commands are split into two categories:
- * - CORE_COMMANDS: always installed, dispatched via the main CLI entrypoint
- * - Skill CLI launchers: dynamically discovered from installed skills that
- *   declare a `cli` entry in their SKILL.md frontmatter metadata
  */
 
 import { execSync } from "node:child_process";
@@ -18,7 +13,6 @@ import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { loadSkillCatalog } from "../config/skills.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("install-cli-launchers");
@@ -75,12 +69,8 @@ function hasSystemConflict(name: string, binDir: string): boolean {
  *
  * For each integration command, generates a shell script that execs
  * bun with the appropriate entrypoint.
- * Uses the short name by default (e.g. `doordash`), falling back to
- * `vellum-<name>` if the short name conflicts with an existing system binary.
- *
- * Skill CLI launchers are discovered dynamically: any installed skill whose
- * SKILL.md frontmatter declares `metadata.vellum.cli` will get a launcher
- * pointing to the declared entry file within the skill directory.
+ * Uses the short name by default, falling back to `vellum-<name>` if the
+ * short name conflicts with an existing system binary.
  */
 export function installCliLaunchers(): void {
   const binDir = join(homedir(), ".vellum", "bin");
@@ -127,43 +117,6 @@ exec "${bunPath}" "${mainEntrypoint}" ${name} "$@"
     chmodSync(launcherPath, 0o755);
     installed.push(launcherName);
     log.debug({ launcherName, launcherPath }, "Installed core CLI launcher");
-  }
-
-  // Discover and install skill CLI launchers from the skill catalog
-  try {
-    const catalog = loadSkillCatalog();
-    for (const skill of catalog) {
-      const cli = skill.metadata?.cli;
-      if (!cli?.command || !cli?.entry) continue;
-
-      const entrypoint = join(skill.directoryPath, cli.entry);
-      if (!existsSync(entrypoint)) {
-        log.debug(
-          { skillId: skill.id, entrypoint },
-          "Skill CLI entry point not found — skipping",
-        );
-        continue;
-      }
-
-      const launcherName = hasSystemConflict(cli.command, binDir)
-        ? `vellum-${cli.command}`
-        : cli.command;
-      const launcherPath = join(binDir, launcherName);
-
-      const script = `#!/bin/bash
-exec "${bunPath}" "${entrypoint}" "$@"
-`;
-
-      writeFileSync(launcherPath, script);
-      chmodSync(launcherPath, 0o755);
-      installed.push(launcherName);
-      log.debug(
-        { launcherName, launcherPath, skillId: skill.id },
-        "Installed skill CLI launcher",
-      );
-    }
-  } catch (err) {
-    log.warn({ err }, "Failed to discover skill CLI launchers");
   }
 
   log.info({ binDir, commands: installed }, "CLI launchers installed");

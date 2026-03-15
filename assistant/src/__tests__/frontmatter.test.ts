@@ -242,13 +242,13 @@ describe("parseFrontmatterFields", () => {
       'description: "A test skill"',
       "metadata:",
       "  vellum:",
-      "    os:",
-      "      - darwin",
-      "      - linux",
       "    requires:",
       "      bins:",
       "        - node",
       "        - npm",
+      "      env:",
+      "        - API_KEY",
+      "        - SECRET",
       "---",
       "Body",
     ].join("\n");
@@ -256,8 +256,10 @@ describe("parseFrontmatterFields", () => {
     expect(result).not.toBeNull();
     const meta = result!.fields.metadata as Record<string, unknown>;
     const vellum = meta.vellum as Record<string, unknown>;
-    expect(vellum.os).toEqual(["darwin", "linux"]);
-    expect(vellum.requires).toEqual({ bins: ["node", "npm"] });
+    expect(vellum.requires).toEqual({
+      bins: ["node", "npm"],
+      env: ["API_KEY", "SECRET"],
+    });
   });
 
   test("returns null for invalid YAML frontmatter", () => {

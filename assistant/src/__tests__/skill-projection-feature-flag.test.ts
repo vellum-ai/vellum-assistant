@@ -30,7 +30,6 @@ const DECLARED_FLAG_KEY = "feature_flags.hatch-new-assistant.enabled";
 
 mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => mockCatalog,
-  checkSkillRequirements: () => ({ satisfied: true, missing: [] }),
 }));
 
 mock.module("../config/loader.js", () => ({

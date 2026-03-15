@@ -7,7 +7,6 @@ metadata:
   vellum:
     display-name: "Asana OAuth Setup"
     user-invocable: true
-    credential-setup-for: "asana"
     includes: ["collaborative-oauth-flow"]
 ---
 

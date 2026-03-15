@@ -7,7 +7,6 @@ metadata:
   vellum:
     display-name: "GitHub OAuth Setup"
     user-invocable: true
-    credential-setup-for: "github"
     includes: ["collaborative-oauth-flow"]
 ---
 

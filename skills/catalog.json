@@ -24,7 +24,6 @@
         "vellum": {
           "display-name": "Airtable OAuth Setup",
           "user-invocable": "true",
-          "credential-setup-for": "airtable",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -67,7 +66,6 @@
         "vellum": {
           "display-name": "Asana OAuth Setup",
           "user-invocable": "true",
-          "credential-setup-for": "asana",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -121,7 +119,6 @@
         "vellum": {
           "display-name": "Discord OAuth Setup",
           "user-invocable": "true",
-          "credential-setup-for": "discord",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -168,7 +165,6 @@
         "vellum": {
           "display-name": "Dropbox OAuth Setup",
           "user-invocable": "true",
-          "credential-setup-for": "dropbox",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -212,7 +208,6 @@
         "vellum": {
           "display-name": "Figma OAuth Setup",
           "user-invocable": "true",
-          "credential-setup-for": "figma",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -238,7 +233,6 @@
         "vellum": {
           "display-name": "GitHub OAuth Setup",
           "user-invocable": "true",
-          "credential-setup-for": "github",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -255,7 +249,6 @@
         "vellum": {
           "display-name": "Google OAuth Setup",
           "user-invocable": "true",
-          "credential-setup-for": "gmail",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -285,7 +278,6 @@
         "vellum": {
           "display-name": "HubSpot OAuth Setup",
           "user-invocable": "true",
-          "credential-setup-for": "hubspot",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -315,7 +307,6 @@
         "vellum": {
           "display-name": "Linear OAuth Setup",
           "user-invocable": "true",
-          "credential-setup-for": "linear",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -331,10 +322,7 @@
         "emoji": "🍎",
         "vellum": {
           "display-name": "macOS Automation",
-          "user-invocable": "false",
-          "os": [
-            "darwin"
-          ]
+          "user-invocable": "false"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -374,7 +362,6 @@
         "vellum": {
           "display-name": "Notion OAuth Setup",
           "user-invocable": "true",
-          "credential-setup-for": "notion",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -434,10 +421,7 @@
       "metadata": {
         "emoji": "🎬",
         "vellum": {
-          "display-name": "Screen Recording",
-          "os": [
-            "darwin"
-          ]
+          "display-name": "Screen Recording"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -510,7 +494,6 @@
         "vellum": {
           "display-name": "Slack OAuth Setup",
           "user-invocable": "true",
-          "credential-setup-for": "slack",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -527,7 +510,6 @@
         "vellum": {
           "display-name": "Spotify OAuth Setup",
           "user-invocable": "true",
-          "credential-setup-for": "spotify",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -585,7 +567,6 @@
         "vellum": {
           "display-name": "Todoist OAuth Setup",
           "user-invocable": "true",
-          "credential-setup-for": "todoist",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -618,7 +599,6 @@
         "vellum": {
           "display-name": "Twitter / X OAuth Setup",
           "user-invocable": "true",
-          "credential-setup-for": "twitter",
           "includes": [
             "collaborative-oauth-flow"
           ]
@@ -662,8 +642,7 @@
           "display-name": "Vercel Token Setup",
           "includes": [
             "browser"
-          ],
-          "credential-setup-for": "vercel:api_token"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -677,9 +656,6 @@
         "vellum": {
           "display-name": "Voice Setup",
           "user-invocable": "true",
-          "os": [
-            "darwin"
-          ],
           "includes": [
             "elevenlabs-voice"
           ]

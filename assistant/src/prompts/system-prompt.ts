@@ -1022,12 +1022,7 @@ function getMcpSetupDescription(): string {
 }
 
 function formatSkillsCatalog(skills: SkillSummary[]): string {
-  // Filter out skills with unsupported OS
-  const visible = skills.filter((s) => {
-    const os = s.metadata?.os;
-    if (os && os.length > 0 && !os.includes(process.platform)) return false;
-    return true;
-  });
+  const visible = skills;
   if (visible.length === 0) return "";
 
   const lines = ["<available_skills>"];
@@ -1039,11 +1034,8 @@ function formatSkillsCatalog(skills: SkillSummary[]): string {
         ? escapeXml(getMcpSetupDescription())
         : escapeXml(skill.description);
     const locAttr = escapeXml(skill.directoryPath);
-    const credAttr = skill.credentialSetupFor
-      ? ` credential-setup-for="${escapeXml(skill.credentialSetupFor)}"`
-      : "";
     lines.push(
-      `<skill id="${idAttr}" name="${nameAttr}" description="${descAttr}" location="${locAttr}"${credAttr} />`,
+      `<skill id="${idAttr}" name="${nameAttr}" description="${descAttr}" location="${locAttr}" />`,
     );
   }
   lines.push("</available_skills>");
@@ -1051,7 +1043,6 @@ function formatSkillsCatalog(skills: SkillSummary[]): string {
   return [
     "## Available Skills",
     "The following skills are available. Before executing one, call `skill_load` to load the full instructions, then use `skill_execute` to invoke the skill's tools.",
-    "When a credential is missing, check if any skill declares `credential-setup-for` matching that service — if so, load that skill.",
     "",
     lines.join("\n"),
     "",
