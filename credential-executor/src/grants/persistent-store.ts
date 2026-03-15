@@ -60,7 +60,6 @@ const GRANTS_FILENAME = "grants.json";
 
 export class PersistentGrantStore {
   private readonly filePath: string;
-  private cache: PersistentGrant[] | null = null;
   /** Set to true when the store detects corruption; blocks all operations. */
   private corrupt = false;
 
@@ -209,7 +208,6 @@ export class PersistentGrantStore {
         throw new Error("CES grants file is malformed: grants is not an array");
       }
 
-      this.cache = file.grants;
       return [...file.grants];
     } catch (err) {
       if (this.corrupt) throw err;
@@ -240,7 +238,5 @@ export class PersistentGrantStore {
     // Enforce owner-only permissions even if the file already existed
     // with wider permissions.
     chmodSync(this.filePath, 0o600);
-
-    this.cache = grants;
   }
 }
