@@ -11,7 +11,7 @@
  * - **Local**: CES private state lives under the Vellum root's `protected/`
  *   directory at `<rootDir>/protected/credential-executor/`.
  *
- * - **Managed**: CES private state lives at `/home/ces/.ces-data` by default
+ * - **Managed**: CES private state lives at `/ces-data` by default
  *   (overridable via `CES_DATA_DIR` env var). The assistant container never
  *   sees this path.
  *
@@ -54,16 +54,16 @@ function getVellumRootDir(): string {
 /**
  * Default managed CES data root.
  *
- * Defaults to `/home/ces/.ces-data` so the non-root `ces` user (uid 1001)
- * can write without extra chown/mkdir in the Dockerfile.
+ * Defaults to `/ces-data` — the platform template provisions this path
+ * via the `CES_DATA_DIR` env var and a dedicated PVC.
  */
-const DEFAULT_MANAGED_CES_DATA_ROOT = "/home/ces/.ces-data";
+const DEFAULT_MANAGED_CES_DATA_ROOT = "/ces-data";
 
 /**
  * Return the CES-private data root.
  *
  * - Local: `<vellumRoot>/protected/credential-executor/`
- * - Managed: `CES_DATA_DIR` env var, or `/home/ces/.ces-data` by default
+ * - Managed: `CES_DATA_DIR` env var, or `/ces-data` by default
  */
 export function getCesDataRoot(mode?: CesMode): string {
   const resolvedMode = mode ?? getCesMode();
