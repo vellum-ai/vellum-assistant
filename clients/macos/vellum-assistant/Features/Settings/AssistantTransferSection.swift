@@ -169,9 +169,14 @@ struct AssistantTransferSection: View {
             // Step 5 — Retire local assistant (fire-and-forget)
             currentStep = "Cleaning up..."
             let localName = assistant.assistantId
-            try? await AppDelegate.shared?.assistantCli.retire(name: localName)
+            var retireWarning: String?
+            do {
+                try await AppDelegate.shared?.assistantCli.retire(name: localName)
+            } catch {
+                retireWarning = " Note: the source assistant could not be retired automatically."
+            }
 
-            successMessage = "Transfer complete. You are now using the cloud assistant."
+            successMessage = "Transfer complete. You are now using the cloud assistant.\(retireWarning ?? "")"
         } catch {
             errorMessage = "Transfer failed: \(error.localizedDescription)"
         }
@@ -274,7 +279,11 @@ struct AssistantTransferSection: View {
                 try await Task.sleep(nanoseconds: 1_000_000_000)
             }
 
-            // Step 5 — Wait for actor token (up to 30s)
+            // Step 5 — Switch to local assistant (triggers credential bootstrap)
+            currentStep = "Switching to local assistant..."
+            AppDelegate.shared?.performSwitchAssistant(to: resolvedLocal)
+
+            // Step 6 — Wait for actor token (up to 30s, now bootstrapped by switch)
             var actorToken: String?
             for i in 0..<30 {
                 if let token = ActorTokenManager.getToken(), !token.isEmpty {
@@ -287,7 +296,7 @@ struct AssistantTransferSection: View {
                 try await Task.sleep(nanoseconds: 1_000_000_000)
             }
 
-            // Step 6 — Import to local
+            // Step 7 — Import to local
             currentStep = "Importing data..."
             guard let importURL = URL(string: "http://localhost:\(daemonPort)/v1/migrations/import") else {
                 throw TransferError.invalidURL
@@ -311,13 +320,12 @@ struct AssistantTransferSection: View {
                 throw TransferError.importFailed(message: errorMsg)
             }
 
-            // Step 7 — Switch to local assistant
-            currentStep = "Switching to local assistant..."
-            AppDelegate.shared?.performSwitchAssistant(to: resolvedLocal)
+            // Step 8 — Close settings (after successful import)
             onClose()
 
-            // Step 8 — Retire managed assistant (fire-and-forget)
+            // Step 9 — Retire managed assistant (fire-and-forget with pre-saved auth)
             currentStep = "Cleaning up..."
+            var retireWarning: String?
             if let token = savedSessionToken {
                 let retireUrlString = "\(savedPlatformUrl)/v1/assistants/\(managedAssistantId)/retire/"
                 if let retireURL = URL(string: retireUrlString) {
@@ -328,11 +336,22 @@ struct AssistantTransferSection: View {
                     if let orgId = savedOrgId {
                         retireRequest.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
                     }
-                    _ = try? await URLSession.shared.data(for: retireRequest)
+                    let retireResult = try? await URLSession.shared.data(for: retireRequest)
+                    if let (_, retireResponse) = retireResult,
+                       let httpRetire = retireResponse as? HTTPURLResponse,
+                       (200..<300).contains(httpRetire.statusCode) {
+                        // Retire succeeded
+                    } else {
+                        retireWarning = " Note: the source assistant could not be retired automatically."
+                    }
+                } else {
+                    retireWarning = " Note: the source assistant could not be retired automatically."
                 }
+            } else {
+                retireWarning = " Note: the source assistant could not be retired automatically."
             }
 
-            successMessage = "Transfer complete. You are now using a local assistant."
+            successMessage = "Transfer complete. You are now using a local assistant.\(retireWarning ?? "")"
         } catch {
             errorMessage = "Transfer failed: \(error.localizedDescription)"
         }
