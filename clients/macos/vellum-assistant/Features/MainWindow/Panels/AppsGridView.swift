@@ -9,6 +9,7 @@ struct AppsGridView: View {
     let onOpenApp: (String) -> Void
     /// Called when the user opens a shared app (needs surface-based navigation).
     var onOpenSharedApp: ((UiSurfaceShowMessage) -> Void)?
+    var onNewThread: (() -> Void)?
 
     @State private var searchText = ""
     @State private var hoveredAppId: String?
@@ -135,21 +136,14 @@ struct AppsGridView: View {
     // MARK: - Empty State
 
     private var noAppsEmptyState: some View {
-        VStack(spacing: VSpacing.xl) {
-            VIconView(.layoutGrid, size: 40)
-                .foregroundColor(VColor.contentTertiary)
-
-            VStack(spacing: VSpacing.sm) {
-                Text("Your library is empty")
-                    .font(VFont.bodyBold)
-                    .foregroundColor(VColor.contentSecondary)
-
-                Text("Ask your assistant to build something")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.contentTertiary)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        VEmptyState(
+            title: "Your library is empty",
+            subtitle: "Ask your assistant to build something",
+            icon: VIcon.layoutGrid.rawValue,
+            actionLabel: "New Thread",
+            actionIcon: VIcon.plus.rawValue,
+            action: { onNewThread?() }
+        )
     }
 
     // MARK: - Search Bar

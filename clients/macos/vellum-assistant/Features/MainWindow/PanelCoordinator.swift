@@ -71,6 +71,10 @@ extension MainWindowView {
                     } else {
                         windowState.selection = .app(surfaceMsg.surfaceId)
                     }
+                },
+                onNewThread: {
+                    threadManager.ensureThreadAndSend(message: "What kind of apps can you build?")
+                    windowState.selection = nil
                 }
             )
         case .intelligence:
@@ -266,6 +270,10 @@ extension MainWindowView {
                         } else {
                             windowState.selection = .app(surfaceMsg.surfaceId)
                         }
+                    },
+                    onNewThread: {
+                        threadManager.ensureThreadAndSend(message: "What kind of apps can you build?")
+                        windowState.selection = nil
                     }
                 )
                 .overlay(alignment: .topTrailing) { panelDismissButton }
@@ -433,6 +441,10 @@ extension MainWindowView {
                     } else {
                         windowState.selection = .app(surfaceMsg.surfaceId)
                     }
+                },
+                onNewThread: {
+                    threadManager.ensureThreadAndSend(message: "What kind of apps can you build?")
+                    windowState.dismissOverlay()
                 }
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }
