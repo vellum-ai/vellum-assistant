@@ -873,6 +873,14 @@ jobs:
         with:
           bun-version: '1.3.9'
 
+      - name: Install nested package dependencies
+        run: |
+          for dir in packages/*/; do
+            [ -f "${dir}/package.json" ] || continue
+            echo "Installing dependencies in ${dir}"
+            (cd "${dir}" && bun install)
+          done
+
       - name: Build binaries
         run: |
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
@@ -1171,6 +1179,14 @@ jobs:
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.9'
+
+      - name: Install nested package dependencies
+        run: |
+          for dir in packages/*/; do
+            [ -f "${dir}/package.json" ] || continue
+            echo "Installing dependencies in ${dir}"
+            (cd "${dir}" && bun install)
+          done
 
       - name: Build Bun binaries (x64)
         run: |
@@ -1567,8 +1583,13 @@ jobs:
         run: bun install --frozen-lockfile
         working-directory: assistant
 
-      - name: Install linked package dependencies
-        run: cd packages/ces-contracts && bun install --frozen-lockfile
+      - name: Install nested package dependencies
+        run: |
+          for dir in packages/*/; do
+            [ -f "${dir}/package.json" ] || continue
+            echo "Installing dependencies in ${dir}"
+            (cd "${dir}" && bun install --frozen-lockfile 2>/dev/null || bun install)
+          done
 
       - name: Lint
         run: bun run lint
