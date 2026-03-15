@@ -286,10 +286,10 @@ export async function deleteOAuthTokens(
   accessTokenResult: "deleted" | "not-found" | "error";
   refreshTokenResult: "deleted" | "not-found" | "error";
 }> {
-  const [accessTokenResult, refreshTokenResult] = await Promise.all([
-    backend.delete(oauthConnectionAccessTokenPath(connectionId)),
-    backend.delete(oauthConnectionRefreshTokenPath(connectionId)),
-  ]);
+  // Delete sequentially to avoid lost updates — the encrypted store uses
+  // read-modify-write, so concurrent deletes can restore a deleted key.
+  const accessTokenResult = await backend.delete(oauthConnectionAccessTokenPath(connectionId));
+  const refreshTokenResult = await backend.delete(oauthConnectionRefreshTokenPath(connectionId));
   return { accessTokenResult, refreshTokenResult };
 }
 
