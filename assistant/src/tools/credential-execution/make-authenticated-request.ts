@@ -110,6 +110,7 @@ class MakeAuthenticatedRequestTool implements Tool {
         ...(headers ? { headers } : {}),
         ...(body !== undefined ? { body } : {}),
         ...(grantId ? { grantId } : {}),
+        conversationId: context.conversationId,
       });
 
       if (!response.success) {

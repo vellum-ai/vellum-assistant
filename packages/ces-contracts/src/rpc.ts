@@ -70,6 +70,8 @@ export const MakeAuthenticatedRequestSchema = z.object({
   purpose: z.string(),
   /** Existing grant ID to consume, if the caller holds one. */
   grantId: z.string().optional(),
+  /** Conversation ID for thread-scoped temporary grants. */
+  conversationId: z.string().optional(),
 });
 export type MakeAuthenticatedRequest = z.infer<
   typeof MakeAuthenticatedRequestSchema
@@ -133,6 +135,8 @@ export const RunAuthenticatedCommandSchema = z.object({
   purpose: z.string(),
   /** Existing grant ID to consume, if the caller holds one. */
   grantId: z.string().optional(),
+  /** Conversation ID for thread-scoped temporary grants. */
+  conversationId: z.string().optional(),
 });
 export type RunAuthenticatedCommand = z.infer<
   typeof RunAuthenticatedCommandSchema

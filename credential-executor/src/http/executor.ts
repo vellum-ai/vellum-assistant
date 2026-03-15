@@ -138,6 +138,7 @@ export async function executeAuthenticatedHttpRequest(
       headers: request.headers,
       purpose: request.purpose,
       grantId: request.grantId,
+      conversationId: request.conversationId,
     },
     deps.persistentGrantStore,
     deps.temporaryGrantStore,

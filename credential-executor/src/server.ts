@@ -425,6 +425,7 @@ export function createRunAuthenticatedCommandHandler(
       outputs: request.outputs,
       purpose: request.purpose,
       grantId: request.grantId,
+      conversationId: request.conversationId,
     };
 
     const result = await executeAuthenticatedCommand(

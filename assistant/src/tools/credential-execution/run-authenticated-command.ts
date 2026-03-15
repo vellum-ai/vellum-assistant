@@ -147,6 +147,7 @@ class RunAuthenticatedCommandTool implements Tool {
         ...(inputs ? { inputs } : {}),
         ...(outputs ? { outputs } : {}),
         ...(grantId ? { grantId } : {}),
+        conversationId: context.conversationId,
       });
 
       if (!response.success) {
