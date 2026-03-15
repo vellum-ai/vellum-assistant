@@ -27,7 +27,7 @@ public enum DeviceIdStore {
 
         if let cached { return cached }
 
-        let home = FileManager.default.homeDirectoryForCurrentUser
+        let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
         let vellumDir = home.appendingPathComponent(".vellum", isDirectory: true)
         let deviceFile = vellumDir.appendingPathComponent("device.json")
 
