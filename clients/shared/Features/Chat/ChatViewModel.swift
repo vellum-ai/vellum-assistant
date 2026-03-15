@@ -2177,17 +2177,19 @@ public final class ChatViewModel: ObservableObject {
         retryMessage.isHidden = message.isHidden
         messages.append(retryMessage)
 
-        // Convert ChatAttachments back to UserMessageAttachments for the send call
+        // Convert ChatAttachments back to UserMessageAttachments for the send call.
+        // Keep file-path-based attachments even when data is empty,
+        // since the daemon can read the file from disk.
         let userAttachments: [UserMessageAttachment]? = message.attachments.isEmpty ? nil : message.attachments.compactMap { att in
-            guard !att.data.isEmpty else { return nil }
+            guard !att.data.isEmpty || att.filePath != nil else { return nil }
             return UserMessageAttachment(
                 id: att.id,
                 filename: att.filename,
                 mimeType: att.mimeType,
                 data: att.data,
                 extractedText: nil,
-                sizeBytes: nil,
-                thumbnailData: nil,
+                sizeBytes: att.sizeBytes,
+                thumbnailData: att.thumbnailData?.base64EncodedString(),
                 filePath: att.filePath
             )
         }
