@@ -150,7 +150,9 @@ describe("local_static handle rejection in managed mode", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.handle.type).toBe(HandleType.PlatformOAuth);
-      expect(result.handle.connectionId).toBe("conn_abc123");
+      if (result.handle.type === HandleType.PlatformOAuth) {
+        expect(result.handle.connectionId).toBe("conn_abc123");
+      }
     }
   });
 
@@ -419,7 +421,9 @@ describe("managed OAuth materialization through CES sidecar", () => {
     expect(parsed.ok).toBe(true);
     if (parsed.ok) {
       expect(parsed.handle.type).toBe(HandleType.PlatformOAuth);
-      expect(parsed.handle.connectionId).toBe("conn_abc123");
+      if (parsed.handle.type === HandleType.PlatformOAuth) {
+        expect(parsed.handle.connectionId).toBe("conn_abc123");
+      }
     }
   });
 });
