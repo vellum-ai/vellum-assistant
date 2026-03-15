@@ -275,6 +275,7 @@ export async function resolveAssistantAttachments(
         mimeType: draft.mimeType,
         data: omitData ? "" : draft.dataBase64,
         ...(omitData ? { sizeBytes: draft.sizeBytes } : {}),
+        ...(isFileBacked ? { fileBacked: true } : {}),
         ...(thumbnailData ? { thumbnailData } : {}),
       });
     }
