@@ -46,6 +46,10 @@ mock.module("../memory/conversation-attention-store.js", () => ({
   markConversationUnread: mockMarkConversationUnread,
 }));
 
+mock.module("../memory/conversation-key-store.js", () => ({
+  resolveConversationId: (id: string) => id,
+}));
+
 import { getPolicy } from "../runtime/auth/route-policy.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { UserError } from "../util/errors.js";
