@@ -1,14 +1,14 @@
 import { ProviderError } from "../util/errors.js";
 import type {
-  SessionErrorCode,
-  SessionErrorMessage,
+  ConversationErrorCode,
+  ConversationErrorMessage,
 } from "./message-protocol.js";
 
 /**
  * Classified session error ready for client emission.
  */
 export interface ClassifiedSessionError {
-  code: SessionErrorCode;
+  code: ConversationErrorCode;
   userMessage: string;
   retryable: boolean;
   debugDetails?: string;
@@ -376,7 +376,7 @@ function classifyByMessage(
   for (const pattern of CANCEL_PATTERNS) {
     if (pattern.test(message)) {
       return {
-        code: "SESSION_ABORTED",
+        code: "CONVERSATION_ABORTED",
         userMessage: "The request was interrupted.",
         retryable: true,
         errorCategory: "session_aborted",
@@ -397,7 +397,7 @@ function classifyByMessage(
     ? `Processing failed: ${summary}`
     : "Something went wrong processing your message. Please try again.";
   return {
-    code: "SESSION_PROCESSING_FAILED",
+    code: "CONVERSATION_PROCESSING_FAILED",
     userMessage,
     retryable: false,
     errorCategory: "processing_failed",
@@ -408,12 +408,12 @@ function classifyByMessage(
  * Build a `session_error` server message from a classified error.
  */
 export function buildSessionErrorMessage(
-  sessionId: string,
+  conversationId: string,
   classified: ClassifiedSessionError,
-): SessionErrorMessage {
+): ConversationErrorMessage {
   return {
-    type: "session_error",
-    sessionId,
+    type: "conversation_error",
+    conversationId,
     code: classified.code,
     userMessage: classified.userMessage,
     retryable: classified.retryable,

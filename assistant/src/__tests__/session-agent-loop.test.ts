@@ -267,7 +267,7 @@ mock.module("../workspace/git-service.js", () => ({
 
 mock.module("../daemon/session-error.js", () => ({
   classifySessionError: (_err: unknown, _ctx: unknown) => ({
-    code: "SESSION_PROCESSING_FAILED",
+    code: "CONVERSATION_PROCESSING_FAILED",
     userMessage: "Something went wrong processing your message.",
     retryable: false,
     errorCategory: "processing_failed",
@@ -279,11 +279,11 @@ mock.module("../daemon/session-error.js", () => ({
     return false;
   },
   buildSessionErrorMessage: (
-    sessionId: string,
+    conversationId: string,
     classified: Record<string, unknown>,
   ) => ({
-    type: "session_error",
-    sessionId,
+    type: "conversation_error",
+    conversationId,
     ...classified,
   }),
   isContextTooLarge: (msg: string) => /context.?length.?exceeded/i.test(msg),
@@ -545,7 +545,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({ agentLoopRun });
       await runAgentLoopImpl(ctx, "run ls", "msg-1", (msg) => events.push(msg));
 
-      const sessionError = events.find((e) => e.type === "session_error");
+      const sessionError = events.find((e) => e.type === "conversation_error");
       expect(sessionError).toBeDefined();
     });
 
@@ -579,7 +579,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({ agentLoopRun });
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-      const sessionError = events.find((e) => e.type === "session_error");
+      const sessionError = events.find((e) => e.type === "conversation_error");
       expect(sessionError).toBeUndefined();
       const complete = events.find((e) => e.type === "message_complete");
       expect(complete).toBeDefined();
@@ -818,7 +818,7 @@ describe("session-agent-loop", () => {
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-      const sessionError = events.find((e) => e.type === "session_error");
+      const sessionError = events.find((e) => e.type === "conversation_error");
       expect(sessionError).toBeDefined();
     });
 
@@ -896,7 +896,7 @@ describe("session-agent-loop", () => {
 
       expect(reducerCalls).toBeGreaterThanOrEqual(1);
       expect(callCount).toBe(2);
-      const sessionError = events.find((e) => e.type === "session_error");
+      const sessionError = events.find((e) => e.type === "conversation_error");
       expect(sessionError).toBeUndefined();
       const complete = events.find((e) => e.type === "message_complete");
       expect(complete).toBeDefined();
@@ -951,7 +951,7 @@ describe("session-agent-loop", () => {
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
       // Should NOT emit session_error
-      const sessionError = events.find((e) => e.type === "session_error");
+      const sessionError = events.find((e) => e.type === "conversation_error");
       expect(sessionError).toBeUndefined();
 
       // Should emit a graceful assistant text delta instead
@@ -1057,7 +1057,7 @@ describe("session-agent-loop", () => {
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
       // Should not produce session_error since auto-compress recovered
-      const sessionError = events.find((e) => e.type === "session_error");
+      const sessionError = events.find((e) => e.type === "conversation_error");
       expect(sessionError).toBeUndefined();
       const complete = events.find((e) => e.type === "message_complete");
       expect(complete).toBeDefined();
@@ -1250,7 +1250,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({ agentLoopRun });
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-      const sessionError = events.find((e) => e.type === "session_error");
+      const sessionError = events.find((e) => e.type === "conversation_error");
       expect(sessionError).toBeDefined();
     });
   });
@@ -1507,7 +1507,7 @@ describe("session-agent-loop", () => {
       const cancelled = events.find((e) => e.type === "generation_cancelled");
       expect(cancelled).toBeDefined();
       // Should NOT emit a session_error for user cancellation
-      const sessionError = events.find((e) => e.type === "session_error");
+      const sessionError = events.find((e) => e.type === "conversation_error");
       expect(sessionError).toBeUndefined();
     });
 

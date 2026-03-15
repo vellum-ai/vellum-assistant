@@ -58,8 +58,8 @@ import type {
   _ContactsServerMessages,
 } from "./message-types/contacts.js";
 import type {
-  _SessionsClientMessages,
-  _SessionsServerMessages,
+  _ConversationsClientMessages,
+  _ConversationsServerMessages,
 } from "./message-types/conversations.js";
 import type {
   _DiagnosticsClientMessages,
@@ -142,7 +142,7 @@ export interface SubagentEvent {
 // === Client -> Server aggregate union ===
 
 export type ClientMessage =
-  | _SessionsClientMessages
+  | _ConversationsClientMessages
   | _MessagesClientMessages
   | _SurfacesClientMessages
   | _SkillsClientMessages
@@ -167,7 +167,7 @@ export type ClientMessage =
 // === Server -> Client aggregate union ===
 
 export type ServerMessage =
-  | _SessionsServerMessages
+  | _ConversationsServerMessages
   | _MessagesServerMessages
   | _SurfacesServerMessages
   | _SkillsServerMessages

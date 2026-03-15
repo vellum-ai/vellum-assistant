@@ -319,7 +319,7 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
   test("preserves generation_handoff payload", async () => {
     const msg = {
       type: "generation_handoff" as const,
-      sessionId: "conv-handoff",
+      conversationId: "conv-handoff",
       requestId: "req-xyz-789",
       queuedCount: 2,
     };
@@ -327,7 +327,7 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
 
     expect(event.message.type).toBe("generation_handoff");
     const m = event.message as typeof msg;
-    expect(m.sessionId).toBe("conv-handoff");
+    expect(m.conversationId).toBe("conv-handoff");
     expect(m.requestId).toBe("req-xyz-789");
     expect(m.queuedCount).toBe(2);
   });
@@ -337,13 +337,13 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
   test("preserves generation_cancelled payload", async () => {
     const msg = {
       type: "generation_cancelled" as const,
-      sessionId: "conv-cancelled",
+      conversationId: "conv-cancelled",
     };
     const event = await publishAndReadFrame("parity-generation-cancelled", msg);
 
     expect(event.message.type).toBe("generation_cancelled");
     const m = event.message as typeof msg;
-    expect(m.sessionId).toBe("conv-cancelled");
+    expect(m.conversationId).toBe("conv-cancelled");
   });
 
   // ── Envelope integrity ───────────────────────────────────────────────────

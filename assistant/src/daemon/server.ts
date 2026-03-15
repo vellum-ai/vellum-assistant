@@ -66,8 +66,8 @@ import { ConfigWatcher } from "./config-watcher.js";
 import { undoLastMessage } from "./handlers/conversations.js";
 import { parseIdentityFields } from "./handlers/identity.js";
 import type {
+  ConversationCreateOptions,
   HandlerContext,
-  SessionCreateOptions,
 } from "./handlers/shared.js";
 import type { SkillOperationContext } from "./handlers/skills.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
@@ -241,7 +241,7 @@ function makePendingInteractionRegistrar(
 
 export class DaemonServer {
   private sessions = new Map<string, Session>();
-  private sessionOptions = new Map<string, SessionCreateOptions>();
+  private sessionOptions = new Map<string, ConversationCreateOptions>();
   private sessionCreating = new Map<string, Promise<Session>>();
   private sharedRequestTimestamps: number[] = [];
   private httpPort: number | undefined;
@@ -294,7 +294,7 @@ export class DaemonServer {
 
   private applyTransportMetadata(
     _session: Session,
-    options: SessionCreateOptions | undefined,
+    options: ConversationCreateOptions | undefined,
   ): void {
     const transport = options?.transport;
     if (!transport) return;
@@ -676,7 +676,7 @@ export class DaemonServer {
 
   private async getOrCreateSession(
     conversationId: string,
-    options?: SessionCreateOptions,
+    options?: ConversationCreateOptions,
   ): Promise<Session> {
     let session = this.sessions.get(conversationId);
     const sendToClient = () => {};
@@ -822,7 +822,7 @@ export class DaemonServer {
     conversationId: string,
     content: string,
     attachmentIds: string[] | undefined,
-    options: SessionCreateOptions | undefined,
+    options: ConversationCreateOptions | undefined,
     sourceChannel: string | undefined,
     sourceInterface: string | undefined,
   ): Promise<{
@@ -927,7 +927,7 @@ export class DaemonServer {
     conversationId: string,
     content: string,
     attachmentIds?: string[],
-    options?: SessionCreateOptions,
+    options?: ConversationCreateOptions,
     sourceChannel?: string,
     sourceInterface?: string,
   ): Promise<{ messageId: string }> {
@@ -991,7 +991,7 @@ export class DaemonServer {
     conversationId: string,
     content: string,
     attachmentIds?: string[],
-    options?: SessionCreateOptions,
+    options?: ConversationCreateOptions,
     sourceChannel?: string,
     sourceInterface?: string,
   ): Promise<{ messageId: string }> {

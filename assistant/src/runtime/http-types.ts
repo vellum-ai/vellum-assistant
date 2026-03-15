@@ -20,7 +20,7 @@ import type {
   ComposeGuardianActionMessageOptions,
   GuardianActionMessageContext,
 } from "./guardian-action-message-composer.js";
-import type { SessionManagementDeps } from "./routes/conversation-management-routes.js";
+import type { ConversationManagementDeps } from "./routes/conversation-management-routes.js";
 /**
  * Daemon-injected function that generates approval copy using a provider.
  * Returns generated text or `null` on failure (caller falls back to deterministic text).
@@ -112,7 +112,7 @@ export type GuardianFollowUpConversationGenerator = (
   context: GuardianFollowUpConversationContext,
 ) => Promise<GuardianFollowUpTurnResult>;
 
-export interface RuntimeMessageSessionOptions {
+export interface RuntimeMessageConversationOptions {
   transport?: {
     channelId: ChannelId;
     hints?: string[];
@@ -137,7 +137,7 @@ export type MessageProcessor = (
   conversationId: string,
   content: string,
   attachmentIds?: string[],
-  options?: RuntimeMessageSessionOptions,
+  options?: RuntimeMessageConversationOptions,
   sourceChannel?: ChannelId,
   sourceInterface?: InterfaceId,
 ) => Promise<{ messageId: string }>;
@@ -182,7 +182,7 @@ export interface RuntimeHttpServerOptions {
   /** Context provider for skill management HTTP routes. */
   getSkillContext?: () => SkillOperationContext;
   /** Lookup an active session by ID (for surface actions and content fetches). */
-  findSession?: (sessionId: string) =>
+  findConversation?: (sessionId: string) =>
     | {
         handleSurfaceAction(
           surfaceId: string,
@@ -204,7 +204,7 @@ export interface RuntimeHttpServerOptions {
       }
     | undefined;
   /** Lookup an active session by surfaceId (fallback when sessionId is absent). */
-  findSessionBySurfaceId?: (surfaceId: string) =>
+  findConversationBySurfaceId?: (surfaceId: string) =>
     | {
         handleSurfaceAction(
           surfaceId: string,
@@ -217,8 +217,8 @@ export interface RuntimeHttpServerOptions {
         >;
       }
     | undefined;
-  /** Dependencies for session management HTTP routes (switch, rename, clear, cancel, undo, regenerate). */
-  sessionManagementDeps?: SessionManagementDeps;
+  /** Dependencies for conversation management HTTP routes (switch, rename, clear, cancel, undo, regenerate). */
+  conversationManagementDeps?: ConversationManagementDeps;
   /** Lazy factory for model config set context (session eviction, config reload suppression). */
   getModelSetContext?: () => import("../daemon/handlers/config-model.js").ModelSetContext;
   /** Provider for watch observation dependencies (watch routes). */

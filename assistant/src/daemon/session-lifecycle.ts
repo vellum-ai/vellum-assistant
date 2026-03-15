@@ -220,7 +220,7 @@ export function abortSession(ctx: AbortContext): void {
     for (const queued of ctx.queue) {
       queued.onEvent({
         type: "generation_cancelled",
-        sessionId: ctx.conversationId,
+        conversationId: ctx.conversationId,
       });
     }
     ctx.queue.clear();

@@ -610,7 +610,7 @@ export function handleSurfaceAction(
         );
         onEvent(
           buildSessionErrorMessage(ctx.conversationId, {
-            code: "SESSION_PROCESSING_FAILED",
+            code: "CONVERSATION_PROCESSING_FAILED",
             userMessage: `Something went wrong: ${message}`,
             retryable: false,
             debugDetails: `History-restored relay prompt processing failed: ${message}`,

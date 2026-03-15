@@ -567,13 +567,13 @@ describe("Session message queue", () => {
     const cancel2 = events2.find((e) => e.type === "generation_cancelled");
     expect(cancel2).toEqual({
       type: "generation_cancelled",
-      sessionId: "conv-1",
+      conversationId: "conv-1",
     });
 
     const cancel3 = events3.find((e) => e.type === "generation_cancelled");
     expect(cancel3).toEqual({
       type: "generation_cancelled",
-      sessionId: "conv-1",
+      conversationId: "conv-1",
     });
 
     // abort() must NOT emit session_error or generic error for queued discards.
@@ -582,10 +582,10 @@ describe("Session message queue", () => {
     const err3 = events3.find((e) => e.type === "error");
     expect(err3).toBeUndefined();
 
-    const sessionErr2 = events2.find((e) => e.type === "session_error");
+    const sessionErr2 = events2.find((e) => e.type === "conversation_error");
     expect(sessionErr2).toBeUndefined();
 
-    const sessionErr3 = events3.find((e) => e.type === "session_error");
+    const sessionErr3 = events3.find((e) => e.type === "conversation_error");
     expect(sessionErr3).toBeUndefined();
   });
 
@@ -610,7 +610,7 @@ describe("Session message queue", () => {
     await p1;
 
     // Should emit session_error (typed, structured)
-    const sessionErr = events.find((e) => e.type === "session_error");
+    const sessionErr = events.find((e) => e.type === "conversation_error");
     expect(sessionErr).toBeDefined();
 
     // Should also emit generic error (callers rely on error events to detect failures)
@@ -861,7 +861,7 @@ describe("Session checkpoint handoff", () => {
     expect(handoff).toBeDefined();
     expect(handoff).toMatchObject({
       type: "generation_handoff",
-      sessionId: "conv-1",
+      conversationId: "conv-1",
       requestId: "req-1",
       queuedCount: 1,
     });
@@ -999,13 +999,13 @@ describe("Session checkpoint handoff", () => {
     expect(handoff).toBeDefined();
     expect(handoff).toMatchObject({
       type: "generation_handoff",
-      sessionId: "conv-1",
+      conversationId: "conv-1",
       requestId: "req-1",
       queuedCount: 1,
     });
     // message_complete should NOT be in events1 (handoff replaces it)
     const messageComplete = events1.find(
-      (e) => e.type === "message_complete" && "sessionId" in e,
+      (e) => e.type === "message_complete" && "conversationId" in e,
     );
     expect(messageComplete).toBeUndefined();
 
@@ -1589,7 +1589,7 @@ describe("Regression: cancel semantics and error channel split", () => {
     expect(cancelEvent).toBeDefined();
 
     // session_error must never appear on cancel
-    const sessionErr = msgEvents.find((e) => e.type === "session_error");
+    const sessionErr = msgEvents.find((e) => e.type === "conversation_error");
     expect(sessionErr).toBeUndefined();
   });
 
@@ -1662,7 +1662,7 @@ describe("Regression: cancel semantics and error channel split", () => {
     await p1;
 
     // Should get session_error (structured)
-    const sessionErr = allEvents.find((e) => e.type === "session_error");
+    const sessionErr = allEvents.find((e) => e.type === "conversation_error");
     expect(sessionErr).toBeDefined();
 
     // Should also get generic error
@@ -1701,7 +1701,7 @@ describe("Regression: cancel semantics and error channel split", () => {
 
     // No queued message should have received session_error
     for (const events of eventsPerMsg) {
-      const sessionErr = events.find((e) => e.type === "session_error");
+      const sessionErr = events.find((e) => e.type === "conversation_error");
       expect(sessionErr).toBeUndefined();
     }
   });

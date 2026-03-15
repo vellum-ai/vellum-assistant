@@ -32,13 +32,13 @@ import { HostCuProxy } from "../host-cu-proxy.js";
 import { HostFileProxy } from "../host-file-proxy.js";
 import type {
   ConfirmationResponse,
+  ConversationCreateRequest,
+  ConversationRenameRequest,
+  ConversationSwitchRequest,
   DeleteQueuedMessage,
   ReorderConversationsRequest,
   SecretResponse,
   ServerMessage,
-  SessionCreateRequest,
-  SessionRenameRequest,
-  SessionSwitchRequest,
   UndoRequest,
   UsageRequest,
 } from "../message-protocol.js";
@@ -213,9 +213,9 @@ export function handleSecretResponse(
 }
 
 /**
- * Clear all sessions and DB conversations. Returns the number of sessions cleared.
+ * Clear all conversations and DB conversations. Returns the number of sessions cleared.
  */
-export function clearAllSessions(ctx: HandlerContext): number {
+export function clearAllConversations(ctx: HandlerContext): number {
   const cleared = ctx.clearAllSessions();
   // Also clear DB conversations. When a new local connection triggers
   // sendInitialSession, it auto-creates a conversation if none exist.
@@ -225,8 +225,8 @@ export function clearAllSessions(ctx: HandlerContext): number {
   return cleared;
 }
 
-export async function handleSessionCreate(
-  msg: SessionCreateRequest,
+export async function handleConversationCreate(
+  msg: ConversationCreateRequest,
   ctx: HandlerContext,
 ): Promise<void> {
   const conversationType = normalizeConversationType(msg.conversationType);
@@ -242,15 +242,15 @@ export async function handleSessionCreate(
     transport: msg.transport,
   });
 
-  // Pre-activate skills before sending session_info so they're available
+  // Pre-activate skills before sending conversation_info so they're available
   // for the initial message processing.
   if (msg.preactivatedSkillIds?.length) {
     session.setPreactivatedSkillIds(msg.preactivatedSkillIds);
   }
 
   ctx.send({
-    type: "session_info",
-    sessionId: conversation.id,
+    type: "conversation_info",
+    conversationId: conversation.id,
     title: conversation.title ?? "New Conversation",
     ...(msg.correlationId ? { correlationId: msg.correlationId } : {}),
     conversationType: normalizeConversationType(conversation.conversationType),
@@ -270,8 +270,8 @@ export async function handleSessionCreate(
         userMessage: msg.initialMessage,
         onTitleUpdated: (newTitle) => {
           ctx.send({
-            type: "session_title_updated",
-            sessionId: conversation.id,
+            type: "conversation_title_updated",
+            conversationId: conversation.id,
             title: newTitle,
           });
         },
@@ -321,7 +321,7 @@ export async function handleSessionCreate(
       .catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
         log.error(
-          { err, sessionId: conversation.id },
+          { err, conversationId: conversation.id },
           "Error processing initial message",
         );
         ctx.send({
@@ -337,8 +337,8 @@ export async function handleSessionCreate(
             const fallback = UNTITLED_FALLBACK;
             updateConversationTitle(conversation.id, fallback);
             ctx.send({
-              type: "session_title_updated",
-              sessionId: conversation.id,
+              type: "conversation_title_updated",
+              conversationId: conversation.id,
               title: fallback,
             });
           }
@@ -350,89 +350,92 @@ export async function handleSessionCreate(
 }
 
 /**
- * Switch to an existing session/conversation. Returns session info on success,
+ * Switch to an existing conversation. Returns conversation info on success,
  * or throws/returns an error result when the conversation is not found.
  */
-export async function switchSession(
-  sessionId: string,
+export async function switchConversation(
+  conversationId: string,
   ctx: HandlerContext,
 ): Promise<{
-  sessionId: string;
+  conversationId: string;
   title: string;
   conversationType: ReturnType<typeof normalizeConversationType>;
 } | null> {
-  const conversation = getConversation(sessionId);
+  const conversation = getConversation(conversationId);
   if (!conversation) {
     return null;
   }
 
   // If the target session is headless-locked (actively executing a task run),
   // skip rebinding so tool confirmations stay suppressed.
-  const existingSession = ctx.sessions.get(sessionId);
+  const existingSession = ctx.sessions.get(conversationId);
   const isHeadlessLocked = existingSession?.headlessLock;
 
   if (isHeadlessLocked) {
     // Load the session without rebinding the client — the session stays headless
-    await ctx.getOrCreateSession(sessionId);
+    await ctx.getOrCreateSession(conversationId);
   } else {
-    await ctx.getOrCreateSession(sessionId);
+    await ctx.getOrCreateSession(conversationId);
   }
 
   return {
-    sessionId: conversation.id,
+    conversationId: conversation.id,
     title: conversation.title ?? "Untitled",
     conversationType: normalizeConversationType(conversation.conversationType),
   };
 }
 
-export async function handleSessionSwitch(
-  msg: SessionSwitchRequest,
+export async function handleConversationSwitch(
+  msg: ConversationSwitchRequest,
   ctx: HandlerContext,
 ): Promise<void> {
-  const result = await switchSession(msg.sessionId, ctx);
+  const result = await switchConversation(msg.conversationId, ctx);
   if (!result) {
     ctx.send({
       type: "error",
-      message: `Session ${msg.sessionId} not found`,
+      message: `Conversation ${msg.conversationId} not found`,
     });
     return;
   }
 
   ctx.send({
-    type: "session_info",
-    sessionId: result.sessionId,
+    type: "conversation_info",
+    conversationId: result.conversationId,
     title: result.title,
     conversationType: result.conversationType,
   });
 }
 
 /**
- * Rename a session/conversation. Returns true on success, false if not found.
+ * Rename a conversation. Returns true on success, false if not found.
  */
-export function renameSession(sessionId: string, name: string): boolean {
-  const conversation = getConversation(sessionId);
+export function renameConversation(
+  conversationId: string,
+  name: string,
+): boolean {
+  const conversation = getConversation(conversationId);
   if (!conversation) {
     return false;
   }
-  updateConversationTitle(sessionId, name, 0);
+  updateConversationTitle(conversationId, name, 0);
   return true;
 }
 
-export function handleSessionRename(
-  msg: SessionRenameRequest,
+export function handleConversationRename(
+  msg: ConversationRenameRequest,
   ctx: HandlerContext,
 ): void {
-  const success = renameSession(msg.sessionId, msg.title);
+  const success = renameConversation(msg.conversationId, msg.title);
   if (!success) {
     ctx.send({
       type: "error",
-      message: `Session ${msg.sessionId} not found`,
+      message: `Conversation ${msg.conversationId} not found`,
     });
     return;
   }
   ctx.send({
-    type: "session_title_updated",
-    sessionId: msg.sessionId,
+    type: "conversation_title_updated",
+    conversationId: msg.conversationId,
     title: msg.title,
   });
 }
@@ -481,7 +484,7 @@ export async function handleUndo(
   msg: UndoRequest,
   ctx: HandlerContext,
 ): Promise<void> {
-  const result = await undoLastMessage(msg.sessionId, ctx);
+  const result = await undoLastMessage(msg.conversationId, ctx);
   if (!result) {
     ctx.send({ type: "error", message: "No active session" });
     return;
@@ -489,7 +492,7 @@ export async function handleUndo(
   ctx.send({
     type: "undo_complete",
     removedCount: result.removedCount,
-    sessionId: msg.sessionId,
+    conversationId: msg.conversationId,
   });
 }
 
@@ -543,7 +546,7 @@ export function handleUsageRequest(
   msg: UsageRequest,
   ctx: HandlerContext,
 ): void {
-  const conversation = getConversation(msg.sessionId);
+  const conversation = getConversation(msg.conversationId);
   if (!conversation) {
     ctx.send({ type: "error", message: "No active session" });
     return;
@@ -599,13 +602,13 @@ export function handleDeleteQueuedMessage(
   msg: DeleteQueuedMessage,
   ctx: HandlerContext,
 ): void {
-  const result = deleteQueuedMessage(msg.sessionId, msg.requestId, (id) =>
+  const result = deleteQueuedMessage(msg.conversationId, msg.requestId, (id) =>
     ctx.sessions.get(id),
   );
   if (result.removed) {
     ctx.send({
       type: "message_queued_deleted",
-      sessionId: msg.sessionId,
+      sessionId: msg.conversationId,
       requestId: msg.requestId,
     });
   }
@@ -620,7 +623,7 @@ export function handleReorderConversations(
   }
   batchSetDisplayOrders(
     msg.updates.map((u) => ({
-      id: u.sessionId,
+      id: u.conversationId,
       displayOrder: u.displayOrder ?? null,
       isPinned: u.isPinned ?? false,
     })),

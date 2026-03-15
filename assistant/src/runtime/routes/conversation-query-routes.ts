@@ -30,11 +30,11 @@ import type { RouteDefinition } from "../http-router.js";
 // Dependency interfaces
 // ---------------------------------------------------------------------------
 
-export interface SessionQueryRouteDeps {
+export interface ConversationQueryRouteDeps {
   /** Lazy factory for model set context (config reload suppression, session eviction). */
   getModelSetContext?: () => ModelSetContext;
   /** Lookup an active session by ID for queued message deletion. */
-  findSessionForQueue?: (
+  findConversationForQueue?: (
     id: string,
   ) => { removeQueuedMessage(requestId: string): boolean } | undefined;
 }
@@ -43,8 +43,8 @@ export interface SessionQueryRouteDeps {
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function sessionQueryRouteDefinitions(
-  deps: SessionQueryRouteDeps = {},
+export function conversationQueryRouteDefinitions(
+  deps: ConversationQueryRouteDeps = {},
 ): RouteDefinition[] {
   return [
     // ── Model config ──────────────────────────────────────────────────
@@ -155,8 +155,11 @@ export function sessionQueryRouteDefinitions(
       method: "GET",
       policyKey: "messages/content",
       handler: ({ url, params }) => {
-        const sessionId = url.searchParams.get("sessionId");
-        const result = getMessageContent(params.id, sessionId ?? undefined);
+        const conversationId = url.searchParams.get("conversationId");
+        const result = getMessageContent(
+          params.id,
+          conversationId ?? undefined,
+        );
         if (!result) {
           return httpError("NOT_FOUND", `Message ${params.id} not found`, 404);
         }
@@ -170,35 +173,35 @@ export function sessionQueryRouteDefinitions(
       method: "DELETE",
       policyKey: "messages/queued",
       handler: ({ url, params }) => {
-        if (!deps.findSessionForQueue) {
+        if (!deps.findConversationForQueue) {
           return httpError(
             "INTERNAL_ERROR",
             "Queued message deletion not available",
             500,
           );
         }
-        const sessionId = url.searchParams.get("sessionId");
-        if (!sessionId) {
+        const conversationId = url.searchParams.get("conversationId");
+        if (!conversationId) {
           return httpError(
             "BAD_REQUEST",
-            "Missing required query parameter: sessionId",
+            "Missing required query parameter: conversationId",
             400,
           );
         }
         const result = deleteQueuedMessage(
-          sessionId,
+          conversationId,
           params.id,
-          deps.findSessionForQueue,
+          deps.findConversationForQueue,
         );
         if (result.removed) {
           return Response.json({
             ok: true,
-            sessionId,
+            conversationId,
             requestId: params.id,
           });
         }
         if (result.reason === "session_not_found") {
-          return httpError("NOT_FOUND", "Session not found", 404);
+          return httpError("NOT_FOUND", "Conversation not found", 404);
         }
         return httpError("NOT_FOUND", "Queued message not found", 404);
       },

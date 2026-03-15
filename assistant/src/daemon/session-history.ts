@@ -549,7 +549,7 @@ export async function regenerate(
   onEvent({
     type: "undo_complete",
     removedCount: messagesToDelete.length,
-    sessionId: session.conversationId,
+    conversationId: session.conversationId,
   });
 
   // Set up processing state manually and call runAgentLoop directly,

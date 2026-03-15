@@ -8,7 +8,7 @@
  * POST   /v1/conversations/:id/cancel     — cancel generation
  * POST   /v1/conversations/:id/undo       — undo last message
  * POST   /v1/conversations/:id/regenerate — regenerate last assistant response
- * POST   /v1/sessions/reorder             — reorder / pin sessions
+ * POST   /v1/conversations/reorder        — reorder / pin conversations
  */
 
 import {
@@ -24,23 +24,23 @@ import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
-const log = getLogger("session-management-routes");
+const log = getLogger("conversation-management-routes");
 
 // ---------------------------------------------------------------------------
 // Dependency types — injected by the daemon at wiring time
 // ---------------------------------------------------------------------------
 
-export interface SessionManagementDeps {
-  switchSession: (sessionId: string) => Promise<{
-    sessionId: string;
+export interface ConversationManagementDeps {
+  switchConversation: (conversationId: string) => Promise<{
+    conversationId: string;
     title: string;
     conversationType: string;
   } | null>;
-  renameSession: (sessionId: string, name: string) => boolean;
-  clearAllSessions: () => number;
+  renameConversation: (conversationId: string, name: string) => boolean;
+  clearAllConversations: () => number;
   cancelGeneration: (sessionId: string) => boolean;
   /** Abort and dispose an active in-memory session (if any) before deletion. */
-  destroySession: (sessionId: string) => void;
+  destroyConversation: (sessionId: string) => void;
   undoLastMessage: (
     sessionId: string,
   ) => Promise<{ removedCount: number } | null>;
@@ -53,8 +53,8 @@ export interface SessionManagementDeps {
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function sessionManagementRouteDefinitions(
-  deps: SessionManagementDeps,
+export function conversationManagementRouteDefinitions(
+  deps: ConversationManagementDeps,
 ): RouteDefinition[] {
   return [
     {
@@ -70,7 +70,7 @@ export function sessionManagementRouteDefinitions(
         if (!conversationId || typeof conversationId !== "string") {
           return httpError("BAD_REQUEST", "Missing conversationId", 400);
         }
-        const result = await deps.switchSession(conversationId);
+        const result = await deps.switchConversation(conversationId);
         if (!result) {
           return httpError(
             "NOT_FOUND",
@@ -84,7 +84,7 @@ export function sessionManagementRouteDefinitions(
           setConversationKeyIfAbsent(body.conversationKey, conversationId);
         }
         return Response.json({
-          sessionId: result.sessionId,
+          conversationId: result.conversationId,
           title: result.title,
           conversationType:
             result.conversationType === "private" ? "private" : "standard",
@@ -101,7 +101,7 @@ export function sessionManagementRouteDefinitions(
         if (!name || typeof name !== "string") {
           return httpError("BAD_REQUEST", "Missing name", 400);
         }
-        const success = deps.renameSession(params.id, name);
+        const success = deps.renameConversation(params.id, name);
         if (!success) {
           return httpError(
             "NOT_FOUND",
@@ -117,7 +117,7 @@ export function sessionManagementRouteDefinitions(
       method: "DELETE",
       policyKey: "conversations",
       handler: () => {
-        deps.clearAllSessions();
+        deps.clearAllConversations();
         return new Response(null, { status: 204 });
       },
     },
@@ -137,7 +137,7 @@ export function sessionManagementRouteDefinitions(
         // Tear down the in-memory session (abort + dispose) before removing
         // persistence so that a running agent loop doesn't write to a deleted
         // conversation row, tripping FK constraints.
-        deps.destroySession(resolvedId);
+        deps.destroyConversation(resolvedId);
         const deleted = deleteConversation(resolvedId);
         // Enqueue Qdrant vector cleanup jobs rather than calling directly.
         // Qdrant may not be initialized yet when the HTTP server starts
@@ -182,7 +182,7 @@ export function sessionManagementRouteDefinitions(
         }
         return Response.json({
           removedCount: result.removedCount,
-          sessionId: params.id,
+          conversationId: params.id,
         });
       },
     },
@@ -216,13 +216,13 @@ export function sessionManagementRouteDefinitions(
       },
     },
     {
-      endpoint: "sessions/reorder",
+      endpoint: "conversations/reorder",
       method: "POST",
-      policyKey: "sessions/reorder",
+      policyKey: "conversations/reorder",
       handler: async ({ req }) => {
         const body = (await req.json()) as {
           updates?: Array<{
-            sessionId: string;
+            conversationId: string;
             displayOrder?: number;
             isPinned?: boolean;
           }>;
@@ -232,7 +232,7 @@ export function sessionManagementRouteDefinitions(
         }
         batchSetDisplayOrders(
           body.updates.map((u) => ({
-            id: u.sessionId,
+            id: u.conversationId,
             displayOrder: u.displayOrder ?? null,
             isPinned: u.isPinned ?? false,
           })),

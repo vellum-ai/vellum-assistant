@@ -95,10 +95,10 @@ import {
 } from "./guardian-action-generators.js";
 import {
   cancelGeneration,
-  clearAllSessions,
+  clearAllConversations,
   regenerateResponse,
-  renameSession,
-  switchSession,
+  renameConversation,
+  switchConversation,
   undoLastMessage,
 } from "./handlers/conversations.js";
 import type { ServerMessage } from "./message-protocol.js";
@@ -562,19 +562,21 @@ export async function runDaemon(): Promise<void> {
             data: a.dataBase64,
           })),
       },
-      findSession: (sessionId) => server.findSession(sessionId),
-      findSessionBySurfaceId: (surfaceId) =>
+      findConversation: (sessionId) => server.findSession(sessionId),
+      findConversationBySurfaceId: (surfaceId) =>
         server.findSessionBySurfaceId(surfaceId),
       getSkillContext: () => server.getSkillContext(),
       getModelSetContext: () => server.getHandlerContext(),
-      sessionManagementDeps: {
-        switchSession: (sessionId) =>
-          switchSession(sessionId, server.getHandlerContext()),
-        renameSession: (sessionId, name) => renameSession(sessionId, name),
-        clearAllSessions: () => clearAllSessions(server.getHandlerContext()),
+      conversationManagementDeps: {
+        switchConversation: (conversationId) =>
+          switchConversation(conversationId, server.getHandlerContext()),
+        renameConversation: (conversationId, name) =>
+          renameConversation(conversationId, name),
+        clearAllConversations: () =>
+          clearAllConversations(server.getHandlerContext()),
         cancelGeneration: (sessionId) =>
           cancelGeneration(sessionId, server.getHandlerContext()),
-        destroySession: (sessionId) => server.destroySession(sessionId),
+        destroyConversation: (sessionId) => server.destroySession(sessionId),
         undoLastMessage: (sessionId) =>
           undoLastMessage(sessionId, server.getHandlerContext()),
         regenerateResponse: (sessionId) => {
@@ -733,7 +735,7 @@ export async function runDaemon(): Promise<void> {
               }
               if (
                 "type" in msg &&
-                (msg.type === "error" || msg.type === "session_error")
+                (msg.type === "error" || msg.type === "conversation_error")
               ) {
                 agentLoopError =
                   "message" in msg

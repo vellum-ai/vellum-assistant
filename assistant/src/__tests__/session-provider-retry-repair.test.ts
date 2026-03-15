@@ -488,7 +488,7 @@ describe("provider ordering error retry", () => {
     expect(agentLoopRunCount).toBe(2);
     expect(maybeCompactCalls).toEqual([{ force: false }, { force: true }]);
     expect(events.some((e) => e.type === "message_complete")).toBe(true);
-    expect(events.some((e) => e.type === "session_error")).toBe(false);
+    expect(events.some((e) => e.type === "conversation_error")).toBe(false);
   });
 
   test("context-too-large exhausts reducer tiers without compaction — error surfaces after emergency attempt", async () => {
@@ -515,7 +515,7 @@ describe("provider ordering error retry", () => {
     // reducer's compactFn (force:true).
     expect(maybeCompactCalls).toEqual([{ force: false }, { force: true }]);
 
-    expect(events.some((e) => e.type === "session_error")).toBe(true);
+    expect(events.some((e) => e.type === "conversation_error")).toBe(true);
   });
 
   test("context-too-large still surfaces when no media payloads are available to trim", async () => {
@@ -533,7 +533,7 @@ describe("provider ordering error retry", () => {
     // Same as above — convergence loop re-runs agent loop, which also fails.
     expect(agentLoopRunCount).toBe(2);
     expect(maybeCompactCalls).toEqual([{ force: false }, { force: true }]);
-    expect(events.some((e) => e.type === "session_error")).toBe(true);
+    expect(events.some((e) => e.type === "conversation_error")).toBe(true);
   });
 
   test("context-too-large phrase also triggers one forced-compaction retry", async () => {
@@ -553,7 +553,7 @@ describe("provider ordering error retry", () => {
     expect(agentLoopRunCount).toBe(2);
     expect(maybeCompactCalls).toEqual([{ force: false }, { force: true }]);
     expect(events.some((e) => e.type === "message_complete")).toBe(true);
-    expect(events.some((e) => e.type === "session_error")).toBe(false);
+    expect(events.some((e) => e.type === "conversation_error")).toBe(false);
   });
 
   test("ProviderError with statusCode 413 triggers forced-compaction retry via classifySessionError", async () => {
@@ -576,7 +576,7 @@ describe("provider ordering error retry", () => {
     expect(agentLoopRunCount).toBe(2);
     expect(maybeCompactCalls).toEqual([{ force: false }, { force: true }]);
     expect(events.some((e) => e.type === "message_complete")).toBe(true);
-    expect(events.some((e) => e.type === "session_error")).toBe(false);
+    expect(events.some((e) => e.type === "conversation_error")).toBe(false);
   });
 
   test("context-too-large after progress surfaces error instead of silent failure", async () => {
@@ -599,7 +599,7 @@ describe("provider ordering error retry", () => {
     expect(agentLoopRunCount).toBe(2);
 
     // The error must be surfaced to clients via session_error, not silently swallowed.
-    const sessionError = events.find((e) => e.type === "session_error") as
+    const sessionError = events.find((e) => e.type === "conversation_error") as
       | { code?: string }
       | undefined;
     expect(sessionError).toBeDefined();

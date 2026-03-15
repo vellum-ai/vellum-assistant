@@ -665,9 +665,9 @@ export async function startCli(): Promise<void> {
 
   function handleMessage(msg: ServerMessage): void {
     switch (msg.type) {
-      case "session_info":
+      case "conversation_info":
         pendingSessionPick = false;
-        sessionId = msg.sessionId;
+        sessionId = msg.conversationId;
         process.stdout.write(
           `\n  Session: ${msg.title}\n  Type your message. Ctrl+D to detach.\n\n`,
         );
@@ -876,11 +876,11 @@ export async function startCli(): Promise<void> {
         break;
       }
 
-      case "session_list_response":
+      case "conversation_list_response":
         if (pendingSessionPick) {
-          renderSessionPicker(msg.sessions);
+          renderSessionPicker(msg.conversations);
         } else {
-          for (const session of msg.sessions) {
+          for (const session of msg.conversations) {
             process.stdout.write(`  ${session.id}  ${session.title}\n`);
           }
           prompt();
