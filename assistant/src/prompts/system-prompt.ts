@@ -937,6 +937,22 @@ function readPromptFile(path: string): string | null {
   }
 }
 
+/**
+ * Reads the core identity/personality prompt files (SOUL.md, IDENTITY.md, USER.md)
+ * and concatenates whichever exist. Returns null if none are present.
+ *
+ * This is useful for injecting identity context into subsystems (e.g. memory
+ * extraction) that run outside the main system prompt pipeline.
+ */
+export function buildCoreIdentityContext(): string | null {
+  const parts: string[] = [];
+  for (const file of PROMPT_FILES) {
+    const content = readPromptFile(getWorkspacePromptPath(file));
+    if (content) parts.push(content);
+  }
+  return parts.length > 0 ? parts.join("\n\n") : null;
+}
+
 function appendSkillsCatalog(basePrompt: string): string {
   const skills = loadSkillCatalog();
   const config = getConfig();

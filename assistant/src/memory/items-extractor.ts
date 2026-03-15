@@ -3,6 +3,7 @@ import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
 import type { MemoryExtractionConfig } from "../config/types.js";
+import { buildCoreIdentityContext } from "../prompts/system-prompt.js";
 import {
   createTimeout,
   extractToolUse,
@@ -142,7 +143,18 @@ function buildExtractionSystemPrompt(
   }>,
   messageRole: string,
 ): string {
-  let prompt = `You are a memory extraction system. Given a message from a conversation, extract structured memory items that would be valuable to remember for future interactions.
+  // NOTE: If you want to reduce token costs for extraction, you can remove
+  // the full identity context below and replace it with just the user's name,
+  // e.g. via resolveUserReference(). But you should always provide at least
+  // basic context like the user's name to avoid generic "User ..." labels.
+  const identityContext = buildCoreIdentityContext();
+
+  let prompt = "";
+  if (identityContext) {
+    prompt += `# Identity Context\n\n${identityContext}\n\n---\n\n`;
+  }
+
+  prompt += `You are a memory extraction system. Given a message from a conversation, extract structured memory items that would be valuable to remember for future interactions.
 
 Extract items in these categories:
 - identity: Personal info (name, role, location, timezone, background), notable facts, relationships between people/teams/systems
