@@ -22,6 +22,7 @@ import {
 } from "../skills/slash-commands.js";
 import { getLocalIPv4 } from "../util/network-info.js";
 import { getWorkspaceDir } from "../util/platform.js";
+import { silentlyWithLog } from "../util/silently.js";
 import { getAssistantName } from "./identity-helpers.js";
 import type { PairingStore } from "./pairing-store.js";
 
@@ -514,7 +515,10 @@ function resolvePairCommand(content: string): SlashResolution | null {
   // so the synchronous slash resolution is not blocked).
   const payloadJson = JSON.stringify(payload);
   const qrFilename = buildPairingQRCodeFilename();
-  savePairingQRCodePng(payloadJson, qrFilename).catch(() => {});
+  silentlyWithLog(
+    savePairingQRCodePng(payloadJson, qrFilename),
+    "save pairing QR code PNG",
+  );
 
   const lines = [
     "Pairing Ready\n",
