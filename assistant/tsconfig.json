@@ -14,7 +14,12 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "jsx": "react-jsx",
-    "types": ["bun-types"]
+    "types": ["bun-types"],
+    "paths": {
+      "@vellumai/credential-storage": [
+        "../packages/credential-storage/src/index.ts"
+      ]
+    }
   },
   "include": ["src/**/*", "src/**/*.tsx"],
   "exclude": ["node_modules", "dist", "drizzle"]

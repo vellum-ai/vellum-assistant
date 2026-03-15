@@ -147,7 +147,7 @@ export interface TokenPersistence {
       accessToken: string;
       refreshToken?: string;
       expiresAt?: number | null;
-    },
+    }
   ): Promise<void>;
 
   /**
@@ -173,3 +173,10 @@ export interface TokenPersistence {
 export function credentialKey(service: string, field: string): string {
   return `credential/${service}/${field}`;
 }
+
+// ---------------------------------------------------------------------------
+// Static credential metadata store
+// ---------------------------------------------------------------------------
+
+export { StaticCredentialMetadataStore } from "./static-credentials.js";
+export type { StaticCredentialPolicyInput } from "./static-credentials.js";
