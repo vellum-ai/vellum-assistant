@@ -143,11 +143,15 @@ function buildExtractionSystemPrompt(
   }>,
   messageRole: string,
 ): string {
-  // NOTE: If you want to reduce token costs for extraction, you can remove
-  // the full identity context below and replace it with just the user's name,
-  // e.g. via resolveUserReference(). But you should always provide at least
-  // basic context like the user's name to avoid generic "User ..." labels.
-  const identityContext = buildCoreIdentityContext();
+  // Inject identity context so extracted memories use real names instead of
+  // generic "User ..." labels. We truncate to a budget to prevent oversized
+  // prompts when SOUL.md / IDENTITY.md / USER.md are large — exceeding the
+  // provider context window would silently degrade to pattern-based extraction.
+  const MAX_IDENTITY_CONTEXT_CHARS = 2000;
+  const rawIdentityContext = buildCoreIdentityContext();
+  const identityContext = rawIdentityContext
+    ? truncate(rawIdentityContext, MAX_IDENTITY_CONTEXT_CHARS, "\n…[truncated]")
+    : null;
 
   let prompt = "";
   if (identityContext) {
