@@ -73,6 +73,11 @@ let mockAttachments: Array<{
 mock.module("../memory/attachments-store.js", () => ({
   getAttachmentsByIds: (_assistantId: string, _ids: string[]) =>
     mockAttachments,
+  getAttachmentContent: (id: string) => {
+    const att = mockAttachments.find((a) => a.id === id);
+    if (!att) return null;
+    return Buffer.from(att.dataBase64, "base64");
+  },
 }));
 
 mock.module("../memory/db.js", () => ({
