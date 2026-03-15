@@ -593,19 +593,38 @@ export function createManageSecureCommandToolHandler(
     }
 
     // Publish into the immutable toolstore (includes digest verification)
+    // TODO: extract the full manifest from the downloaded bundle rather
+    // than constructing a stub here. The bundle should embed a manifest
+    // with precise argv patterns, network targets, and auth config.
+    const secureCommandManifest: import("./commands/profiles.js").SecureCommandManifest = {
+      schemaVersion: "1",
+      bundleDigest: request.sha256!,
+      bundleId: request.bundleId!,
+      version: request.version!,
+      entrypoint: `bin/${request.toolName}`,
+      commandProfiles: Object.fromEntries(
+        (request.profiles ?? []).map((p: string) => [
+          p,
+          {
+            description: `Profile "${p}" for ${request.toolName}`,
+            allowedArgvPatterns: [
+              { name: `${p}-default`, tokens: ["<subcmd>", "<args...>"] },
+            ],
+            deniedSubcommands: [],
+          } satisfies import("./commands/profiles.js").CommandProfile,
+        ]),
+      ),
+      authAdapter: { type: "env_var", envVarName: `${request.toolName.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_TOKEN` },
+      egressMode: "no_network",
+    };
+
     const publishResult = deps.publishBundle({
       bundleBytes,
       expectedDigest: request.sha256!,
       bundleId: request.bundleId!,
       version: request.version!,
       sourceUrl: request.sourceUrl!,
-      // The secure command manifest is embedded in the bundle; for now
-      // pass a minimal manifest with declared profiles.
-      secureCommandManifest: {
-        commandProfiles: Object.fromEntries(
-          (request.profiles ?? []).map((p) => [p, { command: request.toolName }]),
-        ),
-      } as unknown as import("./commands/profiles.js").SecureCommandManifest,
+      secureCommandManifest,
     });
 
     if (!publishResult.success) {
