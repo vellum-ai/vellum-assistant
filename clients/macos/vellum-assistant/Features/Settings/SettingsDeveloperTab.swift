@@ -28,6 +28,7 @@ struct SettingsDeveloperTab: View {
     @State private var displayNames: [String: String] = [:]
     @State private var awakeStates: [String: Bool] = [:]
     @State private var transitioningStates: Set<String> = []
+    @State private var platformUuid: String?
 
     // -- Advanced dev state --
     @State private var macOSFlagStates: [MacOSFeatureFlagState] = []
@@ -132,6 +133,7 @@ struct SettingsDeveloperTab: View {
                     remoteIdentity = await daemonClient?.fetchRemoteIdentity()
                 }
             }
+            resolvePlatformUuid()
             Task { await loadHatchFlag() }
             Task { await fetchHealthz() }
 
@@ -477,10 +479,39 @@ struct SettingsDeveloperTab: View {
                             .textSelection(.enabled)
                     }
                 }
+
+                if case .local = home, let uuid = platformUuid {
+                    HStack(spacing: VSpacing.xs) {
+                        Text("Platform ID:")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentTertiary)
+                        Text(uuid)
+                            .font(VFont.mono)
+                            .foregroundColor(VColor.contentSecondary)
+                            .textSelection(.enabled)
+                    }
+                }
             }
 
             Spacer()
         }
+    }
+
+    private func resolvePlatformUuid() {
+        guard let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
+              !assistant.isManaged, !assistant.isRemote else {
+            platformUuid = nil
+            return
+        }
+        let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
+        let userId = authManager.currentUser?.id
+        platformUuid = PlatformAssistantIdResolver.resolve(
+            lockfileAssistantId: assistant.assistantId,
+            isManaged: false,
+            organizationId: orgId,
+            userId: userId,
+            credentialStorage: KeychainCredentialStorage()
+        )
     }
 
     // MARK: - Switch Assistant
