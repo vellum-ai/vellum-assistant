@@ -460,6 +460,6 @@ export function getSessionsForConversation(
  */
 export async function stopAllSessions(): Promise<void> {
   return coreStopAllSessions(store, (id, err) => {
-    log.debug({ err, id }, "session shutdown error");
+    log.warn({ err, id }, "session shutdown error");
   });
 }
