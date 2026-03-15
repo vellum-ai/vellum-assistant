@@ -33,6 +33,44 @@ function isManagedProxyCredential(service: string, field: string): boolean {
   );
 }
 
+const CES_READY_POLL_INTERVAL_MS = 500;
+const CES_READY_POLL_TIMEOUT_MS = 30_000;
+
+/**
+ * Poll the CES client until it becomes ready, then push the API key.
+ * Handles the timing window where the secret route is called while the
+ * CES handshake is still in flight.
+ */
+async function queueApiKeyPropagation(
+  cesClient: CesClient,
+  apiKey: string,
+): Promise<void> {
+  log.info(
+    "CES client not ready — queuing API key propagation until handshake completes",
+  );
+  const deadline = Date.now() + CES_READY_POLL_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, CES_READY_POLL_INTERVAL_MS));
+    if (cesClient.isReady()) {
+      try {
+        await cesClient.updateAssistantApiKey(apiKey);
+        log.info(
+          "Pushed queued assistant API key to CES after handshake completed",
+        );
+      } catch (err) {
+        log.warn(
+          { error: err instanceof Error ? err.message : String(err) },
+          "Failed to push queued assistant API key to CES (non-fatal)",
+        );
+      }
+      return;
+    }
+  }
+  log.warn(
+    "Timed out waiting for CES client to become ready — API key was not propagated",
+  );
+}
+
 export async function handleAddSecret(
   req: Request,
   getCesClient?: () => CesClient | undefined,
@@ -109,17 +147,23 @@ export async function handleAddSecret(
         // Push the API key to CES so managed credential materialization
         // works even though the handshake ran before the key was available.
         const cesClient = getCesClient?.();
-        if (cesClient?.isReady()) {
-          try {
-            await cesClient.updateAssistantApiKey(value);
-            log.info(
-              "Pushed assistant API key to CES after managed proxy credential update",
-            );
-          } catch (err) {
-            log.warn(
-              { error: err instanceof Error ? err.message : String(err) },
-              "Failed to push assistant API key to CES (non-fatal)",
-            );
+        if (cesClient) {
+          if (cesClient.isReady()) {
+            try {
+              await cesClient.updateAssistantApiKey(value);
+              log.info(
+                "Pushed assistant API key to CES after managed proxy credential update",
+              );
+            } catch (err) {
+              log.warn(
+                { error: err instanceof Error ? err.message : String(err) },
+                "Failed to push assistant API key to CES (non-fatal)",
+              );
+            }
+          } else {
+            // CES handshake is still in flight — queue the key propagation
+            // so it fires once CES becomes ready.
+            void queueApiKeyPropagation(cesClient, value);
           }
         }
       }
