@@ -39,7 +39,7 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { mkdirSync, writeFileSync, unlinkSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import {
@@ -328,17 +328,41 @@ export async function executeAuthenticatedCommand(
     }
   }
 
+  // For no_network mode, block all outbound by pointing proxy vars at a
+  // non-existent address. This prevents subprocesses from making direct
+  // connections even without a running egress proxy.
+  let noNetworkEnv: Record<string, string> | undefined;
+  if (manifest.egressMode === EgressMode.NoNetwork) {
+    const blockedProxy = "http://127.0.0.1:0";
+    noNetworkEnv = {
+      HTTP_PROXY: blockedProxy,
+      HTTPS_PROXY: blockedProxy,
+      http_proxy: blockedProxy,
+      https_proxy: blockedProxy,
+      NO_PROXY: "",
+      no_proxy: "",
+    };
+  }
+
   // -- 8. Build the execution environment -----------------------------------
-  const entrypointPath = join(
-    getBundleContentPath(toolstoreDir, request.bundleDigest),
-    "..",
-    manifest.entrypoint,
-  );
+  const bundleDir = dirname(getBundleContentPath(toolstoreDir, request.bundleDigest));
+  const entrypointPath = resolve(bundleDir, manifest.entrypoint);
+
+  // Containment check: entrypoint must resolve inside the bundle directory
+  if (!entrypointPath.startsWith(bundleDir + "/") && entrypointPath !== bundleDir) {
+    cleanupAll(scratchDir, tempFilePath);
+    return {
+      success: false,
+      error: `Entrypoint "${manifest.entrypoint}" resolves outside the bundle directory. ` +
+        `Path traversal is not allowed.`,
+      auditId,
+    };
+  }
 
   const commandEnv = buildCommandEnv(
     adapterEnv,
     proxyEnv,
-    manifest.cleanConfigDirs,
+    noNetworkEnv,
   );
 
   // -- 9. Execute the command -----------------------------------------------
@@ -400,7 +424,7 @@ export async function executeAuthenticatedCommand(
     }
   }
 
-  cleanupAll(scratchDir, tempFilePath);
+  cleanupAll(scratchDir, tempFilePath, commandEnv["HOME"]);
 
   return execResult;
 }
@@ -677,7 +701,7 @@ async function buildAuthAdapterEnv(
  */
 async function runCredentialProcess(
   helperCommand: string,
-  _credentialValue: string,
+  credentialValue: string,
   timeoutMs: number,
 ): Promise<{ ok: true; stdout: string } | { ok: false; error: string }> {
   try {
@@ -688,12 +712,20 @@ async function runCredentialProcess(
       env: {}, // Clean environment — no secrets leaked
     });
 
-    // Close stdin immediately — the helper reads only from its argv/config
+    // Write the credential value to stdin for the helper to consume
+    proc.stdin.write(credentialValue);
     proc.stdin.end();
 
     const timeoutSignal = AbortSignal.timeout(timeoutMs);
-    const exitCode = await Promise.race([
-      proc.exited,
+
+    // Consume stdout/stderr concurrently with waiting for exit to avoid
+    // pipe buffer deadlocks when the helper produces large output.
+    const [exitCode, stdout, stderr] = await Promise.race([
+      Promise.all([
+        proc.exited,
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+      ]),
       new Promise<never>((_, reject) => {
         timeoutSignal.addEventListener("abort", () => {
           proc.kill();
@@ -701,9 +733,6 @@ async function runCredentialProcess(
         });
       }),
     ]);
-
-    const stdout = await new Response(proc.stdout).text();
-    const stderr = await new Response(proc.stderr).text();
 
     if (exitCode !== 0) {
       return {
@@ -740,7 +769,7 @@ async function runCredentialProcess(
 function buildCommandEnv(
   adapterEnv: Record<string, string>,
   proxyEnv?: ProxyEnvVars,
-  _cleanConfigDirs?: Record<string, string>,
+  noNetworkEnv?: Record<string, string>,
 ): Record<string, string> {
   const env: Record<string, string> = {
     // Minimal baseline environment
@@ -765,6 +794,12 @@ function buildCommandEnv(
     if (proxyEnv.SSL_CERT_FILE) {
       env["SSL_CERT_FILE"] = proxyEnv.SSL_CERT_FILE;
     }
+  }
+
+  // For no_network mode, inject proxy vars pointing at a dead address to
+  // block direct outbound connections from the subprocess.
+  if (noNetworkEnv) {
+    Object.assign(env, noNetworkEnv);
   }
 
   return env;
@@ -795,11 +830,14 @@ async function runCommand(
     stderr: "pipe",
   });
 
-  const exitCode = await proc.exited;
-
-  // Capture stdout and stderr with size limits
-  const stdoutRaw = await new Response(proc.stdout).text();
-  const stderrRaw = await new Response(proc.stderr).text();
+  // Consume stdout/stderr concurrently with waiting for exit to avoid
+  // pipe buffer deadlocks when the command produces output exceeding the
+  // OS pipe buffer size (~64KB).
+  const [exitCode, stdoutRaw, stderrRaw] = await Promise.all([
+    proc.exited,
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
 
   const stdout = stdoutRaw.length > maxOutputBytes
     ? stdoutRaw.slice(0, maxOutputBytes) + "\n[output truncated]"
@@ -823,13 +861,22 @@ async function runCommand(
 // Internal: Cleanup helpers
 // ---------------------------------------------------------------------------
 
-function cleanupAll(scratchDir: string, tempFilePath?: string): void {
+function cleanupAll(scratchDir: string, tempFilePath?: string, homeDir?: string): void {
   // Clean up temp auth file
   if (tempFilePath) {
     try {
       unlinkSync(tempFilePath);
       // Also remove the parent temp directory
       rmSync(dirname(tempFilePath), { recursive: true, force: true });
+    } catch {
+      // Best-effort cleanup
+    }
+  }
+
+  // Clean up per-execution HOME temp directory
+  if (homeDir) {
+    try {
+      rmSync(homeDir, { recursive: true, force: true });
     } catch {
       // Best-effort cleanup
     }

@@ -1086,6 +1086,173 @@ describe("executeAuthenticatedCommand — banned binaries", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Entrypoint path containment tests
+// ---------------------------------------------------------------------------
+
+describe("executeAuthenticatedCommand — entrypoint path containment", () => {
+  test("rejects entrypoint that escapes the bundle directory via path traversal", async () => {
+    const manifest = buildManifest({
+      egressMode: EgressMode.NoNetwork,
+      entrypoint: "../../usr/bin/git",
+      commandProfiles: {
+        "list": {
+          description: "List resources",
+          allowedArgvPatterns: [
+            {
+              name: "list-all",
+              tokens: ["list", "--format", "<format>"],
+            },
+          ],
+          deniedSubcommands: [],
+        },
+      },
+    });
+    const { digest } = publishTestBundle(
+      manifest,
+      "local",
+      '#!/bin/sh\necho "should not run"\n',
+    );
+
+    const deps = buildDeps();
+    addCommandGrant(
+      deps.persistentStore,
+      "local_static:test/api_key",
+      manifest.bundleId,
+      "list",
+    );
+
+    const request: ExecuteCommandRequest = {
+      bundleDigest: digest,
+      profileName: "list",
+      credentialHandle: "local_static:test/api_key",
+      argv: ["list", "--format", "json"],
+      workspaceDir: testWorkspaceDir,
+      purpose: "Test path traversal",
+    };
+
+    const result = await executeAuthenticatedCommand(request, deps);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("resolves outside the bundle directory");
+    expect(result.error).toContain("Path traversal");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// no_network enforcement tests
+// ---------------------------------------------------------------------------
+
+describe("executeAuthenticatedCommand — no_network enforcement", () => {
+  test("injects blocking proxy env vars in no_network mode", async () => {
+    const manifest = buildManifest({
+      egressMode: EgressMode.NoNetwork,
+      commandProfiles: {
+        "list": {
+          description: "List resources",
+          allowedArgvPatterns: [
+            {
+              name: "list-all",
+              tokens: ["list", "--format", "<format>"],
+            },
+          ],
+          deniedSubcommands: [],
+        },
+      },
+    });
+    // Script that checks for proxy env vars
+    const { digest } = publishTestBundle(
+      manifest,
+      "local",
+      '#!/bin/sh\necho "HTTP_PROXY=$HTTP_PROXY"\necho "HTTPS_PROXY=$HTTPS_PROXY"\n',
+    );
+
+    const deps = buildDeps();
+    addCommandGrant(
+      deps.persistentStore,
+      "local_static:test/api_key",
+      manifest.bundleId,
+      "list",
+    );
+
+    const request: ExecuteCommandRequest = {
+      bundleDigest: digest,
+      profileName: "list",
+      credentialHandle: "local_static:test/api_key",
+      argv: ["list", "--format", "json"],
+      workspaceDir: testWorkspaceDir,
+      purpose: "Test no_network proxy injection",
+    };
+
+    const result = await executeAuthenticatedCommand(request, deps);
+
+    expect(result.exitCode).toBe(0);
+    // The proxy vars should point at a dead address to block outbound connections
+    expect(result.stdout).toContain("HTTP_PROXY=http://127.0.0.1:0");
+    expect(result.stdout).toContain("HTTPS_PROXY=http://127.0.0.1:0");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// credential_process stdin tests
+// ---------------------------------------------------------------------------
+
+describe("executeAuthenticatedCommand — credential_process stdin", () => {
+  test("credential_process helper receives credential value on stdin", async () => {
+    const manifest = buildManifest({
+      egressMode: EgressMode.NoNetwork,
+      authAdapter: {
+        type: AuthAdapterType.CredentialProcess,
+        helperCommand: "cat",  // cat echoes stdin to stdout
+        envVarName: "TRANSFORMED_CRED",
+      },
+      commandProfiles: {
+        "list": {
+          description: "List resources",
+          allowedArgvPatterns: [
+            {
+              name: "list-all",
+              tokens: ["list", "--format", "<format>"],
+            },
+          ],
+          deniedSubcommands: [],
+        },
+      },
+    });
+    const { digest } = publishTestBundle(
+      manifest,
+      "local",
+      '#!/bin/sh\necho "$TRANSFORMED_CRED"\n',
+    );
+
+    const deps = buildDeps({
+      materializeCredential: successMaterializer("my-raw-credential"),
+    });
+    addCommandGrant(
+      deps.persistentStore,
+      "local_static:test/api_key",
+      manifest.bundleId,
+      "list",
+    );
+
+    const request: ExecuteCommandRequest = {
+      bundleDigest: digest,
+      profileName: "list",
+      credentialHandle: "local_static:test/api_key",
+      argv: ["list", "--format", "json"],
+      workspaceDir: testWorkspaceDir,
+      purpose: "Test credential_process stdin",
+    };
+
+    const result = await executeAuthenticatedCommand(request, deps);
+
+    // cat should have echoed the credential value via stdin, which then
+    // gets injected into TRANSFORMED_CRED for the command to use
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout?.trim()).toBe("my-raw-credential");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // RPC handler command string parsing tests
 // ---------------------------------------------------------------------------
 
