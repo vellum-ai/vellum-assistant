@@ -16,6 +16,7 @@ struct AgentPanelContent: View {
     @State private var skillToDelete: SkillInfo?
     @State private var selectedCategory: SkillCategory?
     @State private var globalSkillSearchQuery = ""
+    @State private var expandedFilePath: String?
 
     init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, daemonClient: DaemonClient) {
         self.onInvokeSkill = onInvokeSkill
@@ -263,6 +264,7 @@ struct AgentPanelContent: View {
     @ViewBuilder
     private func installedSkillDetailView(_ skill: SkillInfo) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
+
             // Back button
             Button(action: {
                 withAnimation(VAnimation.standard) {
@@ -380,6 +382,16 @@ struct AgentPanelContent: View {
                     .stroke(VColor.borderBase, lineWidth: 1)
             )
 
+            // Skill files
+            skillFilesSection
+
+        }
+        .onAppear {
+            skillsManager.fetchSkillFiles(skillId: skill.id)
+        }
+        .onDisappear {
+            expandedFilePath = nil
+            skillsManager.clearSkillDetail()
         }
     }
 
@@ -469,5 +481,115 @@ struct AgentPanelContent: View {
                 .foregroundColor(VColor.contentTertiary)
                 .frame(width: 24, height: 24)
         }
+    }
+
+    // MARK: - Skill Files
+
+    @ViewBuilder
+    private var skillFilesSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Files")
+                .font(VFont.bodyBold)
+                .foregroundColor(VColor.contentDefault)
+
+            if skillsManager.isLoadingSkillFiles {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                        .controlSize(.small)
+                    Spacer()
+                }
+                .padding(.vertical, VSpacing.md)
+            } else if let error = skillsManager.skillFilesError {
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.systemNegativeStrong)
+            } else if let filesResponse = skillsManager.selectedSkillFiles {
+                VStack(spacing: 0) {
+                    ForEach(filesResponse.files, id: \.path) { file in
+                        skillFileRow(file)
+                        if file.path != filesResponse.files.last?.path {
+                            Divider()
+                        }
+                    }
+                }
+                .background(VColor.surfaceOverlay)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .stroke(VColor.borderBase, lineWidth: 1)
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func skillFileRow(_ file: SkillFileEntry) -> some View {
+        let isText = !file.isBinary && file.content != nil
+        let isExpanded = expandedFilePath == file.path
+
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                if isText {
+                    withAnimation(VAnimation.fast) {
+                        expandedFilePath = isExpanded ? nil : file.path
+                    }
+                }
+            } label: {
+                HStack(spacing: VSpacing.sm) {
+                    VIconView(fileIcon(for: file.mimeType), size: 12)
+                        .foregroundColor(VColor.primaryBase)
+                        .frame(width: 20)
+
+                    Text(file.path)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentDefault)
+                        .lineLimit(1)
+
+                    Spacer()
+
+                    Text(formatFileSize(file.size))
+                        .font(VFont.small)
+                        .foregroundColor(VColor.contentTertiary)
+
+                    if isText {
+                        VIconView(isExpanded ? .chevronUp : .chevronDown, size: 9)
+                            .foregroundColor(VColor.contentTertiary)
+                    }
+                }
+                .padding(.horizontal, VSpacing.md)
+                .padding(.vertical, VSpacing.sm)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!isText)
+
+            if isExpanded, let content = file.content {
+                ScrollView(.horizontal, showsIndicators: true) {
+                    Text(content)
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.contentSecondary)
+                        .textSelection(.enabled)
+                        .padding(VSpacing.md)
+                }
+                .frame(maxHeight: 300)
+                .background(VColor.surfaceBase)
+            }
+        }
+    }
+
+    private func fileIcon(for mimeType: String) -> VIcon {
+        if mimeType.hasPrefix("image/") { return .image }
+        if mimeType.hasPrefix("text/") { return .fileText }
+        if mimeType == "application/json" || mimeType == "application/javascript" || mimeType == "application/typescript" { return .fileCode }
+        return .file
+    }
+
+    private func formatFileSize(_ bytes: Int) -> String {
+        if bytes < 1024 { return "\(bytes) B" }
+        let kb = Double(bytes) / 1024.0
+        if kb < 1024 { return String(format: "%.1f KB", kb) }
+        let mb = kb / 1024.0
+        return String(format: "%.1f MB", mb)
     }
 }
