@@ -23,17 +23,24 @@ import { describe, expect, test } from "bun:test";
 
 import { HandshakeRequestSchema } from "@vellumai/ces-contracts";
 
-import type { ManagedMaterializerOptions } from "../../../credential-executor/src/materializers/managed-platform.js";
-import type { ManagedSubjectResolverOptions } from "../../../credential-executor/src/subjects/managed.js";
-
 // ---------------------------------------------------------------------------
 // Reproduce the ApiKeyRef + lazy getter pattern from managed-main.ts:89-146
 // ---------------------------------------------------------------------------
 
-/**
- * Mutable reference to the assistant API key.
- * Mirrors the `ApiKeyRef` interface in `managed-main.ts`.
- */
+// Inlined from credential-executor to avoid cross-package source imports
+// (which pull in transitive deps that the assistant tsconfig can't resolve).
+interface ManagedSubjectResolverOptions {
+  platformBaseUrl: string;
+  assistantApiKey: string;
+  assistantId: string;
+}
+
+interface ManagedMaterializerOptions {
+  platformBaseUrl: string;
+  assistantApiKey: string;
+  assistantId: string;
+}
+
 interface ApiKeyRef {
   current: string;
 }
@@ -368,8 +375,7 @@ describe("handshake schema includes assistantApiKey", () => {
 // ---------------------------------------------------------------------------
 
 describe("UpdateAssistantApiKey RPC contract", () => {
-  test.todo(
-    "UpdateAssistantApiKey method exists in CesRpcMethod",
+  test.todo("UpdateAssistantApiKey method exists in CesRpcMethod", () => {
     // Depends on parallel PR adding CesRpcMethod.UpdateAssistantApiKey
     // to the ces-contracts package. Once that lands, this test should
     // verify:
@@ -377,5 +383,5 @@ describe("UpdateAssistantApiKey RPC contract", () => {
     //   expect(CesRpcSchemas[CesRpcMethod.UpdateAssistantApiKey]).toBeDefined();
     //   expect(CesRpcSchemas[CesRpcMethod.UpdateAssistantApiKey].request).toBeDefined();
     //   expect(CesRpcSchemas[CesRpcMethod.UpdateAssistantApiKey].response).toBeDefined();
-  );
+  });
 });
