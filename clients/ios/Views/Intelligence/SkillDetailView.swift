@@ -173,7 +173,7 @@ struct SkillDetailView: View {
                     .multilineTextAlignment(.center)
             }
 
-            if skill.degraded {
+            if skill.degraded == true {
                 HStack(spacing: 4) {
                     VIconView(.triangleAlert, size: 12)
                     Text("Degraded")

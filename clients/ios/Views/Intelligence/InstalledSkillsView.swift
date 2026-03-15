@@ -104,7 +104,7 @@ struct InstalledSkillsView: View {
 
             Spacer()
 
-            if skill.degraded {
+            if skill.degraded == true {
                 VIconView(.triangleAlert, size: 14)
                     .foregroundColor(.orange)
                     .accessibilityLabel("Degraded")
@@ -112,7 +112,7 @@ struct InstalledSkillsView: View {
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Skill: \(skill.name), \(skill.state)\(skill.degraded ? ", degraded" : "")")
+        .accessibilityLabel("Skill: \(skill.name), \(skill.state)\(skill.degraded == true ? ", degraded" : "")")
         .accessibilityHint("Opens skill details")
     }
 
