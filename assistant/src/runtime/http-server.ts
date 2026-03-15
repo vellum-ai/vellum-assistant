@@ -100,6 +100,7 @@ import { handleServePage } from "./routes/app-routes.js";
 import { appRouteDefinitions } from "./routes/app-routes.js";
 import { approvalRouteDefinitions } from "./routes/approval-routes.js";
 import { attachmentRouteDefinitions } from "./routes/attachment-routes.js";
+import { avatarRouteDefinitions } from "./routes/avatar-routes.js";
 import { brainGraphRouteDefinitions } from "./routes/brain-graph-routes.js";
 import { btwRouteDefinitions } from "./routes/btw-routes.js";
 import { callRouteDefinitions } from "./routes/call-routes.js";
@@ -731,6 +732,7 @@ export class RuntimeHttpServer {
       ...workspaceRouteDefinitions(),
       ...memoryItemRouteDefinitions(),
       ...settingsRouteDefinitions(),
+      ...avatarRouteDefinitions(),
       ...scheduleRouteDefinitions({
         sendMessageDeps: this.sendMessageDeps,
       }),
