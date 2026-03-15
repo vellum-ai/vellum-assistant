@@ -198,6 +198,27 @@ class RunAuthenticatedCommandTool implements Tool {
         };
       }
 
+      // Surface copyback errors — CES may report success (command exited
+      // normally) but populate response.error with copyback failures.
+      if (response.error) {
+        const copybackMsg = response.error.message ?? "Output copyback failed";
+        log.warn(
+          { credentialHandle, command, error: copybackMsg },
+          "CES command succeeded but reported copyback error",
+        );
+
+        const parts: string[] = [];
+        if (response.stdout) {
+          parts.push(response.stdout);
+        }
+        parts.push(`Warning: ${copybackMsg}`);
+
+        return {
+          content: parts.join("\n\n"),
+          isError: true,
+        };
+      }
+
       // Build a human-readable result
       const parts: string[] = [];
       if (response.exitCode !== undefined) {
