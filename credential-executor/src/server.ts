@@ -387,6 +387,12 @@ export interface RunAuthenticatedCommandHandlerOptions {
    * Typically the assistant's workspace root.
    */
   defaultWorkspaceDir: string;
+  /**
+   * Session ID to attach to audit records. In local mode this is a
+   * static string generated at startup; in managed mode it comes from
+   * the RPC handshake.
+   */
+  sessionId?: string;
 }
 
 /**
@@ -426,6 +432,7 @@ export function createRunAuthenticatedCommandHandler(
       purpose: request.purpose,
       grantId: request.grantId,
       conversationId: request.conversationId,
+      sessionId: options.sessionId,
     };
 
     const result = await executeAuthenticatedCommand(

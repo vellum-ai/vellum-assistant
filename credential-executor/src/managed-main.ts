@@ -215,6 +215,7 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
       egressHooks: buildCesEgressHooks(),
     },
     defaultWorkspaceDir: "/workspace",
+    sessionId,
   });
 
   // Register manage_secure_command_tool handler

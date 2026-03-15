@@ -172,6 +172,7 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
       egressHooks: buildCesEgressHooks(),
     },
     defaultWorkspaceDir: join(vellumRoot, "workspace"),
+    sessionId,
   });
 
   // Register manage_secure_command_tool handler
