@@ -36,7 +36,6 @@ const makeEntry = (
   extra?: Partial<AssistantEntry>,
 ): AssistantEntry => ({
   assistantId: id,
-  installationId: `test-install-${id}`,
   runtimeUrl,
   cloud: "local",
   ...extra,

@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { unlinkSync, writeFileSync } from "fs";
 import { tmpdir, userInfo } from "os";
 import { join } from "path";
@@ -581,7 +580,6 @@ export async function hatchGcp(
       : `http://${instanceName}:${GATEWAY_PORT}`;
     const gcpEntry: AssistantEntry = {
       assistantId: instanceName,
-      installationId: randomUUID(),
       runtimeUrl,
       cloud: "gcp",
       project,

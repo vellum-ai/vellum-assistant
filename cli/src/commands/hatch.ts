@@ -9,7 +9,6 @@ import {
   unlinkSync,
   writeFileSync,
 } from "fs";
-import { randomUUID } from "node:crypto";
 import { homedir } from "os";
 import { join } from "path";
 
@@ -675,7 +674,6 @@ async function hatchLocal(
 
   const localEntry: AssistantEntry = {
     assistantId: instanceName,
-    installationId: randomUUID(),
     runtimeUrl,
     localUrl: `http://127.0.0.1:${resources.gatewayPort}`,
     cloud: "local",

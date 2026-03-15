@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
@@ -37,7 +36,6 @@ export interface LocalInstanceResources {
 
 export interface AssistantEntry {
   assistantId: string;
-  installationId: string;
   runtimeUrl: string;
   /** Loopback URL for same-machine health checks (e.g. `http://127.0.0.1:7831`).
    *  Avoids mDNS resolution issues when the machine checks its own gateway. */
@@ -215,13 +213,6 @@ function readAssistants(): AssistantEntry[] {
   let migrated = false;
   for (const entry of entries) {
     if (migrateLegacyEntry(entry)) {
-      migrated = true;
-    }
-  }
-
-  for (const entry of entries) {
-    if (typeof entry.installationId !== "string") {
-      entry.installationId = randomUUID();
       migrated = true;
     }
   }
