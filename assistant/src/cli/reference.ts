@@ -15,7 +15,6 @@ Commands:
   config                                   Manage configuration
   keys                                     Manage API keys in secure storage
   credentials [options]                    Manage credentials in the encrypted vault (API keys, tokens, passwords)
-  credential-execution [options]           Inspect and manage Credential Execution Service (CES) grants and audit records
   trust                                    Manage trust rules
   memory                                   Manage long-term memory indexing/retrieval
   audit [options]                          Show recent tool invocations
