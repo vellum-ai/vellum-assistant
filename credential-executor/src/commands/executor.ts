@@ -16,21 +16,27 @@
  * 4. **Workspace staging** — Stage declared workspace inputs into a
  *    CES-private scratch directory.
  *
- * 5. **Auth materialization** — Materialize the credential through the
- *    declared auth adapter (env_var, temp_file, or credential_process).
+ * 5. **Credential materialization** — Materialize the raw credential
+ *    value from the credential store.
  *
  * 6. **Egress proxy startup** — Start a CES-owned egress proxy session
  *    (when egressMode is `proxy_required`) to enforce network target
- *    allowlists.
+ *    allowlists. This happens BEFORE the auth adapter runs so that
+ *    credential_process helpers also execute under egress control.
  *
- * 7. **Command execution** — Run the command with clean config dirs,
+ * 7. **Auth adapter construction** — Build the credential environment
+ *    through the declared auth adapter (env_var, temp_file, or
+ *    credential_process). For credential_process, the helper runs
+ *    with proxy env vars injected.
+ *
+ * 8. **Command execution** — Run the command with clean config dirs,
  *    materialized credential env vars, and proxy env vars. The command
  *    runs in the scratch directory, never in the assistant workspace.
  *
- * 8. **Output copyback** — After exit, validate and copy declared output
+ * 9. **Output copyback** — After exit, validate and copy declared output
  *    files from the scratch directory back into the workspace.
  *
- * 9. **Cleanup** — Stop the egress proxy session, remove temp files, and
+ * 10. **Cleanup** — Stop the egress proxy session, remove temp files, and
  *    clean up the scratch directory.
  *
  * The executor is fail-closed: bundle mismatches, missing grants,
@@ -295,33 +301,17 @@ export async function executeAuthenticatedCommand(
     secrets: secretSet,
   };
 
-  // -- 6. Build auth adapter environment ------------------------------------
-  let adapterEnv: Record<string, string>;
-  let tempFilePath: string | undefined;
-  try {
-    const adapterResult = await buildAuthAdapterEnv(
-      manifest.authAdapter,
-      matResult.value,
-    );
-    adapterEnv = adapterResult.env;
-    tempFilePath = adapterResult.tempFilePath;
-  } catch (err) {
-    cleanupScratchDir(scratchDir);
-    return {
-      success: false,
-      error: `Auth adapter materialization failed: ${err instanceof Error ? err.message : String(err)}`,
-      auditId,
-    };
-  }
-
-  // -- 7. Start egress proxy (if proxy_required) ----------------------------
+  // -- 6. Start egress proxy (if proxy_required) ----------------------------
+  // The egress proxy must be started BEFORE the auth adapter runs, so that
+  // credential_process helpers execute under egress control (not in an
+  // uncontrolled network state).
   let proxyEnv: ProxyEnvVars | undefined;
   let proxySessionId: string | undefined;
   const sessionStore = deps.egressSessionStore ?? new SessionStore();
 
   if (manifest.egressMode === EgressMode.ProxyRequired) {
     if (!deps.egressHooks) {
-      cleanupAll(scratchDir, tempFilePath);
+      cleanupScratchDir(scratchDir);
       return {
         success: false,
         error: "Egress mode is proxy_required but no egress hooks were provided. " +
@@ -354,7 +344,7 @@ export async function executeAuthenticatedCommand(
       proxySessionId = started.id;
       proxyEnv = getSessionEnv(sessionStore, started.id);
     } catch (err) {
-      cleanupAll(scratchDir, tempFilePath);
+      cleanupScratchDir(scratchDir);
       return {
         success: false,
         error: `Egress proxy startup failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -376,6 +366,37 @@ export async function executeAuthenticatedCommand(
       https_proxy: blockedProxy,
       NO_PROXY: "",
       no_proxy: "",
+    };
+  }
+
+  // -- 7. Build auth adapter environment ------------------------------------
+  // Pass proxy/no-network env vars so credential_process helpers also run
+  // under egress control.
+  let adapterEnv: Record<string, string>;
+  let tempFilePath: string | undefined;
+  try {
+    const adapterResult = await buildAuthAdapterEnv(
+      manifest.authAdapter,
+      matResult.value,
+      proxyEnv,
+      noNetworkEnv,
+    );
+    adapterEnv = adapterResult.env;
+    tempFilePath = adapterResult.tempFilePath;
+  } catch (err) {
+    // Stop the proxy session before returning — it may already be running
+    if (proxySessionId) {
+      try {
+        await stopSession(proxySessionId, sessionStore);
+      } catch {
+        // Best-effort proxy cleanup
+      }
+    }
+    cleanupScratchDir(scratchDir);
+    return {
+      success: false,
+      error: `Auth adapter materialization failed: ${err instanceof Error ? err.message : String(err)}`,
+      auditId,
     };
   }
 
@@ -704,6 +725,8 @@ interface AuthAdapterEnvResult {
 async function buildAuthAdapterEnv(
   adapter: AuthAdapterConfig,
   credentialValue: string,
+  proxyEnv?: ProxyEnvVars,
+  noNetworkEnv?: Record<string, string>,
 ): Promise<AuthAdapterEnvResult> {
   // Validate adapter config
   const errors = validateAuthAdapterConfig(adapter);
@@ -738,12 +761,16 @@ async function buildAuthAdapterEnv(
     }
 
     case AuthAdapterType.CredentialProcess: {
-      // Run the helper command and capture its stdout
+      // Run the helper command and capture its stdout.
+      // Proxy env vars are forwarded so the helper runs under the same
+      // egress control as the main command.
       const timeoutMs = adapter.timeoutMs ?? CREDENTIAL_PROCESS_TIMEOUT_MS;
       const helperResult = await runCredentialProcess(
         adapter.helperCommand,
         credentialValue,
         timeoutMs,
+        proxyEnv,
+        noNetworkEnv,
       );
       if (!helperResult.ok) {
         throw new Error(
@@ -771,13 +798,39 @@ async function runCredentialProcess(
   helperCommand: string,
   credentialValue: string,
   timeoutMs: number,
+  proxyEnv?: ProxyEnvVars,
+  noNetworkEnv?: Record<string, string>,
 ): Promise<{ ok: true; stdout: string } | { ok: false; error: string }> {
   try {
+    // Build a minimal environment for the helper. No host env is inherited,
+    // but egress proxy or no-network env vars are injected so the helper
+    // runs under the same network controls as the main command.
+    const helperEnv: Record<string, string> = {};
+
+    if (proxyEnv) {
+      helperEnv["HTTP_PROXY"] = proxyEnv.HTTP_PROXY;
+      helperEnv["HTTPS_PROXY"] = proxyEnv.HTTPS_PROXY;
+      helperEnv["NO_PROXY"] = proxyEnv.NO_PROXY;
+      helperEnv["http_proxy"] = proxyEnv.HTTP_PROXY;
+      helperEnv["https_proxy"] = proxyEnv.HTTPS_PROXY;
+      helperEnv["no_proxy"] = proxyEnv.NO_PROXY;
+      if (proxyEnv.NODE_EXTRA_CA_CERTS) {
+        helperEnv["NODE_EXTRA_CA_CERTS"] = proxyEnv.NODE_EXTRA_CA_CERTS;
+      }
+      if (proxyEnv.SSL_CERT_FILE) {
+        helperEnv["SSL_CERT_FILE"] = proxyEnv.SSL_CERT_FILE;
+      }
+    }
+
+    if (noNetworkEnv) {
+      Object.assign(helperEnv, noNetworkEnv);
+    }
+
     const proc = Bun.spawn(["sh", "-c", helperCommand], {
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",
-      env: {}, // Clean environment — no secrets leaked
+      env: helperEnv,
     });
 
     // Write the credential value to stdin for the helper to consume
