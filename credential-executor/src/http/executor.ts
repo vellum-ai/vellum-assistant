@@ -225,6 +225,7 @@ export async function executeAuthenticatedHttpRequest(
       request.credentialHandle,
       deps,
       credential,
+      request.headers ?? {},
     );
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
@@ -536,8 +537,15 @@ async function performHttpRequest(
   credentialHandle: string,
   deps: HttpExecutorDeps,
   credential?: MaterialisedCredential,
+  callerHeaders?: Record<string, string>,
 ): Promise<RawHttpResponse> {
   const fetchFn = deps.fetch ?? globalThis.fetch;
+
+  // Preserve the original caller headers (before auth injection) so that
+  // redirect re-authentication starts from a clean slate on each hop.
+  // This prevents previously injected auth headers from being treated as
+  // caller headers and leaking credentials across redirect hops.
+  const originalCallerHeaders = callerHeaders ?? headers;
 
   let currentUrl = url;
   let currentMethod = method;
@@ -614,13 +622,14 @@ async function performHttpRequest(
         currentBody = undefined;
       }
 
-      // Re-apply auth injection for the redirect URL. This is necessary
-      // because query-parameter credentials are URL-specific and would be
-      // lost when the URL changes on redirect.
+      // Re-apply auth injection for the redirect URL starting from the
+      // original caller headers — not currentHeaders which already contain
+      // auth injected on the previous hop. This prevents credential leakage
+      // across multi-redirect flows.
       if (credential) {
         const reAuthenticated = buildAuthenticatedRequest(
           redirectUrl,
-          currentHeaders,
+          originalCallerHeaders,
           credential,
         );
         currentUrl = reAuthenticated.url;
