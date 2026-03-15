@@ -236,6 +236,18 @@ class AvatarLayerView: NSView {
                 var mutableEyeTransform = eyeXform
                 guard let transformedEyePath = eyeCGPath.copy(using: &mutableEyeTransform) else { continue }
 
+                // Closed path — squish Y toward center, then apply same transform
+                let closedEditable = eyeEditable.blinked(amount: 1.0)
+                let closedCGPath = closedEditable.toCGPath()
+                var closedTransform = eyeXform
+                guard let closedPath = closedCGPath.copy(using: &closedTransform) else { continue }
+
+                // Widened path — expand Y away from center for alert/hover look
+                let widenedEditable = eyeEditable.blinked(amount: -0.15)
+                let widenedCGPath = widenedEditable.toCGPath()
+                var widenedTransform = eyeXform
+                guard let widenedPath = widenedCGPath.copy(using: &widenedTransform) else { continue }
+
                 let eyeLayer = CAShapeLayer()
                 eyeLayer.path = transformedEyePath
                 eyeLayer.fillColor = eyePath.color.cgColor
@@ -243,24 +255,9 @@ class AvatarLayerView: NSView {
                 layer?.addSublayer(eyeLayer)
                 eyeLayers.append(eyeLayer)
 
-                // Store the open path (reuse the already-computed transformedEyePath)
                 openEyePaths.append(transformedEyePath)
-
-                // Closed path — squish Y toward center, then apply same transform
-                let closedEditable = eyeEditable.blinked(amount: 1.0)
-                let closedCGPath = closedEditable.toCGPath()
-                var closedTransform = eyeXform
-                if let closedPath = closedCGPath.copy(using: &closedTransform) {
-                    closedEyePaths.append(closedPath)
-                }
-
-                // Widened path — expand Y away from center for alert/hover look
-                let widenedEditable = eyeEditable.blinked(amount: -0.15)
-                let widenedCGPath = widenedEditable.toCGPath()
-                var widenedTransform = eyeXform
-                if let widenedPath = widenedCGPath.copy(using: &widenedTransform) {
-                    widenedEyePaths.append(widenedPath)
-                }
+                closedEyePaths.append(closedPath)
+                widenedEyePaths.append(widenedPath)
             }
         }
 
