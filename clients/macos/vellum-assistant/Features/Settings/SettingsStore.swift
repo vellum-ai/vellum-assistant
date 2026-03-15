@@ -994,21 +994,19 @@ public final class SettingsStore: ObservableObject {
         guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return }
         Task {
             do {
-                let response = try await GatewayHTTPClient.get(
+                let (config, response): (SlackChannelConfigResponse?, _) = try await GatewayHTTPClient.get(
                     path: "assistants/\(assistantId)/integrations/slack/channel/config",
                     timeout: 10
                 )
-                if response.statusCode == 200 {
-                    if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any] {
-                        self.slackChannelHasBotToken = json["hasBotToken"] as? Bool ?? false
-                        self.slackChannelHasAppToken = json["hasAppToken"] as? Bool ?? false
-                        self.slackChannelConnected = json["connected"] as? Bool ?? false
-                        self.slackChannelBotUsername = json["botUsername"] as? String
-                        self.slackChannelBotUserId = json["botUserId"] as? String
-                        self.slackChannelTeamId = json["teamId"] as? String
-                        self.slackChannelTeamName = json["teamName"] as? String
-                        self.slackChannelError = nil
-                    }
+                if response.statusCode == 200, let config {
+                    self.slackChannelHasBotToken = config.hasBotToken ?? false
+                    self.slackChannelHasAppToken = config.hasAppToken ?? false
+                    self.slackChannelConnected = config.connected ?? false
+                    self.slackChannelBotUsername = config.botUsername
+                    self.slackChannelBotUserId = config.botUserId
+                    self.slackChannelTeamId = config.teamId
+                    self.slackChannelTeamName = config.teamName
+                    self.slackChannelError = nil
                 } else if response.statusCode == 404 {
                     self.slackChannelHasBotToken = false
                     self.slackChannelHasAppToken = false
@@ -2141,4 +2139,16 @@ public final class SettingsStore: ObservableObject {
         }
         return canonicalizeTimeZoneIdentifier(trimmed)
     }
+}
+
+// MARK: - Slack Channel Config Response
+
+private struct SlackChannelConfigResponse: Decodable {
+    let hasBotToken: Bool?
+    let hasAppToken: Bool?
+    let connected: Bool?
+    let botUsername: String?
+    let botUserId: String?
+    let teamId: String?
+    let teamName: String?
 }

@@ -272,9 +272,10 @@ struct AssistantBackupsSection: View {
         defer { isLoadingBackups = false }
 
         do {
-            guard let decoded: ManagedBackupsResponse = try await GatewayHTTPClient.get(
+            let (decoded, _): (ManagedBackupsResponse?, _) = try await GatewayHTTPClient.get(
                 path: "assistants/\(assistant.assistantId)/backups"
-            ) else {
+            )
+            guard let decoded else {
                 errorMessage = "Failed to load backups"
                 return
             }

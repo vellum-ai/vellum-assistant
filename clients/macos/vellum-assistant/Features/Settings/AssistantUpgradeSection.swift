@@ -135,20 +135,23 @@ struct AssistantUpgradeSection: View {
         defer { isLoadingReleases = false }
 
         do {
-            let response = try await GatewayHTTPClient.get(path: "assistants/releases")
+            let (paginated, response): (PaginatedReleasesResponse?, _) = try await GatewayHTTPClient.get(
+                path: "assistants/releases"
+            ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
             guard response.statusCode == 200 else {
                 errorMessage = "Failed to check for updates"
                 return
             }
-            let decoder = JSONDecoder()
-            decoder.keyDecodingStrategy = .convertFromSnakeCase
-            // Try paginated response { "results": [...] }, then plain array [...]
-            if let decoded = try? decoder.decode(PaginatedReleasesResponse.self, from: response.data) {
-                availableReleases = decoded.results
-            } else if let decoded = try? decoder.decode(ReleasesResponse.self, from: response.data) {
-                availableReleases = decoded.releases
+            if let paginated {
+                availableReleases = paginated.results
             } else {
-                availableReleases = try decoder.decode([AssistantRelease].self, from: response.data)
+                let decoder = JSONDecoder()
+                decoder.keyDecodingStrategy = .convertFromSnakeCase
+                if let decoded = try? decoder.decode(ReleasesResponse.self, from: response.data) {
+                    availableReleases = decoded.releases
+                } else {
+                    availableReleases = try decoder.decode([AssistantRelease].self, from: response.data)
+                }
             }
         } catch let error as GatewayHTTPClient.ClientError {
             errorMessage = "Unable to check for updates: \(error.localizedDescription)"

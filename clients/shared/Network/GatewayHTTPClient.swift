@@ -49,24 +49,29 @@ public enum GatewayHTTPClient {
 
     /// Performs an authenticated GET request and decodes the JSON response into the given type.
     ///
+    /// Both the decoded value and the raw `Response` are returned so callers can
+    /// inspect status codes or error bodies alongside the typed result.
+    ///
     /// - Parameters:
     ///   - path: Path segment after `/v1/` (e.g. `"usage/totals?from=0&to=1"`).
     ///   - timeout: Request timeout in seconds. Defaults to 30.
     ///   - configure: Optional closure to customise the `JSONDecoder` before decoding
     ///     (e.g. set `keyDecodingStrategy`).
-    /// - Returns: The decoded value, or `nil` when the HTTP status is non-success.
-    /// - Throws: `ClientError` if the request cannot be constructed, network errors
-    ///   from `URLSession`, or `DecodingError` if the response body cannot be decoded.
+    /// - Returns: A tuple of the decoded value (or `nil` when the HTTP status is
+    ///   non-success or decoding fails) and the raw `Response`.
+    /// - Throws: `ClientError` if the request cannot be constructed, or network
+    ///   errors from `URLSession`.
     public static func get<T: Decodable>(
         path: String,
         timeout: TimeInterval = 30,
         configure: ((_ decoder: JSONDecoder) -> Void)? = nil
-    ) async throws -> T? {
+    ) async throws -> (T?, Response) {
         let response = try await get(path: path, timeout: timeout)
-        guard response.isSuccess else { return nil }
+        guard response.isSuccess else { return (nil, response) }
         let decoder = JSONDecoder()
         configure?(decoder)
-        return try decoder.decode(T.self, from: response.data)
+        let decoded = try? decoder.decode(T.self, from: response.data)
+        return (decoded, response)
     }
 
     /// Performs an authenticated POST request against the gateway.

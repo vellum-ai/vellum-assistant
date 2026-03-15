@@ -213,23 +213,22 @@ struct AssistantTransferSection: View {
             var downloadUrl: String?
             for _ in 0..<100 {
                 try Task.checkCancellation()
-                let statusResponse = try await GatewayHTTPClient.get(path: "migrations/export/\(jobId)/status")
-                guard statusResponse.isSuccess,
-                      let statusJson = try? JSONSerialization.jsonObject(with: statusResponse.data) as? [String: Any],
-                      let status = statusJson["status"] as? String else {
+                let (statusResult, statusResponse): (ExportStatusResponse?, _) = try await GatewayHTTPClient.get(
+                    path: "migrations/export/\(jobId)/status"
+                ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
+                guard statusResponse.isSuccess, let statusResult else {
                     throw TransferError.exportFailed(statusCode: statusResponse.statusCode)
                 }
 
-                if status == "complete" {
-                    guard let url = statusJson["download_url"] as? String else {
+                if statusResult.status == "complete" {
+                    guard let url = statusResult.downloadUrl else {
                         throw TransferError.exportFailed(statusCode: 0)
                     }
                     downloadUrl = url
                     break
-                } else if status == "failed" {
-                    let errorMsg = (statusJson["error"] as? String) ?? "Export job failed"
-                    throw TransferError.importFailed(message: errorMsg)
-                } else if status == "pending" || status == "processing" {
+                } else if statusResult.status == "failed" {
+                    throw TransferError.importFailed(message: statusResult.error ?? "Export job failed")
+                } else if statusResult.status == "pending" || statusResult.status == "processing" {
                     try await Task.sleep(nanoseconds: 3_000_000_000)
                 } else {
                     throw TransferError.exportFailed(statusCode: 0)
@@ -454,6 +453,12 @@ struct AssistantTransferSection: View {
 }
 
 // MARK: - Transfer Errors
+
+private struct ExportStatusResponse: Decodable {
+    let status: String
+    let downloadUrl: String?
+    let error: String?
+}
 
 private enum TransferError: LocalizedError {
     case invalidURL

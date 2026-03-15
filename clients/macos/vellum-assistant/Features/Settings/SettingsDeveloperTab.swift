@@ -427,11 +427,11 @@ struct SettingsDeveloperTab: View {
 
     private func fetchHealthz() async {
         do {
-            healthz = try await GatewayHTTPClient.get(
+            let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
                 path: "assistants/\(selectedAssistantId)/healthz",
                 timeout: 10
             ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
-            ?? DaemonHealthz()
+            healthz = decoded ?? DaemonHealthz()
         } catch {
             healthz = DaemonHealthz()
         }
