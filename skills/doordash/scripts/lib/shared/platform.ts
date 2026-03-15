@@ -116,10 +116,7 @@ export function readCredentialToken(): string | null {
       authTagLength: 16,
     });
     decipher.setAuthTag(tag);
-    const decrypted = Buffer.concat([
-      decipher.update(data),
-      decipher.final(),
-    ]);
+    const decrypted = Buffer.concat([decipher.update(data), decipher.final()]);
     return decrypted.toString("utf-8") || null;
   } catch {
     return null;
