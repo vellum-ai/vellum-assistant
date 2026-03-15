@@ -918,7 +918,7 @@ All overflow recovery settings live under `contextWindow.overflowRecovery` in th
 
 ## Task Routing — Voice Source Bypass and Escalation
 
-When a task is submitted via `task_submit`, the daemon classifies it to determine routing. Voice-sourced tasks and slash command candidates bypass the classifier entirely for lower latency and more predictable routing.
+When a task is submitted via `task_submit`, the daemon classifies it to determine routing. Voice-sourced tasks and built-in slash commands bypass the classifier entirely for lower latency and more predictable routing.
 
 ```mermaid
 graph TB
@@ -927,7 +927,7 @@ graph TB
     end
 
     subgraph "Routing Decision"
-        SLASH_CHECK{"Slash candidate?<br/>(parseSlashCandidate)"}
+        SLASH_CHECK{"Built-in slash command?<br/>(resolveSlash)"}
         VOICE_CHECK{"source === 'voice'?"}
         CLASSIFIER["Classifier<br/>Haiku-4.5 tool call<br/>+ heuristic fallback"]
         CU_ROUTE["Route: computer_use<br/>→ CU session"]
@@ -939,7 +939,7 @@ graph TB
     end
 
     SUBMIT --> SLASH_CHECK
-    SLASH_CHECK -->|"Yes (/skill-id)"| QA_ROUTE
+    SLASH_CHECK -->|"Yes (/model, /status, etc.)"| QA_ROUTE
     SLASH_CHECK -->|"No"| VOICE_CHECK
     VOICE_CHECK -->|"Yes"| QA_ROUTE
     VOICE_CHECK -->|"No"| CLASSIFIER
@@ -1006,25 +1006,24 @@ graph TB
 
 ## Slash Command Resolution
 
-When a user message enters the daemon (via `processMessage` or the queue drain path), it passes through slash command resolution before persistence or agent execution.
+When a user message enters the daemon (via `processMessage` or the queue drain path), it passes through `resolveSlash()` before persistence or agent execution. Resolution uses direct string matching against a fixed set of built-in commands.
 
 ```mermaid
 graph TB
     INPUT["User input"]
-    PARSE{"parseSlashCandidate"}
-    NONE["Normal flow<br/>persist + agent loop"]
-    UNKNOWN["Deterministic response<br/>list available commands<br/>no agent loop"]
+    RESOLVE{"resolveSlash()<br/>direct string matching"}
+    PASSTHROUGH["Normal flow<br/>persist + agent loop"]
+    HANDLED["Deterministic response<br/>assistant_text_delta + message_complete<br/>no agent loop"]
 
-    INPUT --> PARSE
-    PARSE -->|"Not a slash candidate"| NONE
-    PARSE -->|"Built-in command"| UNKNOWN
-    PARSE -->|"Unknown slash token"| NONE
+    INPUT --> RESOLVE
+    RESOLVE -->|"kind: passthrough"| PASSTHROUGH
+    RESOLVE -->|"kind: unknown<br/>(/model, /status, /commands, /pair,<br/>/models, provider shortcuts)"| HANDLED
 ```
 
 Key behaviors:
 
-- **Built-in commands**: Tokens matching built-in commands (e.g. `/commands`, `/settings`) are handled directly. A deterministic `assistant_text_delta` + `message_complete` is emitted. No message persistence or model call occurs.
-- **Unknown slash tokens**: Slash-like input that does not match a built-in command passes through to the normal agent loop.
+- **Built-in commands**: `/model`, `/models`, `/status`, `/commands`, `/pair`, and provider shortcuts (`/opus`, `/sonnet`, `/gpt4`, etc.) are handled directly by `resolveSlash()`. A deterministic `assistant_text_delta` + `message_complete` is emitted. No message persistence or model call occurs.
+- **Passthrough**: Any input that does not match a built-in command passes through to the normal agent loop, including slash-like tokens that are not recognized.
 - **Queue**: Queued messages receive the same slash resolution.
 
 ---
