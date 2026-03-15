@@ -215,6 +215,11 @@ export function createLocalSecureKeyBackend(
       }
     },
 
+    // NOTE: read-modify-write without file locking. The atomic rename
+    // (writeStore) prevents corruption from partial writes, but concurrent
+    // set() calls can lose updates. The window is small in practice because
+    // CES serialises refresh via RefreshDeduplicator. File locking is a
+    // future improvement.
     async set(key: string, value: string): Promise<boolean> {
       try {
         const store = readStore(storePath);

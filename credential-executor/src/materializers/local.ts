@@ -278,6 +278,7 @@ export class LocalMaterialiser {
             connectionId,
             {
               accessToken: result.accessToken,
+              refreshToken: result.refreshToken,
               expiresIn: result.expiresAt
                 ? Math.floor((result.expiresAt - Date.now()) / 1000)
                 : null,
