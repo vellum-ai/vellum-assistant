@@ -1,4 +1,4 @@
-import { randomBytes } from "crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "fs";
 import { homedir, tmpdir, userInfo } from "os";
 import { join } from "path";
@@ -512,6 +512,7 @@ export async function hatchAws(
       : `http://${instanceName}:${GATEWAY_PORT}`;
     const awsEntry: AssistantEntry = {
       assistantId: instanceName,
+      installationId: randomUUID(),
       runtimeUrl,
       cloud: "aws",
       instanceId,

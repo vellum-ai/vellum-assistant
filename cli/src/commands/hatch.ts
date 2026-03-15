@@ -103,8 +103,7 @@ export async function buildStartupScript(
   instanceName: string,
   cloud: RemoteHost,
 ): Promise<string> {
-  const platformUrl =
-    process.env.VELLUM_PLATFORM_URL ?? "https://vellum.ai";
+  const platformUrl = process.env.VELLUM_PLATFORM_URL ?? "https://vellum.ai";
   const logPath =
     cloud === "custom"
       ? "/tmp/vellum-startup.log"
@@ -801,6 +800,7 @@ async function hatchLocal(
 
   const localEntry: AssistantEntry = {
     assistantId: instanceName,
+    installationId: randomUUID(),
     runtimeUrl,
     localUrl: `http://127.0.0.1:${resources.gatewayPort}`,
     bearerToken,
