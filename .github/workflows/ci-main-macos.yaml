@@ -194,11 +194,11 @@ jobs:
 
           if [[ "${{ needs.build-app.result }}" == "failure" ]]; then
             STATUS="failure"
-          elif [[ "$CLIENTS_CHANGED" == "true" && ("${{ needs.lint-unused.result }}" == "failure" || "${{ needs.test.result }}" == "failure") ]]; then
+          elif [[ ("$CLIENTS_CHANGED" == "true" || "${{ github.event_name }}" == "workflow_dispatch") && ("${{ needs.lint-unused.result }}" == "failure" || "${{ needs.test.result }}" == "failure") ]]; then
             STATUS="failure"
           elif [[ "${{ needs.build-app.result }}" == "cancelled" ]]; then
             STATUS="cancelled"
-          elif [[ "$CLIENTS_CHANGED" == "true" && ("${{ needs.lint-unused.result }}" == "cancelled" || "${{ needs.test.result }}" == "cancelled") ]]; then
+          elif [[ ("$CLIENTS_CHANGED" == "true" || "${{ github.event_name }}" == "workflow_dispatch") && ("${{ needs.lint-unused.result }}" == "cancelled" || "${{ needs.test.result }}" == "cancelled") ]]; then
             STATUS="cancelled"
           elif [[ "${{ needs.build-app.result }}" == "skipped" ]]; then
             STATUS="skipped"
