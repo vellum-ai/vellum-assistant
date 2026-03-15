@@ -31,8 +31,14 @@ export function loadCheckpoints(workspaceDir: string): CheckpointFile {
     ) {
       return data as CheckpointFile;
     }
+    log.warn(
+      "Workspace migration checkpoint file has unexpected structure; treating as fresh state",
+    );
     return { applied: {} };
   } catch {
+    log.warn(
+      "Workspace migration checkpoint file is malformed; treating as fresh state",
+    );
     return { applied: {} };
   }
 }
