@@ -10,7 +10,7 @@
  * auth adapters in the command environment.
  *
  * The proxy server is a plain HTTP CONNECT proxy that:
- * - Allows connections to hosts matching the session's `allowedTargets`
+ * - Allows connections matching the session's `allowedTargets` (host, port, protocol)
  * - Blocks all other outbound connections
  */
 
@@ -18,7 +18,7 @@ import { request as httpRequest, createServer, type IncomingMessage, type Server
 import { request as httpsRequest } from "node:https";
 import { connect, type Socket } from "node:net";
 
-import type { ManagedSession, SessionStartHooks } from "@vellumai/egress-proxy";
+import type { AllowedTarget, ManagedSession, SessionStartHooks } from "@vellumai/egress-proxy";
 
 // ---------------------------------------------------------------------------
 // Host-pattern matching
@@ -45,11 +45,24 @@ function matchesHostPattern(hostname: string, pattern: string): boolean {
 }
 
 /**
- * Check if a hostname is allowed by any of the provided patterns.
+ * Check if a request target is allowed by any of the provided allowed targets.
+ *
+ * Validates host, port, and protocol against each allowed target entry.
+ * - Host must match the glob pattern.
+ * - If the target specifies `ports`, the request port must be in the list.
+ * - If the target specifies `protocols`, the request protocol must be in the list.
  */
-function isHostAllowed(hostname: string, allowedTargets: string[]): boolean {
-  for (const pattern of allowedTargets) {
-    if (matchesHostPattern(hostname, pattern)) return true;
+function isTargetAllowed(
+  hostname: string,
+  port: number,
+  protocol: "http" | "https",
+  allowedTargets: AllowedTarget[],
+): boolean {
+  for (const target of allowedTargets) {
+    if (!matchesHostPattern(hostname, target.host)) continue;
+    if (target.ports && target.ports.length > 0 && !target.ports.includes(port)) continue;
+    if (target.protocols && target.protocols.length > 0 && !target.protocols.includes(protocol)) continue;
+    return true;
   }
   return false;
 }
@@ -97,13 +110,17 @@ export function buildCesEgressHooks(): SessionStartHooks {
       const allowedTargets = managed.config.allowedTargets ?? [];
 
       const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-        // Plain HTTP proxy requests — parse the absolute URL and check the host
+        // Plain HTTP proxy requests — parse the absolute URL and check host/port/protocol
         if (req.url && req.method) {
           try {
             const target = new URL(req.url);
-            if (!isHostAllowed(target.hostname, allowedTargets)) {
+            const protocol = target.protocol === "https:" ? "https" : "http" as const;
+            const port = target.port
+              ? Number(target.port)
+              : protocol === "https" ? 443 : 80;
+            if (!isTargetAllowed(target.hostname, port, protocol, allowedTargets)) {
               res.writeHead(403, { "Content-Type": "text/plain" });
-              res.end(`Blocked by CES egress policy: ${target.hostname} is not in the allowed targets list`);
+              res.end(`Blocked by CES egress policy: ${target.hostname}:${port} (${protocol}) is not in the allowed targets list`);
               return;
             }
 
@@ -149,11 +166,12 @@ export function buildCesEgressHooks(): SessionStartHooks {
           return;
         }
 
-        if (!isHostAllowed(target.host, allowedTargets)) {
+        // CONNECT is used for HTTPS tunnelling — assume "https" protocol
+        if (!isTargetAllowed(target.host, target.port, "https", allowedTargets)) {
           clientSocket.write(
             "HTTP/1.1 403 Forbidden\r\n" +
             "Content-Type: text/plain\r\n\r\n" +
-            `Blocked by CES egress policy: ${target.host} is not in the allowed targets list`,
+            `Blocked by CES egress policy: ${target.host}:${target.port} (https) is not in the allowed targets list`,
           );
           clientSocket.destroy();
           return;
