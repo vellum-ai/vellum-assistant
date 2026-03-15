@@ -288,6 +288,24 @@ jobs:
           SOURCES=$(printf "${IMAGE}@sha256:%s " *)
           docker buildx imagetools create $TAG_ARGS $SOURCES
 
+      - name: Export manifest digest
+        id: manifest-digest
+        run: |
+          IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
+          VERSION="${{ needs.bump-and-tag.outputs.version }}"
+          DIGEST=$(docker buildx imagetools inspect "${IMAGE}:v${VERSION}" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "Manifest digest: ${DIGEST}"
+          mkdir -p /tmp/manifest-digest
+          echo "${DIGEST}" > /tmp/manifest-digest/digest
+
+      - name: Upload manifest digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: assistant-manifest-digest-${{ matrix.environment }}
+          path: /tmp/manifest-digest/digest
+          retention-days: 1
+
       - name: Export image metadata
         id: meta
         run: |
@@ -509,6 +527,24 @@ jobs:
           SOURCES=$(printf "${IMAGE}@sha256:%s " *)
           docker buildx imagetools create $TAG_ARGS $SOURCES
 
+      - name: Export manifest digest
+        id: manifest-digest
+        run: |
+          IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
+          VERSION="${{ needs.bump-and-tag.outputs.version }}"
+          DIGEST=$(docker buildx imagetools inspect "${IMAGE}:v${VERSION}" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "Manifest digest: ${DIGEST}"
+          mkdir -p /tmp/manifest-digest
+          echo "${DIGEST}" > /tmp/manifest-digest/digest
+
+      - name: Upload manifest digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: gateway-manifest-digest-${{ matrix.environment }}
+          path: /tmp/manifest-digest/digest
+          retention-days: 1
+
       - name: Export image metadata
         id: meta
         run: |
@@ -588,6 +624,24 @@ jobs:
           SOURCES=$(printf "${IMAGE}@sha256:%s " *)
           docker buildx imagetools create $TAG_ARGS $SOURCES
 
+      - name: Export manifest digest
+        id: manifest-digest
+        run: |
+          IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
+          VERSION="${{ needs.bump-and-tag.outputs.version }}"
+          DIGEST=$(docker buildx imagetools inspect "${IMAGE}:v${VERSION}" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "Manifest digest: ${DIGEST}"
+          mkdir -p /tmp/manifest-digest
+          echo "${DIGEST}" > /tmp/manifest-digest/digest
+
+      - name: Upload manifest digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: credential-executor-manifest-digest-${{ matrix.environment }}
+          path: /tmp/manifest-digest/digest
+          retention-days: 1
+
       - name: Export image metadata
         id: meta
         run: |
@@ -622,30 +676,30 @@ jobs:
         id: release-sha
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Download assistant amd64 digest
+      - name: Download assistant manifest digest
         uses: actions/download-artifact@v4
         with:
-          name: assistant-digests-${{ matrix.environment }}-linux-amd64
+          name: assistant-manifest-digest-${{ matrix.environment }}
           path: /tmp/assistant-digest
 
-      - name: Download gateway amd64 digest
+      - name: Download gateway manifest digest
         uses: actions/download-artifact@v4
         with:
-          name: gateway-digests-${{ matrix.environment }}-linux-amd64
+          name: gateway-manifest-digest-${{ matrix.environment }}
           path: /tmp/gateway-digest
 
-      - name: Download credential-executor amd64 digest
+      - name: Download credential-executor manifest digest
         uses: actions/download-artifact@v4
         with:
-          name: credential-executor-digests-${{ matrix.environment }}-linux-amd64
+          name: credential-executor-manifest-digest-${{ matrix.environment }}
           path: /tmp/credential-executor-digest
 
-      - name: Extract amd64 digests
+      - name: Extract manifest digests
         id: digests
         run: |
-          ASSISTANT_DIGEST="sha256:$(ls /tmp/assistant-digest/)"
-          GATEWAY_DIGEST="sha256:$(ls /tmp/gateway-digest/)"
-          CREDENTIAL_EXECUTOR_DIGEST="sha256:$(ls /tmp/credential-executor-digest/)"
+          ASSISTANT_DIGEST=$(cat /tmp/assistant-digest/digest)
+          GATEWAY_DIGEST=$(cat /tmp/gateway-digest/digest)
+          CREDENTIAL_EXECUTOR_DIGEST=$(cat /tmp/credential-executor-digest/digest)
           echo "assistant_digest=${ASSISTANT_DIGEST}" >> "$GITHUB_OUTPUT"
           echo "gateway_digest=${GATEWAY_DIGEST}" >> "$GITHUB_OUTPUT"
           echo "credential_executor_digest=${CREDENTIAL_EXECUTOR_DIGEST}" >> "$GITHUB_OUTPUT"
