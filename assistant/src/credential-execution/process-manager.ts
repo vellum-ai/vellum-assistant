@@ -97,6 +97,13 @@ export interface CesProcessManager {
   /** Gracefully stop the CES process (local) or disconnect (managed). */
   stop(): Promise<void>;
 
+  /**
+   * Force-stop the CES process even if start() hasn't finished yet.
+   * Unlike stop(), this works regardless of the `running` state — it kills
+   * any child process or destroys any managed socket immediately.
+   */
+  forceStop(): Promise<void>;
+
   /** The discovery result from the last start() call, or null if not started. */
   getDiscoveryResult(): DiscoveryResult | null;
 
@@ -170,6 +177,22 @@ export function createCesProcessManager(
 
       running = false;
       log.info("CES process manager stopped");
+    },
+
+    async forceStop(): Promise<void> {
+      if (childProcess) {
+        childProcess.kill("SIGKILL");
+        await childProcess.exited.catch(() => {});
+        childProcess = null;
+      }
+
+      if (managedSocket) {
+        managedSocket.destroy();
+        managedSocket = null;
+      }
+
+      running = false;
+      log.info("CES process manager force-stopped");
     },
 
     getDiscoveryResult(): DiscoveryResult | null {

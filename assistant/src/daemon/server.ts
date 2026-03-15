@@ -256,6 +256,7 @@ export class DaemonServer {
   // hold that connection at the server level rather than per-session.
   private cesProcessManager?: CesProcessManager;
   private cesClientPromise?: Promise<CesClient | undefined>;
+  private cesInitAbortController?: AbortController;
 
   /**
    * Logical assistant identifier used when publishing to the assistant-events hub.
@@ -485,11 +486,20 @@ export class DaemonServer {
     if (isCesToolsEnabled(config)) {
       const pm = createCesProcessManager({ assistantConfig: config });
       this.cesProcessManager = pm;
+      const abortController = new AbortController();
+      this.cesInitAbortController = abortController;
       this.cesClientPromise = (async () => {
         try {
           const transport = await pm.start();
+          if (abortController.signal.aborted) {
+            throw new Error("CES initialization aborted during shutdown");
+          }
           const client = createCesClient(transport);
           const { accepted, reason } = await client.handshake();
+          if (abortController.signal.aborted) {
+            client.close();
+            throw new Error("CES initialization aborted during shutdown");
+          }
           if (accepted) {
             log.info(
               "CES client initialized and handshake accepted (server-level)",
@@ -502,6 +512,8 @@ export class DaemonServer {
           );
           client.close();
           await pm.stop();
+          // Reset so next session can retry initialization
+          this.cesClientPromise = undefined;
           return undefined;
         } catch (err) {
           if (err instanceof CesUnavailableError) {
@@ -516,6 +528,8 @@ export class DaemonServer {
             );
           }
           await pm.stop().catch(() => {});
+          // Reset so next session can retry initialization
+          this.cesClientPromise = undefined;
           return undefined;
         }
       })();
@@ -538,7 +552,18 @@ export class DaemonServer {
     }
     this.sessions.clear();
 
-    // Tear down the server-level CES client and process manager
+    // Abort any in-flight CES initialization so it fails fast instead of
+    // blocking shutdown for up to ~15s (socket connect + handshake timeouts).
+    if (this.cesInitAbortController) {
+      this.cesInitAbortController.abort();
+      this.cesInitAbortController = undefined;
+    }
+    // Force-stop the CES process immediately — forceStop() works even if
+    // start() hasn't finished (unlike stop() which is a no-op when !running).
+    if (this.cesProcessManager) {
+      await this.cesProcessManager.forceStop().catch(() => {});
+    }
+    // Now await the init promise (which should settle quickly due to abort/kill).
     if (this.cesClientPromise) {
       const client = await this.cesClientPromise.catch(() => undefined);
       if (client) {
@@ -547,7 +572,6 @@ export class DaemonServer {
       this.cesClientPromise = undefined;
     }
     if (this.cesProcessManager) {
-      await this.cesProcessManager.stop().catch(() => {});
       this.cesProcessManager = undefined;
     }
 
