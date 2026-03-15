@@ -218,6 +218,13 @@ describe("ToolResponseBaseSchema", () => {
     expect(result.result).toEqual({ html: "<html></html>" });
   });
 
+  test("parses a successful response without result", () => {
+    const result = ToolResponseBaseSchema.parse({
+      success: true,
+    });
+    expect(result.success).toBe(true);
+  });
+
   test("parses a failed response with error", () => {
     const result = ToolResponseBaseSchema.parse({
       success: false,
@@ -227,7 +234,15 @@ describe("ToolResponseBaseSchema", () => {
       },
     });
     expect(result.success).toBe(false);
-    expect(result.error?.code).toBe("TOOL_FAILED");
+    expect(result.error.code).toBe("TOOL_FAILED");
+  });
+
+  test("rejects a failed response without error", () => {
+    expect(() =>
+      ToolResponseBaseSchema.parse({
+        success: false,
+      }),
+    ).toThrow();
   });
 });
 
