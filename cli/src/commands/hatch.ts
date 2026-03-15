@@ -47,7 +47,7 @@ import {
 import { maybeStartNgrokTunnel } from "../lib/ngrok";
 import { detectOrphanedProcesses } from "../lib/orphan-detection";
 import { isProcessAlive, stopProcess } from "../lib/process";
-import { generateRandomSuffix } from "../lib/random-name";
+import { generateInstanceName } from "../lib/random-name";
 import { validateAssistantName } from "../lib/retire-archive";
 import { archiveLogFile, resetLogFile } from "../lib/xdg-log";
 
@@ -575,10 +575,10 @@ async function hatchLocal(
     process.exit(1);
   }
 
-  const instanceName =
-    name ??
-    process.env.VELLUM_ASSISTANT_NAME ??
-    `${species}-${generateRandomSuffix()}`;
+  const instanceName = generateInstanceName(
+    species,
+    name ?? process.env.VELLUM_ASSISTANT_NAME,
+  );
 
   // Clean up stale local state: if daemon/gateway processes are running but
   // the lock file has no entries, stop them before starting fresh.

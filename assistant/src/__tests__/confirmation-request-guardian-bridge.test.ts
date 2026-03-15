@@ -36,7 +36,7 @@ mock.module("../util/logger.js", () => ({
 
 // Mock notification emission — capture calls without running the full pipeline
 const emittedSignals: Array<Record<string, unknown>> = [];
-const mockOnThreadCreatedCallbacks: Array<
+const mockOnConversationCreatedCallbacks: Array<
   (info: {
     conversationId: string;
     title: string;
@@ -48,7 +48,7 @@ mock.module("../notifications/emit-signal.js", () => ({
     emittedSignals.push(params);
     // Capture onConversationCreated callback so tests can invoke it
     if (typeof params.onConversationCreated === "function") {
-      mockOnThreadCreatedCallbacks.push(
+      mockOnConversationCreatedCallbacks.push(
         params.onConversationCreated as (info: {
           conversationId: string;
           title: string;
@@ -157,7 +157,7 @@ describe("bridgeConfirmationRequestToGuardian", () => {
   beforeEach(() => {
     resetTables();
     emittedSignals.length = 0;
-    mockOnThreadCreatedCallbacks.length = 0;
+    mockOnConversationCreatedCallbacks.length = 0;
   });
 
   test("emits guardian.question for trusted-contact sessions", () => {
@@ -313,11 +313,11 @@ describe("bridgeConfirmationRequestToGuardian", () => {
       toolName: "bash",
     });
 
-    expect(mockOnThreadCreatedCallbacks).toHaveLength(1);
+    expect(mockOnConversationCreatedCallbacks).toHaveLength(1);
 
     // Simulate the broadcaster invoking onConversationCreated
-    mockOnThreadCreatedCallbacks[0]({
-      conversationId: "guardian-thread-1",
+    mockOnConversationCreatedCallbacks[0]({
+      conversationId: "guardian-conversation-1",
       title: "Guardian question",
       sourceEventName: "guardian.question",
     });
@@ -325,7 +325,9 @@ describe("bridgeConfirmationRequestToGuardian", () => {
     const deliveries = listCanonicalGuardianDeliveries(canonicalRequest.id);
     expect(deliveries).toHaveLength(1);
     expect(deliveries[0].destinationChannel).toBe("vellum");
-    expect(deliveries[0].destinationConversationId).toBe("guardian-thread-1");
+    expect(deliveries[0].destinationConversationId).toBe(
+      "guardian-conversation-1",
+    );
   });
 
   test("uses custom assistantId when provided", () => {
