@@ -61,6 +61,24 @@ public enum GatewayHTTPClient {
         return try await execute(request)
     }
 
+    /// Performs an authenticated POST with a binary body (`application/octet-stream`).
+    ///
+    /// Use this instead of `post(path:body:timeout:)` when the payload is raw
+    /// binary data (e.g. `.vbundle` archives) rather than JSON.
+    ///
+    /// - Parameters:
+    ///   - path: Path segment after `/v1/` (e.g. `"assistants/{id}/transfer"`).
+    ///   - body: Raw binary data to upload.
+    ///   - timeout: Request timeout in seconds. Defaults to 120 to accommodate large bundle uploads.
+    /// - Returns: A `Response` with the raw data and HTTP status code.
+    /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
+    public static func postBinary(path: String, body: Data, timeout: TimeInterval = 120) async throws -> Response {
+        var request = try buildRequest(path: path, method: "POST", timeout: timeout)
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        return try await execute(request)
+    }
+
     /// Performs an authenticated DELETE request against the gateway.
     ///
     /// - Parameters:
