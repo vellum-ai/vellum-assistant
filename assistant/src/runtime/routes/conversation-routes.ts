@@ -52,6 +52,7 @@ import { getConfiguredProvider } from "../../providers/provider-send-message.js"
 import type { Provider } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { getLogger } from "../../util/logger.js";
+import { silentlyWithLog } from "../../util/silently.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import type { AuthContext } from "../auth/types.js";
@@ -962,7 +963,7 @@ export async function handleSendMessage(
           sessionId: conversationId,
         });
         session.processing = false;
-        session.drainQueue().catch(() => {});
+        silentlyWithLog(session.drainQueue(), "slash-command queue drain");
       }, 0);
 
       cleanupDeferred = true;
@@ -972,7 +973,7 @@ export async function handleSendMessage(
       // setTimeout above), but still needed for error paths.
       if (!cleanupDeferred && session.processing) {
         session.processing = false;
-        session.drainQueue().catch(() => {});
+        silentlyWithLog(session.drainQueue(), "error-path queue drain");
       }
     }
   }
