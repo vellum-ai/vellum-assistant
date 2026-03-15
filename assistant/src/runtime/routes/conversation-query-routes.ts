@@ -21,8 +21,8 @@ import {
 import {
   getMessageContent,
   performConversationSearch,
-} from "../../daemon/handlers/session-history.js";
-import { deleteQueuedMessage } from "../../daemon/handlers/sessions.js";
+} from "../../daemon/handlers/conversation-history.js";
+import { deleteQueuedMessage } from "../../daemon/handlers/conversations.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 

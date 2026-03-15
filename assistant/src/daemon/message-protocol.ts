@@ -17,6 +17,7 @@ export * from "./message-types/apps.js";
 export * from "./message-types/browser.js";
 export * from "./message-types/computer-use.js";
 export * from "./message-types/contacts.js";
+export * from "./message-types/conversations.js";
 export * from "./message-types/diagnostics.js";
 export * from "./message-types/documents.js";
 export * from "./message-types/guardian-actions.js";
@@ -30,7 +31,6 @@ export * from "./message-types/messages.js";
 export * from "./message-types/notifications.js";
 export * from "./message-types/pairing.js";
 export * from "./message-types/schedules.js";
-export * from "./message-types/sessions.js";
 export * from "./message-types/settings.js";
 export * from "./message-types/shared.js";
 export * from "./message-types/skills.js";
@@ -57,6 +57,10 @@ import type {
   _ContactsClientMessages,
   _ContactsServerMessages,
 } from "./message-types/contacts.js";
+import type {
+  _SessionsClientMessages,
+  _SessionsServerMessages,
+} from "./message-types/conversations.js";
 import type {
   _DiagnosticsClientMessages,
   _DiagnosticsServerMessages,
@@ -97,10 +101,6 @@ import type {
   _SchedulesClientMessages,
   _SchedulesServerMessages,
 } from "./message-types/schedules.js";
-import type {
-  _SessionsClientMessages,
-  _SessionsServerMessages,
-} from "./message-types/sessions.js";
 import type {
   _SettingsClientMessages,
   _SettingsServerMessages,

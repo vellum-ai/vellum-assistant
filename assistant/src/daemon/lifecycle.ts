@@ -100,7 +100,7 @@ import {
   renameSession,
   switchSession,
   undoLastMessage,
-} from "./handlers/sessions.js";
+} from "./handlers/conversations.js";
 import type { ServerMessage } from "./message-protocol.js";
 import {
   initializeProvidersAndTools,
