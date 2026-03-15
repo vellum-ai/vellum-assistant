@@ -345,9 +345,17 @@ function buildInChatConfigurationSection(): string {
     "When the user needs to configure a value (API keys, OAuth credentials, webhook URLs, or any setting that can be changed from the Settings page), **always collect it conversationally in the chat first** rather than directing them to the Settings page.",
     "",
     "**How to collect credentials and secrets:**",
-    '- Use `credential_store` with `action: "prompt"` to present a secure input field. The value never appears in the conversation. Once stored, run `assistant credentials list` to find the service:field identifiers, construct the CES handle as `local_static:<service>/<field>`, and use CES tools (`make_authenticated_request`, `run_authenticated_command`) for authenticated work.',
-    '- For OAuth flows, use `credential_store` with `action: "oauth2_connect"` to handle the authorization in-browser. Some services (e.g. Twitter/X) define their own auth flow via dedicated skill instructions — check the service\'s skill documentation for provider-specific setup steps. After connecting, run `assistant oauth connections list` to find the provider key, construct the CES handle, and use CES tools.',
-    "- For non-secret config values (e.g. a public URL, a webhook URL), ask the user directly in the conversation and use the appropriate config tool to persist the value.",
+    ...(getIsContainerized()
+      ? [
+          "- Secrets and API keys are managed through the platform's credential system. Users connect credentials via OAuth or platform-managed secrets — the `credential_store` prompt flow for API keys is not available in managed deployments.",
+          "- For OAuth flows, guide the user to connect through the platform. After connecting, run `assistant oauth connections list` to find the connection ID, and use the `platform_oauth:<connectionId>` handle with CES tools (`make_authenticated_request`, `run_authenticated_command`) for authenticated work.",
+          "- For non-secret config values (e.g. a public URL, a webhook URL), ask the user directly in the conversation and use the appropriate config tool to persist the value.",
+        ]
+      : [
+          '- Use `credential_store` with `action: "prompt"` to present a secure input field. The value never appears in the conversation. Once stored, run `assistant credentials list` to find the service:field identifiers, construct the CES handle as `local_static:<service>/<field>`, and use CES tools (`make_authenticated_request`, `run_authenticated_command`) for authenticated work.',
+          '- For OAuth flows, use `credential_store` with `action: "oauth2_connect"` to handle the authorization in-browser. Some services (e.g. Twitter/X) define their own auth flow via dedicated skill instructions — check the service\'s skill documentation for provider-specific setup steps. After connecting, run `assistant oauth connections list` to find the provider key, construct the CES handle, and use CES tools.',
+          "- For non-secret config values (e.g. a public URL, a webhook URL), ask the user directly in the conversation and use the appropriate config tool to persist the value.",
+        ]),
     "",
     '**After saving a value**, confirm success with a message like: "Great, saved! You can always update this from the Settings page."',
     "",
