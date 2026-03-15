@@ -155,8 +155,9 @@ function readStore(): StoreFile | null {
 function writeStore(store: StoreFile): void {
   const path = getStorePath();
   ensureDir(dirname(path));
-  // Atomic write: write to temp file then rename to avoid partial/corrupt writes
-  const tmpPath = path + ".tmp";
+  // Atomic write: write to temp file then rename to avoid partial/corrupt writes.
+  // Use a unique suffix per write to prevent collisions under concurrent writes.
+  const tmpPath = path + `.tmp.${randomBytes(6).toString("hex")}`;
   writeFileSync(tmpPath, JSON.stringify(store, null, 2), { mode: 0o600 });
   chmodSync(tmpPath, 0o600);
   renameSync(tmpPath, path);
