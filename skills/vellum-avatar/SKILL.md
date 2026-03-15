@@ -112,10 +112,12 @@ Tell the user their avatar has been updated. The client will pick up the new ima
 
 ## Mode 3: AI-Generated Image
 
-The user describes what they want their avatar to look like. Use the `set_avatar` tool with their description:
+The user describes what they want their avatar to look like. Use `bash` to call the daemon's avatar generation HTTP endpoint:
 
-```
-set_avatar description="<user's description>"
+```bash
+curl -s -X POST http://localhost:${VELLUM_DAEMON_PORT:-9320}/v1/settings/avatar/generate \
+  -H "Content-Type: application/json" \
+  -d '{"description": "<user'\''s description>"}'
 ```
 
 This generates an image using AI and saves it to `data/avatar/avatar-image.png`. After the image is generated, remove the character traits file:
