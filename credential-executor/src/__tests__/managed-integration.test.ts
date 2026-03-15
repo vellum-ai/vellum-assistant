@@ -601,9 +601,11 @@ describe("managed CES integration (real Unix socket)", () => {
     const conn = await connectionPromise;
 
     // Socket file should be unlinked after the first connection,
-    // so a second connection attempt should fail
+    // so a second connection attempt should fail.
+    // Use maxRetries: 0 so the ENOENT rejects immediately instead of
+    // retrying for ~10 s (which exceeds the 5 s test timeout on slow CI).
     await expect(
-      connectToSocket(socketPath),
+      connectToSocket(socketPath, { maxRetries: 0 }),
     ).rejects.toThrow();
 
     // Clean up
