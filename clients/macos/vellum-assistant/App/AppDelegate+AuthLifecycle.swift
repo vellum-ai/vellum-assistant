@@ -202,10 +202,6 @@ extension AppDelegate {
     /// or the user isn't authenticated. Always calls through to
     /// `LocalAssistantBootstrapService.bootstrap()` so existing-key re-injection
     /// and stale-key reprovisioning are handled (not just Keychain presence).
-    ///
-    /// Waits up to 60s for the actor token to become available, retrying every
-    /// 5s, so that assistant switches (which clear then re-bootstrap actor
-    /// credentials) don't race with this method.
     func ensureLocalAssistantApiKey() {
         guard !isCurrentAssistantManaged, !isCurrentAssistantRemote else {
             log.debug("Skipping local assistant API key provisioning because current assistant is managed=\(self.isCurrentAssistantManaged, privacy: .public) remote=\(self.isCurrentAssistantRemote, privacy: .public)")
@@ -218,47 +214,20 @@ extension AppDelegate {
 
         let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
         guard let assistantId = storedId,
-              let assistant = LockfileAssistant.loadByName(assistantId) else {
+              let _ = LockfileAssistant.loadByName(assistantId) else {
             log.warning("Skipping local assistant API key provisioning because connectedAssistantId is missing from lockfile")
             return
         }
 
-        // Resolve daemon HTTP endpoint from lockfile, with env override and fallback
-        let daemonPort = assistant.daemonPort
-            ?? Int(ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "")
-            ?? 7821
-        let daemonBaseURL = "http://localhost:\(daemonPort)"
-        log.info("Starting local assistant API key provisioning for \(assistant.assistantId, privacy: .public) at \(daemonBaseURL, privacy: .public)")
+        log.info("Starting local assistant API key provisioning for \(assistantId, privacy: .public)")
 
         Task {
-            // Wait for actor token with retries — initial bootstrap may take
-            // longer than a single waitForToken timeout when the daemon is
-            // still coming up or credentials are being rotated after a switch.
-            let daemonToken: String
-            if let token = ActorTokenManager.getToken(), !token.isEmpty {
-                daemonToken = token
-            } else {
-                var token: String?
-                for attempt in 1...6 {
-                    token = await ActorTokenManager.waitForToken(timeout: 10)
-                    if token != nil { break }
-                    log.info("Actor token not yet available (attempt \(attempt)/6), retrying...")
-                }
-                guard let resolved = token else {
-                    log.warning("No actor token available for local API key provisioning after 60s")
-                    return
-                }
-                daemonToken = resolved
-            }
-
             do {
                 let credentialStorage = KeychainCredentialStorage()
                 let bootstrapService = LocalAssistantBootstrapService(credentialStorage: credentialStorage)
                 let outcome = try await bootstrapService.bootstrap(
-                    runtimeAssistantId: assistant.assistantId,
-                    clientPlatform: "macos",
-                    daemonBaseURL: daemonBaseURL,
-                    daemonToken: daemonToken
+                    runtimeAssistantId: assistantId,
+                    clientPlatform: "macos"
                 )
                 switch outcome {
                 case .registeredWithExistingKey(let id):

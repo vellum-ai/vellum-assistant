@@ -68,13 +68,9 @@ public final class LocalAssistantBootstrapService {
     /// - Parameters:
     ///   - runtimeAssistantId: The local assistant's ID from the lockfile
     ///   - clientPlatform: e.g., "macos"
-    ///   - daemonBaseURL: The local daemon's HTTP base URL
-    ///   - daemonToken: The bearer token for authenticating with the local daemon
     public func bootstrap(
         runtimeAssistantId: String,
-        clientPlatform: String = "macos",
-        daemonBaseURL: String,
-        daemonToken: String
+        clientPlatform: String = "macos"
     ) async throws -> LocalBootstrapOutcome {
         let installId = LocalInstallationIdStore.getOrCreate()
 
@@ -149,9 +145,9 @@ public final class LocalAssistantBootstrapService {
         // Step 2: Check if we already have the key stored locally
         if let existingKey = credentialStorage?.get(account: credentialAccount), !existingKey.isEmpty {
             do {
-                try await injectKeyIntoDaemon(key: existingKey, daemonBaseURL: daemonBaseURL, daemonToken: daemonToken)
+                try await injectKeyIntoDaemon(key: existingKey)
                 log.info("Re-synced existing API key to daemon")
-                try? await injectPlatformAssistantIdIntoDaemon(id: platformAssistantId, daemonBaseURL: daemonBaseURL, daemonToken: daemonToken)
+                try? await injectPlatformAssistantIdIntoDaemon(id: platformAssistantId)
                 return .registeredWithExistingKey(assistantId: platformAssistantId)
             } catch {
                 log.warning("Failed to inject existing key into daemon, will reprovision: \(error.localizedDescription)")
@@ -181,8 +177,8 @@ public final class LocalAssistantBootstrapService {
         _ = credentialStorage?.set(account: credentialAccount, value: rawKey)
 
         // Step 5: Inject into daemon
-        try await injectKeyIntoDaemon(key: rawKey, daemonBaseURL: daemonBaseURL, daemonToken: daemonToken)
-        if (try? await injectPlatformAssistantIdIntoDaemon(id: platformAssistantId, daemonBaseURL: daemonBaseURL, daemonToken: daemonToken)) == nil {
+        try await injectKeyIntoDaemon(key: rawKey)
+        if (try? await injectPlatformAssistantIdIntoDaemon(id: platformAssistantId)) == nil {
             log.warning("Failed to inject platform assistant ID into daemon on provision path; the TS env-var fallback will be used")
         }
 
@@ -193,69 +189,41 @@ public final class LocalAssistantBootstrapService {
     /// Call this when a 401 indicates the cached key has been revoked.
     public func reprovision(
         runtimeAssistantId: String,
-        clientPlatform: String = "macos",
-        daemonBaseURL: String,
-        daemonToken: String
+        clientPlatform: String = "macos"
     ) async throws -> LocalBootstrapOutcome {
         let account = Self.credentialAccount(for: runtimeAssistantId)
         _ = credentialStorage?.delete(account: account)
 
         return try await bootstrap(
             runtimeAssistantId: runtimeAssistantId,
-            clientPlatform: clientPlatform,
-            daemonBaseURL: daemonBaseURL,
-            daemonToken: daemonToken
+            clientPlatform: clientPlatform
         )
     }
 
-    /// Inject the assistant API key into the daemon's secret store.
-    private func injectKeyIntoDaemon(key: String, daemonBaseURL: String, daemonToken: String) async throws {
-        guard let url = URL(string: "\(daemonBaseURL)/v1/secrets") else {
-            throw LocalBootstrapError.daemonInjectionFailed
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(daemonToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 10
-
+    /// Inject the assistant API key into the daemon's secret store via the gateway.
+    private func injectKeyIntoDaemon(key: String) async throws {
         let body: [String: String] = [
             "type": "credential",
             "name": "vellum:assistant_api_key",
             "value": key
         ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (_, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
+        let bodyData = try JSONSerialization.data(withJSONObject: body)
+        let response = try await GatewayHTTPClient.post(path: "secrets", body: bodyData, timeout: 10)
+        guard response.isSuccess else {
             throw LocalBootstrapError.daemonInjectionFailed
         }
     }
 
-    /// Inject the platform assistant ID into the daemon's secret store.
-    private func injectPlatformAssistantIdIntoDaemon(id: String, daemonBaseURL: String, daemonToken: String) async throws {
-        guard let url = URL(string: "\(daemonBaseURL)/v1/secrets") else {
-            throw LocalBootstrapError.daemonInjectionFailed
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(daemonToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 10
-
+    /// Inject the platform assistant ID into the daemon's secret store via the gateway.
+    private func injectPlatformAssistantIdIntoDaemon(id: String) async throws {
         let body: [String: String] = [
             "type": "credential",
             "name": "vellum:platform_assistant_id",
             "value": id
         ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (_, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
+        let bodyData = try JSONSerialization.data(withJSONObject: body)
+        let response = try await GatewayHTTPClient.post(path: "secrets", body: bodyData, timeout: 10)
+        guard response.isSuccess else {
             throw LocalBootstrapError.daemonInjectionFailed
         }
     }
