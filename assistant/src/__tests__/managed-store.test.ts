@@ -123,18 +123,6 @@ describe("buildSkillMarkdown", () => {
     expect(parsed.metadata.vellum["user-invocable"]).toBe(false);
   });
 
-  test("includes disable-model-invocation in metadata.vellum", () => {
-    const result = buildSkillMarkdown({
-      name: "Manual",
-      description: "Manual only",
-      bodyMarkdown: "Body.",
-      disableModelInvocation: true,
-    });
-    const fmMatch = result.match(/^---\n([\s\S]*?)\n---/);
-    const parsed = parseYaml(fmMatch![1]);
-    expect(parsed.metadata.vellum["disable-model-invocation"]).toBe(true);
-  });
-
   test("escapes double quotes in name and description", () => {
     const result = buildSkillMarkdown({
       name: 'Say "hi"',
@@ -793,7 +781,6 @@ describe("YAML metadata round-trip", () => {
       bodyMarkdown: "Full metadata body.",
       emoji: "🔬",
       userInvocable: false,
-      disableModelInvocation: true,
       includes: ["child-a", "child-b"],
     });
 
@@ -809,7 +796,6 @@ describe("YAML metadata round-trip", () => {
     );
     expect(skill!.emoji).toBe("🔬");
     expect(skill!.userInvocable).toBe(false);
-    expect(skill!.disableModelInvocation).toBe(true);
     expect(skill!.includes).toEqual(["child-a", "child-b"]);
   });
 
@@ -830,7 +816,6 @@ describe("YAML metadata round-trip", () => {
         "  vellum:",
         '    display-name: "YAML Nested Skill"',
         "    user-invocable: false",
-        "    disable-model-invocation: true",
         "    os:",
         `      - "${process.platform}"`,
         "    includes:",
@@ -852,7 +837,6 @@ describe("YAML metadata round-trip", () => {
     expect(skill!.description).toBe("Hand-authored YAML nested metadata test");
     expect(skill!.displayName).toBe("YAML Nested Skill");
     expect(skill!.userInvocable).toBe(false);
-    expect(skill!.disableModelInvocation).toBe(true);
     expect(skill!.emoji).toBe("🧪");
     expect(skill!.includes).toEqual(["child-a", "child-b"]);
 

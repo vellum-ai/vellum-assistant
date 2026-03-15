@@ -174,7 +174,6 @@ const VELLUM_EXTENSION_FIELDS = new Set([
   "user-invocable",
   "user_invocable",
   "credential-setup-for",
-  "disable-model-invocation",
 ]);
 
 /**

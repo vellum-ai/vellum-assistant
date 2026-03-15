@@ -49,7 +49,7 @@ function makeSkill(
     skillFilePath: `/fake/skills/${id}/SKILL.md`,
     bundled: source === "bundled",
     userInvocable: true,
-    disableModelInvocation: false,
+
     source,
     featureFlag,
   };

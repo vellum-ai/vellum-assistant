@@ -602,8 +602,8 @@ extension SkillsDraftRequest {
 public typealias SkillsCreateMessage = SkillsCreateRequest
 
 extension SkillsCreateRequest {
-    public init(skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String, userInvocable: Bool? = nil, disableModelInvocation: Bool? = nil, overwrite: Bool? = nil) {
-        self.init(type: "skills_create", skillId: skillId, name: name, description: description, emoji: emoji, bodyMarkdown: bodyMarkdown, userInvocable: userInvocable, disableModelInvocation: disableModelInvocation, overwrite: overwrite)
+    public init(skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String, userInvocable: Bool? = nil, overwrite: Bool? = nil) {
+        self.init(type: "skills_create", skillId: skillId, name: name, description: description, emoji: emoji, bodyMarkdown: bodyMarkdown, userInvocable: userInvocable, overwrite: overwrite)
     }
 }
 
