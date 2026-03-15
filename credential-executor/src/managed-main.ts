@@ -17,13 +17,12 @@
  * All RPC traffic flows exclusively over the accepted Unix socket stream.
  */
 
-import { mkdirSync, readFileSync, unlinkSync } from "node:fs";
+import { mkdirSync, unlinkSync } from "node:fs";
 import { createServer as createNetServer, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 
 import { CES_PROTOCOL_VERSION, CesRpcMethod } from "@vellumai/ces-contracts";
-import { StaticCredentialMetadataStore } from "@vellumai/credential-storage";
 
 import { AuditStore } from "./audit/store.js";
 import { PersistentGrantStore } from "./grants/persistent-store.js";
@@ -34,8 +33,6 @@ import {
   createRevokeGrantHandler,
 } from "./grants/rpc-handlers.js";
 import { TemporaryGrantStore } from "./grants/temporary-store.js";
-import { LocalMaterialiser } from "./materializers/local.js";
-import { createLocalSecureKeyBackend } from "./materializers/local-secure-key-backend.js";
 import {
   getBootstrapSocketPath,
   getCesAuditDir,
@@ -55,8 +52,6 @@ import {
 import { publishBundle } from "./toolstore/publish.js";
 import { validateSourceUrl } from "./toolstore/manifest.js";
 import { buildCesEgressHooks } from "./commands/egress-hooks.js";
-import { resolveLocalSubject } from "./subjects/local.js";
-import { checkCredentialPolicy } from "./subjects/policy.js";
 import { resolveManagedSubject, type ManagedSubjectResolverOptions } from "./subjects/managed.js";
 import { materializeManagedToken, type ManagedMaterializerOptions } from "./materializers/managed-platform.js";
 import { HandleType, parseHandle } from "@vellumai/ces-contracts";
@@ -129,58 +124,42 @@ function buildHandlers(sessionIdRef: SessionIdRef): RpcHandlerRegistry {
     );
   }
 
-  // -- Local credential backend via read-only assistant data mount -----------
-  // In managed mode, the platform mounts the assistant data volume read-only
-  // into the CES sidecar at CES_ASSISTANT_DATA_MOUNT (default /assistant-data-ro).
-  // This allows CES to read local static secrets from the assistant's encrypted
-  // key store on the shared volume, supporting v1 local_static handles.
+  // -- Workspace root for command execution cwd ------------------------------
   const assistantDataMount =
     process.env["CES_ASSISTANT_DATA_MOUNT"] ?? "/assistant-data-ro";
   const mountedVellumRoot = join(assistantDataMount, ".vellum");
 
-  // The assistant writes its machine entropy to `protected/entropy.key` so
-  // the CES sidecar can derive the same AES decryption key. Without this,
-  // key derivation would use the sidecar's own hostname/user/homedir which
-  // differ from the assistant container's values.
-  let assistantEntropy: string | undefined;
-  const entropyPath = join(mountedVellumRoot, "protected", "entropy.key");
-  try {
-    assistantEntropy = readFileSync(entropyPath, "utf-8");
-    log(`Read assistant entropy from ${entropyPath}`);
-  } catch {
-    warn(
-      `Could not read assistant entropy from ${entropyPath}. ` +
-        "local_static credential decryption may fail if machine entropy differs.",
-    );
-  }
-
-  const secureKeyBackend = createLocalSecureKeyBackend(mountedVellumRoot, {
-    entropyOverride: assistantEntropy,
-  });
-  const localMaterialiser = new LocalMaterialiser({ secureKeyBackend });
-
-  const credentialMetadataPath = join(
-    mountedVellumRoot,
-    "workspace",
-    "data",
-    "credentials",
-    "metadata.json",
-  );
-  const metadataStore = new StaticCredentialMetadataStore(credentialMetadataPath);
-
   // -- Build handler registry ------------------------------------------------
+  // NOTE: local_static credential handles are NOT supported in managed mode.
+  // The encrypted key store uses PBKDF2 key derivation from user identity
+  // (username, homedir), but the assistant container runs as root while CES
+  // runs as ces — different derived keys make decryption silently fail.
+  // Managed deployments must use platform_oauth handles exclusively.
+  //
+  // We provide error-returning stubs for localMaterialiser/localSubjectDeps
+  // so the HTTP handler compiles but any local_static request gets a clear
+  // error message rather than a silent decryption failure.
+
+  const localMaterialiserStub = {
+    materialise: async () => ({
+      ok: false as const,
+      error:
+        "local_static credential handles are not supported in managed mode. " +
+        "Use platform_oauth handles for managed deployments.",
+    }),
+  };
+
+  const localSubjectDepsStub = {
+    metadataStore: { getById: () => undefined, list: () => [] } as any,
+    oauthConnections: { getById: () => undefined },
+  };
 
   const handlers = buildHandlersWithHttp(
     {
       persistentGrantStore,
       temporaryGrantStore,
-      localMaterialiser,
-      localSubjectDeps: {
-        metadataStore,
-        // OAuth connections are not available via the read-only mount — only
-        // local_static handles are supported. Return undefined for any lookup.
-        oauthConnections: { getById: () => undefined },
-      },
+      localMaterialiser: localMaterialiserStub as any,
+      localSubjectDeps: localSubjectDepsStub,
       managedSubjectOptions,
       managedMaterializerOptions,
       auditStore,
@@ -201,37 +180,13 @@ function buildHandlers(sessionIdRef: SessionIdRef): RpcHandlerRegistry {
         }
 
         switch (parseResult.handle.type) {
-          // -- Local static: read from the mounted assistant data volume ------
+          // -- Local static: NOT supported in managed mode -------------------
           case HandleType.LocalStatic: {
-            const subjectResult = resolveLocalSubject(handle, {
-              metadataStore,
-              oauthConnections: { getById: () => undefined },
-            });
-            if (!subjectResult.ok) {
-              return { ok: false as const, error: subjectResult.error };
-            }
-
-            // Enforce credential-level policies for local static handles
-            if (subjectResult.subject.type === HandleType.LocalStatic) {
-              const policyCheck = checkCredentialPolicy(
-                subjectResult.subject.metadata,
-                "run_authenticated_command",
-              );
-              if (!policyCheck.ok) {
-                return { ok: false as const, error: policyCheck.error! };
-              }
-            }
-
-            const matResult = await localMaterialiser.materialise(
-              subjectResult.subject,
-            );
-            if (!matResult.ok) {
-              return { ok: false as const, error: matResult.error };
-            }
             return {
-              ok: true as const,
-              value: matResult.credential.value,
-              handleType: HandleType.LocalStatic,
+              ok: false as const,
+              error:
+                "local_static credential handles are not supported in managed mode. " +
+                "Use platform_oauth handles for managed deployments.",
             };
           }
 
@@ -273,7 +228,7 @@ function buildHandlers(sessionIdRef: SessionIdRef): RpcHandlerRegistry {
             return {
               ok: false as const,
               error: `Handle type "${parseResult.handle.type}" is not supported in managed mode. ` +
-                `Supported types: local_static, platform_oauth.`,
+                `Supported types: platform_oauth.`,
             };
         }
       },

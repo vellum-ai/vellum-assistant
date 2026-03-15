@@ -1,9 +1,9 @@
 /**
- * CES-native read-only SecureKeyBackend for local mode.
+ * CES-native read-only SecureKeyBackend for **local mode only**.
  *
  * In local mode, CES runs as a child process of the assistant on the same
- * machine and can read the assistant's encrypted key store file at
- * `<vellumRoot>/protected/keys.enc`.
+ * machine as the same user and can read the assistant's encrypted key store
+ * file at `<vellumRoot>/protected/keys.enc`.
  *
  * This implementation replicates the decryption logic from the assistant's
  * `encrypted-store.ts` without importing assistant-internal modules. It is
@@ -12,10 +12,15 @@
  * enforce this invariant.
  *
  * The encrypted store uses AES-256-GCM with a key derived from machine-
- * specific entropy via PBKDF2. In local mode, CES runs on the same machine
- * as the same user so the derived key is identical. In managed mode, CES
- * runs in a separate container with different hostname/user/homedir, so
- * the caller must supply the assistant's entropy via `entropyOverride`.
+ * specific entropy via PBKDF2. The derivation includes `userInfo().username`
+ * and `userInfo().homedir`, so the key is only correct when CES runs as the
+ * same OS user as the assistant.
+ *
+ * **This backend must NOT be used in managed mode.** In managed (sidecar)
+ * deployments, the assistant container runs as `root` while the CES
+ * container runs as `ces` (uid 1001). The different user identity produces
+ * a different PBKDF2-derived key, causing silent decryption failures.
+ * Managed deployments must use `platform_oauth` handles exclusively.
  */
 
 import {
