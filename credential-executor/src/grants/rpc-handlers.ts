@@ -94,30 +94,44 @@ export function createRecordGrantHandler(
       return { success: true };
     }
 
-    // Build a PersistentGrant from the decision.
     const proposal = decision.proposal;
     const now = Date.now();
     const grantId = decision.proposalHash;
 
-    const persistentGrant: PersistentGrant = {
-      id: grantId,
-      tool: proposal.type,
-      pattern:
-        proposal.type === "http"
-          ? `${proposal.method} ${proposal.url}`
-          : proposal.command,
-      scope: proposal.credentialHandle,
-      createdAt: now,
-    };
+    // Determine the grant type. When omitted (backwards compat), default
+    // to `always_allow` so existing callers that don't send `grantType`
+    // continue to create persistent grants.
+    const grantType = decision.grantType ?? "always_allow";
 
-    // Persist the grant.
-    deps.persistentGrantStore.add(persistentGrant);
+    // Only `always_allow` creates a persistent grant. All other approved
+    // decisions create only a temporary grant — this prevents allow_once,
+    // allow_10m, and allow_thread from becoming effectively permanent.
+    if (grantType === "always_allow") {
+      const persistentGrant: PersistentGrant = {
+        id: grantId,
+        tool: proposal.type,
+        pattern:
+          proposal.type === "http"
+            ? `${proposal.method} ${proposal.url}`
+            : proposal.command,
+        scope: proposal.credentialHandle,
+        createdAt: now,
+      };
+      deps.persistentGrantStore.add(persistentGrant);
+    }
 
-    // Also record a temporary grant so the caller can use it immediately.
-    // Map TTL to the appropriate temporary grant kind.
-    if (decision.ttl === "PT10M") {
+    // Record a temporary grant so the caller can use it immediately.
+    // For `always_allow`, an `allow_once` temp grant bridges the gap until
+    // the next policy check hits the persistent store.
+    if (grantType === "allow_10m") {
       deps.temporaryGrantStore.add("allow_10m", decision.proposalHash);
+    } else if (grantType === "allow_thread") {
+      deps.temporaryGrantStore.add("allow_thread", decision.proposalHash, {
+        conversationId: sessionId,
+      });
     } else {
+      // allow_once and always_allow both get a single-use temp grant
+      // for immediate retry.
       deps.temporaryGrantStore.add("allow_once", decision.proposalHash);
     }
 

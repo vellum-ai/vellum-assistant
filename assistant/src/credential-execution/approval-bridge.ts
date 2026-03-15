@@ -46,6 +46,13 @@ export interface CesApprovalDecision {
   grantDecision: "approved" | "denied";
   /** ISO-8601 duration for temporary grants. Undefined for single-use or persistent. */
   ttl: string | undefined;
+  /** The type of grant to create (controls persistence behaviour in CES). */
+  grantType:
+    | "allow_once"
+    | "allow_10m"
+    | "allow_thread"
+    | "always_allow"
+    | undefined;
   /** The original user decision from the confirmation transport. */
   userDecision: UserDecision;
 }
@@ -58,12 +65,14 @@ function mapUserDecisionToCesDecision(
       return {
         grantDecision: "approved",
         ttl: undefined,
+        grantType: "allow_once",
         userDecision: decision,
       };
     case "allow_10m":
       return {
         grantDecision: "approved",
         ttl: "PT10M",
+        grantType: "allow_10m",
         userDecision: decision,
       };
     case "allow_thread":
@@ -73,6 +82,7 @@ function mapUserDecisionToCesDecision(
       return {
         grantDecision: "approved",
         ttl: undefined,
+        grantType: "allow_thread",
         userDecision: decision,
       };
     case "always_allow":
@@ -81,6 +91,7 @@ function mapUserDecisionToCesDecision(
       return {
         grantDecision: "approved",
         ttl: undefined,
+        grantType: "always_allow",
         userDecision: decision,
       };
     case "deny":
@@ -88,12 +99,14 @@ function mapUserDecisionToCesDecision(
       return {
         grantDecision: "denied",
         ttl: undefined,
+        grantType: undefined,
         userDecision: decision,
       };
     case "temporary_override":
       return {
         grantDecision: "approved",
         ttl: undefined,
+        grantType: "allow_once",
         userDecision: decision,
       };
     default: {
@@ -102,6 +115,7 @@ function mapUserDecisionToCesDecision(
       return {
         grantDecision: "denied",
         ttl: undefined,
+        grantType: undefined,
         userDecision: decision,
       };
     }
@@ -260,6 +274,7 @@ export async function bridgeCesApproval(
           decidedAt: new Date().toISOString(),
           reason: response.decisionContext,
           ttl: cesDecision.ttl,
+          grantType: cesDecision.grantType,
         },
         sessionId,
       },
