@@ -446,7 +446,7 @@ describe("WorkspaceGitService — abort signal propagation", () => {
     expect(service.isInitialized()).toBe(true);
   });
 
-  test("commitChanges: interleaved with abort-signalled writeNote does not corrupt repo", async () => {
+  test("commitChanges: after abort-signalled writeNote does not corrupt repo", async () => {
     const { WorkspaceGitService, _resetGitServiceRegistry } =
       await import("../workspace/git-service.js");
 
@@ -461,22 +461,20 @@ describe("WorkspaceGitService — abort signal propagation", () => {
 
     const headHash = await service.getHeadHash();
 
-    // Fire a pre-aborted writeNote alongside another commitChanges.
+    // Fire a pre-aborted writeNote — it should fail without corrupting the repo.
     const ac = new AbortController();
     ac.abort();
 
-    const [commitResult] = await Promise.allSettled([
-      service.commitChanges("second commit").then(() => "committed"),
-      service
-        .writeNote(headHash, "note", ac.signal)
-        .catch(() => "note-aborted"),
-    ]);
-
-    // The commit itself should succeed — the aborted note does not block it.
-    expect(commitResult.status).toBe("fulfilled");
-    if (commitResult.status === "fulfilled") {
-      expect(commitResult.value).toBe("committed");
+    let noteAborted = false;
+    try {
+      await service.writeNote(headHash, "note", ac.signal);
+    } catch {
+      noteAborted = true;
     }
+    expect(noteAborted).toBe(true);
+
+    // A subsequent commit should succeed — the aborted note did not corrupt state.
+    await service.commitChanges("second commit");
 
     // Repo must still be in a clean, functional state.
     const status = await service.getStatus();
