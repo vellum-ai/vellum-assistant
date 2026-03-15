@@ -143,10 +143,10 @@ export function validateAuthAdapterConfig(
     case AuthAdapterType.TempFile:
       if (
         config.fileMode !== undefined &&
-        config.fileMode > 0o600
+        (config.fileMode > 0o600 || (config.fileMode & 0o077) !== 0)
       ) {
         errors.push(
-          `temp_file adapter fileMode must be <= 0600 (owner-only), got ${config.fileMode.toString(8)}`,
+          `temp_file adapter fileMode must be <= 0600 (owner-only) with no group/other bits, got ${config.fileMode.toString(8)}`,
         );
       }
       break;

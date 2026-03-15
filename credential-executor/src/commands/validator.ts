@@ -179,8 +179,13 @@ function validateProfile(
     }
   }
 
-  // -- Denied subcommands (optional but must be an array)
-  if (profile.deniedSubcommands) {
+  // -- Denied subcommands (required — runtime iterates unconditionally)
+  if (!profile.deniedSubcommands || !Array.isArray(profile.deniedSubcommands)) {
+    errors.push(
+      `${prefix}: deniedSubcommands is required and must be an array. ` +
+        "Use an empty array if no subcommands need to be denied.",
+    );
+  } else {
     for (const sub of profile.deniedSubcommands) {
       if (!sub || sub.trim().length === 0) {
         errors.push(
