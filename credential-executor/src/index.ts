@@ -105,3 +105,5 @@ export type {
 
 export { executeAuthenticatedHttpRequest } from "./http/executor.js";
 export type { HttpExecutorDeps } from "./http/executor.js";
+
+export { MANAGED_LOCAL_STATIC_REJECTION_ERROR } from "./managed-errors.js";

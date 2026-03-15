@@ -168,17 +168,11 @@ describe("local_static handle rejection in managed mode", () => {
     expect(types).toHaveLength(3);
   });
 
-  test("managed mode error messages reference platform_oauth as the alternative", () => {
-    // The error message contract from managed-main.ts: when a local_static
-    // handle is rejected, the error must guide users toward platform_oauth.
-    // We verify the error message pattern that managed-main.ts uses.
-    const expectedErrorFragment =
-      "Use platform_oauth handles for managed deployments";
-    // This is a contract test — if the error message changes in
-    // managed-main.ts, this test should fail to flag the contract change.
-    expect(expectedErrorFragment).toContain("platform_oauth");
-    expect(expectedErrorFragment).toContain("managed");
-  });
+  // NOTE: The managed-mode local_static rejection error message is validated
+  // in credential-executor/src/__tests__/managed-rejection.test.ts, which can
+  // import the actual error constant from managed-errors.ts. We cannot import
+  // from credential-executor here due to the hard process-boundary isolation
+  // (see CES boundary guard in credential-execution-client.test.ts).
 });
 
 // ---------------------------------------------------------------------------
