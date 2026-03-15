@@ -1,3 +1,5 @@
+import type { Server } from "bun";
+
 import { validateEdgeToken } from "../../auth/token-exchange.js";
 import { resolveScopeProfile } from "../../auth/scopes.js";
 import type { Scope } from "../../auth/types.js";
@@ -24,7 +26,7 @@ export function createAuthMiddleware(
    */
   function requireEdgeAuth(
     req: Request,
-    server?: import("bun").Server<unknown>,
+    server?: Server,
     opts?: { trustProxy?: boolean },
   ): Response | null {
     if (server && isLoopbackPeer(server, req, opts)) {
@@ -51,7 +53,7 @@ export function createAuthMiddleware(
   function requireEdgeAuthWithScope(
     req: Request,
     scope: Scope,
-    server?: import("bun").Server<unknown>,
+    server?: Server,
     opts?: { trustProxy?: boolean },
   ): Response | null {
     if (server && isLoopbackPeer(server, req, opts)) {

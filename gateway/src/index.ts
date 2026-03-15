@@ -499,6 +499,8 @@ async function main() {
 
     // ── Channel verification sessions ──
     {
+      // Bootstrap endpoint — may be replaced with an SSH-based exchange in the
+      // future so that remote clients never need an exposed HTTP endpoint.
       path: "/v1/guardian/init",
       method: "POST",
       auth: "none",

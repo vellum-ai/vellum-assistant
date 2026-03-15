@@ -1,3 +1,5 @@
+import type { Server } from "bun";
+
 import type { Scope } from "../auth/types.js";
 import type { AuthRateLimiter } from "../auth-rate-limiter.js";
 import {
@@ -80,7 +82,7 @@ export function createRouter(
   req: Request,
   url: URL,
   getClientIp: GetClientIp,
-  server?: import("bun").Server<unknown>,
+  server?: Server,
 ) => Promise<Response> | Response | null {
   const { authRateLimiter, trustProxy } = deps;
 
@@ -88,7 +90,7 @@ export function createRouter(
     req: Request,
     url: URL,
     getClientIp: GetClientIp,
-    server?: import("bun").Server<unknown>,
+    server?: Server,
   ) => {
     for (const route of routes) {
       const matchResult = matchRoute(route, url.pathname, req.method);
