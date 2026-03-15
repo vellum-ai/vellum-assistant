@@ -54,6 +54,15 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
+ * Mutable reference to the current session ID. Allows handlers that are
+ * registered before the RPC handshake to read the actual handshake session
+ * ID at call time (after the handshake completes and sets `.current`).
+ */
+export interface SessionIdRef {
+  current: string;
+}
+
+/**
  * Handler function for a single RPC method. Receives the validated
  * request payload and returns the response payload (or throws).
  */
@@ -79,6 +88,8 @@ export interface CesServerOptions {
   logger?: Pick<Console, "log" | "warn" | "error">;
   /** Optional abort signal to shut down the server. */
   signal?: AbortSignal;
+  /** Callback invoked when the handshake completes with the negotiated session ID. */
+  onHandshakeComplete?: (sessionId: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -91,6 +102,7 @@ export class CesRpcServer {
   private readonly handlers: RpcHandlerRegistry;
   private readonly logger: Pick<Console, "log" | "warn" | "error">;
   private readonly signal?: AbortSignal;
+  private readonly onHandshakeComplete?: (sessionId: string) => void;
 
   private handshakeComplete = false;
   private sessionId: string | null = null;
@@ -103,6 +115,7 @@ export class CesRpcServer {
     this.handlers = options.handlers;
     this.logger = options.logger ?? console;
     this.signal = options.signal;
+    this.onHandshakeComplete = options.onHandshakeComplete;
   }
 
   /**
@@ -230,6 +243,7 @@ export class CesRpcServer {
       this.handshakeComplete = true;
       this.sessionId = req.sessionId;
       this.logger.log(`[ces-server] Handshake accepted for session ${req.sessionId}`);
+      this.onHandshakeComplete?.(req.sessionId);
     } else {
       this.logger.warn(
         `[ces-server] Handshake rejected: version mismatch (got ${req.protocolVersion}, expected ${CES_PROTOCOL_VERSION})`,
@@ -391,12 +405,6 @@ export interface RunAuthenticatedCommandHandlerOptions {
    * Typically the assistant's workspace root.
    */
   defaultWorkspaceDir: string;
-  /**
-   * Session ID to attach to audit records. In local mode this is a
-   * static string generated at startup; in managed mode it comes from
-   * the RPC handshake.
-   */
-  sessionId?: string;
 }
 
 /**

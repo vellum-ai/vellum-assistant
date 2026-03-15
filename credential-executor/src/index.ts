@@ -29,6 +29,7 @@ export type {
   RpcHandlerRegistry,
   RpcMethodHandler,
   RunAuthenticatedCommandHandlerOptions,
+  SessionIdRef,
 } from "./server.js";
 
 export {

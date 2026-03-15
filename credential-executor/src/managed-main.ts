@@ -50,6 +50,7 @@ import {
   registerCommandExecutionHandler,
   registerManageSecureCommandToolHandler,
   type RpcHandlerRegistry,
+  type SessionIdRef,
 } from "./server.js";
 import { publishBundle } from "./toolstore/publish.js";
 import { validateSourceUrl } from "./toolstore/manifest.js";
@@ -89,7 +90,7 @@ function ensureDataDirs(): void {
 // Build RPC handler registry (managed mode)
 // ---------------------------------------------------------------------------
 
-function buildHandlers(sessionId: string): RpcHandlerRegistry {
+function buildHandlers(sessionIdRef: SessionIdRef): RpcHandlerRegistry {
   // -- Grant stores ----------------------------------------------------------
   const persistentGrantStore = new PersistentGrantStore(
     getCesGrantsDir("managed"),
@@ -164,7 +165,7 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
       managedSubjectOptions,
       managedMaterializerOptions,
       auditStore,
-      sessionId,
+      sessionId: sessionIdRef,
     },
   );
 
@@ -246,12 +247,11 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
         }
       },
       auditStore,
-      sessionId,
+      sessionId: sessionIdRef,
       cesMode: "managed",
       egressHooks: buildCesEgressHooks(),
     },
     defaultWorkspaceDir: "/workspace",
-    sessionId,
   });
 
   // Register manage_secure_command_tool handler
@@ -504,9 +504,11 @@ async function main(): Promise<void> {
 
   rpcConnected = true;
 
-  // Build the handler registry with all available RPC implementations
-  const sessionId = `ces-managed-${Date.now()}`;
-  const handlers = buildHandlers(sessionId);
+  // Build the handler registry with all available RPC implementations.
+  // Use a mutable ref so audit records capture the handshake session ID
+  // once it's negotiated (the handshake completes before any RPC call).
+  const sessionIdRef: SessionIdRef = { current: `ces-managed-${Date.now()}` };
+  const handlers = buildHandlers(sessionIdRef);
 
   const server = new CesRpcServer({
     input: connection.readable,
@@ -521,6 +523,9 @@ async function main(): Promise<void> {
         process.stderr.write(`[ces-managed] ERROR: ${msg} ${args.map(String).join(" ")}\n`),
     },
     signal: controller.signal,
+    onHandshakeComplete: (hsSessionId) => {
+      sessionIdRef.current = hsSessionId;
+    },
   });
 
   await server.serve();
