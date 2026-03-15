@@ -6,7 +6,6 @@
  */
 
 import { execFile } from "node:child_process";
-import { statSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
@@ -34,12 +33,7 @@ import {
   loadSession,
 } from "./lib/session.js";
 import { NetworkRecorder } from "./lib/shared/network-recorder.js";
-import {
-  buildDaemonUrl,
-  readCredentialToken,
-  getDataDir,
-  getHttpPort,
-} from "./lib/shared/platform.js";
+import { getDataDir } from "./lib/shared/platform.js";
 import { loadRecording, saveRecording } from "./lib/shared/recording-store.js";
 import type { SessionRecording } from "./lib/shared/recording-types.js";
 
@@ -1029,52 +1023,39 @@ async function startLearnSession(
     startUrl: "https://www.doordash.com/consumer/login/",
   });
 
-  // Step 2: Start learn session via HTTP
-  const port = getHttpPort();
-  const baseUrl = buildDaemonUrl(port);
-  const token = readCredentialToken();
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
+  // Step 2: Start learn session via IPC signal
+  let startStdout: string;
+  try {
+    ({ stdout: startStdout } = await execFileAsync("assistant", [
+      "shotgun",
+      "start",
+      "--duration",
+      String(durationSeconds),
+      "--interval",
+      "5",
+      "--focus",
+      "doordash.com",
+    ]));
+  } catch (err: unknown) {
+    const execErr = err as { stdout?: string; message?: string };
+    throw new Error(`Failed to start learn session: ${execErr.message ?? err}`);
   }
 
-  const startResponse = await fetch(
-    `${baseUrl}/v1/computer-use/ride-shotgun/start`,
-    {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        durationSeconds,
-        intervalSeconds: 5,
-        mode: "learn",
-        targetDomain: "doordash.com",
-      }),
-    },
-  );
+  const startResult = JSON.parse(startStdout) as {
+    ok: boolean;
+    watchId?: string;
+    sessionId?: string;
+    error?: string;
+  };
 
-  if (!startResponse.ok) {
-    const errorBody = await startResponse.text();
+  if (!startResult.ok || !startResult.watchId) {
     throw new Error(
-      `Failed to start learn session (HTTP ${startResponse.status}): ${errorBody}`,
+      `Learn session start failed: ${startResult.error ?? "missing watchId"}`,
     );
   }
 
-  const startResult = (await startResponse.json()) as {
-    watchId: string;
-    sessionId: string;
-  };
-
-  if (!startResult.watchId) {
-    throw new Error("Learn session start response missing watchId");
-  }
-
-  // Step 3: Poll session status endpoint for completion or failure, then
-  // look for the correlated recording file using the recordingId from the session.
+  // Step 3: Poll session status via IPC signal for completion or failure
   const { watchId } = startResult;
-  const statusUrl = `${baseUrl}/v1/computer-use/ride-shotgun/status/${watchId}`;
   const timeoutMs = (durationSeconds + 30) * 1000;
   const pollIntervalMs = 2000;
   const startTime = Date.now();
@@ -1088,70 +1069,30 @@ async function startLearnSession(
         return;
       }
 
-      // Poll session status to detect failures early
       try {
-        const fetchAbort = AbortSignal.timeout(10_000);
-        const statusRes = await fetch(statusUrl, {
-          headers,
-          signal: fetchAbort,
-        });
-        if (statusRes.ok) {
-          const status = (await statusRes.json()) as {
-            status: string;
-            recordingId?: string;
-            savedRecordingPath?: string;
-            bootstrapFailureReason?: string;
-          };
+        const { stdout: statusStdout } = await execFileAsync("assistant", [
+          "shotgun",
+          "status",
+          watchId,
+        ]);
 
-          // Session failed without producing a recording
-          if (status.bootstrapFailureReason) {
-            reject(
-              new Error(
-                `Learn session failed: ${status.bootstrapFailureReason}`,
-              ),
-            );
-            return;
-          }
+        const status = JSON.parse(statusStdout) as {
+          ok: boolean;
+          status?: string;
+          error?: string;
+        };
 
-          // Session completed — check for the correlated recording file
-          if (status.status === "completed") {
-            if (status.savedRecordingPath && status.recordingId) {
-              resolve({
-                recordingId: status.recordingId,
-              });
-              return;
-            }
+        if (status.ok && status.status === "completed") {
+          resolve({});
+          return;
+        }
 
-            // Recording path not in status — fall back to filesystem lookup
-            // using the recordingId for correlation
-            if (status.recordingId) {
-              const recordingsDir = join(getDataDir(), "recordings");
-              const expectedPath = join(
-                recordingsDir,
-                `${status.recordingId}.json`,
-              );
-              try {
-                statSync(expectedPath);
-                resolve({
-                  recordingId: status.recordingId,
-                });
-                return;
-              } catch {
-                // Recording file not yet written — continue polling
-                setTimeout(pollOnce, pollIntervalMs);
-                return;
-              }
-            }
-
-            // Completed but no recordingId — cannot correlate
-            reject(
-              new Error("Learn session completed but no recording was saved."),
-            );
-            return;
-          }
+        if (status.ok && status.status === "cancelled") {
+          reject(new Error("Learn session was cancelled"));
+          return;
         }
       } catch {
-        // Status endpoint not reachable — continue polling
+        // Status query failed — continue polling
       }
 
       setTimeout(pollOnce, pollIntervalMs);
