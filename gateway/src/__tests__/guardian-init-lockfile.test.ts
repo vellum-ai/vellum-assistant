@@ -133,6 +133,44 @@ describe("guardian/init one-time-use lockfile", () => {
     expect(body.error).toBe("Bootstrap already completed");
   });
 
+  test("concurrent requests are rejected by in-memory guard", async () => {
+    let resolveProxy: (() => void) | undefined;
+    fetchMock = mock(async () => {
+      await new Promise<void>((resolve) => {
+        resolveProxy = resolve;
+      });
+      return new Response(
+        JSON.stringify({ accessToken: "test-jwt", refreshToken: "test-rt" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+
+    const makeReq = () =>
+      new Request("http://localhost:7830/v1/guardian/init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: "cli", deviceId: "test-device" }),
+      });
+
+    // Fire two requests concurrently
+    const p1 = handler.handleGuardianInit(makeReq());
+    const p2 = handler.handleGuardianInit(makeReq());
+
+    // Second request should be rejected immediately by in-memory guard
+    const res2 = await p2;
+    expect(res2.status).toBe(403);
+
+    // Resolve the first request's proxy call
+    resolveProxy!();
+    const res1 = await p1;
+    expect(res1.status).toBe(200);
+
+    // Lock file should only be written once
+    expect(writtenLockFiles.length).toBe(1);
+  });
+
   test("lock file is not created when upstream returns an error", async () => {
     fetchMock = mock(async () => {
       return new Response(JSON.stringify({ error: "Internal error" }), {

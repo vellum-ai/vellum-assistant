@@ -20,6 +20,8 @@ const log = getLogger("channel-verification-session-proxy");
 export function createChannelVerificationSessionProxyHandler(
   config: GatewayConfig,
 ) {
+  let guardianInitInFlight = false;
+
   async function proxyToRuntime(
     req: Request,
     upstreamPath: string,
@@ -139,7 +141,7 @@ export function createChannelVerificationSessionProxyHandler(
 
     async handleGuardianInit(req: Request): Promise<Response> {
       const lockPath = join(getRootDir(), "guardian-init.lock");
-      if (existsSync(lockPath)) {
+      if (existsSync(lockPath) || guardianInitInFlight) {
         log.warn("Guardian init rejected — already bootstrapped");
         return Response.json(
           { error: "Bootstrap already completed" },
@@ -147,17 +149,27 @@ export function createChannelVerificationSessionProxyHandler(
         );
       }
 
-      const response = await proxyToRuntime(req, "/v1/guardian/init", "");
+      guardianInitInFlight = true;
+      try {
+        const response = await proxyToRuntime(req, "/v1/guardian/init", "");
 
-      if (response.status >= 200 && response.status < 300) {
-        try {
-          writeFileSync(lockPath, new Date().toISOString(), { mode: 0o600 });
-        } catch (err) {
-          log.error({ err }, "Failed to write guardian-init lock file");
+        if (response.status >= 200 && response.status < 300) {
+          try {
+            writeFileSync(lockPath, new Date().toISOString(), {
+              mode: 0o600,
+            });
+          } catch (err) {
+            log.error({ err }, "Failed to write guardian-init lock file");
+          }
+        } else {
+          guardianInitInFlight = false;
         }
-      }
 
-      return response;
+        return response;
+      } catch (err) {
+        guardianInitInFlight = false;
+        throw err;
+      }
     },
 
     async handleGuardianRefresh(req: Request): Promise<Response> {
