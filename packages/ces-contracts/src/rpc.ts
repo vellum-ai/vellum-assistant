@@ -291,6 +291,8 @@ export const ApprovalRequiredSchema = z.object({
   renderedProposal: z.string(),
   /** The agent session requesting approval. */
   sessionId: z.string(),
+  /** The conversation/thread ID for thread-scoped grants. */
+  conversationId: z.string().optional(),
 });
 export type ApprovalRequired = z.infer<typeof ApprovalRequiredSchema>;
 
@@ -311,6 +313,8 @@ export const RecordGrantSchema = z.object({
   decision: TemporaryGrantDecisionSchema,
   /** The agent session this grant applies to. */
   sessionId: z.string(),
+  /** The conversation/thread ID for thread-scoped grants. */
+  conversationId: z.string().optional(),
 });
 export type RecordGrant = z.infer<typeof RecordGrantSchema>;
 

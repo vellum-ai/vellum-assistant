@@ -135,13 +135,12 @@ export function createRecordGrantHandler(
       deps.temporaryGrantStore.add("allow_10m", decision.proposalHash);
     } else if (grantType === "allow_thread") {
       deps.temporaryGrantStore.add("allow_thread", decision.proposalHash, {
-        conversationId: sessionId,
+        conversationId: request.conversationId ?? sessionId,
       });
-      // Also add an allow_once fallback: the HTTP executor doesn't pass
-      // conversationId, so the thread-scoped grant alone is unreachable
-      // for HTTP requests. The allow_once ensures the immediate retry
-      // succeeds regardless of executor type. TTL-scoped to prevent
-      // cross-thread consumption outside the immediate retry window.
+      // Also add an allow_once fallback as defense-in-depth: ensures the
+      // immediate retry succeeds even if conversationId is missing or
+      // mismatched. TTL-scoped to prevent cross-thread consumption outside
+      // the immediate retry window.
       deps.temporaryGrantStore.add("allow_once", decision.proposalHash, {
         durationMs: DEFAULT_ONCE_FALLBACK_TTL_MS,
       });
