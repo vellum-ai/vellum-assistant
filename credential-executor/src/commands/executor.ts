@@ -705,7 +705,14 @@ function checkGrant(
 /**
  * Check if a persistent grant pattern matches a command invocation.
  *
- * Grant patterns for commands use the format: `<credentialHandle>:<bundleDigest>:<profileName>`.
+ * Grant patterns for commands can be stored in two formats:
+ * 1. Canonical: `<credentialHandle>:<bundleDigest>:<profileName>` (from allowedCommandPatterns)
+ * 2. Legacy:    `<bundleDigest>/<profileName> <argv...>` (from proposal.command fallback)
+ *
+ * The legacy format exists because older grants were persisted using
+ * `proposal.command` before `allowedCommandPatterns` was introduced.
+ * Credential scope is already verified by the caller (`grant.scope === credentialHandle`),
+ * so for legacy patterns we only need to confirm the bundleDigest/profileName match.
  */
 function grantMatchesCommand(
   pattern: string,
@@ -713,7 +720,19 @@ function grantMatchesCommand(
   bundleDigest: string,
   profileName: string,
 ): boolean {
-  return pattern === `${credentialHandle}:${bundleDigest}:${profileName}`;
+  // Canonical format: <credentialHandle>:<bundleDigest>:<profileName>
+  if (pattern === `${credentialHandle}:${bundleDigest}:${profileName}`) {
+    return true;
+  }
+
+  // Legacy format: <bundleDigest>/<profileName> <argv...>
+  // The pattern starts with "<bundleDigest>/<profileName>" followed by a space or end-of-string.
+  const legacyPrefix = `${bundleDigest}/${profileName}`;
+  if (pattern === legacyPrefix || pattern.startsWith(`${legacyPrefix} `)) {
+    return true;
+  }
+
+  return false;
 }
 
 
