@@ -138,11 +138,14 @@ struct AssistantTransferSection: View {
             case .createdNew(let assistant):
                 platformAssistant = assistant
             }
-            LockfileAssistant.upsertManagedEntry(
+            let lockfileSuccess = LockfileAssistant.upsertManagedEntry(
                 assistantId: platformAssistant.id,
                 runtimeUrl: AuthService.shared.baseURL,
                 hatchedAt: platformAssistant.created_at ?? ISO8601DateFormatter().string(from: Date())
             )
+            guard lockfileSuccess else {
+                throw TransferError.importFailed(message: "Failed to save managed assistant configuration to lockfile.")
+            }
 
             // Step 3 — Import bundle to managed assistant
             currentStep = "Importing data to cloud..."
@@ -150,7 +153,7 @@ struct AssistantTransferSection: View {
 
             // Step 4 — Switch to managed assistant
             currentStep = "Switching to cloud assistant..."
-            guard let managedAssistant = LockfileAssistant.loadAll().first(where: { $0.isManaged }) else {
+            guard let managedAssistant = LockfileAssistant.loadAll().first(where: { $0.assistantId == platformAssistant.id && $0.isManaged }) else {
                 throw TransferError.managedEntryNotFound
             }
             AppDelegate.shared?.performSwitchAssistant(to: managedAssistant)
