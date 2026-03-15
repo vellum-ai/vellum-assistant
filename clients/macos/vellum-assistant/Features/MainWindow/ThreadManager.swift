@@ -30,10 +30,12 @@ struct ConversationClient: ConversationClientProtocol {
     }
 
     func deleteConversation(_ conversationId: String) async {
-        let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? conversationId
-        _ = try? await GatewayHTTPClient.delete(
-            path: "assistants/{assistantId}/conversations/\(encoded)", timeout: 10
+        let response = try? await GatewayHTTPClient.delete(
+            path: "assistants/{assistantId}/conversations/\(conversationId)", timeout: 10
         )
+        if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
+            log.error("Delete conversation \(conversationId) failed (HTTP \(statusCode))")
+        }
     }
 }
 
