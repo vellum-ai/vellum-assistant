@@ -53,11 +53,14 @@ fi
 BASELINE_USRS=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(len(d.get('v1',{}).get('usrs',[])))" "$BASELINE_FILE" 2>/dev/null || echo "0")
 
 if [ "$BASELINE_USRS" = "0" ]; then
-  echo "Warning: Baseline is empty — running scan in informational mode (will not fail)."
-  echo "To populate the baseline, run on a Mac with Xcode:"
-  echo "  bash clients/scripts/periphery-scan.sh --update-baseline"
-  echo "Then commit the updated .periphery_baseline.json"
-  periphery scan --config "$CONFIG_FILE" --quiet || true
+  echo "Baseline is empty — generating baseline from current state..."
+  periphery scan \
+    --config "$CONFIG_FILE" \
+    --write-baseline "$BASELINE_FILE" \
+    --quiet
+  BASELINE_USRS=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(len(d.get('v1',{}).get('usrs',[])))" "$BASELINE_FILE" 2>/dev/null || echo "0")
+  echo "Baseline generated with $BASELINE_USRS known violations."
+  echo "Download the periphery-baseline artifact and commit it to the repo."
   exit 0
 fi
 
