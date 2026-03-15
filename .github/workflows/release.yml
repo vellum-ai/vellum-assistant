@@ -1657,7 +1657,7 @@ jobs:
         working-directory: credential-executor
 
       - name: Test
-        run: bun test
+        run: bun run test
         working-directory: credential-executor
 
   build-ios:
