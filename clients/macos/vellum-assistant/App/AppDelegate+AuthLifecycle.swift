@@ -409,10 +409,11 @@ extension AppDelegate {
                 self.removeLockfileEntry(assistantId: name)
             }
 
-            // Stop processes after retire succeeds (or user chose Force Remove).
-            // This keeps the daemon alive if the user cancels a failed retire.
+            // Disconnect the client from the (now-dead) daemon.
+            // The retire CLI already stopped the daemon process; an
+            // additional assistantCli.stop() here would block the main
+            // thread and always fail because the process is already gone.
             daemonClient.disconnect()
-            assistantCli.stop()
         } else {
             assistantCli.stop()
         }
@@ -456,10 +457,7 @@ extension AppDelegate {
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
         UserDefaults.standard.removeObject(forKey: "lastActivePanel")
 
-        // Kill the daemon process so ensureDaemonRunning() actually spawns
-        // a fresh instance during re-onboarding (equivalent to `vellum sleep`).
         daemonClient.disconnect()
-        assistantCli.stop()
         actorTokenBootstrapTask?.cancel()
         actorTokenBootstrapTask = nil
         ActorTokenManager.deleteToken()
