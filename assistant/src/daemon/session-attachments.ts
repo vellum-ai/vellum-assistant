@@ -28,7 +28,10 @@ import {
   validateDrafts,
 } from "./assistant-attachments.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
-import { generateVideoThumbnail } from "./video-thumbnail.js";
+import {
+  generateVideoThumbnail,
+  generateVideoThumbnailFromPath,
+} from "./video-thumbnail.js";
 
 const log = getLogger("session-attachments");
 
@@ -210,16 +213,17 @@ export async function resolveAssistantAttachments(
       const draft = assistantAttachments[i];
       const isFileBacked = draft.sizeBytes > FILE_BACKED_THRESHOLD_BYTES;
       let stored;
+      let diskFilePath: string | undefined;
       try {
         if (isFileBacked) {
-          const filePath = writeAttachmentToDisk(
+          diskFilePath = writeAttachmentToDisk(
             draft.dataBase64,
             draft.filename,
           );
           stored = uploadFileBackedAttachment(
             draft.filename,
             draft.mimeType,
-            filePath,
+            diskFilePath,
             draft.sizeBytes,
           );
         } else {
@@ -255,7 +259,9 @@ export async function resolveAssistantAttachments(
         if (existing) {
           thumbnailData = existing;
         } else {
-          const generated = await generateVideoThumbnail(draft.dataBase64);
+          const generated = diskFilePath
+            ? await generateVideoThumbnailFromPath(diskFilePath)
+            : await generateVideoThumbnail(draft.dataBase64);
           if (generated) {
             setAttachmentThumbnail(stored.id, generated);
             thumbnailData = generated;
