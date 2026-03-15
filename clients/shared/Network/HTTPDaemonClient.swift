@@ -104,6 +104,11 @@ public struct WorkspaceFileResponse: Codable, Sendable {
 /// - SSE stream connection to `GET /v1/events` (unfiltered, on demand)
 /// - Translating message types to HTTP API calls
 /// - Auto-reconnect with exponential backoff
+///
+/// - Important: New HTTP API calls should **not** be added here. Use `GatewayHTTPClient`
+///   instead, injected via a focused protocol (e.g. `ConversationClientProtocol`).
+///   Existing methods are being incrementally migrated to standalone clients backed by
+///   `GatewayHTTPClient`. See `clients/ARCHITECTURE.md` for details.
 @MainActor
 public final class HTTPTransport {
 

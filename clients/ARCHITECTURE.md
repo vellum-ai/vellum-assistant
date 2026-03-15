@@ -521,6 +521,46 @@ When a managed-mode HTTP request receives a 401, the `HTTPDaemonClient` does not
 
 ---
 
+## GatewayHTTPClient Migration (In Progress)
+
+`DaemonClient` and `HTTPTransport` are being incrementally migrated to `GatewayHTTPClient`. New HTTP API calls should use `GatewayHTTPClient` instead of adding methods to `DaemonClient` or `HTTPTransport`.
+
+### Why
+
+`DaemonClient` grew into a monolithic god-object with hundreds of methods, its own URL construction, auth handling, and 401 retry logic duplicated across every endpoint. `GatewayHTTPClient` consolidates all of this into a single authenticated HTTP client with:
+
+- Automatic `{assistantId}` path placeholder resolution
+- Automatic percent-encoding of path components
+- Centralized auth header injection (session token for managed, bearer for local/remote)
+- Built-in 401 retry with credential refresh for non-managed connections
+
+### Pattern
+
+Each migrated API surface gets a focused protocol + struct, injected via init parameters for testability:
+
+1. **Define a protocol** describing the operations (e.g. `ConversationClientProtocol`).
+2. **Implement a struct** that calls `GatewayHTTPClient.get/post/delete(path:timeout:)`.
+3. **Inject the struct** into the consuming type (e.g. `ThreadManager`) with a default value.
+4. **Remove** the corresponding method from `DaemonClient` and `HTTPTransport`.
+5. **Clean up** any `Endpoint` enum cases that are no longer referenced.
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `clients/shared/Network/GatewayHTTPClient.swift` | Authenticated HTTP client for gateway and platform proxy requests |
+| `clients/shared/Network/DaemonClient.swift` | Legacy client (do not add new HTTP methods here) |
+| `clients/shared/Network/HTTPDaemonClient.swift` | Legacy HTTP transport (do not add new HTTP methods here) |
+
+### Migrated So Far
+
+| Method | Old Location | New Client | PR |
+|--------|-------------|------------|-----|
+| `fetchConversationById` | `DaemonClient` / `HTTPTransport` | `ConversationClient` | #17227 |
+| `deleteConversation` | `DaemonClient` / `HTTPTransport` | `ConversationClient` | #17276 |
+
+---
+
 ## iOS Connection Architecture
 
 The iOS app connects to the macOS assistant exclusively via HTTPS through the gateway.

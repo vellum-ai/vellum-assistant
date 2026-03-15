@@ -237,6 +237,11 @@ extension Notification.Name {
 /// This is a long-lived singleton. Consumers call `subscribe()` to get an independent message
 /// stream, enabling multiple consumers (HostCuExecutor, AmbientAgent) to each receive all
 /// messages and filter for the ones relevant to them.
+///
+/// - Important: New HTTP API calls should **not** be added here. Use `GatewayHTTPClient`
+///   instead, injected via a focused protocol (e.g. `ConversationClientProtocol`).
+///   Existing methods are being incrementally migrated to standalone clients backed by
+///   `GatewayHTTPClient`. See `clients/ARCHITECTURE.md` for details.
 @MainActor
 public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
