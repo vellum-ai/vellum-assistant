@@ -43,10 +43,7 @@ mock.module("../security/secure-keys.js", () => ({
 
 // Mock global fetch
 const _originalFetch = globalThis.fetch;
-globalThis.fetch = async (
-  input: string | URL | Request,
-  init?: RequestInit,
-) => {
+const mockFetch = async (input: string | URL | Request, init?: RequestInit) => {
   const url =
     typeof input === "string"
       ? input
@@ -71,6 +68,8 @@ globalThis.fetch = async (
     headers: { "Content-Type": "application/json" },
   });
 };
+mockFetch.preconnect = _originalFetch.preconnect;
+globalThis.fetch = mockFetch;
 
 // ---------------------------------------------------------------------------
 // Import after mocks are installed
@@ -241,11 +240,15 @@ describe("fetchManagedCatalog", () => {
 
     // Simulate a network error
     const savedFetch = globalThis.fetch;
-    globalThis.fetch = async () => {
-      throw new Error(
-        "Connect failed to https://platform.example.com/v1/ces/catalog with Api-Key sk-super-secret-key-12345",
-      );
-    };
+    const errorFetch: typeof fetch = Object.assign(
+      async () => {
+        throw new Error(
+          "Connect failed to https://platform.example.com/v1/ces/catalog with Api-Key sk-super-secret-key-12345",
+        );
+      },
+      { preconnect: savedFetch.preconnect },
+    );
+    globalThis.fetch = errorFetch;
 
     try {
       const result = await fetchManagedCatalog();
