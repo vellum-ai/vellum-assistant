@@ -6,8 +6,13 @@
  * so adding/removing tools only requires editing this manifest.
  */
 
+import { getConfig } from "../config/loader.js";
+import { isCesToolsEnabled } from "../credential-execution/feature-gates.js";
 import { assetMaterializeTool } from "./assets/materialize.js";
 import { assetSearchTool } from "./assets/search.js";
+import { makeAuthenticatedRequestTool } from "./credential-execution/make-authenticated-request.js";
+import { manageSecureCommandTool } from "./credential-execution/manage-secure-command-tool.js";
+import { runAuthenticatedCommandTool } from "./credential-execution/run-authenticated-command.js";
 import { credentialStoreTool } from "./credentials/vault.js";
 import { fileEditTool } from "./filesystem/edit.js";
 import { fileReadTool } from "./filesystem/read.js";
@@ -84,3 +89,33 @@ export const explicitTools: Tool[] = [
   memoryRecallTool,
   credentialStoreTool,
 ];
+
+// ── CES tools (feature-flag gated) ──────────────────────────────────
+// Credential Execution Service tools are only registered when the
+// CES feature flag (`feature_flags.ces-tools.enabled`) is enabled.
+// This list is intentionally separate from `explicitTools` so that
+// initializeTools() in registry.ts can conditionally include them.
+
+/** All CES tools — stable references for the manifest snapshot. */
+export const cesTools: Tool[] = [
+  makeAuthenticatedRequestTool,
+  runAuthenticatedCommandTool,
+  manageSecureCommandTool,
+];
+
+/**
+ * Return CES tools only if the CES feature flag is enabled.
+ * Returns an empty array when the flag is disabled so callers can
+ * unconditionally iterate the result.
+ */
+export function getCesToolsIfEnabled(): Tool[] {
+  try {
+    const config = getConfig();
+    if (isCesToolsEnabled(config)) {
+      return cesTools;
+    }
+  } catch {
+    // Config not yet loaded (e.g. during test setup) — CES tools stay off.
+  }
+  return [];
+}
