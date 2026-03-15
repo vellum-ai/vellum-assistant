@@ -108,7 +108,7 @@ export async function pairDeliveryWithConversation(
     // Only start_new_conversation threads should be user-visible in the sidebar.
     // Channels with continue_existing_conversation reuse bound external threads
     // and mark them as background so they don't clutter the sidebar UI.
-    const threadType =
+    const conversationType =
       strategy === "start_new_conversation" ? "standard" : "background";
 
     // Prefer model-provided threadSeedMessage when present and sane;
@@ -181,7 +181,7 @@ export async function pairDeliveryWithConversation(
 
       const conversation = createConversation({
         title,
-        threadType,
+        conversationType,
         source: "notification",
       });
 
@@ -294,7 +294,7 @@ export async function pairDeliveryWithConversation(
     // notification copy from polluting conversational recall.
     const conversation = createConversation({
       title,
-      threadType,
+      conversationType,
       source: "notification",
     });
 

@@ -102,13 +102,13 @@ export function setConversationKeyIfAbsent(
  */
 export function getOrCreateConversation(
   conversationKey: string,
-  opts?: { threadType?: "standard" | "private" },
+  opts?: { conversationType?: "standard" | "private" },
 ): {
   conversationId: string;
   created: boolean;
 } {
   const db = getDb();
-  const threadType = opts?.threadType ?? "standard";
+  const conversationType = opts?.conversationType ?? "standard";
 
   return db.transaction((tx) => {
     const existing = tx
@@ -145,7 +145,7 @@ export function getOrCreateConversation(
     const now = Date.now();
     const conversationId = uuid();
     const memoryScopeId =
-      threadType === "private" ? `private:${conversationId}` : "default";
+      conversationType === "private" ? `private:${conversationId}` : "default";
 
     tx.insert(conversations)
       .values({
@@ -159,7 +159,7 @@ export function getOrCreateConversation(
         contextSummary: null,
         contextCompactedMessageCount: 0,
         contextCompactedAt: null,
-        threadType,
+        conversationType,
         memoryScopeId,
       })
       .run();

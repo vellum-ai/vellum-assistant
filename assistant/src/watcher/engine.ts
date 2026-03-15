@@ -182,7 +182,7 @@ export async function runWatchersOnce(
       let conversationId = watcher.conversationId;
       if (!conversationId) {
         const conv = bootstrapConversation({
-          threadType: "background",
+          conversationType: "background",
           origin: "watcher",
           systemHint: `Watcher: ${watcher.name}`,
         });

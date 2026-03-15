@@ -14,7 +14,7 @@ import {
   isAttachmentVisible,
 } from "../../daemon/media-visibility-policy.js";
 import type { StoredAttachment } from "../../memory/attachments-store.js";
-import { getConversationThreadType } from "../../memory/conversation-crud.js";
+import { getConversationType } from "../../memory/conversation-crud.js";
 import { getDb, rawAll } from "../../memory/db.js";
 import {
   attachments,
@@ -76,12 +76,12 @@ function formatAttachment(a: StoredAttachment): string {
  */
 export function getAttachmentSourceConversations(
   attachmentId: string,
-): Array<{ conversationId: string; threadType: string }> {
+): Array<{ conversationId: string; conversationType: string }> {
   const db = getDb();
   return db
     .select({
       conversationId: messages.conversationId,
-      threadType: conversations.threadType,
+      conversationType: conversations.conversationType,
     })
     .from(messageAttachments)
     .innerJoin(messages, eq(messages.id, messageAttachments.messageId))
@@ -108,12 +108,12 @@ function isAttachmentVisibleFromContext(
     return true;
   }
 
-  const hasStandard = sources.some((s) => s.threadType !== "private");
+  const hasStandard = sources.some((s) => s.conversationType !== "private");
   if (hasStandard) {
     return true;
   }
 
-  // All sources are private — visible only if the caller is in one of those threads
+  // All sources are private — visible only if the caller is in one of those conversations
   return sources.some((s) =>
     isAttachmentVisible(
       { conversationId: s.conversationId, isPrivate: true },
@@ -358,14 +358,14 @@ class AssetSearchTool implements Tool {
         limit: MAX_RESULTS,
       });
 
-      // Enforce private-thread visibility: filter out attachments that
-      // belong exclusively to private threads the caller cannot access.
-      const currentThreadType = getConversationThreadType(
+      // Enforce private-conversation visibility: filter out attachments that
+      // belong exclusively to private conversations the caller cannot access.
+      const currentConversationType = getConversationType(
         context.conversationId,
       );
       const currentContext: AttachmentContext = {
         conversationId: context.conversationId,
-        isPrivate: currentThreadType === "private",
+        isPrivate: currentConversationType === "private",
       };
 
       const effectiveLimit = Math.min(limit ?? DEFAULT_LIMIT, MAX_RESULTS);
