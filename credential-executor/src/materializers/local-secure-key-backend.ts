@@ -139,13 +139,18 @@ function readStore(storePath: string): StoreFile | null {
  *   runs in a different container with a different hostname/user, so it
  *   must use the assistant's entropy (read from the shared data mount)
  *   to derive the same AES key.
+ * @param options.entropyGetter - If provided, called on each `get()` to
+ *   lazily resolve entropy. This handles the startup race where the
+ *   entropy file may not exist at construction time but appears later.
+ *   Takes precedence over `entropyOverride`.
  */
 export function createLocalSecureKeyBackend(
   vellumRoot: string,
-  options?: { entropyOverride?: string },
+  options?: { entropyOverride?: string; entropyGetter?: () => string | undefined },
 ): SecureKeyBackend {
   const storePath = join(vellumRoot, "protected", "keys.enc");
-  const entropy = options?.entropyOverride;
+  const staticEntropy = options?.entropyOverride;
+  const entropyGetter = options?.entropyGetter;
 
   return {
     async get(key: string): Promise<string | undefined> {
@@ -155,6 +160,9 @@ export function createLocalSecureKeyBackend(
 
         const entry = store.entries[key];
         if (!entry) return undefined;
+
+        // Lazy re-read: prefer getter (handles startup race) over static value.
+        const entropy = entropyGetter?.() ?? staticEntropy;
 
         const salt = Buffer.from(store.salt, "hex");
         const derivedKey = deriveKey(salt, entropy);

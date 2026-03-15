@@ -142,20 +142,31 @@ function buildHandlers(sessionIdRef: SessionIdRef): RpcHandlerRegistry {
   // the CES sidecar can derive the same AES decryption key. Without this,
   // key derivation would use the sidecar's own hostname/user/homedir which
   // differ from the assistant container's values.
-  let assistantEntropy: string | undefined;
+  //
+  // Use a lazy getter instead of a one-shot read: the entropy file may not
+  // exist at CES boot (e.g. the assistant hasn't written it yet). A lazy
+  // re-read on each get() call handles this startup race gracefully.
   const entropyPath = join(mountedVellumRoot, "protected", "entropy.key");
-  try {
-    assistantEntropy = readFileSync(entropyPath, "utf-8");
-    log(`Read assistant entropy from ${entropyPath}`);
-  } catch {
+  const readAssistantEntropy = (): string | undefined => {
+    try {
+      return readFileSync(entropyPath, "utf-8");
+    } catch {
+      return undefined;
+    }
+  };
+
+  // Attempt an eager read for logging — but the getter handles misses.
+  if (readAssistantEntropy()) {
+    log(`Assistant entropy available at ${entropyPath}`);
+  } else {
     warn(
-      `Could not read assistant entropy from ${entropyPath}. ` +
-        "local_static credential decryption may fail if machine entropy differs.",
+      `Assistant entropy not yet available at ${entropyPath}. ` +
+        "Will re-read lazily on each credential access.",
     );
   }
 
   const secureKeyBackend = createLocalSecureKeyBackend(mountedVellumRoot, {
-    entropyOverride: assistantEntropy,
+    entropyGetter: readAssistantEntropy,
   });
   const localMaterialiser = new LocalMaterialiser({ secureKeyBackend });
 
