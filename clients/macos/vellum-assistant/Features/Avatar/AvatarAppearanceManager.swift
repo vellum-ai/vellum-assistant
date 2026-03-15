@@ -345,7 +345,36 @@ final class AvatarAppearanceManager {
         let fd = open(path, O_EVTONLY)
 
         if fd < 0 {
-            // File doesn't exist yet — directory watcher will pick up creation
+            // File doesn't exist yet — fall back to watching the directory for its creation.
+            // This mirrors the watchAvatarFile() → watchAvatarDirectory() pattern.
+            // We store the directory watcher in traitsFileMonitor (not fileMonitor) to
+            // avoid clobbering the avatar file/directory watcher.
+            let dirPath = (avatarComponentsURL.path as NSString).deletingLastPathComponent
+            let dirFd = open(dirPath, O_EVTONLY)
+            guard dirFd >= 0 else { return }
+
+            let dirSource = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: dirFd,
+                eventMask: .write,
+                queue: .global(qos: .utility)
+            )
+
+            dirSource.setEventHandler { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if FileManager.default.fileExists(atPath: self.avatarComponentsURL.path) {
+                        self.loadAvatarComponents()
+                        self.watchTraitsFile()
+                    }
+                }
+            }
+
+            dirSource.setCancelHandler {
+                close(dirFd)
+            }
+
+            traitsFileMonitor = dirSource
+            dirSource.resume()
             return
         }
 
