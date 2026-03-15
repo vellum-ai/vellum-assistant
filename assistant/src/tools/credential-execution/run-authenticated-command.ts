@@ -169,7 +169,10 @@ class RunAuthenticatedCommandTool implements Tool {
       }
 
       return {
-        content: parts.join("\n\n"),
+        content:
+          parts.length > 0
+            ? parts.join("\n\n")
+            : "Command completed successfully.",
         isError: response.exitCode !== undefined && response.exitCode !== 0,
       };
     } catch (err) {

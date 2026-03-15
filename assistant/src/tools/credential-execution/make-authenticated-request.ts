@@ -173,7 +173,10 @@ class MakeAuthenticatedRequestTool implements Tool {
       }
 
       return {
-        content: parts.join("\n\n"),
+        content:
+          parts.length > 0
+            ? parts.join("\n\n")
+            : "Request completed successfully.",
         isError: false,
       };
     } catch (err) {

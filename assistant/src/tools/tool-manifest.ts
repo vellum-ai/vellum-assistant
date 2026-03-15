@@ -7,7 +7,10 @@
  */
 
 import { getConfig } from "../config/loader.js";
-import { isCesToolsEnabled } from "../credential-execution/feature-gates.js";
+import {
+  isCesSecureInstallEnabled,
+  isCesToolsEnabled,
+} from "../credential-execution/feature-gates.js";
 import { assetMaterializeTool } from "./assets/materialize.js";
 import { assetSearchTool } from "./assets/search.js";
 import { makeAuthenticatedRequestTool } from "./credential-execution/make-authenticated-request.js";
@@ -112,7 +115,12 @@ export function getCesToolsIfEnabled(): Tool[] {
   try {
     const config = getConfig();
     if (isCesToolsEnabled(config)) {
-      return cesTools;
+      // manage_secure_command_tool is additionally gated behind the
+      // ces-secure-install flag so it can be rolled out independently.
+      const secureInstallEnabled = isCesSecureInstallEnabled(config);
+      return cesTools.filter(
+        (t) => t.name !== "manage_secure_command_tool" || secureInstallEnabled,
+      );
     }
   } catch {
     // Config not yet loaded (e.g. during test setup) — CES tools stay off.
