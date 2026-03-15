@@ -2,7 +2,7 @@
 #
 # fetch-qr-code.sh — SCP the pairing QR code PNG from a Mac mini to this machine.
 #
-# After running `curl -fsSL https://assistant.vellum.ai/install.sh | bash` on a
+# After running `curl -fsSL https://vellum.ai/install.sh | bash` on a
 # Mac mini, this script copies the generated QR code PNG to a well-known local
 # XDG data path so the Desktop app can auto-detect it for pairing.
 #

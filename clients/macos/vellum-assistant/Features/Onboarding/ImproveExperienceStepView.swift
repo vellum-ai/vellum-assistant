@@ -97,13 +97,6 @@ struct ImproveExperienceStepView: View {
                 UserDefaults.standard.set(true, forKey: "sendPerformanceReports")
             }
 
-            // Reset stale cloud provider when the user didn't go through CloudCredentials
-            // (e.g., user_hosted_enabled was turned off after a previous session set cloudProvider to "aws").
-            // Preserve "docker" since Docker users intentionally chose that path.
-            if !state.needsCloudCredentials && state.cloudProvider != "local" && state.cloudProvider != "docker" {
-                state.cloudProvider = "local"
-            }
-
             withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
                 showTitle = true
             }
@@ -112,7 +105,7 @@ struct ImproveExperienceStepView: View {
             }
         }
 
-        OnboardingFooter(currentStep: state.currentStep, totalSteps: state.needsCloudCredentials ? 4 : 3)
+        OnboardingFooter(currentStep: state.currentStep, totalSteps: 3)
             .padding(.bottom, VSpacing.lg)
     }
 

@@ -30,7 +30,7 @@ struct OnboardingFlowView: View {
         if managedSignInEnabled {
             return 1
         }
-        return state.userHostedEnabled ? 3 : 2
+        return 2
     }
 
     var body: some View {
@@ -54,9 +54,7 @@ struct OnboardingFlowView: View {
                         .ignoresSafeArea()
                     )
             } else if (0...maxOnboardingStep).contains(state.currentStep) {
-                // Trimmed onboarding flow.
-                // When userHostedEnabled: WakeUp → APIKey → CloudCredentials → ImproveExperience (steps 0–3)
-                // Otherwise: WakeUp → APIKey → ImproveExperience (steps 0–2)
+                // Onboarding flow: WakeUp → APIKey → ImproveExperience (steps 0–2)
                 VStack(spacing: 0) {
                     Spacer()
 
@@ -106,12 +104,6 @@ struct OnboardingFlowView: View {
                                     }
                                 )
                             case 2:
-                                if state.needsCloudCredentials {
-                                    CloudCredentialsStepView(state: state)
-                                } else {
-                                    ImproveExperienceStepView(state: state)
-                                }
-                            case 3:
                                 ImproveExperienceStepView(state: state)
                             default:
                                 EmptyView()

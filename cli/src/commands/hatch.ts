@@ -104,7 +104,7 @@ export async function buildStartupScript(
   cloud: RemoteHost,
 ): Promise<string> {
   const platformUrl =
-    process.env.VELLUM_PLATFORM_URL ?? "https://assistant.vellum.ai";
+    process.env.VELLUM_PLATFORM_URL ?? "https://vellum.ai";
   const logPath =
     cloud === "custom"
       ? "/tmp/vellum-startup.log"
