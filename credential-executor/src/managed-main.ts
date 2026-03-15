@@ -19,10 +19,11 @@
 
 import { mkdirSync, unlinkSync } from "node:fs";
 import { createServer as createNetServer, type Socket } from "node:net";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 
 import { CES_PROTOCOL_VERSION, CesRpcMethod } from "@vellumai/ces-contracts";
+import { StaticCredentialMetadataStore } from "@vellumai/credential-storage";
 
 import { AuditStore } from "./audit/store.js";
 import { PersistentGrantStore } from "./grants/persistent-store.js";
@@ -33,6 +34,8 @@ import {
   createRevokeGrantHandler,
 } from "./grants/rpc-handlers.js";
 import { TemporaryGrantStore } from "./grants/temporary-store.js";
+import { LocalMaterialiser } from "./materializers/local.js";
+import { createLocalSecureKeyBackend } from "./materializers/local-secure-key-backend.js";
 import {
   getBootstrapSocketPath,
   getCesAuditDir,
@@ -51,6 +54,7 @@ import {
 import { publishBundle } from "./toolstore/publish.js";
 import { validateSourceUrl } from "./toolstore/manifest.js";
 import { buildCesEgressHooks } from "./commands/egress-hooks.js";
+import { resolveLocalSubject } from "./subjects/local.js";
 import { resolveManagedSubject, type ManagedSubjectResolverOptions } from "./subjects/managed.js";
 import { materializeManagedToken, type ManagedMaterializerOptions } from "./materializers/managed-platform.js";
 import { HandleType, parseHandle } from "@vellumai/ces-contracts";
@@ -123,30 +127,38 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
     );
   }
 
-  // -- Build handler registry ------------------------------------------------
+  // -- Local credential backend via read-only assistant data mount -----------
+  // In managed mode, the platform mounts the assistant data volume read-only
+  // into the CES sidecar at CES_ASSISTANT_DATA_MOUNT (default /assistant-data-ro).
+  // This allows CES to read local static secrets from the assistant's encrypted
+  // key store on the shared volume, supporting v1 local_static handles.
+  const assistantDataMount =
+    process.env["CES_ASSISTANT_DATA_MOUNT"] ?? "/assistant-data-ro";
+  const mountedVellumRoot = join(assistantDataMount, ".vellum");
 
-  // In managed mode there is no local secure-key backend. The HTTP handler
-  // uses managed subject resolution and managed materialisation instead.
-  // The localMaterialiser and localSubjectDeps are required by HttpExecutorDeps
-  // but will only be reached for local_static/local_oauth handles (which are
-  // not expected in managed deployments). We stub them to fail closed.
-  const stubLocalMaterialiser = {
-    async materialise() {
-      return {
-        ok: false as const,
-        error: "Local credential materialisation is not available in managed mode.",
-      };
-    },
-    reset() {},
-  };
+  const secureKeyBackend = createLocalSecureKeyBackend(mountedVellumRoot);
+  const localMaterialiser = new LocalMaterialiser({ secureKeyBackend });
+
+  const credentialMetadataPath = join(
+    mountedVellumRoot,
+    "workspace",
+    "data",
+    "credentials",
+    "metadata.json",
+  );
+  const metadataStore = new StaticCredentialMetadataStore(credentialMetadataPath);
+
+  // -- Build handler registry ------------------------------------------------
 
   const handlers = buildHandlersWithHttp(
     {
       persistentGrantStore,
       temporaryGrantStore,
-      localMaterialiser: stubLocalMaterialiser as any,
+      localMaterialiser,
       localSubjectDeps: {
-        metadataStore: { getByServiceField: () => undefined } as any,
+        metadataStore,
+        // OAuth connections are not available via the read-only mount — only
+        // local_static handles are supported. Return undefined for any lookup.
         oauthConnections: { getById: () => undefined },
       },
       managedSubjectOptions,
@@ -162,52 +174,76 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
       persistentStore: persistentGrantStore,
       temporaryStore: temporaryGrantStore,
       materializeCredential: async (handle) => {
-        if (!managedMaterializerOptions) {
-          return {
-            ok: false as const,
-            error:
-              "PLATFORM_BASE_URL and/or ASSISTANT_API_KEY not set. " +
-              "Managed credential materialisation is not available.",
-          };
-        }
-
         // Parse handle to determine type
         const parseResult = parseHandle(handle);
         if (!parseResult.ok) {
           return { ok: false as const, error: parseResult.error };
         }
 
-        if (parseResult.handle.type !== HandleType.PlatformOAuth) {
-          return {
-            ok: false as const,
-            error: `Handle type "${parseResult.handle.type}" is not supported in managed mode. ` +
-              `Only platform_oauth handles are available.`,
-          };
-        }
+        switch (parseResult.handle.type) {
+          // -- Local static: read from the mounted assistant data volume ------
+          case HandleType.LocalStatic: {
+            const subjectResult = resolveLocalSubject(handle, {
+              metadataStore,
+              oauthConnections: { getById: () => undefined },
+            });
+            if (!subjectResult.ok) {
+              return { ok: false as const, error: subjectResult.error };
+            }
+            const matResult = await localMaterialiser.materialise(
+              subjectResult.subject,
+            );
+            if (!matResult.ok) {
+              return { ok: false as const, error: matResult.error };
+            }
+            return {
+              ok: true as const,
+              value: matResult.credential.value,
+              handleType: HandleType.LocalStatic,
+            };
+          }
 
-        // Resolve managed subject
-        const subjectResult = await resolveManagedSubject(
-          handle,
-          managedSubjectOptions!,
-        );
-        if (!subjectResult.ok) {
-          return { ok: false as const, error: subjectResult.error.message };
-        }
+          // -- Platform OAuth: materialise via the platform endpoint ----------
+          case HandleType.PlatformOAuth: {
+            if (!managedMaterializerOptions) {
+              return {
+                ok: false as const,
+                error:
+                  "PLATFORM_BASE_URL and/or ASSISTANT_API_KEY not set. " +
+                  "Managed credential materialisation is not available.",
+              };
+            }
 
-        // Materialize through the managed platform materializer
-        const matResult = await materializeManagedToken(
-          subjectResult.subject,
-          managedMaterializerOptions,
-        );
-        if (!matResult.ok) {
-          return { ok: false as const, error: matResult.error.message };
-        }
+            const subjectResult = await resolveManagedSubject(
+              handle,
+              managedSubjectOptions!,
+            );
+            if (!subjectResult.ok) {
+              return { ok: false as const, error: subjectResult.error.message };
+            }
 
-        return {
-          ok: true as const,
-          value: matResult.token.accessToken,
-          handleType: HandleType.PlatformOAuth,
-        };
+            const matResult = await materializeManagedToken(
+              subjectResult.subject,
+              managedMaterializerOptions,
+            );
+            if (!matResult.ok) {
+              return { ok: false as const, error: matResult.error.message };
+            }
+
+            return {
+              ok: true as const,
+              value: matResult.token.accessToken,
+              handleType: HandleType.PlatformOAuth,
+            };
+          }
+
+          default:
+            return {
+              ok: false as const,
+              error: `Handle type "${parseResult.handle.type}" is not supported in managed mode. ` +
+                `Supported types: local_static, platform_oauth.`,
+            };
+        }
       },
       auditStore,
       sessionId,
