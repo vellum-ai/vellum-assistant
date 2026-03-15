@@ -249,7 +249,7 @@ function clearTables(): void {
 function grantParams(
   overrides: Partial<CreateScopedApprovalGrantParams> = {},
 ): CreateScopedApprovalGrantParams {
-  const futureExpiry = new Date(Date.now() + 60_000).toISOString();
+  const futureExpiry = Date.now() + 60_000;
   return {
     scopeMode: "tool_signature",
     toolName: TOOL_NAME,

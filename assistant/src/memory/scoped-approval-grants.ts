@@ -41,11 +41,11 @@ export interface ScopedApprovalGrant {
   requesterExternalUserId: string | null;
   guardianExternalUserId: string | null;
   status: GrantStatus;
-  expiresAt: string;
-  consumedAt: string | null;
+  expiresAt: number;
+  consumedAt: number | null;
   consumedByRequestId: string | null;
-  createdAt: string;
-  updatedAt: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -100,14 +100,14 @@ export interface CreateScopedApprovalGrantParams {
   callSessionId?: string | null;
   requesterExternalUserId?: string | null;
   guardianExternalUserId?: string | null;
-  expiresAt: string;
+  expiresAt: number;
 }
 
 function createScopedApprovalGrant(
   params: CreateScopedApprovalGrantParams,
 ): ScopedApprovalGrant {
   const db = getDb();
-  const now = new Date().toISOString();
+  const now = Date.now();
   const id = uuid();
 
   const row = {
@@ -169,10 +169,10 @@ export interface ConsumeByRequestIdResult {
 function consumeScopedApprovalGrantByRequestId(
   requestId: string,
   consumingRequestId: string,
-  now?: string,
+  now?: number,
 ): ConsumeByRequestIdResult {
   const db = getDb();
-  const currentTime = now ?? new Date().toISOString();
+  const currentTime = now ?? Date.now();
 
   // Two-step select-then-update with LIMIT 1 to consume exactly one grant
   // even if duplicate rows exist (the index on request_id is non-unique).
@@ -274,7 +274,7 @@ export interface ConsumeByToolSignatureParams {
   conversationId?: string;
   callSessionId?: string;
   requesterExternalUserId?: string;
-  now?: string;
+  now?: number;
 }
 
 export interface ConsumeByToolSignatureResult {
@@ -298,7 +298,7 @@ function consumeScopedApprovalGrantByToolSignature(
   params: ConsumeByToolSignatureParams,
 ): ConsumeByToolSignatureResult {
   const db = getDb();
-  const currentTime = params.now ?? new Date().toISOString();
+  const currentTime = params.now ?? Date.now();
 
   const conditions = [
     eq(scopedApprovalGrants.toolName, params.toolName),
@@ -438,9 +438,9 @@ function consumeScopedApprovalGrantByToolSignature(
  * Bulk-expire all active grants whose `expiresAt` is at or before `now`.
  * Returns the number of grants expired.
  */
-export function expireScopedApprovalGrants(now?: string): number {
+export function expireScopedApprovalGrants(now?: number): number {
   const db = getDb();
-  const currentTime = now ?? new Date().toISOString();
+  const currentTime = now ?? Date.now();
 
   db.update(scopedApprovalGrants)
     .set({
@@ -485,10 +485,10 @@ export interface RevokeContextParams {
  */
 export function revokeScopedApprovalGrantsForContext(
   params: RevokeContextParams,
-  now?: string,
+  now?: number,
 ): number {
   const db = getDb();
-  const currentTime = now ?? new Date().toISOString();
+  const currentTime = now ?? Date.now();
 
   const conditions = [eq(scopedApprovalGrants.status, "active")];
 

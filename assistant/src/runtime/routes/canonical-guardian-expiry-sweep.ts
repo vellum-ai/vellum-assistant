@@ -50,7 +50,7 @@ export function sweepExpiredCanonicalGuardianRequests(): number {
   for (const request of pending) {
     if (!request.expiresAt) continue;
 
-    const expiresAtMs = new Date(request.expiresAt).getTime();
+    const expiresAtMs = request.expiresAt;
     if (expiresAtMs >= now) continue;
 
     // CAS resolve: only transition from 'pending' to 'expired'.

@@ -68,6 +68,7 @@ import {
   migrateGuardianDeliveryConversationIndex,
   migrateGuardianPrincipalIdColumns,
   migrateGuardianPrincipalIdNotNull,
+  migrateGuardianTimestampsEpochMs,
   migrateGuardianVerificationPurpose,
   migrateGuardianVerificationSessions,
   migrateInviteCodeHashColumn,
@@ -391,6 +392,9 @@ export function initializeDb(): void {
 
   // 64. Drop orphaned media tables (CREATE TABLE removed in #16739, clean up existing databases)
   migrateDropOrphanedMediaTables(database);
+
+  // 65. Convert guardian timestamps from ISO 8601 text to epoch ms integers
+  migrateGuardianTimestampsEpochMs(database);
 
   validateMigrationState(database);
 

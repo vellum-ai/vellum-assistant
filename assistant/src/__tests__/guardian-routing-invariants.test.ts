@@ -257,7 +257,7 @@ describe("routing invariant: principal-based authorization enforced before decis
       conversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await applyCanonicalGuardianDecision({
@@ -282,7 +282,7 @@ describe("routing invariant: principal-based authorization enforced before decis
       conversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await applyCanonicalGuardianDecision({
@@ -300,7 +300,7 @@ describe("routing invariant: principal-based authorization enforced before decis
       sourceType: "channel",
       conversationId: "conv-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await applyCanonicalGuardianDecision({
@@ -323,7 +323,7 @@ describe("routing invariant: principal-based authorization enforced before decis
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "ABC123",
       toolName: "shell",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await routeGuardianReply(
@@ -356,7 +356,7 @@ describe("routing invariant: stale/expired/already-resolved decisions rejected",
       conversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
-      expiresAt: new Date(Date.now() - 10_000).toISOString(), // already expired
+      expiresAt: Date.now() - 10_000, // already expired
     });
 
     const result = await applyCanonicalGuardianDecision({
@@ -377,7 +377,7 @@ describe("routing invariant: stale/expired/already-resolved decisions rejected",
       conversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     // First decision succeeds
@@ -423,7 +423,7 @@ describe("routing invariant: stale/expired/already-resolved decisions rejected",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "ABC123",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     // Resolve the request first
@@ -455,7 +455,7 @@ describe("routing invariant: stale/expired/already-resolved decisions rejected",
       conversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
-      expiresAt: new Date(Date.now() - 10_000).toISOString(), // already expired
+      expiresAt: Date.now() - 10_000, // already expired
     });
 
     const result = await routeGuardianReply(
@@ -489,7 +489,7 @@ describe("routing invariant: code-only messages return clarification", () => {
       requestCode: "A1B2C3",
       toolName: "shell",
       questionText: "Run shell command: ls -la",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await routeGuardianReply(
@@ -524,7 +524,7 @@ describe("routing invariant: code-only messages return clarification", () => {
       pendingQuestionId: "pq-1",
       requestCode: "A2B3C4",
       questionText: "What time works best?",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await routeGuardianReply(
@@ -559,7 +559,7 @@ describe("routing invariant: code-only messages return clarification", () => {
       requestCode: "B2C3D4",
       questionText: "Allow send_email to bob@example.com?",
       toolName: "send_email",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await routeGuardianReply(
@@ -591,7 +591,7 @@ describe("routing invariant: code-only messages return clarification", () => {
       requestCode: "A1B2C3",
       toolName: "shell",
       inputDigest: "sha256:abc",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
     registerPendingToolApprovalInteraction(req.id, "conv-1", "shell");
 
@@ -618,7 +618,7 @@ describe("routing invariant: code-only messages return clarification", () => {
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "D4E5F6",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
     registerPendingToolApprovalInteraction(req.id, "conv-1", "shell");
 
@@ -653,7 +653,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "DDD444",
       toolName: "shell",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
     registerPendingToolApprovalInteraction(req.id, "conv-1", "shell");
 
@@ -683,7 +683,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "GGG777",
       toolName: "shell",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await routeGuardianReply(
@@ -712,7 +712,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "HHH888",
       toolName: "shell",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await routeGuardianReply(
@@ -739,7 +739,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "EEE555",
       toolName: "shell",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const req2 = createCanonicalGuardianRequest({
@@ -750,7 +750,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "FFF666",
       toolName: "file_write",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await routeGuardianReply(
@@ -784,7 +784,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "AAA111",
       toolName: "shell",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const req2 = createCanonicalGuardianRequest({
@@ -795,7 +795,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "BBB222",
       toolName: "file_write",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     // The NL engine mock: returns a decision but no specific target.
@@ -842,7 +842,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       pendingQuestionId: "pq-answer",
       requestCode: "ABC123",
       questionText: "What time works best?",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const approvalRequest = createCanonicalGuardianRequest({
@@ -857,7 +857,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       requestCode: "DEF456",
       questionText: "Allow send_email to bob@example.com?",
       toolName: "send_email",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await routeGuardianReply(
@@ -892,7 +892,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "CCC333",
       toolName: "shell",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
     registerPendingToolApprovalInteraction(req.id, "conv-1", "shell");
 
@@ -929,7 +929,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: "shell",
       requestCode: "GO1234",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
     registerPendingToolApprovalInteraction(req.id, "conv-1", "shell");
 
@@ -959,7 +959,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "111AAA",
       toolName: "shell",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
     const outOfScope = createCanonicalGuardianRequest({
       kind: "tool_approval",
@@ -969,7 +969,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "222BBB",
       toolName: "shell",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
     registerPendingToolApprovalInteraction(inScope.id, "conv-1", "shell");
     registerPendingToolApprovalInteraction(outOfScope.id, "conv-2", "shell");
@@ -1038,7 +1038,7 @@ describe("routing invariant: approve_always downgraded for guardian-on-behalf", 
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: "shell",
       inputDigest: "sha256:abc",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await applyCanonicalGuardianDecision({
@@ -1071,7 +1071,7 @@ describe("routing invariant: callback buttons route through canonical primitive"
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: "shell",
       inputDigest: "sha256:abc",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
     registerPendingToolApprovalInteraction(req.id, "conv-1", "shell");
 
@@ -1098,7 +1098,7 @@ describe("routing invariant: callback buttons route through canonical primitive"
       conversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
     registerPendingToolApprovalInteraction(req.id, "conv-1", "shell");
 
@@ -1124,7 +1124,7 @@ describe("routing invariant: callback buttons route through canonical primitive"
       conversationId: "conv-other",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
     registerPendingToolApprovalInteraction(req.id, "conv-other", "shell");
 
@@ -1166,7 +1166,7 @@ describe("routing invariant: destination hints do not bypass tool_approval princ
       toolName: "shell",
       requestCode: "NL1234",
       guardianPrincipalId: "request-principal",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
     registerPendingToolApprovalInteraction(req.id, "conv-voice-1", "shell");
 
@@ -1201,7 +1201,7 @@ describe("routing invariant: destination hints do not bypass tool_approval princ
       toolName: "shell",
       requestCode: "NL5678",
       guardianPrincipalId: "voice-principal",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     // No pendingRequestIds passed — identity-based fallback uses
@@ -1245,7 +1245,7 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "INV001",
       toolName: "ingress_access_request",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await routeGuardianReply(
@@ -1274,7 +1274,7 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
       sourceChannel: "telegram",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     for (const phrase of [
@@ -1306,7 +1306,7 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "TAP001",
       toolName: "shell",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     await routeGuardianReply(
@@ -1335,7 +1335,7 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "A00B01",
       toolName: "ingress_access_request",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     // Code-based approve should still work (request code must be valid hex: [A-F0-9]{6})
@@ -1365,7 +1365,7 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "C0D3A5",
       toolName: "ingress_access_request",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const result = await routeGuardianReply({
@@ -1398,7 +1398,7 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
       requesterChatId: "chat-1",
       requestCode: "A1B2C3",
       toolName: "ingress_access_request",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     const approvalConversationGenerator = async () => ({
@@ -1444,7 +1444,7 @@ describe("routing invariant: expired requests are excluded from pending discover
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "EXP001",
       toolName: "shell",
-      expiresAt: new Date(Date.now() - 10_000).toISOString(),
+      expiresAt: Date.now() - 10_000,
     });
 
     const active = createCanonicalGuardianRequest({
@@ -1455,7 +1455,7 @@ describe("routing invariant: expired requests are excluded from pending discover
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "ACT001",
       toolName: "file_write",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
     registerPendingToolApprovalInteraction(active.id, "conv-1", "file_write");
 
@@ -1491,7 +1491,7 @@ describe("routing invariant: expired requests are excluded from pending discover
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "EXP002",
       toolName: "shell",
-      expiresAt: new Date(Date.now() - 10_000).toISOString(),
+      expiresAt: Date.now() - 10_000,
     });
 
     const expired2 = createCanonicalGuardianRequest({
@@ -1502,7 +1502,7 @@ describe("routing invariant: expired requests are excluded from pending discover
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "EXP003",
       toolName: "file_write",
-      expiresAt: new Date(Date.now() - 5_000).toISOString(),
+      expiresAt: Date.now() - 5_000,
     });
 
     const result = await routeGuardianReply(

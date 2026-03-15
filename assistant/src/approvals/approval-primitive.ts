@@ -43,7 +43,7 @@ export interface MintGrantParams {
   callSessionId?: string | null;
   requesterExternalUserId?: string | null;
   guardianExternalUserId?: string | null;
-  expiresAt: string;
+  expiresAt: number;
 }
 
 export type MintGrantResult =
@@ -156,7 +156,7 @@ export function mintGrantFromDecision(
 export interface ConsumeByRequestIdParams {
   requestId: string;
   consumingRequestId: string;
-  now?: string;
+  now?: number;
 }
 
 export interface ConsumeByToolSignatureParams {
@@ -167,7 +167,7 @@ export interface ConsumeByToolSignatureParams {
   conversationId?: string;
   callSessionId?: string;
   requesterExternalUserId?: string;
-  now?: string;
+  now?: number;
 }
 
 export type ConsumeGrantResult =
@@ -191,7 +191,7 @@ export interface ConsumeGrantParams {
   conversationId?: string;
   callSessionId?: string;
   requesterExternalUserId?: string;
-  now?: string;
+  now?: number;
 }
 
 /**

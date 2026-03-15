@@ -3125,7 +3125,7 @@ describe("NL approval routing via destination-scoped canonical requests", () => 
       conversationId: "conv-voice-nl-1",
       toolName: "shell",
       guardianPrincipalId: "test-principal-id",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
       // guardianExternalUserId intentionally omitted
     });
 
@@ -3180,7 +3180,7 @@ describe("NL approval routing via destination-scoped canonical requests", () => 
       sourceChannel: "twilio",
       toolName: "shell",
       guardianPrincipalId: "test-principal-id",
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      expiresAt: Date.now() + 60_000,
     });
 
     // Delivery targets the original guardian chat, NOT the different chat

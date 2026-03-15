@@ -570,7 +570,7 @@ describe("guardian grant minting on tool-approval decisions", () => {
     const grant = getLatestGrant();
     expect(grant).not.toBeNull();
 
-    const expiresAt = new Date(grant!.expires_at as string).getTime();
+    const expiresAt = grant!.expires_at as number;
     const expectedMin = beforeTime + GRANT_TTL_MS - 1000; // 1s tolerance
     const expectedMax = beforeTime + GRANT_TTL_MS + 5000; // 5s tolerance
     expect(expiresAt).toBeGreaterThanOrEqual(expectedMin);
