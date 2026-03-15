@@ -118,6 +118,7 @@ extension MainWindowView {
         }
         .padding(.vertical, VSpacing.md)
         .padding(.horizontal, sidebarExpanded ? VSpacing.md : VSpacing.sm)
+        .frame(maxHeight: .infinity)
         .frame(width: sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth, alignment: .leading)
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))

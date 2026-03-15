@@ -277,7 +277,9 @@ struct SettingsPanel: View {
     private var selectedTabContent: some View {
         switch selectedTab {
         case .general:
-            SettingsGeneralTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
+            SettingsGeneralTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose, onSignIn: {
+                AppDelegate.shared?.ensureLocalAssistantApiKey()
+            })
         case .modelsAndServices:
             integrationsContent
         case .voice:

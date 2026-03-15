@@ -25,10 +25,9 @@ struct APIKeyEntryStepView: View {
             .foregroundColor(VColor.contentSecondary)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
+            .padding(.bottom, VSpacing.xxl)
 
-        Spacer()
-
-        ScrollView {
+        VStack(spacing: VSpacing.md) {
             VStack(spacing: VSpacing.md) {
                 apiKeyField
 
@@ -58,9 +57,8 @@ struct APIKeyEntryStepView: View {
                 }
                 .padding(.top, VSpacing.xs)
             }
-            .padding(.horizontal, VSpacing.xxl)
-            .padding(.bottom, VSpacing.lg)
         }
+        .padding(.horizontal, VSpacing.xxl)
         .opacity(showContent ? 1 : 0)
         .offset(y: showContent ? 0 : 12)
         .onAppear {
