@@ -1,6 +1,6 @@
 ---
 name: phone-calls
-description: Set up Twilio for AI-powered voice calls — both outgoing calls on behalf of the user and incoming calls where the assistant answers as a receptionist
+description: "Make outgoing phone calls, receive incoming calls, and pull up past call transcripts. Everything needed for your assistant to act as an AI receptionist."
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "📞"
