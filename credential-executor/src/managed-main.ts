@@ -50,8 +50,9 @@ import {
 } from "./server.js";
 import { publishBundle } from "./toolstore/publish.js";
 import { validateSourceUrl } from "./toolstore/manifest.js";
-import type { ManagedSubjectResolverOptions } from "./subjects/managed.js";
-import type { ManagedMaterializerOptions } from "./materializers/managed-platform.js";
+import { resolveManagedSubject, type ManagedSubjectResolverOptions } from "./subjects/managed.js";
+import { materializeManagedToken, type ManagedMaterializerOptions } from "./materializers/managed-platform.js";
+import { HandleType, parseHandle } from "@vellumai/ces-contracts";
 
 // ---------------------------------------------------------------------------
 // Logging (managed always logs to stderr)
@@ -153,16 +154,59 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
     },
   );
 
-  // Register run_authenticated_command handler
+  // Register run_authenticated_command handler with managed platform materializer
   registerCommandExecutionHandler(handlers, {
     executorDeps: {
       persistentStore: persistentGrantStore,
       temporaryStore: temporaryGrantStore,
-      materializeCredential: async (_handle) => ({
-        ok: false as const,
-        error:
-          "Command credential materialisation in managed mode is not yet available.",
-      }),
+      materializeCredential: async (handle) => {
+        if (!managedMaterializerOptions) {
+          return {
+            ok: false as const,
+            error:
+              "PLATFORM_BASE_URL and/or ASSISTANT_API_KEY not set. " +
+              "Managed credential materialisation is not available.",
+          };
+        }
+
+        // Parse handle to determine type
+        const parseResult = parseHandle(handle);
+        if (!parseResult.ok) {
+          return { ok: false as const, error: parseResult.error };
+        }
+
+        if (parseResult.handle.type !== HandleType.PlatformOAuth) {
+          return {
+            ok: false as const,
+            error: `Handle type "${parseResult.handle.type}" is not supported in managed mode. ` +
+              `Only platform_oauth handles are available.`,
+          };
+        }
+
+        // Resolve managed subject
+        const subjectResult = await resolveManagedSubject(
+          handle,
+          managedSubjectOptions!,
+        );
+        if (!subjectResult.ok) {
+          return { ok: false as const, error: subjectResult.error.message };
+        }
+
+        // Materialize through the managed platform materializer
+        const matResult = await materializeManagedToken(
+          subjectResult.subject,
+          managedMaterializerOptions,
+        );
+        if (!matResult.ok) {
+          return { ok: false as const, error: matResult.error.message };
+        }
+
+        return {
+          ok: true as const,
+          value: matResult.token.accessToken,
+          handleType: HandleType.PlatformOAuth,
+        };
+      },
       auditStore,
       cesMode: "managed",
     },

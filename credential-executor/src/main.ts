@@ -36,6 +36,9 @@ import {
 } from "./grants/rpc-handlers.js";
 import { TemporaryGrantStore } from "./grants/temporary-store.js";
 import { LocalMaterialiser } from "./materializers/local.js";
+import { createLocalSecureKeyBackend } from "./materializers/local-secure-key-backend.js";
+import { createLocalOAuthLookup } from "./materializers/local-oauth-lookup.js";
+import { resolveLocalSubject } from "./subjects/local.js";
 import {
   getCesAuditDir,
   getCesDataRoot,
@@ -51,7 +54,6 @@ import {
 } from "./server.js";
 import { publishBundle } from "./toolstore/publish.js";
 import { validateSourceUrl } from "./toolstore/manifest.js";
-import type { OAuthConnectionLookup } from "./subjects/local.js";
 
 // ---------------------------------------------------------------------------
 // Data directory bootstrap
@@ -110,34 +112,16 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
     credentialMetadataPath,
   );
 
-  // Stub OAuth connection lookup — local OAuth connections are resolved from
-  // the assistant's SQLite database which CES cannot access directly. When
-  // local OAuth execution is needed, a connection bridge must be added.
-  const oauthConnections: OAuthConnectionLookup = {
-    getById: () => undefined,
-  };
+  // Read-only OAuth connection lookup backed by the assistant's SQLite
+  // database. CES opens the database in read-only mode.
+  const oauthConnections = createLocalOAuthLookup(vellumRoot);
 
-  // Stub SecureKeyBackend — in local mode the backend implementation lives in
-  // the assistant process (keychain or encrypted file store). CES cannot import
-  // it directly. HTTP/command handlers that require credential materialisation
-  // will return a structured error until a CES-native backend is wired in.
-  const stubSecureKeyBackend = {
-    async get(_key: string) {
-      return undefined;
-    },
-    async set(_key: string, _value: string) {
-      return false;
-    },
-    async delete(_key: string) {
-      return "error" as const;
-    },
-    async list() {
-      return [];
-    },
-  };
+  // CES-native SecureKeyBackend that reads from the assistant's encrypted
+  // key store file. Read-only — CES never writes or deletes keys.
+  const secureKeyBackend = createLocalSecureKeyBackend(vellumRoot);
 
   const localMaterialiser = new LocalMaterialiser({
-    secureKeyBackend: stubSecureKeyBackend,
+    secureKeyBackend,
   });
 
   // -- Build handler registry ------------------------------------------------
@@ -162,12 +146,25 @@ function buildHandlers(sessionId: string): RpcHandlerRegistry {
     executorDeps: {
       persistentStore: persistentGrantStore,
       temporaryStore: temporaryGrantStore,
-      materializeCredential: async (_handle) => ({
-        ok: false as const,
-        error:
-          "CES local credential materialisation not yet available. " +
-          "A CES-native secure-key backend must be configured.",
-      }),
+      materializeCredential: async (handle) => {
+        // Resolve the subject first, then materialise through the local backend
+        const subjectResult = resolveLocalSubject(handle, {
+          metadataStore,
+          oauthConnections,
+        });
+        if (!subjectResult.ok) {
+          return { ok: false as const, error: subjectResult.error };
+        }
+        const matResult = await localMaterialiser.materialise(subjectResult.subject);
+        if (!matResult.ok) {
+          return { ok: false as const, error: matResult.error };
+        }
+        return {
+          ok: true as const,
+          value: matResult.credential.value,
+          handleType: matResult.credential.handleType,
+        };
+      },
       auditStore,
       cesMode: "local",
     },

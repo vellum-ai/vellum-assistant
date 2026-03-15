@@ -124,6 +124,18 @@ export interface ExecuteCommandResult {
   error?: string;
   /** Audit-relevant metadata. */
   auditId?: string;
+  /**
+   * When the failure reason is a missing grant, this field contains the
+   * proposal metadata needed by the approval bridge. Present only when
+   * the error is an approval-required grant failure.
+   */
+  approvalRequired?: {
+    credentialHandle: string;
+    bundleId: string;
+    profileName: string;
+    command: string;
+    purpose: string;
+  };
 }
 
 /**
@@ -233,6 +245,13 @@ export async function executeAuthenticatedCommand(
       success: false,
       error: grantResult.error,
       auditId,
+      approvalRequired: {
+        credentialHandle: request.credentialHandle,
+        bundleId: manifest.bundleId,
+        profileName: request.profileName,
+        command: `${request.bundleDigest}/${request.profileName} ${request.argv.join(" ")}`.trim(),
+        purpose: request.purpose,
+      },
     };
   }
 

@@ -20,6 +20,8 @@ import {
   CES_PROTOCOL_VERSION,
   CesRpcMethod,
   CesRpcSchemas,
+  hashProposal,
+  type CommandGrantProposal,
   type HandshakeAck,
   type HandshakeRequest,
   type MakeAuthenticatedRequest,
@@ -427,6 +429,35 @@ export function createRunAuthenticatedCommandHandler(
       execRequest,
       options.executorDeps,
     );
+
+    // If the failure was due to a missing grant, return a structured
+    // APPROVAL_REQUIRED response with the proposal so the approval
+    // bridge can activate.
+    if (!result.success && result.approvalRequired) {
+      const { credentialHandle, bundleId, profileName, command, purpose } =
+        result.approvalRequired;
+
+      const proposal: CommandGrantProposal = {
+        type: "command",
+        credentialHandle,
+        command,
+        purpose,
+        allowedCommandPatterns: [`${bundleId}/${profileName}`],
+      };
+
+      return {
+        success: false,
+        error: {
+          code: "APPROVAL_REQUIRED",
+          message: `No active grant covers this command. Approval is required.`,
+          details: {
+            proposal,
+            proposalHash: hashProposal(proposal),
+          },
+        },
+        auditId: result.auditId,
+      };
+    }
 
     return {
       success: result.success,
