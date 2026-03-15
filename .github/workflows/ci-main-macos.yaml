@@ -11,6 +11,10 @@ on:
       - 'clients/.periphery.yml'
       - 'clients/.periphery_baseline.json'
       - 'clients/scripts/periphery-scan.sh'
+      - 'assistant/**'
+      - 'cli/**'
+      - 'gateway/**'
+      - 'packages/**'
       - '.github/workflows/ci-main-macos.yaml'
 
 jobs:
