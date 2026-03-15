@@ -294,8 +294,7 @@ jobs:
           echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
-          DOCKERHUB_TAGS="${DOCKERHUB_IMAGE}:${SHA}"
-          DOCKERHUB_TAGS=$(printf "%s\n%s" "$DOCKERHUB_TAGS" "${DOCKERHUB_IMAGE}:v${VERSION}")
+          DOCKERHUB_TAGS="${DOCKERHUB_IMAGE}:v${VERSION}"
           DOCKERHUB_TAGS=$(printf "%s\n%s" "$DOCKERHUB_TAGS" "${DOCKERHUB_IMAGE}:latest")
           echo "dockerhub_tags<<EOF" >> "$GITHUB_OUTPUT"
           echo "$DOCKERHUB_TAGS" >> "$GITHUB_OUTPUT"
@@ -580,8 +579,7 @@ jobs:
           echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
-          DOCKERHUB_TAGS="${DOCKERHUB_IMAGE}:${SHA}"
-          DOCKERHUB_TAGS=$(printf "%s\n%s" "$DOCKERHUB_TAGS" "${DOCKERHUB_IMAGE}:v${VERSION}")
+          DOCKERHUB_TAGS="${DOCKERHUB_IMAGE}:v${VERSION}"
           DOCKERHUB_TAGS=$(printf "%s\n%s" "$DOCKERHUB_TAGS" "${DOCKERHUB_IMAGE}:latest")
           echo "dockerhub_tags<<EOF" >> "$GITHUB_OUTPUT"
           echo "$DOCKERHUB_TAGS" >> "$GITHUB_OUTPUT"
@@ -708,8 +706,7 @@ jobs:
           echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
-          DOCKERHUB_TAGS="${DOCKERHUB_IMAGE}:${SHA}"
-          DOCKERHUB_TAGS=$(printf "%s\n%s" "$DOCKERHUB_TAGS" "${DOCKERHUB_IMAGE}:v${VERSION}")
+          DOCKERHUB_TAGS="${DOCKERHUB_IMAGE}:v${VERSION}"
           DOCKERHUB_TAGS=$(printf "%s\n%s" "$DOCKERHUB_TAGS" "${DOCKERHUB_IMAGE}:latest")
           echo "dockerhub_tags<<EOF" >> "$GITHUB_OUTPUT"
           echo "$DOCKERHUB_TAGS" >> "$GITHUB_OUTPUT"
