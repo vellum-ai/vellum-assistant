@@ -1,3 +1,6 @@
+import type { ApprovalRequired } from "@vellumai/ces-contracts";
+
+import type { CesClient } from "../credential-execution/client.js";
 import type { SecretPromptResult } from "../permissions/secret-prompter.js";
 import type {
   AllowlistOption,
@@ -173,6 +176,8 @@ export interface ToolContext {
   hostBashProxy?: import("../daemon/host-bash-proxy.js").HostBashProxy;
   /** Optional proxy for delegating host_file_read/write/edit execution to a connected client (managed/cloud-hosted mode). */
   hostFileProxy?: import("../daemon/host-file-proxy.js").HostFileProxy;
+  /** CES RPC client for credential execution operations. When present, the executor can bridge CES approval flows. */
+  cesClient?: CesClient;
 }
 
 export interface DiffInfo {
@@ -205,6 +210,15 @@ export interface ToolExecutionResult {
    * the "wait for user action" instruction.
    */
   yieldToUser?: boolean;
+  /**
+   * When present, indicates that a CES tool returned an `approval_required`
+   * response. The executor uses the approval bridge to prompt the guardian,
+   * commit the grant decision to CES, and retry the original tool invocation
+   * with the granted grantId. CES tools populate this field rather than
+   * returning a textual error so the executor can intercept and handle the
+   * approval flow transparently.
+   */
+  cesApprovalRequired?: ApprovalRequired;
 }
 
 // ---------------------------------------------------------------------------
