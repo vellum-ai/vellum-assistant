@@ -1588,7 +1588,7 @@ describe("executeAuthenticatedCommand — credential_process defense-in-depth", 
     const { digest } = publishTestBundle(
       manifest,
       "local",
-      '#!/bin/sh\necho "should not run"\n',
+      '#!/bin/sh\necho "denied-binary-test"\n',
     );
 
     // Patch the published manifest to contain the denied helperCommand.
@@ -1652,7 +1652,7 @@ describe("executeAuthenticatedCommand — credential_process defense-in-depth", 
     const { digest } = publishTestBundle(
       manifest,
       "local",
-      '#!/bin/sh\necho "should not run"\n',
+      '#!/bin/sh\necho "metacharacter-test"\n',
     );
 
     // Patch the published manifest to contain shell metacharacters.
@@ -1720,7 +1720,7 @@ describe("executeAuthenticatedCommand — symlink escape prevention", () => {
     const { digest } = publishTestBundle(
       manifest,
       "local",
-      '#!/bin/sh\necho "should not run"\n',
+      '#!/bin/sh\necho "symlink-escape-test"\n',
     );
 
     // Tamper: replace the real entrypoint with a symlink to an external binary
