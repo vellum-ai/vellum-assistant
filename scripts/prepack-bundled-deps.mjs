@@ -13,7 +13,7 @@
  */
 
 import { cpSync, existsSync, lstatSync, readFileSync, readdirSync, rmSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 const pkgDir = process.cwd();
 const pkgPath = join(pkgDir, "package.json");
