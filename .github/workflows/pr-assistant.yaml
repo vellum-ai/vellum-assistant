@@ -5,7 +5,9 @@ on:
     types: [labeled, synchronize, opened, reopened]
     paths:
       - 'assistant/**'
-      - 'packages/ces-contracts/**'
+      - 'credential-executor/**'
+      - 'packages/**'
+      - 'scripts/check-bundled-deps.mjs'
       - 'scripts/skills/**'
       - 'meta/feature-flags/**'
       - '.github/workflows/pr-assistant.yaml'
@@ -179,6 +181,22 @@ jobs:
           \`\`\`
           vel up assistant --pr $PR_NUMBER
           \`\`\`"
+
+  check-bundled-deps:
+    name: Check Bundled Dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Verify file: dependencies are in bundledDependencies
+        run: node scripts/check-bundled-deps.mjs assistant credential-executor
 
   lint-bundled-skills:
     name: Lint Bundled Skills
