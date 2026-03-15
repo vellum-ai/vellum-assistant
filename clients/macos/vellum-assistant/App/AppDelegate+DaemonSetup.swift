@@ -341,7 +341,7 @@ extension AppDelegate {
         // host_cu_request for each conversation.
         HostCuExecutor.register(on: daemonClient) { [weak self] sessionId, request in
             guard let self else { return nil }
-            return self.getOrCreateHostCuOverlay(sessionId: sessionId, request: request)
+            return self.getOrCreateHostCuOverlay(conversationId: sessionId, request: request)
         }
 
         Task {

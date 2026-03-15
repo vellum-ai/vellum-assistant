@@ -33,8 +33,8 @@ struct ChatContentView: View {
                 messagesScrollView
             }
 
-            // Generic error banner (session errors are shown inline in messages)
-            if viewModel.sessionError == nil, let errorText = viewModel.errorText {
+            // Generic error banner (conversation errors are shown inline in messages)
+            if viewModel.conversationError == nil, let errorText = viewModel.errorText {
                 genericErrorBanner(errorText)
             }
 
@@ -56,7 +56,7 @@ struct ChatContentView: View {
         }
         .background(alignment: .bottom) { chatBackground }
         .background(VColor.surfaceOverlay)
-        .animation(VAnimation.standard, value: viewModel.sessionError != nil)
+        .animation(VAnimation.standard, value: viewModel.conversationError != nil)
         .animation(VAnimation.standard, value: viewModel.errorText)
     }
 
@@ -299,13 +299,13 @@ struct ChatContentView: View {
         }
     }
 
-    // MARK: - Session Error Banner
+    // MARK: - Conversation Error Banner
 
     @ViewBuilder
-    private func sessionErrorBanner(_ error: SessionError) -> some View {
+    private func conversationErrorBanner(_ error: ConversationError) -> some View {
         HStack(spacing: VSpacing.sm) {
-            VIconView(sessionErrorIcon(error.category), size: 14)
-                .foregroundColor(sessionErrorAccent(error.category))
+            VIconView(conversationErrorIcon(error.category), size: 14)
+                .foregroundColor(conversationErrorAccent(error.category))
 
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(error.message)
@@ -321,18 +321,18 @@ struct ChatContentView: View {
             Spacer()
 
             if error.isRetryable {
-                Button(action: { viewModel.retryAfterSessionError() }) {
+                Button(action: { viewModel.retryAfterConversationError() }) {
                     Text("Retry")
                         .font(VFont.captionMedium)
                         .foregroundColor(.white)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
-                        .background(sessionErrorAccent(error.category))
+                        .background(conversationErrorAccent(error.category))
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 }
             }
 
-            Button(action: { viewModel.dismissSessionError() }) {
+            Button(action: { viewModel.dismissConversationError() }) {
                 VIconView(.x, size: 10)
                     .foregroundColor(VColor.contentTertiary)
             }
@@ -340,10 +340,10 @@ struct ChatContentView: View {
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.sm)
-        .background(sessionErrorAccent(error.category).opacity(0.1))
+        .background(conversationErrorAccent(error.category).opacity(0.1))
         .overlay(
             Rectangle()
-                .fill(sessionErrorAccent(error.category))
+                .fill(conversationErrorAccent(error.category))
                 .frame(width: 3),
             alignment: .leading
         )
@@ -401,14 +401,14 @@ struct ChatContentView: View {
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 
-    private func sessionErrorIcon(_ category: SessionErrorCategory) -> VIcon {
+    private func conversationErrorIcon(_ category: ConversationErrorCategory) -> VIcon {
         switch category {
         case .providerNetwork: return .wifiOff
         case .rateLimit: return .clockAlert
         case .providerApi: return .cloudOff
         case .providerOrdering: return .cloudOff
         case .providerWebSearch: return .cloudOff
-        case .sessionAborted: return .circleStop
+        case .conversationAborted: return .circleStop
         case .processingFailed, .regenerateFailed: return .refreshCw
         case .contextTooLarge: return .fileText
         case .providerBilling: return .creditCard
@@ -417,11 +417,11 @@ struct ChatContentView: View {
         }
     }
 
-    private func sessionErrorAccent(_ category: SessionErrorCategory) -> Color {
+    private func conversationErrorAccent(_ category: ConversationErrorCategory) -> Color {
         switch category {
         case .rateLimit: return VColor.systemNegativeHover
         case .providerNetwork: return .orange
-        case .sessionAborted: return VColor.contentSecondary
+        case .conversationAborted: return VColor.contentSecondary
         case .contextTooLarge: return VColor.systemNegativeHover
         default: return VColor.systemNegativeStrong
         }

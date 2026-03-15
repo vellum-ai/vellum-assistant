@@ -66,7 +66,7 @@ final class FirstMeetingIntroductionViewModel {
             let stream = self.daemonClient.subscribe()
 
             do {
-                try self.daemonClient.send(SessionCreateMessage(
+                try self.daemonClient.send(ConversationCreateMessage(
                     title: "First meeting",
                     maxResponseTokens: 220,
                     transportChannelId: "vellum",
@@ -93,14 +93,14 @@ final class FirstMeetingIntroductionViewModel {
                 guard !Task.isCancelled else { break }
 
                 switch message {
-                case .sessionInfo(let info):
+                case .conversationInfo(let info):
                     if self.sessionId == nil {
-                        self.sessionId = info.sessionId
-                        log.info("First meeting session created: \(info.sessionId)")
+                        self.sessionId = info.conversationId
+                        log.info("First meeting conversation created: \(info.conversationId)")
 
                         do {
                             try self.daemonClient.send(UserMessageMessage(
-                                sessionId: info.sessionId,
+                                sessionId: info.conversationId,
                                 content: "Hi! You just hatched and I want to set us up well.",
                                 attachments: nil
                             ))
@@ -149,7 +149,7 @@ final class FirstMeetingIntroductionViewModel {
                     log.info("First meeting greeting complete via handoff (\(accumulated.count) chars)")
                     return
 
-                case .sessionError(let error) where error.sessionId == self.sessionId && self.sessionId != nil:
+                case .conversationError(let error) where error.conversationId == self.sessionId && self.sessionId != nil:
                     self.isThinking = false
                     self.streamingText = ""
                     log.error("First meeting start failed (session_error): \(error.userMessage)")
@@ -270,10 +270,10 @@ final class FirstMeetingIntroductionViewModel {
                     log.info("Follow-up response complete via handoff (\(accumulated.count) chars), turn \(nextTurn)/\(self.maxTurns)")
                     return
 
-                case .sessionError(let error) where error.sessionId == sessionId:
+                case .conversationError(let error) where error.conversationId == sessionId:
                     self.isThinking = false
                     self.streamingText = ""
-                    log.error("Session error during follow-up (session_error): \(error.userMessage)")
+                    log.error("Conversation error during follow-up: \(error.userMessage)")
                     self.messages.append(InterviewMessage(
                         role: .assistant,
                         text: "Something went wrong. Please try again."

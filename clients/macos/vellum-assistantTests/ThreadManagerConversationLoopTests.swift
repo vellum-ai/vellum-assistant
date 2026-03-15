@@ -30,8 +30,8 @@ final class ThreadManagerSessionLoopTests: XCTestCase {
             return
         }
 
-        threadManager.threads[index].sessionId = "session-active"
-        vm.sessionId = "session-active"
+        threadManager.threads[index].conversationId = "session-active"
+        vm.conversationId = "session-active"
 
         XCTAssertEqual(daemonClient.subscribers.count, 0)
         threadManager.selectThread(id: threadId)
@@ -46,8 +46,8 @@ final class ThreadManagerSessionLoopTests: XCTestCase {
             return
         }
 
-        threadManager.threads[index].sessionId = "session-active"
-        vm.sessionId = "session-active"
+        threadManager.threads[index].conversationId = "session-active"
+        vm.conversationId = "session-active"
 
         threadManager.selectThread(id: threadId)
         threadManager.selectThread(id: threadId)

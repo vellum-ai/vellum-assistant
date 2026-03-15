@@ -28,7 +28,7 @@ extension MainWindowView {
             DebugPanel(
                 traceStore: traceStore,
                 daemonClient: daemonClient,
-                activeSessionId: threadManager.activeViewModel?.sessionId,
+                activeSessionId: threadManager.activeViewModel?.conversationId,
                 onClose: { windowState.selection = nil }
             )
         case .generated:
@@ -293,7 +293,7 @@ extension MainWindowView {
                     }
                 )
                 .onAppear {
-                    threadManager.ensureActiveThread(preferredSessionId: documentManager.sessionId)
+                    threadManager.ensureActiveThread(preferredConversationId: documentManager.sessionId)
                 }
             } else if isAppChatOpen {
                 // Split view: chat (left) + panel (right)
@@ -343,7 +343,7 @@ extension MainWindowView {
                         subagentId: subagentId,
                         viewModel: viewModel,
                         detailStore: viewModel.subagentDetailStore,
-                        onAbort: { try? daemonClient.sendSubagentAbort(subagentId: subagentId, sessionId: viewModel.sessionId) },
+                        onAbort: { try? daemonClient.sendSubagentAbort(subagentId: subagentId, sessionId: viewModel.conversationId) },
                         onRequestDetail: {
                             if let conversationId = viewModel.activeSubagents.first(where: { $0.id == subagentId })?.conversationId {
                                 try? daemonClient.sendSubagentDetailRequest(subagentId: subagentId, conversationId: conversationId)
@@ -406,7 +406,7 @@ extension MainWindowView {
             DebugPanel(
                 traceStore: traceStore,
                 daemonClient: daemonClient,
-                activeSessionId: threadManager.activeViewModel?.sessionId,
+                activeSessionId: threadManager.activeViewModel?.conversationId,
                 onClose: { windowState.dismissOverlay() }
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }
@@ -642,10 +642,10 @@ struct ActiveChatViewWrapper: View {
             watchSession: ambientAgent.activeWatchSession,
             onStopWatch: { viewModel.stopWatchSession() },
             onReportMessage: { daemonMessageId in
-                guard let sessionId = viewModel.sessionId else { return }
+                guard let conversationId = viewModel.conversationId else { return }
                 do {
                     try daemonClient.sendDiagnosticsExportRequest(
-                        conversationId: sessionId,
+                        conversationId: conversationId,
                         anchorMessageId: daemonMessageId
                     )
                 } catch {
@@ -663,7 +663,7 @@ struct ActiveChatViewWrapper: View {
             isTemporaryChat: isTemporaryChat,
             activeSubagents: viewModel.activeSubagents,
             onAbortSubagent: { subagentId in
-                try? daemonClient.sendSubagentAbort(subagentId: subagentId, sessionId: viewModel.sessionId)
+                try? daemonClient.sendSubagentAbort(subagentId: subagentId, sessionId: viewModel.conversationId)
             },
             onSubagentTap: { subagentId in
                 windowState.selectedSubagentId = subagentId
@@ -672,7 +672,7 @@ struct ActiveChatViewWrapper: View {
                 viewModel.rehydrateMessage(id: messageId)
             },
             onSurfaceRefetch: { surfaceId, sessionId in
-                viewModel.refetchStrippedSurface(surfaceId: surfaceId, sessionId: sessionId)
+                viewModel.refetchStrippedSurface(surfaceId: surfaceId, conversationId: sessionId)
             },
             onRetryFailedMessage: { messageId in
                 viewModel.retryFailedMessage(id: messageId)

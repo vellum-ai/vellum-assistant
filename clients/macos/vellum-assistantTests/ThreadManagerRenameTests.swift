@@ -38,16 +38,16 @@ final class ThreadManagerRenameTests: XCTestCase {
             return
         }
 
-        threadManager.threads[0].sessionId = "session-abc"
+        threadManager.threads[0].conversationId = "session-abc"
         capturedMessages = [] // clear setup noise
 
         threadManager.renameThread(id: thread.id, title: "Renamed Thread")
 
         XCTAssertEqual(threadManager.threads[0].title, "Renamed Thread")
 
-        let renameMessages = capturedMessages.compactMap { $0 as? SessionRenameRequest }
+        let renameMessages = capturedMessages.compactMap { $0 as? ConversationRenameRequest }
         XCTAssertEqual(renameMessages.count, 1)
-        XCTAssertEqual(renameMessages.first?.sessionId, "session-abc")
+        XCTAssertEqual(renameMessages.first?.conversationId, "session-abc")
         XCTAssertEqual(renameMessages.first?.title, "Renamed Thread")
     }
 
@@ -59,12 +59,12 @@ final class ThreadManagerRenameTests: XCTestCase {
             return
         }
         let originalTitle = thread.title
-        threadManager.threads[0].sessionId = "session-abc"
+        threadManager.threads[0].conversationId = "session-abc"
 
         threadManager.renameThread(id: thread.id, title: "")
 
         XCTAssertEqual(threadManager.threads[0].title, originalTitle)
-        let renameMessages = capturedMessages.compactMap { $0 as? SessionRenameRequest }
+        let renameMessages = capturedMessages.compactMap { $0 as? ConversationRenameRequest }
         XCTAssertTrue(renameMessages.isEmpty)
     }
 
@@ -74,12 +74,12 @@ final class ThreadManagerRenameTests: XCTestCase {
             return
         }
         let originalTitle = thread.title
-        threadManager.threads[0].sessionId = "session-abc"
+        threadManager.threads[0].conversationId = "session-abc"
 
         threadManager.renameThread(id: thread.id, title: "   \n  ")
 
         XCTAssertEqual(threadManager.threads[0].title, originalTitle)
-        let renameMessages = capturedMessages.compactMap { $0 as? SessionRenameRequest }
+        let renameMessages = capturedMessages.compactMap { $0 as? ConversationRenameRequest }
         XCTAssertTrue(renameMessages.isEmpty)
     }
 
@@ -90,7 +90,7 @@ final class ThreadManagerRenameTests: XCTestCase {
             XCTFail("Expected at least one thread")
             return
         }
-        threadManager.threads[0].sessionId = "session-abc"
+        threadManager.threads[0].conversationId = "session-abc"
         capturedMessages = []
 
         threadManager.renameThread(id: thread.id, title: "  Trimmed Title  ")

@@ -10,38 +10,38 @@ final class ThreadListOrderingIOSTests: XCTestCase {
             IOSThread(
                 title: "explicit-late",
                 lastActivityAt: Date(timeIntervalSince1970: 20),
-                sessionId: "explicit-late",
+                conversationId: "explicit-late",
                 displayOrder: 2
             ),
             IOSThread(
                 title: "recent",
                 lastActivityAt: Date(timeIntervalSince1970: 50),
-                sessionId: "recent"
+                conversationId: "recent"
             ),
             IOSThread(
                 title: "pinned-second",
                 lastActivityAt: Date(timeIntervalSince1970: 10),
-                sessionId: "pinned-second",
+                conversationId: "pinned-second",
                 isPinned: true,
                 displayOrder: 2
             ),
             IOSThread(
                 title: "explicit-first",
                 lastActivityAt: Date(timeIntervalSince1970: 30),
-                sessionId: "explicit-first",
+                conversationId: "explicit-first",
                 displayOrder: 1
             ),
             IOSThread(
                 title: "pinned-first",
                 lastActivityAt: Date(timeIntervalSince1970: 40),
-                sessionId: "pinned-first",
+                conversationId: "pinned-first",
                 isPinned: true,
                 displayOrder: 1
             ),
             IOSThread(
                 title: "older",
                 lastActivityAt: Date(timeIntervalSince1970: 5),
-                sessionId: "older"
+                conversationId: "older"
             ),
         ]
 
@@ -65,25 +65,25 @@ final class ThreadListOrderingIOSTests: XCTestCase {
             IOSThread(
                 title: "pinned-unordered",
                 lastActivityAt: Date(timeIntervalSince1970: 60),
-                sessionId: "pinned-unordered",
+                conversationId: "pinned-unordered",
                 isPinned: true
             ),
             IOSThread(
                 title: "pinned-second",
                 lastActivityAt: Date(timeIntervalSince1970: 20),
-                sessionId: "pinned-second",
+                conversationId: "pinned-second",
                 isPinned: true,
                 displayOrder: 1
             ),
             IOSThread(
                 title: "regular",
                 lastActivityAt: Date(timeIntervalSince1970: 50),
-                sessionId: "regular"
+                conversationId: "regular"
             ),
             IOSThread(
                 title: "pinned-first",
                 lastActivityAt: Date(timeIntervalSince1970: 10),
-                sessionId: "pinned-first",
+                conversationId: "pinned-first",
                 isPinned: true,
                 displayOrder: 0
             ),
@@ -104,9 +104,9 @@ final class ThreadListOrderingIOSTests: XCTestCase {
 
     func testStandaloneModePreservesOriginalOrder() {
         let threads = [
-            IOSThread(title: "first", sessionId: "first", isPinned: true, displayOrder: 1),
-            IOSThread(title: "second", sessionId: "second"),
-            IOSThread(title: "third", sessionId: "third", displayOrder: 1),
+            IOSThread(title: "first", conversationId: "first", isPinned: true, displayOrder: 1),
+            IOSThread(title: "second", conversationId: "second"),
+            IOSThread(title: "third", conversationId: "third", displayOrder: 1),
         ]
 
         let sorted = sortThreadsForDisplay(threads, isConnectedMode: false)

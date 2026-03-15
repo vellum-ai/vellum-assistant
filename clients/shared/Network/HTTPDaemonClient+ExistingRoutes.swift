@@ -25,7 +25,7 @@ extension HTTPTransport {
             } else if let msg = message as? SecretResponseMessage {
                 Task { await self.sendSecret(requestId: msg.requestId, value: msg.value, delivery: msg.delivery) }
                 return true
-            } else if let msg = message as? SessionCreateMessage {
+            } else if let msg = message as? ConversationCreateMessage {
                 // For HTTP transport, session creation is implicit — the conversationKey
                 // acts as the session. Emit a synthetic session_info so ChatViewModel
                 // records the session ID.
@@ -34,13 +34,13 @@ extension HTTPTransport {
                 if msg.conversationType == "private" {
                     self.privateSessionIds.insert(sessionId)
                 }
-                let info = ServerMessage.sessionInfo(
-                    SessionInfoMessage(sessionId: sessionId, title: msg.title ?? "New Chat", correlationId: msg.correlationId)
+                let info = ServerMessage.conversationInfo(
+                    ConversationInfoMessage(conversationId: sessionId, title: msg.title ?? "New Chat", correlationId: msg.correlationId)
                 )
                 self.onMessage?(info)
                 return true
-            } else if let msg = message as? SessionListRequestMessage {
-                Task { await self.fetchSessionList(offset: Int(msg.offset ?? 0), limit: Int(msg.limit ?? 50)) }
+            } else if let msg = message as? ConversationListRequestMessage {
+                Task { await self.fetchConversationList(offset: Int(msg.offset ?? 0), limit: Int(msg.limit ?? 50)) }
                 return true
             } else if let msg = message as? HistoryRequestMessage {
                 Task { await self.fetchHistory(sessionId: msg.sessionId) }

@@ -309,7 +309,7 @@ extension AppDelegate {
         let sendThreadLogsItem = NSMenuItem(title: "Send Logs for Current Thread", action: #selector(sendCurrentThreadLogsToSentry), keyEquivalent: "")
         sendThreadLogsItem.target = self
         sendThreadLogsItem.image = VIcon.upload.nsImage
-        sendThreadLogsItem.isEnabled = mainWindow?.threadManager.activeThread?.sessionId != nil && !isCurrentAssistantManaged
+        sendThreadLogsItem.isEnabled = mainWindow?.threadManager.activeThread?.conversationId != nil && !isCurrentAssistantManaged
         menu.addItem(sendThreadLogsItem)
 
         if MacOSClientFeatureFlagManager.shared.isEnabled("developer-menu-items") {
@@ -491,12 +491,12 @@ extension AppDelegate {
 
     @objc func sendCurrentThreadLogsToSentry() {
         guard let thread = mainWindow?.threadManager.activeThread,
-              let sessionId = thread.sessionId else { return }
+              let conversationId = thread.conversationId else { return }
 
         // Defer window creation until after the status menu finishes dismissing,
         // otherwise macOS can swallow the makeKeyAndOrderFront during menu teardown.
         DispatchQueue.main.async { [weak self] in
-            self?.showLogReportWindow(scope: .thread(conversationId: sessionId, threadTitle: thread.title))
+            self?.showLogReportWindow(scope: .thread(conversationId: conversationId, threadTitle: thread.title))
         }
     }
 

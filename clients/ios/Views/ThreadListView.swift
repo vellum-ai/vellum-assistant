@@ -117,7 +117,7 @@ struct ThreadListView: View {
         var grouped: [String: [IOSThread]] = [:]
         var order: [String] = []
         for thread in filteredScheduleThreads {
-            let key = thread.scheduleJobId ?? thread.sessionId ?? thread.id.uuidString
+            let key = thread.scheduleJobId ?? thread.conversationId ?? thread.id.uuidString
             if grouped[key] == nil {
                 order.append(key)
             }
@@ -253,12 +253,12 @@ struct ThreadListView: View {
     }
 
     private func canToggleThreadPin(_ thread: IOSThread) -> Bool {
-        store.isConnectedMode && thread.sessionId != nil
+        store.isConnectedMode && thread.conversationId != nil
     }
 
     private func canMarkThreadUnread(_ thread: IOSThread) -> Bool {
         store.isConnectedMode &&
-            thread.sessionId != nil &&
+            thread.conversationId != nil &&
             !thread.hasUnseenLatestAssistantMessage &&
             thread.latestAssistantMessageAt != nil
     }
@@ -670,7 +670,7 @@ struct ThreadChatView: View {
             .sheet(isPresented: $showDebugPanel) {
                 DebugPanelView(
                     traceStore: clientProvider.traceStore,
-                    sessionId: viewModel.sessionId,
+                    sessionId: viewModel.conversationId,
                     onClose: { showDebugPanel = false }
                 )
             }

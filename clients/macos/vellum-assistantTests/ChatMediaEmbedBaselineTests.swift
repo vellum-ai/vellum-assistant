@@ -32,7 +32,7 @@ final class ChatMediaEmbedBaselineTests: XCTestCase {
     // MARK: - User messages with media URLs remain plain text
 
     func testUserMessageWithYouTubeLinkIsPlainText() {
-        viewModel.sessionId = "sess-1"
+        viewModel.conversationId = "sess-1"
         viewModel.inputText = "Check this out: https://www.youtube.com/watch?v=dQw4w9WgXcQ"
         viewModel.sendMessage()
 
@@ -50,7 +50,7 @@ final class ChatMediaEmbedBaselineTests: XCTestCase {
     }
 
     func testUserMessageWithVimeoLinkIsPlainText() {
-        viewModel.sessionId = "sess-1"
+        viewModel.conversationId = "sess-1"
         viewModel.inputText = "Watch: https://vimeo.com/123456789"
         viewModel.sendMessage()
 
@@ -64,7 +64,7 @@ final class ChatMediaEmbedBaselineTests: XCTestCase {
     }
 
     func testUserMessageWithLoomLinkIsPlainText() {
-        viewModel.sessionId = "sess-1"
+        viewModel.conversationId = "sess-1"
         viewModel.inputText = "Here's my recording: https://www.loom.com/share/abc123def456"
         viewModel.sendMessage()
 
@@ -78,7 +78,7 @@ final class ChatMediaEmbedBaselineTests: XCTestCase {
     }
 
     func testUserMessageWithImageURLIsPlainText() {
-        viewModel.sessionId = "sess-1"
+        viewModel.conversationId = "sess-1"
         viewModel.inputText = "Look at this: https://example.com/photo.png"
         viewModel.sendMessage()
 

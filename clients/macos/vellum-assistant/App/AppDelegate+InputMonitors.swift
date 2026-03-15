@@ -353,7 +353,7 @@ extension AppDelegate {
 
         window.onSelectSearchConversation = { [weak self] sessionId in
             Task { @MainActor in
-                let found = await self?.mainWindow?.threadManager.selectThreadBySessionIdAsync(sessionId) ?? false
+                let found = await self?.mainWindow?.threadManager.selectThreadByConversationIdAsync(sessionId) ?? false
                 if found, let threadId = self?.mainWindow?.threadManager.activeThreadId {
                     self?.mainWindow?.windowState.selection = .thread(threadId)
                 }

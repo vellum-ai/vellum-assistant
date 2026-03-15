@@ -1,7 +1,7 @@
 import Foundation
 
-/// Categorizes session errors for UI display and recovery suggestions.
-public enum SessionErrorCategory: Equatable, Sendable {
+/// Categorizes conversation errors for UI display and recovery suggestions.
+public enum ConversationErrorCategory: Equatable, Sendable {
     case providerNetwork
     case rateLimit
     case providerApi
@@ -9,13 +9,13 @@ public enum SessionErrorCategory: Equatable, Sendable {
     case providerOrdering
     case providerWebSearch
     case contextTooLarge
-    case sessionAborted
+    case conversationAborted
     case processingFailed
     case regenerateFailed
     case authenticationRequired
     case unknown
 
-    public init(from code: SessionErrorCode) {
+    public init(from code: ConversationErrorCode) {
         switch code {
         case .providerNetwork:
             self = .providerNetwork
@@ -31,9 +31,9 @@ public enum SessionErrorCategory: Equatable, Sendable {
             self = .providerWebSearch
         case .contextTooLarge:
             self = .contextTooLarge
-        case .sessionAborted:
-            self = .sessionAborted
-        case .sessionProcessingFailed:
+        case .conversationAborted:
+            self = .conversationAborted
+        case .conversationProcessingFailed:
             self = .processingFailed
         case .regenerateFailed:
             self = .regenerateFailed
@@ -61,7 +61,7 @@ public enum SessionErrorCategory: Equatable, Sendable {
             return "This is usually temporary — click Retry to continue."
         case .contextTooLarge:
             return "Start a new thread to reset context, or try a shorter message."
-        case .sessionAborted:
+        case .conversationAborted:
             return "Send a new message to continue the conversation."
         case .processingFailed:
             return "Click Retry or send your message again. Copy debug info if the problem repeats."
@@ -75,33 +75,33 @@ public enum SessionErrorCategory: Equatable, Sendable {
     }
 }
 
-/// Typed error state for session-level errors from the daemon.
-public struct SessionError: Equatable {
-    public let category: SessionErrorCategory
+/// Typed error state for conversation-level errors from the daemon.
+public struct ConversationError: Equatable {
+    public let category: ConversationErrorCategory
     public let message: String
     public let isRetryable: Bool
     public let recoverySuggestion: String
-    public let sessionId: String
+    public let conversationId: String
     public let debugDetails: String?
     /// Machine-readable error category for log report metadata and triage.
     public let errorCategory: String?
 
-    public init(from msg: SessionErrorMessage) {
-        self.category = SessionErrorCategory(from: msg.code)
+    public init(from msg: ConversationErrorMessage) {
+        self.category = ConversationErrorCategory(from: msg.code)
         self.message = msg.userMessage
         self.isRetryable = msg.retryable
         self.recoverySuggestion = self.category.recoverySuggestion
-        self.sessionId = msg.sessionId
+        self.conversationId = msg.conversationId
         self.debugDetails = msg.debugDetails
         self.errorCategory = msg.errorCategory
     }
 
-    public init(category: SessionErrorCategory, message: String, isRetryable: Bool, sessionId: String, debugDetails: String? = nil, errorCategory: String? = nil) {
+    public init(category: ConversationErrorCategory, message: String, isRetryable: Bool, conversationId: String, debugDetails: String? = nil, errorCategory: String? = nil) {
         self.category = category
         self.message = message
         self.isRetryable = isRetryable
         self.recoverySuggestion = category.recoverySuggestion
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.debugDetails = debugDetails
         self.errorCategory = errorCategory
     }

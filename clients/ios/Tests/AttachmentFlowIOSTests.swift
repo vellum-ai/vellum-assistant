@@ -77,7 +77,7 @@ final class AttachmentFlowIOSTests: XCTestCase {
     // MARK: - Send with Attachments
 
     func testSendMessageWithAttachmentsClearsAttachments() {
-        viewModel.sessionId = "sess-att"
+        viewModel.conversationId = "sess-att"
 
         let attachment = makeDummyAttachment(id: "att-1", filename: "test.png")
         viewModel.pendingAttachments = [attachment]
@@ -89,7 +89,7 @@ final class AttachmentFlowIOSTests: XCTestCase {
     }
 
     func testSendMessageWithOnlyAttachmentsNoText() {
-        viewModel.sessionId = "sess-att-only"
+        viewModel.conversationId = "sess-att-only"
 
         let attachment = makeDummyAttachment(id: "att-1", filename: "doc.pdf")
         viewModel.pendingAttachments = [attachment]
@@ -103,7 +103,7 @@ final class AttachmentFlowIOSTests: XCTestCase {
     }
 
     func testSendMessageIncludesAttachmentsInUserMessage() {
-        viewModel.sessionId = "sess-att-msg"
+        viewModel.conversationId = "sess-att-msg"
 
         let attachment = makeDummyAttachment(id: "att-1", filename: "photo.jpg")
         viewModel.pendingAttachments = [attachment]

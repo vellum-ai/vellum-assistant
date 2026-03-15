@@ -150,7 +150,7 @@ final class ScreenRecorderTests: XCTestCase {
         }
     }
 
-    func testSessionErrorCodesMappedCorrectly() {
+    func testConversationErrorCodesMappedCorrectly() {
         let sessionCodes = [-3808, -3809, -3810]
         for code in sessionCodes {
             let nsError = NSError(domain: "com.apple.screencapturekit.error", code: code, userInfo: nil)

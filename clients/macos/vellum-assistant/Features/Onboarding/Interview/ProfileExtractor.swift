@@ -103,7 +103,7 @@ final class ProfileExtractor {
         let stream = daemonClient.subscribe()
 
         // Create a new extraction session with the system prompt override.
-        try daemonClient.send(SessionCreateMessage(
+        try daemonClient.send(ConversationCreateMessage(
             title: "Profile extraction",
             systemPromptOverride: Self.extractionPrompt,
             maxResponseTokens: 1024
@@ -118,13 +118,13 @@ final class ProfileExtractor {
 
         for await message in stream {
             switch message {
-            case .sessionInfo(let info):
+            case .conversationInfo(let info):
                 if sessionId == nil {
-                    sessionId = info.sessionId
-                    log.info("Extraction session created: \(info.sessionId)")
+                    sessionId = info.conversationId
+                    log.info("Extraction conversation created: \(info.conversationId)")
 
                     try daemonClient.send(UserMessageMessage(
-                        sessionId: info.sessionId,
+                        sessionId: info.conversationId,
                         content: "Here is the interview transcript to analyze:\n\n\(transcript)",
                         attachments: nil
                     ))
@@ -146,7 +146,7 @@ final class ProfileExtractor {
                 processExtractionResponse(accumulated)
                 return
 
-            case .sessionError(let error) where error.sessionId == sessionId:
+            case .conversationError(let error) where error.conversationId == sessionId:
                 log.error("Extraction session error (session_error): \(error.userMessage)")
                 return
 

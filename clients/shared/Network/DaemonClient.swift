@@ -414,11 +414,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends an `open_bundle_response` message.
     public var onOpenBundleResponse: ((OpenBundleResponseMessage) -> Void)?
 
-    /// Called when the daemon sends a `session_list_response` message.
-    public var onSessionListResponse: ((SessionListResponseMessage) -> Void)?
+    /// Called when the daemon sends a `conversation_list_response` message.
+    public var onConversationListResponse: ((ConversationListResponseMessage) -> Void)?
 
-    /// Called when the daemon sends a `session_title_updated` message.
-    public var onSessionTitleUpdated: ((SessionTitleUpdatedMessage) -> Void)?
+    /// Called when the daemon sends a `conversation_title_updated` message.
+    public var onConversationTitleUpdated: ((ConversationTitleUpdatedMessage) -> Void)?
 
     /// Called when the daemon sends a `history_response` message.
     public var onHistoryResponse: ((HistoryResponse) -> Void)?
@@ -1382,12 +1382,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Regenerate
 
-    /// Regenerate the last assistant response for a session.
-    public func sendRegenerate(sessionId: String) throws {
-        try send(RegenerateMessage(sessionId: sessionId))
+    /// Regenerate the last assistant response for a conversation.
+    public func sendRegenerate(conversationId: String) throws {
+        try send(RegenerateMessage(sessionId: conversationId))
     }
 
-    // MARK: - Sessions
+    // MARK: - Conversations
 
     /// Delete a single conversation on the backend (fire-and-forget).
     public func deleteConversation(_ conversationId: String) {
@@ -1395,21 +1395,21 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         Task { await httpTransport.deleteConversation(conversationId) }
     }
 
-    /// Request the list of past sessions from the daemon.
-    public func sendSessionList(offset: Int? = nil, limit: Int? = nil) throws {
-        try send(SessionListRequestMessage(offset: offset, limit: limit))
+    /// Request the list of past conversations from the daemon.
+    public func sendConversationList(offset: Int? = nil, limit: Int? = nil) throws {
+        try send(ConversationListRequestMessage(offset: offset, limit: limit))
     }
 
-    /// Request message history for a specific session.
+    /// Request message history for a specific conversation.
     /// - Parameters:
-    ///   - sessionId: The session to fetch history for.
+    ///   - conversationId: The conversation to fetch history for.
     ///   - limit: Max messages to return per page.
     ///   - beforeTimestamp: Pagination cursor — only return messages before this timestamp (ms since epoch).
     ///   - mode: `"light"` omits heavy payloads (attachments, tool images, surface data); `"full"` includes everything.
     ///   - maxTextChars: When set, truncates assistant text content to this many characters.
     ///   - maxToolResultChars: When set, truncates tool result content to this many characters.
-    public func sendHistoryRequest(sessionId: String, limit: Int? = nil, beforeTimestamp: Double? = nil, mode: String? = nil, maxTextChars: Int? = nil, maxToolResultChars: Int? = nil) throws {
-        try send(HistoryRequestMessage(sessionId: sessionId, limit: limit, beforeTimestamp: beforeTimestamp, mode: mode, maxTextChars: maxTextChars, maxToolResultChars: maxToolResultChars))
+    public func sendHistoryRequest(conversationId: String, limit: Int? = nil, beforeTimestamp: Double? = nil, mode: String? = nil, maxTextChars: Int? = nil, maxToolResultChars: Int? = nil) throws {
+        try send(HistoryRequestMessage(sessionId: conversationId, limit: limit, beforeTimestamp: beforeTimestamp, mode: mode, maxTextChars: maxTextChars, maxToolResultChars: maxToolResultChars))
     }
 
     /// Request full (untruncated) content for a specific message.

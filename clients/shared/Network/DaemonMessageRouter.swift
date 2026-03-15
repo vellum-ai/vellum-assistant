@@ -134,10 +134,10 @@ extension DaemonClient {
             onBundleAppResponse?(msg)
         case .openBundleResponse(let msg):
             onOpenBundleResponse?(msg)
-        case .sessionListResponse(let msg):
-            onSessionListResponse?(msg)
-        case .sessionTitleUpdated(let msg):
-            onSessionTitleUpdated?(msg)
+        case .conversationListResponse(let msg):
+            onConversationListResponse?(msg)
+        case .conversationTitleUpdated(let msg):
+            onConversationTitleUpdated?(msg)
         case .historyResponse(let msg):
             onHistoryResponse?(msg)
         case .messageContentResponse(let msg):

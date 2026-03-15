@@ -22,7 +22,7 @@ struct AssistantEvent: Decodable {
 
 /// Response shape from `GET /v1/conversations`.
 public struct ConversationsListResponse: Decodable {
-    public struct Session: Decodable {
+    public struct Conversation: Decodable {
         public let id: String
         public let title: String
         public let createdAt: Int?
@@ -37,13 +37,13 @@ public struct ConversationsListResponse: Decodable {
         public let displayOrder: Double?
         public let isPinned: Bool?
     }
-    public let sessions: [Session]
+    public let conversations: [Conversation]
     public let hasMore: Bool?
 }
 
 /// Response shape from `GET /v1/conversations/:id`.
 public struct SingleConversationResponse: Decodable {
-    public let session: ConversationsListResponse.Session
+    public let conversation: ConversationsListResponse.Conversation
 }
 
 private struct HTTPErrorEnvelope: Decodable {
@@ -178,7 +178,7 @@ public final class HTTPTransport {
 
     /// Maps the daemon's server-side conversationId → client-local sessionId.
     /// Used to remap sessionId in incoming SSE events so ChatViewModel's
-    /// belongsToSession() filter passes. Supports multiple concurrent threads.
+    /// belongsToConversation() filter passes. Supports multiple concurrent threads.
     /// Capped at `serverToLocalSessionMapCap` entries to prevent unbounded growth.
     var serverToLocalSessionMap: [String: String] = [:]
     private let serverToLocalSessionMapCap = 500
@@ -226,7 +226,7 @@ public final class HTTPTransport {
         registerDocumentsRoutes()
         registerWorkItemsRoutes()
         registerSubagentsRoutes()
-        registerSessionRoutes()
+        registerConversationRoutes()
         registerSkillRoutes()
     }
 
@@ -713,7 +713,7 @@ public final class HTTPTransport {
             let sEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? sessionId
             return ("/v1/messages/queued/\(idEncoded)", "sessionId=\(sEncoded)")
         case .sessionsReorder:
-            return ("/v1/sessions/reorder", nil)
+            return ("/v1/conversations/reorder", nil)
         // Skill management
         case .skillsList:
             return ("/v1/skills", nil)
@@ -1130,7 +1130,7 @@ public final class HTTPTransport {
             let sEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? sessionId
             return ("\(prefix)/messages/queued/\(idEncoded)/", "sessionId=\(sEncoded)")
         case .sessionsReorder:
-            return ("\(prefix)/sessions/reorder/", nil)
+            return ("\(prefix)/conversations/reorder/", nil)
         // Skill management
         case .skillsList:
             return ("\(prefix)/skills/", nil)
@@ -1685,8 +1685,8 @@ public final class HTTPTransport {
                 case .transientFailure:
                     log.error("Failed to upload attachment: \(attachment.filename)")
                     let failedCount = attachments.count - attachmentIds.count
-                    onMessage?(.sessionError(SessionErrorMessage(
-                        sessionId: sessionId,
+                    onMessage?(.conversationError(ConversationErrorMessage(
+                        conversationId: sessionId,
                         code: .providerApi,
                         userMessage: "Failed to upload \(failedCount) attachment\(failedCount == 1 ? "" : "s"). Please try again.",
                         retryable: true,
@@ -1736,7 +1736,7 @@ public final class HTTPTransport {
                    serverConvId != sessionId {
                     self.serverToLocalSessionMap[serverConvId] = sessionId
                     // Evict arbitrary entries when over cap to prevent unbounded growth.
-                    // Lost mappings are benign — unmapped events are filtered by belongsToSession.
+                    // Lost mappings are benign — unmapped events are filtered by belongsToConversation.
                     while self.serverToLocalSessionMap.count > self.serverToLocalSessionMapCap {
                         if let key = self.serverToLocalSessionMap.keys.first {
                             self.serverToLocalSessionMap.removeValue(forKey: key)
@@ -1754,8 +1754,8 @@ public final class HTTPTransport {
                     // performRefresh() already emitted .authenticationRequired — don't overwrite it
                     break
                 case .transientFailure:
-                    onMessage?(.sessionError(SessionErrorMessage(
-                        sessionId: sessionId,
+                    onMessage?(.conversationError(ConversationErrorMessage(
+                        conversationId: sessionId,
                         code: .providerApi,
                         userMessage: "Failed to send message — authentication error. Please try again.",
                         retryable: true,
@@ -1777,8 +1777,8 @@ public final class HTTPTransport {
             } else {
                 let errorBody = String(data: data, encoding: .utf8) ?? "unknown"
                 log.error("Send message failed (\(http.statusCode)): \(errorBody)")
-                onMessage?(.sessionError(SessionErrorMessage(
-                    sessionId: sessionId,
+                onMessage?(.conversationError(ConversationErrorMessage(
+                    conversationId: sessionId,
                     code: .providerApi,
                     userMessage: "Failed to send message (HTTP \(http.statusCode))",
                     retryable: true,
@@ -1787,8 +1787,8 @@ public final class HTTPTransport {
             }
         } catch {
             log.error("Send message error: \(error.localizedDescription)")
-            onMessage?(.sessionError(SessionErrorMessage(
-                sessionId: sessionId,
+            onMessage?(.conversationError(ConversationErrorMessage(
+                conversationId: sessionId,
                 code: .providerApi,
                 userMessage: error.localizedDescription,
                 retryable: true,
@@ -2900,7 +2900,7 @@ public final class HTTPTransport {
         }
     }
 
-    func fetchSessionList(offset: Int = 0, limit: Int = 50, isRetry: Bool = false, authRetryCount: Int = 0) async {
+    func fetchConversationList(offset: Int = 0, limit: Int = 50, isRetry: Bool = false, authRetryCount: Int = 0) async {
         guard let url = buildURL(for: .conversations(limit: limit, offset: offset)) else { return }
 
         var request = URLRequest(url: url)
@@ -2914,7 +2914,7 @@ public final class HTTPTransport {
                 if statusCode == 401 && !isRetry {
                     let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                     if case .success = refreshResult {
-                        await fetchSessionList(offset: offset, limit: limit, isRetry: true)
+                        await fetchConversationList(offset: offset, limit: limit, isRetry: true)
                         return
                     }
                 }
@@ -2922,29 +2922,29 @@ public final class HTTPTransport {
                 // bootstrapped yet. Retry a few times with a delay to let
                 // ensureActorCredentials() finish.
                 if statusCode == 403 && authRetryCount < 6 {
-                    log.info("Session list fetch got 403 — waiting for actor token (attempt \(authRetryCount + 1)/6)")
+                    log.info("Conversation list fetch got 403 — waiting for actor token (attempt \(authRetryCount + 1)/6)")
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    await fetchSessionList(offset: offset, limit: limit, isRetry: isRetry, authRetryCount: authRetryCount + 1)
+                    await fetchConversationList(offset: offset, limit: limit, isRetry: isRetry, authRetryCount: authRetryCount + 1)
                     return
                 }
-                log.error("Fetch session list failed (HTTP \(statusCode))")
-                onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [], hasMore: nil)))
+                log.error("Fetch conversation list failed (HTTP \(statusCode))")
+                onMessage?(.conversationListResponse(ConversationListResponseMessage(type: "conversation_list_response", conversations: [], hasMore: nil)))
                 return
             }
 
             do {
                 let decoded = try decoder.decode(ConversationsListResponse.self, from: data)
-                let sessions = decoded.sessions.map {
-                    SessionListResponseSession(id: $0.id, title: $0.title, createdAt: $0.createdAt ?? $0.updatedAt, updatedAt: $0.updatedAt, conversationType: $0.conversationType, source: $0.source, scheduleJobId: $0.scheduleJobId, channelBinding: $0.channelBinding, conversationOriginChannel: $0.conversationOriginChannel, conversationOriginInterface: $0.conversationOriginInterface, assistantAttention: $0.assistantAttention, displayOrder: $0.displayOrder, isPinned: $0.isPinned)
+                let conversations = decoded.conversations.map {
+                    ConversationListResponseItem(id: $0.id, title: $0.title, createdAt: $0.createdAt ?? $0.updatedAt, updatedAt: $0.updatedAt, conversationType: $0.conversationType, source: $0.source, scheduleJobId: $0.scheduleJobId, channelBinding: $0.channelBinding, conversationOriginChannel: $0.conversationOriginChannel, conversationOriginInterface: $0.conversationOriginInterface, assistantAttention: $0.assistantAttention, displayOrder: $0.displayOrder, isPinned: $0.isPinned)
                 }
-                onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: sessions, hasMore: decoded.hasMore)))
+                onMessage?(.conversationListResponse(ConversationListResponseMessage(type: "conversation_list_response", conversations: conversations, hasMore: decoded.hasMore)))
             } catch {
-                log.error("Failed to decode session list response: \(error)")
-                onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [], hasMore: nil)))
+                log.error("Failed to decode conversation list response: \(error)")
+                onMessage?(.conversationListResponse(ConversationListResponseMessage(type: "conversation_list_response", conversations: [], hasMore: nil)))
             }
         } catch {
-            log.error("Fetch session list error: \(error.localizedDescription)")
-            onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [], hasMore: nil)))
+            log.error("Fetch conversation list error: \(error.localizedDescription)")
+            onMessage?(.conversationListResponse(ConversationListResponseMessage(type: "conversation_list_response", conversations: [], hasMore: nil)))
         }
     }
 
@@ -3394,7 +3394,7 @@ public final class HTTPTransport {
         }
     }
 
-    // MARK: - Session Management HTTP Handlers
+    // MARK: - Conversation Management HTTP Handlers
 
     func switchSession(conversationId: String, isRetry: Bool = false) async {
         guard let url = buildURL(for: .conversationsSwitch) else { return }
@@ -3413,23 +3413,23 @@ public final class HTTPTransport {
             guard let http = response as? HTTPURLResponse else { return }
 
             if http.statusCode == 200 {
-                // Successful switch — session_info will arrive via SSE
-                log.info("Session switch to \(conversationId) succeeded")
+                // Successful switch — conversation_info will arrive via SSE
+                log.info("Conversation switch to \(conversationId) succeeded")
             } else if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                 if case .success = refreshResult {
                     await switchSession(conversationId: conversationId, isRetry: true)
                 }
             } else {
-                log.error("Session switch failed (HTTP \(http.statusCode))")
+                log.error("Conversation switch failed (HTTP \(http.statusCode))")
             }
         } catch {
-            log.error("Session switch error: \(error.localizedDescription)")
+            log.error("Conversation switch error: \(error.localizedDescription)")
         }
     }
 
-    func renameSession(sessionId: String, name: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .conversationRename(id: sessionId)) else { return }
+    func renameConversation(conversationId: String, name: String, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .conversationRename(id: conversationId)) else { return }
 
         var request = URLRequest(url: url)
         request.httpMethod = "PATCH"
@@ -3445,26 +3445,26 @@ public final class HTTPTransport {
             guard let http = response as? HTTPURLResponse else { return }
 
             if http.statusCode == 200 {
-                // Emit session_title_updated so the UI refreshes
-                onMessage?(.sessionTitleUpdated(SessionTitleUpdatedMessage(
-                    type: "session_title_updated",
-                    sessionId: sessionId,
+                // Emit conversation_title_updated so the UI refreshes
+                onMessage?(.conversationTitleUpdated(ConversationTitleUpdatedMessage(
+                    type: "conversation_title_updated",
+                    conversationId: conversationId,
                     title: name
                 )))
             } else if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                 if case .success = refreshResult {
-                    await renameSession(sessionId: sessionId, name: name, isRetry: true)
+                    await renameConversation(conversationId: conversationId, name: name, isRetry: true)
                 }
             } else {
-                log.error("Session rename failed (HTTP \(http.statusCode))")
+                log.error("Conversation rename failed (HTTP \(http.statusCode))")
             }
         } catch {
-            log.error("Session rename error: \(error.localizedDescription)")
+            log.error("Conversation rename error: \(error.localizedDescription)")
         }
     }
 
-    func clearAllSessions(isRetry: Bool = false) async {
+    func clearAllConversations(isRetry: Bool = false) async {
         guard let url = buildURL(for: .conversationsClear) else { return }
 
         var request = URLRequest(url: url)
@@ -3477,21 +3477,21 @@ public final class HTTPTransport {
             guard let http = response as? HTTPURLResponse else { return }
 
             if http.statusCode == 204 || http.statusCode == 200 {
-                onMessage?(.sessionListResponse(SessionListResponseMessage(
-                    type: "session_list_response",
-                    sessions: [],
+                onMessage?(.conversationListResponse(ConversationListResponseMessage(
+                    type: "conversation_list_response",
+                    conversations: [],
                     hasMore: nil
                 )))
             } else if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                 if case .success = refreshResult {
-                    await clearAllSessions(isRetry: true)
+                    await clearAllConversations(isRetry: true)
                 }
             } else {
-                log.error("Clear sessions failed (HTTP \(http.statusCode))")
+                log.error("Clear conversations failed (HTTP \(http.statusCode))")
             }
         } catch {
-            log.error("Clear sessions error: \(error.localizedDescription)")
+            log.error("Clear conversations error: \(error.localizedDescription)")
         }
     }
 
@@ -3580,8 +3580,8 @@ public final class HTTPTransport {
             } else {
                 log.error("Regenerate failed (HTTP \(http.statusCode))")
                 let body = String(data: data, encoding: .utf8) ?? "(non-UTF8 body)"
-                onMessage?(.sessionError(SessionErrorMessage(
-                    sessionId: sessionId,
+                onMessage?(.conversationError(ConversationErrorMessage(
+                    conversationId: sessionId,
                     code: .regenerateFailed,
                     userMessage: "Unable to regenerate response. Try sending your message again.",
                     retryable: true,
@@ -3590,8 +3590,8 @@ public final class HTTPTransport {
             }
         } catch {
             log.error("Regenerate error: \(error.localizedDescription)")
-            onMessage?(.sessionError(SessionErrorMessage(
-                sessionId: sessionId,
+            onMessage?(.conversationError(ConversationErrorMessage(
+                conversationId: sessionId,
                 code: .regenerateFailed,
                 userMessage: "Unable to regenerate response. Try sending your message again.",
                 retryable: true,
@@ -3793,7 +3793,7 @@ public final class HTTPTransport {
         let body: [String: Any] = [
             "updates": updates.map { u in
                 var entry: [String: Any] = [
-                    "sessionId": u.sessionId,
+                    "conversationId": u.conversationId,
                     "isPinned": u.isPinned
                 ]
                 if let order = u.displayOrder {
@@ -4429,8 +4429,8 @@ public final class HTTPTransport {
         // from re-hitting the 401 and re-emitting the error indefinitely.
         if isManagedMode {
             log.warning("401 in managed mode — session token may be expired")
-            onMessage?(.sessionError(SessionErrorMessage(
-                sessionId: "",
+            onMessage?(.conversationError(ConversationErrorMessage(
+                conversationId: "",
                 code: .authenticationRequired,
                 userMessage: "Session expired. Please sign in again.",
                 retryable: false
@@ -4461,8 +4461,8 @@ public final class HTTPTransport {
         // stop loops, and return terminal so callers don't retry.
         if isManagedMode {
             log.warning("401 in managed mode — session token may be expired")
-            onMessage?(.sessionError(SessionErrorMessage(
-                sessionId: "",
+            onMessage?(.conversationError(ConversationErrorMessage(
+                conversationId: "",
                 code: .authenticationRequired,
                 userMessage: "Session expired. Please sign in again.",
                 retryable: false
@@ -4481,8 +4481,8 @@ public final class HTTPTransport {
             if let code, terminalCodes.contains(code) {
                 // Explicitly terminal — no refresh possible
                 log.error("Terminal 401 code: \(code) — re-auth required")
-                self.onMessage?(.sessionError(SessionErrorMessage(
-                    sessionId: "",
+                self.onMessage?(.conversationError(ConversationErrorMessage(
+                    conversationId: "",
                     code: .authenticationRequired,
                     userMessage: "Session expired. Please re-pair your device.",
                     retryable: false
@@ -4535,8 +4535,8 @@ public final class HTTPTransport {
 
         case .terminalError(let reason):
             log.error("Token refresh failed terminally: \(reason) — re-pair required")
-            self.onMessage?(.sessionError(SessionErrorMessage(
-                sessionId: "",
+            self.onMessage?(.conversationError(ConversationErrorMessage(
+                conversationId: "",
                 code: .authenticationRequired,
                 userMessage: "Session expired. Please re-pair your device.",
                 retryable: false

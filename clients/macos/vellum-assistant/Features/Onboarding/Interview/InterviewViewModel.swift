@@ -73,7 +73,7 @@ final class InterviewViewModel {
                 if !trimmedName.isEmpty {
                     hints.append("assistant-name:\(trimmedName)")
                 }
-                try self.daemonClient.send(SessionCreateMessage(
+                try self.daemonClient.send(ConversationCreateMessage(
                     title: "Getting to know you",
                     maxResponseTokens: 220,
                     transportChannelId: "vellum",
@@ -96,16 +96,16 @@ final class InterviewViewModel {
                 guard !Task.isCancelled else { break }
 
                 switch message {
-                case .sessionInfo(let info):
-                    // Capture the daemon-assigned session ID, then send a natural
+                case .conversationInfo(let info):
+                    // Capture the daemon-assigned conversation ID, then send a natural
                     // first user message to kick off the conversation.
                     if self.sessionId == nil {
-                        self.sessionId = info.sessionId
-                        log.info("Interview session created: \(info.sessionId)")
+                        self.sessionId = info.conversationId
+                        log.info("Interview conversation created: \(info.conversationId)")
 
                         do {
                             try self.daemonClient.send(UserMessageMessage(
-                                sessionId: info.sessionId,
+                                sessionId: info.conversationId,
                                 content: "Hi! I just hatched you and I want to get set up together.",
                                 attachments: nil
                             ))
@@ -151,7 +151,7 @@ final class InterviewViewModel {
                     log.info("Interview greeting complete via handoff (\(accumulated.count) chars)")
                     return
 
-                case .sessionError(let error) where error.sessionId == self.sessionId && self.sessionId != nil:
+                case .conversationError(let error) where error.conversationId == self.sessionId && self.sessionId != nil:
                     self.isThinking = false
                     self.streamingText = ""
                     log.error("Interview start failed (session_error): \(error.userMessage)")
@@ -271,7 +271,7 @@ final class InterviewViewModel {
                     log.info("Follow-up response complete via handoff (\(accumulated.count) chars)")
                     return
 
-                case .sessionError(let error) where error.sessionId == sessionId:
+                case .conversationError(let error) where error.conversationId == sessionId:
                     self.isThinking = false
                     self.streamingText = ""
                     log.error("Session error during follow-up (session_error): \(error.userMessage)")

@@ -94,7 +94,7 @@ enum LogExporter {
             let threadManager = AppDelegate.shared?.mainWindow?.threadManager
             if let activeThread = threadManager?.activeThread {
                 extra["thread_title"] = activeThread.title
-                if let sessionId = activeThread.sessionId {
+                if let sessionId = activeThread.conversationId {
                     tags["session_id"] = sessionId
                     // conversation_id mirrors session_id — the daemon tags its
                     // Sentry events with both names for the same value. Setting
@@ -112,21 +112,21 @@ enum LogExporter {
             var errorCategoryString: String?
             if let vm = threadManager?.activeViewModel {
                 extra["message_count"] = vm.messages.count
-                if let sessionError = vm.sessionError {
-                    let category = "\(sessionError.category)"
-                    tags["session_error_category"] = category
+                if let conversationError = vm.conversationError {
+                    let category = "\(conversationError.category)"
+                    tags["conversation_error_category"] = category
                     errorCategoryString = category
-                    if let debugDetails = sessionError.debugDetails {
-                        extra["session_error_debug_details"] = debugDetails
+                    if let debugDetails = conversationError.debugDetails {
+                        extra["conversation_error_debug_details"] = debugDetails
                     }
                 }
-                if let sessionId = vm.sessionId {
-                    // Prefer the view model's sessionId (most up-to-date)
-                    tags["session_id"] = sessionId
+                if let conversationId = vm.conversationId {
+                    // Prefer the view model's conversationId (most up-to-date)
+                    tags["conversation_id"] = conversationId
                     // For thread-scoped exports, conversation_id reflects the
                     // reported thread, not the active one — skip the overwrite.
                     if case .global = formData.scope {
-                        tags["conversation_id"] = sessionId
+                        tags["conversation_id"] = conversationId
                     }
                 }
             }

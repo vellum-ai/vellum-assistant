@@ -110,7 +110,7 @@ extension AppDelegate {
 
         func trySelect() -> Bool {
             guard let threadManager = mainWindow?.threadManager,
-                  let thread = threadManager.threads.first(where: { $0.sessionId == conversationId }) else {
+                  let thread = threadManager.threads.first(where: { $0.conversationId == conversationId }) else {
                 return false
             }
             threadManager.activeThreadId = thread.id
@@ -163,7 +163,7 @@ extension AppDelegate {
     /// Returns the existing or newly created `HostCuSessionProxy` for the given
     /// session. On first call for a session, creates the overlay window and pauses
     /// ambient monitoring — matching the UX of foreground CU sessions.
-    func getOrCreateHostCuOverlay(sessionId: String, request: HostCuRequest) -> HostCuSessionProxy? {
+    func getOrCreateHostCuOverlay(conversationId: String, request: HostCuRequest) -> HostCuSessionProxy? {
         // If there's already a foreground CU session, skip the overlay to avoid conflicts
         guard currentSession == nil else {
             log.debug("Skipping host CU overlay — foreground CU session is active")
@@ -171,7 +171,7 @@ extension AppDelegate {
         }
 
         // Return existing proxy if this session already has one
-        if activeOverlayConversationId == sessionId, let proxy = activeHostCuProxy {
+        if activeOverlayConversationId == conversationId, let proxy = activeHostCuProxy {
             return proxy
         }
 
@@ -179,22 +179,22 @@ extension AppDelegate {
         dismissHostCuOverlay()
 
         let taskDescription = request.reasoning ?? "Computer use"
-        let proxy = HostCuSessionProxy(task: taskDescription, sessionId: sessionId)
+        let proxy = HostCuSessionProxy(task: taskDescription, sessionId: conversationId)
         proxy.state = .thinking(step: request.stepNumber, maxSteps: 50)
 
         // Wire cancel to abort the main conversation session on the daemon
         proxy.onCancel = { [weak self] in
             guard let self else { return }
             do {
-                try self.daemonClient.send(CancelMessage(sessionId: sessionId))
+                try self.daemonClient.send(CancelMessage(sessionId: conversationId))
             } catch {
-                log.error("Failed to send cancel for host CU session \(sessionId): \(error)")
+                log.error("Failed to send cancel for host CU session \(conversationId): \(error)")
             }
             self.dismissHostCuOverlay()
         }
 
         self.activeHostCuProxy = proxy
-        self.activeOverlayConversationId = sessionId
+        self.activeOverlayConversationId = conversationId
 
         let overlay = SessionOverlayWindow(session: proxy)
         overlay.show()
@@ -229,7 +229,7 @@ extension AppDelegate {
             }
             .store(in: &hostCuOverlayCancellables)
 
-        log.info("Created host CU overlay for session \(sessionId)")
+        log.info("Created host CU overlay for session \(conversationId)")
         return proxy
     }
 

@@ -61,7 +61,7 @@ extension MainWindowView {
         var grouped: [String: [ThreadModel]] = [:]
         var order: [String] = []
         for thread in scheduleThreads {
-            let key = thread.scheduleJobId ?? thread.sessionId ?? thread.id.uuidString
+            let key = thread.scheduleJobId ?? thread.conversationId ?? thread.id.uuidString
             if grouped[key] == nil {
                 order.append(key)
             }

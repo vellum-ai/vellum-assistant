@@ -3096,12 +3096,12 @@ public struct ReorderConversationsRequest: Codable, Sendable {
 }
 
 public struct ReorderConversationsRequestUpdate: Codable, Sendable {
-    public let sessionId: String
+    public let conversationId: String
     public let displayOrder: Double?
     public let isPinned: Bool
 
-    public init(sessionId: String, displayOrder: Double?, isPinned: Bool) {
-        self.sessionId = sessionId
+    public init(conversationId: String, displayOrder: Double?, isPinned: Bool) {
+        self.conversationId = conversationId
         self.displayOrder = displayOrder
         self.isPinned = isPinned
     }
@@ -3293,21 +3293,21 @@ public struct SecretResponse: Codable, Sendable {
     }
 }
 
-public struct SessionCreateRequest: Codable, Sendable {
+public struct ConversationCreateRequest: Codable, Sendable {
     public let type: String
     public let title: String?
     public let systemPromptOverride: String?
     public let maxResponseTokens: Int?
     public let correlationId: String?
-    /// Lightweight session transport metadata for channel identity and natural-language guidance.
-    public let transport: SessionTransportMetadata?
+    /// Lightweight conversation transport metadata for channel identity and natural-language guidance.
+    public let transport: ConversationTransportMetadata?
     public let conversationType: String?
-    /// Skill IDs to pre-activate in the new session (loaded before the first message).
+    /// Skill IDs to pre-activate in the new conversation (loaded before the first message).
     public let preactivatedSkillIds: [String]?
-    /// If provided, automatically sent as the first user message after session creation.
+    /// If provided, automatically sent as the first user message after conversation creation.
     public let initialMessage: String?
 
-    public init(type: String, title: String? = nil, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: SessionTransportMetadata? = nil, conversationType: String? = nil, preactivatedSkillIds: [String]? = nil, initialMessage: String? = nil) {
+    public init(type: String, title: String? = nil, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: ConversationTransportMetadata? = nil, conversationType: String? = nil, preactivatedSkillIds: [String]? = nil, initialMessage: String? = nil) {
         self.type = type
         self.title = title
         self.systemPromptOverride = systemPromptOverride
@@ -3320,27 +3320,27 @@ public struct SessionCreateRequest: Codable, Sendable {
     }
 }
 
-public struct SessionInfo: Codable, Sendable {
+public struct ConversationInfo: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let title: String
     public let correlationId: String?
     public let conversationType: String?
 
-    public init(type: String, sessionId: String, title: String, correlationId: String? = nil, conversationType: String? = nil) {
+    public init(type: String, conversationId: String, title: String, correlationId: String? = nil, conversationType: String? = nil) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.title = title
         self.correlationId = correlationId
         self.conversationType = conversationType
     }
 }
 
-public struct SessionListRequest: Codable, Sendable {
+public struct ConversationListRequest: Codable, Sendable {
     public let type: String
-    /// Number of sessions to skip (for pagination). Defaults to 0.
+    /// Number of conversations to skip (for pagination). Defaults to 0.
     public let offset: Double?
-    /// Maximum number of sessions to return. Defaults to 50.
+    /// Maximum number of conversations to return. Defaults to 50.
     public let limit: Double?
 
     public init(type: String, offset: Double? = nil, limit: Double? = nil) {
@@ -3350,20 +3350,20 @@ public struct SessionListRequest: Codable, Sendable {
     }
 }
 
-public struct SessionListResponse: Codable, Sendable {
+public struct ConversationListResponse: Codable, Sendable {
     public let type: String
-    public let sessions: [SessionListResponseSession]
-    /// Whether more sessions exist beyond the returned page.
+    public let conversations: [ConversationListResponseItem]
+    /// Whether more conversations exist beyond the returned page.
     public let hasMore: Bool?
 
-    public init(type: String, sessions: [SessionListResponseSession], hasMore: Bool? = nil) {
+    public init(type: String, conversations: [ConversationListResponseItem], hasMore: Bool? = nil) {
         self.type = type
-        self.sessions = sessions
+        self.conversations = conversations
         self.hasMore = hasMore
     }
 }
 
-public struct SessionListResponseSession: Codable, Sendable {
+public struct ConversationListResponseItem: Codable, Sendable {
     public let id: String
     public let title: String
     public let createdAt: Int?
@@ -3397,19 +3397,19 @@ public struct SessionListResponseSession: Codable, Sendable {
     }
 }
 
-public struct SessionRenameRequest: Codable, Sendable {
+public struct ConversationRenameRequest: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let title: String
 
-    public init(type: String, sessionId: String, title: String) {
+    public init(type: String, conversationId: String, title: String) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.title = title
     }
 }
 
-public struct SessionsClearRequest: Codable, Sendable {
+public struct ConversationsClearRequest: Codable, Sendable {
     public let type: String
 
     public init(type: String) {
@@ -3417,7 +3417,7 @@ public struct SessionsClearRequest: Codable, Sendable {
     }
 }
 
-public struct SessionsClearResponse: Codable, Sendable {
+public struct ConversationsClearResponse: Codable, Sendable {
     public let type: String
     public let cleared: Int
 
@@ -3427,30 +3427,30 @@ public struct SessionsClearResponse: Codable, Sendable {
     }
 }
 
-public struct SessionSwitchRequest: Codable, Sendable {
+public struct ConversationSwitchRequest: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
 
-    public init(type: String, sessionId: String) {
+    public init(type: String, conversationId: String) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
     }
 }
 
-public struct SessionTitleUpdated: Codable, Sendable {
+public struct ConversationTitleUpdated: Codable, Sendable {
     public let type: String
-    public let sessionId: String
+    public let conversationId: String
     public let title: String
 
-    public init(type: String, sessionId: String, title: String) {
+    public init(type: String, conversationId: String, title: String) {
         self.type = type
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.title = title
     }
 }
 
-/// Lightweight session transport metadata for channel identity and natural-language guidance.
-public struct SessionTransportMetadata: Codable, Sendable {
+/// Lightweight conversation transport metadata for channel identity and natural-language guidance.
+public struct ConversationTransportMetadata: Codable, Sendable {
     /// Logical channel identifier (e.g. "desktop", "telegram", "mobile").
     public let channelId: String
     /// Interface identifier for this transport (e.g. "macos", "ios", "cli").

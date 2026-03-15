@@ -10,8 +10,8 @@ struct ThreadModel: Identifiable, Hashable {
     var title: String
     let createdAt: Date
     /// Daemon conversation ID for restored threads. Nil for new, unsaved threads.
-    /// Mutable so it can be backfilled when the daemon assigns a session to a new thread.
-    var sessionId: String?
+    /// Mutable so it can be backfilled when the daemon assigns a conversation to a new thread.
+    var conversationId: String?
     var isArchived: Bool
     var isPinned: Bool
     var pinnedOrder: Int?
@@ -28,11 +28,11 @@ struct ThreadModel: Identifiable, Hashable {
     var latestAssistantMessageAt: Date?
     var lastSeenAssistantMessageAt: Date?
 
-    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), sessionId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, pinnedOrder: Int? = nil, displayOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ThreadKind = .standard, source: String? = nil, scheduleJobId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil) {
+    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), conversationId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, pinnedOrder: Int? = nil, displayOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ThreadKind = .standard, source: String? = nil, scheduleJobId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
-        self.sessionId = sessionId
+        self.conversationId = conversationId
         self.isArchived = isArchived
         self.isPinned = isPinned
         self.pinnedOrder = pinnedOrder

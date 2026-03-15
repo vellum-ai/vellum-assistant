@@ -7,8 +7,8 @@ import XCTest
 
 /// Integration tests for thread lifecycle behaviors from the iOS perspective.
 /// Since ThreadModel and ThreadManager are macOS-only, these tests verify the
-/// shared session lifecycle mechanics that underpin thread management:
-/// session creation, session info backfill, bootstrap correlation, and session reuse.
+/// shared conversation lifecycle mechanics that underpin thread management:
+/// conversation creation, conversation info backfill, bootstrap correlation, and conversation reuse.
 @MainActor
 final class ThreadLifecycleIOSTests: XCTestCase {
 
@@ -28,41 +28,41 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         super.tearDown()
     }
 
-    private func makeSessionListResponse(
-        sessions: [[String: Any]],
+    private func makeConversationListResponse(
+        conversations: [[String: Any]],
         hasMore: Bool? = nil
-    ) -> SessionListResponseMessage {
+    ) -> ConversationListResponseMessage {
         var payload: [String: Any] = [
-            "type": "session_list_response",
-            "sessions": sessions,
+            "type": "conversation_list_response",
+            "conversations": conversations,
         ]
         if let hasMore {
             payload["hasMore"] = hasMore
         }
         let data = try! JSONSerialization.data(withJSONObject: payload)
-        return try! JSONDecoder().decode(SessionListResponseMessage.self, from: data)
+        return try! JSONDecoder().decode(ConversationListResponseMessage.self, from: data)
     }
 
-    // MARK: - Session Create (Thread Bootstrap)
+    // MARK: - Conversation Create (Thread Bootstrap)
 
-    func testCreateSessionIfNeededSetsBootstrapState() {
+    func testCreateConversationIfNeededSetsBootstrapState() {
         let vm = ChatViewModel(daemonClient: mockClient)
-        vm.createSessionIfNeeded()
+        vm.createConversationIfNeeded()
 
-        XCTAssertFalse(vm.isSending, "Message-less session creates should not set isSending")
-        XCTAssertTrue(vm.isBootstrapping, "Should be bootstrapping after createSessionIfNeeded")
+        XCTAssertFalse(vm.isSending, "Message-less conversation creates should not set isSending")
+        XCTAssertTrue(vm.isBootstrapping, "Should be bootstrapping after createConversationIfNeeded")
     }
 
-    func testCreateSessionSendsSessionCreateMessage() {
+    func testCreateConversationSendsConversationCreateMessage() {
         let vm = ChatViewModel(daemonClient: mockClient)
-        vm.createSessionIfNeeded()
+        vm.createConversationIfNeeded()
 
-        // Poll until session_create appears in sentMessages (message-driven wait)
-        let expectation = XCTestExpectation(description: "session_create sent")
+        // Poll until conversation_create appears in sentMessages (message-driven wait)
+        let expectation = XCTestExpectation(description: "conversation_create sent")
         var cancelled = false
         func poll() {
             guard !cancelled else { return }
-            let found = mockClient.sentMessages.contains { $0 is SessionCreateMessage }
+            let found = mockClient.sentMessages.contains { $0 is ConversationCreateMessage }
             if found {
                 expectation.fulfill()
             } else {
@@ -73,22 +73,22 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         wait(for: [expectation], timeout: 2.0)
         cancelled = true
 
-        let sessionCreates = mockClient.sentMessages.compactMap { $0 as? SessionCreateMessage }
-        XCTAssertEqual(sessionCreates.count, 1, "Should send exactly one session_create")
+        let conversationCreates = mockClient.sentMessages.compactMap { $0 as? ConversationCreateMessage }
+        XCTAssertEqual(conversationCreates.count, 1, "Should send exactly one conversation_create")
     }
 
-    func testCreateSessionWithConversationTypeSetsConversationType() {
+    func testCreateConversationWithConversationTypeSetsConversationType() {
         let vm = ChatViewModel(daemonClient: mockClient)
-        vm.createSessionIfNeeded(conversationType: "private")
+        vm.createConversationIfNeeded(conversationType: "private")
 
         XCTAssertEqual(vm.conversationType, "private")
     }
 
-    func testCreateSessionWithConversationTypeSendsConversationType() {
+    func testCreateConversationWithConversationTypeSendsConversationType() {
         let vm = ChatViewModel(daemonClient: mockClient)
-        vm.createSessionIfNeeded(conversationType: "private")
+        vm.createConversationIfNeeded(conversationType: "private")
 
-        let expectation = XCTestExpectation(description: "session_create sent")
+        let expectation = XCTestExpectation(description: "conversation_create sent")
         var cancelled = false
         func poll() {
             guard !cancelled else { return }
@@ -102,17 +102,17 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         wait(for: [expectation], timeout: 2.0)
         cancelled = true
 
-        let sessionCreates = mockClient.sentMessages.compactMap { $0 as? SessionCreateMessage }
-        XCTAssertEqual(sessionCreates.first?.conversationType, "private")
+        let conversationCreates = mockClient.sentMessages.compactMap { $0 as? ConversationCreateMessage }
+        XCTAssertEqual(conversationCreates.first?.conversationType, "private")
     }
 
-    // MARK: - Session Info Backfill (Thread Session Assignment)
+    // MARK: - Conversation Info Backfill (Thread Conversation Assignment)
 
-    func testSessionInfoBackfillsSessionId() {
+    func testConversationInfoBackfillsConversationId() {
         let vm = ChatViewModel(daemonClient: mockClient)
-        vm.createSessionIfNeeded()
+        vm.createConversationIfNeeded()
 
-        let expectation = XCTestExpectation(description: "session_create sent")
+        let expectation = XCTestExpectation(description: "conversation_create sent")
         var cancelled = false
         func poll() {
             guard !cancelled else { return }
@@ -127,23 +127,23 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         cancelled = true
 
         // Extract the correlation ID from the sent message
-        let sessionCreates = mockClient.sentMessages.compactMap { $0 as? SessionCreateMessage }
-        let correlationId = sessionCreates.first?.correlationId
+        let conversationCreates = mockClient.sentMessages.compactMap { $0 as? ConversationCreateMessage }
+        let correlationId = conversationCreates.first?.correlationId
 
-        // Simulate daemon responding with session_info
-        let info = SessionInfoMessage(sessionId: "ios-thread-sess-42", title: "Thread", correlationId: correlationId)
-        vm.handleServerMessage(.sessionInfo(info))
+        // Simulate daemon responding with conversation_info
+        let info = ConversationInfoMessage(conversationId: "ios-thread-sess-42", title: "Thread", correlationId: correlationId)
+        vm.handleServerMessage(.conversationInfo(info))
 
-        XCTAssertEqual(vm.sessionId, "ios-thread-sess-42")
-        XCTAssertFalse(vm.isBootstrapping, "Should no longer be bootstrapping after session_info")
-        XCTAssertFalse(vm.isSending, "Should reset isSending after message-less session create")
+        XCTAssertEqual(vm.conversationId, "ios-thread-sess-42")
+        XCTAssertFalse(vm.isBootstrapping, "Should no longer be bootstrapping after conversation_info")
+        XCTAssertFalse(vm.isSending, "Should reset isSending after message-less conversation create")
     }
 
-    func testSessionInfoWithWrongCorrelationIdIsIgnored() {
+    func testConversationInfoWithWrongCorrelationIdIsIgnored() {
         let vm = ChatViewModel(daemonClient: mockClient)
-        vm.createSessionIfNeeded()
+        vm.createConversationIfNeeded()
 
-        let expectation = XCTestExpectation(description: "session_create sent")
+        let expectation = XCTestExpectation(description: "conversation_create sent")
         var cancelled = false
         func poll() {
             guard !cancelled else { return }
@@ -157,23 +157,23 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         wait(for: [expectation], timeout: 2.0)
         cancelled = true
 
-        // Send session_info with a different correlation ID
-        let info = SessionInfoMessage(sessionId: "wrong-sess", title: "Wrong", correlationId: "wrong-correlation-id")
-        vm.handleServerMessage(.sessionInfo(info))
+        // Send conversation_info with a different correlation ID
+        let info = ConversationInfoMessage(conversationId: "wrong-sess", title: "Wrong", correlationId: "wrong-correlation-id")
+        vm.handleServerMessage(.conversationInfo(info))
 
-        XCTAssertNil(vm.sessionId, "Should not accept session_info with mismatched correlation ID")
+        XCTAssertNil(vm.conversationId, "Should not accept conversation_info with mismatched correlation ID")
         XCTAssertTrue(vm.isBootstrapping, "Should still be bootstrapping")
     }
 
     func testOnSessionCreatedCallbackFiresDuringBackfill() {
         let vm = ChatViewModel(daemonClient: mockClient)
         var capturedSessionId: String?
-        vm.onSessionCreated = { sessionId in
+        vm.onConversationCreated = { sessionId in
             capturedSessionId = sessionId
         }
-        vm.createSessionIfNeeded()
+        vm.createConversationIfNeeded()
 
-        let expectation = XCTestExpectation(description: "session_create sent")
+        let expectation = XCTestExpectation(description: "conversation_create sent")
         var cancelled = false
         func poll() {
             guard !cancelled else { return }
@@ -187,11 +187,11 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         wait(for: [expectation], timeout: 2.0)
         cancelled = true
 
-        let sessionCreates = mockClient.sentMessages.compactMap { $0 as? SessionCreateMessage }
-        let correlationId = sessionCreates.first?.correlationId
+        let conversationCreates = mockClient.sentMessages.compactMap { $0 as? ConversationCreateMessage }
+        let correlationId = conversationCreates.first?.correlationId
 
-        let info = SessionInfoMessage(sessionId: "callback-thread-sess", title: "Callback", correlationId: correlationId)
-        vm.handleServerMessage(.sessionInfo(info))
+        let info = ConversationInfoMessage(conversationId: "callback-thread-sess", title: "Callback", correlationId: correlationId)
+        vm.handleServerMessage(.conversationInfo(info))
 
         XCTAssertEqual(capturedSessionId, "callback-thread-sess")
     }
@@ -207,8 +207,8 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(vm.messages.count, 1)
         XCTAssertTrue(vm.isSending)
 
-        // Poll until session_create appears in sentMessages (message-driven wait)
-        let expectation = XCTestExpectation(description: "session_create sent")
+        // Poll until conversation_create appears in sentMessages (message-driven wait)
+        let expectation = XCTestExpectation(description: "conversation_create sent")
         var cancelled = false
         func poll() {
             guard !cancelled else { return }
@@ -222,14 +222,14 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         wait(for: [expectation], timeout: 2.0)
         cancelled = true
 
-        // Extract the correlation ID from the sent session_create message
-        let sessionCreates = mockClient.sentMessages.compactMap { $0 as? SessionCreateMessage }
-        let correlationId = sessionCreates.first?.correlationId
+        // Extract the correlation ID from the sent conversation_create message
+        let conversationCreates = mockClient.sentMessages.compactMap { $0 as? ConversationCreateMessage }
+        let correlationId = conversationCreates.first?.correlationId
 
-        // Step 2: Session info arrives with matching correlation ID
-        let info = SessionInfoMessage(sessionId: "thread-sess-1", title: "New Thread", correlationId: correlationId)
-        vm.handleServerMessage(.sessionInfo(info))
-        XCTAssertEqual(vm.sessionId, "thread-sess-1")
+        // Step 2: Conversation info arrives with matching correlation ID
+        let info = ConversationInfoMessage(conversationId: "thread-sess-1", title: "New Thread", correlationId: correlationId)
+        vm.handleServerMessage(.conversationInfo(info))
+        XCTAssertEqual(vm.conversationId, "thread-sess-1")
 
         // Step 3: Assistant responds
         vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Welcome!")))
@@ -245,7 +245,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
 
     func testMultipleMessagesInSameSession() {
         let vm = ChatViewModel(daemonClient: mockClient)
-        vm.sessionId = "existing-sess"
+        vm.conversationId = "existing-sess"
 
         // First exchange
         vm.inputText = "First question"
@@ -278,8 +278,8 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         let vm1 = ChatViewModel(daemonClient: mockClient)
         let vm2 = ChatViewModel(daemonClient: mockClient)
 
-        vm1.sessionId = "sess-thread-1"
-        vm2.sessionId = "sess-thread-2"
+        vm1.conversationId = "sess-thread-1"
+        vm2.conversationId = "sess-thread-2"
 
         vm1.inputText = "Thread 1 message"
         vm1.sendMessage()
@@ -294,15 +294,15 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(vm2.messages[0].text, "Thread 2 message")
     }
 
-    func testSessionBoundDeltasOnlyAffectMatchingViewModel() {
+    func testConversationBoundDeltasOnlyAffectMatchingViewModel() {
         let vm1 = ChatViewModel(daemonClient: mockClient)
         let vm2 = ChatViewModel(daemonClient: mockClient)
 
-        vm1.sessionId = "sess-a"
-        vm2.sessionId = "sess-b"
+        vm1.conversationId = "sess-a"
+        vm2.conversationId = "sess-b"
 
-        // Delta for session A
-        let deltaA = AssistantTextDeltaMessage(text: "For A", sessionId: "sess-a")
+        // Delta for conversation A
+        let deltaA = AssistantTextDeltaMessage(text: "For A", conversationId: "sess-a")
         vm1.handleServerMessage(.assistantTextDelta(deltaA))
         vm1.flushStreamingBuffer()
         vm2.handleServerMessage(.assistantTextDelta(deltaA))
@@ -312,11 +312,11 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         XCTAssertTrue(vm2.messages.isEmpty, "VM2 should ignore delta for a different session")
     }
 
-    // MARK: - Error Recovery in Session
+    // MARK: - Error Recovery in Conversation
 
     func testErrorDuringSessionDoesNotDestroyMessages() {
         let vm = ChatViewModel(daemonClient: mockClient)
-        vm.sessionId = "sess-error"
+        vm.conversationId = "sess-error"
 
         // Send a message and get a response
         vm.inputText = "Question"
@@ -342,7 +342,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
     func testConnectedThreadsRetainPinAndAttentionMetadataAcrossCacheReload() {
         let daemonClient = DaemonClient()
         let store = IOSThreadStore(daemonClient: daemonClient)
-        let response = makeSessionListResponse(sessions: [[
+        let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-1",
             "title": "Connected thread",
             "createdAt": 1_000,
@@ -356,9 +356,9 @@ final class ThreadLifecycleIOSTests: XCTestCase {
             ],
         ]])
 
-        daemonClient.onSessionListResponse?(response)
+        daemonClient.onConversationListResponse?(response)
 
-        guard let storedThread = store.threads.first(where: { $0.sessionId == "connected-session-1" }) else {
+        guard let storedThread = store.threads.first(where: { $0.conversationId == "connected-session-1" }) else {
             XCTFail("Expected connected thread")
             return
         }
@@ -370,7 +370,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(storedThread.lastSeenAssistantMessageAt?.timeIntervalSince1970, 4.0)
 
         let reloadedStore = IOSThreadStore(daemonClient: daemonClient)
-        guard let cachedThread = reloadedStore.threads.first(where: { $0.sessionId == "connected-session-1" }) else {
+        guard let cachedThread = reloadedStore.threads.first(where: { $0.conversationId == "connected-session-1" }) else {
             XCTFail("Expected cached connected thread")
             return
         }
@@ -392,9 +392,9 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         }
 
         let viewModel = store.viewModel(for: placeholderThread.id)
-        viewModel.sessionId = "connected-session-vm"
+        viewModel.conversationId = "connected-session-vm"
 
-        let response = makeSessionListResponse(sessions: [[
+        let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-vm",
             "title": "Connected thread",
             "createdAt": 1_000,
@@ -408,7 +408,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
             ],
         ]])
 
-        daemonClient.onSessionListResponse?(response)
+        daemonClient.onConversationListResponse?(response)
 
         XCTAssertEqual(store.threads.count, 1)
         guard let updatedThread = store.threads.first else {
@@ -416,7 +416,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
             return
         }
 
-        XCTAssertEqual(updatedThread.sessionId, "connected-session-vm")
+        XCTAssertEqual(updatedThread.conversationId, "connected-session-vm")
         XCTAssertTrue(updatedThread.isPinned)
         XCTAssertEqual(updatedThread.displayOrder, 9)
         XCTAssertTrue(updatedThread.hasUnseenLatestAssistantMessage)
@@ -434,7 +434,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         }
 
         let store = IOSThreadStore(daemonClient: daemonClient)
-        let response = makeSessionListResponse(sessions: [[
+        let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-2",
             "title": "Unread thread",
             "createdAt": 1_000,
@@ -446,8 +446,8 @@ final class ThreadLifecycleIOSTests: XCTestCase {
             ],
         ]])
 
-        daemonClient.onSessionListResponse?(response)
-        guard let storedThread = store.threads.first(where: { $0.sessionId == "connected-session-2" }) else {
+        daemonClient.onConversationListResponse?(response)
+        guard let storedThread = store.threads.first(where: { $0.conversationId == "connected-session-2" }) else {
             XCTFail("Expected unread connected thread")
             return
         }
@@ -469,7 +469,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(sentSignals[0].evidenceText, "User opened conversation in app")
 
         let reloadedStore = IOSThreadStore(daemonClient: daemonClient)
-        guard let cachedThread = reloadedStore.threads.first(where: { $0.sessionId == "connected-session-2" }) else {
+        guard let cachedThread = reloadedStore.threads.first(where: { $0.conversationId == "connected-session-2" }) else {
             XCTFail("Expected cached connected thread")
             return
         }
@@ -487,7 +487,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         }
 
         let store = IOSThreadStore(daemonClient: daemonClient)
-        let response = makeSessionListResponse(sessions: [[
+        let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-3",
             "title": "Seen thread",
             "createdAt": 1_000,
@@ -499,8 +499,8 @@ final class ThreadLifecycleIOSTests: XCTestCase {
             ],
         ]])
 
-        daemonClient.onSessionListResponse?(response)
-        guard let storedThread = store.threads.first(where: { $0.sessionId == "connected-session-3" }) else {
+        daemonClient.onConversationListResponse?(response)
+        guard let storedThread = store.threads.first(where: { $0.conversationId == "connected-session-3" }) else {
             XCTFail("Expected connected thread")
             return
         }
@@ -521,7 +521,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         }
 
         let store = IOSThreadStore(daemonClient: daemonClient)
-        let response = makeSessionListResponse(sessions: [[
+        let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-4",
             "title": "Seen thread",
             "createdAt": 1_000,
@@ -533,8 +533,8 @@ final class ThreadLifecycleIOSTests: XCTestCase {
             ],
         ]])
 
-        daemonClient.onSessionListResponse?(response)
-        guard let storedThread = store.threads.first(where: { $0.sessionId == "connected-session-4" }) else {
+        daemonClient.onConversationListResponse?(response)
+        guard let storedThread = store.threads.first(where: { $0.conversationId == "connected-session-4" }) else {
             XCTFail("Expected connected thread")
             return
         }
@@ -557,7 +557,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(sentSignals[0].evidenceText, "User selected Mark as unread")
 
         let reloadedStore = IOSThreadStore(daemonClient: daemonClient)
-        guard let cachedThread = reloadedStore.threads.first(where: { $0.sessionId == "connected-session-4" }) else {
+        guard let cachedThread = reloadedStore.threads.first(where: { $0.conversationId == "connected-session-4" }) else {
             XCTFail("Expected cached connected thread")
             return
         }
@@ -575,7 +575,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         }
 
         let store = IOSThreadStore(daemonClient: daemonClient)
-        let response = makeSessionListResponse(sessions: [[
+        let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-5",
             "title": "Unread thread",
             "createdAt": 1_000,
@@ -587,8 +587,8 @@ final class ThreadLifecycleIOSTests: XCTestCase {
             ],
         ]])
 
-        daemonClient.onSessionListResponse?(response)
-        guard let storedThread = store.threads.first(where: { $0.sessionId == "connected-session-5" }) else {
+        daemonClient.onConversationListResponse?(response)
+        guard let storedThread = store.threads.first(where: { $0.conversationId == "connected-session-5" }) else {
             XCTFail("Expected unread connected thread")
             return
         }
@@ -608,7 +608,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         }
 
         let store = IOSThreadStore(daemonClient: daemonClient)
-        let response = makeSessionListResponse(sessions: [[
+        let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-unread-failure",
             "title": "Seen thread",
             "createdAt": 1_000,
@@ -620,8 +620,8 @@ final class ThreadLifecycleIOSTests: XCTestCase {
             ],
         ]])
 
-        daemonClient.onSessionListResponse?(response)
-        guard let storedThread = store.threads.first(where: { $0.sessionId == "connected-session-unread-failure" }) else {
+        daemonClient.onConversationListResponse?(response)
+        guard let storedThread = store.threads.first(where: { $0.conversationId == "connected-session-unread-failure" }) else {
             XCTFail("Expected connected thread")
             return
         }
@@ -648,7 +648,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         }
 
         let store = IOSThreadStore(daemonClient: daemonClient)
-        let response = makeSessionListResponse(sessions: [[
+        let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-6",
             "title": "No assistant reply yet",
             "createdAt": 1_000,
@@ -658,8 +658,8 @@ final class ThreadLifecycleIOSTests: XCTestCase {
             ],
         ]])
 
-        daemonClient.onSessionListResponse?(response)
-        guard let storedThread = store.threads.first(where: { $0.sessionId == "connected-session-6" }) else {
+        daemonClient.onConversationListResponse?(response)
+        guard let storedThread = store.threads.first(where: { $0.conversationId == "connected-session-6" }) else {
             XCTFail("Expected connected thread")
             return
         }
@@ -680,7 +680,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         }
 
         let store = IOSThreadStore(daemonClient: daemonClient)
-        let response = makeSessionListResponse(sessions: [[
+        let response = makeConversationListResponse(conversations: [[
             "id": "connected-session-live-assistant",
             "title": "Live assistant reply",
             "createdAt": 1_000,
@@ -690,8 +690,8 @@ final class ThreadLifecycleIOSTests: XCTestCase {
             ],
         ]])
 
-        daemonClient.onSessionListResponse?(response)
-        guard let storedThread = store.threads.first(where: { $0.sessionId == "connected-session-live-assistant" }) else {
+        daemonClient.onConversationListResponse?(response)
+        guard let storedThread = store.threads.first(where: { $0.conversationId == "connected-session-live-assistant" }) else {
             XCTFail("Expected connected thread")
             return
         }
@@ -699,11 +699,11 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         let vm = store.viewModel(for: storedThread.id)
         vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(
             text: "Fresh assistant reply",
-            sessionId: "connected-session-live-assistant"
+            conversationId: "connected-session-live-assistant"
         )))
         vm.flushStreamingBuffer()
         vm.handleServerMessage(.messageComplete(MessageCompleteMessage(
-            sessionId: "connected-session-live-assistant"
+            conversationId: "connected-session-live-assistant"
         )))
 
         store.markThreadUnread(storedThread)
@@ -720,7 +720,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(sentSignals.count, 1)
 
         let reloadedStore = IOSThreadStore(daemonClient: daemonClient)
-        guard let cachedThread = reloadedStore.threads.first(where: { $0.sessionId == "connected-session-live-assistant" }) else {
+        guard let cachedThread = reloadedStore.threads.first(where: { $0.conversationId == "connected-session-live-assistant" }) else {
             XCTFail("Expected cached connected thread")
             return
         }
@@ -729,11 +729,11 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         XCTAssertNotNil(cachedThread.latestAssistantMessageAt)
     }
 
-    func testSessionListRefreshPreservesLocalSeenUntilDaemonCatchesUp() {
+    func testConversationListRefreshPreservesLocalSeenUntilDaemonCatchesUp() {
         let daemonClient = DaemonClient()
         let store = IOSThreadStore(daemonClient: daemonClient)
 
-        let initialResponse = makeSessionListResponse(sessions: [[
+        let initialResponse = makeConversationListResponse(conversations: [[
             "id": "connected-session-refresh-seen",
             "title": "Unread thread",
             "createdAt": 1_000,
@@ -744,16 +744,16 @@ final class ThreadLifecycleIOSTests: XCTestCase {
                 "lastSeenAssistantMessageAt": 4_000,
             ],
         ]])
-        daemonClient.onSessionListResponse?(initialResponse)
+        daemonClient.onConversationListResponse?(initialResponse)
 
-        guard let storedThread = store.threads.first(where: { $0.sessionId == "connected-session-refresh-seen" }) else {
+        guard let storedThread = store.threads.first(where: { $0.conversationId == "connected-session-refresh-seen" }) else {
             XCTFail("Expected connected thread")
             return
         }
 
         store.markConversationSeenIfNeeded(threadId: storedThread.id)
 
-        let staleResponse = makeSessionListResponse(sessions: [[
+        let staleResponse = makeConversationListResponse(conversations: [[
             "id": "connected-session-refresh-seen",
             "title": "Unread thread",
             "createdAt": 1_000,
@@ -764,18 +764,18 @@ final class ThreadLifecycleIOSTests: XCTestCase {
                 "lastSeenAssistantMessageAt": 4_000,
             ],
         ]])
-        daemonClient.onSessionListResponse?(staleResponse)
+        daemonClient.onConversationListResponse?(staleResponse)
 
         XCTAssertFalse(
-            store.threads.first(where: { $0.sessionId == "connected-session-refresh-seen" })?.hasUnseenLatestAssistantMessage ?? true
+            store.threads.first(where: { $0.conversationId == "connected-session-refresh-seen" })?.hasUnseenLatestAssistantMessage ?? true
         )
     }
 
-    func testSessionListRefreshPreservesLocalUnreadUntilDaemonCatchesUp() {
+    func testConversationListRefreshPreservesLocalUnreadUntilDaemonCatchesUp() {
         let daemonClient = DaemonClient()
         let store = IOSThreadStore(daemonClient: daemonClient)
 
-        let initialResponse = makeSessionListResponse(sessions: [[
+        let initialResponse = makeConversationListResponse(conversations: [[
             "id": "connected-session-refresh-unread",
             "title": "Seen thread",
             "createdAt": 1_000,
@@ -786,16 +786,16 @@ final class ThreadLifecycleIOSTests: XCTestCase {
                 "lastSeenAssistantMessageAt": 5_000,
             ],
         ]])
-        daemonClient.onSessionListResponse?(initialResponse)
+        daemonClient.onConversationListResponse?(initialResponse)
 
-        guard let storedThread = store.threads.first(where: { $0.sessionId == "connected-session-refresh-unread" }) else {
+        guard let storedThread = store.threads.first(where: { $0.conversationId == "connected-session-refresh-unread" }) else {
             XCTFail("Expected connected thread")
             return
         }
 
         store.markThreadUnread(storedThread)
 
-        let staleResponse = makeSessionListResponse(sessions: [[
+        let staleResponse = makeConversationListResponse(conversations: [[
             "id": "connected-session-refresh-unread",
             "title": "Seen thread",
             "createdAt": 1_000,
@@ -806,10 +806,10 @@ final class ThreadLifecycleIOSTests: XCTestCase {
                 "lastSeenAssistantMessageAt": 5_000,
             ],
         ]])
-        daemonClient.onSessionListResponse?(staleResponse)
+        daemonClient.onConversationListResponse?(staleResponse)
 
         XCTAssertTrue(
-            store.threads.first(where: { $0.sessionId == "connected-session-refresh-unread" })?.hasUnseenLatestAssistantMessage ?? false
+            store.threads.first(where: { $0.conversationId == "connected-session-refresh-unread" })?.hasUnseenLatestAssistantMessage ?? false
         )
     }
 
@@ -823,7 +823,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         }
 
         let store = IOSThreadStore(daemonClient: daemonClient)
-        let response = makeSessionListResponse(sessions: [
+        let response = makeConversationListResponse(conversations: [
             [
                 "id": "connected-session-pinned",
                 "title": "Pinned thread",
@@ -840,8 +840,8 @@ final class ThreadLifecycleIOSTests: XCTestCase {
             ],
         ])
 
-        daemonClient.onSessionListResponse?(response)
-        guard let thread = store.threads.first(where: { $0.sessionId == "connected-session-unpinned" }) else {
+        daemonClient.onConversationListResponse?(response)
+        guard let thread = store.threads.first(where: { $0.conversationId == "connected-session-unpinned" }) else {
             XCTFail("Expected unpinned connected thread")
             return
         }
@@ -858,7 +858,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(reorderRequests.count, 1)
 
         let updatesBySessionId = Dictionary(
-            uniqueKeysWithValues: reorderRequests[0].updates.map { ($0.sessionId, $0) }
+            uniqueKeysWithValues: reorderRequests[0].updates.map { ($0.conversationId, $0) }
         )
         XCTAssertEqual(updatesBySessionId["connected-session-pinned"]?.displayOrder, 0)
         XCTAssertEqual(updatesBySessionId["connected-session-pinned"]?.isPinned, true)
@@ -869,7 +869,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
     func testPinningConnectedThreadSurvivesStaleSessionRefresh() {
         let daemonClient = DaemonClient()
         let store = IOSThreadStore(daemonClient: daemonClient)
-        let response = makeSessionListResponse(sessions: [
+        let response = makeConversationListResponse(conversations: [
             [
                 "id": "connected-session-pinned",
                 "title": "Pinned thread",
@@ -886,14 +886,14 @@ final class ThreadLifecycleIOSTests: XCTestCase {
             ],
         ])
 
-        daemonClient.onSessionListResponse?(response)
-        guard let thread = store.threads.first(where: { $0.sessionId == "connected-session-unpinned" }) else {
+        daemonClient.onConversationListResponse?(response)
+        guard let thread = store.threads.first(where: { $0.conversationId == "connected-session-unpinned" }) else {
             XCTFail("Expected unpinned connected thread")
             return
         }
 
         store.pinThread(thread)
-        daemonClient.onSessionListResponse?(response)
+        daemonClient.onConversationListResponse?(response)
 
         guard let updatedThread = store.threads.first(where: { $0.id == thread.id }) else {
             XCTFail("Expected updated thread")
@@ -914,7 +914,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         }
 
         let store = IOSThreadStore(daemonClient: daemonClient)
-        let response = makeSessionListResponse(sessions: [
+        let response = makeConversationListResponse(conversations: [
             [
                 "id": "connected-session-first",
                 "title": "First pinned thread",
@@ -933,16 +933,16 @@ final class ThreadLifecycleIOSTests: XCTestCase {
             ],
         ])
 
-        daemonClient.onSessionListResponse?(response)
-        guard let thread = store.threads.first(where: { $0.sessionId == "connected-session-first" }) else {
+        daemonClient.onConversationListResponse?(response)
+        guard let thread = store.threads.first(where: { $0.conversationId == "connected-session-first" }) else {
             XCTFail("Expected pinned connected thread")
             return
         }
 
         store.unpinThread(thread)
 
-        guard let firstThread = store.threads.first(where: { $0.sessionId == "connected-session-first" }),
-              let secondThread = store.threads.first(where: { $0.sessionId == "connected-session-second" }) else {
+        guard let firstThread = store.threads.first(where: { $0.conversationId == "connected-session-first" }),
+              let secondThread = store.threads.first(where: { $0.conversationId == "connected-session-second" }) else {
             XCTFail("Expected connected threads")
             return
         }
@@ -954,7 +954,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(reorderRequests.count, 1)
 
         let updatesBySessionId = Dictionary(
-            uniqueKeysWithValues: reorderRequests[0].updates.map { ($0.sessionId, $0) }
+            uniqueKeysWithValues: reorderRequests[0].updates.map { ($0.conversationId, $0) }
         )
         XCTAssertNil(updatesBySessionId["connected-session-first"]?.displayOrder)
         XCTAssertEqual(updatesBySessionId["connected-session-first"]?.isPinned, false)

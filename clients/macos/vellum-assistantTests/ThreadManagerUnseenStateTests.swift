@@ -9,19 +9,19 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
     private var threadManager: ThreadManager!
     private var sentMessages: [Any] = []
 
-    private func makeSessionListResponse(
-        sessions: [[String: Any]],
+    private func makeConversationListResponse(
+        conversations: [[String: Any]],
         hasMore: Bool? = nil
-    ) -> SessionListResponseMessage {
+    ) -> ConversationListResponseMessage {
         var payload: [String: Any] = [
-            "type": "session_list_response",
-            "sessions": sessions,
+            "type": "conversation_list_response",
+            "conversations": conversations,
         ]
         if let hasMore {
             payload["hasMore"] = hasMore
         }
         let data = try! JSONSerialization.data(withJSONObject: payload)
-        return try! JSONDecoder().decode(SessionListResponseMessage.self, from: data)
+        return try! JSONDecoder().decode(ConversationListResponseMessage.self, from: data)
     }
 
     override func setUp() {
@@ -81,12 +81,12 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
             return
         }
 
-        threadManager.threads[initialIndex].sessionId = "session-initial"
-        initialVm.sessionId = "session-initial"
+        threadManager.threads[initialIndex].conversationId = "session-initial"
+        initialVm.conversationId = "session-initial"
         initialVm.messages.append(ChatMessage(role: .user, text: "Seed"))
 
         initialVm.handleServerMessage(.assistantTextDelta(
-            AssistantTextDeltaMessage(text: "First chunk", sessionId: "session-initial")
+            AssistantTextDeltaMessage(text: "First chunk", conversationId: "session-initial")
         ))
         waitForPropagation()
         XCTAssertFalse(threadManager.threads[initialIndex].hasUnseenLatestAssistantMessage)
@@ -99,15 +99,15 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
             return
         }
 
-        threadManager.threads[secondaryIndex].sessionId = "session-secondary"
-        secondaryVm.sessionId = "session-secondary"
+        threadManager.threads[secondaryIndex].conversationId = "session-secondary"
+        secondaryVm.conversationId = "session-secondary"
         threadManager.selectThread(id: secondaryThreadId)
 
         initialVm.handleServerMessage(.assistantTextDelta(
-            AssistantTextDeltaMessage(text: " + second chunk", sessionId: "session-initial")
+            AssistantTextDeltaMessage(text: " + second chunk", conversationId: "session-initial")
         ))
         initialVm.handleServerMessage(.messageComplete(
-            MessageCompleteMessage(sessionId: "session-initial")
+            MessageCompleteMessage(conversationId: "session-initial")
         ))
 
         waitForPropagation()
@@ -127,12 +127,12 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
             return
         }
 
-        threadManager.threads[index].sessionId = "session-realtime"
+        threadManager.threads[index].conversationId = "session-realtime"
         threadManager.threads[index].hasUnseenLatestAssistantMessage = false
-        vm.sessionId = "session-realtime"
+        vm.conversationId = "session-realtime"
 
-        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Streaming reply", sessionId: "session-realtime")))
-        vm.handleServerMessage(.messageComplete(MessageCompleteMessage(sessionId: "session-realtime")))
+        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Streaming reply", conversationId: "session-realtime")))
+        vm.handleServerMessage(.messageComplete(MessageCompleteMessage(conversationId: "session-realtime")))
 
         waitForPropagation()
 
@@ -241,7 +241,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
         // (selectThread only clears unseen when sessionId is present)
         if let idx = threadManager.threads.firstIndex(where: { $0.id == firstId }) {
             threadManager.threads[idx].hasUnseenLatestAssistantMessage = true
-            threadManager.threads[idx].sessionId = "session-first"
+            threadManager.threads[idx].conversationId = "session-first"
         }
         XCTAssertEqual(threadManager.unseenVisibleConversationCount, 1)
 
@@ -263,7 +263,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
             return
         }
 
-        threadManager.threads[index].sessionId = "session-mark-seen"
+        threadManager.threads[index].conversationId = "session-mark-seen"
         threadManager.threads[index].hasUnseenLatestAssistantMessage = true
         XCTAssertEqual(threadManager.unseenVisibleConversationCount, 1)
 
@@ -287,7 +287,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
             return
         }
 
-        threadManager.threads[index].sessionId = "session-mark-unread"
+        threadManager.threads[index].conversationId = "session-mark-unread"
         threadManager.threads[index].hasUnseenLatestAssistantMessage = false
         threadManager.threads[index].latestAssistantMessageAt = Date(timeIntervalSince1970: 9)
 
@@ -311,7 +311,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
             return
         }
 
-        threadManager.threads[index].sessionId = "session-already-unread"
+        threadManager.threads[index].conversationId = "session-already-unread"
         threadManager.threads[index].hasUnseenLatestAssistantMessage = true
         threadManager.threads[index].latestAssistantMessageAt = Date(timeIntervalSince1970: 9)
 
@@ -332,13 +332,13 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
             return
         }
 
-        threadManager.threads[index].sessionId = "session-live-unread"
+        threadManager.threads[index].conversationId = "session-live-unread"
         threadManager.threads[index].hasUnseenLatestAssistantMessage = false
         threadManager.threads[index].latestAssistantMessageAt = nil
-        vm.sessionId = "session-live-unread"
+        vm.conversationId = "session-live-unread"
 
         vm.handleServerMessage(.assistantTextDelta(
-            AssistantTextDeltaMessage(text: "Live reply", sessionId: "session-live-unread")
+            AssistantTextDeltaMessage(text: "Live reply", conversationId: "session-live-unread")
         ))
         waitForPropagation()
 
@@ -369,7 +369,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
             ])
         }
 
-        threadManager.threads[index].sessionId = "session-unread-failure"
+        threadManager.threads[index].conversationId = "session-unread-failure"
         threadManager.threads[index].hasUnseenLatestAssistantMessage = false
         threadManager.threads[index].latestAssistantMessageAt = Date(timeIntervalSince1970: 9)
         threadManager.threads[index].lastSeenAssistantMessageAt = Date(timeIntervalSince1970: 9)
@@ -391,7 +391,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
             return
         }
 
-        threadManager.threads[index].sessionId = "session-requeue"
+        threadManager.threads[index].conversationId = "session-requeue"
         threadManager.threads[index].hasUnseenLatestAssistantMessage = true
         threadManager.threads[index].latestAssistantMessageAt = Date(timeIntervalSince1970: 5)
 
@@ -429,7 +429,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
             return
         }
 
-        threadManager.threads[index].sessionId = "session-no-assistant-reply"
+        threadManager.threads[index].conversationId = "session-no-assistant-reply"
         threadManager.threads[index].hasUnseenLatestAssistantMessage = false
         threadManager.threads[index].latestAssistantMessageAt = nil
 
@@ -449,15 +449,15 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
             return
         }
 
-        threadManager.threads[index].sessionId = "session-refresh-seen"
+        threadManager.threads[index].conversationId = "session-refresh-seen"
         threadManager.threads[index].hasUnseenLatestAssistantMessage = true
         threadManager.threads[index].latestAssistantMessageAt = Date(timeIntervalSince1970: 9)
         threadManager.threads[index].lastSeenAssistantMessageAt = Date(timeIntervalSince1970: 8)
 
         threadManager.markConversationSeen(threadId: threadId)
 
-        let staleResponse = makeSessionListResponse(
-            sessions: [[
+        let staleResponse = makeConversationListResponse(
+            conversations: [[
                 "id": "session-refresh-seen",
                 "title": "Restored thread",
                 "createdAt": 5_000,
@@ -477,7 +477,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
         threadManager.mergeAssistantAttention(from: session, intoThreadAt: index)
 
         XCTAssertFalse(
-            threadManager.threads.first(where: { $0.sessionId == "session-refresh-seen" })?.hasUnseenLatestAssistantMessage ?? true
+            threadManager.threads.first(where: { $0.conversationId == "session-refresh-seen" })?.hasUnseenLatestAssistantMessage ?? true
         )
     }
 
@@ -488,15 +488,15 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
             return
         }
 
-        threadManager.threads[index].sessionId = "session-refresh-unread"
+        threadManager.threads[index].conversationId = "session-refresh-unread"
         threadManager.threads[index].hasUnseenLatestAssistantMessage = false
         threadManager.threads[index].latestAssistantMessageAt = Date(timeIntervalSince1970: 9)
         threadManager.threads[index].lastSeenAssistantMessageAt = Date(timeIntervalSince1970: 9)
 
         threadManager.markConversationUnread(threadId: threadId)
 
-        let staleResponse = makeSessionListResponse(
-            sessions: [[
+        let staleResponse = makeConversationListResponse(
+            conversations: [[
                 "id": "session-refresh-unread",
                 "title": "Paginated thread",
                 "createdAt": 5_000,
@@ -512,7 +512,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
         threadManager.appendThreads(from: staleResponse)
 
         XCTAssertTrue(
-            threadManager.threads.first(where: { $0.sessionId == "session-refresh-unread" })?.hasUnseenLatestAssistantMessage ?? false
+            threadManager.threads.first(where: { $0.conversationId == "session-refresh-unread" })?.hasUnseenLatestAssistantMessage ?? false
         )
     }
 
@@ -523,7 +523,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
             return
         }
 
-        threadManager.threads[firstIndex].sessionId = "session-first"
+        threadManager.threads[firstIndex].conversationId = "session-first"
         threadManager.threads[firstIndex].hasUnseenLatestAssistantMessage = true
         threadManager.threads[firstIndex].latestAssistantMessageAt = Date(timeIntervalSince1970: 1)
         threadManager.chatViewModel(for: firstThreadId)?.messages.append(ChatMessage(role: .user, text: "Seed"))
@@ -536,7 +536,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
             return
         }
 
-        threadManager.threads[secondIndex].sessionId = "session-second"
+        threadManager.threads[secondIndex].conversationId = "session-second"
         threadManager.threads[secondIndex].hasUnseenLatestAssistantMessage = true
         threadManager.threads[secondIndex].latestAssistantMessageAt = Date(timeIntervalSince1970: 2)
 
@@ -571,12 +571,12 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
             return
         }
 
-        threadManager.threads[index].sessionId = "session-streaming"
+        threadManager.threads[index].conversationId = "session-streaming"
         threadManager.threads[index].hasUnseenLatestAssistantMessage = false
-        vm.sessionId = "session-streaming"
+        vm.conversationId = "session-streaming"
 
         // First delta creates a new message — should emit one seen signal
-        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "chunk1", sessionId: "session-streaming")))
+        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "chunk1", conversationId: "session-streaming")))
         waitForPropagation()
 
         let signalsAfterFirstDelta = sentMessages.compactMap { $0 as? ConversationSeenSignal }
@@ -584,9 +584,9 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
         let countAfterFirst = signalsAfterFirstDelta.count
 
         // Subsequent deltas on the same message should NOT emit additional seen signals
-        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: " chunk2", sessionId: "session-streaming")))
-        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: " chunk3", sessionId: "session-streaming")))
-        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: " chunk4", sessionId: "session-streaming")))
+        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: " chunk2", conversationId: "session-streaming")))
+        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: " chunk3", conversationId: "session-streaming")))
+        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: " chunk4", conversationId: "session-streaming")))
         waitForPropagation()
 
         let signalsAfterMoreDeltas = sentMessages.compactMap { $0 as? ConversationSeenSignal }
@@ -595,7 +595,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
                        "Mid-stream text deltas should not emit additional seen signals (was O(n), should be O(1))")
 
         // Stream completion should emit one more seen signal
-        vm.handleServerMessage(.messageComplete(MessageCompleteMessage(sessionId: "session-streaming")))
+        vm.handleServerMessage(.messageComplete(MessageCompleteMessage(conversationId: "session-streaming")))
         waitForPropagation()
 
         let signalsAfterComplete = sentMessages.compactMap { $0 as? ConversationSeenSignal }
@@ -612,12 +612,12 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
             return
         }
 
-        threadManager.threads[index].sessionId = "session-active"
+        threadManager.threads[index].conversationId = "session-active"
         threadManager.threads[index].hasUnseenLatestAssistantMessage = true
-        vm.sessionId = "session-active"
+        vm.conversationId = "session-active"
 
-        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Visible reply", sessionId: "session-active")))
-        vm.handleServerMessage(.messageComplete(MessageCompleteMessage(sessionId: "session-active")))
+        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Visible reply", conversationId: "session-active")))
+        vm.handleServerMessage(.messageComplete(MessageCompleteMessage(conversationId: "session-active")))
 
         waitForPropagation()
 
@@ -628,8 +628,8 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
     }
 
     func testAppendThreadsPreservesAssistantAttentionTimestamps() {
-        let response = makeSessionListResponse(
-            sessions: [[
+        let response = makeConversationListResponse(
+            conversations: [[
                 "id": "session-paginated",
                 "title": "Paginated thread",
                 "createdAt": 5_000,
@@ -645,7 +645,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
 
         threadManager.appendThreads(from: response)
 
-        guard let appendedThread = threadManager.threads.first(where: { $0.sessionId == "session-paginated" }) else {
+        guard let appendedThread = threadManager.threads.first(where: { $0.conversationId == "session-paginated" }) else {
             XCTFail("Expected appended thread")
             return
         }

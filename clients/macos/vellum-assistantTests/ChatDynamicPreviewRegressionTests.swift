@@ -22,7 +22,7 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
         daemonClient.isConnected = true
         daemonClient.sendOverride = { _ in }
         viewModel = ChatViewModel(daemonClient: daemonClient)
-        viewModel.sessionId = "sess-dp"
+        viewModel.conversationId = "sess-dp"
     }
 
     override func tearDown() {

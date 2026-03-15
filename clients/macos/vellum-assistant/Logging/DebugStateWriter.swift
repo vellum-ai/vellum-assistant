@@ -78,7 +78,7 @@ final class DebugStateWriter {
             return DebugSnapshot.ThreadInfo(
                 id: thread.id.uuidString,
                 title: thread.title,
-                sessionId: thread.sessionId,
+                conversationId: thread.conversationId,
                 messageCount: vm?.messages.count ?? 0,
                 kind: thread.kind == .private ? "private" : "standard",
                 isArchived: thread.isArchived,
@@ -95,13 +95,13 @@ final class DebugStateWriter {
         var activeChatState: DebugSnapshot.ActiveChatState?
         if let vm = threadManager?.activeViewModel {
             activeChatState = DebugSnapshot.ActiveChatState(
-                sessionId: vm.sessionId,
+                conversationId: vm.conversationId,
                 isThinking: vm.isThinking,
                 isSending: vm.isSending,
                 isBootstrapping: vm.isBootstrapping,
                 errorText: vm.errorText,
-                sessionErrorCategory: vm.sessionError.map { "\($0.category)" },
-                sessionErrorDebugDetails: vm.sessionError?.debugDetails,
+                conversationErrorCategory: vm.conversationError.map { "\($0.category)" },
+                conversationErrorDebugDetails: vm.conversationError?.debugDetails,
                 selectedModel: vm.selectedModel,
                 messageCount: vm.messages.count,
                 pendingQueuedCount: vm.pendingQueuedCount,
@@ -155,7 +155,7 @@ struct DebugSnapshot: Codable {
     struct ThreadInfo: Codable {
         let id: String
         let title: String
-        let sessionId: String?
+        let conversationId: String?
         let messageCount: Int
         let kind: String
         let isArchived: Bool
@@ -163,13 +163,13 @@ struct DebugSnapshot: Codable {
     }
 
     struct ActiveChatState: Codable {
-        let sessionId: String?
+        let conversationId: String?
         let isThinking: Bool
         let isSending: Bool
         let isBootstrapping: Bool
         let errorText: String?
-        let sessionErrorCategory: String?
-        let sessionErrorDebugDetails: String?
+        let conversationErrorCategory: String?
+        let conversationErrorDebugDetails: String?
         let selectedModel: String
         let messageCount: Int
         let pendingQueuedCount: Int

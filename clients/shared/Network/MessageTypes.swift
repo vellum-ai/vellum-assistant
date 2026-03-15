@@ -16,7 +16,7 @@ import Foundation
 // │                                 │ contract type is skipped (SKIP_TYPES)    │
 // │ UiSurfaceUpdateMessage          │ Uses AnyCodable for `data` field;        │
 // │                                 │ contract type is skipped (SKIP_TYPES)    │
-// │ GenerationCancelledMessage      │ Swift adds `sessionId` for session       │
+// │ GenerationCancelledMessage      │ Swift adds `sessionId` for conversation  │
 // │                                 │ filtering not present in the contract    │
 // │ ClawhubSkillItem                │ Decoded from nested `data` field of      │
 // │                                 │ skills_operation_response, not a direct  │
@@ -27,9 +27,9 @@ import Foundation
 // │                                 │ instead of generated AnyCodable?         │
 // │ TraceEventMessage               │ References hand-maintained TraceEventKind│
 // │                                 │ via string `kind`; contract type skipped │
-// │ SessionErrorMessage             │ References hand-maintained               │
-// │                                 │ SessionErrorCode enum                    │
-// │ SessionErrorCode (enum)         │ String enum with fallback decoding;      │
+// │ ConversationErrorMessage        │ References hand-maintained               │
+// │                                 │ ConversationErrorCode enum               │
+// │ ConversationErrorCode (enum)    │ String enum with fallback decoding;      │
 // │                                 │ code generator cannot emit Swift enums   │
 // │ ServerMessage (enum)            │ Discriminated union with custom          │
 // │                                 │ Decodable init; always hand-maintained   │
@@ -156,16 +156,16 @@ extension WatchObservation {
     }
 }
 
-/// Sent to create a new Q&A session.
-/// Backed by generated `SessionCreateRequest`.
-public typealias SessionCreateMessage = SessionCreateRequest
+/// Sent to create a new Q&A conversation.
+/// Backed by generated `ConversationCreateRequest`.
+public typealias ConversationCreateMessage = ConversationCreateRequest
 
-private func buildSessionTransportMetadata(
+private func buildConversationTransportMetadata(
     channelId: String?,
     interfaceId: String?,
     hints: [String]?,
     uxBrief: String?
-) -> SessionTransportMetadata? {
+) -> ConversationTransportMetadata? {
     guard let channelId, !channelId.isEmpty else { return nil }
 
     var payload: [String: Any] = ["channelId": channelId]
@@ -182,13 +182,13 @@ private func buildSessionTransportMetadata(
     guard JSONSerialization.isValidJSONObject(payload) else { return nil }
     do {
         let data = try JSONSerialization.data(withJSONObject: payload)
-        return try JSONDecoder().decode(SessionTransportMetadata.self, from: data)
+        return try JSONDecoder().decode(ConversationTransportMetadata.self, from: data)
     } catch {
         return nil
     }
 }
 
-extension SessionCreateRequest {
+extension ConversationCreateRequest {
     private static var defaultTransportInterface: String {
         #if os(macOS)
         return "macos"
@@ -199,8 +199,8 @@ extension SessionCreateRequest {
         #endif
     }
 
-    public init(title: String?, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: SessionTransportMetadata? = nil, conversationType: String? = nil, preactivatedSkillIds: [String]? = nil, initialMessage: String? = nil) {
-        self.init(type: "session_create", title: title, systemPromptOverride: systemPromptOverride, maxResponseTokens: maxResponseTokens, correlationId: correlationId, transport: transport, conversationType: conversationType, preactivatedSkillIds: preactivatedSkillIds, initialMessage: initialMessage)
+    public init(title: String?, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: ConversationTransportMetadata? = nil, conversationType: String? = nil, preactivatedSkillIds: [String]? = nil, initialMessage: String? = nil) {
+        self.init(type: "conversation_create", title: title, systemPromptOverride: systemPromptOverride, maxResponseTokens: maxResponseTokens, correlationId: correlationId, transport: transport, conversationType: conversationType, preactivatedSkillIds: preactivatedSkillIds, initialMessage: initialMessage)
     }
 
     public init(
@@ -214,12 +214,12 @@ extension SessionCreateRequest {
         transportUxBrief: String? = nil
     ) {
         self.init(
-            type: "session_create",
+            type: "conversation_create",
             title: title,
             systemPromptOverride: systemPromptOverride,
             maxResponseTokens: maxResponseTokens,
             correlationId: correlationId,
-            transport: buildSessionTransportMetadata(
+            transport: buildConversationTransportMetadata(
                 channelId: transportChannelId,
                 interfaceId: transportInterfaceId ?? Self.defaultTransportInterface,
                 hints: transportHints,
@@ -439,13 +439,13 @@ extension OpenBundleRequest {
     }
 }
 
-/// Sent to request the list of all past sessions/conversations.
-/// Backed by generated `SessionListRequest`.
-public typealias SessionListRequestMessage = SessionListRequest
+/// Sent to request the list of all past conversations.
+/// Backed by generated `ConversationListRequest`.
+public typealias ConversationListRequestMessage = ConversationListRequest
 
-extension SessionListRequest {
+extension ConversationListRequest {
     public init(offset: Int? = nil, limit: Int? = nil) {
-        self.init(type: "session_list", offset: offset.map(Double.init), limit: limit.map(Double.init))
+        self.init(type: "conversation_list", offset: offset.map(Double.init), limit: limit.map(Double.init))
     }
 }
 
@@ -678,23 +678,23 @@ extension MessageComplete {
     }
 }
 
-/// Session metadata from the server (e.g. generated title).
-/// Backed by generated `SessionInfo`.
-public typealias SessionInfoMessage = SessionInfo
+/// Conversation metadata from the server (e.g. generated title).
+/// Backed by generated `ConversationInfo`.
+public typealias ConversationInfoMessage = ConversationInfo
 
-extension SessionInfo {
-    public init(sessionId: String, title: String, correlationId: String? = nil, conversationType: String? = nil) {
-        self.init(type: "session_info", sessionId: sessionId, title: title, correlationId: correlationId, conversationType: conversationType)
+extension ConversationInfo {
+    public init(conversationId: String, title: String, correlationId: String? = nil, conversationType: String? = nil) {
+        self.init(type: "conversation_info", conversationId: conversationId, title: title, correlationId: correlationId, conversationType: conversationType)
     }
 }
 
-/// Session title update push message emitted after first-turn auto-titling.
-/// Backed by generated `SessionTitleUpdated`.
-public typealias SessionTitleUpdatedMessage = SessionTitleUpdated
+/// Conversation title update push message emitted after first-turn auto-titling.
+/// Backed by generated `ConversationTitleUpdated`.
+public typealias ConversationTitleUpdatedMessage = ConversationTitleUpdated
 
-extension SessionTitleUpdated {
-    public init(sessionId: String, title: String) {
-        self.init(type: "session_title_updated", sessionId: sessionId, title: title)
+extension ConversationTitleUpdated {
+    public init(conversationId: String, title: String) {
+        self.init(type: "conversation_title_updated", conversationId: conversationId, title: title)
     }
 }
 
@@ -1111,9 +1111,9 @@ extension SkillsInspectResponseData {
 public typealias SkillsInspectResponseMessage = SkillsInspectResponse
 
 
-/// Response containing the list of past sessions.
-/// Backed by generated `SessionListResponse`.
-public typealias SessionListResponseMessage = SessionListResponse
+/// Response containing the list of past conversations.
+/// Backed by generated `ConversationListResponse`.
+public typealias ConversationListResponseMessage = ConversationListResponse
 
 /// A single scheduled task item returned from the daemon.
 /// Backed by generated `SchedulesListResponseSchedule`.
@@ -1237,8 +1237,8 @@ public struct TraceEventMessage: Decodable, Sendable {
     public let attributes: [String: AnyCodable]?
 }
 
-/// Structured error codes for session-level errors.
-public enum SessionErrorCode: String, CaseIterable, Codable, Sendable {
+/// Structured error codes for conversation-level errors.
+public enum ConversationErrorCode: String, CaseIterable, Codable, Sendable {
     case providerNetwork = "PROVIDER_NETWORK"
     case providerRateLimit = "PROVIDER_RATE_LIMIT"
     case providerApi = "PROVIDER_API"
@@ -1246,26 +1246,26 @@ public enum SessionErrorCode: String, CaseIterable, Codable, Sendable {
     case providerOrdering = "PROVIDER_ORDERING"
     case providerWebSearch = "PROVIDER_WEB_SEARCH"
     case contextTooLarge = "CONTEXT_TOO_LARGE"
-    case sessionAborted = "SESSION_ABORTED"
-    case sessionProcessingFailed = "SESSION_PROCESSING_FAILED"
+    case conversationAborted = "CONVERSATION_ABORTED"
+    case conversationProcessingFailed = "CONVERSATION_PROCESSING_FAILED"
     case regenerateFailed = "REGENERATE_FAILED"
     case authenticationRequired = "AUTHENTICATION_REQUIRED"
     case unknown = "UNKNOWN"
 
     /// Fall back to `.unknown` for unrecognized codes so that version skew
-    /// between daemon and client never silently drops a session_error message.
+    /// between daemon and client never silently drops a conversation_error message.
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let rawValue = try container.decode(String.self)
-        self = SessionErrorCode(rawValue: rawValue) ?? .unknown
+        self = ConversationErrorCode(rawValue: rawValue) ?? .unknown
     }
 }
 
-/// Structured session-level error from the daemon.
-/// Wire type: `"session_error"`
-public struct SessionErrorMessage: Decodable, Sendable {
-    public let sessionId: String
-    public let code: SessionErrorCode
+/// Structured conversation-level error from the daemon.
+/// Wire type: `"conversation_error"`
+public struct ConversationErrorMessage: Decodable, Sendable {
+    public let conversationId: String
+    public let code: ConversationErrorCode
     public let userMessage: String
     public let retryable: Bool
     public let debugDetails: String?
@@ -1276,8 +1276,8 @@ public struct SessionErrorMessage: Decodable, Sendable {
     /// the specific user message as `.sendFailed` in the chat.
     public let failedMessageContent: String?
 
-    public init(sessionId: String, code: SessionErrorCode, userMessage: String, retryable: Bool, debugDetails: String? = nil, errorCategory: String? = nil, failedMessageContent: String? = nil) {
-        self.sessionId = sessionId
+    public init(conversationId: String, code: ConversationErrorCode, userMessage: String, retryable: Bool, debugDetails: String? = nil, errorCategory: String? = nil, failedMessageContent: String? = nil) {
+        self.conversationId = conversationId
         self.code = code
         self.userMessage = userMessage
         self.retryable = retryable
@@ -1981,9 +1981,9 @@ extension EnvVarsRequest {
 /// Backed by generated `EnvVarsResponse`.
 public typealias EnvVarsResponseMessage = EnvVarsResponse
 
-extension SessionSwitchRequest {
-    public init(sessionId: String) {
-        self.init(type: "session_switch", sessionId: sessionId)
+extension ConversationSwitchRequest {
+    public init(conversationId: String) {
+        self.init(type: "conversation_switch", conversationId: conversationId)
     }
 }
 
@@ -2073,15 +2073,15 @@ public struct SubagentEventMessage: Decodable, Sendable {
 /// Decodes via the `"type"` field in the JSON payload.
 public enum ServerMessage: Decodable, Sendable {
     case authResult(AuthResultMessage)
-    case sessionError(SessionErrorMessage)
+    case conversationError(ConversationErrorMessage)
     case userMessageEcho(UserMessageEchoMessage)
     case assistantTextDelta(AssistantTextDeltaMessage)
     case assistantActivityState(AssistantActivityStateMessage)
     case assistantThinkingDelta(AssistantThinkingDeltaMessage)
     case messageComplete(MessageCompleteMessage)
-    case sessionInfo(SessionInfoMessage)
-    case sessionTitleUpdated(SessionTitleUpdatedMessage)
-    case sessionListResponse(SessionListResponseMessage)
+    case conversationInfo(ConversationInfoMessage)
+    case conversationTitleUpdated(ConversationTitleUpdatedMessage)
+    case conversationListResponse(ConversationListResponseMessage)
     case historyResponse(HistoryResponse)
     case memoryStatus(MemoryStatusMessage)
     case dictationResponse(DictationResponseMessage)
@@ -2224,9 +2224,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "auth_result":
             let message = try AuthResultMessage(from: decoder)
             self = .authResult(message)
-        case "session_error":
-            let message = try SessionErrorMessage(from: decoder)
-            self = .sessionError(message)
+        case "conversation_error":
+            let message = try ConversationErrorMessage(from: decoder)
+            self = .conversationError(message)
         case "user_message_echo":
             let message = try UserMessageEchoMessage(from: decoder)
             self = .userMessageEcho(message)
@@ -2242,15 +2242,15 @@ public enum ServerMessage: Decodable, Sendable {
         case "message_complete":
             let message = try MessageCompleteMessage(from: decoder)
             self = .messageComplete(message)
-        case "session_info":
-            let message = try SessionInfoMessage(from: decoder)
-            self = .sessionInfo(message)
-        case "session_title_updated":
-            let message = try SessionTitleUpdatedMessage(from: decoder)
-            self = .sessionTitleUpdated(message)
-        case "session_list_response":
-            let message = try SessionListResponseMessage(from: decoder)
-            self = .sessionListResponse(message)
+        case "conversation_info":
+            let message = try ConversationInfoMessage(from: decoder)
+            self = .conversationInfo(message)
+        case "conversation_title_updated":
+            let message = try ConversationTitleUpdatedMessage(from: decoder)
+            self = .conversationTitleUpdated(message)
+        case "conversation_list_response":
+            let message = try ConversationListResponseMessage(from: decoder)
+            self = .conversationListResponse(message)
         case "history_response":
             let message = try HistoryResponse(from: decoder)
             self = .historyResponse(message)

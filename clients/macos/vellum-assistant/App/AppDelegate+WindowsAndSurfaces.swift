@@ -166,7 +166,7 @@ extension AppDelegate {
                 // the inline bubble won't be visible, so we must still fire the
                 // native notification.
                 if NSApp.isActive, let mainWindow = self.mainWindow, mainWindow.isVisible {
-                    let activeSessionId = mainWindow.threadManager.activeViewModel?.sessionId
+                    let activeSessionId = mainWindow.threadManager.activeViewModel?.conversationId
                     let confirmationIsForActiveThread = msg.sessionId == nil || msg.sessionId == activeSessionId
                     if confirmationIsForActiveThread {
                         return

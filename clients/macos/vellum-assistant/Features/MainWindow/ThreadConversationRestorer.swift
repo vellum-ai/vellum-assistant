@@ -3,7 +3,7 @@ import Foundation
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ThreadSessionRestorer")
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ThreadConversationRestorer")
 
 /// Delegate protocol so the restorer can read and mutate thread state
 /// owned by `ThreadManager`.
@@ -23,28 +23,28 @@ protocol ThreadRestorerDelegate: AnyObject {
     func makeViewModel() -> ChatViewModel
     func activateThread(_ id: UUID)
     func createThread()
-    func isSessionArchived(_ sessionId: String) -> Bool
+    func isConversationArchived(_ conversationId: String) -> Bool
     func restoreLastActiveThread()
-    func appendThreads(from response: SessionListResponseMessage)
-    /// Returns an existing ChatViewModel matching the given session ID, if any.
-    func existingChatViewModel(forSessionId sessionId: String) -> ChatViewModel?
+    func appendThreads(from response: ConversationListResponseMessage)
+    /// Returns an existing ChatViewModel matching the given conversation ID, if any.
+    func existingChatViewModel(forConversationId conversationId: String) -> ChatViewModel?
     /// Merge daemon attention metadata into an existing thread, allowing the
     /// owner to preserve optimistic local seen/unread state until the daemon
     /// catches up or returns a newer reply.
     func mergeAssistantAttention(
-        from session: SessionListResponseSession,
+        from item: ConversationListResponseItem,
         intoThreadAt index: Int
     )
 }
 
-/// Handles daemon session restoration: fetching the session list on connect,
-/// creating threads for recent sessions, and loading per-thread history on demand.
+/// Handles daemon conversation restoration: fetching the conversation list on connect,
+/// creating threads for recent conversations, and loading per-thread history on demand.
 @MainActor
-final class ThreadSessionRestorer {
-    /// Maps session IDs to thread IDs for in-flight `history_request` messages,
+final class ThreadConversationRestorer {
+    /// Maps conversation IDs to thread IDs for in-flight `history_request` messages,
     /// so rapid tab switches don't cause history from one thread to land in another.
     /// Exposed as internal for `@testable` test access.
-    var pendingHistoryBySessionId: [String: UUID] = [:]
+    var pendingHistoryByConversationId: [String: UUID] = [:]
 
     private let daemonClient: DaemonClient
     private var connectionCancellable: AnyCancellable?
@@ -57,14 +57,14 @@ final class ThreadSessionRestorer {
     }
 
     func startObserving(skipInitialFetch: Bool = false) {
-        daemonClient.onSessionListResponse = { [weak self] response in
-            self?.handleSessionListResponse(response)
+        daemonClient.onConversationListResponse = { [weak self] response in
+            self?.handleConversationListResponse(response)
         }
         daemonClient.onHistoryResponse = { [weak self] response in
             self?.handleHistoryResponse(response)
         }
-        daemonClient.onSessionTitleUpdated = { [weak self] response in
-            self?.handleSessionTitleUpdated(response)
+        daemonClient.onConversationTitleUpdated = { [weak self] response in
+            self?.handleConversationTitleUpdated(response)
         }
         daemonClient.onSubagentDetailResponse = { [weak self] response in
             self?.handleSubagentDetailResponse(response)
@@ -73,8 +73,8 @@ final class ThreadSessionRestorer {
             self?.handleMessageContentResponse(response)
         }
 
-        // On first launch after onboarding, skip the initial session list fetch
-        // so the session restorer doesn't override the wake-up conversation thread.
+        // On first launch after onboarding, skip the initial conversation list fetch
+        // so the conversation restorer doesn't override the wake-up conversation thread.
         // The handlers above are still registered for later use (e.g. history loading).
         guard !skipInitialFetch else { return }
 
@@ -92,64 +92,64 @@ final class ThreadSessionRestorer {
             .filter { $0 }
             .first()
             .sink { [weak self] _ in
-                self?.fetchSessionList()
+                self?.fetchConversationList()
             }
     }
 
     func loadHistoryIfNeeded(threadId: UUID) {
         guard let delegate else { return }
         guard let thread = delegate.threads.first(where: { $0.id == threadId }) else { return }
-        guard let sessionId = thread.sessionId else { return }
+        guard let conversationId = thread.conversationId else { return }
         guard let viewModel = delegate.chatViewModel(for: threadId) else { return }
         guard !viewModel.isHistoryLoaded else { return }
 
-        pendingHistoryBySessionId[sessionId] = threadId
+        pendingHistoryByConversationId[conversationId] = threadId
 
         // Wire up the "load more" callback so the view model can request
         // older pages through the same pending-history tracking mechanism.
-        viewModel.onLoadMoreHistory = { [weak self] sessionId, beforeTimestamp in
-            self?.requestPaginatedHistory(sessionId: sessionId, beforeTimestamp: beforeTimestamp)
+        viewModel.onLoadMoreHistory = { [weak self] conversationId, beforeTimestamp in
+            self?.requestPaginatedHistory(conversationId: conversationId, beforeTimestamp: beforeTimestamp)
         }
 
         do {
-            try daemonClient.sendHistoryRequest(sessionId: sessionId, limit: 50, mode: "light", maxToolResultChars: 1000)
+            try daemonClient.sendHistoryRequest(conversationId: conversationId, limit: 50, mode: "light", maxToolResultChars: 1000)
         } catch {
             log.error("Failed to send history_request: \(error.localizedDescription)")
-            pendingHistoryBySessionId.removeValue(forKey: sessionId)
+            pendingHistoryByConversationId.removeValue(forKey: conversationId)
         }
     }
 
-    /// Request history re-fetch for a reconnect catch-up. Registers the sessionId
+    /// Request history re-fetch for a reconnect catch-up. Registers the conversationId
     /// so the response is properly routed back via handleHistoryResponse.
-    func requestReconnectHistory(sessionId: String) {
+    func requestReconnectHistory(conversationId: String) {
         guard let delegate else { return }
-        // Find the thread that owns this sessionId.
-        guard let thread = delegate.threads.first(where: { $0.sessionId == sessionId }) else { return }
-        pendingHistoryBySessionId[sessionId] = thread.id
+        // Find the thread that owns this conversationId.
+        guard let thread = delegate.threads.first(where: { $0.conversationId == conversationId }) else { return }
+        pendingHistoryByConversationId[conversationId] = thread.id
         do {
-            try daemonClient.sendHistoryRequest(sessionId: sessionId, limit: 50, mode: "light", maxToolResultChars: 1000)
+            try daemonClient.sendHistoryRequest(conversationId: conversationId, limit: 50, mode: "light", maxToolResultChars: 1000)
         } catch {
             log.error("Failed to send reconnect history_request: \(error.localizedDescription)")
-            pendingHistoryBySessionId.removeValue(forKey: sessionId)
+            pendingHistoryByConversationId.removeValue(forKey: conversationId)
         }
     }
 
     /// Request an older page of history for a session. Used by the "Load more"
     /// trigger in the message list when all locally loaded messages are visible.
-    func requestPaginatedHistory(sessionId: String, beforeTimestamp: Double) {
+    func requestPaginatedHistory(conversationId: String, beforeTimestamp: Double) {
         guard let delegate else { return }
-        guard let thread = delegate.threads.first(where: { $0.sessionId == sessionId }) else {
+        guard let thread = delegate.threads.first(where: { $0.conversationId == conversationId }) else {
             // Thread removed from the list during a concurrent reconnect/refresh.
             // Reset loading state so the user isn't stuck with a permanent spinner.
-            delegate.existingChatViewModel(forSessionId: sessionId)?.isLoadingMoreMessages = false
+            delegate.existingChatViewModel(forConversationId: conversationId)?.isLoadingMoreMessages = false
             return
         }
-        pendingHistoryBySessionId[sessionId] = thread.id
+        pendingHistoryByConversationId[conversationId] = thread.id
         do {
-            try daemonClient.sendHistoryRequest(sessionId: sessionId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light", maxToolResultChars: 1000)
+            try daemonClient.sendHistoryRequest(conversationId: conversationId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light", maxToolResultChars: 1000)
         } catch {
             log.error("Failed to send paginated history_request: \(error.localizedDescription)")
-            pendingHistoryBySessionId.removeValue(forKey: sessionId)
+            pendingHistoryByConversationId.removeValue(forKey: conversationId)
             // Clear the loading indicator on the view model since the request failed.
             if let vm = delegate.existingChatViewModel(for: thread.id) {
                 vm.isLoadingMoreMessages = false
@@ -159,7 +159,7 @@ final class ThreadSessionRestorer {
 
     // MARK: - Response Handlers (internal for testability)
 
-    func handleSessionListResponse(_ response: SessionListResponseMessage) {
+    func handleConversationListResponse(_ response: ConversationListResponseMessage) {
         guard let delegate else { return }
 
         // If ThreadManager is waiting for a "load more" response, route there.
@@ -172,21 +172,21 @@ final class ThreadSessionRestorer {
             delegate.restoreLastActiveThread()
             return
         }
-        guard !response.sessions.isEmpty else {
+        guard !response.conversations.isEmpty else {
             delegate.restoreLastActiveThread()
             return
         }
 
-        // Filter out private threads and sessions bound to external channels
-        // (e.g. Telegram). External channel-bound sessions belong to their own
+        // Filter out private threads and conversations bound to external channels
+        // (e.g. Telegram). External channel-bound conversations belong to their own
         // lane and should not appear in the desktop conversation list.
-        let recentSessions = response.sessions.filter {
+        let recentSessions = response.conversations.filter {
             $0.conversationType != "private" && $0.channelBinding?.sourceChannel == nil
         }
 
         let defaultThreadIsEmpty = delegate.threads.count == 1
             && delegate.chatViewModel(for: delegate.threads[0].id)?.messages.isEmpty ?? true
-            && delegate.chatViewModel(for: delegate.threads[0].id)?.sessionId == nil
+            && delegate.chatViewModel(for: delegate.threads[0].id)?.conversationId == nil
 
         var restoredThreads: [ThreadModel] = []
         // Seed the fallback counter past the highest persisted pinned order
@@ -200,7 +200,7 @@ final class ThreadSessionRestorer {
             // If a local thread already exists (e.g. created by
             // createNotificationThread before the session list response arrived),
             // merge server pin/order metadata into it instead of creating a duplicate.
-            if let existingIdx = delegate.threads.firstIndex(where: { $0.sessionId == session.id }) {
+            if let existingIdx = delegate.threads.firstIndex(where: { $0.conversationId == session.id }) {
                 let isPinned = session.isPinned ?? false
                 delegate.threads[existingIdx].isPinned = isPinned
                 delegate.threads[existingIdx].pinnedOrder = isPinned ? (session.displayOrder.map { Int($0) } ?? pinnedCount) : nil
@@ -216,7 +216,7 @@ final class ThreadSessionRestorer {
             // exists locally and has a non-default title, keep it instead of
             // overwriting with the daemon's auto-generated title.
             let existingTitle = delegate.threads
-                .first(where: { $0.sessionId == session.id && $0.title != "New Conversation" })?
+                .first(where: { $0.conversationId == session.id && $0.title != "New Conversation" })?
                 .title
             let title = existingTitle ?? session.title
 
@@ -225,8 +225,8 @@ final class ThreadSessionRestorer {
             let thread = ThreadModel(
                 title: title,
                 createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
-                sessionId: session.id,
-                isArchived: delegate.isSessionArchived(session.id),
+                conversationId: session.id,
+                isArchived: delegate.isConversationArchived(session.id),
                 isPinned: isPinned,
                 pinnedOrder: isPinned ? (session.displayOrder.map { Int($0) } ?? pinnedCount) : nil,
                 displayOrder: session.displayOrder.map { Int($0) },
@@ -268,13 +268,13 @@ final class ThreadSessionRestorer {
         if let hasMore = response.hasMore {
             delegate.hasMoreThreads = hasMore
         }
-        delegate.serverOffset = response.sessions.count
+        delegate.serverOffset = response.conversations.count
         log.info("Restored \(restoredThreads.count) threads from daemon (hasMore: \(response.hasMore ?? false))")
         delegate.restoreLastActiveThread()
     }
 
     func handleHistoryResponse(_ response: HistoryResponse) {
-        guard let threadId = pendingHistoryBySessionId.removeValue(forKey: response.sessionId) else { return }
+        guard let threadId = pendingHistoryByConversationId.removeValue(forKey: response.sessionId) else { return }
         guard let viewModel = delegate?.chatViewModel(for: threadId) else { return }
 
         // Determine whether this is a pagination load (older page) vs an initial
@@ -292,17 +292,17 @@ final class ThreadSessionRestorer {
         // Wire up the onLoadMoreHistory callback if not already set (e.g. for
         // reconnect-restored threads that didn't go through loadHistoryIfNeeded).
         if viewModel.onLoadMoreHistory == nil {
-            viewModel.onLoadMoreHistory = { [weak self] sessionId, beforeTimestamp in
-                self?.requestPaginatedHistory(sessionId: sessionId, beforeTimestamp: beforeTimestamp)
+            viewModel.onLoadMoreHistory = { [weak self] conversationId, beforeTimestamp in
+                self?.requestPaginatedHistory(conversationId: conversationId, beforeTimestamp: beforeTimestamp)
             }
         }
 
         log.info("Loaded \(response.messages.count) history messages for thread \(threadId) (hasMore: \(response.hasMore), isPagination: \(isPaginationLoad))")
     }
 
-    func handleSessionTitleUpdated(_ response: SessionTitleUpdatedMessage) {
+    func handleConversationTitleUpdated(_ response: ConversationTitleUpdatedMessage) {
         guard let delegate else { return }
-        guard let index = delegate.threads.firstIndex(where: { $0.sessionId == response.sessionId }) else { return }
+        guard let index = delegate.threads.firstIndex(where: { $0.conversationId == response.conversationId }) else { return }
         delegate.threads[index].title = response.title
     }
 
@@ -335,11 +335,11 @@ final class ThreadSessionRestorer {
 
     // MARK: - Private
 
-    private func fetchSessionList() {
+    private func fetchConversationList() {
         do {
-            try daemonClient.sendSessionList()
+            try daemonClient.sendConversationList()
         } catch {
-            log.error("Failed to send session_list: \(error.localizedDescription)")
+            log.error("Failed to send conversation_list: \(error.localizedDescription)")
         }
     }
 }

@@ -51,7 +51,7 @@ final class ThreadManagerPrivateThreadTests: XCTestCase {
         threadManager.createPrivateThread()
 
         let vm = threadManager.activeViewModel!
-        XCTAssertTrue(vm.isSending, "Should be in sending state from createSessionIfNeeded bootstrap")
+        XCTAssertTrue(vm.isSending, "Should be in sending state from createConversationIfNeeded bootstrap")
         XCTAssertTrue(vm.isBootstrapping, "Should be bootstrapping a session")
         XCTAssertEqual(vm.conversationType, "private", "conversationType should be set to private")
     }
@@ -59,14 +59,14 @@ final class ThreadManagerPrivateThreadTests: XCTestCase {
     func testCreatePrivateThreadSendsSessionCreate() {
         threadManager.createPrivateThread()
 
-        // Allow the async Task in bootstrapSession to execute
+        // Allow the async Task in bootstrapConversation to execute
         let expectation = XCTestExpectation(description: "session_create sent")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             expectation.fulfill()
         }
         wait(for: [expectation], timeout: 1.0)
 
-        let sessionCreates = capturedMessages.compactMap { $0 as? SessionCreateMessage }
+        let sessionCreates = capturedMessages.compactMap { $0 as? ConversationCreateMessage }
         XCTAssertEqual(sessionCreates.count, 1, "Should send exactly one session_create")
         XCTAssertEqual(sessionCreates.first?.conversationType, "private", "session_create should include private conversationType")
         XCTAssertNotNil(sessionCreates.first?.correlationId, "session_create should include correlationId")
@@ -92,13 +92,13 @@ final class ThreadManagerPrivateThreadTests: XCTestCase {
         let correlationId = vm.bootstrapCorrelationId!
 
         // Simulate daemon responding with session_info
-        let info = SessionInfoMessage(sessionId: "private-session-42", title: "Test", correlationId: correlationId)
-        vm.handleServerMessage(.sessionInfo(info))
+        let info = ConversationInfoMessage(conversationId: "private-session-42", title: "Test", correlationId: correlationId)
+        vm.handleServerMessage(.conversationInfo(info))
 
-        // The thread's sessionId should be backfilled via onSessionCreated
+        // The thread's sessionId should be backfilled via onConversationCreated
         let updatedThread = threadManager.threads.first(where: { $0.id == privateThread.id })!
-        XCTAssertEqual(updatedThread.sessionId, "private-session-42", "Session ID should be backfilled into the ThreadModel")
-        XCTAssertEqual(vm.sessionId, "private-session-42")
+        XCTAssertEqual(updatedThread.conversationId, "private-session-42", "Session ID should be backfilled into the ThreadModel")
+        XCTAssertEqual(vm.conversationId, "private-session-42")
         XCTAssertFalse(vm.isSending, "Should reset isSending after session_info for message-less create")
         XCTAssertFalse(vm.isBootstrapping, "Should no longer be bootstrapping after session_info")
     }
@@ -110,8 +110,8 @@ final class ThreadManagerPrivateThreadTests: XCTestCase {
         let correlationId = vm.bootstrapCorrelationId!
 
         // Complete the session bootstrap
-        let info = SessionInfoMessage(sessionId: "private-sess", title: "Test", correlationId: correlationId)
-        vm.handleServerMessage(.sessionInfo(info))
+        let info = ConversationInfoMessage(conversationId: "private-sess", title: "Test", correlationId: correlationId)
+        vm.handleServerMessage(.conversationInfo(info))
 
         // Simulate the user sending a message — the onFirstUserMessage callback
         // should still fire and set the title to "Untitled" as a placeholder.
@@ -125,6 +125,6 @@ final class ThreadManagerPrivateThreadTests: XCTestCase {
     func testCreatePrivateThreadSetsOnSessionCreatedCallback() {
         threadManager.createPrivateThread()
         let vm = threadManager.activeViewModel!
-        XCTAssertNotNil(vm.onSessionCreated, "onSessionCreated should be set for session ID backfill")
+        XCTAssertNotNil(vm.onConversationCreated, "onConversationCreated should be set for session ID backfill")
     }
 }

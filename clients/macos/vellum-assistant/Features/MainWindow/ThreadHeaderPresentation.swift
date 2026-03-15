@@ -31,7 +31,7 @@ struct ThreadHeaderPresentation {
         let hasUserMessage = activeViewModel?.messages.contains(where: {
             !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }) ?? false
-        self.isStarted = thread.sessionId != nil || hasUserMessage
+        self.isStarted = thread.conversationId != nil || hasUserMessage
 
         // Private threads don't show the full actions menu
         self.showsActionsMenu = isStarted && !isPrivateThread

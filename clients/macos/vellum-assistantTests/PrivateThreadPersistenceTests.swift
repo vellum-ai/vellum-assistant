@@ -36,22 +36,22 @@ struct PrivateThreadPersistenceTests {
         // Simulate daemon assigning a session ID via session_info callback
         let vm = manager.activeViewModel!
         let correlationId = vm.bootstrapCorrelationId!
-        let info = SessionInfoMessage(
-            sessionId: "private-session-e2e",
+        let info = ConversationInfoMessage(
+            conversationId: "private-session-e2e",
             title: "Private Thread",
             correlationId: correlationId
         )
-        vm.handleServerMessage(.sessionInfo(info))
+        vm.handleServerMessage(.conversationInfo(info))
 
         // Session ID should be backfilled into the ThreadModel
         let updatedThread = manager.threads.first(where: { $0.id == privateThread.id })!
-        #expect(updatedThread.sessionId == "private-session-e2e")
+        #expect(updatedThread.conversationId == "private-session-e2e")
         #expect(updatedThread.kind == .private)
 
         // Now simulate a fresh restore: build a session list response
         // that includes this session with conversationType "private", and verify
         // the restorer creates it with .private kind.
-        let restorer = ThreadSessionRestorer(daemonClient: dc)
+        let restorer = ThreadConversationRestorer(daemonClient: dc)
         let delegate = MockThreadRestorerDelegate(daemonClient: dc)
         restorer.delegate = delegate
 
@@ -60,7 +60,7 @@ struct PrivateThreadPersistenceTests {
         delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
 
         let sessionListJSON: [String: Any] = [
-            "type": "session_list_response",
+            "type": "conversation_list_response",
             "sessions": [
                 [
                     "id": "private-session-e2e",
@@ -72,8 +72,8 @@ struct PrivateThreadPersistenceTests {
             ]
         ]
         let data = try! JSONSerialization.data(withJSONObject: sessionListJSON)
-        let response = try! JSONDecoder().decode(SessionListResponseMessage.self, from: data)
-        restorer.handleSessionListResponse(response)
+        let response = try! JSONDecoder().decode(ConversationListResponseMessage.self, from: data)
+        restorer.handleConversationListResponse(response)
 
         // Private threads are excluded from restoration — the default thread
         // is removed (it was empty) and no private sessions are restored,
@@ -94,7 +94,7 @@ struct PrivateThreadPersistenceTests {
         #expect(manager.threads[0].kind == .standard)
 
         // Restore a session list with a standard thread
-        let restorer = ThreadSessionRestorer(daemonClient: dc)
+        let restorer = ThreadConversationRestorer(daemonClient: dc)
         let delegate = MockThreadRestorerDelegate(daemonClient: dc)
         restorer.delegate = delegate
 
@@ -103,7 +103,7 @@ struct PrivateThreadPersistenceTests {
         delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
 
         let sessionListJSON: [String: Any] = [
-            "type": "session_list_response",
+            "type": "conversation_list_response",
             "sessions": [
                 [
                     "id": "standard-session-e2e",
@@ -115,12 +115,12 @@ struct PrivateThreadPersistenceTests {
             ]
         ]
         let data = try! JSONSerialization.data(withJSONObject: sessionListJSON)
-        let response = try! JSONDecoder().decode(SessionListResponseMessage.self, from: data)
-        restorer.handleSessionListResponse(response)
+        let response = try! JSONDecoder().decode(ConversationListResponseMessage.self, from: data)
+        restorer.handleConversationListResponse(response)
 
         #expect(delegate.threads.count == 1)
         #expect(delegate.threads[0].kind == .standard)
-        #expect(delegate.threads[0].sessionId == "standard-session-e2e")
+        #expect(delegate.threads[0].conversationId == "standard-session-e2e")
     }
 
     // MARK: - Mixed Thread Restore
@@ -130,7 +130,7 @@ struct PrivateThreadPersistenceTests {
     @Test @MainActor
     func mixedThreadTypesRestoreCorrectly() {
         let dc = DaemonClient()
-        let restorer = ThreadSessionRestorer(daemonClient: dc)
+        let restorer = ThreadConversationRestorer(daemonClient: dc)
         let delegate = MockThreadRestorerDelegate(daemonClient: dc)
         restorer.delegate = delegate
 
@@ -139,7 +139,7 @@ struct PrivateThreadPersistenceTests {
         delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
 
         let sessionListJSON: [String: Any] = [
-            "type": "session_list_response",
+            "type": "conversation_list_response",
             "sessions": [
                 ["id": "s-private-1", "title": "Private A", "createdAt": 4000, "updatedAt": 5000, "conversationType": "private"],
                 ["id": "s-standard-1", "title": "Standard B", "createdAt": 3000, "updatedAt": 4000, "conversationType": "standard"],
@@ -147,13 +147,13 @@ struct PrivateThreadPersistenceTests {
             ]
         ]
         let data = try! JSONSerialization.data(withJSONObject: sessionListJSON)
-        let response = try! JSONDecoder().decode(SessionListResponseMessage.self, from: data)
-        restorer.handleSessionListResponse(response)
+        let response = try! JSONDecoder().decode(ConversationListResponseMessage.self, from: data)
+        restorer.handleConversationListResponse(response)
 
         // Private threads are filtered out before restore — only standard threads appear
         #expect(delegate.threads.count == 1)
         #expect(delegate.threads[0].kind == .standard)
-        #expect(delegate.threads[0].sessionId == "s-standard-1")
+        #expect(delegate.threads[0].conversationId == "s-standard-1")
     }
 
     // MARK: - Legacy Daemon Payload Fallback
@@ -163,7 +163,7 @@ struct PrivateThreadPersistenceTests {
     @Test @MainActor
     func legacyPayloadWithoutConversationTypeDefaultsToStandard() {
         let dc = DaemonClient()
-        let restorer = ThreadSessionRestorer(daemonClient: dc)
+        let restorer = ThreadConversationRestorer(daemonClient: dc)
         let delegate = MockThreadRestorerDelegate(daemonClient: dc)
         restorer.delegate = delegate
 
@@ -173,18 +173,18 @@ struct PrivateThreadPersistenceTests {
 
         // JSON with no conversationType key at all — simulates an older daemon
         let legacyJSON: [String: Any] = [
-            "type": "session_list_response",
+            "type": "conversation_list_response",
             "sessions": [
                 ["id": "legacy-1", "title": "Old Chat", "createdAt": 1000, "updatedAt": 2000],
             ]
         ]
         let data = try! JSONSerialization.data(withJSONObject: legacyJSON)
-        let response = try! JSONDecoder().decode(SessionListResponseMessage.self, from: data)
-        restorer.handleSessionListResponse(response)
+        let response = try! JSONDecoder().decode(ConversationListResponseMessage.self, from: data)
+        restorer.handleConversationListResponse(response)
 
         #expect(delegate.threads.count == 1)
         #expect(delegate.threads[0].kind == .standard)
-        #expect(delegate.threads[0].sessionId == "legacy-1")
+        #expect(delegate.threads[0].conversationId == "legacy-1")
     }
 
     /// Verifies that a session list mixing legacy (no conversationType) and modern
@@ -192,7 +192,7 @@ struct PrivateThreadPersistenceTests {
     @Test @MainActor
     func mixedLegacyAndModernPayloadsRestoreCorrectly() {
         let dc = DaemonClient()
-        let restorer = ThreadSessionRestorer(daemonClient: dc)
+        let restorer = ThreadConversationRestorer(daemonClient: dc)
         let delegate = MockThreadRestorerDelegate(daemonClient: dc)
         restorer.delegate = delegate
 
@@ -201,14 +201,14 @@ struct PrivateThreadPersistenceTests {
         delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
 
         // Build sessions array manually: first has conversationType, second doesn't
-        let sessions: [[String: Any]] = [
+        let conversations: [[String: Any]] = [
             ["id": "modern-1", "title": "Modern Private", "createdAt": 4000, "updatedAt": 5000, "conversationType": "private"],
             ["id": "legacy-1", "title": "Legacy Chat", "createdAt": 3000, "updatedAt": 4000],
         ]
-        let dict: [String: Any] = ["type": "session_list_response", "sessions": sessions]
+        let dict: [String: Any] = ["type": "conversation_list_response", "sessions": sessions]
         let data = try! JSONSerialization.data(withJSONObject: dict)
-        let response = try! JSONDecoder().decode(SessionListResponseMessage.self, from: data)
-        restorer.handleSessionListResponse(response)
+        let response = try! JSONDecoder().decode(ConversationListResponseMessage.self, from: data)
+        restorer.handleConversationListResponse(response)
 
         // Private threads are filtered out — only the legacy standard thread is restored
         #expect(delegate.threads.count == 1)
@@ -261,16 +261,16 @@ struct PrivateThreadPersistenceTests {
         let correlationId = vm.bootstrapCorrelationId!
 
         // Simulate daemon session_info response
-        let info = SessionInfoMessage(
-            sessionId: "persist-check",
+        let info = ConversationInfoMessage(
+            conversationId: "persist-check",
             title: "Test",
             correlationId: correlationId
         )
-        vm.handleServerMessage(.sessionInfo(info))
+        vm.handleServerMessage(.conversationInfo(info))
 
         // Kind must still be .private after backfill
         let updated = manager.threads.first(where: { $0.id == privateThread.id })!
         #expect(updated.kind == .private)
-        #expect(updated.sessionId == "persist-check")
+        #expect(updated.conversationId == "persist-check")
     }
 }

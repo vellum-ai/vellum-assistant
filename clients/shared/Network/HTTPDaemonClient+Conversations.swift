@@ -3,27 +3,27 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "HTTPTransport")
 
-// MARK: - Session Domain Dispatcher
+// MARK: - Conversation Domain Dispatcher
 
-/// Registers a domain dispatcher that translates session-related message
+/// Registers a domain dispatcher that translates conversation-related message
 /// types into HTTP API calls. Handles:
-///   session_switch, session_rename, sessions_clear, cancel, undo,
+///   conversation_switch, conversation_rename, conversations_clear, cancel, undo,
 ///   regenerate, model_get, model_set, image_gen_model_set,
 ///   conversation_search, message_content_request, delete_queued_message
 extension HTTPTransport {
 
-    func registerSessionRoutes() {
+    func registerConversationRoutes() {
         registerDomainDispatcher { [weak self] message in
             guard let self else { return false }
 
-            if let msg = message as? SessionSwitchRequest {
-                Task { await self.switchSession(conversationId: msg.sessionId) }
+            if let msg = message as? ConversationSwitchRequest {
+                Task { await self.switchSession(conversationId: msg.conversationId) }
                 return true
-            } else if let msg = message as? SessionRenameRequest {
-                Task { await self.renameSession(sessionId: msg.sessionId, name: msg.title) }
+            } else if let msg = message as? ConversationRenameRequest {
+                Task { await self.renameConversation(conversationId: msg.conversationId, name: msg.title) }
                 return true
-            } else if message is SessionsClearRequest {
-                Task { await self.clearAllSessions() }
+            } else if message is ConversationsClearRequest {
+                Task { await self.clearAllConversations() }
                 return true
             } else if let msg = message as? CancelMessage {
                 Task { await self.cancelGeneration(sessionId: msg.sessionId ?? "") }
