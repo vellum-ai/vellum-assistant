@@ -27,7 +27,6 @@ import {
   type CesClient,
   createCesClient,
 } from "../../credential-execution/client.js";
-import { isCesGrantAuditEnabled } from "../../credential-execution/feature-gates.js";
 import { createCesProcessManager } from "../../credential-execution/process-manager.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
@@ -140,10 +139,6 @@ Examples:
     )
     .action(
       async (opts: { handle?: string; status?: string }, cmd: Command) => {
-        if (!isCesGrantAuditEnabled(getConfig())) {
-          log.info("credential-execution commands are not enabled");
-          return;
-        }
         let cleanup: (() => Promise<void>) | undefined;
         try {
           const ces = await acquireCesClient();
@@ -206,10 +201,6 @@ Examples:
     )
     .action(
       async (grantId: string, opts: { reason?: string }, cmd: Command) => {
-        if (!isCesGrantAuditEnabled(getConfig())) {
-          log.info("credential-execution commands are not enabled");
-          return;
-        }
         let cleanup: (() => Promise<void>) | undefined;
         try {
           const ces = await acquireCesClient();
@@ -281,10 +272,6 @@ Examples:
         opts: { handle?: string; grant?: string; limit: string },
         cmd: Command,
       ) => {
-        if (!isCesGrantAuditEnabled(getConfig())) {
-          log.info("credential-execution commands are not enabled");
-          return;
-        }
         let cleanup: (() => Promise<void>) | undefined;
         try {
           const ces = await acquireCesClient();
