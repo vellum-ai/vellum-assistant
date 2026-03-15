@@ -4,9 +4,12 @@
  * (macOS Keychain, encrypted file store, etc.) is in use.
  */
 
+import { getLogger } from "../util/logger.js";
 import * as encryptedStore from "./encrypted-store.js";
 import type { KeychainBrokerClient } from "./keychain-broker-client.js";
 import { createBrokerClient } from "./keychain-broker-client.js";
+
+const log = getLogger("credential-backend");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -55,9 +58,17 @@ export class KeychainBackend implements CredentialBackend {
   async get(account: string): Promise<string | undefined> {
     try {
       const result = await this.client.get(account);
-      if (result == null || !result.found) return undefined;
+      if (result == null) {
+        log.warn(
+          { account },
+          "Keychain broker unreachable during get — falling back",
+        );
+        return undefined;
+      }
+      if (!result.found) return undefined;
       return result.value;
-    } catch {
+    } catch (err) {
+      log.warn({ err, account }, "Keychain get threw unexpectedly");
       return undefined;
     }
   }
@@ -65,8 +76,20 @@ export class KeychainBackend implements CredentialBackend {
   async set(account: string, value: string): Promise<boolean> {
     try {
       const result = await this.client.set(account, value);
-      return result.status === "ok";
-    } catch {
+      if (result.status === "ok") return true;
+      log.warn(
+        {
+          account,
+          status: result.status,
+          ...(result.status === "rejected"
+            ? { code: result.code, message: result.message }
+            : {}),
+        },
+        "Keychain broker set failed",
+      );
+      return false;
+    } catch (err) {
+      log.warn({ err, account }, "Keychain set threw unexpectedly");
       return false;
     }
   }
@@ -85,7 +108,8 @@ export class KeychainBackend implements CredentialBackend {
   async list(): Promise<string[]> {
     try {
       return await this.client.list();
-    } catch {
+    } catch (err) {
+      log.warn({ err }, "Keychain list threw unexpectedly");
       return [];
     }
   }
