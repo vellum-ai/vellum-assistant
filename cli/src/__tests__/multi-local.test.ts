@@ -68,7 +68,6 @@ const makeEntry = (
   extra?: Partial<AssistantEntry>,
 ): AssistantEntry => ({
   assistantId: id,
-  installationId: `test-install-${id}`,
   runtimeUrl: `http://localhost:${DEFAULT_DAEMON_PORT}`,
   cloud,
   ...extra,
