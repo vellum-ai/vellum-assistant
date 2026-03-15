@@ -352,23 +352,46 @@ describe("CES data paths", () => {
   });
 
   test("managed mode data root defaults to /home/ces/.ces-data", () => {
-    const saved = process.env["CES_DATA_ROOT"];
+    const savedDir = process.env["CES_DATA_DIR"];
+    const savedRoot = process.env["CES_DATA_ROOT"];
+    delete process.env["CES_DATA_DIR"];
     delete process.env["CES_DATA_ROOT"];
     try {
       expect(getCesDataRoot("managed")).toBe("/home/ces/.ces-data");
     } finally {
-      if (saved !== undefined) process.env["CES_DATA_ROOT"] = saved;
+      if (savedDir !== undefined) process.env["CES_DATA_DIR"] = savedDir;
+      if (savedRoot !== undefined) process.env["CES_DATA_ROOT"] = savedRoot;
     }
   });
 
-  test("managed mode data root respects CES_DATA_ROOT env var", () => {
-    const saved = process.env["CES_DATA_ROOT"];
-    process.env["CES_DATA_ROOT"] = "/custom/ces-data";
+  test("managed mode data root respects CES_DATA_DIR env var", () => {
+    const savedDir = process.env["CES_DATA_DIR"];
+    const savedRoot = process.env["CES_DATA_ROOT"];
+    process.env["CES_DATA_DIR"] = "/custom/ces-data";
+    delete process.env["CES_DATA_ROOT"];
     try {
       expect(getCesDataRoot("managed")).toBe("/custom/ces-data");
     } finally {
-      if (saved !== undefined) {
-        process.env["CES_DATA_ROOT"] = saved;
+      if (savedDir !== undefined) {
+        process.env["CES_DATA_DIR"] = savedDir;
+      } else {
+        delete process.env["CES_DATA_DIR"];
+      }
+      if (savedRoot !== undefined) process.env["CES_DATA_ROOT"] = savedRoot;
+    }
+  });
+
+  test("managed mode data root falls back to CES_DATA_ROOT", () => {
+    const savedDir = process.env["CES_DATA_DIR"];
+    const savedRoot = process.env["CES_DATA_ROOT"];
+    delete process.env["CES_DATA_DIR"];
+    process.env["CES_DATA_ROOT"] = "/legacy/ces-data";
+    try {
+      expect(getCesDataRoot("managed")).toBe("/legacy/ces-data");
+    } finally {
+      if (savedDir !== undefined) process.env["CES_DATA_DIR"] = savedDir;
+      if (savedRoot !== undefined) {
+        process.env["CES_DATA_ROOT"] = savedRoot;
       } else {
         delete process.env["CES_DATA_ROOT"];
       }
