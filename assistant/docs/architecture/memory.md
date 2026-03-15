@@ -51,7 +51,7 @@ graph TB
         HYBRID["Hybrid Search<br/>dense + sparse RRF on Qdrant"]
         RECENCY["Recency Search<br/>conversation-scoped, DB only"]
         MERGE["Merge + Deduplicate<br/>weighted score combination"]
-        SCOPE["Scope Filter<br/>scope_id filtering<br/>(strict | global_fallback)<br/>Private threads: own scope + 'default'"]
+        SCOPE["Scope Filter<br/>scope_id filtering<br/>(strict | global_fallback)<br/>Private conversations: own scope + 'default'"]
         TIER["Tier Classification<br/>score > 0.8 → tier 1<br/>score > 0.6 → tier 2<br/>below → dropped"]
         STALE["Staleness Computation<br/>kind-specific lifetimes<br/>+ reinforcement from<br/>source conversation count"]
         DEMOTE["Stale Demotion<br/>very_stale tier 1 → tier 2"]
@@ -310,36 +310,36 @@ When the embedding backend or Qdrant is unavailable:
 
 ---
 
-## Private Threads — Isolated Memory and Strict Side-Effect Controls
+## Private Conversations — Isolated Memory and Strict Side-Effect Controls
 
-Private threads provide per-conversation memory isolation and stricter tool execution controls. When a conversation is created with `conversationType: 'private'`, the daemon assigns it a unique memory scope and enforces additional safeguards to prevent unintended side effects.
+Private conversations provide per-conversation memory isolation and stricter tool execution controls. When a conversation is created with `conversationType: 'private'`, the daemon assigns it a unique memory scope and enforces additional safeguards to prevent unintended side effects.
 
 ### Schema Columns
 
 Two columns on the `conversations` table drive the feature:
 
-| Column              | Type                               | Values                                                                   | Purpose                                                                                                                        |
-| ------------------- | ---------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| `conversation_type` | `text NOT NULL DEFAULT 'standard'` | `'standard'` or `'private'`                                              | Determines whether the conversation uses shared or isolated memory and permission policies                                     |
-| `memory_scope_id`   | `text NOT NULL DEFAULT 'default'`  | `'default'` for standard threads; `'private:<uuid>'` for private threads | Scopes all memory writes (items, segments) to this namespace; embeddings are isolated indirectly via their parent item/segment |
+| Column              | Type                               | Values                                                                               | Purpose                                                                                                                        |
+| ------------------- | ---------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `conversation_type` | `text NOT NULL DEFAULT 'standard'` | `'standard'` or `'private'`                                                          | Determines whether the conversation uses shared or isolated memory and permission policies                                     |
+| `memory_scope_id`   | `text NOT NULL DEFAULT 'default'`  | `'default'` for standard conversations; `'private:<uuid>'` for private conversations | Scopes all memory writes (items, segments) to this namespace; embeddings are isolated indirectly via their parent item/segment |
 
 ### Memory Isolation
 
 ```mermaid
 graph TB
-    subgraph "Standard Thread"
+    subgraph "Standard Conversation"
         STD_WRITE["Memory writes<br/>→ scope_id = 'default'"]
         STD_READ["Memory recall<br/>reads scope_id = 'default' only"]
     end
 
-    subgraph "Private Thread"
+    subgraph "Private Conversation"
         PVT_WRITE["Memory writes<br/>→ scope_id = 'private:&lt;uuid&gt;'"]
         PVT_READ["Memory recall<br/>reads scope_id = 'private:&lt;uuid&gt;'<br/>+ fallback to 'default'"]
     end
 
     subgraph "Shared Memory Pool"
-        DEFAULT_SCOPE["'default' scope<br/>(all standard thread memories)"]
-        PRIVATE_SCOPE["'private:&lt;uuid&gt;' scope<br/>(isolated to one thread)"]
+        DEFAULT_SCOPE["'default' scope<br/>(all standard conversation memories)"]
+        PRIVATE_SCOPE["'private:&lt;uuid&gt;' scope<br/>(isolated to one conversation)"]
     end
 
     STD_WRITE --> DEFAULT_SCOPE
@@ -349,9 +349,9 @@ graph TB
     PVT_READ -.->|"fallback"| DEFAULT_SCOPE
 ```
 
-**Write isolation**: All memory items and segments created during a private thread are tagged with its `memory_scope_id` (e.g. `'private:abc123'`). Embeddings are isolated indirectly — they reference scoped items/segments via `target_type`/`target_id`, so scope filtering at the item/segment level cascades to their embeddings. All scoped data is invisible to standard threads and other private threads.
+**Write isolation**: All memory items and segments created during a private conversation are tagged with its `memory_scope_id` (e.g. `'private:abc123'`). Embeddings are isolated indirectly — they reference scoped items/segments via `target_type`/`target_id`, so scope filtering at the item/segment level cascades to their embeddings. All scoped data is invisible to standard conversations and other private conversations.
 
-**Read fallback**: When recalling memories for a private thread, the retriever queries both the thread's own scope and the `'default'` scope. This ensures the assistant still has access to general knowledge (user profile, preferences, facts) learned in standard threads, while private-thread-specific memories take precedence in ranking. The fallback is implemented via `ScopePolicyOverride` with `fallbackToDefault: true`, which overrides the global scope policy on a per-call basis.
+**Read fallback**: When recalling memories for a private conversation, the retriever queries both the conversation's own scope and the `'default'` scope. This ensures the assistant still has access to general knowledge (user profile, preferences, facts) learned in standard conversations, while private-conversation-specific memories take precedence in ranking. The fallback is implemented via `ScopePolicyOverride` with `fallbackToDefault: true`, which overrides the global scope policy on a per-call basis.
 
 ### SessionMemoryPolicy
 
@@ -360,29 +360,29 @@ The daemon derives a `SessionMemoryPolicy` from the conversation's `conversation
 ```typescript
 interface SessionMemoryPolicy {
   scopeId: string; // 'default' or 'private:<uuid>'
-  includeDefaultFallback: boolean; // true for private threads
-  strictSideEffects: boolean; // true for private threads
+  includeDefaultFallback: boolean; // true for private conversations
+  strictSideEffects: boolean; // true for private conversations
 }
 ```
 
-Standard threads use `DEFAULT_MEMORY_POLICY` (`{ scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false }`). Private threads set all three fields: the private scope ID, default-fallback enabled, and strict side-effect controls enabled.
+Standard conversations use `DEFAULT_MEMORY_POLICY` (`{ scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false }`). Private conversations set all three fields: the private scope ID, default-fallback enabled, and strict side-effect controls enabled.
 
 ### Strict Side-Effect Prompt Gate
 
-When `strictSideEffects` is `true` (all private threads), the `ToolExecutor` promotes any `allow` permission decision to `prompt` for side-effect tools — even when a trust rule would normally auto-allow the invocation. Deny decisions are preserved unchanged; only `allow` -> `prompt` promotion occurs.
+When `strictSideEffects` is `true` (all private conversations), the `ToolExecutor` promotes any `allow` permission decision to `prompt` for side-effect tools — even when a trust rule would normally auto-allow the invocation. Deny decisions are preserved unchanged; only `allow` -> `prompt` promotion occurs.
 
 ```mermaid
 graph TB
-    TOOL["Tool invocation in<br/>private thread"] --> PERM["Normal permission check<br/>(trust rules + risk level)"]
+    TOOL["Tool invocation in<br/>private conversation"] --> PERM["Normal permission check<br/>(trust rules + risk level)"]
     PERM --> DECISION{"Decision?"}
     DECISION -->|"deny"| DENY["Blocked<br/>(unchanged)"]
     DECISION -->|"prompt"| PROMPT["Prompt user<br/>(unchanged)"]
     DECISION -->|"allow"| SIDE_CHECK{"isSideEffectTool()?"}
     SIDE_CHECK -->|"no"| ALLOW["Auto-allow<br/>(read-only tools pass)"]
-    SIDE_CHECK -->|"yes"| FORCE_PROMPT["Promote to prompt<br/>'Private thread: side-effect<br/>tools require explicit approval'"]
+    SIDE_CHECK -->|"yes"| FORCE_PROMPT["Promote to prompt<br/>'Private conversation: side-effect<br/>tools require explicit approval'"]
 ```
 
-This ensures that file writes, bash commands, host operations, and other mutating tools always require explicit user confirmation in private threads, providing an additional safety layer for sensitive conversations.
+This ensures that file writes, bash commands, host operations, and other mutating tools always require explicit user confirmation in private conversations, providing an additional safety layer for sensitive conversations.
 
 ### Key Source Files
 
@@ -390,7 +390,7 @@ This ensures that file writes, bash commands, host operations, and other mutatin
 | -------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `assistant/src/memory/schema.ts`             | `conversations` table: `conversationType` and `memoryScopeId` column definitions           |
 | `assistant/src/daemon/session.ts`            | `SessionMemoryPolicy` interface and `DEFAULT_MEMORY_POLICY` constant                       |
-| `assistant/src/daemon/server.ts`             | `deriveMemoryPolicy()` — maps thread type to memory policy                                 |
+| `assistant/src/daemon/server.ts`             | `deriveMemoryPolicy()` — maps conversation type to memory policy                           |
 | `assistant/src/daemon/session-tool-setup.ts` | Propagates `memoryPolicy.strictSideEffects` as `forcePromptSideEffects` into `ToolContext` |
 | `assistant/src/tools/executor.ts`            | `forcePromptSideEffects` gate — promotes allow to prompt for side-effect tools             |
 | `assistant/src/memory/search/types.ts`       | `ScopePolicyOverride` interface for per-call scope control                                 |

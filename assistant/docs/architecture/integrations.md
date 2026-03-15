@@ -514,7 +514,7 @@ The proxy subsystem is fully wired, including credential injection. The session 
 
 ---
 
-## Asset Search and Materialize — Cross-Thread Media Reuse
+## Asset Search and Materialize — Cross-Conversation Media Reuse
 
 The `asset_search` and `asset_materialize` tools enable the assistant to discover and use previously uploaded media assets (images, documents, audio) across conversations. Assets are stored as base64-encoded blobs in the `attachments` table and linked to messages via the `message_attachments` join table.
 
@@ -533,7 +533,7 @@ sequenceDiagram
     Search->>DB: query attachments (filters)
     DB-->>Search: matching rows (metadata only, no base64)
     Search->>Visibility: filterVisibleAttachments(results, currentContext)
-    Note over Visibility: Private-thread attachments filtered out<br/>unless viewer is in the same thread
+    Note over Visibility: Private-conversation attachments filtered out<br/>unless viewer is in the same conversation
     Visibility-->>Search: visible results
     Search-->>Model: metadata list (IDs, filenames, types, sizes)
 
@@ -547,19 +547,19 @@ sequenceDiagram
     Materialize-->>Model: "Materialized 'photo.jpg' to /workspace/media/photo.jpg"
 ```
 
-### Private Thread Visibility Gate
+### Private Conversation Visibility Gate
 
-Attachments from private threads are only visible to the same private thread. Standard-thread attachments are visible everywhere. The policy is enforced at both the search and materialize stages to prevent cross-thread data leakage.
+Attachments from private conversations are only visible to the same private conversation. Standard-conversation attachments are visible everywhere. The policy is enforced at both the search and materialize stages to prevent cross-conversation data leakage.
 
 ```mermaid
 graph TB
     subgraph "Visibility Rules"
-        ATT_STD["Attachment from<br/>standard thread"]
-        ATT_PVT["Attachment from<br/>private thread"]
+        ATT_STD["Attachment from<br/>standard conversation"]
+        ATT_PVT["Attachment from<br/>private conversation"]
 
-        VIEWER_ANY["Any thread<br/>(standard or private)"]
-        VIEWER_SAME["Same private thread<br/>(matching conversationId)"]
-        VIEWER_OTHER["Different private thread<br/>or standard thread"]
+        VIEWER_ANY["Any conversation<br/>(standard or private)"]
+        VIEWER_SAME["Same private conversation<br/>(matching conversationId)"]
+        VIEWER_OTHER["Different private conversation<br/>or standard conversation"]
     end
 
     ATT_STD -->|"always visible"| VIEWER_ANY
@@ -567,11 +567,11 @@ graph TB
     ATT_PVT -->|"hidden"| VIEWER_OTHER
 ```
 
-**Source conversation lookup**: The `getAttachmentSourceConversations()` function traces an attachment's lineage through `message_attachments` -> `messages` -> `conversations` to determine which threads it belongs to and whether any of them are private.
+**Source conversation lookup**: The `getAttachmentSourceConversations()` function traces an attachment's lineage through `message_attachments` -> `messages` -> `conversations` to determine which conversations it belongs to and whether any of them are private.
 
-**Mixed-source attachments**: If an attachment is linked to messages in both standard and private conversations (e.g., the user shared the same file in two threads), the attachment is treated as globally visible because at least one source is non-private.
+**Mixed-source attachments**: If an attachment is linked to messages in both standard and private conversations (e.g., the user shared the same file in two conversations), the attachment is treated as globally visible because at least one source is non-private.
 
-**Orphan attachments**: Attachments with no message linkage (orphans) are treated as universally visible rather than hidden, since they have no private-thread provenance.
+**Orphan attachments**: Attachments with no message linkage (orphans) are treated as universally visible rather than hidden, since they have no private-conversation provenance.
 
 ### Search Capabilities
 
@@ -592,12 +592,12 @@ graph TB
 
 ### Key Source Files
 
-| File                                              | Role                                                                                    |
-| ------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `assistant/src/tools/assets/search.ts`            | `asset_search` tool — cross-thread attachment metadata search with visibility filtering |
-| `assistant/src/tools/assets/materialize.ts`       | `asset_materialize` tool — decode and write attachment to sandbox path                  |
-| `assistant/src/daemon/media-visibility-policy.ts` | Pure policy module — `isAttachmentVisible()`, `filterVisibleAttachments()`              |
-| `assistant/src/memory/schema.ts`                  | `attachments` and `message_attachments` table schemas                                   |
-| `assistant/src/memory/conversation-crud.ts`       | `getConversationType()` — conversation type lookup for visibility context               |
+| File                                              | Role                                                                                          |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `assistant/src/tools/assets/search.ts`            | `asset_search` tool — cross-conversation attachment metadata search with visibility filtering |
+| `assistant/src/tools/assets/materialize.ts`       | `asset_materialize` tool — decode and write attachment to sandbox path                        |
+| `assistant/src/daemon/media-visibility-policy.ts` | Pure policy module — `isAttachmentVisible()`, `filterVisibleAttachments()`                    |
+| `assistant/src/memory/schema.ts`                  | `attachments` and `message_attachments` table schemas                                         |
+| `assistant/src/memory/conversation-crud.ts`       | `getConversationType()` — conversation type lookup for visibility context                     |
 
 ---

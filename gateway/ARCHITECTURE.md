@@ -215,13 +215,13 @@ Channel readiness endpoints are exposed directly by the gateway and forwarded to
 
 ### Channel Binding Lifecycle (Lane Separation)
 
-Each channel (desktop, Telegram, etc.) operates in its own **lane**: conversations created by an external channel are never displayed in the desktop thread list, and desktop conversations are never exposed to external channels. The `channelBinding` metadata on a conversation is used solely for routing inbound/outbound messages within that lane and for filtering sessions during desktop session restoration.
+Each channel (desktop, Telegram, etc.) operates in its own **lane**: conversations created by an external channel are never displayed in the desktop conversation list, and desktop conversations are never exposed to external channels. The `channelBinding` metadata on a conversation is used solely for routing inbound/outbound messages within that lane and for filtering sessions during desktop session restoration.
 
 Channel bindings follow a three-phase lifecycle:
 
 1. **Bind** — An inbound message from an external channel (e.g., Telegram chat) arrives at the gateway, which normalizes it and forwards it to the runtime's `/v1/channels/inbound` endpoint. The runtime creates or reuses a conversation, establishing the channel binding (`sourceChannel` metadata on the conversation).
 
-2. **Route** — Subsequent messages on the same external chat are routed to the same conversation via the channel binding. Replies from the assistant are delivered back through the gateway's `/deliver/telegram` endpoint. The desktop client filters out channel-bound sessions during session restoration (`ThreadSessionRestorer`) so they never appear in the desktop thread list.
+2. **Route** — Subsequent messages on the same external chat are routed to the same conversation via the channel binding. Replies from the assistant are delivered back through the gateway's `/deliver/telegram` endpoint. The desktop client filters out channel-bound sessions during session restoration (`ThreadSessionRestorer`) so they never appear in the desktop conversation list.
 
 3. **Rebind** — If a message arrives on an external chat whose conversation was previously deleted, the channel inbound handler treats it as a new conversation and establishes a fresh binding. The external chat ID is reused, but the conversation is new.
 
@@ -741,7 +741,7 @@ sequenceDiagram
     alt ASK_GUARDIAN pattern detected
         Ctrl->>CallStore: createPendingQuestion()
         Ctrl->>GuardianDispatch: dispatchGuardianQuestion()
-        GuardianDispatch->>Mac: notification_thread_created SSE
+        GuardianDispatch->>Mac: notification_conversation_created SSE
         GuardianDispatch->>TG: POST /deliver/{channel}
         Note over Mac,TG: First channel to respond wins
         Mac/TG->>Routes: guardian answer
@@ -923,9 +923,9 @@ When the LLM emits `[ASK_GUARDIAN: question]` during a voice call, the controlle
 1. **Request creation**: A `guardian_action_request` row is created with a unique 6-character hex request code, the question text, a `pending` status, and an expiry timestamp.
 
 2. **Delivery fan-out via notification pipeline**: The guardian dispatch calls `emitNotificationSignal()` and uses the same notification decision + broadcaster path as every other producer.
-   - **Vellum**: Conversation pairing happens in the notification broadcaster. The resulting `notification_thread_created` event surfaces the thread in the desktop UI.
+   - **Vellum**: Conversation pairing happens in the notification broadcaster. The resulting `notification_conversation_created` event surfaces the conversation in the desktop UI.
    - **Telegram**: Delivery is handled by channel adapters selected by the notification decision and guarded by configured bindings.
-   - Guardian dispatch records `guardian_action_deliveries` from pipeline delivery results. It also uses the per-dispatch `onThreadCreated` callback so vellum delivery rows are created as soon as thread pairing occurs (without waiting for slower channels).
+   - Guardian dispatch records `guardian_action_deliveries` from pipeline delivery results. It also uses the per-dispatch `onConversationCreated` callback so vellum delivery rows are created as soon as conversation pairing occurs (without waiting for slower channels).
 
 3. **Answer resolution**: The first channel to respond wins. Answer resolution uses an atomic `WHERE status = 'pending'` check on the `guardian_action_requests` table -- only the first writer succeeds in transitioning the request to `answered` status. The winning answer text and responding channel are recorded on the request row.
 
@@ -939,7 +939,7 @@ When the LLM emits `[ASK_GUARDIAN: question]` during a voice call, the controlle
 
 #### macOS Notification + Deep-Link Flow
 
-When a guardian question is dispatched while the macOS app is backgrounded, the Swift client posts a native `UNUserNotificationCenter` notification from the generic `notification_intent` payload (`NOTIFICATION_INTENT` category). The deep-link metadata includes the paired conversation ID, so tapping the notification routes directly to the guardian thread.
+When a guardian question is dispatched while the macOS app is backgrounded, the Swift client posts a native `UNUserNotificationCenter` notification from the generic `notification_intent` payload (`NOTIFICATION_INTENT` category). The deep-link metadata includes the paired conversation ID, so tapping the notification routes directly to the guardian conversation.
 
 ### SQLite Tables
 
@@ -994,8 +994,8 @@ This makes ingress URL updates smoother in local tunnel workflows because Twilio
 | POST   | `/v1/internal/twilio/voice-webhook`    | Internal voice webhook used by gateway; accepts JSON `{ params, originalUrl, assistantId? }`, creates inbound session or returns TwiML |
 | GET    | `/v1/calls/:callSessionId`             | Get call status, including any pending question                                                                                        |
 | POST   | `/v1/calls/:callSessionId/cancel`      | Cancel an active call                                                                                                                  |
-| POST   | `/v1/calls/:callSessionId/answer`      | Answer a pending question via HTTP (alternative to in-thread bridge)                                                                   |
-| POST   | `/v1/calls/:callSessionId/instruction` | Relay a steering instruction to an active call's controller (alternative to in-thread bridge)                                          |
+| POST   | `/v1/calls/:callSessionId/answer`      | Answer a pending question via HTTP (alternative to in-conversation bridge)                                                             |
+| POST   | `/v1/calls/:callSessionId/instruction` | Relay a steering instruction to an active call's controller (alternative to in-conversation bridge)                                    |
 | POST   | `/v1/internal/twilio/status`           | Internal status callback used by gateway; accepts JSON `{ params }`                                                                    |
 | POST   | `/v1/internal/twilio/connect-action`   | Internal connect action callback used by gateway; accepts JSON `{ params }`                                                            |
 | WS     | `/v1/calls/relay`                      | ConversationRelay WebSocket (bidirectional: prompt/interrupt/dtmf from Twilio, text tokens/end to Twilio)                              |

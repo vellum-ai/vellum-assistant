@@ -114,7 +114,7 @@ CES has two grant tiers:
 
 - **Persistent grants** (`always_allow`): Stored in the CES grant table and scoped to the entire assistant — not to a specific session. These are analogous to trust rules: once a user approves `always_allow` for a credential+purpose pair, any session on that assistant can use the grant. The `session_id` field on persistent grants records which session created the grant (audit metadata), but is not used as an enforcement filter during grant matching.
 
-- **Temporary grants** (`allow_once`, `allow_10m`, `allow_thread`): Held in-memory by the CES process and scoped to the session or thread that created them. These grants are not persisted and do not survive CES restarts. `allow_once` is consumed immediately after a single use; `allow_10m` expires after 10 minutes; `allow_thread` is scoped to the originating conversation via key matching but remains in memory until the CES process restarts (there is no automatic cleanup on thread end).
+- **Temporary grants** (`allow_once`, `allow_10m`, `allow_conversation`): Held in-memory by the CES process and scoped to the session or conversation that created them. These grants are not persisted and do not survive CES restarts. `allow_once` is consumed immediately after a single use; `allow_10m` expires after 10 minutes; `allow_conversation` is scoped to the originating conversation via key matching but remains in memory until the CES process restarts (there is no automatic cleanup on conversation end).
 
 ### Persistent grant table
 

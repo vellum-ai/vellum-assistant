@@ -144,21 +144,21 @@ In addition to persistent trust rules (`always_allow` / `always_deny`), the appr
 
 **Two modes:**
 
-1. **`allow_thread`** — Auto-approve all tool confirmations for the remainder of the current conversation. The override persists until the session ends, the conversation is closed, or the mode is explicitly cleared.
+1. **`allow_conversation`** — Auto-approve all tool confirmations for the remainder of the current conversation. The override persists until the session ends, the conversation is closed, or the mode is explicitly cleared.
 2. **`allow_10m`** — Auto-approve all tool confirmations for 10 minutes (configurable). The override expires lazily on the next read after the TTL elapses — no background sweep runs.
 
 **Session-scoped, in-memory only:** Overrides are keyed by `conversationId` and stored in an in-memory `Map` inside `session-approval-overrides.ts`. They do not survive daemon restarts, which is intentional — temporary approvals should not outlive the session that created them.
 
 **Integration with the permission pipeline:** The permission checker (`src/tools/permission-checker.ts`) checks for an active temporary override via `getEffectiveMode()` before prompting the user. If an active override exists for the current conversation, the confirmation is auto-approved without surfacing a prompt. This check runs after persistent trust rules, so a persistent `deny` rule still takes precedence.
 
-**No persistent side effects:** Temporary modes do not write to `trust.json` or create persistent trust rules. They are purely ephemeral. The `buildDecisionActions()` function in `guardian-decision-types.ts` controls whether temporary options (`allow_10m`, `allow_thread`) are surfaced in the approval prompt UI, gated by the `temporaryOptionsAvailable` flag.
+**No persistent side effects:** Temporary modes do not write to `trust.json` or create persistent trust rules. They are purely ephemeral. The `buildDecisionActions()` function in `guardian-decision-types.ts` controls whether temporary options (`allow_10m`, `allow_conversation`) are surfaced in the approval prompt UI, gated by the `temporaryOptionsAvailable` flag.
 
 **Key source files:**
 
 | File                                        | Purpose                                                                                                                  |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `src/runtime/session-approval-overrides.ts` | In-memory store: `setConversationMode`, `setTimedMode`, `getEffectiveMode`, `clearMode`, `hasActiveOverride`, `clearAll` |
-| `src/permissions/types.ts`                  | `UserDecision` type (includes `allow_10m`, `allow_thread`, `temporary_override`), `isAllowDecision()` helper             |
+| `src/permissions/types.ts`                  | `UserDecision` type (includes `allow_10m`, `allow_conversation`, `temporary_override`), `isAllowDecision()` helper       |
 | `src/runtime/guardian-decision-types.ts`    | `buildDecisionActions()` — controls which temporary options appear in approval prompts                                   |
 | `src/tools/permission-checker.ts`           | Permission pipeline integration — checks temporary overrides before prompting                                            |
 
@@ -176,7 +176,7 @@ The canonical guardian request system provides a channel-agnostic, unified domai
 
 4. **Deterministic API (prompt listing and decision endpoints):** Desktop clients and API consumers use `GET /v1/guardian-actions/pending` and `POST /v1/guardian-actions/decision` (HTTP). These endpoints surface canonical requests alongside legacy pending interactions and channel approval records, with deduplication to avoid double-rendering.
 
-5. **Buttons first, text fallback:** All request kinds (`tool_approval`, `pending_question`, `access_request`) are rendered as structured button cards when displayed in macOS/iOS guardian threads. Each prompt also embeds deterministic text fallback instructions (request-code-based approve/reject directives, and for `access_request` the "open invite flow" phrase) so text-based channels and manual fallback always work. Code-only messages (just a request code without decision text) return clarification instead of auto-approving. Disambiguation with multiple pending requests stays fail-closed — no auto-resolve when the target is ambiguous.
+5. **Buttons first, text fallback:** All request kinds (`tool_approval`, `pending_question`, `access_request`) are rendered as structured button cards when displayed in macOS/iOS guardian conversations. Each prompt also embeds deterministic text fallback instructions (request-code-based approve/reject directives, and for `access_request` the "open invite flow" phrase) so text-based channels and manual fallback always work. Code-only messages (just a request code without decision text) return clarification instead of auto-approving. Disambiguation with multiple pending requests stays fail-closed — no auto-resolve when the target is ambiguous.
 
 **Resolver registry:** Kind-specific resolvers (`src/approvals/guardian-request-resolvers.ts`) handle side effects after CAS resolution. Built-in resolvers: `tool_approval` (channel/desktop approval path), `pending_question` (voice call question path), and `access_request` (trusted-contact verification session creation). New request kinds register resolvers without touching the core primitive.
 
@@ -1476,7 +1476,7 @@ The `tool_permission_simulate` HTTP endpoint lets clients dry-run a tool invocat
 - The daemon runs `classifyRisk()` and `check()` against the live trust rules, then returns the decision (`allow`, `deny`, or `prompt`), risk level, reason, matched rule ID, and (when decision is `prompt`) the full `promptPayload` with allowlist/scope options.
 - **Simulation-only allow/deny**: A simulated `allow` or `deny` decision does not persist any state. No trust rules are created or modified.
 - **Always-allow persistence**: When the tester UI's "Always Allow" action is used, the client sends a separate `add_trust_rule` message that persists the rule to `trust.json`, identical to the existing confirmation flow.
-- **Private-thread override**: When `forcePromptSideEffects` is true, side-effect tools that would normally be auto-allowed are promoted to `prompt`.
+- **Private-conversation override**: When `forcePromptSideEffects` is true, side-effect tools that would normally be auto-allowed are promoted to `prompt`.
 - **Non-interactive override**: When `isInteractive` is false, `prompt` decisions are converted to `deny` (no client available to approve).
 
 ---
@@ -1773,8 +1773,8 @@ The notification module (`assistant/src/notifications/`) uses a signal-based arc
 ```
 Producer → NotificationSignal → Candidate Generation → Decision Engine (LLM) → Deterministic Checks → Broadcaster → Conversation Pairing → Adapters → Delivery
                                                               ↑                                                            ↓
-                                                      Preference Summary                                    notification_thread_created SSE event
-                                                      Thread Candidates                                     (creation-only — not emitted on reuse)
+                                                      Preference Summary                                    notification_conversation_created SSE event
+                                                      Conversation Candidates                                (creation-only — not emitted on reuse)
 ```
 
 ### Channel Policy Registry
@@ -1783,24 +1783,24 @@ Producer → NotificationSignal → Candidate Generation → Decision Engine (LL
 
 - **`deliveryEnabled`** — whether the channel can receive notification deliveries. The `NotificationChannel` type is derived from this flag: only channels with `deliveryEnabled: true` are valid notification targets.
 - **`conversationStrategy`** — how the notification pipeline materializes conversations for the channel:
-  - `start_new_conversation` — creates a fresh conversation per delivery (e.g. vellum desktop/mobile threads)
+  - `start_new_conversation` — creates a fresh conversation per delivery (e.g. vellum desktop/mobile conversations)
   - `continue_existing_conversation` — intended to append to an existing channel-scoped conversation; currently materializes a background audit conversation per delivery (e.g. Telegram)
   - `not_deliverable` — channel cannot receive notifications (e.g. phone)
 
 Helper functions: `getDeliverableChannels()`, `getChannelPolicy()`, `isNotificationDeliverable()`, `getConversationStrategy()`.
 
-### Conversation Pairing and Thread Routing
+### Conversation Pairing and Conversation Routing
 
-Every notification delivery materializes a conversation + seed message **before** the adapter sends it (`conversation-pairing.ts`). The pairing function now accepts a `threadAction` from the decision engine:
+Every notification delivery materializes a conversation + seed message **before** the adapter sends it (`conversation-pairing.ts`). The pairing function now accepts a `conversationAction` from the decision engine:
 
-- **`reuse_existing`**: Looks up the target conversation. If valid (exists with `source: 'notification'`), the seed message is appended to the existing thread. If invalid, falls back to creating a new conversation with `threadDecisionFallbackUsed: true`.
+- **`reuse_existing`**: Looks up the target conversation. If valid (exists with `source: 'notification'`), the seed message is appended to the existing conversation. If invalid, falls back to creating a new conversation with `conversationDecisionFallbackUsed: true`.
 - **`start_new` (default)**: Creates a fresh conversation per delivery.
 
 This ensures:
 
 1. Every delivery has an auditable conversation trail in the conversations table
-2. The macOS/iOS client can deep-link directly into the notification thread
-3. Delivery audit rows in `notification_deliveries` carry `conversation_id`, `message_id`, `conversation_strategy`, `thread_action`, `thread_target_conversation_id`, and `thread_decision_fallback_used` columns
+2. The macOS/iOS client can deep-link directly into the notification conversation
+3. Delivery audit rows in `notification_deliveries` carry `conversation_id`, `message_id`, `conversation_strategy`, `conversation_action`, `conversation_target_conversation_id`, and `conversation_decision_fallback_used` columns
 
 The pairing function (`pairDeliveryWithConversation`) is resilient — errors are caught and logged without breaking the delivery pipeline.
 
@@ -1808,47 +1808,47 @@ The pairing function (`pairDeliveryWithConversation`) is resilient — errors ar
 
 The notification pipeline uses a single conversation materialization path across producers:
 
-1. **Canonical pipeline** (`emitNotificationSignal` → decision engine → broadcaster → conversation pairing → adapters): The broadcaster pairs each delivery with a conversation, then dispatches a `notification_intent` SSE event via the Vellum adapter. The payload includes `deepLinkMetadata` (e.g. `{ conversationId, messageId }`) so the macOS/iOS client can deep-link to the relevant context when the user taps the notification. When `messageId` is present, the client scrolls to that specific message within the thread (message-level anchoring).
-2. **Guardian bookkeeping** (`dispatchGuardianQuestion`): Guardian dispatch creates `guardian_action_request` / `guardian_action_delivery` audit rows derived from pipeline delivery results and the per-dispatch `onThreadCreated` callback — there is no separate thread-creation path.
+1. **Canonical pipeline** (`emitNotificationSignal` → decision engine → broadcaster → conversation pairing → adapters): The broadcaster pairs each delivery with a conversation, then dispatches a `notification_intent` SSE event via the Vellum adapter. The payload includes `deepLinkMetadata` (e.g. `{ conversationId, messageId }`) so the macOS/iOS client can deep-link to the relevant context when the user taps the notification. When `messageId` is present, the client scrolls to that specific message within the conversation (message-level anchoring).
+2. **Guardian bookkeeping** (`dispatchGuardianQuestion`): Guardian dispatch creates `guardian_action_request` / `guardian_action_delivery` audit rows derived from pipeline delivery results and the per-dispatch `onConversationCreated` callback — there is no separate conversation-creation path.
 
-### Thread Surfacing via `notification_thread_created` (Creation-Only)
+### Conversation Surfacing via `notification_conversation_created` (Creation-Only)
 
-The `notification_thread_created` SSE event is emitted **only when a brand-new conversation is created** by the broadcaster. Reusing an existing thread does not trigger this event — the macOS/iOS client already knows about the conversation from the original creation. This is enforced in `broadcaster.ts` by gating on `pairing.createdNewConversation === true`.
+The `notification_conversation_created` SSE event is emitted **only when a brand-new conversation is created** by the broadcaster. Reusing an existing conversation does not trigger this event — the macOS/iOS client already knows about the conversation from the original creation. This is enforced in `broadcaster.ts` by gating on `pairing.createdNewConversation === true`.
 
-When a new vellum notification thread is created (strategy `start_new_conversation`), the broadcaster emits the event **immediately** (before waiting for slower channel deliveries like Telegram). This pushes the thread to the macOS/iOS client so it can display the notification thread in the sidebar and deep-link to it.
+When a new vellum notification conversation is created (strategy `start_new_conversation`), the broadcaster emits the event **immediately** (before waiting for slower channel deliveries like Telegram). This pushes the conversation to the macOS/iOS client so it can display the notification conversation in the sidebar and deep-link to it.
 
-### Thread-Created Events
+### Conversation-Created Events
 
-Two SSE push events surface new threads in the macOS/iOS client sidebar:
+Two SSE push events surface new conversations in the macOS/iOS client sidebar:
 
-- **`notification_thread_created`** — Emitted by `broadcaster.ts` when a notification delivery **creates** a new vellum conversation (strategy `start_new_conversation`, `createdNewConversation: true`). **Not** emitted when a thread is reused. Payload: `{ conversationId, title, sourceEventName }`.
-- **`task_run_thread_created`** — Emitted by `work-item-runner.ts` when a task run creates a conversation. Payload: `{ conversationId, workItemId, title }`.
+- **`notification_conversation_created`** — Emitted by `broadcaster.ts` when a notification delivery **creates** a new vellum conversation (strategy `start_new_conversation`, `createdNewConversation: true`). **Not** emitted when a conversation is reused. Payload: `{ conversationId, title, sourceEventName }`.
+- **`task_run_conversation_created`** — Emitted by `work-item-runner.ts` when a task run creates a conversation. Payload: `{ conversationId, workItemId, title }`.
 
-All events follow the same pattern: the daemon creates a server-side conversation, persists an initial message, and broadcasts the SSE event so the macOS `ThreadManager` can create a visible thread in the sidebar.
+All events follow the same pattern: the daemon creates a server-side conversation, persists an initial message, and broadcasts the SSE event so the macOS `ThreadManager` can create a visible conversation in the sidebar.
 
-### Thread Routing Decision Flow
+### Conversation Routing Decision Flow
 
-The decision engine produces per-channel thread actions using a candidate-driven approach:
+The decision engine produces per-channel conversation actions using a candidate-driven approach:
 
 1. **Candidate generation** (`thread-candidates.ts`): Queries recent notification-sourced conversations (24-hour window, up to 5 per channel) and enriches them with guardian context (pending request counts).
 2. **LLM decision**: The candidate set is serialized into the system prompt. The LLM chooses `start_new` or `reuse_existing` (with a candidate `conversationId`) per channel.
-3. **Strict validation** (`validateThreadActions`): Reuse targets must exist in the candidate set. Invalid targets are downgraded to `start_new`.
-4. **Pairing execution**: `pairDeliveryWithConversation` executes the thread action — appending to an existing conversation on reuse, creating a new one otherwise.
-5. **Creation-only gating**: `notification_thread_created` fires only on actual creation, not on reuse.
-6. **Audit trail**: Thread actions are persisted in both `notification_decisions.validation_results` and `notification_deliveries` columns (`thread_action`, `thread_target_conversation_id`, `thread_decision_fallback_used`).
+3. **Strict validation** (`validateConversationActions`): Reuse targets must exist in the candidate set. Invalid targets are downgraded to `start_new`.
+4. **Pairing execution**: `pairDeliveryWithConversation` executes the conversation action — appending to an existing conversation on reuse, creating a new one otherwise.
+5. **Creation-only gating**: `notification_conversation_created` fires only on actual creation, not on reuse.
+6. **Audit trail**: Conversation actions are persisted in both `notification_decisions.validation_results` and `notification_deliveries` columns (`conversation_action`, `conversation_target_conversation_id`, `conversation_decision_fallback_used`).
 
-### Guardian Call Thread Affinity
+### Guardian Call Conversation Affinity
 
-When a guardian question originates from an active phone call (`callSessionId` present on the signal), the decision engine enforces thread affinity so all questions within the same call land in one vellum thread:
+When a guardian question originates from an active phone call (`callSessionId` present on the signal), the decision engine enforces conversation affinity so all questions within the same call land in one vellum conversation:
 
-- **First question in a call** (no `conversationAffinityHint`): `enforceGuardianCallThreadAffinity` forces `start_new` for the vellum channel, creating a dedicated thread for the call.
+- **First question in a call** (no `conversationAffinityHint`): `enforceGuardianCallConversationAffinity` forces `start_new` for the vellum channel, creating a dedicated conversation for the call.
 - **Subsequent questions in the same call** (affinity hint already set by `dispatchGuardianQuestion`): The guard is a no-op, and `enforceConversationAffinity` routes to `reuse_existing` using the hint's `conversationId`.
 
-This guard runs **before** `enforceConversationAffinity` in the post-decision chain so the two cooperate: the first dispatch creates the thread, and subsequent dispatches reuse it via the affinity hint that `dispatchGuardianQuestion` sets after observing the first delivery's `conversationId`.
+This guard runs **before** `enforceConversationAffinity` in the post-decision chain so the two cooperate: the first dispatch creates the conversation, and subsequent dispatches reuse it via the affinity hint that `dispatchGuardianQuestion` sets after observing the first delivery's `conversationId`.
 
-### Guardian Multi-Request Disambiguation in Reused Threads
+### Guardian Multi-Request Disambiguation in Reused Conversations
 
-When the decision engine routes multiple guardian questions to the same conversation (via `reuse_existing`), those questions share a single thread. The guardian disambiguates which question they are answering using **request-code prefixes**:
+When the decision engine routes multiple guardian questions to the same conversation (via `reuse_existing`), those questions share a single conversation. The guardian disambiguates which question they are answering using **request-code prefixes**:
 
 - **Single pending delivery**: Matched automatically (single-match fast path).
 - **Multiple pending deliveries**: The guardian must prefix their reply with the 6-char hex request code (e.g. `A1B2C3 yes, allow it`). Case-insensitive matching.
@@ -1864,7 +1864,7 @@ Reminders carry optional `routingIntent` (`single_channel` | `multi_channel` | `
 
 Notifications are delivered to three channel types:
 
-- **Vellum (always connected)**: SSE via the daemon's broadcast mechanism. The `VellumAdapter` emits a `notification_intent` message with rendered copy and optional `deepLinkMetadata` (includes `conversationId` for thread navigation and `messageId` for message-level scroll anchoring).
+- **Vellum (always connected)**: SSE via the daemon's broadcast mechanism. The `VellumAdapter` emits a `notification_intent` message with rendered copy and optional `deepLinkMetadata` (includes `conversationId` for conversation navigation and `messageId` for message-level scroll anchoring).
 - **Telegram (when guardian binding exists)**: HTTP POST to the gateway's `/deliver/telegram` endpoint. Requires an active guardian binding for the assistant.
 
 Connected channels are resolved at signal emission time: vellum is always included, and binding-based channels (Telegram) are included only when an active guardian binding exists for the assistant.
@@ -1877,8 +1877,8 @@ Connected channels are resolved at signal emission time: vellum is always includ
 | `assistant/src/notifications/emit-signal.ts`                               | Single entry point for all producers; orchestrates the full pipeline                                                                  |
 | `assistant/src/notifications/decision-engine.ts`                           | LLM-based routing decisions with deterministic fallback                                                                               |
 | `assistant/src/notifications/deterministic-checks.ts`                      | Hard invariant checks (dedupe, source-active suppression, channel availability)                                                       |
-| `assistant/src/notifications/broadcaster.ts`                               | Dispatches decisions to channel adapters; emits `notification_thread_created` SSE event (creation-only)                               |
-| `assistant/src/notifications/conversation-pairing.ts`                      | Materializes conversation + message per delivery; executes thread reuse decisions                                                     |
+| `assistant/src/notifications/broadcaster.ts`                               | Dispatches decisions to channel adapters; emits `notification_conversation_created` SSE event (creation-only)                         |
+| `assistant/src/notifications/conversation-pairing.ts`                      | Materializes conversation + message per delivery; executes conversation reuse decisions                                               |
 | `assistant/src/notifications/thread-candidates.ts`                         | Builds per-channel candidate set of recent conversations for the decision engine                                                      |
 | `assistant/src/notifications/adapters/macos.ts`                            | Vellum adapter — broadcasts `notification_intent` via SSE with deep-link metadata                                                     |
 | `assistant/src/notifications/adapters/telegram.ts`                         | Telegram adapter — POSTs to gateway `/deliver/telegram`                                                                               |
@@ -1889,7 +1889,7 @@ Connected channels are resolved at signal emission time: vellum is always includ
 | `assistant/src/config/bundled-skills/messaging/tools/send-notification.ts` | Explicit producer tool for user-requested notifications; emits signals into the same routing pipeline                                 |
 | `assistant/src/calls/guardian-dispatch.ts`                                 | Guardian question dispatch that reuses canonical notification pairing and records guardian delivery bookkeeping from pipeline results |
 
-**Audit trail (SQLite):** `notification_events` → `notification_decisions` (with `threadActions` in validation results) → `notification_deliveries` (with `conversation_id`, `message_id`, `conversation_strategy`, `thread_action`, `thread_target_conversation_id`, `thread_decision_fallback_used`)
+**Audit trail (SQLite):** `notification_events` → `notification_decisions` (with `conversationActions` in validation results) → `notification_deliveries` (with `conversation_id`, `message_id`, `conversation_strategy`, `conversation_action`, `conversation_target_conversation_id`, `conversation_decision_fallback_used`)
 
 **Configuration:** `notifications.decisionModelIntent` in `config.json`.
 
