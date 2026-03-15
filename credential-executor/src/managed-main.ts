@@ -86,7 +86,16 @@ function ensureDataDirs(): void {
 // Build RPC handler registry (managed mode)
 // ---------------------------------------------------------------------------
 
-function buildHandlers(sessionIdRef: SessionIdRef): RpcHandlerRegistry {
+/**
+ * Mutable reference to the assistant API key. Allows the handshake callback
+ * to inject the key provisioned at runtime (which arrives after handlers are
+ * built). Handlers read `.current` at call time, not at registration time.
+ */
+interface ApiKeyRef {
+  current: string;
+}
+
+function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef): RpcHandlerRegistry {
   // -- Grant stores ----------------------------------------------------------
   const persistentGrantStore = new PersistentGrantStore(
     getCesGrantsDir("managed"),
@@ -101,26 +110,45 @@ function buildHandlers(sessionIdRef: SessionIdRef): RpcHandlerRegistry {
 
   // -- Managed credential options --------------------------------------------
   // In managed mode, credentials are obtained from the platform via its
-  // token-materialization endpoint. The platform URL, API key, and assistant
-  // ID are provided through environment variables set by the orchestration layer.
+  // token-materialization endpoint. The platform URL and assistant ID come
+  // from environment variables. The API key may come from the env var OR
+  // from the bootstrap handshake (the assistant forwards it after hatch).
+  // We use a lazy getter so the handshake-provided key takes effect even
+  // though handlers are built before the handshake completes.
   const platformBaseUrl = process.env["PLATFORM_BASE_URL"] ?? "";
-  const assistantApiKey = process.env["ASSISTANT_API_KEY"] ?? "";
   const assistantId = process.env["PLATFORM_ASSISTANT_ID"] ?? "";
 
-  const managedSubjectOptions: ManagedSubjectResolverOptions | undefined =
-    platformBaseUrl && assistantApiKey && assistantId
-      ? { platformBaseUrl, assistantApiKey, assistantId }
-      : undefined;
+  /**
+   * Resolve the current API key. Prefers the handshake-provided key
+   * (via apiKeyRef) over the env var, since in managed mode the env var
+   * may not be set (chicken-and-egg: key is provisioned after hatch).
+   */
+  const getAssistantApiKey = (): string =>
+    apiKeyRef.current || process.env["ASSISTANT_API_KEY"] || "";
 
-  const managedMaterializerOptions: ManagedMaterializerOptions | undefined =
-    platformBaseUrl && assistantApiKey && assistantId
-      ? { platformBaseUrl, assistantApiKey, assistantId }
+  /**
+   * Build managed options lazily at call time so the handshake-provided
+   * API key is available even though handlers are registered before
+   * the handshake completes.
+   */
+  const getManagedSubjectOptions = (): ManagedSubjectResolverOptions | undefined => {
+    const key = getAssistantApiKey();
+    return platformBaseUrl && key && assistantId
+      ? { platformBaseUrl, assistantApiKey: key, assistantId }
       : undefined;
+  };
 
-  if (!managedSubjectOptions) {
+  const getManagedMaterializerOptions = (): ManagedMaterializerOptions | undefined => {
+    const key = getAssistantApiKey();
+    return platformBaseUrl && key && assistantId
+      ? { platformBaseUrl, assistantApiKey: key, assistantId }
+      : undefined;
+  };
+
+  if (!platformBaseUrl || !assistantId) {
     warn(
-      "PLATFORM_BASE_URL, ASSISTANT_API_KEY, and/or PLATFORM_ASSISTANT_ID not set. " +
-        "Managed credential materialisation will not be available.",
+      "PLATFORM_BASE_URL and/or PLATFORM_ASSISTANT_ID not set. " +
+        "Managed credential materialisation will depend on the handshake-provided API key.",
     );
   }
 
@@ -154,18 +182,20 @@ function buildHandlers(sessionIdRef: SessionIdRef): RpcHandlerRegistry {
     oauthConnections: { getById: () => undefined },
   };
 
-  const handlers = buildHandlersWithHttp(
-    {
-      persistentGrantStore,
-      temporaryGrantStore,
-      localMaterialiser: localMaterialiserStub as any,
-      localSubjectDeps: localSubjectDepsStub,
-      managedSubjectOptions,
-      managedMaterializerOptions,
-      auditStore,
-      sessionId: sessionIdRef,
-    },
-  );
+  // Use a deps object with getters so the handshake-provided API key
+  // is resolved lazily at RPC call time (after the handshake completes).
+  const httpDeps = {
+    persistentGrantStore,
+    temporaryGrantStore,
+    localMaterialiser: localMaterialiserStub as any,
+    localSubjectDeps: localSubjectDepsStub,
+    get managedSubjectOptions() { return getManagedSubjectOptions(); },
+    get managedMaterializerOptions() { return getManagedMaterializerOptions(); },
+    auditStore,
+    sessionId: sessionIdRef,
+  };
+
+  const handlers = buildHandlersWithHttp(httpDeps);
 
   // Register run_authenticated_command handler with managed platform materializer
   registerCommandExecutionHandler(handlers, {
@@ -192,7 +222,9 @@ function buildHandlers(sessionIdRef: SessionIdRef): RpcHandlerRegistry {
 
           // -- Platform OAuth: materialise via the platform endpoint ----------
           case HandleType.PlatformOAuth: {
-            if (!managedMaterializerOptions) {
+            const matOpts = getManagedMaterializerOptions();
+            const subOpts = getManagedSubjectOptions();
+            if (!matOpts || !subOpts) {
               return {
                 ok: false as const,
                 error:
@@ -203,7 +235,7 @@ function buildHandlers(sessionIdRef: SessionIdRef): RpcHandlerRegistry {
 
             const subjectResult = await resolveManagedSubject(
               handle,
-              managedSubjectOptions!,
+              subOpts,
             );
             if (!subjectResult.ok) {
               return { ok: false as const, error: subjectResult.error.message };
@@ -211,7 +243,7 @@ function buildHandlers(sessionIdRef: SessionIdRef): RpcHandlerRegistry {
 
             const matResult = await materializeManagedToken(
               subjectResult.subject,
-              managedMaterializerOptions,
+              matOpts,
             );
             if (!matResult.ok) {
               return { ok: false as const, error: matResult.error.message };
@@ -491,10 +523,11 @@ async function main(): Promise<void> {
   rpcConnected = true;
 
   // Build the handler registry with all available RPC implementations.
-  // Use a mutable ref so audit records capture the handshake session ID
-  // once it's negotiated (the handshake completes before any RPC call).
+  // Use mutable refs so the handshake-provided session ID and API key
+  // are available to handlers at call time (after the handshake completes).
   const sessionIdRef: SessionIdRef = { current: `ces-managed-${Date.now()}` };
-  const handlers = buildHandlers(sessionIdRef);
+  const apiKeyRef: ApiKeyRef = { current: "" };
+  const handlers = buildHandlers(sessionIdRef, apiKeyRef);
 
   const server = new CesRpcServer({
     input: connection.readable,
@@ -509,8 +542,12 @@ async function main(): Promise<void> {
         process.stderr.write(`[ces-managed] ERROR: ${msg} ${args.map(String).join(" ")}\n`),
     },
     signal: controller.signal,
-    onHandshakeComplete: (hsSessionId) => {
+    onHandshakeComplete: (hsSessionId, hsApiKey) => {
       sessionIdRef.current = hsSessionId;
+      if (hsApiKey) {
+        apiKeyRef.current = hsApiKey;
+        log(`Received assistant API key via handshake`);
+      }
     },
   });
 

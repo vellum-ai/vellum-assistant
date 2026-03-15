@@ -88,8 +88,8 @@ export interface CesServerOptions {
   logger?: Pick<Console, "log" | "warn" | "error">;
   /** Optional abort signal to shut down the server. */
   signal?: AbortSignal;
-  /** Callback invoked when the handshake completes with the negotiated session ID. */
-  onHandshakeComplete?: (sessionId: string) => void;
+  /** Callback invoked when the handshake completes with the negotiated session ID and optional API key. */
+  onHandshakeComplete?: (sessionId: string, assistantApiKey?: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -102,7 +102,7 @@ export class CesRpcServer {
   private readonly handlers: RpcHandlerRegistry;
   private readonly logger: Pick<Console, "log" | "warn" | "error">;
   private readonly signal?: AbortSignal;
-  private readonly onHandshakeComplete?: (sessionId: string) => void;
+  private readonly onHandshakeComplete?: (sessionId: string, assistantApiKey?: string) => void;
 
   private handshakeComplete = false;
   private sessionId: string | null = null;
@@ -255,7 +255,7 @@ export class CesRpcServer {
       this.handshakeComplete = true;
       this.sessionId = req.sessionId;
       this.logger.log(`[ces-server] Handshake accepted for session ${req.sessionId}`);
-      this.onHandshakeComplete?.(req.sessionId);
+      this.onHandshakeComplete?.(req.sessionId, req.assistantApiKey);
     } else {
       this.logger.warn(
         `[ces-server] Handshake rejected: version mismatch (got ${req.protocolVersion}, expected ${CES_PROTOCOL_VERSION})`,
