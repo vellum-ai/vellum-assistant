@@ -335,6 +335,18 @@ When a credential is rotated (e.g., an API key is regenerated), existing CES gra
 
 **Mitigation**: Grants have TTL-based expiry. Operators can force-revoke grants via the grant revocation RPC. Future iterations may integrate with credential-rotation webhooks to auto-revoke affected grants.
 
+### 7. Cooperative egress enforcement via environment variables
+
+CES enforces egress controls by injecting `HTTP_PROXY`/`HTTPS_PROXY` environment variables into the subprocess environment. This is cooperative — a binary that ignores proxy environment variables, implements its own HTTP stack, or opens raw sockets can bypass CES egress controls entirely. Risk #3 above documents this for local deployments where host networking is available, but the limitation also applies in managed deployments: current network policies allow public egress from all containers in the pod, so a non-cooperating binary in the CES container can reach the internet without going through the egress proxy.
+
+**Mitigation**: The denied-binary list and manifest validation restrict which binaries can run as secure commands, reducing the surface for non-cooperating binaries. In practice, the well-known CLI tools approved as secure command entrypoints (e.g., `gh`, `aws`) respect proxy environment variables. Future work could add per-container network policies (e.g., Calico rules that restrict the CES container's egress to the proxy sidecar only) or use network namespace isolation to make the proxy mandatory at the network level rather than relying on process-level cooperation.
+
+### 8. `credential_process` adapter runs before egress proxy session is established
+
+The `credential_process` auth adapter executes `sh -c <helperCommand>` with the raw credential piped to stdin. This helper command runs during the credential materialization phase, **before** the egress proxy session for the secure command is started. A malicious or compromised helper command could exfiltrate the credential value over the network before egress controls take effect.
+
+**Mitigation**: The `credential_process` helper command is specified in the secure command manifest, which is validated and approved at registration time. Only trusted helper commands should be registered. Additionally, the helper's purpose is to transform credential format (e.g., producing AWS `credential_process` JSON output), not to make network calls — a helper that contacts the network is a code smell that should be caught during manifest review. Future work could restructure the adapter to start the egress proxy session before running the helper, or run the helper inside the egress-controlled network namespace.
+
 ## Intentional v1 Out-of-Scope
 
 The following capabilities are intentionally deferred beyond v1:
