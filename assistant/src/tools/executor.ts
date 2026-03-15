@@ -221,6 +221,27 @@ export class ToolExecutor {
       // indicator, present the proposal to the guardian via the existing
       // confirmation transport, commit the decision to CES, and retry
       // the original tool invocation with the granted grantId.
+      if (execResult.cesApprovalRequired && !context.cesClient) {
+        const msg = `CES approval required for "${name}" but no CES client is available. Ensure the Credential Execution Service is running.`;
+        const durationMs = Date.now() - startTime;
+        emitLifecycleEvent(context, {
+          type: "error",
+          toolName: name,
+          executionTarget,
+          input,
+          workingDir: context.workingDir,
+          sessionId: context.sessionId,
+          conversationId: context.conversationId,
+          requestId: context.requestId,
+          riskLevel,
+          decision: "error",
+          durationMs,
+          errorMessage: msg,
+          isExpected: true,
+          errorCategory: "tool_failure",
+        });
+        return { content: msg, isError: true };
+      }
       if (execResult.cesApprovalRequired && context.cesClient) {
         const bridgeResult = await bridgeCesApproval(
           execResult.cesApprovalRequired,

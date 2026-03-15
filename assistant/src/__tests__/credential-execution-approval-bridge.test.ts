@@ -356,6 +356,47 @@ describe("CES approval bridge", () => {
     });
   });
 
+  describe("prompter timeout", () => {
+    test("returns timeout outcome when prompter times out", async () => {
+      // The PermissionPrompter resolves timeouts as decision: "deny" with a
+      // decisionContext containing "timed out".
+      const prompter = makePrompter(
+        "deny",
+        'The permission prompt for the "ces:http" tool timed out. The user did not explicitly deny this request — they may have been away or busy. You may retry this tool call if it is still needed for the current task.',
+      );
+      const cesClient = makeCesClient();
+
+      const result = await bridgeCesApproval(
+        makeApprovalRequired(),
+        prompter,
+        cesClient,
+        { isInteractive: true },
+      );
+
+      expect(result.outcome).toBe("timeout");
+
+      // No record_grant RPC should have been made
+      expect(cesClient.recordGrantCalls.length).toBe(0);
+    });
+
+    test("explicit deny with no timeout context returns denied, not timeout", async () => {
+      const prompter = makePrompter("deny");
+      const cesClient = makeCesClient();
+
+      const result = await bridgeCesApproval(
+        makeApprovalRequired(),
+        prompter,
+        cesClient,
+        { isInteractive: true },
+      );
+
+      expect(result.outcome).toBe("denied");
+      if (result.outcome === "denied") {
+        expect(result.userDecision).toBe("deny");
+      }
+    });
+  });
+
   describe("non-interactive fail-closed", () => {
     test("auto-denies when isInteractive is false", async () => {
       const prompter = makePrompter("allow");

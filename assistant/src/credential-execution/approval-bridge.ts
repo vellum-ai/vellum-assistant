@@ -208,6 +208,27 @@ export async function bridgeCesApproval(
     ["allow_10m", "allow_thread"], // Offer temporary approval options
   );
 
+  // Detect prompter timeout: the PermissionPrompter resolves timeouts as
+  // decision: "deny" with a decisionContext containing "timed out". Surface
+  // this as a distinct outcome so the executor shows a timeout-specific
+  // message that encourages retrying rather than implying explicit denial.
+  const isTimeout =
+    response.decision === "deny" &&
+    typeof response.decisionContext === "string" &&
+    response.decisionContext.includes("timed out");
+
+  if (isTimeout) {
+    log.info(
+      {
+        event: "ces_approval_bridge_timeout",
+        proposalHash,
+        sessionId,
+      },
+      "CES approval bridge: prompter timed out",
+    );
+    return { outcome: "timeout" };
+  }
+
   const cesDecision = mapUserDecisionToCesDecision(response.decision);
 
   log.info(
