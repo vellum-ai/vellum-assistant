@@ -94,11 +94,11 @@ final class MockThreadRestorerDelegate: ThreadRestorerDelegate {
 // MARK: - Helpers
 
 /// Build a SessionListResponseMessage via JSON round-trip.
-private func makeSessionListResponse(sessions: [(id: String, title: String, createdAt: Int, updatedAt: Int, threadType: String?, channelBinding: [String: Any]?)]) -> SessionListResponseMessage {
+private func makeSessionListResponse(sessions: [(id: String, title: String, createdAt: Int, updatedAt: Int, conversationType: String?, channelBinding: [String: Any]?)]) -> SessionListResponseMessage {
     let sessionDicts = sessions.map { session -> [String: Any] in
         var dict: [String: Any] = ["id": session.id, "title": session.title, "createdAt": session.createdAt, "updatedAt": session.updatedAt]
-        if let threadType = session.threadType {
-            dict["threadType"] = threadType
+        if let conversationType = session.conversationType {
+            dict["conversationType"] = conversationType
         }
         if let channelBinding = session.channelBinding {
             dict["channelBinding"] = channelBinding
@@ -121,17 +121,17 @@ private func makeSessionListResponse(
     return try! JSONDecoder().decode(SessionListResponseMessage.self, from: data)
 }
 
-/// Convenience overload with threadType and optional channelBinding.
-private func makeSessionListResponse(sessions: [(id: String, title: String, updatedAt: Int, threadType: String?, channelBinding: [String: Any]?)]) -> SessionListResponseMessage {
-    makeSessionListResponse(sessions: sessions.map { ($0.id, $0.title, $0.updatedAt, $0.updatedAt, $0.threadType, $0.channelBinding) })
+/// Convenience overload with conversationType and optional channelBinding.
+private func makeSessionListResponse(sessions: [(id: String, title: String, updatedAt: Int, conversationType: String?, channelBinding: [String: Any]?)]) -> SessionListResponseMessage {
+    makeSessionListResponse(sessions: sessions.map { ($0.id, $0.title, $0.updatedAt, $0.updatedAt, $0.conversationType, $0.channelBinding) })
 }
 
-/// Convenience overload with threadType but no channelBinding.
-private func makeSessionListResponse(sessions: [(id: String, title: String, updatedAt: Int, threadType: String?)]) -> SessionListResponseMessage {
-    makeSessionListResponse(sessions: sessions.map { ($0.id, $0.title, $0.updatedAt, $0.updatedAt, $0.threadType, nil) })
+/// Convenience overload with conversationType but no channelBinding.
+private func makeSessionListResponse(sessions: [(id: String, title: String, updatedAt: Int, conversationType: String?)]) -> SessionListResponseMessage {
+    makeSessionListResponse(sessions: sessions.map { ($0.id, $0.title, $0.updatedAt, $0.updatedAt, $0.conversationType, nil) })
 }
 
-/// Convenience overload without threadType for existing tests.
+/// Convenience overload without conversationType for existing tests.
 private func makeSessionListResponse(sessions: [(id: String, title: String, updatedAt: Int)]) -> SessionListResponseMessage {
     makeSessionListResponse(sessions: sessions.map { ($0.id, $0.title, $0.updatedAt, $0.updatedAt, nil, nil) })
 }
@@ -510,7 +510,7 @@ struct ThreadSessionRestorerTests {
         delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
 
         let response = makeSessionListResponse(sessions: [
-            (id: "s1", title: "Private Chat", updatedAt: 2000, threadType: "private"),
+            (id: "s1", title: "Private Chat", updatedAt: 2000, conversationType: "private"),
         ])
         restorer.handleSessionListResponse(response)
 
@@ -521,7 +521,7 @@ struct ThreadSessionRestorerTests {
     }
 
     @Test @MainActor
-    func nilThreadTypeRestoresAsStandardKind() {
+    func nilConversationTypeRestoresAsStandardKind() {
         let dc = DaemonClient()
         let restorer = ThreadSessionRestorer(daemonClient: dc)
         let delegate = MockThreadRestorerDelegate(daemonClient: dc)
@@ -532,7 +532,7 @@ struct ThreadSessionRestorerTests {
         delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
 
         let response = makeSessionListResponse(sessions: [
-            (id: "s1", title: "Regular Chat", updatedAt: 2000, threadType: nil),
+            (id: "s1", title: "Regular Chat", updatedAt: 2000, conversationType: nil),
         ])
         restorer.handleSessionListResponse(response)
 
@@ -541,7 +541,7 @@ struct ThreadSessionRestorerTests {
     }
 
     @Test @MainActor
-    func standardThreadTypeRestoresAsStandardKind() {
+    func standardConversationTypeRestoresAsStandardKind() {
         let dc = DaemonClient()
         let restorer = ThreadSessionRestorer(daemonClient: dc)
         let delegate = MockThreadRestorerDelegate(daemonClient: dc)
@@ -552,7 +552,7 @@ struct ThreadSessionRestorerTests {
         delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
 
         let response = makeSessionListResponse(sessions: [
-            (id: "s1", title: "Standard Chat", updatedAt: 2000, threadType: "standard"),
+            (id: "s1", title: "Standard Chat", updatedAt: 2000, conversationType: "standard"),
         ])
         restorer.handleSessionListResponse(response)
 
@@ -574,7 +574,7 @@ struct ThreadSessionRestorerTests {
         delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
 
         let response = makeSessionListResponse(sessions: [
-            (id: "s1", title: "Telegram Chat", updatedAt: 2000, threadType: nil,
+            (id: "s1", title: "Telegram Chat", updatedAt: 2000, conversationType: nil,
              channelBinding: ["sourceChannel": "telegram", "externalChatId": "123456"]),
         ])
         restorer.handleSessionListResponse(response)
@@ -598,7 +598,7 @@ struct ThreadSessionRestorerTests {
         delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
 
         let response = makeSessionListResponse(sessions: [
-            (id: "s1", title: "Voice Call", updatedAt: 2000, threadType: nil,
+            (id: "s1", title: "Voice Call", updatedAt: 2000, conversationType: nil,
              channelBinding: ["sourceChannel": "phone", "externalChatId": "call-123"]),
         ])
         restorer.handleSessionListResponse(response)
@@ -622,12 +622,12 @@ struct ThreadSessionRestorerTests {
         delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
 
         let response = makeSessionListResponse(sessions: [
-            (id: "s1", title: "Desktop Chat", updatedAt: 4000, threadType: nil, channelBinding: nil),
-            (id: "s2", title: "Telegram Chat", updatedAt: 3000, threadType: nil,
+            (id: "s1", title: "Desktop Chat", updatedAt: 4000, conversationType: nil, channelBinding: nil),
+            (id: "s2", title: "Telegram Chat", updatedAt: 3000, conversationType: nil,
              channelBinding: ["sourceChannel": "telegram", "externalChatId": "789"]),
-            (id: "s3", title: "Voice Call", updatedAt: 2000, threadType: nil,
+            (id: "s3", title: "Voice Call", updatedAt: 2000, conversationType: nil,
              channelBinding: ["sourceChannel": "phone", "externalChatId": "call-456"]),
-            (id: "s4", title: "Another Desktop Chat", updatedAt: 1000, threadType: nil, channelBinding: nil),
+            (id: "s4", title: "Another Desktop Chat", updatedAt: 1000, conversationType: nil, channelBinding: nil),
         ])
         restorer.handleSessionListResponse(response)
 
@@ -652,10 +652,10 @@ struct ThreadSessionRestorerTests {
         delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
 
         let response = makeSessionListResponse(sessions: [
-            (id: "s1", title: "Desktop Chat", updatedAt: 3000, threadType: nil, channelBinding: nil),
-            (id: "s2", title: "Telegram Chat", updatedAt: 2000, threadType: nil,
+            (id: "s1", title: "Desktop Chat", updatedAt: 3000, conversationType: nil, channelBinding: nil),
+            (id: "s2", title: "Telegram Chat", updatedAt: 2000, conversationType: nil,
              channelBinding: ["sourceChannel": "telegram", "externalChatId": "789"]),
-            (id: "s3", title: "Another Desktop Chat", updatedAt: 1000, threadType: nil, channelBinding: nil),
+            (id: "s3", title: "Another Desktop Chat", updatedAt: 1000, conversationType: nil, channelBinding: nil),
         ])
         restorer.handleSessionListResponse(response)
 

@@ -384,10 +384,10 @@ public final class ChatViewModel: ObservableObject {
     /// Nonce sent with `session_create` and echoed back in `session_info`.
     /// Used to ensure this ChatViewModel only claims its own session.
     var bootstrapCorrelationId: String?
-    /// Thread type sent with `session_create` (e.g. "private").
-    /// Set by `createSessionIfNeeded(threadType:)` and included in the
-    /// message so the daemon can persist the correct thread kind.
-    public var threadType: String?
+    /// Conversation type sent with `session_create` (e.g. "private").
+    /// Set by `createSessionIfNeeded(conversationType:)` and included in the
+    /// message so the daemon can persist the correct conversation kind.
+    public var conversationType: String?
     /// Skill IDs to pre-activate in the session. Included in the
     /// `session_create` request for deterministic skill activation.
     public var preactivatedSkillIds: [String]?
@@ -1278,7 +1278,7 @@ public final class ChatViewModel: ObservableObject {
 
             // Send session_create with correlation ID and thread type
             do {
-                try daemonClient.send(SessionCreateMessage(title: nil, correlationId: correlationId, threadType: self.threadType, preactivatedSkillIds: self.preactivatedSkillIds))
+                try daemonClient.send(SessionCreateMessage(title: nil, correlationId: correlationId, conversationType: self.conversationType, preactivatedSkillIds: self.preactivatedSkillIds))
                 // Clear one-shot preactivated skills so they don't leak into a
                 // later session if this bootstrap is interrupted before completion.
                 self.preactivatedSkillIds = nil
@@ -1515,10 +1515,10 @@ public final class ChatViewModel: ObservableObject {
     /// Used by private threads that need a persistent session ID right away
     /// (e.g. to store the thread in the database before the user types anything).
     /// No-op if a session already exists or a bootstrap is already in flight.
-    public func createSessionIfNeeded(threadType: String? = nil) {
+    public func createSessionIfNeeded(conversationType: String? = nil) {
         guard sessionId == nil, !isBootstrapping else { return }
-        if let threadType {
-            self.threadType = threadType
+        if let conversationType {
+            self.conversationType = conversationType
         }
         bootstrapSession(userMessage: nil, attachments: nil)
     }

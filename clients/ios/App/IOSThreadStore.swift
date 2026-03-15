@@ -446,7 +446,7 @@ class IOSThreadStore: ObservableObject {
             return
         }
 
-        let filteredSessions = response.sessions.filter { $0.threadType != "private" }
+        let filteredSessions = response.sessions.filter { $0.conversationType != "private" }
 
         // Handle confirmed-empty first-page response: clear stale cached sessions.
         // Only clear when hasMore is explicitly false (authoritative empty result).
@@ -849,8 +849,8 @@ class IOSThreadStore: ObservableObject {
     }
 
     /// Create a new private thread with the given name. The thread is immediately
-    /// backed by a daemon session with threadType "private" so it is persisted on
-    /// the daemon side and excluded from normal thread restoration.
+    /// backed by a daemon session with conversationType "private" so it is persisted on
+    /// the daemon side and excluded from normal conversation restoration.
     @discardableResult
     func newPrivateThread(name: String = "Private Thread") -> IOSThread {
         let thread = IOSThread(title: name, isPrivate: true)
@@ -858,7 +858,7 @@ class IOSThreadStore: ObservableObject {
         // Get or create the view model after appending so activity tracking
         // can find the thread in self.threads.
         let vm = viewModel(for: thread.id)
-        vm.createSessionIfNeeded(threadType: "private")
+        vm.createSessionIfNeeded(conversationType: "private")
         save()
         return thread
     }

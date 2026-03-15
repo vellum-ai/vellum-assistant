@@ -3301,20 +3301,20 @@ public struct SessionCreateRequest: Codable, Sendable {
     public let correlationId: String?
     /// Lightweight session transport metadata for channel identity and natural-language guidance.
     public let transport: SessionTransportMetadata?
-    public let threadType: String?
+    public let conversationType: String?
     /// Skill IDs to pre-activate in the new session (loaded before the first message).
     public let preactivatedSkillIds: [String]?
     /// If provided, automatically sent as the first user message after session creation.
     public let initialMessage: String?
 
-    public init(type: String, title: String? = nil, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: SessionTransportMetadata? = nil, threadType: String? = nil, preactivatedSkillIds: [String]? = nil, initialMessage: String? = nil) {
+    public init(type: String, title: String? = nil, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: SessionTransportMetadata? = nil, conversationType: String? = nil, preactivatedSkillIds: [String]? = nil, initialMessage: String? = nil) {
         self.type = type
         self.title = title
         self.systemPromptOverride = systemPromptOverride
         self.maxResponseTokens = maxResponseTokens
         self.correlationId = correlationId
         self.transport = transport
-        self.threadType = threadType
+        self.conversationType = conversationType
         self.preactivatedSkillIds = preactivatedSkillIds
         self.initialMessage = initialMessage
     }
@@ -3325,14 +3325,14 @@ public struct SessionInfo: Codable, Sendable {
     public let sessionId: String
     public let title: String
     public let correlationId: String?
-    public let threadType: String?
+    public let conversationType: String?
 
-    public init(type: String, sessionId: String, title: String, correlationId: String? = nil, threadType: String? = nil) {
+    public init(type: String, sessionId: String, title: String, correlationId: String? = nil, conversationType: String? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.title = title
         self.correlationId = correlationId
-        self.threadType = threadType
+        self.conversationType = conversationType
     }
 }
 
@@ -3368,7 +3368,7 @@ public struct SessionListResponseSession: Codable, Sendable {
     public let title: String
     public let createdAt: Int?
     public let updatedAt: Int
-    public let threadType: String?
+    public let conversationType: String?
     public let source: String?
     public let scheduleJobId: String?
     /// Channel binding metadata exposed in session/conversation list APIs.
@@ -3380,12 +3380,12 @@ public struct SessionListResponseSession: Codable, Sendable {
     public let displayOrder: Double?
     public let isPinned: Bool?
 
-    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, threadType: String? = nil, source: String? = nil, scheduleJobId: String? = nil, channelBinding: ChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: AssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil) {
+    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, conversationType: String? = nil, source: String? = nil, scheduleJobId: String? = nil, channelBinding: ChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: AssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
         self.updatedAt = updatedAt
-        self.threadType = threadType
+        self.conversationType = conversationType
         self.source = source
         self.scheduleJobId = scheduleJobId
         self.channelBinding = channelBinding

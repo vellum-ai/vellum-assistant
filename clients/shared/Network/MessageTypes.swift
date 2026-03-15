@@ -199,8 +199,8 @@ extension SessionCreateRequest {
         #endif
     }
 
-    public init(title: String?, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: SessionTransportMetadata? = nil, threadType: String? = nil, preactivatedSkillIds: [String]? = nil, initialMessage: String? = nil) {
-        self.init(type: "session_create", title: title, systemPromptOverride: systemPromptOverride, maxResponseTokens: maxResponseTokens, correlationId: correlationId, transport: transport, threadType: threadType, preactivatedSkillIds: preactivatedSkillIds, initialMessage: initialMessage)
+    public init(title: String?, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: SessionTransportMetadata? = nil, conversationType: String? = nil, preactivatedSkillIds: [String]? = nil, initialMessage: String? = nil) {
+        self.init(type: "session_create", title: title, systemPromptOverride: systemPromptOverride, maxResponseTokens: maxResponseTokens, correlationId: correlationId, transport: transport, conversationType: conversationType, preactivatedSkillIds: preactivatedSkillIds, initialMessage: initialMessage)
     }
 
     public init(
@@ -225,7 +225,7 @@ extension SessionCreateRequest {
                 hints: transportHints,
                 uxBrief: transportUxBrief
             ),
-            threadType: nil,
+            conversationType: nil,
             preactivatedSkillIds: nil,
             initialMessage: nil
         )
@@ -683,8 +683,8 @@ extension MessageComplete {
 public typealias SessionInfoMessage = SessionInfo
 
 extension SessionInfo {
-    public init(sessionId: String, title: String, correlationId: String? = nil, threadType: String? = nil) {
-        self.init(type: "session_info", sessionId: sessionId, title: title, correlationId: correlationId, threadType: threadType)
+    public init(sessionId: String, title: String, correlationId: String? = nil, conversationType: String? = nil) {
+        self.init(type: "session_info", sessionId: sessionId, title: title, correlationId: correlationId, conversationType: conversationType)
     }
 }
 

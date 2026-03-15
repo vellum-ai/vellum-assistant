@@ -30,8 +30,8 @@ extension HTTPTransport {
                 // acts as the session. Emit a synthetic session_info so ChatViewModel
                 // records the session ID.
                 let sessionId = (msg.correlationId.flatMap { $0.isEmpty ? nil : $0 }) ?? UUID().uuidString
-                // Remember private sessions so sendMessage can pass threadType to the backend.
-                if msg.threadType == "private" {
+                // Remember private sessions so sendMessage can pass conversationType to the backend.
+                if msg.conversationType == "private" {
                     self.privateSessionIds.insert(sessionId)
                 }
                 let info = ServerMessage.sessionInfo(

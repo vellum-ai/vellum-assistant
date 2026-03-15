@@ -399,7 +399,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
         // Immediately create a daemon session so the thread is persisted
         // before the user sends any messages.
-        viewModel.createSessionIfNeeded(threadType: "private")
+        viewModel.createSessionIfNeeded(conversationType: "private")
 
         log.info("Created private thread \(thread.id)")
     }
@@ -682,7 +682,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         serverOffset += response.sessions.count
 
         let recentSessions = response.sessions.filter {
-            $0.threadType != "private" && $0.channelBinding?.sourceChannel == nil
+            $0.conversationType != "private" && $0.channelBinding?.sourceChannel == nil
         }
 
         // Compute the next pinnedOrder based on existing pinned threads AND
@@ -720,7 +720,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 pinnedOrder: isPinned ? (session.displayOrder.map { Int($0) } ?? nextPinnedOrder) : nil,
                 displayOrder: session.displayOrder.map { Int($0) },
                 lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
-                kind: session.threadType == "private" ? .private : .standard,
+                kind: session.conversationType == "private" ? .private : .standard,
                 source: session.source,
                 scheduleJobId: session.scheduleJobId,
                 hasUnseenLatestAssistantMessage: session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false,
@@ -813,7 +813,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
 
         // Don't insert external-channel or private threads into the main sidebar
-        if session.threadType == "private" || session.channelBinding?.sourceChannel != nil {
+        if session.conversationType == "private" || session.channelBinding?.sourceChannel != nil {
             return false
         }
 
