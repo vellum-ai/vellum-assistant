@@ -328,6 +328,23 @@ describe("managed CES integration (real Unix socket)", () => {
     controller = new AbortController();
 
     // -- Start health server ---------------------------------------------------
+    // NOTE: This uses a local Bun.serve mock rather than the production
+    // `startHealthServer()` from managed-main.ts. The production function is
+    // not exported and depends on module-level mutable state (the
+    // `rpcConnected` flag) that cannot be controlled from tests.
+    //
+    // What this covers:
+    //   - The health endpoint contract (/healthz, /readyz response shapes)
+    //     that Kubernetes probes and the assistant runtime depend on.
+    //   - End-to-end socket + RPC + health plumbing in one integration flow.
+    //
+    // What this does NOT cover:
+    //   - The actual `startHealthServer()` implementation in managed-main.ts,
+    //     including the `rpcConnected` field in the /readyz response. If the
+    //     production health handler drifts (changes routes, status codes, or
+    //     response shape), this test will not catch it. To close that gap,
+    //     extract `startHealthServer` into an importable module so this test
+    //     can exercise the real code path.
     healthServer = Bun.serve({
       port: healthPort,
       fetch(req) {
