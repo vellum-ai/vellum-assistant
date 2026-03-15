@@ -178,6 +178,12 @@ public final class SettingsStore: ObservableObject {
     /// Values: "not_configured", "incomplete", "ready".
     @Published var channelSetupStatus: [String: String] = [:]
 
+    // MARK: - Provider Routing Sources
+
+    /// Per-provider routing source from the daemon debug endpoint.
+    /// Values: `"user-key"`, `"managed-proxy"`, or absent.
+    @Published var providerRoutingSources: [String: String] = [:]
+
     // MARK: - Platform Config State
 
     @Published var platformBaseUrl: String = ""
@@ -355,7 +361,10 @@ public final class SettingsStore: ObservableObject {
         // Re-sync all API keys to daemon when it reconnects
         NotificationCenter.default.publisher(for: .daemonDidReconnect)
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.syncAllKeysToDaemon() }
+            .sink { [weak self] _ in
+                self?.syncAllKeysToDaemon()
+                self?.loadProviderRoutingSources()
+            }
             .store(in: &cancellables)
 
         // maxStepsPerSession is read at session startup, so it must be persisted synchronously
@@ -649,6 +658,9 @@ public final class SettingsStore: ObservableObject {
         // Ingress config is refreshed by onAppear in SettingsPanel,
         // not here, to avoid duplicate get requests whose
         // stale responses could overwrite an optimistic toggle.
+
+        // Fetch provider routing sources (managed vs BYO) on init
+        loadProviderRoutingSources()
     }
 
     // MARK: - API Key Actions
@@ -661,6 +673,7 @@ public final class SettingsStore: ObservableObject {
         syncKeyToDaemon(provider: "anthropic", value: trimmed)
         hasKey = true
         maskedKey = Self.maskKey(trimmed)
+        scheduleRoutingSourceRefresh()
     }
 
     func clearAPIKey() {
@@ -669,6 +682,7 @@ public final class SettingsStore: ObservableObject {
         deleteKeyFromDaemon(provider: "anthropic")
         hasKey = false
         maskedKey = ""
+        scheduleRoutingSourceRefresh()
     }
 
     func saveBraveKey(_ raw: String) {
@@ -679,6 +693,7 @@ public final class SettingsStore: ObservableObject {
         syncKeyToDaemon(provider: "brave", value: trimmed)
         hasBraveKey = true
         maskedBraveKey = Self.maskKey(trimmed)
+        scheduleRoutingSourceRefresh()
     }
 
     func clearBraveKey() {
@@ -687,6 +702,7 @@ public final class SettingsStore: ObservableObject {
         deleteKeyFromDaemon(provider: "brave")
         hasBraveKey = false
         maskedBraveKey = ""
+        scheduleRoutingSourceRefresh()
     }
 
     func savePerplexityKey(_ raw: String) {
@@ -697,6 +713,7 @@ public final class SettingsStore: ObservableObject {
         syncKeyToDaemon(provider: "perplexity", value: trimmed)
         hasPerplexityKey = true
         maskedPerplexityKey = Self.maskKey(trimmed)
+        scheduleRoutingSourceRefresh()
     }
 
     func clearPerplexityKey() {
@@ -705,6 +722,7 @@ public final class SettingsStore: ObservableObject {
         deleteKeyFromDaemon(provider: "perplexity")
         hasPerplexityKey = false
         maskedPerplexityKey = ""
+        scheduleRoutingSourceRefresh()
     }
 
     func saveImageGenKey(_ raw: String) {
@@ -715,6 +733,7 @@ public final class SettingsStore: ObservableObject {
         syncKeyToDaemon(provider: "gemini", value: trimmed)
         hasImageGenKey = true
         maskedImageGenKey = Self.maskKey(trimmed)
+        scheduleRoutingSourceRefresh()
     }
 
     func clearImageGenKey() {
@@ -723,6 +742,7 @@ public final class SettingsStore: ObservableObject {
         deleteKeyFromDaemon(provider: "gemini")
         hasImageGenKey = false
         maskedImageGenKey = ""
+        scheduleRoutingSourceRefresh()
     }
 
     func saveElevenLabsKey(_ raw: String) {
@@ -1766,6 +1786,38 @@ public final class SettingsStore: ObservableObject {
             platformBaseUrl = previous
             AuthService.shared.configuredBaseURL = previous
             log.error("Failed to send platform config set: \(error)")
+        }
+    }
+
+    // MARK: - Provider Routing Sources
+
+    /// Fetches provider routing sources from the daemon debug endpoint and
+    /// updates `providerRoutingSources`. Non-fatal — silently ignores errors.
+    func loadProviderRoutingSources() {
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return }
+        Task {
+            do {
+                let response = try await GatewayHTTPClient.get(
+                    path: "assistants/\(assistantId)/debug",
+                    timeout: 10
+                )
+                guard response.isSuccess else { return }
+                guard let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                      let provider = json["provider"] as? [String: Any],
+                      let sources = provider["routingSources"] as? [String: String] else { return }
+                self.providerRoutingSources = sources
+            } catch {
+                log.error("Failed to load provider routing sources: \(error)")
+            }
+        }
+    }
+
+    /// Schedules a delayed refresh of provider routing sources, giving the
+    /// daemon time to re-initialize providers after a key change.
+    private func scheduleRoutingSourceRefresh() {
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            loadProviderRoutingSources()
         }
     }
 

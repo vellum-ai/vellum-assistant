@@ -135,6 +135,7 @@ struct SettingsPanel: View {
         .onAppear {
             isBillingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
             store.refreshAPIKeyState()
+            store.loadProviderRoutingSources()
             store.refreshTelegramStatus()
             store.refreshTwilioStatus()
             store.refreshIngressConfig()
@@ -325,6 +326,7 @@ struct SettingsPanel: View {
                 subtitle: "Required for AI responses",
                 isConnected: store.hasKey,
                 keyPlaceholder: "Enter your API key",
+                isManagedProxy: store.providerRoutingSources["anthropic"] == "managed-proxy",
                 keyText: $apiKeyText,
                 onSave: {
                     store.saveAPIKey(apiKeyText)
@@ -361,6 +363,7 @@ struct SettingsPanel: View {
                 subtitle: "Enables real-time web search in responses",
                 isConnected: store.hasPerplexityKey,
                 keyPlaceholder: "Enter your Perplexity API key",
+                isManagedProxy: store.providerRoutingSources["perplexity"] == "managed-proxy",
                 keyText: $perplexityKeyText,
                 onSave: {
                     store.savePerplexityKey(perplexityKeyText)
@@ -378,6 +381,7 @@ struct SettingsPanel: View {
                 subtitle: "Enables private web search in responses",
                 isConnected: store.hasBraveKey,
                 keyPlaceholder: "Enter your Brave Search API key",
+                isManagedProxy: store.providerRoutingSources["brave"] == "managed-proxy",
                 keyText: $braveKeyText,
                 onSave: {
                     store.saveBraveKey(braveKeyText)
@@ -395,6 +399,7 @@ struct SettingsPanel: View {
                 subtitle: "Enables AI image generation via Gemini",
                 isConnected: store.hasImageGenKey,
                 keyPlaceholder: "Enter your Gemini API key",
+                isManagedProxy: store.providerRoutingSources["gemini"] == "managed-proxy",
                 keyText: $imageGenKeyText,
                 onSave: {
                     store.saveImageGenKey(imageGenKeyText)
