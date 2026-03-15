@@ -568,12 +568,26 @@ export function createManageSecureCommandToolHandler(
     if (!request.sourceUrl) missing.push("sourceUrl");
     if (!request.sha256) missing.push("sha256");
     if (!request.credentialHandle) missing.push("credentialHandle");
+    if (!request.description) missing.push("description");
+    if (!request.secureCommandManifest) missing.push("secureCommandManifest");
     if (missing.length > 0) {
       return {
         success: false,
         error: {
           code: "MISSING_FIELDS",
           message: `Register action requires: ${missing.join(", ")}`,
+        },
+      };
+    }
+
+    // Validate HTTPS before downloading — CES is the security boundary
+    // and must not rely on the caller for URL scheme validation.
+    if (!request.sourceUrl!.startsWith("https://")) {
+      return {
+        success: false,
+        error: {
+          code: "INVALID_SOURCE_URL",
+          message: "sourceUrl must use HTTPS for secure bundle downloads.",
         },
       };
     }
@@ -592,6 +606,11 @@ export function createManageSecureCommandToolHandler(
       };
     }
 
+    // The caller provides the full secure command manifest via the RPC
+    // payload. Cast to the internal type — publishBundle() validates it.
+    const secureCommandManifest =
+      request.secureCommandManifest as unknown as import("./commands/profiles.js").SecureCommandManifest;
+
     // Publish into the immutable toolstore (includes digest verification)
     const publishResult = deps.publishBundle({
       bundleBytes,
@@ -599,13 +618,7 @@ export function createManageSecureCommandToolHandler(
       bundleId: request.bundleId!,
       version: request.version!,
       sourceUrl: request.sourceUrl!,
-      // The secure command manifest is embedded in the bundle; for now
-      // pass a minimal manifest with declared profiles.
-      secureCommandManifest: {
-        commandProfiles: Object.fromEntries(
-          (request.profiles ?? []).map((p) => [p, { command: request.toolName }]),
-        ),
-      } as unknown as import("./commands/profiles.js").SecureCommandManifest,
+      secureCommandManifest,
     });
 
     if (!publishResult.success) {
@@ -622,7 +635,7 @@ export function createManageSecureCommandToolHandler(
     deps.registerTool({
       toolName: request.toolName,
       credentialHandle: request.credentialHandle!,
-      description: request.description ?? "",
+      description: request.description!,
       bundleDigest: request.sha256!,
     });
 

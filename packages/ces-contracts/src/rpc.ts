@@ -145,6 +145,74 @@ export const ManageSecureCommandToolAction = {
 export type ManageSecureCommandToolAction =
   (typeof ManageSecureCommandToolAction)[keyof typeof ManageSecureCommandToolAction];
 
+/**
+ * Zod schema for allowed argv patterns within a command profile.
+ */
+const AllowedArgvPatternSchema = z.object({
+  name: z.string(),
+  tokens: z.array(z.string()),
+});
+
+/**
+ * Zod schema for allowed network targets within a command profile.
+ */
+const AllowedNetworkTargetSchema = z.object({
+  hostPattern: z.string(),
+  ports: z.array(z.number()).optional(),
+  protocols: z.array(z.enum(["http", "https"])).optional(),
+});
+
+/**
+ * Zod schema for a single command profile within a secure command manifest.
+ */
+const CommandProfileSchema = z.object({
+  description: z.string(),
+  allowedArgvPatterns: z.array(AllowedArgvPatternSchema),
+  deniedSubcommands: z.array(z.string()),
+  deniedFlags: z.array(z.string()).optional(),
+  allowedNetworkTargets: z.array(AllowedNetworkTargetSchema).optional(),
+});
+
+/**
+ * Zod schema for auth adapter configuration (discriminated union on `type`).
+ */
+const AuthAdapterConfigSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("env_var"),
+    envVarName: z.string(),
+    valuePrefix: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("temp_file"),
+    envVarName: z.string(),
+    fileExtension: z.string().optional(),
+    fileMode: z.number().optional(),
+  }),
+  z.object({
+    type: z.literal("credential_process"),
+    envVarName: z.string(),
+    helperCommand: z.string(),
+    timeoutMs: z.number().optional(),
+  }),
+]);
+
+/**
+ * Zod schema for the full secure command manifest passed during register.
+ * This mirrors the {@link SecureCommandManifest} interface in
+ * `credential-executor/src/commands/profiles.ts`.
+ */
+export const SecureCommandManifestSchema = z.object({
+  schemaVersion: z.string(),
+  bundleDigest: z.string(),
+  bundleId: z.string(),
+  version: z.string(),
+  entrypoint: z.string(),
+  commandProfiles: z.record(z.string(), CommandProfileSchema),
+  authAdapter: AuthAdapterConfigSchema,
+  egressMode: z.enum(["proxy_required", "no_network"]),
+  cleanConfigDirs: z.record(z.string(), z.string()).optional(),
+});
+
 export const ManageSecureCommandToolSchema = z.object({
   /** Whether to register or unregister the tool. */
   action: z.enum(["register", "unregister"]),
@@ -162,8 +230,12 @@ export const ManageSecureCommandToolSchema = z.object({
   sourceUrl: z.string().optional(),
   /** SHA-256 hex digest of the bundle for integrity verification (required for register). */
   sha256: z.string().optional(),
-  /** Declared credential profiles the bundle requires (e.g. ["aws", "github"]). */
-  profiles: z.array(z.string()).optional(),
+  /**
+   * Full secure command manifest for the bundle (required for register).
+   * Contains entrypoint, command profiles, auth adapter, egress mode, etc.
+   * CES validates this manifest before publishing the bundle.
+   */
+  secureCommandManifest: SecureCommandManifestSchema.optional(),
 });
 export type ManageSecureCommandTool = z.infer<
   typeof ManageSecureCommandToolSchema
