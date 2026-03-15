@@ -8,8 +8,9 @@ import VellumAssistantShared
 /// creates/discovers a managed assistant on the platform, imports the bundle,
 /// switches the active connection, and retires the local assistant.
 ///
-/// For managed assistants, shows a placeholder "Transfer to Local" button
-/// (implementation in a follow-up PR).
+/// For managed assistants, offers "Transfer to Local" which initiates an async
+/// platform export, polls for completion, downloads the bundle, ensures a local
+/// assistant exists, imports the bundle, switches, and retires the managed one.
 @MainActor
 struct AssistantTransferSection: View {
     let assistant: LockfileAssistant
@@ -20,6 +21,7 @@ struct AssistantTransferSection: View {
     @State private var isTransferring = false
     @State private var currentStep: String?
     @State private var showingConfirmation = false
+    @State private var showingManagedConfirmation = false
     @State private var errorMessage: String?
     @State private var successMessage: String?
 
@@ -70,6 +72,14 @@ struct AssistantTransferSection: View {
         } message: {
             Text("This will move all conversations, memory, and settings to a cloud-hosted assistant, then retire the local one. This cannot be undone.")
         }
+        .alert("Transfer to Local", isPresented: $showingManagedConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Transfer", role: .destructive) {
+                Task { await transferManagedToLocal() }
+            }
+        } message: {
+            Text("This will move all conversations, memory, and settings to a local assistant on this Mac, then retire the cloud one. This cannot be undone.")
+        }
     }
 
     // MARK: - Local → Managed Content
@@ -104,16 +114,12 @@ struct AssistantTransferSection: View {
             .foregroundColor(VColor.contentTertiary)
 
         VButton(
-            label: "Transfer to Local",
+            label: isTransferring ? "Transferring..." : "Transfer to Local",
             style: .primary,
-            isDisabled: true
+            isDisabled: isTransferring
         ) {
-            // Implementation in PR 3
+            showingManagedConfirmation = true
         }
-
-        Text("Coming soon")
-            .font(VFont.caption)
-            .foregroundColor(VColor.contentTertiary)
     }
 
     // MARK: - Transfer Logic
@@ -170,6 +176,169 @@ struct AssistantTransferSection: View {
             errorMessage = "Transfer failed: \(error.localizedDescription)"
         }
     }
+
+    // MARK: - Managed → Local Transfer Logic
+
+    private func transferManagedToLocal() async {
+        isTransferring = true
+        errorMessage = nil
+        successMessage = nil
+        defer {
+            isTransferring = false
+            currentStep = nil
+        }
+
+        // Pre-save auth credentials before any switching
+        let savedSessionToken = SessionTokenManager.getToken()
+        let savedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
+        let savedPlatformUrl = AuthService.shared.baseURL
+        let managedAssistantId = assistant.assistantId
+
+        do {
+            // Step 1 — Initiate export
+            currentStep = "Requesting cloud export..."
+            let exportResponse = try await GatewayHTTPClient.post(path: "migrations/export")
+            guard exportResponse.isSuccess else {
+                throw TransferError.exportFailed(statusCode: exportResponse.statusCode)
+            }
+            guard let exportJson = try? JSONSerialization.jsonObject(with: exportResponse.data) as? [String: Any],
+                  let jobId = exportJson["job_id"] as? String else {
+                throw TransferError.exportFailed(statusCode: 0)
+            }
+
+            // Step 2 — Poll for completion (up to 5 minutes)
+            currentStep = "Waiting for export..."
+            var downloadUrl: String?
+            for _ in 0..<100 {
+                let statusResponse = try await GatewayHTTPClient.get(path: "migrations/export/\(jobId)/status")
+                guard statusResponse.isSuccess,
+                      let statusJson = try? JSONSerialization.jsonObject(with: statusResponse.data) as? [String: Any],
+                      let status = statusJson["status"] as? String else {
+                    throw TransferError.exportFailed(statusCode: statusResponse.statusCode)
+                }
+
+                if status == "complete" {
+                    guard let url = statusJson["download_url"] as? String else {
+                        throw TransferError.exportFailed(statusCode: 0)
+                    }
+                    downloadUrl = url
+                    break
+                } else if status == "failed" {
+                    let errorMsg = (statusJson["error"] as? String) ?? "Export job failed"
+                    throw TransferError.importFailed(message: errorMsg)
+                } else if status == "pending" || status == "processing" {
+                    try await Task.sleep(nanoseconds: 3_000_000_000)
+                } else {
+                    throw TransferError.exportFailed(statusCode: 0)
+                }
+            }
+
+            guard let finalDownloadUrl = downloadUrl else {
+                throw TransferError.exportTimedOut
+            }
+
+            // Step 3 — Download bundle
+            currentStep = "Downloading assistant data..."
+            guard let bundleURL = URL(string: finalDownloadUrl) else {
+                throw TransferError.invalidURL
+            }
+            let (bundleData, dlResponse) = try await URLSession.shared.data(from: bundleURL)
+            guard let httpDlResponse = dlResponse as? HTTPURLResponse, httpDlResponse.statusCode == 200 else {
+                let statusCode = (dlResponse as? HTTPURLResponse)?.statusCode ?? 0
+                throw TransferError.exportFailed(statusCode: statusCode)
+            }
+
+            // Step 4 — Ensure local assistant exists
+            currentStep = "Preparing local assistant..."
+            var localAssistant = LockfileAssistant.loadAll().first(where: { !$0.isRemote && !$0.isManaged })
+            if localAssistant == nil {
+                try await AppDelegate.shared?.assistantCli.hatch()
+                localAssistant = LockfileAssistant.loadAll().first(where: { !$0.isRemote && !$0.isManaged })
+            }
+            guard let resolvedLocal = localAssistant else {
+                throw TransferError.localAssistantNotFound
+            }
+
+            // Wait for daemon readiness (up to 30s)
+            let daemonPort = resolvedLocal.resolvedDaemonPort()
+            let healthURL = URL(string: "http://localhost:\(daemonPort)/healthz")!
+            for i in 0..<30 {
+                if let (_, healthResp) = try? await URLSession.shared.data(from: healthURL),
+                   let httpHealth = healthResp as? HTTPURLResponse,
+                   httpHealth.statusCode == 200 {
+                    break
+                }
+                if i == 29 {
+                    throw TransferError.localAssistantNotFound
+                }
+                try await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+
+            // Step 5 — Wait for actor token (up to 30s)
+            var actorToken: String?
+            for i in 0..<30 {
+                if let token = ActorTokenManager.getToken(), !token.isEmpty {
+                    actorToken = token
+                    break
+                }
+                if i == 29 {
+                    throw TransferError.notSignedIn
+                }
+                try await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+
+            // Step 6 — Import to local
+            currentStep = "Importing data..."
+            guard let importURL = URL(string: "http://localhost:\(daemonPort)/v1/migrations/import") else {
+                throw TransferError.invalidURL
+            }
+            var importRequest = URLRequest(url: importURL)
+            importRequest.httpMethod = "POST"
+            importRequest.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+            importRequest.setValue("Bearer \(actorToken!)", forHTTPHeaderField: "Authorization")
+            importRequest.httpBody = bundleData
+            importRequest.timeoutInterval = 120
+
+            let (importData, importResponse) = try await URLSession.shared.data(for: importRequest)
+            guard let httpImportResponse = importResponse as? HTTPURLResponse,
+                  httpImportResponse.statusCode == 200 else {
+                let statusCode = (importResponse as? HTTPURLResponse)?.statusCode ?? 0
+                throw TransferError.importFailed(message: "HTTP \(statusCode)")
+            }
+            if let importJson = try? JSONSerialization.jsonObject(with: importData) as? [String: Any],
+               let success = importJson["success"] as? Bool, !success {
+                let errorMsg = (importJson["error"] as? String) ?? "Import reported failure"
+                throw TransferError.importFailed(message: errorMsg)
+            }
+
+            // Step 7 — Switch to local assistant
+            currentStep = "Switching to local assistant..."
+            AppDelegate.shared?.performSwitchAssistant(to: resolvedLocal)
+            onClose()
+
+            // Step 8 — Retire managed assistant (fire-and-forget)
+            currentStep = "Cleaning up..."
+            if let token = savedSessionToken {
+                let retireUrlString = "\(savedPlatformUrl)/v1/assistants/\(managedAssistantId)/retire/"
+                if let retireURL = URL(string: retireUrlString) {
+                    var retireRequest = URLRequest(url: retireURL)
+                    retireRequest.httpMethod = "DELETE"
+                    retireRequest.timeoutInterval = 30
+                    retireRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
+                    if let orgId = savedOrgId {
+                        retireRequest.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
+                    }
+                    _ = try? await URLSession.shared.data(for: retireRequest)
+                }
+            }
+
+            successMessage = "Transfer complete. You are now using a local assistant."
+        } catch {
+            errorMessage = "Transfer failed: \(error.localizedDescription)"
+        }
+    }
+
+    // MARK: - Local → Managed Transfer Helpers
 
     /// Exports the local assistant's data as a `.vbundle` binary archive.
     private func exportAssistantBundle() async throws -> Data {
@@ -247,8 +416,10 @@ private enum TransferError: LocalizedError {
     case invalidResponse
     case notSignedIn
     case exportFailed(statusCode: Int)
+    case exportTimedOut
     case importFailed(message: String)
     case managedEntryNotFound
+    case localAssistantNotFound
 
     var errorDescription: String? {
         switch self {
@@ -260,10 +431,14 @@ private enum TransferError: LocalizedError {
             return "Sign in required to transfer"
         case .exportFailed(let statusCode):
             return "Export failed (HTTP \(statusCode))"
+        case .exportTimedOut:
+            return "Export timed out after 5 minutes"
         case .importFailed(let message):
             return "Import failed: \(message)"
         case .managedEntryNotFound:
             return "Could not find managed assistant entry after creation"
+        case .localAssistantNotFound:
+            return "Could not find or create a local assistant"
         }
     }
 }
