@@ -632,6 +632,7 @@ struct MessageListView: View {
                                 )
                             }
                         }
+                        .transaction { $0.disablesAnimations = true }
 
                     if !displayMessages.isEmpty && ConversationAvatarFollower.bottomInset > 0 {
                         Color.clear
@@ -713,15 +714,18 @@ struct MessageListView: View {
                 anchorTracker.updateViewport(height: height, storedViewportHeight: &scrollViewportHeight)
                 os_signpost(.end, log: PerfSignposts.log, name: "anchorPreferenceChange")
             }
+            .transaction { $0.disablesAnimations = true }
             .onPreferenceChange(AnchorMinYKey.self) { minY in
                 os_signpost(.begin, log: PerfSignposts.log, name: "anchorPreferenceChange")
                 anchorTracker.update(minY: minY, viewportHeight: scrollViewportHeight)
                 if !hasFreshAnchorMeasurement { hasFreshAnchorMeasurement = true }
                 os_signpost(.end, log: PerfSignposts.log, name: "anchorPreferenceChange")
             }
+            .transaction { $0.disablesAnimations = true }
             .onPreferenceChange(ConversationTailAnchorYKey.self) { anchorY in
                 updateAvatarFollower(anchorY: anchorY)
             }
+            .transaction { $0.disablesAnimations = true }
             .overlay(alignment: .topLeading) {
                 conversationTailAvatar
             }
