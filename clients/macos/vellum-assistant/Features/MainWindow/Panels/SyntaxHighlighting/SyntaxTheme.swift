@@ -27,7 +27,7 @@ struct SyntaxTheme {
     /// Tokenizes `text` for `language` and returns an `AttributedString` with
     /// syntax-colored foreground colors and appropriate font variants.
     static func highlight(_ text: String, language: SyntaxLanguage) -> AttributedString {
-        let baseFont = Font.custom("DMMono-Regular", size: 13)
+        let baseFont = VFont.mono
 
         var attributedString = AttributedString(text)
         attributedString.foregroundColor = VColor.contentDefault
@@ -53,9 +53,9 @@ struct SyntaxTheme {
 
             switch token.type {
             case .heading, .bold:
-                attributedString[attrRange].font = Font.custom("DMMono-Regular", size: 13).bold()
+                attributedString[attrRange].font = VFont.mono.bold()
             case .italic:
-                attributedString[attrRange].font = Font.custom("DMMono-Regular", size: 13).italic()
+                attributedString[attrRange].font = VFont.mono.italic()
             default:
                 break
             }
