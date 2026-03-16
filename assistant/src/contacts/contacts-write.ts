@@ -15,6 +15,7 @@ import {
   findContactChannel,
   findGuardianForChannel,
   getChannelById,
+  getContact,
   getContactInternal,
   updateChannelInteraction,
   updateChannelLastSeenById,
@@ -166,7 +167,17 @@ export function upsertContactChannel(params: {
     return null;
   }
 
-  const displayName = params.displayName ?? params.externalUserId ?? "Unknown";
+  let displayName = params.displayName ?? params.externalUserId ?? "Unknown";
+
+  // When binding a channel to a specific contact (invite redemption), preserve
+  // the target contact's curated displayName (e.g. "Mom") instead of overwriting
+  // it with the redeemer's externalUserId.
+  if (params.contactId) {
+    const targetContact = getContact(params.contactId);
+    if (targetContact?.displayName?.trim().length) {
+      displayName = targetContact.displayName;
+    }
+  }
 
   const canonicalId = params.externalUserId
     ? (canonicalizeInboundIdentity(
