@@ -288,8 +288,8 @@ export async function hatchDocker(
     closeLogFile(logFd);
     console.log("✅ Docker image built\n");
   } else {
-    const version = cliPkg.version ?? "latest";
-    imageTag = `${DOCKERHUB_IMAGE}:v${version}`;
+    const version = cliPkg.version;
+    imageTag = version ? `${DOCKERHUB_IMAGE}:v${version}` : `${DOCKERHUB_IMAGE}:latest`;
 
     console.log(`🥚 Hatching Docker assistant: ${instanceName}`);
     console.log(`   Species: ${species}`);
