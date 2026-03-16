@@ -220,6 +220,9 @@ final class OnboardingState {
         skippedAuth = false
         skippedAPIKeyEntry = false
 
+        // Reset ToS acceptance so the user must re-accept on re-hatch
+        UserDefaults.standard.set(false, forKey: "tosAccepted")
+
         // Clear stored API key so the user starts fresh
         APIKeyManager.deleteKey(for: "anthropic")
 

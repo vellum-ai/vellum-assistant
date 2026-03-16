@@ -15,14 +15,14 @@ struct ImproveExperienceStepView: View {
     @State private var tosAccepted: Bool = UserDefaults.standard.bool(forKey: "tosAccepted")
 
     var body: some View {
-        Text("Help improve Vellum")
+        Text("Almost there!")
             .font(.system(size: 32, weight: .regular, design: .serif))
             .foregroundColor(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
 
-        Text("You can change these settings at any time in Settings > Privacy.")
+        Text("Before we start, we need to ask you for a few permissions.")
             .font(.system(size: 16))
             .foregroundColor(VColor.contentSecondary)
             .opacity(showTitle ? 1 : 0)
@@ -82,7 +82,7 @@ struct ImproveExperienceStepView: View {
                 )
 
                 OnboardingButton(
-                    title: "Continue",
+                    title: "Accept and Hatch",
                     style: .primary,
                     disabled: !tosAccepted
                 ) {
