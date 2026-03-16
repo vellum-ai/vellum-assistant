@@ -364,6 +364,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 let ready = await awaitDaemonReady(timeout: 15)
 
                 if ready {
+                    // If the user is signed in with a local assistant, wait for
+                    // credential provisioning to complete before sending the wake-up
+                    // greeting, so the managed-proxy key is available for the LLM call.
+                    if authManager.isAuthenticated && !isCurrentAssistantManaged {
+                        await awaitLocalBootstrapCompleted(timeout: 30)
+                    }
+
                     // Daemon connected within timeout — proceed directly
                     // to mandatory wake-up send with retries.
                     transitionBootstrap(to: .pendingWakeupSend)
