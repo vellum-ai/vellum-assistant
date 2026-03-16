@@ -99,7 +99,7 @@ final class SecretPromptManager {
 
         panels[message.requestId] = panel
         panelPresenter(panel)
-        panel.makeKeyAndOrderFront(nil)
+        panel.makeKey()
 
         log.info("Showing secret prompt: requestId=\(message.requestId), service=\(message.service), field=\(message.field)")
     }
