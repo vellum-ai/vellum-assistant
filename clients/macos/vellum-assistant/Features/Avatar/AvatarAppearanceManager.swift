@@ -244,6 +244,22 @@ final class AvatarAppearanceManager {
         loadAvatarComponents()
     }
 
+    /// Clears all cached avatar state and resets the dock icon to the default
+    /// bundle icon without deleting any files on disk.
+    /// Called during logout, retire, and switch-assistant flows.
+    func resetForDisconnect() {
+        customAvatarImage = nil
+        characterBodyShape = nil
+        characterEyeStyle = nil
+        characterColor = nil
+        cachedChatAvatar = nil
+        cachedFallbackAvatar = nil
+        cachedFallbackName = nil
+        cachedFullFallbackAvatar = nil
+        cachedFullFallbackName = nil
+        updateDockIcon()
+    }
+
     func clearCustomAvatar() {
         try? FileManager.default.removeItem(at: customAvatarURL)
         try? FileManager.default.removeItem(at: Self.legacyAppSupportCustomAvatarURL())

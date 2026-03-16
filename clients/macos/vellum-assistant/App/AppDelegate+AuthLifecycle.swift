@@ -157,6 +157,9 @@ extension AppDelegate {
                 _ = KeychainCredentialStorage().delete(account: credentialAccount)
             }
 
+            // Reset dock icon to default before tearing down UI
+            AvatarAppearanceManager.shared.resetForDisconnect()
+
             let detachedWindow = mainWindow?.detachWindow()
             mainWindow = nil
             conversationBadgeCancellable?.cancel()
@@ -297,6 +300,8 @@ extension AppDelegate {
         // 2. Disconnect transport — leave the old daemon running so it stays
         //    awake and can be switched back to without a cold start.
         daemonClient.disconnect()
+        // Reset dock icon to default before loading the new assistant's avatar
+        AvatarAppearanceManager.shared.resetForDisconnect()
         // Close and recreate the main window to reset thread/session state
         mainWindow?.close()
         mainWindow = nil
@@ -326,6 +331,10 @@ extension AppDelegate {
         //    when the app was launched via Finder/open). Push keys from
         //    UserDefaults so the daemon can initialize its LLM providers.
         syncApiKeysToAssistant(assistant)
+
+        // Reload avatar for the new assistant (customAvatarURL now resolves
+        // to the new assistant's path after connectedAssistantId was updated).
+        AvatarAppearanceManager.shared.reloadAvatar()
 
         showMainWindow()
     }
@@ -456,6 +465,7 @@ extension AppDelegate {
         }
 
         // No assistants left — tear down fully and show onboarding
+        AvatarAppearanceManager.shared.resetForDisconnect()
         OnboardingState.clearPersistedState()
         UserDefaults.standard.removeObject(forKey: "bootstrapState")
         UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
