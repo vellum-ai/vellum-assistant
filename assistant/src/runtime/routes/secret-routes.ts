@@ -171,16 +171,9 @@ export async function handleAddSecret(
       const effectiveValue = isTrimmedIdentity ? value.trim() : value;
 
       if (isTrimmedIdentity && effectiveValue === "") {
-        // Whitespace-only → clear in-memory state and remove stale credential
-        // from the secure store so it doesn't get rehydrated on restart.
-        if (field === "platform_assistant_id") {
-          setPlatformAssistantId(undefined);
-        } else if (field === "platform_organization_id") {
-          setPlatformOrganizationId(undefined);
-          setSentryOrganizationId(undefined);
-        } else if (field === "platform_user_id") {
-          setPlatformUserId(undefined);
-        }
+        // Whitespace-only → remove stale credential from the secure store,
+        // then clear in-memory state. Delete first so that if it fails we
+        // return 500 without having mutated in-memory identity.
         const deleteResult = await deleteSecureKeyAsync(key);
         if (deleteResult === "error") {
           return httpError(
@@ -188,6 +181,14 @@ export async function handleAddSecret(
             `Failed to delete stale credential from secure storage: ${service}:${field}`,
             500,
           );
+        }
+        if (field === "platform_assistant_id") {
+          setPlatformAssistantId(undefined);
+        } else if (field === "platform_organization_id") {
+          setPlatformOrganizationId(undefined);
+          setSentryOrganizationId(undefined);
+        } else if (field === "platform_user_id") {
+          setPlatformUserId(undefined);
         }
         deleteCredentialMetadata(service, field);
       } else {
