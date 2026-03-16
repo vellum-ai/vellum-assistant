@@ -73,8 +73,7 @@ extension MainWindowView {
                     }
                 },
                 onNewConversation: {
-                    conversationManager.openConversation(message: "What kind of apps can you build?", forceNew: true)
-                    windowState.selection = nil
+                    startNewConversation()
                 }
             )
         case .intelligence:
@@ -272,8 +271,7 @@ extension MainWindowView {
                         }
                     },
                     onNewConversation: {
-                        conversationManager.openConversation(message: "What kind of apps can you build?", forceNew: true)
-                        windowState.selection = nil
+                        startNewConversation()
                     }
                 )
                 .overlay(alignment: .topTrailing) { panelDismissButton }
@@ -444,8 +442,7 @@ extension MainWindowView {
                     }
                 },
                 onNewConversation: {
-                    conversationManager.openConversation(message: "What kind of apps can you build?", forceNew: true)
-                    windowState.dismissOverlay()
+                    startNewConversation()
                 }
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }
