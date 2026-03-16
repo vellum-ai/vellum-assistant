@@ -644,6 +644,15 @@ extension AppDelegate {
         creditsString.append(NSAttributedString(string: "\n", attributes: pathAttributes))
         #endif
 
+        if let commitSHA = Bundle.main.infoDictionary?["VellumCommitSHA"] as? String, !commitSHA.isEmpty {
+            let commitAttributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular),
+                .foregroundColor: NSColor.secondaryLabelColor
+            ]
+            let shortSHA = String(commitSHA.prefix(7))
+            creditsString.append(NSAttributedString(string: "Commit: \(shortSHA)\n", attributes: commitAttributes))
+        }
+
         let archLabel: String
         #if arch(arm64)
         archLabel = "Apple Silicon (arm64)"

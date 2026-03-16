@@ -78,6 +78,7 @@ MACOS_BUILD_DIR="$SCRIPT_DIR/../clients/macos"
 # ---------------------------------------------------------------------------
 
 export BUNDLE_DISPLAY_NAME="Vellum (Staging)"
+export COMMIT_SHA="${COMMIT_SHA:-$(git rev-parse HEAD 2>/dev/null || echo "")}"
 
 echo "Building staging release (arm64)..."
 "$MACOS_BUILD_DIR/build.sh" release

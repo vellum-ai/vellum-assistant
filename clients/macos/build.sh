@@ -676,6 +676,15 @@ if [ "$CMD" = "run" ] && [ -z "${VELLUM_PLATFORM_URL:-}" ]; then
 fi
 
 # Always regenerate Info.plist (fast, depends on env vars like DISPLAY_VERSION)
+COMMIT_SHA_PLIST=""
+if [ -n "${COMMIT_SHA:-}" ]; then
+    COMMIT_SHA_PLIST=$(cat <<EOF
+    <key>VellumCommitSHA</key>
+    <string>$COMMIT_SHA</string>
+EOF
+)
+fi
+
 LSE_ENVIRONMENT_PLIST=""
 if [ -n "${VELLUM_PLATFORM_URL:-}" ]; then
     PLATFORM_URL_OVERRIDE="${VELLUM_PLATFORM_URL%/}"
@@ -716,6 +725,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <key>LSUIElement</key>
     <true/>
     $LSE_ENVIRONMENT_PLIST
+    $COMMIT_SHA_PLIST
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>LSApplicationCategoryType</key>
