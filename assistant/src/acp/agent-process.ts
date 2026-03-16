@@ -183,7 +183,7 @@ export class AcpAgentProcess {
    * Handles process exit by logging the event.
    */
   private handleProcessExit(code: number | null): void {
-    if (code !== 0) {
+    if (code != undefined && code !== 0) {
       log.error(
         { agentId: this.agentId, exitCode: code },
         "ACP agent process exited with error",
@@ -194,5 +194,8 @@ export class AcpAgentProcess {
         "ACP agent process exited",
       );
     }
+
+    this.proc = null;
+    this.connection = null;
   }
 }
