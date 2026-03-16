@@ -24,7 +24,8 @@ struct IdentityPanel: View {
 
     /// Whether the BOOTSTRAP.md first-run ritual is still in progress.
     private var isBootstrapActive: Bool {
-        FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.vellum/workspace/BOOTSTRAP.md")
+        let base = lockfileAssistant?.instanceDir ?? NSHomeDirectory()
+        return FileManager.default.fileExists(atPath: base + "/.vellum/workspace/BOOTSTRAP.md")
     }
 
     private let panelPadding: CGFloat = VSpacing.xl

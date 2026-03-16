@@ -91,7 +91,8 @@ struct MainWindowView: View {
 
     /// Whether the BOOTSTRAP.md first-run ritual is still in progress.
     private var isBootstrapOnboardingActive: Bool {
-        FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.vellum/workspace/BOOTSTRAP.md")
+        let base = daemonClient.config.instanceDir ?? NSHomeDirectory()
+        return FileManager.default.fileExists(atPath: base + "/.vellum/workspace/BOOTSTRAP.md")
     }
 
     func toggleVoiceMode() {
