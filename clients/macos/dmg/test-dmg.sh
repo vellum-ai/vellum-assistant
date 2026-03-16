@@ -18,10 +18,15 @@ if [ ! -d "$APP_PATH" ]; then
   ./build.sh release
 fi
 
-# Generate background
+# Use pre-generated background (fall back to generating if missing)
 mkdir -p build
-echo "Generating DMG background..."
-swift dmg/generate-background.swift build/dmg-background@2x.png
+if [ -f "dmg/dmg-background@2x.png" ]; then
+  echo "Using pre-generated DMG background..."
+  cp dmg/dmg-background@2x.png build/dmg-background@2x.png
+else
+  echo "Generating DMG background..."
+  swift dmg/generate-background.swift build/dmg-background@2x.png
+fi
 
 # Stage files
 DMG_STAGING="build/dmg-staging"

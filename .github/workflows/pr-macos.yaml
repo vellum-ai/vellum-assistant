@@ -186,11 +186,6 @@ jobs:
           rm -rf ~/Library/Caches/org.swift.swiftpm 2>/dev/null || true
           df -h .
 
-      - name: Generate DMG background
-        run: |
-          mkdir -p build
-          swift dmg/generate-background.swift build/dmg-background@2x.png
-
       - name: Cache Homebrew create-dmg
         id: cache-create-dmg
         uses: actions/cache@v4
@@ -219,7 +214,7 @@ jobs:
 
           create-dmg \
             --volname "$APP_DISPLAY_NAME" \
-            --background "build/dmg-background@2x.png" \
+            --background "dmg/dmg-background@2x.png" \
             --window-pos 200 120 \
             --window-size 660 400 \
             --icon-size 128 \
