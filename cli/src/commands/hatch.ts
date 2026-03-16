@@ -630,7 +630,10 @@ async function hatchLocal(
   // to archive it (or a managed-only retire left local data behind). Remove the
   // workspace subtree so the new assistant starts fresh — but preserve the rest
   // of .vellum (e.g. protected/, credentials) which may be shared.
-  if (existingEntry?.cloud !== "local") {
+  if (
+    !existingEntry ||
+    (existingEntry.cloud != null && existingEntry.cloud !== "local")
+  ) {
     const instanceWorkspaceDir = join(
       resources.instanceDir,
       ".vellum",
@@ -638,7 +641,8 @@ async function hatchLocal(
     );
     if (existsSync(instanceWorkspaceDir)) {
       const ownedByOther = loadAllAssistants().some((a) => {
-        if (a.cloud !== "local" || !a.resources) return false;
+        if ((a.cloud != null && a.cloud !== "local") || !a.resources)
+          return false;
         return (
           join(a.resources.instanceDir, ".vellum", "workspace") ===
           instanceWorkspaceDir
