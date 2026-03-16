@@ -71,7 +71,7 @@ struct SettingsBillingTab: View {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(.triangleAlert, size: 14)
                         .foregroundColor(VColor.systemMidStrong)
-                    Text("Your balance is low. Add funds to avoid service interruption.")
+                    Text("Pending charges could not be calculated. The balance shown may be incomplete.")
                         .font(VFont.body)
                         .foregroundColor(VColor.systemMidStrong)
                 }
