@@ -37,7 +37,8 @@ export async function generateAppIcon(
   appDescription?: string,
 ): Promise<void> {
   const config = getConfig();
-  const apiKey = await getSecureKeyAsync("gemini");
+  const apiKey =
+    (await getSecureKeyAsync("gemini")) ?? process.env.GEMINI_API_KEY;
 
   let credentials: ImageGenCredentials | undefined;
   if (apiKey) {
