@@ -94,8 +94,12 @@ public final class SkillsStore: ObservableObject {
     private var lastSearchQuery: String?
     private var draftTask: Task<Void, Never>?
     private var createTask: Task<Void, Never>?
+    private var skillDetailTask: Task<Void, Never>?
+    private var skillFilesTask: Task<Void, Never>?
     private var draftGeneration: Int = 0
     private var createGeneration: Int = 0
+    private var currentDetailSkillId: String?
+    private var currentFilesSkillId: String?
 
     // MARK: - Init
 
@@ -451,12 +455,15 @@ public final class SkillsStore: ObservableObject {
     // MARK: - Fetch Skill Detail
 
     public func fetchSkillDetail(skillId: String) {
-        guard !isLoadingSkillDetail else { return }
+        skillDetailTask?.cancel()
+        currentDetailSkillId = skillId
         isLoadingSkillDetail = true
         skillDetailError = nil
+        selectedSkillDetail = nil
 
-        Task {
+        skillDetailTask = Task {
             let result = await daemonClient.httpTransport?.fetchSkillDetail(skillId: skillId)
+            guard self.currentDetailSkillId == skillId else { return }
             if let result {
                 selectedSkillDetail = result
             } else {
@@ -469,12 +476,15 @@ public final class SkillsStore: ObservableObject {
     // MARK: - Fetch Skill Files
 
     public func fetchSkillFiles(skillId: String) {
-        guard !isLoadingSkillFiles else { return }
+        skillFilesTask?.cancel()
+        currentFilesSkillId = skillId
         isLoadingSkillFiles = true
         skillFilesError = nil
+        selectedSkillFiles = nil
 
-        Task {
+        skillFilesTask = Task {
             let result = await daemonClient.httpTransport?.fetchSkillFiles(skillId: skillId)
+            guard self.currentFilesSkillId == skillId else { return }
             if let result {
                 selectedSkillFiles = result
             } else {
@@ -487,6 +497,12 @@ public final class SkillsStore: ObservableObject {
     // MARK: - Clear Skill Detail
 
     public func clearSkillDetail() {
+        skillDetailTask?.cancel()
+        skillFilesTask?.cancel()
+        skillDetailTask = nil
+        skillFilesTask = nil
+        currentDetailSkillId = nil
+        currentFilesSkillId = nil
         selectedSkillDetail = nil
         selectedSkillFiles = nil
         isLoadingSkillDetail = false
