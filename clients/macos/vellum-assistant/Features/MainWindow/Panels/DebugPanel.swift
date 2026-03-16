@@ -29,7 +29,9 @@ struct DebugPanel: View {
                         subtitle: "Events will appear as the session runs",
                         icon: "waveform.path"
                     )
-                    .containerRelativeFrame([.horizontal, .vertical])
+                    .containerRelativeFrame([.horizontal, .vertical]) { size, _ in
+                        CGSize(width: size.width - 2 * VSpacing.lg, height: size.height - 2 * VSpacing.lg)
+                    }
                 }
             } else {
                 VEmptyState(
@@ -37,7 +39,9 @@ struct DebugPanel: View {
                     subtitle: "Start a conversation to see trace events",
                     icon: "ant"
                 )
-                .containerRelativeFrame([.horizontal, .vertical])
+                .containerRelativeFrame([.horizontal, .vertical]) { size, _ in
+                        CGSize(width: size.width - 2 * VSpacing.lg, height: size.height - 2 * VSpacing.lg)
+                    }
             }
         }
         .onAppear { traceStore.isObserved = true }
