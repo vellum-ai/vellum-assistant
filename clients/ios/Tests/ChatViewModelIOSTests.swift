@@ -124,23 +124,23 @@ final class ChatViewModelIOSTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(mockClient.sentMessages.count, 1)
     }
 
-    // MARK: - Session Info
+    // MARK: - Conversation Info
 
-    func testSessionInfoStoresSessionId() {
+    func testConversationInfoStoresConversationId() {
         viewModel.bootstrapCorrelationId = "corr-1"
         let info = ConversationInfoMessage(conversationId: "ios-sess-123", title: "iOS Test", correlationId: "corr-1")
         viewModel.handleServerMessage(.conversationInfo(info))
         XCTAssertEqual(viewModel.conversationId, "ios-sess-123")
     }
 
-    func testSessionInfoDoesNotOverwriteExistingSession() {
+    func testConversationInfoDoesNotOverwriteExistingConversation() {
         viewModel.conversationId = "first-session"
         let info = ConversationInfoMessage(conversationId: "second-session", title: "Test")
         viewModel.handleServerMessage(.conversationInfo(info))
         XCTAssertEqual(viewModel.conversationId, "first-session")
     }
 
-    func testSessionInfoClearsBootstrapState() {
+    func testConversationInfoClearsBootstrapState() {
         // Simulate a bootstrap scenario
         viewModel.inputText = "Hello"
         viewModel.sendMessage()
@@ -372,7 +372,7 @@ final class ChatViewModelIOSTests: XCTestCase {
         XCTAssertEqual(callCount, 1, "onFirstUserMessage should fire only once")
     }
 
-    func testOnSessionCreatedCallbackFires() {
+    func testOnConversationCreatedCallbackFires() {
         var capturedSessionId: String?
         viewModel.onConversationCreated = { conversationId in
             capturedSessionId = conversationId
