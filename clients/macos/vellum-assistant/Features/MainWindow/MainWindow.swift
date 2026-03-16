@@ -9,10 +9,9 @@ import SwiftUI
 private class MainWindowCloseDelegate: NSObject, NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         sender.orderOut(nil)
-        // Hide from the dock if no other real app windows remain visible.
-        // The sender is excluded because it was just hidden and may still
-        // report isVisible=true on this run-loop iteration.
-        AppDelegate.shared?.revertActivationPolicyIfNoWindows(excluding: sender)
+        // Switch to accessory policy so the app disappears from the dock
+        // but remains accessible via the menu bar status item.
+        NSApp.setActivationPolicy(.accessory)
         return false
     }
 }
