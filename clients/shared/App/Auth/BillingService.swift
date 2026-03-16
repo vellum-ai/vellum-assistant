@@ -102,10 +102,9 @@ public final class BillingService {
         }
         bootstrapTasks[orgId] = task
         let result = await task.value
-        // Only clear if this is still the current task — avoid clobbering a newer reference
-        if bootstrapTasks[orgId] == task {
-            bootstrapTasks[orgId] = nil
-        }
+        // Safe to clear unconditionally: @MainActor serialization guarantees no concurrent
+        // mutation between the await resumption and this line.
+        bootstrapTasks[orgId] = nil
         return result
     }
 
