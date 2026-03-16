@@ -35,14 +35,20 @@ struct ReadOnlyCodeContent: View {
     let content: String
 
     var body: some View {
-        ScrollView([.vertical, .horizontal]) {
-            Text(content)
-                .font(VFont.mono)
-                .foregroundColor(VColor.contentDefault)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: true, vertical: false)
-                .padding(VSpacing.md)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        GeometryReader { geometry in
+            ScrollView([.vertical, .horizontal]) {
+                Text(content)
+                    .font(VFont.mono)
+                    .foregroundColor(VColor.contentDefault)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .padding(VSpacing.md)
+                    .frame(
+                        minWidth: geometry.size.width,
+                        minHeight: geometry.size.height,
+                        alignment: .topLeading
+                    )
+            }
         }
     }
 }
