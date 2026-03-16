@@ -747,7 +747,8 @@ private struct StepDetailRow: View {
                         text: toolCall.partialOutput,
                         attributedText: nil,
                         copyText: toolCall.partialOutput,
-                        copyLabel: "Copy live output"
+                        copyLabel: "Copy live output",
+                        isLive: true
                     )
                 }
                 .padding(.horizontal, VSpacing.lg)
@@ -789,11 +790,12 @@ private struct StepDetailRow: View {
         text: String?,
         attributedText: AttributedString?,
         copyText: String,
-        copyLabel: String
+        copyLabel: String,
+        isLive: Bool = false
     ) -> some View {
         let isOutputExpanded = expandedOutputIds.contains(id)
         let lineCount = copyText.components(separatedBy: "\n").count
-        let needsTruncation = lineCount > 8
+        let needsTruncation = lineCount > 8 || copyText.count > 400
 
         ZStack(alignment: .topTrailing) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -801,6 +803,9 @@ private struct StepDetailRow: View {
                     // Expanded with ScrollView for extremely long outputs
                     ScrollView {
                         outputTextView(text: text, attributedText: attributedText, lineLimit: nil)
+                    }
+                    .if(isLive) { view in
+                        view.defaultScrollAnchor(.bottom)
                     }
                     .frame(maxHeight: 400)
                 } else if let attrText = attributedText {
