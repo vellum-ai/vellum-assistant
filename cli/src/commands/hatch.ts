@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readFileSync,
   readlinkSync,
+  rmSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
@@ -622,6 +623,26 @@ async function hatchLocal(
     resources = existingEntry.resources;
   } else {
     resources = await allocateLocalResources(instanceName);
+  }
+
+  // Clean up stale workspace data: if the .vellum directory already exists for
+  // this instance but no lockfile entry owns it, a previous retire failed to
+  // archive it (or a managed-only retire left local data behind). Remove it so
+  // the new assistant starts with a fresh workspace.
+  if (!existingEntry) {
+    const instanceVellumDir = join(resources.instanceDir, ".vellum");
+    if (existsSync(instanceVellumDir)) {
+      const ownedByOther = loadAllAssistants().some((a) => {
+        if (a.cloud !== "local" || !a.resources) return false;
+        return join(a.resources.instanceDir, ".vellum") === instanceVellumDir;
+      });
+      if (!ownedByOther) {
+        console.log(
+          `🧹 Removing stale workspace at ${instanceVellumDir} (not owned by any assistant)...\n`,
+        );
+        rmSync(instanceVellumDir, { recursive: true, force: true });
+      }
+    }
   }
 
   const logsDir = join(
