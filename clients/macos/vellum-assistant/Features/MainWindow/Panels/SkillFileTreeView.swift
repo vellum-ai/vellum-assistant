@@ -86,11 +86,4 @@ struct SkillFileTreeView: View {
         return .file
     }
 
-    private func formatFileSize(_ bytes: Int) -> String {
-        if bytes < 1024 { return "\(bytes) B" }
-        let kb = Double(bytes) / 1024.0
-        if kb < 1024 { return String(format: "%.1f KB", kb) }
-        let mb = kb / 1024.0
-        return String(format: "%.1f MB", mb)
-    }
 }
