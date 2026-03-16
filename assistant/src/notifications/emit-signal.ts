@@ -148,8 +148,8 @@ export interface EmitSignalParams<TEventName extends string = string> {
   sourceEventName: TEventName;
   /** Source channel that produced the event — must be a registered channel. */
   sourceChannel: NotificationSourceChannel;
-  /** Conversation or conversation ID from the source context. */
-  sourceSessionId: string;
+  /** Conversation ID from the source context. */
+  sourceConversationId: string;
   /** Attention hints for the decision engine. */
   attentionHints: AttentionHints;
   /** Arbitrary context payload passed to the decision engine. */
@@ -202,7 +202,7 @@ export async function emitNotificationSignal<TEventName extends string>(
     signalId,
     createdAt: Date.now(),
     sourceChannel: params.sourceChannel,
-    sourceSessionId: params.sourceSessionId,
+    sourceConversationId: params.sourceConversationId,
     sourceEventName: params.sourceEventName,
     contextPayload: (params.contextPayload ??
       {}) as NotificationContextPayload<TEventName>,
@@ -218,7 +218,7 @@ export async function emitNotificationSignal<TEventName extends string>(
       id: signalId,
       sourceEventName: params.sourceEventName,
       sourceChannel: params.sourceChannel,
-      sourceSessionId: params.sourceSessionId,
+      sourceConversationId: params.sourceConversationId,
       attentionHints: params.attentionHints,
       payload: params.contextPayload ?? {},
       dedupeKey: params.dedupeKey,

@@ -252,12 +252,13 @@ Examples:
 
           initializeDb();
 
-          const sourceSessionId = opts.conversationId ?? `cli-${Date.now()}`;
+          const sourceConversationId =
+            opts.conversationId ?? `cli-${Date.now()}`;
 
           const result = await emitNotificationSignal({
             sourceEventName: opts.sourceEventName,
             sourceChannel: opts.sourceChannel,
-            sourceSessionId,
+            sourceConversationId,
             attentionHints: {
               requiresAction: opts.requiresAction ?? true,
               urgency,
@@ -374,7 +375,7 @@ Examples:
             id: row.id,
             sourceEventName: row.sourceEventName,
             sourceChannel: row.sourceChannel,
-            sourceSessionId: row.sourceSessionId,
+            sourceConversationId: row.sourceConversationId,
             urgency: (JSON.parse(row.attentionHintsJson) as { urgency: string })
               .urgency,
             dedupeKey: row.dedupeKey,

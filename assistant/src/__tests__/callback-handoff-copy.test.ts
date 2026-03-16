@@ -17,7 +17,7 @@ function buildSignal(
     signalId: "test-signal-1",
     createdAt: Date.now(),
     sourceChannel: "phone",
-    sourceSessionId: "test-session-1",
+    sourceConversationId: "test-session-1",
     sourceEventName: "ingress.access_request.callback_handoff",
     contextPayload: {
       requestId: "req-123",

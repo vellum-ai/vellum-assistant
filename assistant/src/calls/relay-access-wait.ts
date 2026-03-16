@@ -271,14 +271,14 @@ export function emitAccessRequestCallbackHandoff(
   }
 
   const dedupeKey = `access-request-callback-handoff:${params.accessRequestId}`;
-  const sourceSessionId =
+  const sourceConversationId =
     canonicalRequest?.conversationId ??
     `access-req-callback-${params.accessRequestId}`;
 
   void emitNotificationSignal({
     sourceEventName: "ingress.access_request.callback_handoff",
     sourceChannel: "phone",
-    sourceSessionId,
+    sourceConversationId,
     attentionHints: {
       requiresAction: false,
       urgency: "medium",

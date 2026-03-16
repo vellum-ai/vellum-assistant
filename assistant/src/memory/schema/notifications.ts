@@ -13,7 +13,7 @@ export const notificationEvents = sqliteTable("notification_events", {
   id: text("id").primaryKey(),
   sourceEventName: text("source_event_name").notNull(),
   sourceChannel: text("source_channel").notNull(),
-  sourceSessionId: text("source_session_id").notNull(),
+  sourceConversationId: text("source_session_id").notNull(),
   attentionHintsJson: text("attention_hints_json").notNull().default("{}"),
   payloadJson: text("payload_json").notNull().default("{}"),
   dedupeKey: text("dedupe_key"),

@@ -231,7 +231,7 @@ export async function handleVerificationIntercept(
       void emitNotificationSignal({
         sourceEventName: "ingress.trusted_contact.activated",
         sourceChannel: sourceChannel as NotificationSourceChannel,
-        sourceSessionId: conversationId,
+        sourceConversationId: conversationId,
         attentionHints: {
           requiresAction: false,
           urgency: "low",

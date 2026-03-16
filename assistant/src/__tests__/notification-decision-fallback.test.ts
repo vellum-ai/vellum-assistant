@@ -65,7 +65,7 @@ function makeSignal(
     signalId: "sig-fallback-guardian-1",
     createdAt: Date.now(),
     sourceChannel: "phone",
-    sourceSessionId: "call-session-1",
+    sourceConversationId: "call-session-1",
     sourceEventName: "guardian.question",
     contextPayload: {
       questionText: "What is the gate code?",
@@ -308,7 +308,7 @@ describe("access-request instruction enforcement", () => {
       signalId: "sig-access-req-1",
       createdAt: Date.now(),
       sourceChannel: "telegram",
-      sourceSessionId: "tg-session-1",
+      sourceConversationId: "tg-session-1",
       sourceEventName: "ingress.access_request",
       contextPayload: {
         senderIdentifier: "Alice",
