@@ -171,7 +171,8 @@ export async function handleAddSecret(
       const effectiveValue = isTrimmedIdentity ? value.trim() : value;
 
       if (isTrimmedIdentity && effectiveValue === "") {
-        // Whitespace-only → clear in-memory state, skip store & metadata
+        // Whitespace-only → clear in-memory state and remove stale credential
+        // from the secure store so it doesn't get rehydrated on restart.
         if (field === "platform_assistant_id") {
           setPlatformAssistantId(undefined);
         } else if (field === "platform_organization_id") {
@@ -180,6 +181,8 @@ export async function handleAddSecret(
         } else if (field === "platform_user_id") {
           setPlatformUserId(undefined);
         }
+        await deleteSecureKeyAsync(key);
+        deleteCredentialMetadata(service, field);
       } else {
         const stored = await setSecureKeyAsync(key, effectiveValue);
         if (!stored) {
