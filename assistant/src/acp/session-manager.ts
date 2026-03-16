@@ -291,10 +291,7 @@ export class AcpSessionManager {
           if (this.onAcpSessionFinished) {
             const agentLabel = current.state.agentId;
             const responseText = current.clientHandler.responseText;
-            const sessionId = current.state.acpSessionId;
-            const notifyMessage =
-              `[ACP agent "${agentLabel}" completed (session: ${sessionId})]\n\n${responseText}\n\n` +
-              `To resume this session later: claude --resume ${sessionId}`;
+            const notifyMessage = `[ACP agent "${agentLabel}" completed]\n\n${responseText}`;
             this.onAcpSessionFinished(
               current.parentSessionId,
               notifyMessage,
