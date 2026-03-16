@@ -1063,6 +1063,7 @@ jobs:
           SU_PUBLIC_ED_KEY="${{ secrets.SPARKLE_ED_PUBLIC_KEY }}" \
           SIGN_IDENTITY="Developer ID Application" \
           RELEASE_ARCH_FLAGS="--arch arm64" \
+          SKIP_BUN_REBUILD=1 \
           ./build.sh release
 
           APP_PATH="dist/Vellum.app"
@@ -1422,6 +1423,7 @@ jobs:
           SU_PUBLIC_ED_KEY="${{ secrets.SPARKLE_ED_PUBLIC_KEY }}" \
           SIGN_IDENTITY="Developer ID Application" \
           RELEASE_ARCH_FLAGS="--arch x86_64" \
+          SKIP_BUN_REBUILD=1 \
           ./build.sh release
 
           APP_PATH="dist/Vellum.app"
@@ -1431,6 +1433,9 @@ jobs:
 
           echo "Main executable architecture:"
           file "$APP_PATH/Contents/MacOS/Vellum"
+
+          echo "Daemon binary architecture:"
+          file "$APP_PATH/Contents/MacOS/vellum-daemon"
 
       - name: Upload dSYMs to Sentry
         continue-on-error: true

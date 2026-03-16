@@ -206,6 +206,7 @@ jobs:
         run: |
           set -o pipefail
           SKIP_CLEAN=1 \
+          SKIP_BUN_REBUILD=1 \
           BUNDLE_DISPLAY_NAME="$APP_DISPLAY_NAME" \
           SIGN_IDENTITY="-" \
           ./build.sh release 2>&1 | while IFS= read -r line; do
