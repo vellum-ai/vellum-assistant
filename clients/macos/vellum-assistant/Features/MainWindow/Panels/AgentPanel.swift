@@ -530,60 +530,13 @@ struct AgentPanelContent: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.systemNegativeStrong)
                 } else if let filesResponse = skillsManager.selectedSkillFiles, !filesResponse.files.isEmpty {
-                    VStack(spacing: 0) {
-                        ForEach(filesResponse.files, id: \.path) { file in
-                            skillFileRow(file)
-                            if file.path != filesResponse.files.last?.path {
-                                Divider()
-                            }
-                        }
-                    }
-                    .background(VColor.surfaceOverlay)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.borderBase, lineWidth: 1)
+                    SkillFileTreeView(
+                        files: filesResponse.files,
+                        selectedFilePath: $expandedFilePath
                     )
                 }
             }
         }
-    }
-
-    @ViewBuilder
-    private func skillFileRow(_ file: SkillFileEntry) -> some View {
-        let isText = !file.isBinary && file.content != nil
-        let isSelected = expandedFilePath == file.path
-
-        Button {
-            if isText && !isSelected {
-                withAnimation(VAnimation.fast) {
-                    expandedFilePath = file.path
-                }
-            }
-        } label: {
-            HStack(spacing: VSpacing.sm) {
-                VIconView(fileIcon(for: file.mimeType), size: 12)
-                    .foregroundColor(VColor.primaryBase)
-                    .frame(width: 20)
-
-                Text(file.path)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentDefault)
-                    .lineLimit(1)
-
-                Spacer()
-
-                Text(formatFileSize(file.size))
-                    .font(VFont.small)
-                    .foregroundColor(VColor.contentTertiary)
-            }
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
-            .contentShape(Rectangle())
-            .background(isSelected ? VColor.surfaceActive : Color.clear)
-        }
-        .buttonStyle(.plain)
-        .disabled(!isText)
     }
 
     private func fileIcon(for mimeType: String) -> VIcon {
