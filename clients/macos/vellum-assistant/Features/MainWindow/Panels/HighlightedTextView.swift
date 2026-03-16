@@ -12,22 +12,36 @@ struct HighlightedTextView: NSViewRepresentable {
     let isEditable: Bool
     var onTextChange: ((String) -> Void)?
 
+    private static let editorBackground = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(red: 0.13, green: 0.14, blue: 0.13, alpha: 1.0)
+            : NSColor(red: 0.98, green: 0.98, blue: 0.97, alpha: 1.0)
+    }
+
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self, language: language, onTextChange: onTextChange)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let textContainer = NSTextContainer()
-        textContainer.widthTracksTextView = false
-        textContainer.containerSize = NSSize(
+        // Use Apple's factory method — it wires up NSTextStorage, NSLayoutManager,
+        // NSTextContainer, NSTextView, NSClipView, and NSScrollView correctly.
+        let scrollView = NSTextView.scrollableTextView()
+        let textView = scrollView.documentView as! NSTextView
+
+        // Enable horizontal scrolling (no word wrap)
+        textView.textContainer?.widthTracksTextView = false
+        textView.textContainer?.containerSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        textView.isHorizontallyResizable = true
+        textView.maxSize = NSSize(
             width: CGFloat.greatestFiniteMagnitude,
             height: CGFloat.greatestFiniteMagnitude
         )
 
-        let textView = NSTextView(frame: .zero, textContainer: textContainer)
         textView.isEditable = isEditable
         textView.isSelectable = true
-        textView.isRichText = false
         textView.usesFindPanel = true
         textView.allowsUndo = true
         textView.isAutomaticQuoteSubstitutionEnabled = false
@@ -37,7 +51,7 @@ struct HighlightedTextView: NSViewRepresentable {
         textView.isAutomaticTextCompletionEnabled = false
         textView.font = context.coordinator.baseFont
         textView.textColor = SyntaxTheme.baseTextColor
-        textView.backgroundColor = .clear
+        textView.backgroundColor = Self.editorBackground
         textView.insertionPointColor = SyntaxTheme.baseTextColor
         textView.selectedTextAttributes = [
             .backgroundColor: NSColor(name: nil) { appearance in
@@ -47,20 +61,12 @@ struct HighlightedTextView: NSViewRepresentable {
                     : NSColor(white: 0.0, alpha: 0.12)
             },
         ]
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = true
-        textView.maxSize = NSSize(
-            width: CGFloat.greatestFiniteMagnitude,
-            height: CGFloat.greatestFiniteMagnitude
-        )
 
         textView.string = text
 
-        let scrollView = NSScrollView()
-        scrollView.documentView = textView
-        scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
-        scrollView.drawsBackground = false
+        scrollView.drawsBackground = true
+        scrollView.backgroundColor = Self.editorBackground
         scrollView.autohidesScrollers = true
         scrollView.contentInsets = NSEdgeInsets(top: 8, left: 0, bottom: 8, right: 8)
 
