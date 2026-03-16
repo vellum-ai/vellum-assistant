@@ -103,7 +103,9 @@ class AvatarLayerView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .pointingHand)
+        if configPokeEnabled {
+            addCursorRect(bounds, cursor: .pointingHand)
+        }
     }
 
     /// Called from SwiftUI's `.onHover` via the representable bridge.
@@ -113,7 +115,7 @@ class AvatarLayerView: NSView {
         isHovered = hovered
 
         if hovered {
-            guard animationsActive else { return }
+            guard animationsActive else { isHovered = false; return }
             guard !eyeLayers.isEmpty,
                   eyeLayers.count == widenedEyePaths.count else { return }
 
