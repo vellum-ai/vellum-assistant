@@ -264,7 +264,20 @@ async function main() {
   const contactsControlPlaneProxy =
     createContactsControlPlaneProxyHandler(config);
   const twilioControlPlaneProxy = createTwilioControlPlaneProxyHandler(config);
-  const slackControlPlaneProxy = createSlackControlPlaneProxyHandler(config);
+  const slackControlPlaneProxy = createSlackControlPlaneProxyHandler(
+    config,
+    () => {
+      // Invalidate the credential cache so startSlackSocket() reads
+      // fresh values from the keychain/encrypted store.
+      credentialCache.invalidate();
+      startSlackSocket().catch((err) => {
+        log.error(
+          { err },
+          "Failed to restart Slack Socket Mode after config change",
+        );
+      });
+    },
+  );
   const channelReadinessProxy = createChannelReadinessProxyHandler(config);
   const runtimeHealthProxy = createRuntimeHealthProxyHandler(config);
   const brainGraphProxy = createBrainGraphProxyHandler(config);
@@ -646,6 +659,19 @@ async function main() {
       method: "POST",
       auth: "edge",
       handler: (req) => slackControlPlaneProxy.handleShareToSlack(req),
+    },
+    {
+      path: /^\/v1\/(assistants\/[^/]+\/)?integrations\/slack\/channel\/config\/?$/,
+      method: "POST",
+      auth: "track-failures",
+      handler: (req) => slackControlPlaneProxy.handleSetSlackChannelConfig(req),
+    },
+    {
+      path: /^\/v1\/(assistants\/[^/]+\/)?integrations\/slack\/channel\/config\/?$/,
+      method: "DELETE",
+      auth: "track-failures",
+      handler: (req) =>
+        slackControlPlaneProxy.handleClearSlackChannelConfig(req),
     },
 
     // ── Channel readiness ──

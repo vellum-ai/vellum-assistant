@@ -13,7 +13,12 @@ import { stripHopByHop } from "../../util/strip-hop-by-hop.js";
 
 const log = getLogger("slack-control-plane-proxy");
 
-export function createSlackControlPlaneProxyHandler(config: GatewayConfig) {
+export type SlackConfigChangeCallback = () => void;
+
+export function createSlackControlPlaneProxyHandler(
+  config: GatewayConfig,
+  onSlackConfigChange?: SlackConfigChangeCallback,
+) {
   async function proxyToRuntime(
     req: Request,
     upstreamPath: string,
@@ -103,6 +108,30 @@ export function createSlackControlPlaneProxyHandler(config: GatewayConfig) {
 
     async handleShareToSlack(req: Request): Promise<Response> {
       return proxyToRuntime(req, "/v1/slack/share", "");
+    },
+
+    async handleSetSlackChannelConfig(req: Request): Promise<Response> {
+      const response = await proxyToRuntime(
+        req,
+        "/v1/integrations/slack/channel/config",
+        "",
+      );
+      if (response.ok && onSlackConfigChange) {
+        onSlackConfigChange();
+      }
+      return response;
+    },
+
+    async handleClearSlackChannelConfig(req: Request): Promise<Response> {
+      const response = await proxyToRuntime(
+        req,
+        "/v1/integrations/slack/channel/config",
+        "",
+      );
+      if (response.ok && onSlackConfigChange) {
+        onSlackConfigChange();
+      }
+      return response;
     },
   };
 }
