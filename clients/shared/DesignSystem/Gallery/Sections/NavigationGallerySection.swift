@@ -9,7 +9,7 @@ struct NavigationGallerySection: View {
     private let segmentItems = ["All", "Active", "Archived", "Drafts"]
     private let tabs = [
         (label: "Dashboard", icon: VIcon.house.rawValue),
-        (label: "Sessions", icon: VIcon.list.rawValue),
+        (label: "Conversations", icon: VIcon.list.rawValue),
         (label: "Settings", icon: VIcon.settings.rawValue),
         (label: "Logs", icon: VIcon.fileText.rawValue),
     ]

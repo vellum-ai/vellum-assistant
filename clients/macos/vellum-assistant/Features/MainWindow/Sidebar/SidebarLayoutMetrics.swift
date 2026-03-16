@@ -23,7 +23,7 @@ enum SidebarLayoutMetrics {
 
     // MARK: - Section Title
 
-    /// Gap above a section title (e.g. "Threads", "Scheduled") — tighter than divider bottom.
+    /// Gap above a section title (e.g. "Conversations", "Scheduled") — tighter than divider bottom.
     static let sectionTitleTopGap: CGFloat = VSpacing.xxs  // 2pt
 
     /// Gap below a section title before the first row.

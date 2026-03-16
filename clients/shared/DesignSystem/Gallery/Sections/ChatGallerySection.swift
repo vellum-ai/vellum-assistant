@@ -9,7 +9,7 @@ struct ChatGallerySection: View {
             // MARK: - Error Banners
             GallerySectionHeader(
                 title: "Error Banners",
-                description: "ChatErrorBanner — dismissible banner for non-retryable session errors."
+                description: "ChatErrorBanner — dismissible banner for non-retryable conversation errors."
             )
 
             VCard {

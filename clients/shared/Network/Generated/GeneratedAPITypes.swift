@@ -779,7 +779,7 @@ public struct ConfirmationRequest: Codable, Sendable {
     public let conversationId: String?
     /// When false, the client should hide "always allow" / trust-rule persistence affordances.
     public let persistentDecisionsAllowed: Bool?
-    /// Which temporary approval options the client should render (e.g. "Allow for 10 minutes", "Allow for this thread").
+    /// Which temporary approval options the client should render (e.g. "Allow for 10 minutes", "Allow for this conversation").
     public let temporaryOptionsAvailable: [String]?
     /// The tool_use block ID for client-side correlation with specific tool calls.
     public let toolUseId: String?
