@@ -36,14 +36,19 @@ function isManagedProxyCredential(service: string, field: string): boolean {
 const CES_READY_POLL_INTERVAL_MS = 500;
 const CES_READY_POLL_TIMEOUT_MS = 30_000;
 
+/** Monotonic counter that increments each time a new assistant API key is handled.
+ *  Queued propagation attempts check this before pushing to avoid overwriting
+ *  a newer key with a stale one. */
+let apiKeyGeneration = 0;
+
 /**
- * Poll the CES client until it becomes ready, then push the API key.
- * Handles the timing window where the secret route is called while the
- * CES handshake is still in flight.
+ * Poll the CES client until it becomes ready, then push the API key —
+ * but only if no newer key has been handled in the meantime.
  */
 async function queueApiKeyPropagation(
   cesClient: CesClient,
   apiKey: string,
+  generation: number,
 ): Promise<void> {
   log.info(
     "CES client not ready — queuing API key propagation until handshake completes",
@@ -51,7 +56,19 @@ async function queueApiKeyPropagation(
   const deadline = Date.now() + CES_READY_POLL_TIMEOUT_MS;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, CES_READY_POLL_INTERVAL_MS));
+    if (generation < apiKeyGeneration) {
+      log.info(
+        "Discarding stale queued API key propagation — a newer key was already handled",
+      );
+      return;
+    }
     if (cesClient.isReady()) {
+      if (generation < apiKeyGeneration) {
+        log.info(
+          "Discarding stale queued API key propagation — a newer key was already handled",
+        );
+        return;
+      }
       try {
         await cesClient.updateAssistantApiKey(apiKey);
         log.info(
@@ -150,6 +167,7 @@ export async function handleAddSecret(
         if (service === "vellum" && field === "assistant_api_key") {
           // Push the API key to CES so managed credential materialization
           // works even though the handshake ran before the key was available.
+          const generation = ++apiKeyGeneration;
           const cesClient = getCesClient?.();
           if (cesClient) {
             if (cesClient.isReady()) {
@@ -167,7 +185,7 @@ export async function handleAddSecret(
             } else {
               // CES handshake is still in flight — queue the key propagation
               // so it fires once CES becomes ready.
-              void queueApiKeyPropagation(cesClient, value);
+              void queueApiKeyPropagation(cesClient, value, generation);
             }
           }
         }
