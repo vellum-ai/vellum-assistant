@@ -811,9 +811,7 @@ private struct WorkspaceFileViewer: View {
     }
 
     private func treeView(_ detail: WorkspaceFileResponse) -> some View {
-        Text("Tree view not yet available")
-            .font(VFont.body)
-            .foregroundColor(VColor.contentTertiary)
+        JSONTreeView(content: detail.content ?? "")
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
