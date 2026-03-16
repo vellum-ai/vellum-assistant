@@ -23,6 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       clients: ${{ steps.filter.outputs.clients }}
+      bundled: ${{ steps.filter.outputs.bundled }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,6 +34,13 @@ jobs:
         with:
           filters: |
             clients:
+              - 'clients/**'
+              - '.github/workflows/ci-main-macos.yaml'
+            bundled:
+              - 'assistant/**'
+              - 'cli/**'
+              - 'gateway/**'
+              - 'packages/**'
               - 'clients/**'
               - '.github/workflows/ci-main-macos.yaml'
 
@@ -110,6 +118,8 @@ jobs:
 
   build-app:
     name: Build macOS App
+    needs: [changes]
+    if: needs.changes.outputs.bundled == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: macos-15
     timeout-minutes: 30
     env:
@@ -191,6 +201,7 @@ jobs:
           GITHUB_USER="${{ github.actor }}"
 
           # lint-unused and test are conditionally skipped when only non-client paths change
+          # build-app is conditionally skipped when only non-bundled paths change
           CLIENTS_CHANGED="${{ needs.changes.outputs.clients }}"
 
           if [[ "${{ needs.build-app.result }}" == "failure" ]]; then
