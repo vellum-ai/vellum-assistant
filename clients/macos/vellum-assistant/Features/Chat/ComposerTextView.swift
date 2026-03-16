@@ -117,15 +117,15 @@ final class ComposerTextView: NSTextView {
         let modifiers = event.modifierFlags.intersection([.shift, .command, .control, .option])
         if modifiers == [.command],
            event.charactersIgnoringModifiers?.lowercased() == "v",
-           Self.pasteboardHasImageContent() {
-            onPasteImage?()
+           Self.pasteboardHasImageContent(),
+           let onPasteImage {
+            onPasteImage()
             return true
         }
         return super.performKeyEquivalent(with: event)
     }
 
     /// Check if the pasteboard contains image content (file URLs with image extensions or raw image data).
-    /// Moved from ComposerFocusBridge.Coordinator.
     static func pasteboardHasImageContent() -> Bool {
         let pasteboard = NSPasteboard.general
         let hasImageFile = (pasteboard.readObjects(forClasses: [NSURL.self], options: [
