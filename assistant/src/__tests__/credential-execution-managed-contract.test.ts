@@ -36,15 +36,13 @@ import {
   HandshakeAckSchema,
   HandshakeRequestSchema,
   localStaticHandle,
+  MANAGED_LOCAL_STATIC_REJECTION_ERROR,
   parseHandle,
   platformOAuthHandle,
   UpdateManagedCredentialResponseSchema,
   UpdateManagedCredentialSchema,
 } from "@vellumai/ces-contracts";
 
-// Importing the production error constant directly from credential-executor.
-// This is allowed in __tests__/ files (the CES boundary guard skips them).
-import { MANAGED_LOCAL_STATIC_REJECTION_ERROR } from "../../../credential-executor/src/managed-errors.js";
 import type { AssistantConfig } from "../config/schema.js";
 import {
   isCesManagedSidecarEnabled,
