@@ -43,15 +43,16 @@ public enum DeviceIdStore {
         }
 
         // 2. Migrate from legacy UserDefaults (LocalInstallationIdStore).
+        let migratingFromLegacy: Bool
         var deviceId: String
         if let legacyId = UserDefaults.standard.string(forKey: legacyUserDefaultsKey),
            !legacyId.isEmpty {
             deviceId = legacyId
-            // Clean up legacy key — the file is now the source of truth.
-            UserDefaults.standard.removeObject(forKey: legacyUserDefaultsKey)
+            migratingFromLegacy = true
         } else {
             // 3. No existing ID anywhere — generate a fresh one.
             deviceId = UUID().uuidString.lowercased()
+            migratingFromLegacy = false
         }
 
         // Persist to the shared file, preserving any other fields.
@@ -68,6 +69,17 @@ public enum DeviceIdStore {
             output.append(contentsOf: "\n".utf8)
             try? output.write(to: deviceFile, options: .atomic)
         }
+
+        // Only clean up the legacy UserDefaults key after the file write succeeds,
+        // so we don't lose the ID if the write fails (permissions, full disk, etc.).
+        if migratingFromLegacy,
+           let data = try? Data(contentsOf: deviceFile),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let writtenId = json["deviceId"] as? String,
+           writtenId == deviceId {
+            UserDefaults.standard.removeObject(forKey: legacyUserDefaultsKey)
+        }
+
         cached = deviceId
         return deviceId
     }
