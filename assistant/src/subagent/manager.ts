@@ -11,8 +11,8 @@
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
+import { Session, type SessionMemoryPolicy } from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import { Session, type SessionMemoryPolicy } from "../daemon/session.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { getFailoverProvider } from "../providers/registry.js";

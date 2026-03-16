@@ -5,8 +5,8 @@
  * sharing business logic with the handlers in
  * `daemon/handlers/work-items.ts`.
  */
+import type { Session } from "../../daemon/conversation.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
-import type { Session } from "../../daemon/session.js";
 import { getMessages } from "../../memory/conversation-crud.js";
 import { check, classifyRisk } from "../../permissions/checker.js";
 import { getSubagentManager } from "../../subagent/index.js";

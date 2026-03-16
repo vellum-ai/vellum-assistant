@@ -10,7 +10,7 @@
  * tracker to resolve the interaction.
  */
 
-import type { Session } from "../daemon/session.js";
+import type { Session } from "../daemon/conversation.js";
 
 export interface ConfirmationDetails {
   toolName: string;

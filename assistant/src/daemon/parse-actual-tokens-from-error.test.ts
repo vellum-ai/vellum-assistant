@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseActualTokensFromError } from "./session-agent-loop.js";
+import { parseActualTokensFromError } from "./conversation-agent-loop.js";
 
 describe("parseActualTokensFromError", () => {
   test("returns null for null input", () => {
@@ -12,9 +12,7 @@ describe("parseActualTokensFromError", () => {
   });
 
   test("returns null for unrelated error message", () => {
-    expect(
-      parseActualTokensFromError("something went wrong"),
-    ).toBeNull();
+    expect(parseActualTokensFromError("something went wrong")).toBeNull();
   });
 
   test("parses Anthropic-style error: prompt is too long: N tokens > M maximum", () => {
@@ -68,8 +66,6 @@ describe("parseActualTokensFromError", () => {
   });
 
   test("returns null when no numeric pattern matches", () => {
-    expect(
-      parseActualTokensFromError("context window exceeded"),
-    ).toBeNull();
+    expect(parseActualTokensFromError("context window exceeded")).toBeNull();
   });
 });

@@ -177,7 +177,7 @@ mock.module("../config/env.js", () => ({
 import { applyCanonicalGuardianDecision } from "../approvals/guardian-decision-primitive.js";
 import type { ActorContext } from "../approvals/guardian-request-resolvers.js";
 import { getResolver } from "../approvals/guardian-request-resolvers.js";
-import type { TrustContext } from "../daemon/session-runtime-assembly.js";
+import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,

@@ -756,7 +756,7 @@ export class RuntimeHttpServer {
                 ? (conversationId) => {
                     const s = this.findConversation!(conversationId);
                     if (!s || !("abort" in s)) return undefined;
-                    return s as import("../daemon/session.js").Session;
+                    return s as import("../daemon/conversation.js").Session;
                   }
                 : undefined,
             }

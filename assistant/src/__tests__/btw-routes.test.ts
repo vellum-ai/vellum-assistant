@@ -50,7 +50,7 @@ const MOCK_TOOLS = [
   },
 ];
 
-mock.module("../daemon/session-tool-setup.js", () => ({
+mock.module("../daemon/conversation-tool-setup.js", () => ({
   buildToolDefinitions: () => MOCK_TOOLS,
 }));
 

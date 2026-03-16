@@ -449,7 +449,7 @@ describe("relay-server", () => {
             onEvent({ type: "message_complete", sessionId: conversationId });
           },
         };
-        return session as unknown as import("../daemon/session.js").Session;
+        return session as unknown as import("../daemon/conversation.js").Session;
       },
       resolveAttachments: () => [],
       deriveDefaultStrictSideEffects: () => false,

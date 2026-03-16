@@ -52,7 +52,7 @@ mock.module("../daemon/handlers/shared.js", () => ({
 
 import { upsertContact } from "../contacts/contact-store.js";
 import { createGuardianBinding } from "../contacts/contacts-write.js";
-import type { Session } from "../daemon/session.js";
+import type { Session } from "../daemon/conversation.js";
 import {
   createCanonicalGuardianDelivery,
   createCanonicalGuardianRequest,

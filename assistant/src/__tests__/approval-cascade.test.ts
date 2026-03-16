@@ -233,7 +233,7 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 // Import Session and pendingInteractions AFTER mocks
 // ---------------------------------------------------------------------------
 
-import { Session } from "../daemon/session.js";
+import { Session } from "../daemon/conversation.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 
 // ---------------------------------------------------------------------------

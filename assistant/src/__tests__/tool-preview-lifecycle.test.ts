@@ -71,18 +71,18 @@ mock.module("../memory/llm-request-log-store.js", () => ({
 }));
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
-import type { ServerMessage } from "../daemon/message-protocol.js";
 import type {
   EventHandlerDeps,
   EventHandlerState,
-} from "../daemon/session-agent-loop-handlers.js";
+} from "../daemon/conversation-agent-loop-handlers.js";
 import {
   createEventHandlerState,
   handleInputJsonDelta,
   handleToolResult,
   handleToolUse,
   handleToolUsePreviewStart,
-} from "../daemon/session-agent-loop-handlers.js";
+} from "../daemon/conversation-agent-loop-handlers.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

@@ -151,7 +151,7 @@ mock.module("../prompts/user-reference.js", () => ({
 // Import module under test AFTER mocks are set up
 import type { ChannelId } from "../channels/types.js";
 import { findGuardianForChannel } from "../contacts/contact-store.js";
-import type { TrustContext } from "../daemon/session-runtime-assembly.js";
+import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import { resolveGuardianName } from "../prompts/user-reference.js";
 
 // We need to test the private functions by importing the module.

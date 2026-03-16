@@ -44,8 +44,8 @@ mock.module("../security/redaction.js", () => ({
 // Import after mocks are registered.
 // ---------------------------------------------------------------------------
 
-import type { ToolSetupContext } from "../daemon/session-tool-setup.js";
-import { createProxyApprovalCallback } from "../daemon/session-tool-setup.js";
+import type { ToolSetupContext } from "../daemon/conversation-tool-setup.js";
+import { createProxyApprovalCallback } from "../daemon/conversation-tool-setup.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 
 // ---------------------------------------------------------------------------

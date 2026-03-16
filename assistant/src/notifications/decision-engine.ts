@@ -13,6 +13,7 @@ import { v4 as uuid } from "uuid";
 
 import { getDeliverableChannels } from "../channels/config.js";
 import { getConfig } from "../config/loader.js";
+import { buildCoreIdentityContext } from "../prompts/system-prompt.js";
 import {
   createTimeout,
   extractToolUse,
@@ -20,7 +21,6 @@ import {
   userMessage,
 } from "../providers/provider-send-message.js";
 import type { ModelIntent } from "../providers/types.js";
-import { buildCoreIdentityContext } from "../prompts/system-prompt.js";
 import { getLogger } from "../util/logger.js";
 import {
   buildConversationCandidates,

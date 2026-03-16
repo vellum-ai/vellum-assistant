@@ -184,9 +184,10 @@ mock.module("../tools/registry.js", () => ({
 // Import module under test (after mocks)
 // ---------------------------------------------------------------------------
 
-const { projectSkillTools } = await import("../daemon/session-skill-tools.js");
+const { projectSkillTools } =
+  await import("../daemon/conversation-skill-tools.js");
 type SkillProjectionCache =
-  import("../daemon/session-skill-tools.js").SkillProjectionCache;
+  import("../daemon/conversation-skill-tools.js").SkillProjectionCache;
 
 // ---------------------------------------------------------------------------
 // Helpers

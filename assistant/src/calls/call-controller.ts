@@ -9,8 +9,8 @@
  */
 
 import { getGatewayInternalBaseUrl } from "../config/env.js";
+import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import {
   expireCanonicalGuardianRequest,
   getCanonicalRequestByPendingQuestionId,

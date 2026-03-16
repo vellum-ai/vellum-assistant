@@ -8,7 +8,7 @@
  */
 import { applyGuardianDecision } from "../../approvals/guardian-decision-primitive.js";
 import type { ChannelId } from "../../channels/types.js";
-import type { TrustContext } from "../../daemon/session-runtime-assembly.js";
+import type { TrustContext } from "../../daemon/conversation-runtime-assembly.js";
 import {
   getAllPendingApprovalsByGuardianChat,
   getPendingApprovalForRequest,

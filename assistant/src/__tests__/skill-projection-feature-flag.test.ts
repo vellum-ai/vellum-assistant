@@ -215,7 +215,7 @@ mock.module("../util/logger.js", () => ({
 // ---------------------------------------------------------------------------
 
 const { projectSkillTools, resetSkillToolProjection } =
-  await import("../daemon/session-skill-tools.js");
+  await import("../daemon/conversation-skill-tools.js");
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { TrustContext } from "../daemon/session-runtime-assembly.js";
+import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 
 // ── Module mocks ─────────────────────────────────────────────────────
 
@@ -13,7 +13,7 @@ mock.module("../config/env.js", () => ({
 
 // ── Real imports (after mocks) ───────────────────────────────────────
 
-import { resolveTrustClass } from "../daemon/session-tool-setup.js";
+import { resolveTrustClass } from "../daemon/conversation-tool-setup.js";
 
 afterAll(() => {
   mock.restore();

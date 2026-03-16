@@ -12,7 +12,7 @@ import {
   parseInterfaceId,
 } from "../../channels/types.js";
 import { touchContactInteraction } from "../../contacts/contacts-write.js";
-import type { TrustContext } from "../../daemon/session-runtime-assembly.js";
+import type { TrustContext } from "../../daemon/conversation-runtime-assembly.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
 import {
   recordConversationSeenSignal,

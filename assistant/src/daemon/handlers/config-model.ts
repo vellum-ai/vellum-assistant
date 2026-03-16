@@ -6,11 +6,11 @@ import {
 } from "../../config/loader.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
+import { MODEL_TO_PROVIDER } from "../conversation-slash.js";
 import type {
   ImageGenModelSetRequest,
   ModelSetRequest,
 } from "../message-protocol.js";
-import { MODEL_TO_PROVIDER } from "../session-slash.js";
 import {
   CONFIG_RELOAD_DEBOUNCE_MS,
   type HandlerContext,

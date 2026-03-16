@@ -17,13 +17,13 @@ import {
   findGuardianForChannel,
 } from "../contacts/contact-store.js";
 import type { ContactChannel, ContactWithChannels } from "../contacts/types.js";
-import type { TrustContext } from "../daemon/session-runtime-assembly.js";
+import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("actor-trust-resolver");
 
-export type { TrustContext } from "../daemon/session-runtime-assembly.js";
+export type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 
 // ---------------------------------------------------------------------------
 // Types

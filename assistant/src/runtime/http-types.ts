@@ -3,14 +3,14 @@
  */
 import type { ChannelId, InterfaceId } from "../channels/types.js";
 import type { CesClient } from "../credential-execution/client.js";
+import type { Session } from "../daemon/conversation.js";
+import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import type { SkillOperationContext } from "../daemon/handlers/skills.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type {
   SurfaceData,
   SurfaceType,
 } from "../daemon/message-types/surfaces.js";
-import type { Session } from "../daemon/session.js";
-import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import type {
   ApprovalMessageContext,
   ComposeApprovalMessageGenerativeOptions,

@@ -45,8 +45,8 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import { GRANT_TTL_MS } from "../approvals/guardian-decision-primitive.js";
-import type { Session } from "../daemon/session.js";
-import type { TrustContext } from "../daemon/session-runtime-assembly.js";
+import type { Session } from "../daemon/conversation.js";
+import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import {
   createApprovalRequest,

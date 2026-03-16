@@ -7,9 +7,9 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 
+import type { SurfaceSessionContext } from "../daemon/conversation-surfaces.js";
+import { surfaceProxyResolver } from "../daemon/conversation-surfaces.js";
 import { HostCuProxy } from "../daemon/host-cu-proxy.js";
-import type { SurfaceSessionContext } from "../daemon/session-surfaces.js";
-import { surfaceProxyResolver } from "../daemon/session-surfaces.js";
 
 // ---------------------------------------------------------------------------
 // Test helpers
