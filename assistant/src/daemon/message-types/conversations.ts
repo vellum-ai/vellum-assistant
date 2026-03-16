@@ -104,11 +104,6 @@ export interface UndoRequest {
   conversationId: string;
 }
 
-export interface RegenerateRequest {
-  type: "regenerate";
-  conversationId: string;
-}
-
 export interface UsageRequest {
   type: "usage_request";
   conversationId: string;
@@ -395,7 +390,6 @@ export type _ConversationsClientMessages =
   | ModelSetRequest
   | ImageGenModelSetRequest
   | UndoRequest
-  | RegenerateRequest
   | UsageRequest
   | ConversationListRequest
   | ConversationCreateRequest
