@@ -361,7 +361,13 @@ async function listAllAssistants(): Promise<void> {
       // network health check to avoid a misleading "unreachable" status.
       let health: { status: string; detail: string | null };
       const resources = a.resources;
-      if (a.cloud === "local" && resources) {
+      if (a.runtimeBackend === "apple-containers") {
+        // Apple-containers assistants are managed by the macOS app via LinuxPod.
+        // PID-based lifecycle checks don't apply; use the gateway health endpoint
+        // directly so the assistant shows as running (or unreachable) rather than
+        // the misleading "sleeping" status that would result from a missing pidFile.
+        health = await checkHealth(a.localUrl ?? a.runtimeUrl, a.bearerToken);
+      } else if (a.cloud === "local" && resources) {
         const pid = readPidFile(resources.pidFile);
         const alive = pid !== null && isProcessAlive(pid);
         if (!alive) {

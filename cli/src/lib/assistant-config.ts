@@ -146,6 +146,13 @@ export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
     return false;
   }
 
+  // Apple-containers entries are managed by the macOS app via LinuxPod.
+  // They do not use process-daemon resources (instanceDir, daemonPort,
+  // pidFile, qdrantPort), so we must not backfill those fields.
+  if (raw.runtimeBackend === "apple-containers") {
+    return false;
+  }
+
   let mutated = false;
 
   // Migrate top-level `baseDataDir` → `resources.instanceDir`
