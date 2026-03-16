@@ -527,10 +527,10 @@ extension MainWindowView {
                 .pointerCursor()
                 .background(GeometryReader { proxy in
                     Color.clear.onAppear {
-                        threadSwitcherTriggerFrame = proxy.frame(in: .named("coreLayout"))
+                        conversationSwitcherTriggerFrame = proxy.frame(in: .named("coreLayout"))
                     }
                     .onChange(of: proxy.frame(in: .named("coreLayout"))) { _, newFrame in
-                        threadSwitcherTriggerFrame = newFrame
+                        conversationSwitcherTriggerFrame = newFrame
                     }
                 })
             }

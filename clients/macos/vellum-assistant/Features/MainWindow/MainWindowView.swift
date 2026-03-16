@@ -20,13 +20,13 @@ struct MainWindowView: View {
     @AppStorage("isAppChatOpen") var isAppChatOpen: Bool = false
     @State private var jitPermissionManager = JITPermissionManager()
     @State var showConversationActionsDrawer = false
-    /// Frame of the thread title button in the coordinate space of coreLayoutView,
+    /// Frame of the conversation title button in the coordinate space of coreLayoutView,
     /// used to position the actions drawer directly below it.
-    @State private var threadTitleFrame: CGRect = .zero
-    /// Stores the thread ID the user was on before entering temporary chat,
+    @State private var conversationTitleFrame: CGRect = .zero
+    /// Stores the conversation ID the user was on before entering temporary chat,
     /// so we can restore it when they exit instead of jumping to visibleConversations.first
-    /// (which may be a pinned thread unrelated to what they were doing).
-    @State private var preTemporaryChatThreadId: UUID?
+    /// (which may be a pinned conversation unrelated to what they were doing).
+    @State private var preTemporaryChatConversationId: UUID?
 
     @AppStorage("sidebarExpanded") var sidebarExpanded: Bool = true
     @AppStorage("themePreference") private var themePreference: String = "system"
@@ -51,7 +51,7 @@ struct MainWindowView: View {
     let onSendWakeUp: (() -> Void)?
 
     @State var showConversationSwitcher = false
-    @State var threadSwitcherTriggerFrame: CGRect = .zero
+    @State var conversationSwitcherTriggerFrame: CGRect = .zero
     /// Whether the "coming alive" overlay is currently showing.
     @State private var showComingAlive: Bool
     /// Whether the daemon-loading skeleton overlay is currently showing.
@@ -112,12 +112,12 @@ struct MainWindowView: View {
 
     private func toggleTemporaryChat() {
         withAnimation(VAnimation.standard) {
-            if let privateThread = conversationManager.activeConversation, privateThread.kind == .private {
-                let privateId = privateThread.id
+            if let privateConversation = conversationManager.activeConversation, privateConversation.kind == .private {
+                let privateId = privateConversation.id
 
-                // Restore the thread the user was on before entering temporary chat.
-                // Fall back to visibleConversations.first only if the stored thread no longer exists.
-                if let savedId = preTemporaryChatThreadId,
+                // Restore the conversation the user was on before entering temporary chat.
+                // Fall back to visibleConversations.first only if the stored conversation no longer exists.
+                if let savedId = preTemporaryChatConversationId,
                    conversationManager.visibleConversations.contains(where: { $0.id == savedId }) {
                     conversationManager.selectConversation(id: savedId)
                 } else if let recent = conversationManager.visibleConversations.first {
@@ -125,23 +125,23 @@ struct MainWindowView: View {
                 } else {
                     conversationManager.enterDraftMode()
                 }
-                preTemporaryChatThreadId = nil
+                preTemporaryChatConversationId = nil
 
-                // Delete the private thread and its backend conversation.
+                // Delete the private conversation and its backend conversation.
                 conversationManager.removePrivateConversation(id: privateId)
             } else {
-                preTemporaryChatThreadId = conversationManager.activeConversationId
+                preTemporaryChatConversationId = conversationManager.activeConversationId
                 conversationManager.createPrivateConversation()
             }
         }
     }
 
-    /// Resolve a thread ID for the chat bubble toggle using strict priority:
-    /// 1. activeConversationId (currently selected thread)
-    /// 2. persistentConversationId (app's last-used thread)
-    /// 3. visibleConversations.first (first available thread)
-    /// 4. create a new thread
-    private func resolveThreadId() -> UUID {
+    /// Resolve a conversation ID for the chat bubble toggle using strict priority:
+    /// 1. activeConversationId (currently selected conversation)
+    /// 2. persistentConversationId (app's last-used conversation)
+    /// 3. visibleConversations.first (first available conversation)
+    /// 4. create a new conversation
+    private func resolveConversationId() -> UUID {
         if let id = conversationManager.activeConversationId { return id }
         if let id = windowState.persistentConversationId { return id }
         if let id = conversationManager.visibleConversations.first?.id { return id }
@@ -150,9 +150,9 @@ struct MainWindowView: View {
     }
 
     func enterAppEditing(appId: String) {
-        let threadId = resolveThreadId()
-        conversationManager.selectConversation(id: threadId)
-        windowState.setAppEditing(appId: appId, conversationId: threadId)
+        let conversationId = resolveConversationId()
+        conversationManager.selectConversation(id: conversationId)
+        windowState.setAppEditing(appId: appId, conversationId: conversationId)
     }
 
     func exitAppEditing(appId: String) {
@@ -398,10 +398,10 @@ struct MainWindowView: View {
                 )
                 .background(GeometryReader { proxy in
                     Color.clear.onAppear {
-                        threadTitleFrame = proxy.frame(in: .named("coreLayout"))
+                        conversationTitleFrame = proxy.frame(in: .named("coreLayout"))
                     }
                     .onChange(of: proxy.frame(in: .named("coreLayout"))) { _, newFrame in
-                        threadTitleFrame = newFrame
+                        conversationTitleFrame = newFrame
                     }
                 })
             }
@@ -516,7 +516,7 @@ struct MainWindowView: View {
                             },
                             onRename: { startRenameActiveThread(); dismissThreadDrawer() }
                         )
-                        .offset(x: threadTitleFrame.minX, y: threadTitleFrame.maxY)
+                        .offset(x: conversationTitleFrame.minX, y: conversationTitleFrame.maxY)
                         .zIndex(10)
                     }
                 }
@@ -581,7 +581,7 @@ struct MainWindowView: View {
                         .frame(width: sidebarExpandedWidth - VSpacing.sm * 2)
                         .offset(
                             x: 16 + sidebarCollapsedWidth - VSpacing.xs,
-                            y: threadSwitcherTriggerFrame.minY
+                            y: conversationSwitcherTriggerFrame.minY
                         )
                         .zIndex(10)
                         .transition(.opacity)
