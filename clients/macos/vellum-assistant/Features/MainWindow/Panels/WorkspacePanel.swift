@@ -692,7 +692,7 @@ private struct WorkspaceFileViewer: View {
     }
 
     private var emptyState: some View {
-        FileViewerEmptyState()
+        VEmptyState(title: "Select a file to view", icon: VIcon.fileText.rawValue)
     }
 
     @ViewBuilder
