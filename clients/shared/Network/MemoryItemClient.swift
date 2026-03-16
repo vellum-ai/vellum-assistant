@@ -78,10 +78,9 @@ public struct MemoryItemClient: MemoryItemClientProtocol {
     }
 
     public func fetchMemoryItem(id: String) async -> MemoryItemPayload? {
-        let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/memory-items/\(encoded)", timeout: 10
+                path: "assistants/{assistantId}/memory-items/\(id)", timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchMemoryItem failed (HTTP \(response.statusCode))")
@@ -141,10 +140,9 @@ public struct MemoryItemClient: MemoryItemClientProtocol {
         if let importance { body["importance"] = importance }
         if let verificationState { body["verificationState"] = verificationState }
 
-        let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
         do {
             let response = try await GatewayHTTPClient.patch(
-                path: "assistants/{assistantId}/memory-items/\(encoded)", json: body, timeout: 10
+                path: "assistants/{assistantId}/memory-items/\(id)", json: body, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("updateMemoryItem failed (HTTP \(response.statusCode))")
@@ -159,10 +157,9 @@ public struct MemoryItemClient: MemoryItemClientProtocol {
     }
 
     public func deleteMemoryItem(id: String) async -> Bool {
-        let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
         do {
             let response = try await GatewayHTTPClient.delete(
-                path: "assistants/{assistantId}/memory-items/\(encoded)", timeout: 10
+                path: "assistants/{assistantId}/memory-items/\(id)", timeout: 10
             )
             return response.statusCode == 204
         } catch {

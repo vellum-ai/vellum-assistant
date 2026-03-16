@@ -1112,7 +1112,7 @@ struct ContactDetailView: View {
     }
 
     private func createInviteForChannel(type: String) {
-        guard let daemonClient, inviteInProgress == nil else { return }
+        guard inviteInProgress == nil else { return }
         inviteInProgress = type
         inviteError = nil
         inviteErrorChannel = nil
