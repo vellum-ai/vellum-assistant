@@ -178,9 +178,9 @@ struct APIKeyStepView: View {
         state.cloudProvider = state.selectedHostingMode.rawValue
 
         if isAuthenticated {
-            // Authenticated user selecting Local: skip API key, go straight to hatching
+            // Authenticated user selecting Local: skip API key, advance to consent step
             saveModelToConfig("claude-opus-4-6")
-            state.isHatching = true
+            state.advance(by: 2)
         } else {
             // Skipped auth: advance to API key entry (step 2)
             state.advance()
