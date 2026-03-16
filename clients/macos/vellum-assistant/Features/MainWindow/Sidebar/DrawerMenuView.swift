@@ -13,12 +13,13 @@ struct DrawerMenuView: View {
     @State private var isLowBalance = false
     @State private var isZeroBalance = false
     @State private var bootstrapGeneration: Int = 0
+    @AppStorage("connectedOrganizationId") private var connectedOrgId: String?
 
     private var isBillingVisible: Bool {
         let _ = bootstrapGeneration  // Force recomputation when bootstrap completes
         return authManager.isAuthenticated &&
         MacOSClientFeatureFlagManager.shared.isEnabled("settings_billing_enabled") &&
-        UserDefaults.standard.string(forKey: "connectedOrganizationId") != nil
+        connectedOrgId != nil
     }
 
     var body: some View {
