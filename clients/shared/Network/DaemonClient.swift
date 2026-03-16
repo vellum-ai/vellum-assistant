@@ -2385,14 +2385,14 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Update the privacy config via the gateway's PATCH /v1/config/privacy endpoint.
     /// Authenticates with the feature-flag token (same auth scope).
-    public func setPrivacyConfig(collectUsageData: Bool) async throws {
+    public func setPrivacyConfig(collectUsageData: Bool? = nil, sendDiagnostics: Bool? = nil) async throws {
         guard let token = resolveFeatureFlagAuthToken() else {
             throw FeatureFlagError.missingToken
         }
 
         #if os(macOS)
         if let httpTransport = self.httpTransport, !Self.isLocalBaseURL(httpTransport.baseURL) {
-            try await httpTransport.setPrivacyConfig(collectUsageData: collectUsageData, featureFlagToken: token)
+            try await httpTransport.setPrivacyConfig(collectUsageData: collectUsageData, sendDiagnostics: sendDiagnostics, featureFlagToken: token)
             return
         }
 
@@ -2402,7 +2402,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let body: [String: Any] = ["collectUsageData": collectUsageData]
+        var body: [String: Any] = [:]
+        if let collectUsageData { body["collectUsageData"] = collectUsageData }
+        if let sendDiagnostics { body["sendDiagnostics"] = sendDiagnostics }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (_, response) = try await URLSession.shared.data(for: request)
@@ -2411,7 +2413,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
         #else
         guard let httpTransport else { return }
-        try await httpTransport.setPrivacyConfig(collectUsageData: collectUsageData, featureFlagToken: token)
+        try await httpTransport.setPrivacyConfig(collectUsageData: collectUsageData, sendDiagnostics: sendDiagnostics, featureFlagToken: token)
         #endif
     }
 
