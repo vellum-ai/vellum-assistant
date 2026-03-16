@@ -65,7 +65,18 @@ describe("getExternalAssistantId", () => {
     expect(getExternalAssistantId()).toBe("vellum-nice-fox");
   });
 
-  test("falls back to undefined when BASE_DATA_DIR does not match /assistants/<name>", () => {
+  test("resolves from BASE_DATA_DIR with /instances/<name> path", () => {
+    process.env.BASE_DATA_DIR = "/home/user/.vellum/instances/vellum-swift-owl";
+    expect(getExternalAssistantId()).toBe("vellum-swift-owl");
+  });
+
+  test("resolves from BASE_DATA_DIR with /instances/<name> trailing slash", () => {
+    process.env.BASE_DATA_DIR =
+      "/home/user/.vellum/instances/vellum-swift-owl/";
+    expect(getExternalAssistantId()).toBe("vellum-swift-owl");
+  });
+
+  test("falls back to undefined when BASE_DATA_DIR does not match known patterns", () => {
     process.env.BASE_DATA_DIR = "/tmp/some-other-path";
     expect(getExternalAssistantId()).toBe(undefined);
   });

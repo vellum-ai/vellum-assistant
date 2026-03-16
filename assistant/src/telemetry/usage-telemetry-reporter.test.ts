@@ -380,7 +380,7 @@ describe("UsageTelemetryReporter", () => {
     expect(e.recorded_at).toBe(1700000099000);
   });
 
-  test("assistant_id is omitted from payload when getExternalAssistantId returns undefined", async () => {
+  test("assistant_id falls back to 'self' when getExternalAssistantId returns undefined", async () => {
     mockGetExternalAssistantId.mockReturnValue(undefined);
     const events = [makeUsageEvent()];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
@@ -396,7 +396,7 @@ describe("UsageTelemetryReporter", () => {
       (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
     );
     expect(body.installation_id).toBe("test-device-id");
-    expect("assistant_id" in body).toBe(false);
+    expect(body.assistant_id).toBe("self");
   });
 
   test("turn events are included in the events array with type discriminator", async () => {
