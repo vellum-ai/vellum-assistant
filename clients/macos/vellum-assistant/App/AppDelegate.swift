@@ -193,11 +193,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // can appear as a blank window during activation policy transitions).
         NSWindow.allowsAutomaticWindowTabbing = false
 
-        // Initialize crash reporting eagerly so crashes before the daemon connects
-        // are captured. Privacy opt-out is checked after the daemon is ready and
-        // applied via SentrySDK.close() — matching the daemon-side pattern in
-        // lifecycle.ts (init at top, close after config load if flag disabled).
-        // Gated on sendDiagnostics: if disabled, Sentry is never initialized.
+        // Gated on sendDiagnostics: if the user has previously disabled diagnostics,
+        // Sentry is never initialized. Otherwise, initialize eagerly so crashes
+        // before the daemon connects are captured.
         let sendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
             ?? UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool
             ?? true
