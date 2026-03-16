@@ -79,6 +79,9 @@ struct InferenceServiceCard: View {
         .onChange(of: store.inferenceMode) { _, newValue in
             // Sync draft when external changes arrive (e.g. daemon reload)
             draftMode = newValue
+            if draftMode == "managed" && !authManager.isAuthenticated {
+                draftMode = "your-own"
+            }
         }
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
             if !isAuthenticated && draftMode == "managed" {
