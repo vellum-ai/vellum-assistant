@@ -145,7 +145,6 @@ struct OnboardingFlowView: View {
             }
         }
         }
-        .ignoresSafeArea()
         .task {
             if !authManager.isAuthenticated {
                 await authManager.checkSession()
