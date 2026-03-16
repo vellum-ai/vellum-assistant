@@ -374,6 +374,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                         await awaitLocalBootstrapCompleted(timeout: 30)
                     }
 
+                    // Push locally-stored LLM provider keys (e.g. Anthropic) to the
+                    // daemon so it can fulfil the first message. Without this the
+                    // wake-up greeting races with the detached key sync from onboarding
+                    // and may hit "No providers available".
+                    let port = self.daemonClient.httpPort
+                        ?? Int(ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "")
+                        ?? 7821
+                    await self.syncApiKeysToDaemon(port: port)
+
                     // Daemon connected within timeout — proceed directly
                     // to mandatory wake-up send with retries.
                     transitionBootstrap(to: .pendingWakeupSend)
