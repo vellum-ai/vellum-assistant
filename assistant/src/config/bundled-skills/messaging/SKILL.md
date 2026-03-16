@@ -58,7 +58,9 @@ When the user asks to "connect my email", "set up email", "manage my email", or 
 
 ### Slack
 
-Slack integration is managed externally — the assistant only interacts with Slack as a communications channel. Do not attempt to set up Slack OAuth credentials or guide the user through Slack App creation. If the user asks about Slack setup, let them know that Slack connectivity is handled outside of the assistant.
+1. **Try connecting directly first.** Call `credential_store` with `action: "oauth2_connect"` and `service: "slack"`. The tool auto-fills Slack's OAuth endpoints and looks up any previously stored client credentials.
+2. **If it fails because no client_id is found:** The user needs to create a Slack App first. Walk them through it directly — tell the user Slack isn't connected yet and briefly explain what the setup involves, then guide them through creating a Slack App, adding the required scopes, and connecting their workspace. Do not load a separate setup skill.
+3. **If the user provides client_id and client_secret directly in chat:** Call `credential_store` with `action: "oauth2_connect"`, `service: "slack"`, `client_id`, and `client_secret`. Everything else is auto-filled. Note: Slack always requires a client_secret.
 
 ### Telegram
 
