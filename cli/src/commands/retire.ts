@@ -135,12 +135,12 @@ async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
   try {
     renameSync(dirToArchive, stagingDir);
   } catch (err) {
-    console.warn(
-      `⚠️  Failed to move ${dirToArchive}: ${err instanceof Error ? err.message : err}`,
+    // Re-throw so the caller (and the desktop app) knows the archive failed.
+    // If the rename fails, old workspace data stays in place and a subsequent
+    // hatch would inherit stale SOUL.md, IDENTITY.md, and memories.
+    throw new Error(
+      `Failed to archive ${dirToArchive}: ${err instanceof Error ? err.message : err}`,
     );
-    console.warn("Skipping archive.");
-    console.log("\u2705 Local instance retired.");
-    return;
   }
 
   writeFileSync(metadataPath, JSON.stringify(entry, null, 2) + "\n");
