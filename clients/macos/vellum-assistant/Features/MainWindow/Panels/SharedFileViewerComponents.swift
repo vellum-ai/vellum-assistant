@@ -102,6 +102,8 @@ struct FileContentHeaderBar<Trailing: View>: View {
             Text(fileName)
                 .font(VFont.captionMedium)
                 .foregroundColor(VColor.contentDefault)
+                .lineLimit(1)
+                .truncationMode(.middle)
             Spacer()
             Text(fileSize)
                 .font(VFont.small)
