@@ -29,14 +29,22 @@ import { getLogger } from "../util/logger.js";
 const log = getLogger("platform-callback-registration");
 
 /**
+ * Whether this is a platform-managed deployment.
+ * True when PLATFORM_BASE_URL and PLATFORM_ASSISTANT_ID are both set,
+ * regardless of containerization. Use this to gate behaviour that depends
+ * on platform-managed credentials and OAuth flows.
+ */
+export function isPlatformManaged(): boolean {
+  return !!getPlatformBaseUrl() && !!getPlatformAssistantId();
+}
+
+/**
  * Whether the daemon should register callback routes with the platform.
  * True when IS_CONTAINERIZED, PLATFORM_BASE_URL, and PLATFORM_ASSISTANT_ID
  * are all set.
  */
 export function shouldUsePlatformCallbacks(): boolean {
-  return (
-    getIsContainerized() && !!getPlatformBaseUrl() && !!getPlatformAssistantId()
-  );
+  return getIsContainerized() && isPlatformManaged();
 }
 
 interface RegisterCallbackRouteResponse {
