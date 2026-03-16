@@ -270,6 +270,21 @@ All UI icons use **vendored Lucide PDF assets** rendered through the `VIcon` enu
 
 ---
 
+## Networking: Use GatewayHTTPClient for New HTTP APIs
+
+**Do not add new HTTP API methods to `DaemonClient` or `HTTPTransport`.** These are legacy classes being incrementally migrated to `GatewayHTTPClient`.
+
+When adding a new HTTP endpoint call:
+
+1. Create or extend a focused protocol (e.g. `ConversationClientProtocol`) describing the operation.
+2. Implement it in a struct that calls `GatewayHTTPClient.get/post/delete(path:timeout:)`. Path encoding and `{assistantId}` substitution are handled automatically by `GatewayHTTPClient.buildRequest()` — do not percent-encode paths manually.
+3. Inject the struct via an init parameter with a default value for testability.
+4. If migrating an existing method, remove it from `DaemonClient` and `HTTPTransport` and clean up any unused `Endpoint` enum cases.
+
+See `clients/ARCHITECTURE.md` § "GatewayHTTPClient Migration" for the full pattern and migration tracker.
+
+---
+
 ## Docs Anti-Drift
 - Avoid brittle hardcoded counts, version claims, or roadmap placeholders in client READMEs unless they are generated automatically. Prefer evergreen wording (e.g., "iOS-specific integration tests" instead of "70 iOS-specific tests").
 - When updating documentation, verify claims against the current codebase rather than copying from stale sources.

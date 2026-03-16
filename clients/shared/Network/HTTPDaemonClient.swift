@@ -104,6 +104,11 @@ public struct WorkspaceFileResponse: Codable, Sendable {
 /// - SSE stream connection to `GET /v1/events` (unfiltered, on demand)
 /// - Translating message types to HTTP API calls
 /// - Auto-reconnect with exponential backoff
+///
+/// - Important: New HTTP API calls should **not** be added here. Use `GatewayHTTPClient`
+///   instead, injected via a focused protocol (e.g. `ConversationClientProtocol`).
+///   Existing methods are being incrementally migrated to standalone clients backed by
+///   `GatewayHTTPClient`. See `clients/ARCHITECTURE.md` for details.
 @MainActor
 public final class HTTPTransport {
 
@@ -261,7 +266,6 @@ public final class HTTPTransport {
         case sendMessage
         case getMessages(conversationId: String?)
         case conversations(limit: Int, offset: Int)
-        case conversationById(id: String)
         case confirm
         case secret
         case guardianActionsPending(conversationId: String)
@@ -491,9 +495,6 @@ public final class HTTPTransport {
             return ("/v1/messages", nil)
         case .conversations(let limit, let offset):
             return ("/v1/conversations", "limit=\(limit)&offset=\(offset)")
-        case .conversationById(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/conversations/\(encoded)", nil)
         case .confirm:
             return ("/v1/confirm", nil)
         case .secret:
@@ -910,9 +911,6 @@ public final class HTTPTransport {
             return ("\(prefix)/messages/", nil)
         case .conversations(let limit, let offset):
             return ("\(prefix)/conversations/", "limit=\(limit)&offset=\(offset)")
-        case .conversationById(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/conversations/\(encoded)/", nil)
         case .confirm:
             return ("\(prefix)/confirm/", nil)
         case .secret:
@@ -2958,32 +2956,6 @@ public final class HTTPTransport {
         } catch {
             log.error("Fetch conversation list error: \(error.localizedDescription)")
             onMessage?(.conversationListResponse(ConversationListResponseMessage(type: "conversation_list_response", conversations: [], hasMore: nil)))
-        }
-    }
-
-    /// Delete a single conversation on the backend (fire-and-forget).
-    func deleteConversation(_ conversationId: String, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .conversationById(id: conversationId)) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-            if statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    await deleteConversation(conversationId, isRetry: true)
-                    return
-                }
-            }
-            if statusCode != 204 && statusCode != 200 {
-                log.error("Delete conversation \(conversationId) failed (HTTP \(statusCode))")
-            }
-        } catch {
-            log.error("Delete conversation \(conversationId) error: \(error.localizedDescription)")
         }
     }
 

@@ -521,6 +521,34 @@ When a managed-mode HTTP request receives a 401, the `HTTPDaemonClient` does not
 
 ---
 
+## GatewayHTTPClient Migration (In Progress)
+
+`DaemonClient` and `HTTPTransport` are being incrementally migrated to `GatewayHTTPClient`. New HTTP API calls should use `GatewayHTTPClient` instead of adding methods to `DaemonClient` or `HTTPTransport`.
+
+### Why
+
+The assistant currently exposes an HTTP port so that the native client can call its REST API directly via `DaemonClient`/`HTTPTransport`. By routing these calls through the gateway instead, we can eventually remove that HTTP port entirely and lock down the assistant's networking surface. `GatewayHTTPClient` is the client-side piece of this: an authenticated HTTP client that talks to the gateway (and its platform proxy) instead of hitting the assistant directly.
+
+### Pattern
+
+Each migrated API surface gets a focused protocol + struct, injected via init parameters for testability. Once every method has been migrated off `DaemonClient`/`HTTPTransport`, the assistant's HTTP port can be removed:
+
+1. **Define a protocol** describing the operations (e.g. `ConversationClientProtocol`).
+2. **Implement a struct** that calls `GatewayHTTPClient.get/post/delete(path:timeout:)`.
+3. **Inject the struct** into the consuming type (e.g. `ThreadManager`) with a default value.
+4. **Remove** the corresponding method from `DaemonClient` and `HTTPTransport`.
+5. **Clean up** any `Endpoint` enum cases that are no longer referenced.
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `clients/shared/Network/GatewayHTTPClient.swift` | Authenticated HTTP client for gateway and platform proxy requests |
+| `clients/shared/Network/DaemonClient.swift` | Legacy client (do not add new HTTP methods here) |
+| `clients/shared/Network/HTTPDaemonClient.swift` | Legacy HTTP transport (do not add new HTTP methods here) |
+
+---
+
 ## iOS Connection Architecture
 
 The iOS app connects to the macOS assistant exclusively via HTTPS through the gateway.

@@ -14,6 +14,7 @@ private let archivedSessionsKey = "archivedConversationIds"
 @MainActor
 protocol ConversationClientProtocol {
     func fetchConversationById(_ conversationId: String) async -> ConversationsListResponse.Conversation?
+    func deleteConversation(_ conversationId: String) async
 }
 
 /// Fetches conversation data via GatewayHTTPClient.
@@ -26,6 +27,15 @@ struct ConversationClient: ConversationClientProtocol {
             path: "assistants/{assistantId}/conversations/\(conversationId)", timeout: 10
         )
         return result?.0?.conversation
+    }
+
+    func deleteConversation(_ conversationId: String) async {
+        let response = try? await GatewayHTTPClient.delete(
+            path: "assistants/{assistantId}/conversations/\(conversationId)", timeout: 10
+        )
+        if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
+            log.error("Delete conversation \(conversationId) failed (HTTP \(statusCode))")
+        }
     }
 }
 
@@ -424,7 +434,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
         // Delete the conversation on the backend (fire-and-forget)
         if let conversationId {
-            daemonClient.deleteConversation(conversationId)
+            Task { await conversationClient.deleteConversation(conversationId) }
         }
 
         log.info("Removed private conversation \(id)")
