@@ -7,6 +7,7 @@ struct WorkspaceFileSheet: View {
     let filePath: String
     let mimeType: String?
     let client: DaemonClient?
+    let workspaceClient: WorkspaceClient
     @Environment(\.dismiss) private var dismiss
     @State private var fileResponse: WorkspaceFileResponse?
     @State private var isLoading = true
@@ -141,13 +142,7 @@ struct WorkspaceFileSheet: View {
     // MARK: - Loading
 
     private func loadContent() async {
-        guard let client else {
-            error = "Not connected to assistant."
-            isLoading = false
-            return
-        }
-
-        if let response = await client.fetchWorkspaceFile(path: filePath) {
+        if let response = await workspaceClient.fetchWorkspaceFile(path: filePath, showHidden: false) {
             fileResponse = response
         } else {
             error = "Unable to read file."

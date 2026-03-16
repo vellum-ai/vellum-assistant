@@ -7,6 +7,8 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 @MainActor
 public protocol WorkspaceClientProtocol {
     func fetchWorkspaceTree(path: String, showHidden: Bool) async -> WorkspaceTreeResponse?
+    func fetchWorkspaceFile(path: String, showHidden: Bool) async -> WorkspaceFileResponse?
+    func deleteWorkspaceItem(path: String) async -> Bool
 }
 
 /// Gateway-backed implementation of ``WorkspaceClientProtocol``.
@@ -28,5 +30,31 @@ public struct WorkspaceClient: WorkspaceClientProtocol {
         }
         guard let data = response?.data else { return nil }
         return try? JSONDecoder().decode(WorkspaceTreeResponse.self, from: data)
+    }
+
+    public func fetchWorkspaceFile(path: String, showHidden: Bool) async -> WorkspaceFileResponse? {
+        var params: [String: String] = ["path": path]
+        if showHidden { params["showHidden"] = "true" }
+
+        let response = try? await GatewayHTTPClient.get(
+            path: "assistants/{assistantId}/workspace/file", params: params, timeout: 10
+        )
+        if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
+            log.error("Fetch workspace file failed (HTTP \(statusCode))")
+            return nil
+        }
+        guard let data = response?.data else { return nil }
+        return try? JSONDecoder().decode(WorkspaceFileResponse.self, from: data)
+    }
+
+    public func deleteWorkspaceItem(path: String) async -> Bool {
+        let response = try? await GatewayHTTPClient.post(
+            path: "assistants/{assistantId}/workspace/delete", json: ["path": path], timeout: 10
+        )
+        if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
+            log.error("Delete workspace item failed (HTTP \(statusCode))")
+            return false
+        }
+        return response?.isSuccess ?? false
     }
 }

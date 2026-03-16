@@ -78,7 +78,7 @@ struct WorkspaceBrowserView: View {
             handleFileImport(result)
         }
         .sheet(item: $selectedFile) { file in
-            WorkspaceFileSheet(filePath: file.path, mimeType: file.mimeType, client: client)
+            WorkspaceFileSheet(filePath: file.path, mimeType: file.mimeType, client: client, workspaceClient: workspaceClient)
         }
         .task { await loadDirectory() }
         .alert("New File", isPresented: $showingNewFileAlert) {
@@ -251,7 +251,7 @@ struct WorkspaceBrowserView: View {
         Button("Delete", role: .destructive) {
             guard let entry = deletingEntry else { return }
             Task {
-                if let client, await client.deleteWorkspaceItem(path: entry.path) {
+                if await workspaceClient.deleteWorkspaceItem(path: entry.path) {
                     await reloadDirectory()
                 }
             }

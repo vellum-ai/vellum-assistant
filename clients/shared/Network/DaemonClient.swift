@@ -859,19 +859,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         return cs
     }()
 
-    /// Fetch a single workspace file's metadata and optional content.
-    /// Delegates to HTTPTransport for remote connections, or calls the local daemon HTTP server.
-    public func fetchWorkspaceFile(path: String, showHidden: Bool = false) async -> WorkspaceFileResponse? {
-        if let httpTransport {
-            return await httpTransport.fetchWorkspaceFile(path: path, showHidden: showHidden)
-        }
-
-        let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-        var query = "path=\(encoded)"
-        if showHidden { query += "&showHidden=true" }
-        return await executeLocalRequest(path: "v1/workspace/file?\(query)", timeout: 10)
-    }
-
     /// Build a URL for streaming/downloading workspace file content.
     /// For remote connections, delegates to HTTPTransport. For local, builds against daemon HTTP port.
     public func workspaceFileContentURL(path: String, showHidden: Bool = false) -> URL? {
@@ -1011,46 +998,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             return (200...299).contains(http.statusCode)
         } catch {
             log.warning("renameWorkspaceItem failed: \(error.localizedDescription, privacy: .public)")
-            return false
-        }
-    }
-
-    /// Delete a file or directory in the workspace.
-    /// Delegates to HTTPTransport for remote connections, or calls the local daemon HTTP server.
-    public func deleteWorkspaceItem(path: String) async -> Bool {
-        if let httpTransport {
-            return await httpTransport.deleteWorkspaceItem(path: path)
-        }
-
-        guard var request = buildLocalRequest(target: .daemon, path: "v1/workspace/delete", method: "POST") else { return false }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        let body: [String: Any] = ["path": path]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
-        do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse else { return false }
-
-            if http.statusCode == 401 {
-                guard let platform = recoveryPlatform, let deviceId = recoveryDeviceId else {
-                    log.warning("Local HTTP 401 for v1/workspace/delete — no recovery credentials configured")
-                    return false
-                }
-                let success = await bootstrapActorToken(platform: platform, deviceId: deviceId)
-                guard success else { return false }
-
-                guard var retryRequest = buildLocalRequest(target: .daemon, path: "v1/workspace/delete", method: "POST") else { return false }
-                retryRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                retryRequest.httpBody = request.httpBody
-                let (_, retryResponse) = try await URLSession.shared.data(for: retryRequest)
-                guard let retryHttp = retryResponse as? HTTPURLResponse else { return false }
-                return (200...299).contains(retryHttp.statusCode)
-            }
-
-            return (200...299).contains(http.statusCode)
-        } catch {
-            log.warning("deleteWorkspaceItem failed: \(error.localizedDescription, privacy: .public)")
             return false
         }
     }

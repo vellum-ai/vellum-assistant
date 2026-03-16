@@ -43,7 +43,7 @@ final class WorkspaceBrowserState {
         }
     }
 
-    func loadFile(path targetPath: String, using daemonClient: DaemonClient) async {
+    func loadFile(path targetPath: String, using workspaceClient: any WorkspaceClientProtocol) async {
         selectedFilePath = targetPath
         viewMode = .source
         isLoadingFile = true
@@ -52,7 +52,7 @@ final class WorkspaceBrowserState {
         editableContent = ""
         fileLoadTask?.cancel()
         let task = Task {
-            let detail = await daemonClient.fetchWorkspaceFile(path: targetPath, showHidden: showHiddenFiles)
+            let detail = await workspaceClient.fetchWorkspaceFile(path: targetPath, showHidden: showHiddenFiles)
             guard !Task.isCancelled, selectedFilePath == targetPath else { return }
             selectedFileDetail = detail
             editableContent = detail?.content ?? ""
@@ -144,7 +144,7 @@ struct WorkspacePanel: View {
             Button("Discard", role: .destructive) {
                 if let targetPath = state.pendingSwitchPath {
                     state.pendingSwitchPath = nil
-                    Task { await state.loadFile(path: targetPath, using: daemonClient) }
+                    Task { await state.loadFile(path: targetPath, using: workspaceClient) }
                 } else if let newValue = state.pendingHiddenFilesToggle {
                     state.pendingHiddenFilesToggle = nil
                     applyHiddenFilesToggle(newValue)
@@ -168,7 +168,7 @@ struct WorkspacePanel: View {
                 guard let path = state.deleteConfirmPath else { return }
                 let parentPath = parentDirectory(of: path)
                 Task {
-                    let success = await daemonClient.deleteWorkspaceItem(path: path)
+                    let success = await workspaceClient.deleteWorkspaceItem(path: path)
                     if success {
                         await state.refreshDirectory(parentPath, using: workspaceClient)
                         if state.selectedFilePath == path || state.selectedFilePath?.hasPrefix(path + "/") == true {
@@ -203,7 +203,7 @@ struct WorkspacePanel: View {
             // Auto-select IDENTITY.md if it exists and no file is already selected
             if state.selectedFilePath == nil,
                let identityEntry = response.entries.first(where: { $0.name == "IDENTITY.md" && !$0.isDirectory }) {
-                await state.loadFile(path: identityEntry.path, using: daemonClient)
+                await state.loadFile(path: identityEntry.path, using: workspaceClient)
             }
         }
         state.isLoadingTree = false
@@ -662,7 +662,7 @@ private struct WorkspaceTreeRow: View {
                 state.pendingSwitchPath = targetPath
                 state.showingDirtyAlert = true
             } else {
-                await state.loadFile(path: targetPath, using: daemonClient)
+                await state.loadFile(path: targetPath, using: workspaceClient)
             }
         }
     }
