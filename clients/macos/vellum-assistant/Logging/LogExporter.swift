@@ -29,9 +29,9 @@ enum LogExporter {
     /// Whether the currently connected assistant is a managed (platform-hosted) instance.
     /// When true, conversation-scoped exports are not available because the platform API
     /// does not yet support conversation-scoped log retrieval.
+    /// Uses the cached value from AppDelegate to avoid disk I/O in hot paths (e.g. SwiftUI view bodies).
     nonisolated static var isManagedAssistant: Bool {
-        guard let id = UserDefaults.standard.string(forKey: "connectedAssistantId") else { return false }
-        return LockfileAssistant.loadByName(id)?.isManaged == true
+        AppDelegate.shared?.isCurrentAssistantManaged == true
     }
 
     /// Collects logs, archives them, and sends to Sentry as an attachment for developer debugging.
