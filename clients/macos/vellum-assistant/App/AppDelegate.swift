@@ -197,7 +197,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // Sentry is never initialized. Otherwise, initialize eagerly so crashes
         // before the daemon connects are captured.
         let sendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
-            ?? UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool
             ?? true
         if sendDiagnostics {
             let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
