@@ -730,6 +730,10 @@ private struct WorkspaceFileViewer: View {
     private func textViewer(_ detail: WorkspaceFileResponse) -> some View {
         let modes = availableViewModes(for: detail.name, mimeType: detail.mimeType)
         let readOnly = isHiddenPath(detail.path)
+        // Clamp viewMode to available modes for the current file
+        if !modes.contains(state.viewMode) {
+            Task { @MainActor in state.viewMode = modes.first ?? .source }
+        }
         return VStack(spacing: 0) {
             if modes.count > 1 {
                 HStack(spacing: 0) {
