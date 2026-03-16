@@ -326,6 +326,7 @@ export async function drainQueue(
                 queuedInterfaceCtx.assistantMessageInterface,
             }
           : {}),
+        ...(next.metadata?.automated ? { automated: true } : {}),
       };
       const userMsg = createUserMessage(next.content, next.attachments);
       // When displayContent is provided (e.g. original text before recording
