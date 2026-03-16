@@ -52,6 +52,7 @@ struct OnboardingFlowView: View {
                     )
             } else if (0...maxOnboardingStep).contains(state.currentStep) {
                 // Onboarding flow: WakeUp → HostingSelector → APIKeyEntry (steps 0–2)
+                ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
                     // Fixed top inset — positions the icon consistently
                     // across all steps regardless of bottom content weight.
@@ -117,7 +118,13 @@ struct OnboardingFlowView: View {
                         )
                     )
                     .id(isBootstrappingManaged ? -1 : state.currentStep)
+
+                    // Bottom padding so content isn't flush with window edge
+                    Color.clear.frame(height: VSpacing.xxl)
                 }
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height)
+                }
+                .scrollBounceBehavior(.basedOnSize)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(
                     RadialGradient(
