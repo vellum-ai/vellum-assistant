@@ -52,6 +52,7 @@ and "assistant keys set <provider> <key>" to view and manage API keys.
 Examples:
   $ assistant config list
   $ assistant config get provider
+  $ assistant config schema provider
   $ assistant config set provider anthropic
   $ assistant config set calls.enabled true`,
   );
