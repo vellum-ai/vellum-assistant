@@ -15,7 +15,7 @@ struct ImproveExperienceStepView: View {
     @State private var tosAccepted: Bool = UserDefaults.standard.bool(forKey: "tosAccepted")
 
     var body: some View {
-        Text("Almost there!")
+        Text("Welcome to Vellum!")
             .font(.system(size: 32, weight: .regular, design: .serif))
             .foregroundColor(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
