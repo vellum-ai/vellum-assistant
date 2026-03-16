@@ -1,132 +1,66 @@
-import AppKit
+import SwiftUI
 import VellumAssistantShared
 
-/// Maps syntax token types to appearance-aware styled text attributes.
+/// Maps syntax token types to SwiftUI colors and builds syntax-highlighted `AttributedString` values.
 struct SyntaxTheme {
 
-    // MARK: - Adaptive Color Helper
+    // MARK: - Token Color
 
-    /// Creates an `NSColor` that resolves to `light` or `dark` based on the
-    /// current window appearance (System / Light / Dark).
-    private static func adaptiveNSColor(
-        light: NSColor,
-        dark: NSColor
-    ) -> NSColor {
-        NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
-        }
-    }
-
-    // MARK: - Token Colors
-
-    /// Base text color for unhighlighted content.
-    static let baseTextColor = adaptiveNSColor(
-        light: NSColor(red: 0.20, green: 0.20, blue: 0.20, alpha: 1.0),
-        dark: NSColor(red: 0.85, green: 0.85, blue: 0.85, alpha: 1.0)
-    )
-
-    // Syntax token colors derived from the shared VColor.syntax* adaptive tokens.
-    private static let keywordColor = NSColor(VColor.syntaxKeyword)
-    private static let stringColor = NSColor(VColor.syntaxString)
-    private static let commentColor = NSColor(VColor.syntaxComment)
-    private static let numberColor = NSColor(VColor.syntaxNumber)
-    private static let typeColor = NSColor(VColor.syntaxType)
-    private static let propertyColor = NSColor(VColor.syntaxProperty)
-    private static let linkColor = NSColor(VColor.syntaxLink)
-
-    // MARK: - Attribute Resolution
-
-    /// Returns attributed string attributes for the given token type.
-    ///
-    /// Colors adapt to the current system appearance (light or dark). Font
-    /// traits (bold, italic) are derived from the provided base font.
-    static func attributes(for tokenType: SyntaxTokenType, baseFont: NSFont) -> [NSAttributedString.Key: Any] {
-        let color: NSColor
-        var font = baseFont
-
+    /// Returns the SwiftUI `Color` for the given syntax token type.
+    static func color(for tokenType: SyntaxTokenType) -> Color {
         switch tokenType {
-        case .keyword:
-            color = keywordColor
-
-        case .string:
-            color = stringColor
-
-        case .comment:
-            color = commentColor
-
-        case .number:
-            color = numberColor
-
-        case .type:
-            color = typeColor
-
-        case .property:
-            color = propertyColor
-
-        case .boolean, .null:
-            color = numberColor
-
-        case .heading:
-            color = baseTextColor
-            font = NSFontManager.shared.convert(baseFont, toHaveTrait: .boldFontMask)
-
-        case .bold:
-            color = baseTextColor
-            font = NSFontManager.shared.convert(baseFont, toHaveTrait: .boldFontMask)
-
-        case .italic:
-            color = baseTextColor
-            font = NSFontManager.shared.convert(baseFont, toHaveTrait: .italicFontMask)
-
-        case .codeSpan:
-            color = stringColor
-
-        case .link:
-            color = linkColor
-
-        case .plain:
-            color = baseTextColor
+        case .keyword: return VColor.syntaxKeyword
+        case .string: return VColor.syntaxString
+        case .comment: return VColor.syntaxComment
+        case .number: return VColor.syntaxNumber
+        case .type: return VColor.syntaxType
+        case .property: return VColor.syntaxProperty
+        case .boolean, .null: return VColor.syntaxNumber
+        case .codeSpan: return VColor.syntaxString
+        case .link: return VColor.syntaxLink
+        case .heading, .bold, .italic, .plain: return VColor.contentDefault
         }
-
-        return [
-            .foregroundColor: color,
-            .font: font,
-        ]
     }
 
-    // MARK: - Resolved Attributes (for SwiftUI-hosted NSTextView)
+    // MARK: - Highlighted AttributedString
 
-    /// Dynamic NSColors stored in NSAttributedString foreground color attributes
-    /// may not resolve correctly inside an NSTextView hosted in SwiftUI via
-    /// NSViewRepresentable. These methods pre-resolve colors to static sRGB
-    /// values based on the text view's effective appearance.
+    /// Tokenizes `text` for `language` and returns an `AttributedString` with
+    /// syntax-colored foreground colors and appropriate font variants.
+    static func highlight(_ text: String, language: SyntaxLanguage) -> AttributedString {
+        let baseFont = Font.custom("DMMono-Regular", size: 13)
 
-    /// Returns the base text color pre-resolved for the given appearance.
-    static func resolvedBaseTextColor(isDark: Bool) -> NSColor {
-        isDark
-            ? NSColor(srgbRed: 0.85, green: 0.85, blue: 0.85, alpha: 1.0)
-            : NSColor(srgbRed: 0.20, green: 0.20, blue: 0.20, alpha: 1.0)
-    }
+        var attributedString = AttributedString(text)
+        attributedString.foregroundColor = VColor.contentDefault
+        attributedString.font = baseFont
 
-    /// Returns attributed string attributes with pre-resolved (non-dynamic) colors.
-    static func resolvedAttributes(for tokenType: SyntaxTokenType, baseFont: NSFont, isDark: Bool) -> [NSAttributedString.Key: Any] {
-        var attrs = attributes(for: tokenType, baseFont: baseFont)
-        if let color = attrs[.foregroundColor] as? NSColor {
-            attrs[.foregroundColor] = resolveColor(color, isDark: isDark)
+        guard language != .plain else {
+            return attributedString
         }
-        return attrs
-    }
 
-    /// Resolves a potentially-dynamic NSColor into a static sRGB color.
-    private static func resolveColor(_ dynamicColor: NSColor, isDark: Bool) -> NSColor {
-        let appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)!
-        var result: NSColor = dynamicColor
-        appearance.performAsCurrentDrawingAppearance {
-            guard let resolved = dynamicColor.usingColorSpace(.sRGB) else { return }
-            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-            resolved.getRed(&r, green: &g, blue: &b, alpha: &a)
-            result = NSColor(srgbRed: r, green: g, blue: b, alpha: a)
+        let tokens = SyntaxTokenizer.tokenize(text, language: language)
+
+        for token in tokens {
+            guard let stringRange = Range(token.range, in: text) else { continue }
+
+            guard let lowerBound = AttributedString.Index(stringRange.lowerBound, within: attributedString),
+                  let upperBound = AttributedString.Index(stringRange.upperBound, within: attributedString) else {
+                continue
+            }
+
+            let attrRange = lowerBound..<upperBound
+
+            attributedString[attrRange].foregroundColor = color(for: token.type)
+
+            switch token.type {
+            case .heading, .bold:
+                attributedString[attrRange].font = Font.custom("DMMono-Regular", size: 13).bold()
+            case .italic:
+                attributedString[attrRange].font = Font.custom("DMMono-Regular", size: 13).italic()
+            default:
+                break
+            }
         }
-        return result
+
+        return attributedString
     }
 }
