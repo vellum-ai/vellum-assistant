@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 
+import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/system-prompt.js";
 import { ProviderError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
@@ -648,13 +649,37 @@ export class AnthropicProvider implements Provider {
       };
 
       if (systemPrompt) {
-        params.system = [
-          {
-            type: "text" as const,
-            text: systemPrompt,
-            cache_control: { type: "ephemeral" as const },
-          },
-        ];
+        const boundaryIdx = systemPrompt.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
+        if (boundaryIdx >= 0) {
+          // Split into two cache blocks: static instructions (stable across
+          // turns) and dynamic workspace content (changes when files are
+          // edited).  The static prefix stays cached even when workspace
+          // files change, saving ~8-10K tokens of cache creation per turn.
+          const staticBlock = systemPrompt.slice(0, boundaryIdx);
+          const dynamicBlock = systemPrompt.slice(
+            boundaryIdx + SYSTEM_PROMPT_CACHE_BOUNDARY.length,
+          );
+          params.system = [
+            {
+              type: "text" as const,
+              text: staticBlock,
+              cache_control: { type: "ephemeral" as const },
+            },
+            {
+              type: "text" as const,
+              text: dynamicBlock,
+              cache_control: { type: "ephemeral" as const },
+            },
+          ];
+        } else {
+          params.system = [
+            {
+              type: "text" as const,
+              text: systemPrompt,
+              cache_control: { type: "ephemeral" as const },
+            },
+          ];
+        }
       }
 
       if (tools && tools.length > 0) {

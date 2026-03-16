@@ -115,12 +115,57 @@ export interface BuildSystemPromptOptions {
   excludeBootstrap?: boolean;
 }
 
+/**
+ * Sentinel that separates the static instruction prefix (stable across turns)
+ * from the dynamic workspace suffix (changes when workspace files are edited).
+ *
+ * The Anthropic provider splits on this marker to create two system-prompt
+ * cache blocks so that static instructions stay cached even when workspace
+ * files change between turns.
+ */
+export const SYSTEM_PROMPT_CACHE_BOUNDARY =
+  "\n<!-- SYSTEM_PROMPT_CACHE_BOUNDARY -->\n";
+
 export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
+  const hasNoClient = options?.hasNoClient ?? false;
+
+  // ── Static instruction sections (stable across turns) ──
+  // These sections are deterministic within a process lifetime.  They form
+  // the first cache block so they remain cached even when workspace files
+  // (IDENTITY.md, SOUL.md, USER.md, etc.) are edited between turns.
+  const staticParts: string[] = [];
+  staticParts.push(
+    "IMPORTANT: Never use em dashes (—) in your messages. Use commas, periods, or just start a new sentence instead.",
+  );
+  if (getIsContainerized()) staticParts.push(buildContainerizedSection());
+  staticParts.push(buildCliReferenceSection());
+  staticParts.push(buildPostToolResponseSection());
+  staticParts.push(buildChannelAwarenessSection());
+  if (!hasNoClient) staticParts.push(buildToolPermissionSection());
+  staticParts.push(buildTaskScheduleReminderRoutingSection());
+  staticParts.push(buildAttachmentSection());
+  staticParts.push(buildInChatConfigurationSection());
+  if (!isOnboardingComplete()) {
+    staticParts.push(buildStarterTaskPlaybookSection());
+  }
+  if (!hasNoClient) staticParts.push(buildSystemPermissionSection());
+  staticParts.push(buildSwarmGuidanceSection());
+  staticParts.push(buildAccessPreferenceSection(hasNoClient));
+  staticParts.push(buildMemoryPersistenceSection());
+  staticParts.push(buildMemoryRecallSection());
+  staticParts.push(buildWorkspaceReflectionSection());
+  staticParts.push(buildLearningMemorySection());
+
+  // ── Dynamic sections (may change between turns) ──
+  // Workspace files, config, external comms identity, connected services,
+  // and skills catalog are all re-read from disk/DB each turn.  They form
+  // the second cache block.
+  const dynamicParts: string[] = [];
+
   const soulPath = getWorkspacePromptPath("SOUL.md");
   const identityPath = getWorkspacePromptPath("IDENTITY.md");
   const userPath = getWorkspacePromptPath("USER.md");
   const bootstrapPath = getWorkspacePromptPath("BOOTSTRAP.md");
-
   const updatesPath = getWorkspacePromptPath("UPDATES.md");
 
   const soul = readPromptFile(soulPath);
@@ -129,23 +174,18 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const bootstrap = readPromptFile(bootstrapPath);
   const updates = readPromptFile(updatesPath);
 
-  // ── Core sections ──
-  const parts: string[] = [];
-  parts.push(
-    "IMPORTANT: Never use em dashes (—) in your messages. Use commas, periods, or just start a new sentence instead.",
-  );
-  if (identity) parts.push(identity);
-  if (soul) parts.push(soul);
-  if (user) parts.push(user);
+  if (identity) dynamicParts.push(identity);
+  if (soul) dynamicParts.push(soul);
+  if (user) dynamicParts.push(user);
   if (bootstrap && !options?.excludeBootstrap) {
-    parts.push(
+    dynamicParts.push(
       "# First-Run Ritual\n\n" +
         "BOOTSTRAP.md is present — this is your first conversation. Follow its instructions.\n\n" +
         bootstrap,
     );
   }
   if (updates) {
-    parts.push(
+    dynamicParts.push(
       [
         "## Recent Updates",
         "",
@@ -161,30 +201,15 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
       ].join("\n"),
     );
   }
-  if (getIsContainerized()) parts.push(buildContainerizedSection());
-  const hasNoClient = options?.hasNoClient ?? false;
-  parts.push(buildConfigSection(hasNoClient));
-  parts.push(buildCliReferenceSection());
-  parts.push(buildPostToolResponseSection());
-  parts.push(buildExternalCommsIdentitySection());
-  parts.push(buildChannelAwarenessSection());
-  if (!hasNoClient) parts.push(buildToolPermissionSection());
-  parts.push(buildTaskScheduleReminderRoutingSection());
-  parts.push(buildAttachmentSection());
-  parts.push(buildInChatConfigurationSection());
-  if (!isOnboardingComplete()) {
-    parts.push(buildStarterTaskPlaybookSection());
-  }
-  if (!hasNoClient) parts.push(buildSystemPermissionSection());
-  parts.push(buildSwarmGuidanceSection());
-  parts.push(buildAccessPreferenceSection(hasNoClient));
-  parts.push(buildIntegrationSection());
-  parts.push(buildMemoryPersistenceSection());
-  parts.push(buildMemoryRecallSection());
-  parts.push(buildWorkspaceReflectionSection());
-  parts.push(buildLearningMemorySection());
+  dynamicParts.push(buildConfigSection(hasNoClient));
+  dynamicParts.push(buildExternalCommsIdentitySection());
+  dynamicParts.push(buildIntegrationSection());
 
-  return appendSkillsCatalog(parts.join("\n\n"));
+  const dynamicWithSkills = appendSkillsCatalog(dynamicParts.join("\n\n"));
+
+  return (
+    staticParts.join("\n\n") + SYSTEM_PROMPT_CACHE_BOUNDARY + dynamicWithSkills
+  );
 }
 
 function buildTaskScheduleReminderRoutingSection(): string {

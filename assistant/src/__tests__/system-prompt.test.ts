@@ -88,12 +88,25 @@ const {
   ensurePromptFiles,
   stripCommentLines,
   buildExternalCommsIdentitySection,
+  SYSTEM_PROMPT_CACHE_BOUNDARY,
 } = await import("../prompts/system-prompt.js");
 
-/** Strip the Configuration, Skills, and hardcoded preamble sections so base-prompt tests stay focused. */
+/**
+ * Extract just the workspace-file content (IDENTITY.md, SOUL.md, USER.md,
+ * BOOTSTRAP.md) from the full system prompt, stripping all static
+ * instruction sections, configuration, and skills catalog.
+ *
+ * After the cache-boundary refactor, workspace content lives in the
+ * dynamic block (after SYSTEM_PROMPT_CACHE_BOUNDARY).
+ */
 function basePrompt(result: string): string {
-  let s = result;
-  // Strip the hardcoded em-dash instruction preamble
+  // The workspace files are in the dynamic block after the cache boundary.
+  const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
+  let s =
+    boundaryIdx >= 0
+      ? result.slice(boundaryIdx + SYSTEM_PROMPT_CACHE_BOUNDARY.length)
+      : result;
+  // Strip the hardcoded em-dash instruction preamble (in case boundary is absent)
   const emDashLine =
     "IMPORTANT: Never use em dashes (\u2014) in your messages. Use commas, periods, or just start a new sentence instead.";
   if (s.startsWith(emDashLine)) {
