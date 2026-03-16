@@ -27,7 +27,7 @@ enum ActivationKey: String, CaseIterable {
 final class OnboardingState {
     /// Bump this version whenever the default-flow step order changes so that
     /// persisted step indices from a previous layout are not consumed as-is.
-    private static let currentFlowVersion = 12
+    private static let currentFlowVersion = 13
 
     var currentStep: Int = 0
     var assistantName: String = "Velly"
@@ -95,7 +95,7 @@ final class OnboardingState {
         case 0: return hasHatched ? 0.15 : 0.0
         case 1: return 0.20
         case 2: return 0.25
-        case 3: return 0.30
+        case 3: return 0.35
         case 4: return 0.60
         case 5: return speechGranted ? 0.70 : 0.65
         case 6: return accessibilityGranted ? 0.80 : 0.70
@@ -143,22 +143,14 @@ final class OnboardingState {
         let isManagedSignIn = MacOSClientFeatureFlagManager.shared.isEnabled("managed_sign_in_enabled")
         let maxStep: Int
         if isManagedSignIn {
-            maxStep = 2
+            maxStep = 3
         } else if onboardingVariant == .firstMeeting {
             maxStep = 4
         } else {
-            maxStep = 2
+            maxStep = 3
         }
         if currentStep > maxStep {
             currentStep = maxStep
-        }
-
-        // Opt in to usage data and diagnostics by default for new users.
-        if UserDefaults.standard.object(forKey: "collectUsageData") == nil {
-            UserDefaults.standard.set(true, forKey: "collectUsageData")
-        }
-        if UserDefaults.standard.object(forKey: "sendDiagnostics") == nil {
-            UserDefaults.standard.set(true, forKey: "sendDiagnostics")
         }
     }
 
