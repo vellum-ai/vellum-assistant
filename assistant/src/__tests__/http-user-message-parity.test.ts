@@ -133,6 +133,19 @@ mock.module("../config/loader.js", () => ({
     model: "test",
     provider: "test",
     contextWindow: { maxInputTokens: 200000 },
+    services: {
+      inference: {
+        mode: "your-own",
+        provider: "anthropic",
+        model: "claude-opus-4-6",
+      },
+      "image-generation": {
+        mode: "your-own",
+        provider: "gemini",
+        model: "gemini-2.5-flash-image",
+      },
+      "web-search": { mode: "your-own", provider: "anthropic-native" },
+    },
   }),
 }));
 

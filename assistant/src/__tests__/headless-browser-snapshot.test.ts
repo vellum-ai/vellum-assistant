@@ -177,7 +177,9 @@ describe("executeBrowserClose", () => {
   test("closes session page by default", async () => {
     const result = await executeBrowserClose({}, ctx);
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("Browser page closed for this session.");
+    expect(result.content).toContain(
+      "Browser page closed for this conversation.",
+    );
     expect(closeSessionPageMock).toHaveBeenCalledWith("test-conversation");
     expect(closeAllPagesMock).not.toHaveBeenCalled();
   });

@@ -421,7 +421,9 @@ describe("executeBrowserClose", () => {
   test("closes session page", async () => {
     const result = await executeBrowserClose({}, ctx);
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("Browser page closed for this session");
+    expect(result.content).toContain(
+      "Browser page closed for this conversation",
+    );
   });
 
   test("closes all pages when close_all_pages=true", async () => {

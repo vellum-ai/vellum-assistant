@@ -249,6 +249,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "memory/embedding-backend.ts", // embedding backend API key lookup
       "daemon/providers-setup.ts", // provider initialization API key lookup
       "tools/claude-code/claude-code.ts", // Claude Code tool API key lookup
+      "workspace/migrations/006-services-config.ts", // services config migration reads provider API keys
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));

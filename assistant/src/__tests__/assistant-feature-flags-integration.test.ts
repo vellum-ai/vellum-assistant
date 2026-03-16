@@ -30,6 +30,19 @@ const TEST_DIR = join(
 
 let currentConfig: Record<string, unknown> = {
   sandbox: { enabled: false, backend: "native" },
+  services: {
+    inference: {
+      mode: "your-own",
+      provider: "anthropic",
+      model: "claude-opus-4-6",
+    },
+    "image-generation": {
+      mode: "your-own",
+      provider: "gemini",
+      model: "gemini-2.5-flash-image",
+    },
+    "web-search": { mode: "your-own", provider: "anthropic-native" },
+  },
 };
 
 const DECLARED_FLAG_ID = "contacts";
@@ -120,6 +133,19 @@ beforeEach(() => {
   mkdirSync(TEST_DIR, { recursive: true });
   currentConfig = {
     sandbox: { enabled: false, backend: "native" },
+    services: {
+      inference: {
+        mode: "your-own",
+        provider: "anthropic",
+        model: "claude-opus-4-6",
+      },
+      "image-generation": {
+        mode: "your-own",
+        provider: "gemini",
+        model: "gemini-2.5-flash-image",
+      },
+      "web-search": { mode: "your-own", provider: "anthropic-native" },
+    },
   };
 });
 
@@ -180,6 +206,19 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
         [DECLARED_FLAG_KEY]: false,
         "feature_flags.browser.enabled": true,
       },
+      services: {
+        inference: {
+          mode: "your-own",
+          provider: "anthropic",
+          model: "claude-opus-4-6",
+        },
+        "image-generation": {
+          mode: "your-own",
+          provider: "gemini",
+          model: "gemini-2.5-flash-image",
+        },
+        "web-search": { mode: "your-own", provider: "anthropic-native" },
+      },
     };
 
     const result = buildSystemPrompt();
@@ -205,6 +244,19 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
 
     currentConfig = {
       sandbox: { enabled: false, backend: "native" },
+      services: {
+        inference: {
+          mode: "your-own",
+          provider: "anthropic",
+          model: "claude-opus-4-6",
+        },
+        "image-generation": {
+          mode: "your-own",
+          provider: "gemini",
+          model: "gemini-2.5-flash-image",
+        },
+        "web-search": { mode: "your-own", provider: "anthropic-native" },
+      },
     };
 
     const result = buildSystemPrompt();
@@ -234,6 +286,19 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
         [DECLARED_FLAG_KEY]: false,
         "feature_flags.email-channel.enabled": false,
       },
+      services: {
+        inference: {
+          mode: "your-own",
+          provider: "anthropic",
+          model: "claude-opus-4-6",
+        },
+        "image-generation": {
+          mode: "your-own",
+          provider: "gemini",
+          model: "gemini-2.5-flash-image",
+        },
+        "web-search": { mode: "your-own", provider: "anthropic-native" },
+      },
     };
 
     const result = buildSystemPrompt();
@@ -253,6 +318,19 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
     currentConfig = {
       sandbox: { enabled: false, backend: "native" },
       assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: true },
+      services: {
+        inference: {
+          mode: "your-own",
+          provider: "anthropic",
+          model: "claude-opus-4-6",
+        },
+        "image-generation": {
+          mode: "your-own",
+          provider: "gemini",
+          model: "gemini-2.5-flash-image",
+        },
+        "web-search": { mode: "your-own", provider: "anthropic-native" },
+      },
     };
 
     const result = buildSystemPrompt();
@@ -271,6 +349,19 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
     currentConfig = {
       sandbox: { enabled: false, backend: "native" },
       assistantFeatureFlagValues: { "feature_flags.browser.enabled": false },
+      services: {
+        inference: {
+          mode: "your-own",
+          provider: "anthropic",
+          model: "claude-opus-4-6",
+        },
+        "image-generation": {
+          mode: "your-own",
+          provider: "gemini",
+          model: "gemini-2.5-flash-image",
+        },
+        "web-search": { mode: "your-own", provider: "anthropic-native" },
+      },
     };
 
     const result = buildSystemPrompt();
@@ -290,6 +381,19 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
 
     currentConfig = {
       sandbox: { enabled: false, backend: "native" },
+      services: {
+        inference: {
+          mode: "your-own",
+          provider: "anthropic",
+          model: "claude-opus-4-6",
+        },
+        "image-generation": {
+          mode: "your-own",
+          provider: "gemini",
+          model: "gemini-2.5-flash-image",
+        },
+        "web-search": { mode: "your-own", provider: "anthropic-native" },
+      },
     };
 
     const result = buildSystemPrompt();
@@ -303,6 +407,19 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
 
     currentConfig = {
       sandbox: { enabled: false, backend: "native" },
+      services: {
+        inference: {
+          mode: "your-own",
+          provider: "anthropic",
+          model: "claude-opus-4-6",
+        },
+        "image-generation": {
+          mode: "your-own",
+          provider: "gemini",
+          model: "gemini-2.5-flash-image",
+        },
+        "web-search": { mode: "your-own", provider: "anthropic-native" },
+      },
     };
 
     const result = buildSystemPrompt();

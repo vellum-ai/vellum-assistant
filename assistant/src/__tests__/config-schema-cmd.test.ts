@@ -65,6 +65,31 @@ mock.module("../util/platform.js", () => ({
   isWindows: () => false,
 }));
 
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({
+    services: {
+      inference: {
+        mode: "your-own",
+        provider: "anthropic",
+        model: "claude-opus-4-6",
+      },
+      "image-generation": {
+        mode: "your-own",
+        provider: "gemini",
+        model: "gemini-2.5-flash-image",
+      },
+      "web-search": { mode: "your-own", provider: "anthropic-native" },
+    },
+  }),
+  loadConfig: () => ({}),
+  loadRawConfig: () => ({}),
+  saveConfig: () => {},
+  saveRawConfig: () => {},
+  invalidateConfigCache: () => {},
+  getNestedValue: () => undefined,
+  setNestedValue: () => {},
+}));
+
 import { Command } from "commander";
 import { z } from "zod";
 
