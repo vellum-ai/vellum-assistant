@@ -33,13 +33,17 @@ jobs:
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
+      - name: Compute cache week
+        id: week
+        run: echo "num=$(date -u +%V)" >> "$GITHUB_OUTPUT"
+
       - name: Cache SPM build artifacts
         uses: actions/cache@v4
         with:
           path: clients/.build
-          key: macos-spm-${{ hashFiles('clients/Package.resolved') }}-${{ hashFiles('clients/**/*.swift') }}
+          key: macos-spm-week${{ steps.week.outputs.num }}-${{ hashFiles('clients/Package.resolved') }}
           restore-keys: |
-            macos-spm-${{ hashFiles('clients/Package.resolved') }}-
+            macos-spm-week${{ steps.week.outputs.num }}-
             macos-spm-
 
       - name: Lint unused code
@@ -105,13 +109,17 @@ jobs:
           security find-identity -v -p codesigning | grep -q "Developer ID Application" \
             || { echo "::error::Developer ID Application identity not found in keychain. Check the DEVID_CERTIFICATE_P12 secret."; exit 1; }
 
+      - name: Compute cache week
+        id: week
+        run: echo "num=$(date -u +%V)" >> "$GITHUB_OUTPUT"
+
       - name: Cache SPM build artifacts
         uses: actions/cache@v4
         with:
           path: clients/.build
-          key: macos-spm-${{ hashFiles('clients/Package.resolved') }}-${{ hashFiles('clients/**/*.swift') }}
+          key: macos-spm-week${{ steps.week.outputs.num }}-${{ hashFiles('clients/Package.resolved') }}
           restore-keys: |
-            macos-spm-${{ hashFiles('clients/Package.resolved') }}-
+            macos-spm-week${{ steps.week.outputs.num }}-
             macos-spm-
 
       - name: Cache Bun dependencies (assistant)
