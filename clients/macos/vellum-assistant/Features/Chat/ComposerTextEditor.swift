@@ -101,6 +101,8 @@ struct ComposerTextEditor: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        // Refresh the coordinator's parent so delegate callbacks use current bindings/values.
+        context.coordinator.parent = self
         guard let textView = scrollView.documentView as? ComposerTextView else { return }
 
         // Sync text
