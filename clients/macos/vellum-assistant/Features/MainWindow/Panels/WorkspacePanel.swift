@@ -707,12 +707,13 @@ private struct WorkspaceFileViewer: View {
                     } label: {
                         HStack(spacing: VSpacing.xs) {
                             if state.isSaving {
-                                ProgressView().controlSize(.small)
+                                ProgressView().controlSize(.mini)
                             }
                             Text("Save")
-                                .font(VFont.bodyMedium)
+                                .font(VFont.captionMedium)
                         }
                     }
+                    .buttonStyle(.borderless)
                     .disabled(state.isSaving)
                     .keyboardShortcut("s", modifiers: .command)
                 }
