@@ -480,6 +480,7 @@ struct AgentPanelContent: View {
 
             // File content
             ReadOnlyCodeContent(content: content)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(VColor.surfaceOverlay)
