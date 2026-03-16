@@ -26,7 +26,9 @@ The flow has 9 steps total, takes about 3–5 minutes.
 
 ### Step 0: Prerequisite Check
 
-> Before we start — do you have a Google account you'd like to use for this?
+> Before we start — fair warning: this setup involves Google's developer console, which can feel pretty technical. Don't worry about that — you don't need to understand any of it. I'll open every page for you and tell you exactly what to click. If anything looks confusing or different from what I describe, just tell me and I'll figure it out.
+>
+> Do you have a Google account you'd like to use for this?
 
 If no Google account → guide them to create one or defer.
 

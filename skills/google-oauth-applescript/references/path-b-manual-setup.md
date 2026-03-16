@@ -8,7 +8,9 @@ Tell the user:
 
 > **Setting up Gmail & Calendar from chat**
 >
-> Since I can't open pages in your browser from here, I'll walk you through each step with direct links. You'll need:
+> Fair warning — this involves Google's developer console, which can feel pretty technical. Don't worry about that — you don't need to understand any of it. I'll give you a direct link for every step and tell you exactly what to do. If anything looks confusing, just let me know and I'll help you through it.
+>
+> Since I can't open pages in your browser from here, you'll need:
 >
 > 1. A Google account with access to Google Cloud Console
 > 2. About 5 minutes
