@@ -59,6 +59,12 @@ final class WorkspaceBrowserState {
             isDirty = false
             isSaving = false
             isLoadingFile = false
+
+            // Default read-only markdown files to preview mode
+            let ext = (targetPath as NSString).pathExtension.lowercased()
+            if (ext == "md" || ext == "markdown") && isHiddenPath(targetPath) {
+                viewMode = .preview
+            }
         }
         fileLoadTask = task
     }
@@ -800,9 +806,7 @@ private struct WorkspaceFileViewer: View {
     }
 
     private func previewView(_ detail: WorkspaceFileResponse) -> some View {
-        Text("Preview not yet available")
-            .font(VFont.body)
-            .foregroundColor(VColor.contentTertiary)
+        MarkdownPreviewView(content: detail.content ?? "")
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
