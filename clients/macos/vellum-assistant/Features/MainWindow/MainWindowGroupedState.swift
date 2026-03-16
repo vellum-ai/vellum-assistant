@@ -67,9 +67,9 @@ final class SidebarInteractionState {
         }
     }
 
-    /// Thread ID that is currently the drop target during a drag-and-drop reorder.
+    /// Conversation ID that is currently the drop target during a drag-and-drop reorder.
     var dropTargetThreadId: UUID?
-    /// Thread ID currently being dragged (set on drag start, cleared on drop).
+    /// Conversation ID currently being dragged (set on drag start, cleared on drop).
     var draggingThreadId: UUID?
     /// Whether the drop indicator should appear at the bottom of the target (true)
     /// or the top (false). Set based on drag direction.

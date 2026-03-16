@@ -91,10 +91,10 @@ enum LogExporter {
             // Surface active session state as tags so the Sentry event itself
             // is useful for triage without downloading the log archive.
             var extra: [String: Any] = [:]
-            let threadManager = AppDelegate.shared?.mainWindow?.threadManager
-            if let activeThread = threadManager?.activeThread {
-                extra["thread_title"] = activeThread.title
-                if let sessionId = activeThread.conversationId {
+            let conversationManager = AppDelegate.shared?.mainWindow?.conversationManager
+            if let activeConversation = conversationManager?.activeConversation {
+                extra["thread_title"] = activeConversation.title
+                if let sessionId = activeConversation.conversationId {
                     tags["session_id"] = sessionId
                     // conversation_id mirrors session_id — the daemon tags its
                     // Sentry events with both names for the same value. Setting
@@ -110,7 +110,7 @@ enum LogExporter {
                 }
             }
             var errorCategoryString: String?
-            if let vm = threadManager?.activeViewModel {
+            if let vm = conversationManager?.activeViewModel {
                 extra["message_count"] = vm.messages.count
                 if let conversationError = vm.conversationError {
                     let category = "\(conversationError.category)"

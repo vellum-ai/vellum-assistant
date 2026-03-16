@@ -30,7 +30,7 @@ public final class AppServices {
 
     /// Reconfigure the daemon client's transport in place (e.g., for HTTP transport).
     /// This preserves the DaemonClient object identity so long-lived holders
-    /// (ThreadManager, ChatViewModel, RecordingManager, SettingsStore) continue
+    /// (ConversationManager, ChatViewModel, RecordingManager, SettingsStore) continue
     /// to reference the same instance after an assistant switch.
     func reconfigureDaemonClient(config: DaemonConfig) {
         daemonClient.reconfigure(config: config)

@@ -67,7 +67,7 @@ final class MockDaemonClientTests: XCTestCase {
 
     func testSendRecordsCancelMessage() throws {
         let client = MockDaemonClient()
-        let msg = CancelMessage(conversationId: "sess-abc")
+        let msg = CancelMessage(sessionId: "sess-abc")
         try client.send(msg)
         XCTAssertEqual(client.sentMessages.count, 1)
     }

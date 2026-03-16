@@ -3,13 +3,13 @@ import XCTest
 @testable import VellumAssistantShared
 
 @MainActor
-final class ThreadHeaderPresentationTests: XCTestCase {
+final class ConversationHeaderPresentationTests: XCTestCase {
 
     // MARK: - No active thread / draft
 
     func testDraftShowsNewThreadTitle() {
-        let p = ThreadHeaderPresentation(
-            activeThread: nil,
+        let p = ConversationHeaderPresentation(
+            activeConversation: nil,
             activeViewModel: nil,
             isConversationVisible: true
         )
@@ -20,9 +20,9 @@ final class ThreadHeaderPresentationTests: XCTestCase {
     }
 
     func testConversationNotVisibleShowsNewThread() {
-        let thread = ThreadModel(title: "My Thread", sessionId: "session-1")
-        let p = ThreadHeaderPresentation(
-            activeThread: thread,
+        let thread = ConversationModel(title: "My Conversation", conversationId: "session-1")
+        let p = ConversationHeaderPresentation(
+            activeConversation: thread,
             activeViewModel: nil,
             isConversationVisible: false
         )
@@ -33,14 +33,14 @@ final class ThreadHeaderPresentationTests: XCTestCase {
     // MARK: - Started standard thread
 
     func testStartedStandardThreadShowsActionsMenu() {
-        let thread = ThreadModel(title: "Test Thread", sessionId: "session-1")
+        let thread = ConversationModel(title: "Test Conversation", conversationId: "session-1")
         let vm = ChatViewModel(daemonClient: DaemonClient())
-        let p = ThreadHeaderPresentation(
-            activeThread: thread,
+        let p = ConversationHeaderPresentation(
+            activeConversation: thread,
             activeViewModel: vm,
             isConversationVisible: true
         )
-        XCTAssertEqual(p.displayTitle, "Test Thread")
+        XCTAssertEqual(p.displayTitle, "Test Conversation")
         XCTAssertTrue(p.isStarted)
         XCTAssertTrue(p.showsActionsMenu)
     }
@@ -48,9 +48,9 @@ final class ThreadHeaderPresentationTests: XCTestCase {
     // MARK: - Private thread
 
     func testPrivateThreadHidesActionsMenu() {
-        let thread = ThreadModel(title: "Private Chat", sessionId: "session-2", kind: .private)
-        let p = ThreadHeaderPresentation(
-            activeThread: thread,
+        let thread = ConversationModel(title: "Private Chat", conversationId: "session-2", kind: .private)
+        let p = ConversationHeaderPresentation(
+            activeConversation: thread,
             activeViewModel: nil,
             isConversationVisible: true
         )
@@ -62,10 +62,10 @@ final class ThreadHeaderPresentationTests: XCTestCase {
     // MARK: - Not started (no sessionId, no messages)
 
     func testUnstartedThreadDoesNotShowActions() {
-        let thread = ThreadModel(title: "New Conversation")
+        let thread = ConversationModel(title: "New Conversation")
         let vm = ChatViewModel(daemonClient: DaemonClient())
-        let p = ThreadHeaderPresentation(
-            activeThread: thread,
+        let p = ConversationHeaderPresentation(
+            activeConversation: thread,
             activeViewModel: vm,
             isConversationVisible: true
         )
@@ -77,9 +77,9 @@ final class ThreadHeaderPresentationTests: XCTestCase {
     // MARK: - Pin state
 
     func testPinnedThreadShowsPinnedState() {
-        let thread = ThreadModel(title: "Pinned", sessionId: "s", isPinned: true)
-        let p = ThreadHeaderPresentation(
-            activeThread: thread,
+        let thread = ConversationModel(title: "Pinned", conversationId: "s", isPinned: true)
+        let p = ConversationHeaderPresentation(
+            activeConversation: thread,
             activeViewModel: nil,
             isConversationVisible: true
         )

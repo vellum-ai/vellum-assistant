@@ -635,7 +635,7 @@ struct ScrollWheelDetector: NSViewRepresentable {
                 // Called synchronously so isNearBottom is cleared before any competing
                 // layout pass can trigger an auto-scroll-to-bottom.
                 // Guard: only untether if content is actually scrollable (prevents false
-                // untethers on short threads that can't scroll).
+                // untethers on short conversations that can't scroll).
                 if let scrollView = coordinator.findEnclosingScrollView() {
                     let clipHeight = scrollView.contentView.bounds.height
                     let docHeight = scrollView.documentView?.frame.height ?? 0

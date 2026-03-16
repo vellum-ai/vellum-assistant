@@ -12,7 +12,7 @@ final class CommandPaletteViewModel {
     /// Static actions (set once at palette creation).
     var actions: [CommandPaletteAction] = []
 
-    /// Recent conversations (set once at palette creation from ThreadManager).
+    /// Recent conversations (set once at palette creation from ConversationManager).
     var recentItems: [CommandPaletteRecentItem] = []
 
     /// Server search results populated from the global search API.

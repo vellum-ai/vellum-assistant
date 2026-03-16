@@ -55,7 +55,7 @@ All UI and feature code lives in `Features/`, organized by domain:
 | `CommandPalette/` | Command palette (search, actions) |
 | `Contacts/` | Contact management |
 | `ChannelVerification/` | Channel verification flow |
-| `MainWindow/` | MainWindowView shell, ThreadTabBar, NavigationToolbar, ThreadManager, side panels |
+| `MainWindow/` | MainWindowView shell, ThreadTabBar, NavigationToolbar, ConversationManager, side panels |
 | `MainWindow/Panels/` | Side panels including DebugPanel (real-time trace viewer with metrics + timeline) |
 | `Onboarding/` | Multi-step first-launch flow (OnboardingFlowView → OnboardingState) |
 | `QuickInput/` | Quick task input popover and screen selection |
@@ -72,7 +72,7 @@ NavigationToolbar     (row 2 — Chat tab + panel toggle buttons)
 VSplitView            (row 3 — ChatView + optional side panel)
 ```
 
-**Data flow**: `ThreadManager` (`@MainActor ObservableObject`) owns `[ThreadModel]` and a dictionary of `ChatViewModel` instances keyed by thread ID. `MainWindowView` binds to the active `ChatViewModel` via `threadManager.activeViewModel`. ThreadManager subscribes to each nested ChatViewModel's `objectWillChange` and forwards it via Combine so SwiftUI picks up changes.
+**Data flow**: `ConversationManager` (`@MainActor ObservableObject`) owns `[ConversationModel]` and a dictionary of `ChatViewModel` instances keyed by conversation ID. `MainWindowView` binds to the active `ChatViewModel` via `conversationManager.activeViewModel`. ConversationManager subscribes to each nested ChatViewModel's `objectWillChange` and forwards it via Combine so SwiftUI picks up changes.
 
 ---
 
@@ -205,7 +205,7 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 |---------|-------------|
 | `@State` | Local, view-scoped transient state (hover, drag, focus, form fields) |
 | `@Binding` | Pass mutable state from parent to child view |
-| `@StateObject` | Own an ObservableObject for the view's lifetime (e.g. ThreadManager in MainWindowView) |
+| `@StateObject` | Own an ObservableObject for the view's lifetime (e.g. ConversationManager in MainWindowView) |
 | `@ObservedObject` | Observe an ObservableObject owned elsewhere |
 | `@AppStorage` | Persistent user preferences backed by UserDefaults |
 | `@Observable` | Modern Observation framework (used by OnboardingState) |
@@ -213,7 +213,7 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 ### Rules
 
 - **`@MainActor` on all ObservableObject classes** — all view models and managers that touch UI must be `@MainActor`.
-- **Nested ObservableObject**: When a view reads properties from a nested ObservableObject (e.g. `threadManager.activeViewModel.messages`), the parent must subscribe to the child's `objectWillChange` and forward it. See `ThreadManager.subscribeToActiveViewModel()`.
+- **Nested ObservableObject**: When a view reads properties from a nested ObservableObject (e.g. `conversationManager.activeViewModel.messages`), the parent must subscribe to the child's `objectWillChange` and forward it. See `ConversationManager.subscribeToActiveViewModel()`.
 - **Dependency injection**: Pass dependencies (DaemonClient, AmbientAgent) through init parameters, not singletons. Session dependencies use protocols for testability.
 - **Previews**: Do not add `#Preview` or `PreviewProvider` blocks. Use the Component Gallery as the single visual review surface.
 - **Gallery**: When adding or modifying a design system primitive/component, update the corresponding Gallery section file (`Gallery/Sections/`) so the visual catalog stays current.
@@ -224,7 +224,7 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 - Design system types: `V` prefix (VButton, VColor, VTab, etc.)
 - Feature views: Place in `Features/<Module>/`. New feature modules get their own directory.
 - **Extension files**: Use `TypeName+Purpose.swift` naming (e.g., `MainWindowView+Sidebar.swift`). This is the standard Swift convention for splitting a type across files. Place extension files in the same directory as the primary file.
-- **Standalone child views**: Extract into their own file when the view has its own identity and state (e.g., `SidebarThreadItem.swift`). Group related views in a subdirectory (e.g., `Sidebar/`).
+- **Standalone child views**: Extract into their own file when the view has its own identity and state (e.g., `SidebarConversationItem.swift`). Group related views in a subdirectory (e.g., `Sidebar/`).
 - **Helper/state types**: Extract into a separate file named after the type (e.g., `MainWindowGroupedState.swift` for `SharingState`, `SidebarInteractionState`, etc.).
 - New `.swift` files are auto-picked up by SPM — no project file edits needed.
 - Panel views: Place in `Features/MainWindow/Panels/` and add a case to `SidePanelType`.

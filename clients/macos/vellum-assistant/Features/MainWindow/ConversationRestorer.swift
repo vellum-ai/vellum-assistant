@@ -3,16 +3,16 @@ import Foundation
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ThreadConversationRestorer")
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ConversationRestorer")
 
 /// Delegate protocol so the restorer can read and mutate thread state
-/// owned by `ThreadManager`.
+/// owned by `ConversationManager`.
 @MainActor
-protocol ThreadRestorerDelegate: AnyObject {
-    var threads: [ThreadModel] { get set }
-    var restoreRecentThreads: Bool { get }
-    var isLoadingMoreThreads: Bool { get set }
-    var hasMoreThreads: Bool { get set }
+protocol ConversationRestorerDelegate: AnyObject {
+    var conversations: [ConversationModel] { get set }
+    var restoreRecentConversations: Bool { get }
+    var isLoadingMoreConversations: Bool { get set }
+    var hasMoreConversations: Bool { get set }
     var serverOffset: Int { get set }
     /// Returns or lazily creates a ChatViewModel for the given thread.
     func chatViewModel(for threadId: UUID) -> ChatViewModel?
@@ -21,11 +21,11 @@ protocol ThreadRestorerDelegate: AnyObject {
     func setChatViewModel(_ vm: ChatViewModel, for threadId: UUID)
     func removeChatViewModel(for threadId: UUID)
     func makeViewModel() -> ChatViewModel
-    func activateThread(_ id: UUID)
-    func createThread()
+    func activateConversation(_ id: UUID)
+    func createConversation()
     func isConversationArchived(_ conversationId: String) -> Bool
-    func restoreLastActiveThread()
-    func appendThreads(from response: ConversationListResponseMessage)
+    func restoreLastActiveConversation()
+    func appendConversations(from response: ConversationListResponseMessage)
     /// Returns an existing ChatViewModel matching the given conversation ID, if any.
     func existingChatViewModel(forConversationId conversationId: String) -> ChatViewModel?
     /// Merge daemon attention metadata into an existing thread, allowing the
@@ -38,9 +38,9 @@ protocol ThreadRestorerDelegate: AnyObject {
 }
 
 /// Handles daemon conversation restoration: fetching the conversation list on connect,
-/// creating threads for recent conversations, and loading per-thread history on demand.
+/// creating conversations for recent conversations, and loading per-thread history on demand.
 @MainActor
-final class ThreadConversationRestorer {
+final class ConversationRestorer {
     /// Maps conversation IDs to thread IDs for in-flight `history_request` messages,
     /// so rapid tab switches don't cause history from one thread to land in another.
     /// Exposed as internal for `@testable` test access.
@@ -50,7 +50,7 @@ final class ThreadConversationRestorer {
     private var connectionCancellable: AnyCancellable?
     private var disconnectCancellable: AnyCancellable?
 
-    weak var delegate: ThreadRestorerDelegate?
+    weak var delegate: ConversationRestorerDelegate?
 
     init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
@@ -84,7 +84,7 @@ final class ThreadConversationRestorer {
             .removeDuplicates()
             .filter { !$0 }
             .sink { [weak self] _ in
-                self?.delegate?.isLoadingMoreThreads = false
+                self?.delegate?.isLoadingMoreConversations = false
             }
 
         connectionCancellable = daemonClient.$isConnected
@@ -98,7 +98,7 @@ final class ThreadConversationRestorer {
 
     func loadHistoryIfNeeded(threadId: UUID) {
         guard let delegate else { return }
-        guard let thread = delegate.threads.first(where: { $0.id == threadId }) else { return }
+        guard let thread = delegate.conversations.first(where: { $0.id == threadId }) else { return }
         guard let conversationId = thread.conversationId else { return }
         guard let viewModel = delegate.chatViewModel(for: threadId) else { return }
         guard !viewModel.isHistoryLoaded else { return }
@@ -124,7 +124,7 @@ final class ThreadConversationRestorer {
     func requestReconnectHistory(conversationId: String) {
         guard let delegate else { return }
         // Find the thread that owns this conversationId.
-        guard let thread = delegate.threads.first(where: { $0.conversationId == conversationId }) else { return }
+        guard let thread = delegate.conversations.first(where: { $0.conversationId == conversationId }) else { return }
         pendingHistoryByConversationId[conversationId] = thread.id
         do {
             try daemonClient.sendHistoryRequest(conversationId: conversationId, limit: 50, mode: "light", maxToolResultChars: 1000)
@@ -138,8 +138,8 @@ final class ThreadConversationRestorer {
     /// trigger in the message list when all locally loaded messages are visible.
     func requestPaginatedHistory(conversationId: String, beforeTimestamp: Double) {
         guard let delegate else { return }
-        guard let thread = delegate.threads.first(where: { $0.conversationId == conversationId }) else {
-            // Thread removed from the list during a concurrent reconnect/refresh.
+        guard let thread = delegate.conversations.first(where: { $0.conversationId == conversationId }) else {
+            // Conversation removed from the list during a concurrent reconnect/refresh.
             // Reset loading state so the user isn't stuck with a permanent spinner.
             delegate.existingChatViewModel(forConversationId: conversationId)?.isLoadingMoreMessages = false
             return
@@ -162,35 +162,35 @@ final class ThreadConversationRestorer {
     func handleConversationListResponse(_ response: ConversationListResponseMessage) {
         guard let delegate else { return }
 
-        // If ThreadManager is waiting for a "load more" response, route there.
-        if delegate.isLoadingMoreThreads {
-            delegate.appendThreads(from: response)
+        // If ConversationManager is waiting for a "load more" response, route there.
+        if delegate.isLoadingMoreConversations {
+            delegate.appendConversations(from: response)
             return
         }
 
-        guard delegate.restoreRecentThreads else {
-            delegate.restoreLastActiveThread()
+        guard delegate.restoreRecentConversations else {
+            delegate.restoreLastActiveConversation()
             return
         }
         guard !response.conversations.isEmpty else {
-            delegate.restoreLastActiveThread()
+            delegate.restoreLastActiveConversation()
             return
         }
 
-        // Filter out private threads and conversations bound to external channels
+        // Filter out private conversations and conversations bound to external channels
         // (e.g. Telegram). External channel-bound conversations belong to their own
         // lane and should not appear in the desktop conversation list.
         let recentSessions = response.conversations.filter {
             $0.conversationType != "private" && $0.channelBinding?.sourceChannel == nil
         }
 
-        let defaultThreadIsEmpty = delegate.threads.count == 1
-            && delegate.chatViewModel(for: delegate.threads[0].id)?.messages.isEmpty ?? true
-            && delegate.chatViewModel(for: delegate.threads[0].id)?.conversationId == nil
+        let defaultThreadIsEmpty = delegate.conversations.count == 1
+            && delegate.chatViewModel(for: delegate.conversations[0].id)?.messages.isEmpty ?? true
+            && delegate.chatViewModel(for: delegate.conversations[0].id)?.conversationId == nil
 
-        var restoredThreads: [ThreadModel] = []
+        var restoredThreads: [ConversationModel] = []
         // Seed the fallback counter past the highest persisted pinned order
-        // so legacy threads (nil displayOrder) don't collide with explicit ones.
+        // so legacy conversations (nil displayOrder) don't collide with explicit ones.
         let maxPersistedPinnedOrder = recentSessions
             .filter { $0.isPinned ?? false }
             .compactMap { $0.displayOrder.map { Int($0) } }
@@ -198,31 +198,31 @@ final class ThreadConversationRestorer {
         var pinnedCount = maxPersistedPinnedOrder + 1
         for session in recentSessions {
             // If a local thread already exists (e.g. created by
-            // createNotificationThread before the session list response arrived),
+            // createNotificationConversation before the session list response arrived),
             // merge server pin/order metadata into it instead of creating a duplicate.
-            if let existingIdx = delegate.threads.firstIndex(where: { $0.conversationId == session.id }) {
+            if let existingIdx = delegate.conversations.firstIndex(where: { $0.conversationId == session.id }) {
                 let isPinned = session.isPinned ?? false
-                delegate.threads[existingIdx].isPinned = isPinned
-                delegate.threads[existingIdx].pinnedOrder = isPinned ? (session.displayOrder.map { Int($0) } ?? pinnedCount) : nil
-                delegate.threads[existingIdx].displayOrder = session.displayOrder.map { Int($0) }
+                delegate.conversations[existingIdx].isPinned = isPinned
+                delegate.conversations[existingIdx].pinnedOrder = isPinned ? (session.displayOrder.map { Int($0) } ?? pinnedCount) : nil
+                delegate.conversations[existingIdx].displayOrder = session.displayOrder.map { Int($0) }
                 delegate.mergeAssistantAttention(from: session, intoThreadAt: existingIdx)
                 if isPinned && session.displayOrder == nil { pinnedCount += 1 }
                 continue
             }
 
-            let kind: ThreadKind = session.conversationType == "private" ? .private : .standard
+            let kind: ConversationKind = session.conversationType == "private" ? .private : .standard
 
             // Preserve user-set titles: if a thread with this session already
             // exists locally and has a non-default title, keep it instead of
             // overwriting with the daemon's auto-generated title.
-            let existingTitle = delegate.threads
+            let existingTitle = delegate.conversations
                 .first(where: { $0.conversationId == session.id && $0.title != "New Conversation" })?
                 .title
             let title = existingTitle ?? session.title
 
             let isPinned = session.isPinned ?? false
             let effectiveCreatedAt = session.createdAt ?? session.updatedAt
-            let thread = ThreadModel(
+            let thread = ConversationModel(
                 title: title,
                 createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
                 conversationId: session.id,
@@ -249,28 +249,28 @@ final class ThreadConversationRestorer {
         }
 
         if defaultThreadIsEmpty {
-            if let defaultThread = delegate.threads.first {
+            if let defaultThread = delegate.conversations.first {
                 delegate.removeChatViewModel(for: defaultThread.id)
             }
-            delegate.threads = restoredThreads
+            delegate.conversations = restoredThreads
         } else {
-            delegate.threads = restoredThreads + delegate.threads
+            delegate.conversations = restoredThreads + delegate.conversations
         }
 
         if let firstVisible = restoredThreads.first(where: { !$0.isArchived }) {
-            delegate.activateThread(firstVisible.id)
+            delegate.activateConversation(firstVisible.id)
         } else if defaultThreadIsEmpty {
-            // All restored threads are archived and the default thread was removed,
+            // All restored conversations are archived and the default thread was removed,
             // so create a new empty thread to avoid a blank window.
-            delegate.createThread()
+            delegate.createConversation()
         }
 
         if let hasMore = response.hasMore {
-            delegate.hasMoreThreads = hasMore
+            delegate.hasMoreConversations = hasMore
         }
         delegate.serverOffset = response.conversations.count
-        log.info("Restored \(restoredThreads.count) threads from daemon (hasMore: \(response.hasMore ?? false))")
-        delegate.restoreLastActiveThread()
+        log.info("Restored \(restoredThreads.count) conversations from daemon (hasMore: \(response.hasMore ?? false))")
+        delegate.restoreLastActiveConversation()
     }
 
     func handleHistoryResponse(_ response: HistoryResponse) {
@@ -290,27 +290,27 @@ final class ThreadConversationRestorer {
         )
 
         // Wire up the onLoadMoreHistory callback if not already set (e.g. for
-        // reconnect-restored threads that didn't go through loadHistoryIfNeeded).
+        // reconnect-restored conversations that didn't go through loadHistoryIfNeeded).
         if viewModel.onLoadMoreHistory == nil {
             viewModel.onLoadMoreHistory = { [weak self] conversationId, beforeTimestamp in
                 self?.requestPaginatedHistory(conversationId: conversationId, beforeTimestamp: beforeTimestamp)
             }
         }
 
-        log.info("Loaded \(response.messages.count) history messages for thread \(threadId) (hasMore: \(response.hasMore), isPagination: \(isPaginationLoad))")
+        log.info("Loaded \(response.messages.count) history messages for conversation \(threadId) (hasMore: \(response.hasMore), isPagination: \(isPaginationLoad))")
     }
 
     func handleConversationTitleUpdated(_ response: ConversationTitleUpdatedMessage) {
         guard let delegate else { return }
-        guard let index = delegate.threads.firstIndex(where: { $0.conversationId == response.conversationId }) else { return }
-        delegate.threads[index].title = response.title
+        guard let index = delegate.conversations.firstIndex(where: { $0.conversationId == response.conversationId }) else { return }
+        delegate.conversations[index].title = response.title
     }
 
     func handleMessageContentResponse(_ response: MessageContentResponse) {
         guard let delegate else { return }
         // Route the full content back to the ChatViewModel that owns this message.
-        // We check all threads with existing VMs for a matching daemonMessageId.
-        for thread in delegate.threads {
+        // We check all conversations with existing VMs for a matching daemonMessageId.
+        for thread in delegate.conversations {
             guard let viewModel = delegate.existingChatViewModel(for: thread.id) else { continue }
             if viewModel.messages.contains(where: { $0.daemonMessageId == response.messageId }) {
                 viewModel.handleMessageContentResponse(response)
@@ -321,10 +321,10 @@ final class ThreadConversationRestorer {
 
     func handleSubagentDetailResponse(_ response: SubagentDetailResponse) {
         guard let delegate else { return }
-        // Only check threads that already have a VM — subagent events are only
+        // Only check conversations that already have a VM — subagent events are only
         // relevant to active conversations, so we must not trigger lazy VM
         // creation for every thread in the list.
-        for thread in delegate.threads {
+        for thread in delegate.conversations {
             guard let viewModel = delegate.existingChatViewModel(for: thread.id) else { continue }
             if viewModel.activeSubagents.contains(where: { $0.id == response.subagentId }) {
                 viewModel.subagentDetailStore.populateFromDetailResponse(response)

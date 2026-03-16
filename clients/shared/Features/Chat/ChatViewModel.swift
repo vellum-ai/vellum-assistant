@@ -273,7 +273,7 @@ public final class ChatViewModel: ObservableObject {
         set { errorManager.conversationError = newValue }
     }
     /// Whether this view model has an active error (either a session error or error text).
-    /// Used by ThreadManager to derive `ThreadInteractionState.error`.
+    /// Used by ConversationManager to derive `ConversationInteractionState.error`.
     public var hasActiveError: Bool {
         conversationError != nil || errorText != nil
     }

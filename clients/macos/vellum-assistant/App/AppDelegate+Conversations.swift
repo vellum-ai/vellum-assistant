@@ -40,7 +40,7 @@ extension AppDelegate {
             // The daemon will classify it and invoke CU tools via host_cu_request
             // if computer use is needed.
             self.ensureMainWindowExists()
-            if let viewModel = self.mainWindow?.threadManager.activeViewModel {
+            if let viewModel = self.mainWindow?.conversationManager.activeViewModel {
                 _ = viewModel.sendSilently(effectiveTask)
             } else {
                 log.warning("No active chat view model — cannot send message")
@@ -68,7 +68,7 @@ extension AppDelegate {
         }
 
         ensureMainWindowExists()
-        mainWindow?.threadManager.createNotificationThread(
+        mainWindow?.conversationManager.createNotificationConversation(
             conversationId: msg.conversationId,
             title: msg.title,
             sourceEventName: msg.sourceEventName
@@ -99,7 +99,7 @@ extension AppDelegate {
     }
 
     /// Opens the main window and navigates to the thread for the given conversation ID.
-    /// Retries if the thread isn't populated yet (e.g., ThreadManager hasn't loaded it).
+    /// Retries if the thread isn't populated yet (e.g., ConversationManager hasn't loaded it).
     /// Used by Quick Chat and notification deep links.
     /// - Parameters:
     ///   - conversationId: The conversation to navigate to.
@@ -109,31 +109,31 @@ extension AppDelegate {
         guard let conversationId else { return }
 
         func trySelect() -> Bool {
-            guard let threadManager = mainWindow?.threadManager,
-                  let thread = threadManager.threads.first(where: { $0.conversationId == conversationId }) else {
+            guard let conversationManager = mainWindow?.conversationManager,
+                  let thread = conversationManager.conversations.first(where: { $0.conversationId == conversationId }) else {
                 return false
             }
-            threadManager.activeThreadId = thread.id
+            conversationManager.activeConversationId = thread.id
             // Switch the main content area to the chat thread so the user sees it
             // even if they were last viewing a panel, app, or other non-chat view.
             mainWindow?.windowState.selection = nil
             // Clear unseen state and notify the daemon when deep-linking into a
-            // conversation. selectThread's unseen-clear is guarded by
-            // id != previousActiveId, which is false when activeThreadId was
+            // conversation. selectConversation's unseen-clear is guarded by
+            // id != previousActiveId, which is false when activeConversationId was
             // already set above, so we call markConversationSeen explicitly to
             // keep both the local flag and the daemon's server-side state in sync.
-            threadManager.markConversationSeen(threadId: thread.id)
+            conversationManager.markConversationSeen(threadId: thread.id)
             // Set pending anchor message so the message list scrolls to the
             // relevant notification message when the view appears.
             if let anchorMessageId, let anchorUUID = UUID(uuidString: anchorMessageId) {
-                threadManager.setPendingAnchorMessage(threadId: thread.id, messageId: anchorUUID)
+                conversationManager.setPendingAnchorMessage(threadId: thread.id, messageId: anchorUUID)
             }
             return true
         }
 
         if trySelect() { return }
 
-        // Thread may not be loaded yet — retry up to 5 times with 500ms delay
+        // Conversation may not be loaded yet — retry up to 5 times with 500ms delay
         Task { @MainActor in
             for _ in 0..<5 {
                 try? await Task.sleep(nanoseconds: 500_000_000)

@@ -1,7 +1,7 @@
 import Foundation
 
-struct CollapsedThreadSwitcherPresentation {
-    let switchTargets: [ThreadModel]
+struct CollapsedConversationSwitcherPresentation {
+    let switchTargets: [ConversationModel]
     let activeThreadTitle: String?
     let totalRegularThreadCount: Int
 
@@ -14,22 +14,22 @@ struct CollapsedThreadSwitcherPresentation {
 
     var accessibilityLabel: String {
         if let title = activeThreadTitle {
-            return "Switch threads: \(title)"
+            return "Switch conversations: \(title)"
         }
-        return "Switch threads"
+        return "Switch conversations"
     }
 
     var accessibilityValue: String {
-        totalRegularThreadCount == 0 ? "" : "\(totalRegularThreadCount) threads"
+        totalRegularThreadCount == 0 ? "" : "\(totalRegularThreadCount) conversations"
     }
 
-    init(regularThreads: [ThreadModel], activeThreadId: UUID?) {
-        self.totalRegularThreadCount = regularThreads.count
-        if let activeId = activeThreadId {
-            self.switchTargets = regularThreads.filter { $0.id != activeId }
-            self.activeThreadTitle = regularThreads.first(where: { $0.id == activeId })?.title
+    init(regularConversations: [ConversationModel], activeConversationId: UUID?) {
+        self.totalRegularThreadCount = regularConversations.count
+        if let activeId = activeConversationId {
+            self.switchTargets = regularConversations.filter { $0.id != activeId }
+            self.activeThreadTitle = regularConversations.first(where: { $0.id == activeId })?.title
         } else {
-            self.switchTargets = regularThreads
+            self.switchTargets = regularConversations
             self.activeThreadTitle = nil
         }
     }

@@ -3,10 +3,10 @@ import XCTest
 @testable import VellumAssistantShared
 
 @MainActor
-final class ThreadManagerRenameTests: XCTestCase {
+final class ConversationManagerRenameTests: XCTestCase {
 
     private var daemonClient: DaemonClient!
-    private var threadManager: ThreadManager!
+    private var conversationManager: ConversationManager!
     private var capturedMessages: [Any] = []
 
     override func setUp() {
@@ -18,13 +18,13 @@ final class ThreadManagerRenameTests: XCTestCase {
             guard let self else { return }
             capturedMessages.append(msg)
         }
-        threadManager = ThreadManager(daemonClient: daemonClient)
-        threadManager.createThread()
+        conversationManager = ConversationManager(daemonClient: daemonClient)
+        conversationManager.createConversation()
     }
 
     override func tearDown() {
         daemonClient?.sendOverride = nil
-        threadManager = nil
+        conversationManager = nil
         capturedMessages = []
         daemonClient = nil
         super.tearDown()
@@ -33,17 +33,17 @@ final class ThreadManagerRenameTests: XCTestCase {
     // MARK: - Rename with sessionId
 
     func testRenameWithSessionIdSendsMessage() {
-        guard let thread = threadManager.threads.first else {
+        guard let thread = conversationManager.conversations.first else {
             XCTFail("Expected at least one thread")
             return
         }
 
-        threadManager.threads[0].conversationId = "session-abc"
+        conversationManager.conversations[0].conversationId = "session-abc"
         capturedMessages = [] // clear setup noise
 
-        threadManager.renameThread(id: thread.id, title: "Renamed Thread")
+        conversationManager.renameConversation(id: thread.id, title: "Renamed Thread")
 
-        XCTAssertEqual(threadManager.threads[0].title, "Renamed Thread")
+        XCTAssertEqual(conversationManager.conversations[0].title, "Renamed Thread")
 
         let renameMessages = capturedMessages.compactMap { $0 as? ConversationRenameRequest }
         XCTAssertEqual(renameMessages.count, 1)
@@ -54,31 +54,31 @@ final class ThreadManagerRenameTests: XCTestCase {
     // MARK: - Empty/whitespace rename rejected
 
     func testEmptyRenameIsRejected() {
-        guard let thread = threadManager.threads.first else {
+        guard let thread = conversationManager.conversations.first else {
             XCTFail("Expected at least one thread")
             return
         }
         let originalTitle = thread.title
-        threadManager.threads[0].conversationId = "session-abc"
+        conversationManager.conversations[0].conversationId = "session-abc"
 
-        threadManager.renameThread(id: thread.id, title: "")
+        conversationManager.renameConversation(id: thread.id, title: "")
 
-        XCTAssertEqual(threadManager.threads[0].title, originalTitle)
+        XCTAssertEqual(conversationManager.conversations[0].title, originalTitle)
         let renameMessages = capturedMessages.compactMap { $0 as? ConversationRenameRequest }
         XCTAssertTrue(renameMessages.isEmpty)
     }
 
     func testWhitespaceOnlyRenameIsRejected() {
-        guard let thread = threadManager.threads.first else {
+        guard let thread = conversationManager.conversations.first else {
             XCTFail("Expected at least one thread")
             return
         }
         let originalTitle = thread.title
-        threadManager.threads[0].conversationId = "session-abc"
+        conversationManager.conversations[0].conversationId = "session-abc"
 
-        threadManager.renameThread(id: thread.id, title: "   \n  ")
+        conversationManager.renameConversation(id: thread.id, title: "   \n  ")
 
-        XCTAssertEqual(threadManager.threads[0].title, originalTitle)
+        XCTAssertEqual(conversationManager.conversations[0].title, originalTitle)
         let renameMessages = capturedMessages.compactMap { $0 as? ConversationRenameRequest }
         XCTAssertTrue(renameMessages.isEmpty)
     }
@@ -86,15 +86,15 @@ final class ThreadManagerRenameTests: XCTestCase {
     // MARK: - Rename trims whitespace
 
     func testRenameTrimsWhitespace() {
-        guard let thread = threadManager.threads.first else {
+        guard let thread = conversationManager.conversations.first else {
             XCTFail("Expected at least one thread")
             return
         }
-        threadManager.threads[0].conversationId = "session-abc"
+        conversationManager.conversations[0].conversationId = "session-abc"
         capturedMessages = []
 
-        threadManager.renameThread(id: thread.id, title: "  Trimmed Title  ")
+        conversationManager.renameConversation(id: thread.id, title: "  Trimmed Title  ")
 
-        XCTAssertEqual(threadManager.threads[0].title, "Trimmed Title")
+        XCTAssertEqual(conversationManager.conversations[0].title, "Trimmed Title")
     }
 }

@@ -1,7 +1,7 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Lightweight model for recent threads shown in the quick input dropdown.
+/// Lightweight model for recent conversations shown in the quick input dropdown.
 struct QuickInputThread: Identifiable {
     let id: UUID
     let title: String

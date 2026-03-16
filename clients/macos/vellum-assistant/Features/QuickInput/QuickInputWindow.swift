@@ -49,7 +49,7 @@ final class QuickInputWindow {
     var onNotificationToggle: (() -> Void)?
     /// Callback invoked when the user selects an existing thread (navigates to it).
     var onSelectThread: ((UUID) -> Void)?
-    /// Recent threads to show in the dropdown.
+    /// Recent conversations to show in the dropdown.
     var recentThreads: [QuickInputThread] = []
     /// When true, show a screen recording permission prompt below the bar.
     var showScreenPermissionPrompt = false

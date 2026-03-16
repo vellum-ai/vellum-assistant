@@ -26,10 +26,10 @@ The main window has three dedicated state objects:
 | Object | Pattern | Scope |
 |--------|---------|-------|
 | `MainWindowState` | `ObservableObject` | Cross-view UI state: active panel, dynamic workspace, API key status |
-| `ThreadManager` | `ObservableObject` | Thread CRUD, tab management, conforms to `ThreadRestorerDelegate` |
-| `ThreadSessionRestorer` | Plain class with delegate | Daemon session restoration (session list responses, history hydration) |
+| `ConversationManager` | `ObservableObject` | Conversation CRUD, tab management, conforms to `ConversationRestorerDelegate` |
+| `ConversationRestorer` | Plain class with delegate | Daemon session restoration (session list responses, history hydration) |
 
-`ThreadManager` owns thread lifecycle. `ThreadSessionRestorer` handles the async daemon communication for restoring sessions on reconnect, delegating state mutations back through the `ThreadRestorerDelegate` protocol for testability.
+`ConversationManager` owns conversation lifecycle. `ConversationRestorer` handles the async daemon communication for restoring sessions on reconnect, delegating state mutations back through the `ConversationRestorerDelegate` protocol for testability.
 
 ### Observation Framework Migration
 

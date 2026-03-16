@@ -345,7 +345,7 @@ final class HTTPDaemonClientUnreadTests: XCTestCase {
             )!
             let body = """
             {
-              "sessions": [
+              "conversations": [
                 {
                   "id": "session-123",
                   "title": "Pinned thread",
@@ -377,7 +377,7 @@ final class HTTPDaemonClientUnreadTests: XCTestCase {
 
         await fulfillment(of: [responseExpectation], timeout: 1.0)
 
-        let session = try XCTUnwrap(capturedResponse?.sessions.first)
+        let session = try XCTUnwrap(capturedResponse?.conversations.first)
         XCTAssertEqual(session.displayOrder, 7)
         XCTAssertEqual(session.isPinned, true)
     }

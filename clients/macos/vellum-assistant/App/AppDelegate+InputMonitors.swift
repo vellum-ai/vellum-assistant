@@ -307,8 +307,8 @@ extension AppDelegate {
         // Static actions
         window.actions = [
             CommandPaletteAction(id: "new-conversation", icon: VIcon.squarePen.rawValue, label: "New Conversation", shortcutHint: "\u{2318}N") { [weak self] in
-                self?.mainWindow?.threadManager.createThread()
-                if let id = self?.mainWindow?.threadManager.activeThreadId {
+                self?.mainWindow?.conversationManager.createConversation()
+                if let id = self?.mainWindow?.conversationManager.activeConversationId {
                     self?.mainWindow?.windowState.selection = .thread(id)
                 }
             },
@@ -338,9 +338,9 @@ extension AppDelegate {
             },
         ]
 
-        // Recent conversations from ThreadManager
-        if let threads = mainWindow?.threadManager.threads {
-            window.recentItems = threads
+        // Recent conversations from ConversationManager
+        if let conversations = mainWindow?.conversationManager.conversations {
+            window.recentItems = conversations
                 .filter { !$0.isArchived }
                 .sorted { $0.lastInteractedAt > $1.lastInteractedAt }
                 .prefix(5)
@@ -348,13 +348,13 @@ extension AppDelegate {
         }
 
         window.onSelectConversation = { [weak self] threadId in
-            self?.mainWindow?.threadManager.selectThread(id: threadId)
+            self?.mainWindow?.conversationManager.selectConversation(id: threadId)
         }
 
         window.onSelectSearchConversation = { [weak self] sessionId in
             Task { @MainActor in
-                let found = await self?.mainWindow?.threadManager.selectThreadByConversationIdAsync(sessionId) ?? false
-                if found, let threadId = self?.mainWindow?.threadManager.activeThreadId {
+                let found = await self?.mainWindow?.conversationManager.selectThreadByConversationIdAsync(sessionId) ?? false
+                if found, let threadId = self?.mainWindow?.conversationManager.activeConversationId {
                     self?.mainWindow?.windowState.selection = .thread(threadId)
                 }
             }
@@ -401,9 +401,9 @@ extension AppDelegate {
         window.onMicrophoneToggle = { [weak self] in
             self?.voiceInput?.toggleRecording()
         }
-        // Provide the 3 most recent non-archived threads
-        if let threads = mainWindow?.threadManager.threads {
-            window.recentThreads = threads
+        // Provide the 3 most recent non-archived conversations
+        if let conversations = mainWindow?.conversationManager.conversations {
+            window.recentThreads = conversations
                 .filter { !$0.isArchived }
                 .sorted { $0.lastInteractedAt > $1.lastInteractedAt }
                 .prefix(3)
@@ -450,8 +450,8 @@ extension AppDelegate {
             window.onMicrophoneToggle = { [weak self] in
                 self?.voiceInput?.toggleRecording()
             }
-            if let threads = self.mainWindow?.threadManager.threads {
-                window.recentThreads = threads
+            if let conversations = self.mainWindow?.conversationManager.conversations {
+                window.recentThreads = conversations
                     .filter { !$0.isArchived }
                     .sorted { $0.lastInteractedAt > $1.lastInteractedAt }
                     .prefix(3)
@@ -470,8 +470,8 @@ extension AppDelegate {
         // Never show it — quick input is fire-and-forget.
         ensureMainWindowExists()
         guard let mainWindow else { return }
-        mainWindow.threadManager.createThread()
-        if let threadId = mainWindow.threadManager.activeThreadId {
+        mainWindow.conversationManager.createConversation()
+        if let threadId = mainWindow.conversationManager.activeConversationId {
             mainWindow.windowState.selection = .thread(threadId)
         }
         guard let viewModel = mainWindow.activeViewModel else { return }
@@ -525,7 +525,7 @@ extension AppDelegate {
     func handleQuickInputSelectThread(_ threadId: UUID) {
         showMainWindow()
         guard let mainWindow else { return }
-        mainWindow.threadManager.activeThreadId = threadId
+        mainWindow.conversationManager.activeConversationId = threadId
     }
 
     /// Tears down and re-registers the global "Open Vellum" hotkey based on

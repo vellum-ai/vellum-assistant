@@ -212,7 +212,7 @@ extension AppDelegate {
         daemonClient.onTaskRunConversationCreated = { [weak self] msg in
             guard let self, !self.isBootstrapping else { return }
             self.ensureMainWindowExists()
-            self.mainWindow?.threadManager.createTaskRunThread(
+            self.mainWindow?.conversationManager.createTaskRunConversation(
                 conversationId: msg.conversationId,
                 workItemId: msg.workItemId,
                 title: msg.title
@@ -223,7 +223,7 @@ extension AppDelegate {
         daemonClient.onScheduleConversationCreated = { [weak self] msg in
             guard let self, !self.isBootstrapping else { return }
             self.ensureMainWindowExists()
-            self.mainWindow?.threadManager.createScheduleThread(
+            self.mainWindow?.conversationManager.createScheduleConversation(
                 conversationId: msg.conversationId,
                 scheduleJobId: msg.scheduleJobId,
                 title: msg.title
