@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Commands in `assistant/src/cli/` are scoped to a **single running assistant instance**. They operate on the assistant's local state — config, memory, contacts, trust rules, sessions, autonomy, etc. — and run within the context of the assistant's workspace.
+Commands in `assistant/src/cli/` are scoped to a **single running assistant instance**. They operate on the assistant's local state — config, memory, contacts, trust rules, conversations, autonomy, etc. — and run within the context of the assistant's workspace.
 
 This contrasts with `cli/`, which manages the **lifecycle of assistant instances** (create, start, stop, delete) and operates across instances. See `cli/AGENTS.md`.
 
@@ -15,7 +15,7 @@ This contrasts with `cli/`, which manages the **lifecycle of assistant instances
 | Implicitly scoped to the running assistant          | Requires specifying which assistant to target   |
 | May require or start the daemon                     | Works without an assistant process running      |
 
-Examples: `config`, `contacts`, `memory`, `autonomy`, `sessions`, `doctor` belong here. `hatch`, `wake`, `sleep`, `retire`, `ps`, `ssh` belong in `cli/`.
+Examples: `config`, `contacts`, `memory`, `autonomy`, `conversations`, `doctor` belong here. `hatch`, `wake`, `sleep`, `retire`, `ps`, `ssh` belong in `cli/`.
 
 ## Conventions
 
