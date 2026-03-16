@@ -22,8 +22,6 @@ struct SettingsDeveloperTab: View {
     @State private var remoteIdentity: RemoteIdentityInfo?
     @State private var devModeTapCount: Int = 0
     @State private var devModeMessage: String?
-    @State private var isHatchFlagEnabled: Bool = true
-    @State private var isLoadingHatchFlag: Bool = false
     @State private var showingHatchConfirmation: Bool = false
     @State private var displayNames: [String: String] = [:]
     @State private var awakeStates: [String: Bool] = [:]
@@ -55,8 +53,6 @@ struct SettingsDeveloperTab: View {
     @State private var lastSentryStatus: String?
     @State private var sentryDismissTask: Task<Void, Never>?
     @State private var isSentryEnabled: Bool = true
-
-    private static let hatchNewAssistantFlagKey = "feature_flags.hatch-new-assistant.enabled"
 
     @State private var platformUrlText: String = ""
     @FocusState private var isPlatformUrlFocused: Bool
@@ -134,7 +130,6 @@ struct SettingsDeveloperTab: View {
                 }
             }
             resolvePlatformUuid()
-            Task { await loadHatchFlag() }
             Task { await fetchHealthz() }
 
             // Advanced dev setup
@@ -723,46 +718,19 @@ struct SettingsDeveloperTab: View {
 
     // MARK: - Hatch New Assistant
 
-    private func loadHatchFlag() async {
-        guard let daemonClient else { return }
-        isLoadingHatchFlag = true
-        do {
-            let flags = try await daemonClient.getFeatureFlags()
-            if let hatchFlag = flags.first(where: { $0.key == Self.hatchNewAssistantFlagKey }) {
-                isHatchFlagEnabled = hatchFlag.enabled
-                isLoadingHatchFlag = false
-                return
-            }
-        } catch {}
-
-        let config = WorkspaceConfigIO.read()
-        if let canonicalFlags = config["assistantFeatureFlagValues"] as? [String: Bool] {
-            if let enabled = canonicalFlags[Self.hatchNewAssistantFlagKey] {
-                isHatchFlagEnabled = enabled
-                isLoadingHatchFlag = false
-                return
-            }
-        }
-        isHatchFlagEnabled = true
-        isLoadingHatchFlag = false
-    }
-
-    @ViewBuilder
     private var hatchNewAssistantSection: some View {
-        if isHatchFlagEnabled {
-            SettingsCard(title: "Hatch New Assistant", subtitle: "Starts the initial setup flow to create a new assistant.") {
-                VButton(label: "Hatch...", style: .primary) {
-                    showingHatchConfirmation = true
+        SettingsCard(title: "Hatch New Assistant", subtitle: "Starts the initial setup flow to create a new assistant.") {
+            VButton(label: "Hatch...", style: .primary) {
+                showingHatchConfirmation = true
+            }
+            .alert("Hatch New Assistant", isPresented: $showingHatchConfirmation) {
+                Button("Cancel", role: .cancel) {}
+                Button("Continue") {
+                    AppDelegate.shared?.hatchNewAssistant()
+                    onClose()
                 }
-                .alert("Hatch New Assistant", isPresented: $showingHatchConfirmation) {
-                    Button("Cancel", role: .cancel) {}
-                    Button("Continue") {
-                        AppDelegate.shared?.hatchNewAssistant()
-                        onClose()
-                    }
-                } message: {
-                    Text("This will create a brand new assistant. Your existing assistant(s) will continue to exist and you can switch back to using them.")
-                }
+            } message: {
+                Text("This will create a brand new assistant. Your existing assistant(s) will continue to exist and you can switch back to using them.")
             }
         }
     }
