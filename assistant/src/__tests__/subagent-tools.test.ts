@@ -68,7 +68,11 @@ function injectSubagent(
   const internals = manager as unknown as {
     subagents: Map<
       string,
-      { session: unknown; state: SubagentState; parentSendToClient: () => void }
+      {
+        conversation: unknown;
+        state: SubagentState;
+        parentSendToClient: () => void;
+      }
     >;
     parentToChildren: Map<string, Set<string>>;
   };
@@ -96,7 +100,7 @@ function injectSubagent(
     runAgentLoop: async () => {},
   };
   internals.subagents.set(subagentId, {
-    session: fakeSession,
+    conversation: fakeSession,
     state,
     parentSendToClient: () => {},
   });
