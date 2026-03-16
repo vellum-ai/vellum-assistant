@@ -5,7 +5,7 @@
  * active memory items have accumulated since the last generation.
  */
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, like } from "drizzle-orm";
 
 import { getLogger } from "../util/logger.js";
 import { getDb } from "./db.js";
@@ -52,7 +52,7 @@ export function maybeEnqueueThreadStartersJob(scopeId: string): void {
   const delta = totalActive - lastCount;
   if (delta < threshold) return;
 
-  // Dedup: don't enqueue if a pending/running job already exists
+  // Dedup: don't enqueue if a pending/running job for this scope already exists
   const existing = db
     .select({ id: memoryJobs.id })
     .from(memoryJobs)
@@ -60,6 +60,7 @@ export function maybeEnqueueThreadStartersJob(scopeId: string): void {
       and(
         eq(memoryJobs.type, "generate_thread_starters"),
         inArray(memoryJobs.status, ["pending", "running"]),
+        like(memoryJobs.payload, `%"scopeId":"${scopeId}"%`),
       ),
     )
     .get();

@@ -29,6 +29,25 @@ struct ThreadStartersResponse: Codable {
 }
 
 @MainActor
+protocol ThreadStarterClientProtocol {
+    func fetchThreadStarters(limit: Int) async -> [ThreadStarter]
+}
+
+@MainActor
+struct ThreadStarterClient: ThreadStarterClientProtocol {
+    nonisolated init() {}
+
+    func fetchThreadStarters(limit: Int) async -> [ThreadStarter] {
+        guard let response = try? await GatewayHTTPClient.get(
+            path: "thread-starters",
+            params: ["limit": String(limit)]
+        ), response.isSuccess else { return [] }
+        guard let decoded = try? JSONDecoder().decode(ThreadStartersResponse.self, from: response.data) else { return [] }
+        return decoded.starters
+    }
+}
+
+@MainActor
 protocol SurfaceClientProtocol {
     func fetchSurfaceData(surfaceId: String, conversationId: String) async -> SurfaceData?
 }
@@ -331,6 +350,7 @@ public final class ChatViewModel: ObservableObject {
     public let subagentDetailStore = SubagentDetailStore()
     let daemonClient: any DaemonClientProtocol
     private let surfaceClient: any SurfaceClientProtocol = SurfaceClient()
+    private let threadStarterClient: any ThreadStarterClientProtocol = ThreadStarterClient()
     /// Tracks the action submitted for each guardian decision requestId so the
     /// response handler can display the correct resolved state (the server does
     /// not echo back the action in its acknowledgement).
@@ -1295,17 +1315,7 @@ public final class ChatViewModel: ObservableObject {
     public func fetchThreadStarters() {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            do {
-                let response = try await GatewayHTTPClient.get(
-                    path: "thread-starters",
-                    params: ["limit": "4"]
-                )
-                guard response.isSuccess else { return }
-                let decoded = try JSONDecoder().decode(ThreadStartersResponse.self, from: response.data)
-                self.threadStarters = decoded.starters
-            } catch {
-                // Silently fail — thread starters are a nice-to-have
-            }
+            self.threadStarters = await self.threadStarterClient.fetchThreadStarters(limit: 4)
         }
     }
 

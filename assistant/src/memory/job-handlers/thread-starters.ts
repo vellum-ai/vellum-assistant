@@ -270,7 +270,9 @@ export async function generateThreadStartersJob(job: MemoryJob): Promise<void> {
   const kindRows = db
     .select({ kind: memoryItems.kind })
     .from(memoryItems)
-    .where(eq(memoryItems.status, "active"))
+    .where(
+      and(eq(memoryItems.status, "active"), eq(memoryItems.scopeId, scopeId)),
+    )
     .groupBy(memoryItems.kind)
     .all();
   const sourceKinds = kindRows.map((r) => r.kind).join(",");
