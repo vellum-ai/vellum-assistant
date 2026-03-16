@@ -55,9 +55,7 @@ mock.module("../config/loader.js", () => ({
     ui: {},
 
     sandbox: { enabled: false, backend: "local" },
-    assistantFeatureFlagValues: {
-      "feature_flags.guardian-verify-setup.enabled": true,
-    },
+    assistantFeatureFlagValues: {},
   }),
   loadConfig: () => ({}),
   loadRawConfig: () => ({}),

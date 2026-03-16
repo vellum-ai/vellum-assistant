@@ -168,17 +168,9 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   parts.push(buildPostToolResponseSection());
   parts.push(buildExternalCommsIdentitySection());
   parts.push(buildChannelAwarenessSection());
-  const config = getConfig();
   if (!hasNoClient) parts.push(buildToolPermissionSection());
   parts.push(buildTaskScheduleReminderRoutingSection());
-  if (
-    isAssistantFeatureFlagEnabled(
-      "feature_flags.guardian-verify-setup.enabled",
-      config,
-    )
-  ) {
-    parts.push(buildVerificationRoutingSection());
-  }
+  parts.push(buildVerificationRoutingSection());
   parts.push(buildAttachmentSection());
   parts.push(buildInChatConfigurationSection());
   parts.push(buildVoiceSetupRoutingSection());
