@@ -271,8 +271,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     ///
     /// - Parameters:
     ///   - message: Text to place in the input field. When nil, the input is left unchanged.
-    ///   - forceNew: When true, always creates a fresh conversation via `createConversation()`
-    ///     even if one is already active. Defaults to false (reuse the active conversation).
+    ///   - forceNew: When true, always enters draft mode to guarantee a fresh conversation
+    ///     even if the current conversation is empty. Defaults to false (reuse the active conversation).
     ///   - autoSend: When true **and** a message is provided, the message is sent
     ///     immediately. When false the message is only placed in the input field.
     ///     Defaults to true.
@@ -287,7 +287,14 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         configure: ((ChatViewModel) -> Void)? = nil
     ) -> ChatViewModel? {
         if forceNew || activeViewModel == nil {
-            createConversation()
+            // When forceNew is true, call enterDraftMode() directly to bypass
+            // createConversation()'s reuse guards that no-op for empty conversations.
+            // This guarantees a fresh view model even when the current conversation is empty.
+            if forceNew {
+                enterDraftMode()
+            } else {
+                createConversation()
+            }
         }
         guard let viewModel = activeViewModel else { return nil }
         configure?(viewModel)
