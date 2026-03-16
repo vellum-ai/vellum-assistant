@@ -502,6 +502,8 @@ private struct StepDetailRow: View {
     @State private var isHovered = false
     /// Cached formatted input — computed once on first expand.
     @State private var cachedInputFull: String?
+    /// Tracks which output sections (live output / final output) are expanded.
+    @State private var expandedOutputIds: Set<String> = []
     @Environment(\.displayScale) private var displayScale
     @Environment(\.suppressAutoScroll) private var suppressAutoScroll
 
@@ -740,38 +742,13 @@ private struct StepDetailRow: View {
                         .foregroundColor(VColor.contentTertiary)
                         .textCase(.uppercase)
 
-                    ZStack(alignment: .topTrailing) {
-                        ScrollView {
-                            Text(toolCall.partialOutput)
-                                .font(VFont.monoSmall)
-                                .foregroundColor(VColor.contentSecondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .textSelection(.enabled)
-                        }
-                        .defaultScrollAnchor(.bottom)
-                        .frame(maxHeight: 200)
-                        .padding(VSpacing.sm)
-                        .background(VColor.surfaceOverlay.opacity(0.6))
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.sm)
-                                .stroke(VColor.borderBase, lineWidth: 0.5)
-                        )
-
-                        Button {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(toolCall.partialOutput, forType: .string)
-                        } label: {
-                            VIconView(.copy, size: 10)
-                                .foregroundColor(VColor.contentTertiary)
-                                .frame(width: 24, height: 24)
-                                .background(VColor.surfaceBase)
-                                .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
-                        }
-                        .buttonStyle(.plain)
-                        .padding(VSpacing.xs)
-                        .accessibilityLabel("Copy live output")
-                    }
+                    outputBlock(
+                        id: "live-\(toolCall.id.uuidString)",
+                        text: toolCall.partialOutput,
+                        attributedText: nil,
+                        copyText: toolCall.partialOutput,
+                        copyLabel: "Copy live output"
+                    )
                 }
                 .padding(.horizontal, VSpacing.lg)
             }
@@ -787,41 +764,125 @@ private struct StepDetailRow: View {
                         .foregroundColor(VColor.contentTertiary)
                         .textCase(.uppercase)
 
-                    ZStack(alignment: .topTrailing) {
-                        ScrollView {
-                            Text(coloredOutput(result, isError: toolCall.isError))
-                                .font(VFont.monoSmall)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .textSelection(.enabled)
-                        }
-                        .frame(maxHeight: 200)
-                        .padding(VSpacing.sm)
-                        .background(VColor.surfaceOverlay.opacity(0.6))
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.sm)
-                                .stroke(VColor.borderBase, lineWidth: 0.5)
-                        )
-
-                        Button {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(result, forType: .string)
-                        } label: {
-                            VIconView(.copy, size: 10)
-                                .foregroundColor(VColor.contentTertiary)
-                                .frame(width: 24, height: 24)
-                                .background(VColor.surfaceBase)
-                                .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
-                        }
-                        .buttonStyle(.plain)
-                        .padding(VSpacing.xs)
-                        .accessibilityLabel("Copy output")
-                    }
+                    outputBlock(
+                        id: "result-\(toolCall.id.uuidString)",
+                        text: nil,
+                        attributedText: coloredOutput(result, isError: toolCall.isError),
+                        copyText: result,
+                        copyLabel: "Copy output"
+                    )
                 }
                 .padding(.horizontal, VSpacing.lg)
             }
         }
         .padding(.bottom, VSpacing.sm)
+    }
+
+    // MARK: - Output Block
+
+    /// Reusable output block that replaces nested ScrollView with truncated Text.
+    /// Default state shows 8 lines with a "Show more" toggle. Expanded state shows
+    /// full text; outputs exceeding 500 lines use a ScrollView capped at 400pt.
+    @ViewBuilder
+    private func outputBlock(
+        id: String,
+        text: String?,
+        attributedText: AttributedString?,
+        copyText: String,
+        copyLabel: String
+    ) -> some View {
+        let isOutputExpanded = expandedOutputIds.contains(id)
+        let lineCount = copyText.components(separatedBy: "\n").count
+        let needsTruncation = lineCount > 8
+
+        ZStack(alignment: .topTrailing) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                if isOutputExpanded && lineCount > 500 {
+                    // Expanded with ScrollView for extremely long outputs
+                    ScrollView {
+                        outputTextView(text: text, attributedText: attributedText, lineLimit: nil)
+                    }
+                    .frame(maxHeight: 400)
+                } else if let attrText = attributedText {
+                    Text(attrText)
+                        .font(VFont.monoSmall)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                        .lineLimit(isOutputExpanded ? nil : 8)
+                        .truncationMode(.tail)
+                } else if let plainText = text {
+                    Text(plainText)
+                        .font(VFont.monoSmall)
+                        .foregroundColor(VColor.contentSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                        .lineLimit(isOutputExpanded ? nil : 8)
+                        .truncationMode(.tail)
+                }
+
+                if needsTruncation {
+                    Button {
+                        withAnimation(VAnimation.fast) {
+                            if isOutputExpanded {
+                                expandedOutputIds.remove(id)
+                            } else {
+                                expandedOutputIds.insert(id)
+                            }
+                        }
+                    } label: {
+                        Text(isOutputExpanded ? "Show less" : "Show more")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.primaryBase)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(VSpacing.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(VColor.surfaceOverlay.opacity(0.6))
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .stroke(VColor.borderBase, lineWidth: 0.5)
+            )
+
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(copyText, forType: .string)
+            } label: {
+                VIconView(.copy, size: 10)
+                    .foregroundColor(VColor.contentTertiary)
+                    .frame(width: 24, height: 24)
+                    .background(VColor.surfaceBase)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
+            }
+            .buttonStyle(.plain)
+            .padding(VSpacing.xs)
+            .accessibilityLabel(copyLabel)
+        }
+    }
+
+    /// Text view used inside the expanded ScrollView for long outputs.
+    @ViewBuilder
+    private func outputTextView(
+        text: String?,
+        attributedText: AttributedString?,
+        lineLimit: Int?
+    ) -> some View {
+        if let attrText = attributedText {
+            Text(attrText)
+                .font(VFont.monoSmall)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+                .lineLimit(lineLimit)
+        } else if let plainText = text {
+            Text(plainText)
+                .font(VFont.monoSmall)
+                .foregroundColor(VColor.contentSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+                .lineLimit(lineLimit)
+        }
     }
 
     // MARK: - Helpers
