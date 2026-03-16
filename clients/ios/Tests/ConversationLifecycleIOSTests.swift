@@ -13,7 +13,7 @@ import XCTest
 final class ConversationLifecycleIOSTests: XCTestCase {
 
     private var mockClient: MockDaemonClient!
-    private let connectedCacheKey = "ios_connected_threads_cache_v1"
+    private let connectedCacheKey = "ios_connected_conversations_cache_v1"
 
     override func setUp() {
         super.setUp()
