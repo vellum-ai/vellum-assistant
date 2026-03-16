@@ -22,6 +22,11 @@ struct IdentityPanel: View {
     private let sidebarMaxWidth: CGFloat = 280
     private let sidebarFraction: CGFloat = 0.3
 
+    /// Whether the BOOTSTRAP.md first-run ritual is still in progress.
+    private var isBootstrapActive: Bool {
+        FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.vellum/workspace/BOOTSTRAP.md")
+    }
+
     private let panelPadding: CGFloat = VSpacing.xl
 
     private var assistantDisplayName: String {
@@ -169,7 +174,9 @@ struct IdentityPanel: View {
                     }
                 }
 
-                generateIntro()
+                if !isBootstrapActive {
+                    generateIntro()
+                }
             }
             .onDisappear { introTask?.cancel() }
         }
