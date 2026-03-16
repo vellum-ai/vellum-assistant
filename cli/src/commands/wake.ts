@@ -7,6 +7,7 @@ import {
   isAssistantWatchModeAvailable,
   isGatewayWatchModeAvailable,
   startLocalDaemon,
+  startLocalDaemonForeground,
   startGateway,
 } from "../lib/local";
 import { maybeStartNgrokTunnel } from "../lib/ngrok";
@@ -25,12 +26,16 @@ export async function wake(): Promise<void> {
     console.log("");
     console.log("Options:");
     console.log(
-      "  --watch    Run assistant and gateway in watch mode (hot reload on source changes)",
+      "  --watch        Run assistant and gateway in watch mode (hot reload on source changes)",
+    );
+    console.log(
+      "  --foreground   Run assistant in foreground with logs printed to terminal",
     );
     process.exit(0);
   }
 
   const watch = args.includes("--watch");
+  const foreground = args.includes("--foreground");
   const nameArg = args.find((a) => !a.startsWith("-"));
   const entry = resolveTargetAssistant(nameArg);
 
@@ -86,6 +91,11 @@ export async function wake(): Promise<void> {
   }
 
   if (!daemonRunning) {
+    if (foreground) {
+      await startLocalDaemonForeground(resources);
+      // startLocalDaemonForeground never returns (runs in foreground)
+      return;
+    }
     await startLocalDaemon(watch, resources);
   }
 

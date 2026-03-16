@@ -40,7 +40,7 @@ export async function executeAcpSpawn(
   try {
     const manager = getAcpSessionManager();
     const cwd = (input.cwd as string) || context.workingDir;
-    const acpSessionId = await manager.spawn(
+    const { acpSessionId, protocolSessionId } = await manager.spawn(
       agent,
       agentConfig,
       task,
@@ -52,9 +52,10 @@ export async function executeAcpSpawn(
     return {
       content: JSON.stringify({
         acpSessionId,
+        protocolSessionId,
         agent,
         status: "running",
-        message: `ACP agent "${agent}" spawned. It will stream results back via SSE. You will be notified when it completes.`,
+        message: `ACP agent "${agent}" spawned. Session ID: ${protocolSessionId}. You can resume this session later with: claude --resume ${protocolSessionId}`,
       }),
       isError: false,
     };

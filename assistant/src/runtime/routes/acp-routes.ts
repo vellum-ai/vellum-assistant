@@ -49,10 +49,18 @@ export function acpRouteDefinitions(): RouteDefinition[] {
             400,
           );
         }
+        log.info(
+          {
+            agent: body.agent,
+            task: body.task?.slice(0, 100),
+            sessionId: body.sessionId,
+          },
+          "ACP spawn request received",
+        );
         const manager = getAcpSessionManager();
         const sendToVellum =
           broadcastToAllClients ?? ((_msg) => log.warn("No broadcast fn set"));
-        const acpSessionId = await manager.spawn(
+        const { acpSessionId, protocolSessionId } = await manager.spawn(
           body.agent,
           agentConfig,
           body.task,
@@ -60,7 +68,15 @@ export function acpRouteDefinitions(): RouteDefinition[] {
           body.sessionId,
           sendToVellum,
         );
-        return Response.json({ acpSessionId, agent: body.agent });
+        log.info(
+          { acpSessionId, protocolSessionId, agent: body.agent },
+          "ACP spawn succeeded",
+        );
+        return Response.json({
+          acpSessionId,
+          protocolSessionId,
+          agent: body.agent,
+        });
       },
     },
 
