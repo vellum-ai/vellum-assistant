@@ -154,8 +154,8 @@ export interface HandlerContext {
     conversationId: string,
     options?: ConversationCreateOptions,
   ): Promise<Conversation>;
-  /** Refresh the eviction timestamp for a session that was accessed directly. */
-  touchConversation(sessionId: string): void;
+  /** Refresh the eviction timestamp for a conversation that was accessed directly. */
+  touchConversation(conversationId: string): void;
   /** Optional heartbeat service reference for "Run Now" support. */
   heartbeatService?: HeartbeatService;
 }

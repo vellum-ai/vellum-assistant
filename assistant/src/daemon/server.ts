@@ -484,7 +484,7 @@ export class DaemonServer {
     });
 
     this.configWatcher.start(
-      () => this.evictSessionsForReload(),
+      () => this.evictConversationsForReload(),
       () => this.broadcastIdentityChanged(),
     );
 
@@ -636,10 +636,10 @@ export class DaemonServer {
   }
 
   /**
-   * Abort and dispose a single in-memory session, removing it from the session
-   * map. No-op if no session exists for the given ID.
+   * Abort and dispose a single in-memory conversation, removing it from the
+   * conversation map. No-op if no conversation exists for the given ID.
    */
-  destroySession(conversationId: string): void {
+  destroyConversation(conversationId: string): void {
     const session = this.conversations.get(conversationId);
     if (!session) return;
     this.evictor.remove(conversationId);
@@ -649,7 +649,7 @@ export class DaemonServer {
     this.sessionOptions.delete(conversationId);
   }
 
-  private evictSessionsForReload(): void {
+  private evictConversationsForReload(): void {
     const subagentManager = getSubagentManager();
     for (const [id, session] of this.conversations) {
       if (!session.isProcessing()) {
@@ -673,7 +673,7 @@ export class DaemonServer {
 
   async refreshConfigFromSources(): Promise<boolean> {
     const changed = await this.configWatcher.refreshConfigFromSources();
-    if (changed) this.evictSessionsForReload();
+    if (changed) this.evictConversationsForReload();
     return changed;
   }
 

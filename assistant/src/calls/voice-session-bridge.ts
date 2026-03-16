@@ -346,17 +346,17 @@ export async function startVoiceTurn(
   // Serialized publish chain so hub subscribers observe events in order.
   let hubChain: Promise<void> = Promise.resolve();
   const publishToHub = (msg: ServerMessage): void => {
-    // ServerMessage is a large union; sessionId exists on most but not all variants.
-    const msgSessionId =
-      "sessionId" in msg &&
-      typeof (msg as { sessionId?: unknown }).sessionId === "string"
-        ? (msg as { sessionId: string }).sessionId
+    // ServerMessage is a large union; conversationId exists on most but not all variants.
+    const msgConversationId =
+      "conversationId" in msg &&
+      typeof (msg as { conversationId?: unknown }).conversationId === "string"
+        ? (msg as { conversationId: string }).conversationId
         : undefined;
-    const resolvedSessionId = msgSessionId ?? opts.conversationId;
+    const resolvedConversationId = msgConversationId ?? opts.conversationId;
     const event = buildAssistantEvent(
       DAEMON_INTERNAL_ASSISTANT_ID,
       msg,
-      resolvedSessionId,
+      resolvedConversationId,
     );
     hubChain = (async () => {
       await hubChain;

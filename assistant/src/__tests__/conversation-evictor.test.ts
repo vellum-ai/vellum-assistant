@@ -29,7 +29,7 @@ describe("ConversationEvictor", () => {
       sessions as Map<string, EvictableConversation>,
       {
         ttlMs: 1000,
-        maxSessions: 3,
+        maxConversations: 3,
         memoryThresholdBytes: Number.MAX_SAFE_INTEGER, // disable memory pressure for most tests
         sweepIntervalMs: 60_000,
       },
@@ -87,8 +87,8 @@ describe("ConversationEvictor", () => {
   });
 
   describe("LRU eviction", () => {
-    test("evicts least-recently-used sessions when over maxSessions", () => {
-      // maxSessions = 3, add 5 sessions
+    test("evicts least-recently-used conversations when over maxConversations", () => {
+      // maxConversations = 3, add 5 sessions
       const allSessions: Array<EvictableConversation & { disposed: boolean }> =
         [];
       for (let i = 0; i < 5; i++) {
@@ -119,7 +119,7 @@ describe("ConversationEvictor", () => {
     });
 
     test("skips processing sessions during LRU eviction", () => {
-      // maxSessions = 3, add 4 sessions, one processing
+      // maxConversations = 3, add 4 sessions, one processing
       const s0 = createMockSession(true); // processing — should not be evicted
       const s1 = createMockSession();
       const s2 = createMockSession();
