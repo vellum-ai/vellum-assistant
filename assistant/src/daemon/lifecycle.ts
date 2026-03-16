@@ -321,12 +321,11 @@ export async function runDaemon(): Promise<void> {
       });
     }
 
-    // If the user has opted out of crash reporting, stop Sentry from capturing
-    // future events. Early-startup crashes before this point are still captured.
-    const collectUsageData = isAssistantFeatureFlagEnabled(
-      "feature_flags.collect-usage-data.enabled",
-      config,
-    );
+    // If the user has opted out of usage data collection or we are in dev mode,
+    // stop Sentry and skip telemetry. Early-startup crashes before this point
+    // are still captured.
+    const isDevMode = process.env.VELLUM_DEV === "1";
+    const collectUsageData = !isDevMode && config.collectUsageData;
     if (!collectUsageData) {
       await closeSentry();
     }
