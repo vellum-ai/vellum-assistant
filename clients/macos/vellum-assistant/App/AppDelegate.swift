@@ -326,6 +326,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         }
 
         setupDaemonClient(isFirstLaunch: isFirstLaunch)
+        // Reload avatar after reconnecting so that logout→re-login cycles
+        // repopulate the dock icon (resetForDisconnect clears it on logout).
+        AvatarAppearanceManager.shared.reloadAvatar()
         setupMenuBar()
         setupFileMenu()
         registerNavigationMonitor()
