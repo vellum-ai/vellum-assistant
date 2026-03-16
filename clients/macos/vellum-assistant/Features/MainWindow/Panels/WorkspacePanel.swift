@@ -729,6 +729,7 @@ private struct WorkspaceFileViewer: View {
 
     private func textViewer(_ detail: WorkspaceFileResponse) -> some View {
         let modes = availableViewModes(for: detail.name, mimeType: detail.mimeType)
+        let readOnly = isHiddenPath(detail.path)
         return VStack(spacing: 0) {
             if modes.count > 1 {
                 HStack(spacing: 0) {
@@ -744,21 +745,6 @@ private struct WorkspaceFileViewer: View {
                 .padding(.vertical, VSpacing.sm)
             }
 
-            switch state.viewMode {
-            case .source:
-                sourceView(detail)
-            case .preview:
-                previewView(detail)
-            case .tree:
-                treeView(detail)
-            }
-        }
-    }
-
-    private func sourceView(_ detail: WorkspaceFileResponse) -> some View {
-        let readOnly = isHiddenPath(detail.path)
-        let language = SyntaxLanguage.detect(fileName: detail.name, mimeType: detail.mimeType)
-        return VStack(spacing: 0) {
             if readOnly {
                 HStack {
                     Spacer()
@@ -789,6 +775,21 @@ private struct WorkspaceFileViewer: View {
                 }
             }
 
+            switch state.viewMode {
+            case .source:
+                sourceView(detail)
+            case .preview:
+                previewView(detail)
+            case .tree:
+                treeView(detail)
+            }
+        }
+    }
+
+    private func sourceView(_ detail: WorkspaceFileResponse) -> some View {
+        let readOnly = isHiddenPath(detail.path)
+        let language = SyntaxLanguage.detect(fileName: detail.name, mimeType: detail.mimeType)
+        return Group {
             if readOnly {
                 HighlightedTextView(
                     text: .constant(detail.content ?? ""),
