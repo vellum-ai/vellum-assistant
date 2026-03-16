@@ -80,7 +80,7 @@ export class VellumAcpClientHandler implements Client {
         this.sendToVellum({
           type: "acp_session_update",
           acpSessionId: this.acpSessionId,
-          updateType: "agent_message_chunk",
+          updateType: "user_message_chunk",
           content: text,
         });
         break;
@@ -208,6 +208,13 @@ export class VellumAcpClientHandler implements Client {
       signal: null,
       exitPromise: Promise.resolve(),
     };
+
+    proc.on("error", (err) => {
+      log.error({ terminalId, error: err.message }, "Terminal process error");
+      state.exited = true;
+      state.exitCode = 1;
+      state.signal = null;
+    });
 
     state.exitPromise = new Promise<void>((resolve) => {
       proc.on("exit", (code, signal) => {
