@@ -55,7 +55,7 @@ export async function executeAcpSpawn(
         protocolSessionId,
         agent,
         status: "running",
-        message: `ACP agent "${agent}" spawned. Session ID: ${protocolSessionId}. You can resume this session later with: claude --resume ${protocolSessionId}`,
+        message: `ACP agent "${agent}" spawned (session: ${protocolSessionId}). It will stream results back via SSE. You will be notified when it completes.`,
       }),
       isError: false,
     };
