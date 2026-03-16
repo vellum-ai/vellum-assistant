@@ -62,12 +62,10 @@ struct APIKeyStepView: View {
             // If apple-containers is no longer available (e.g. flag toggled off
             // after a previous session persisted it), reset to the process backend
             // so the user is not silently routed through a broken path.
+            // Note: this reset is onAppear-only and is NOT reactive to in-session
+            // availability changes. AppleContainersAvailabilityChecker is not
+            // @Observable, so onChange(of:) would never fire for it.
             if !appleContainersAvailability.isAvailable {
-                state.selectedRuntimeBackend = .process
-            }
-        }
-        .onChange(of: appleContainersAvailability.isAvailable) { _, isAvailable in
-            if !isAvailable {
                 state.selectedRuntimeBackend = .process
             }
         }
