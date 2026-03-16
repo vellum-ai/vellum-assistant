@@ -250,7 +250,15 @@
       "metadata": {
         "emoji": "🔐",
         "vellum": {
-          "display-name": "Guardian Verify Setup"
+          "display-name": "Guardian Verify Setup",
+          "activation-hints": [
+            "Any guardian verification intent -> load this skill exclusively",
+            "\"help me set myself up as your guardian\" = verification request"
+          ],
+          "avoid-when": [
+            "Don't load phone-calls for verification intents",
+            "If the user already specified a channel, do not re-ask"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -610,6 +618,13 @@
           "display-name": "Voice Setup",
           "includes": [
             "elevenlabs-voice"
+          ],
+          "activation-hints": [
+            "Guided setup or troubleshooting (walkthrough, PTT not working, mic issues, ElevenLabs/TTS)",
+            "Simple voice setting changes (PTT key, wake word) -> use voice_config_update directly"
+          ],
+          "avoid-when": [
+            "If \"voice\" is in a Twilio/phone context, load phone-calls instead"
           ]
         }
       },
