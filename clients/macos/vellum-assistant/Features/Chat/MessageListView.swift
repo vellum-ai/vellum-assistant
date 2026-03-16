@@ -749,11 +749,11 @@ struct MessageListView: View {
                             }
                         }
                 }
-                .padding(.horizontal, VSpacing.xl)
                 .padding(.top, VSpacing.md)
                 .padding(.bottom, VSpacing.md)
                 .frame(maxWidth: VSpacing.chatColumnMaxWidth)
                 .frame(maxWidth: .infinity)
+                .background { ScrollViewContentInsets(horizontal: VSpacing.xl) }
             }
             .scrollContentBackground(.hidden)
             .coordinateSpace(name: "chatScrollView")
@@ -1559,4 +1559,30 @@ struct PrecomputedMessageListState {
     let canInlineProcessing: Bool
     let shouldShowThinkingIndicator: Bool
     let effectiveStatusText: String?
+}
+
+// MARK: - Scroll View Content Insets
+
+/// Sets horizontal content insets on the enclosing NSScrollView so content is
+/// inset from the edges while the scrollbar indicator remains flush against
+/// the right edge of the scroll view.
+private struct ScrollViewContentInsets: NSViewRepresentable {
+    let horizontal: CGFloat
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            guard let scrollView = view.enclosingScrollView else { return }
+            scrollView.contentInsets = NSEdgeInsets(
+                top: 0,
+                left: horizontal,
+                bottom: 0,
+                right: horizontal
+            )
+            scrollView.automaticallyAdjustsContentInsets = false
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }
