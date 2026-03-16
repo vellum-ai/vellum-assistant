@@ -44,6 +44,7 @@ import {
   createFeatureFlagsGetHandler,
   createFeatureFlagsPatchHandler,
 } from "./http/routes/feature-flags.js";
+import { createPrivacyConfigPatchHandler } from "./http/routes/privacy-config.js";
 import { createChannelVerificationSessionProxyHandler } from "./http/routes/channel-verification-session-proxy.js";
 import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-control-plane-proxy.js";
 import { createContactsControlPlaneProxyHandler } from "./http/routes/contacts-control-plane-proxy.js";
@@ -259,6 +260,7 @@ async function main() {
   const brainGraphProxy = createBrainGraphProxyHandler(config);
   const handleFeatureFlagsGet = createFeatureFlagsGetHandler();
   const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler();
+  const handlePrivacyConfigPatch = createPrivacyConfigPatchHandler();
 
   const handleRuntimeProxy = config.runtimeProxyEnabled
     ? createRuntimeProxyHandler(config)
@@ -679,6 +681,15 @@ async function main() {
         }
         return handleFeatureFlagsPatch(req, flagKey);
       },
+    },
+
+    // ── Privacy config (scope-protected) ──
+    {
+      path: "/v1/config/privacy",
+      method: "PATCH",
+      auth: "edge-scoped",
+      scope: "feature_flags.write",
+      handler: (req) => handlePrivacyConfigPatch(req),
     },
   ];
 
