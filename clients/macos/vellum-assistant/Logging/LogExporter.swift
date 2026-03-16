@@ -94,7 +94,7 @@ enum LogExporter {
             var extra: [String: Any] = [:]
             let conversationManager = AppDelegate.shared?.mainWindow?.conversationManager
             if let activeConversation = conversationManager?.activeConversation {
-                extra["thread_title"] = activeConversation.title
+                extra["conversation_title"] = activeConversation.title
                 if let conversationId = activeConversation.conversationId {
                     tags["session_id"] = conversationId
                     // conversation_id mirrors session_id — the daemon tags its
