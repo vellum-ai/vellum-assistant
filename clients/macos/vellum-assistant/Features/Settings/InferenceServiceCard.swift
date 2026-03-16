@@ -251,9 +251,9 @@ struct InferenceServiceCard: View {
             store.setInferenceMode(draftMode)
         }
 
-        // Persist API key if entered (only relevant for your-own mode)
+        // Persist API key if entered and in your-own mode
         let trimmedKey = apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedKey.isEmpty {
+        if draftMode == "your-own" && !trimmedKey.isEmpty {
             store.saveAPIKey(trimmedKey)
             apiKeyText = ""
         }
