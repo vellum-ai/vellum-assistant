@@ -131,7 +131,7 @@ export async function prepareMemoryContext(
       })
     : undefined;
   // Build scope policy override for non-default scopes so retrieval
-  // honours the session's memory policy regardless of the global config.
+  // honours the conversation's memory policy regardless of the global config.
   const scopePolicyOverride: ScopePolicyOverride | undefined =
     ctx.scopeId !== "default"
       ? { scopeId: ctx.scopeId, fallbackToDefault: ctx.includeDefaultFallback }

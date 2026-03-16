@@ -111,14 +111,14 @@ export async function setModel(
   const config = getConfig();
   await initializeProviders(config);
 
-  // Evict idle sessions immediately; mark busy ones as stale so they
+  // Evict idle conversations immediately; mark busy ones as stale so they
   // get recreated with the new provider once they finish processing.
-  for (const [id, session] of ctx.conversations) {
-    if (!session.isProcessing()) {
-      session.dispose();
+  for (const [id, conversation] of ctx.conversations) {
+    if (!conversation.isProcessing()) {
+      conversation.dispose();
       ctx.conversations.delete(id);
     } else {
-      session.markStale();
+      conversation.markStale();
     }
   }
 

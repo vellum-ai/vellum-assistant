@@ -123,7 +123,7 @@ import type {
 } from "./message-protocol.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 
-const log = getLogger("session-agent-loop");
+const log = getLogger("conversation-agent-loop");
 
 /**
  * Parse the actual token count reported by the provider in a context-too-large
@@ -387,7 +387,7 @@ export async function runAgentLoopImpl(
   ctx.profiler.startRequest();
   let turnStarted = false;
 
-  // Populate Sentry scope with session-specific tags so any exception
+  // Populate Sentry scope with conversation-specific tags so any exception
   // captured during this turn (e.g. inside agent/loop.ts) can be
   // filtered by conversation, assistant, or user in the dashboard.
   setSentryConversationContext({
@@ -649,9 +649,9 @@ export async function runAgentLoopImpl(
     };
 
     // Resolve the inbound actor context for the model's <inbound_actor_context>
-    // block. When the session carries enough identity info, use the unified
+    // block. When the conversation carries enough identity info, use the unified
     // actor trust resolver so member status/policy and guardian binding details
-    // are fresh for this turn. The session runtime context remains the source
+    // are fresh for this turn. The conversation runtime context remains the source
     // for policy gating; this block is model-facing grounding metadata.
     let resolvedInboundActorContext: InboundActorContext | null = null;
     if (ctx.trustContext) {
@@ -859,7 +859,7 @@ export async function runAgentLoopImpl(
 
       // Mid-loop token budget check: estimate current context size and
       // yield if we're approaching the preflight budget. This lets the
-      // session-agent-loop run compaction before the provider rejects.
+      // conversation-agent-loop run compaction before the provider rejects.
       if (overflowRecovery.enabled) {
         const midLoopThreshold = preflightBudget * 0.85;
         const estimated = estimatePromptTokens(
@@ -1767,7 +1767,7 @@ export async function runAgentLoopImpl(
 
     ctx.drainQueue(yieldedForHandoff ? "checkpoint_handoff" : "loop_complete");
 
-    // Clear session tags so they don't leak into unrelated error captures
+    // Clear conversation tags so they don't leak into unrelated error captures
     // (e.g. unhandledRejection from a different async chain).
     clearSentryConversationContext();
   }

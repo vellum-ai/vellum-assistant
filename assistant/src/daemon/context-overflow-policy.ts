@@ -15,12 +15,12 @@ export interface OverflowPolicyInput {
 }
 
 /**
- * Deterministic policy resolver that maps config knobs + session interactivity
+ * Deterministic policy resolver that maps config knobs + conversation interactivity
  * to a concrete overflow action.
  *
  * The recovery pipeline calls this after standard compaction is exhausted.
- * Interactive sessions default to asking the user before compressing the
- * latest turn; non-interactive sessions auto-compress.
+ * Interactive conversations default to asking the user before compressing the
+ * latest turn; non-interactive conversations auto-compress.
  */
 export function resolveOverflowAction(
   input: OverflowPolicyInput,
@@ -40,11 +40,11 @@ export function resolveOverflowAction(
     return "fail_gracefully";
   }
 
-  // For non-interactive sessions, compress without asking.
+  // For non-interactive conversations, compress without asking.
   if (!isInteractive) {
     return "auto_compress_latest_turn";
   }
 
-  // Interactive sessions ask for approval before compressing.
+  // Interactive conversations ask for approval before compressing.
   return "request_user_approval";
 }

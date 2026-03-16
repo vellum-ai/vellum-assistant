@@ -1,5 +1,5 @@
 /**
- * Extracted event handler functions for the session agent loop.
+ * Extracted event handler functions for the conversation agent loop.
  *
  * Each switch case from the original monolithic event handler is now a
  * standalone exported function, making individual behaviors independently

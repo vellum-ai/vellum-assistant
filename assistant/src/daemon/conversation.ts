@@ -252,7 +252,7 @@ export class Conversation {
     this.prompter = new PermissionPrompter(sendToClient);
     this.prompter.setOnStateChanged((requestId, state, source, toolUseId) => {
       // Route through emitConfirmationStateChanged so the event reaches
-      // the client via sendToClient (wired to the SSE hub for HTTP sessions).
+      // the client via sendToClient (wired to the SSE hub for HTTP conversations).
       this.emitConfirmationStateChanged({
         conversationId: this.conversationId,
         requestId,
@@ -379,7 +379,7 @@ export class Conversation {
     await loadFromDbImpl(this);
     // Scan loaded history for attachment content blocks so that asset
     // tools are available when resuming a conversation that already had
-    // attachments. One-way: once true it stays true for the session.
+    // attachments. One-way: once true it stays true for the conversation.
     // Also picks up the hasAttachments flag set by loadFromDbImpl which
     // scans compacted (sliced-off) messages that aren't in this.messages.
     if (!this.hasAttachments && messagesContainAttachments(this.messages)) {
@@ -879,7 +879,7 @@ export class Conversation {
       await this.ensureActorScopedHistory();
     }
     // One-way flag: once an attachment arrives, asset tools stay available
-    // for the remainder of the session.
+    // for the remainder of the conversation.
     if (!this.hasAttachments && attachments.length > 0) {
       this.hasAttachments = true;
     }

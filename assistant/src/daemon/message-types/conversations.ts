@@ -159,7 +159,7 @@ export interface ConversationTitleUpdated {
   title: string;
 }
 
-/** Channel binding metadata exposed in session/conversation list APIs. */
+/** Channel binding metadata exposed in conversation list APIs. */
 export interface ChannelBinding {
   sourceChannel: ChannelId;
   externalChatId: string;

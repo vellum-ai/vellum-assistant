@@ -77,12 +77,12 @@ export function makeEventSender(params: {
   conversationId: string;
   sourceChannel: string;
 }): (event: ServerMessage) => void {
-  const { ctx, session, conversationId, sourceChannel } = params;
+  const { ctx, session: conversation, conversationId, sourceChannel } = params;
 
   return (event: ServerMessage) => {
     if (event.type === "confirmation_request") {
       pendingInteractions.register(event.requestId, {
-        conversation: session,
+        conversation,
         conversationId,
         kind: "confirmation",
         confirmationDetails: {
@@ -98,7 +98,7 @@ export function makeEventSender(params: {
       });
 
       try {
-        const trustContext = session.trustContext;
+        const trustContext = conversation.trustContext;
         createCanonicalGuardianRequest({
           id: event.requestId,
           kind: "tool_approval",
@@ -119,25 +119,25 @@ export function makeEventSender(params: {
       }
     } else if (event.type === "secret_request") {
       pendingInteractions.register(event.requestId, {
-        conversation: session,
+        conversation,
         conversationId,
         kind: "secret",
       });
     } else if (event.type === "host_bash_request") {
       pendingInteractions.register(event.requestId, {
-        conversation: session,
+        conversation,
         conversationId,
         kind: "host_bash",
       });
     } else if (event.type === "host_file_request") {
       pendingInteractions.register(event.requestId, {
-        conversation: session,
+        conversation,
         conversationId,
         kind: "host_file",
       });
     } else if (event.type === "host_cu_request") {
       pendingInteractions.register(event.requestId, {
-        conversation: session,
+        conversation,
         conversationId,
         kind: "host_cu",
       });
@@ -151,13 +151,13 @@ export function handleConfirmationResponse(
   msg: ConfirmationResponse,
   ctx: HandlerContext,
 ): void {
-  // Route by requestId to the session that originated the prompt, not by
-  // the current session binding which may have changed since the
-  // request was issued (e.g. after a session switch).
-  for (const [conversationId, session] of ctx.conversations) {
-    if (session.hasPendingConfirmation(msg.requestId)) {
+  // Route by requestId to the conversation that originated the prompt, not by
+  // the current conversation binding which may have changed since the
+  // request was issued (e.g. after a conversation switch).
+  for (const [conversationId, conversation] of ctx.conversations) {
+    if (conversation.hasPendingConfirmation(msg.requestId)) {
       ctx.touchConversation(conversationId);
-      session.handleConfirmationResponse(
+      conversation.handleConfirmationResponse(
         msg.requestId,
         msg.decision,
         msg.selectedPattern,
@@ -173,7 +173,7 @@ export function handleConfirmationResponse(
 
   log.warn(
     { requestId: msg.requestId },
-    "No session found with pending confirmation for requestId",
+    "No conversation found with pending confirmation for requestId",
   );
 }
 
@@ -181,8 +181,8 @@ export function handleSecretResponse(
   msg: SecretResponse,
   ctx: HandlerContext,
 ): void {
-  // Check standalone (non-session) prompts first, since they use a dedicated
-  // requestId that won't collide with session prompts.
+  // Check standalone (non-conversation) prompts first, since they use a dedicated
+  // requestId that won't collide with conversation prompts.
   const standalone = pendingStandaloneSecrets.get(msg.requestId);
   if (standalone) {
     clearTimeout(standalone.timer);
@@ -195,30 +195,30 @@ export function handleSecretResponse(
     return;
   }
 
-  // Route by requestId to the session that originated the prompt, not by
-  // the current session binding which may have changed since the
-  // request was issued (e.g. after a session switch).
-  for (const [conversationId, session] of ctx.conversations) {
-    if (session.hasPendingSecret(msg.requestId)) {
+  // Route by requestId to the conversation that originated the prompt, not by
+  // the current conversation binding which may have changed since the
+  // request was issued (e.g. after a conversation switch).
+  for (const [conversationId, conversation] of ctx.conversations) {
+    if (conversation.hasPendingSecret(msg.requestId)) {
       ctx.touchConversation(conversationId);
-      session.handleSecretResponse(msg.requestId, msg.value, msg.delivery);
+      conversation.handleSecretResponse(msg.requestId, msg.value, msg.delivery);
       pendingInteractions.resolve(msg.requestId);
       return;
     }
   }
   log.warn(
     { requestId: msg.requestId },
-    "No session found with pending secret prompt for requestId",
+    "No conversation found with pending secret prompt for requestId",
   );
 }
 
 /**
- * Clear all conversations and DB conversations. Returns the number of sessions cleared.
+ * Clear all conversations and DB conversations. Returns the number of conversations cleared.
  */
 export function clearAllConversations(ctx: HandlerContext): number {
   const cleared = ctx.clearAllConversations();
   // Also clear DB conversations. When a new local connection triggers
-  // sendInitialSession, it auto-creates a conversation if none exist.
+  // sendInitialConversation, it auto-creates a conversation if none exist.
   // Without this DB clear, that auto-created row survives, contradicting
   // the "clear all conversations" intent.
   clearAll();
@@ -236,7 +236,7 @@ export async function handleConversationCreate(
     title,
     conversationType,
   });
-  const session = await ctx.getOrCreateConversation(conversation.id, {
+  const conversationObj = await ctx.getOrCreateConversation(conversation.id, {
     systemPromptOverride: msg.systemPromptOverride,
     maxResponseTokens: msg.maxResponseTokens,
     transport: msg.transport,
@@ -245,7 +245,7 @@ export async function handleConversationCreate(
   // Pre-activate skills before sending conversation_info so they're available
   // for the initial message processing.
   if (msg.preactivatedSkillIds?.length) {
-    session.setPreactivatedSkillIds(msg.preactivatedSkillIds);
+    conversationObj.setPreactivatedSkillIds(msg.preactivatedSkillIds);
   }
 
   ctx.send({
@@ -283,17 +283,17 @@ export async function handleConversationCreate(
       parseChannelId(msg.transport?.channelId) ?? "vellum";
     const sendEvent = makeEventSender({
       ctx,
-      session,
+      session: conversationObj,
       conversationId: conversation.id,
       sourceChannel: transportChannel,
     });
-    session.setTurnChannelContext({
+    conversationObj.setTurnChannelContext({
       userMessageChannel: transportChannel,
       assistantMessageChannel: transportChannel,
     });
     const transportInterface: InterfaceId =
       parseInterfaceId(msg.transport?.interfaceId) ?? "vellum";
-    session.setTurnInterfaceContext({
+    conversationObj.setTurnInterfaceContext({
       userMessageInterface: transportInterface,
       assistantMessageInterface: transportInterface,
     });
@@ -304,19 +304,19 @@ export async function handleConversationCreate(
       const proxy = new HostBashProxy(sendEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
-      session.setHostBashProxy(proxy);
+      conversationObj.setHostBashProxy(proxy);
       const fileProxy = new HostFileProxy(sendEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
-      session.setHostFileProxy(fileProxy);
+      conversationObj.setHostFileProxy(fileProxy);
       const cuProxy = new HostCuProxy(sendEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
-      session.setHostCuProxy(cuProxy);
-      session.addPreactivatedSkillId("computer-use");
+      conversationObj.setHostCuProxy(cuProxy);
+      conversationObj.addPreactivatedSkillId("computer-use");
     }
-    session.updateClient(sendEvent, false);
-    session
+    conversationObj.updateClient(sendEvent, false);
+    conversationObj
       .processMessage(msg.initialMessage, [], sendEvent, requestId)
       .catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
@@ -366,13 +366,13 @@ export async function switchConversation(
     return null;
   }
 
-  // If the target session is headless-locked (actively executing a task run),
+  // If the target conversation is headless-locked (actively executing a task run),
   // skip rebinding so tool confirmations stay suppressed.
-  const existingSession = ctx.conversations.get(conversationId);
-  const isHeadlessLocked = existingSession?.headlessLock;
+  const existingConversation = ctx.conversations.get(conversationId);
+  const isHeadlessLocked = existingConversation?.headlessLock;
 
   if (isHeadlessLocked) {
-    // Load the session without rebinding the client — the session stays headless
+    // Load the conversation without rebinding the client — the conversation stays headless
     await ctx.getOrCreateConversation(conversationId);
   } else {
     await ctx.getOrCreateConversation(conversationId);
@@ -441,19 +441,19 @@ export function handleConversationRename(
 }
 
 /**
- * Cancel generation for a session. Returns true if a session was found and cancelled.
+ * Cancel generation for a conversation. Returns true if a conversation was found and cancelled.
  */
 export function cancelGeneration(
   conversationId: string,
   ctx: HandlerContext,
 ): boolean {
-  const session = ctx.conversations.get(conversationId);
-  if (!session) {
+  const conversation = ctx.conversations.get(conversationId);
+  if (!conversation) {
     return false;
   }
   ctx.touchConversation(conversationId);
-  session.abort();
-  // Also abort any child subagents spawned by this session.
+  conversation.abort();
+  // Also abort any child subagents spawned by this conversation.
   // Omit sendToClient to suppress parent notifications — the parent is
   // being cancelled, so enqueuing synthetic messages would trigger
   // unwanted model activity after the user pressed stop.
@@ -462,8 +462,8 @@ export function cancelGeneration(
 }
 
 /**
- * Undo the last message in a session. Returns the removed count, or null if
- * the conversation does not exist. Restores evicted sessions from the database.
+ * Undo the last message in a conversation. Returns the removed count, or null if
+ * the conversation does not exist. Restores evicted conversations from the database.
  */
 export async function undoLastMessage(
   conversationId: string,
@@ -474,9 +474,9 @@ export async function undoLastMessage(
     return null;
   }
   conversationId = resolvedId;
-  const session = await ctx.getOrCreateConversation(conversationId);
+  const conversation = await ctx.getOrCreateConversation(conversationId);
   ctx.touchConversation(conversationId);
-  const removedCount = session.undo();
+  const removedCount = conversation.undo();
   return { removedCount };
 }
 
@@ -497,9 +497,9 @@ export async function handleUndo(
 }
 
 /**
- * Regenerate the last assistant response for a session. The caller provides
+ * Regenerate the last assistant response for a conversation. The caller provides
  * a `sendEvent` callback for delivering streaming events via HTTP/SSE.
- * Returns null if the conversation does not exist. Restores evicted sessions
+ * Returns null if the conversation does not exist. Restores evicted conversations
  * from the database when needed. Throws on regeneration errors.
  */
 export async function regenerateResponse(
@@ -508,35 +508,39 @@ export async function regenerateResponse(
   sendEvent: (event: ServerMessage) => void,
 ): Promise<{ requestId: string } | null> {
   // The caller may pass a conversation key (e.g. the macOS client's local
-  // session ID) instead of the daemon's internal conversation ID. Resolve
+  // conversation ID) instead of the daemon's internal conversation ID. Resolve
   // to the internal ID so all downstream lookups succeed.
   const resolvedId = resolveConversationId(conversationId);
   if (!resolvedId) {
     return null;
   }
   conversationId = resolvedId;
-  const session = await ctx.getOrCreateConversation(conversationId);
+  const conversation = await ctx.getOrCreateConversation(conversationId);
   ctx.touchConversation(conversationId);
-  session.updateClient(sendEvent, false);
+  conversation.updateClient(sendEvent, false);
   const requestId = uuid();
-  session.traceEmitter.emit("request_received", "Regenerate requested", {
+  conversation.traceEmitter.emit("request_received", "Regenerate requested", {
     requestId,
     status: "info",
     attributes: { source: "regenerate" },
   });
   try {
-    await session.regenerate(sendEvent, requestId);
+    await conversation.regenerate(sendEvent, requestId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, conversationId }, "Error regenerating message");
-    session.traceEmitter.emit("request_error", truncate(message, 200, ""), {
-      requestId,
-      status: "error",
-      attributes: {
-        errorClass: err instanceof Error ? err.constructor.name : "Error",
-        message: truncate(message, 500, ""),
+    conversation.traceEmitter.emit(
+      "request_error",
+      truncate(message, 200, ""),
+      {
+        requestId,
+        status: "error",
+        attributes: {
+          errorClass: err instanceof Error ? err.constructor.name : "Error",
+          message: truncate(message, 500, ""),
+        },
       },
-    });
+    );
     throw err;
   }
   return { requestId };
@@ -566,7 +570,7 @@ export function handleUsageRequest(
 // ---------------------------------------------------------------------------
 
 /**
- * Delete a queued message from a session.
+ * Delete a queued message from a conversation.
  * Returns `{ removed: true }` on success, `{ removed: false, reason }` on failure.
  */
 export function deleteQueuedMessage(
@@ -578,15 +582,15 @@ export function deleteQueuedMessage(
 ):
   | { removed: true }
   | { removed: false; reason: "session_not_found" | "message_not_found" } {
-  const session = findConversation(conversationId);
-  if (!session) {
+  const conversation = findConversation(conversationId);
+  if (!conversation) {
     log.warn(
       { conversationId, requestId },
-      "No session found for delete_queued_message",
+      "No conversation found for delete_queued_message",
     );
     return { removed: false, reason: "session_not_found" };
   }
-  const removed = session.removeQueuedMessage(requestId);
+  const removed = conversation.removeQueuedMessage(requestId);
   if (removed) {
     return { removed: true };
   }
