@@ -25,7 +25,7 @@ enum VideoPlaybackFailure: Equatable {
     var userMessage: String {
         switch self {
         case .port_missing:
-            return "Reconnecting to daemon..."
+            return "Reconnecting to assistant..."
         case .fetch_failed(let detail):
             return detail.isEmpty ? "Could not fetch video" : detail
         case .invalid_media:

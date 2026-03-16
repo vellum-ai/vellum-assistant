@@ -110,7 +110,7 @@ For low-level development (e.g., working on the assistant runtime itself):
 ```bash
 cd assistant
 bun install
-bun run src/index.ts daemon start
+bun run src/index.ts assistant start
 ```
 
 > **Note:** Some dependencies (`agentmail`, `@pydantic/logfire-node`) are optional at runtime but required for full `tsc --noEmit` type-checking to pass. They are installed automatically by `bun install`.

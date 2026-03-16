@@ -254,7 +254,7 @@ struct QRPairingSheet: View {
             return
         }
 
-        guard json["type"] as? String == "vellum-daemon" else {
+        guard json["type"] as? String == "vellum-assistant" || json["type"] as? String == "vellum-daemon" else {
             errorMessage = "This QR code isn't from Vellum."
             phase = .error
             return
