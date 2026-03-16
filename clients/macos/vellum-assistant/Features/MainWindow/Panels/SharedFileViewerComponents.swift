@@ -2,13 +2,15 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Formats a byte count into a human-readable size string.
-/// Shows raw bytes for sizes < 1 KB (e.g. "500 B"), then "KB" / "MB" with one decimal place.
+/// Shows raw bytes for sizes < 1 KB (e.g. "500 B"), then "KB" / "MB" / "GB" with one decimal place.
 func formatFileSize(_ bytes: Int) -> String {
     if bytes < 1024 { return "\(bytes) B" }
     let kb = Double(bytes) / 1024.0
     if kb < 1024 { return String(format: "%.1f KB", kb) }
     let mb = kb / 1024.0
-    return String(format: "%.1f MB", mb)
+    if mb < 1024 { return String(format: "%.1f MB", mb) }
+    let gb = mb / 1024.0
+    return String(format: "%.1f GB", gb)
 }
 
 /// Empty state shown when no file is selected in a file viewer pane.
