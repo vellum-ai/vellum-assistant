@@ -228,20 +228,24 @@ export const AssistantConfigSchema = z
       .enum(VALID_PROVIDERS, {
         error: `provider must be one of: ${VALID_PROVIDERS.join(", ")}`,
       })
-      .default("anthropic"),
+      .default("anthropic")
+      .describe("LLM provider to use for inference"),
     model: z
       .string({ error: "model must be a string" })
-      .default("claude-opus-4-6"),
+      .default("claude-opus-4-6")
+      .describe("Model identifier for the primary LLM"),
     imageGenModel: z
       .string({ error: "imageGenModel must be a string" })
-      .default("gemini-2.5-flash-image"),
+      .default("gemini-2.5-flash-image")
+      .describe("Model identifier used for image generation"),
     webSearchProvider: z
       .enum(VALID_WEB_SEARCH_PROVIDERS, {
         error: `webSearchProvider must be one of: ${VALID_WEB_SEARCH_PROVIDERS.join(
           ", ",
         )}`,
       })
-      .default("anthropic-native"),
+      .default("anthropic-native")
+      .describe("Provider used for web search queries"),
     providerOrder: z
       .array(
         z.enum(VALID_PROVIDERS, {
@@ -250,12 +254,16 @@ export const AssistantConfigSchema = z
           )}`,
         }),
       )
-      .default([]),
+      .default([])
+      .describe(
+        "Fallback order of LLM providers — the assistant tries each in sequence if the previous one fails",
+      ),
     maxTokens: z
       .number({ error: "maxTokens must be a number" })
       .int("maxTokens must be an integer")
       .positive("maxTokens must be a positive integer")
-      .default(16000),
+      .default(16000)
+      .describe("Maximum number of output tokens per LLM response"),
     effort: EffortSchema,
     thinking: ThinkingConfigSchema.default(ThinkingConfigSchema.parse({})),
     contextWindow: ContextWindowConfigSchema.default(
@@ -264,7 +272,8 @@ export const AssistantConfigSchema = z
     memory: MemoryConfigSchema.default(MemoryConfigSchema.parse({})),
     dataDir: z
       .string({ error: "dataDir must be a string" })
-      .default(getDataDir()),
+      .default(getDataDir())
+      .describe("Directory for storing assistant data (database, logs, etc.)"),
     timeouts: TimeoutConfigSchema.default(TimeoutConfigSchema.parse({})),
     sandbox: SandboxConfigSchema.default(SandboxConfigSchema.parse({})),
     rateLimit: RateLimitConfigSchema.default(RateLimitConfigSchema.parse({})),
@@ -278,7 +287,12 @@ export const AssistantConfigSchema = z
     logFile: LogFileConfigSchema.default(
       LogFileConfigSchema.parse({ dir: getDataDir() + "/logs" }),
     ),
-    pricingOverrides: z.array(ModelPricingOverrideSchema).default([]),
+    pricingOverrides: z
+      .array(ModelPricingOverrideSchema)
+      .default([])
+      .describe(
+        "Custom pricing overrides for specific provider/model combinations",
+      ),
     heartbeat: HeartbeatConfigSchema.default(HeartbeatConfigSchema.parse({})),
     swarm: SwarmConfigSchema.default(SwarmConfigSchema.parse({})),
     mcp: McpConfigSchema.default(McpConfigSchema.parse({})),
@@ -309,9 +323,18 @@ export const AssistantConfigSchema = z
           error: "assistantFeatureFlagValues values must be booleans",
         }),
       )
-      .optional(),
-    collectUsageData: z.boolean().default(true),
-    sendDiagnostics: z.boolean().default(true),
+      .optional()
+      .describe("Feature flag overrides — map of flag names to boolean values"),
+    collectUsageData: z
+      .boolean()
+      .default(true)
+      .describe(
+        "Whether to collect anonymous usage data to help improve the assistant",
+      ),
+    sendDiagnostics: z
+      .boolean()
+      .default(true)
+      .describe("Whether to send diagnostic/crash reports"),
   })
   .superRefine((config, ctx) => {
     if (
