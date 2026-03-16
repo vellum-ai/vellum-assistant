@@ -23,15 +23,13 @@ struct ReadOnlyCodeContent: View {
     let content: String
 
     var body: some View {
-        GeometryReader { geo in
-            ScrollView([.vertical, .horizontal]) {
-                Text(content)
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.contentDefault)
-                    .textSelection(.enabled)
-                    .padding(VSpacing.md)
-                    .frame(minWidth: geo.size.width, minHeight: geo.size.height, alignment: .topLeading)
-            }
+        ScrollView(.vertical) {
+            Text(content)
+                .font(VFont.mono)
+                .foregroundColor(VColor.contentDefault)
+                .textSelection(.enabled)
+                .padding(VSpacing.md)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
         }
     }
 }
