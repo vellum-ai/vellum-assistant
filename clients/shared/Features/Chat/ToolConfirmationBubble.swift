@@ -699,6 +699,7 @@ public struct ToolConfirmationBubble: View {
                 RoundedRectangle(cornerRadius: VRadius.md)
                     .stroke(VColor.primaryBase, lineWidth: isKeyboardSelected ? 2 : 0)
             )
+            .accessibilityLabel(label)
     }
 
     // MARK: - Always Allow Button
