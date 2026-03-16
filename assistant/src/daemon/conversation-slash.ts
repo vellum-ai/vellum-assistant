@@ -11,6 +11,7 @@ import {
   loadRawConfig,
   saveRawConfig,
 } from "../config/loader.js";
+import { setServiceField } from "../config/raw-config-utils.js";
 import { initializeProviders } from "../providers/registry.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLocalIPv4 } from "../util/network-info.js";
@@ -22,20 +23,6 @@ import type { PairingStore } from "./pairing-store.js";
 export type SlashResolution =
   | { kind: "passthrough"; content: string }
   | { kind: "unknown"; message: string; qrFilename?: string };
-
-function setServiceField(
-  raw: Record<string, unknown>,
-  service: string,
-  field: string,
-  value: unknown,
-): void {
-  const services =
-    (raw.services as Record<string, Record<string, unknown>>) ?? {};
-  const svc = services[service] ?? {};
-  svc[field] = value;
-  services[service] = svc;
-  raw.services = services;
-}
 
 // ── /pair command — module-level pairing context ────────────────────
 
