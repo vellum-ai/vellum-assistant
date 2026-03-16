@@ -13,18 +13,15 @@ Quick-reference decision guide for choosing the right tool when users ask about 
 ## Decision Tree
 
 1. **Does the request have a specific future time AND should fire only once?**
-
    - YES -> `reminder_create`
    - Examples: "remind me at 3pm", "remind me in 5 minutes", "alert me tomorrow at 9am"
 
 2. **Does the request have a recurring pattern?**
-
    - YES -> `schedule_create` with `mode: "notify"` (for recurring reminders/alerts) or `mode: "execute"` (if the assistant should act autonomously each recurrence)
    - Default to `mode: "notify"` for recurring reminder-style requests. Use `mode: "execute"` only when each recurrence should trigger the assistant to perform a task (e.g. "every morning, check my email and summarize it").
    - Examples: "every day at 9am", "weekly on Mondays", "every 2 hours"
 
 3. **Does the request need an alert RIGHT NOW (no delay)?**
-
    - YES -> `send_notification`
    - Examples: "send me a notification", "alert me now", "ping me"
 
@@ -75,7 +72,6 @@ Phrases like "at the 45 minute mark", "at the top of the hour", "on the half-hou
 1. **Session-anchored expressions** — if the user mentioned a start time earlier in conversation ("I got here at 9", "meeting started at 2:10"), interpret offset-style phrases ("the 45 minute mark", "20 minutes in", "when I hit an hour") as `start_time + offset`. This takes precedence because the conversational anchor overrides any wall-clock interpretation.
 
 2. **Clock-position expressions** — when no start time is in context, map directly to a wall-clock time:
-
    - "top of the hour" / "on the hour" → next :00 (e.g. 10:00 AM)
    - "the X minute mark" / "at :XX" → current hour's :XX; if already past, advance one hour
    - "the half-hour mark" / "half past" → nearest upcoming :30
