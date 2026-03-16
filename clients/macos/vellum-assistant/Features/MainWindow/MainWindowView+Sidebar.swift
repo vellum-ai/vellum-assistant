@@ -123,7 +123,7 @@ extension MainWindowView {
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .clipped()
-        .alert("Rename Conversation", isPresented: Binding(
+        .alert("Rename Thread", isPresented: Binding(
             get: { sidebar.renamingConversationId != nil },
             set: { if !$0 { sidebar.renamingConversationId = nil } }
         )) {

@@ -12,7 +12,7 @@ struct ConversationSwitcherDrawer: View {
 
     var body: some View {
         VStack(spacing: SidebarLayoutMetrics.listRowGap) {
-            Text("\(regularConversations.count) conversations")
+            Text("\(regularConversations.count) threads")
                 .font(VFont.caption)
                 .foregroundColor(VColor.contentDisabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
