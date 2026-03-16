@@ -21,11 +21,18 @@ protocol SurfaceClientProtocol {
 
 @MainActor
 struct SurfaceClient: SurfaceClientProtocol {
+    private static let queryValueAllowed: CharacterSet = {
+        var cs = CharacterSet.urlQueryAllowed
+        cs.remove(charactersIn: "&=+#")
+        return cs
+    }()
+
     nonisolated init() {}
 
     func fetchSurfaceData(surfaceId: String, conversationId: String) async -> SurfaceData? {
+        let qEncoded = conversationId.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? conversationId
         let response = try? await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/surfaces/\(surfaceId)?conversationId=\(conversationId)", timeout: 10
+            path: "assistants/{assistantId}/surfaces/\(surfaceId)?conversationId=\(qEncoded)", timeout: 10
         )
         if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
             log.error("Fetch surface \(surfaceId) failed (HTTP \(statusCode))")
