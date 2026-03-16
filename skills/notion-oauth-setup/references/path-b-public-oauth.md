@@ -23,8 +23,9 @@ As of early 2026, Notion does **not** offer a "Type" selector during integration
 - **Token endpoint auth:** `client_secret_basic` (client secret always required)
 - **Scopes:** None (Notion does not use explicit OAuth scopes)
 - **Extra params:** `owner=user`
-- **Callback transport:** Loopback (port 17323)
-- **Redirect URI:** `http://localhost:17323/oauth/callback` (must be pre-registered)
+- **Callback transport:** Loopback (port 17323) for interactive channels; public ingress for remote channels
+- **Redirect URI (interactive):** `http://localhost:17323/oauth/callback`
+- **Redirect URI (remote/Path B):** `<ingress.publicBaseUrl>/webhooks/oauth/callback` — resolve from the configured public gateway URL
 
 ## Public Integration Steps
 
@@ -37,12 +38,17 @@ Guide the user to find the conversion option in their integration settings. Once
 
 ### Step 2: Configure OAuth Redirect URI
 
-Copy the redirect URI to clipboard:
+Determine the correct redirect URI based on the channel:
+
+- **Interactive (macOS app, local):** Use `http://localhost:17323/oauth/callback`
+- **Remote channel (Telegram, Slack, etc.):** Read the configured public gateway URL from `ingress.publicBaseUrl`. If missing, load and run the `public-ingress` skill first. Build the URI as `<publicBaseUrl>/webhooks/oauth/callback`.
+
+Copy the resolved redirect URI to clipboard:
 
 ```
 host_bash:
   command: |
-    echo -n "http://localhost:17323/oauth/callback" | pbcopy
+    echo -n "<resolved redirect URI>" | pbcopy
 ```
 
 Guide the user to the **Distribution** tab to paste the redirect URI and save.

@@ -8,11 +8,9 @@ metadata:
     display-name: "Notion"
 ---
 
-You have access to the Notion API via the stored Internal Integration Secret for `integration:notion`.
+You have access to the Notion API via stored credentials for `integration:notion`. Both Internal integration secrets and OAuth access tokens are supported.
 
 ## Authentication
-
-The Notion integration secret is stored securely via `credential_store`. To make authenticated API calls, inject the secret into the Authorization header using `assistant credentials reveal`.
 
 **Step 1 — Check for credentials:**
 
@@ -20,13 +18,16 @@ The Notion integration secret is stored securely via `credential_store`. To make
 credential_store action=list
 ```
 
-Find the entry with `service: "integration:notion"` and `field: "internal_secret"`.
+Look for an entry with `service: "integration:notion"`. The credential may be stored under one of two fields depending on how the user set up the integration:
 
-If no such entry exists, tell the user: "Notion is not connected yet. Load the **notion-oauth-setup** skill to set it up first."
+- `field: "internal_secret"` — Internal integration (new default setup)
+- `field: "access_token"` — OAuth/Public integration (legacy setup)
+
+If neither exists, tell the user: "Notion is not connected yet. Load the **notion-oauth-setup** skill to set it up first."
 
 **Step 2 — Make authenticated API calls:**
 
-Use `bash` with `assistant credentials reveal` to inject the secret into the Authorization header:
+Use `bash` with `assistant credentials reveal` to inject the token into the Authorization header. Substitute the correct `--field` value based on what you found in Step 1:
 
 ```
 bash:
@@ -37,6 +38,8 @@ bash:
       -H "Content-Type: application/json" \
       -d '{}'
 ```
+
+For OAuth credentials, use `--field access_token` instead.
 
 All Notion API calls go to `https://api.notion.com/v1/`. Always include the `Notion-Version: 2022-06-28` header.
 
@@ -246,7 +249,7 @@ When a response includes `"has_more": true`, pass `"start_cursor": response.next
 
 ## Error Handling
 
-- **401 Unauthorized**: The integration secret is missing or invalid. Ask the user to re-run the **notion-oauth-setup** skill to update the secret.
+- **401 Unauthorized**: The token is missing, invalid, or expired. For Internal integrations, ask the user to re-run the **notion-oauth-setup** skill. For OAuth connections, the access token may need to be refreshed or re-authorized.
 - **403 Forbidden**: The integration doesn't have access to the requested page or database. Remind the user that they need to share the page/database with the "Vellum Assistant" integration in Notion (via the Share menu → "Add connections").
 - **404 Not Found**: The page or database ID doesn't exist or the integration can't see it. Verify the ID and check sharing settings.
 - **400 Bad Request**: Check the request body structure. The Notion API error response includes a `message` field with details.
