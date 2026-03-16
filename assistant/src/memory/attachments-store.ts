@@ -288,10 +288,6 @@ export function getFileBackedAttachmentIds(
   attachmentIds: string[],
 ): Set<string> {
   if (attachmentIds.length === 0) return new Set();
-  if (!filePathColumnEnsured) {
-    ensureFilePathColumn();
-    filePathColumnEnsured = true;
-  }
   const placeholders = attachmentIds.map(() => "?").join(", ");
   const rows = rawAll<{ id: string }>(
     `SELECT id FROM attachments WHERE id IN (${placeholders}) AND file_path IS NOT NULL`,
