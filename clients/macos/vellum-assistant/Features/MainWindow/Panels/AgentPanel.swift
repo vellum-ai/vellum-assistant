@@ -366,7 +366,7 @@ struct AgentPanelContent: View {
             }
 
             // Two-pane content: file list + file content viewer
-            HStack(spacing: VSpacing.md) {
+            HStack(alignment: .top, spacing: VSpacing.md) {
                 // Left: file list (always fixed width)
                 skillFilesSection
                     .frame(width: 280, alignment: .topLeading)
