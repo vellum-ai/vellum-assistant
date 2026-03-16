@@ -2383,6 +2383,38 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         #endif
     }
 
+    /// Update the privacy config via the gateway's PATCH /v1/config/privacy endpoint.
+    /// Authenticates with the feature-flag token (same auth scope).
+    public func setPrivacyConfig(collectUsageData: Bool) async throws {
+        guard let token = resolveFeatureFlagAuthToken() else {
+            throw FeatureFlagError.missingToken
+        }
+
+        #if os(macOS)
+        if let httpTransport = self.httpTransport, !Self.isLocalBaseURL(httpTransport.baseURL) {
+            try await httpTransport.setPrivacyConfig(collectUsageData: collectUsageData, featureFlagToken: token)
+            return
+        }
+
+        // Local mode: call the gateway directly.
+        guard var request = buildLocalRequest(target: .gateway, path: "v1/config/privacy", method: "PATCH", tokenOverride: token) else {
+            throw FeatureFlagError.invalidURL
+        }
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: Any] = ["collectUsageData": collectUsageData]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            return // Best-effort — failure is non-fatal
+        }
+        #else
+        guard let httpTransport else { return }
+        try await httpTransport.setPrivacyConfig(collectUsageData: collectUsageData, featureFlagToken: token)
+        #endif
+    }
+
     /// Returns true if the given base URL points to localhost / 127.0.0.1.
     private static func isLocalBaseURL(_ urlString: String) -> Bool {
         guard let comps = URLComponents(string: urlString), let host = comps.host?.lowercased() else {
