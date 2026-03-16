@@ -58,7 +58,7 @@ Channel approval flows use `requestId` (not `runId`) as the primary identifier:
 
 - Telegram callback buttons encode `apr:<requestId>:<action>` in `callback_data`.
 - Guardian approval records in `channelGuardianApprovalRequests` link via `requestId`.
-- The conversational approval engine classifies user intent and resolves via `session.handleConfirmationResponse(requestId, decision)`.
+- The conversational approval engine classifies user intent and resolves via `conversation.handleConfirmationResponse(requestId, decision)`.
 
 ## Rate Limiting & Diagnostics
 
