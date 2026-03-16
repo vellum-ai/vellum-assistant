@@ -225,10 +225,17 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Privacy
 
-    /// Whether the user has opted in to sharing anonymised performance metrics (e.g. hang rate,
-    /// scroll speed). Defaults to `true`. Read by the MetricKit integration (M4) to decide
-    /// whether to forward payloads.
-    @Published var sendPerformanceReports: Bool = UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool ?? true
+    /// Whether the user has opted in to sending crash reports, error diagnostics, and
+    /// performance metrics. Defaults to `true`. Controls Sentry independently from usage analytics.
+    @Published var sendDiagnostics: Bool = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
+        ?? UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool
+        ?? true
+
+    /// Whether the user has opted in to sharing anonymized usage analytics (e.g. token counts,
+    /// feature adoption). Defaults to `true`. Independent from diagnostics.
+    @Published var collectUsageData: Bool = UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
+        ?? UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool
+        ?? true
 
     // MARK: - Private
 
@@ -391,20 +398,23 @@ public final class SettingsStore: ObservableObject {
             .sink { value in UserDefaults.standard.set(value, forKey: "cmdEnterToSend") }
             .store(in: &cancellables)
 
-        $sendPerformanceReports
+        $sendDiagnostics
             .dropFirst()
             .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
             .sink {
-                UserDefaults.standard.set($0, forKey: "sendPerformanceReports")
-                // Restart Sentry so the updated profilesSampleRate takes effect
-                // (Sentry config is immutable after start). Only restart when the
-                // user has opted into usage data — otherwise we'd re-enable Sentry
-                // after the user explicitly disabled it.
-                let collectUsageData = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool ?? true
-                guard collectUsageData else { return }
-                MetricKitManager.closeSentry()
-                MetricKitManager.startSentry()
+                UserDefaults.standard.set($0, forKey: "sendDiagnostics")
+                if $0 {
+                    MetricKitManager.startSentry()
+                } else {
+                    MetricKitManager.closeSentry()
+                }
             }
+            .store(in: &cancellables)
+
+        $collectUsageData
+            .dropFirst()
+            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
+            .sink { value in UserDefaults.standard.set(value, forKey: "collectUsageData") }
             .store(in: &cancellables)
 
         // Persist shortcut changes immediately so the hotkey re-registers without delay
