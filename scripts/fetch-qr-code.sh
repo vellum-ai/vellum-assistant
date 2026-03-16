@@ -33,6 +33,12 @@ MAC_MINI_HOST="${MAC_MINI_HOST:?MAC_MINI_HOST is required — set it in scripts/
 # SSH user. Only needed if MAC_MINI_HOST doesn't already include a user@ prefix.
 MAC_MINI_USER="${MAC_MINI_USER:-}"
 
+# Password for the Mac mini (optional). When set, sshpass is used automatically.
+MAC_MINI_PASSWORD="${MAC_MINI_PASSWORD:-}"
+
+# Path to an SSH private key for the Mac mini (optional).
+MAC_MINI_SSH_KEY="${MAC_MINI_SSH_KEY:-}"
+
 # ---------------------------------------------------------------------------
 # Hardcoded paths
 # ---------------------------------------------------------------------------
@@ -54,6 +60,16 @@ else
   SCP_HOST="${MAC_MINI_HOST}"
 fi
 
+remote_scp() {
+  if [ -n "$MAC_MINI_PASSWORD" ]; then
+    sshpass -p "$MAC_MINI_PASSWORD" scp -o StrictHostKeyChecking=no "$@"
+  elif [ -n "$MAC_MINI_SSH_KEY" ]; then
+    scp -i "$MAC_MINI_SSH_KEY" -o StrictHostKeyChecking=no "$@"
+  else
+    scp "$@"
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -62,6 +78,6 @@ echo "Fetching QR code from ${SCP_HOST}:${QR_CODE_REMOTE_PATH} ..."
 
 mkdir -p "$LOCAL_DEST_DIR"
 
-scp "${SCP_HOST}:${QR_CODE_REMOTE_PATH}" "$LOCAL_DEST"
+remote_scp "${SCP_HOST}:${QR_CODE_REMOTE_PATH}" "$LOCAL_DEST"
 
 echo "QR code saved to ${LOCAL_DEST}"
