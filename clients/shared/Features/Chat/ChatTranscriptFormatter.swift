@@ -13,15 +13,15 @@ public enum ChatTranscriptFormatter {
         }
     }
 
-    /// Render an entire thread as lightweight Markdown.
+    /// Render an entire conversation as lightweight Markdown.
     /// - Parameters:
-    ///   - messages: All messages in the thread.
-    ///   - threadTitle: Optional thread title (rendered as `# title`).
+    ///   - messages: All messages in the conversation.
+    ///   - conversationTitle: Optional conversation title (rendered as `# title`).
     ///   - participantNames: Display names for assistant and user.
     /// - Returns: Markdown string, or empty string if no text messages exist.
-    public static func threadMarkdown(
+    public static func conversationMarkdown(
         messages: [ChatMessage],
-        threadTitle: String?,
+        conversationTitle: String?,
         participantNames: ParticipantNames
     ) -> String {
         let textMessages = messages.filter {
@@ -31,7 +31,7 @@ public enum ChatTranscriptFormatter {
 
         var parts: [String] = []
 
-        if let title = threadTitle, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if let title = conversationTitle, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             parts.append("# \(title)")
         }
 

@@ -6,7 +6,7 @@ import XCTest
 #endif
 
 /// Integration tests for conversation lifecycle behaviors from the iOS perspective.
-/// Since ThreadModel and ThreadManager are macOS-only, these tests verify the
+/// Since ConversationModel and ConversationManager are macOS-only, these tests verify the
 /// shared conversation lifecycle mechanics that underpin conversation management:
 /// conversation creation, conversation info backfill, bootstrap correlation, and conversation reuse.
 @MainActor

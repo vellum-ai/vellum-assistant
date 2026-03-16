@@ -392,7 +392,7 @@ public final class ChatViewModel: ObservableObject {
     /// `conversation_create` request for deterministic skill activation.
     public var preactivatedSkillIds: [String]?
     /// Whether this view model is currently bootstrapping a new session
-    /// (conversation_create sent, awaiting conversation_info). Used by ThreadManager
+    /// (conversation_create sent, awaiting conversation_info). Used by ConversationManager
     /// to decide whether it's safe to release the VM on archive.
     public var isBootstrapping: Bool { bootstrapCorrelationId != nil }
     private var messageLoopTask: Task<Void, Never>?
@@ -461,8 +461,8 @@ public final class ChatViewModel: ObservableObject {
     var pendingSendDirectSkillInvocation: SkillInvocationData?
 
     /// Timestamp of the most recent `toolUseStart` event received by this view model.
-    /// Used by ThreadManager to route `confirmationRequest` messages to the correct
-    /// ChatViewModel when multiple threads have active sessions.
+    /// Used by ConversationManager to route `confirmationRequest` messages to the correct
+    /// ChatViewModel when multiple conversations have active sessions.
     public var lastToolUseReceivedAt: Date?
 
     /// Monotonically increasing version counter for server-authoritative activity state.
@@ -474,7 +474,7 @@ public final class ChatViewModel: ObservableObject {
     public var onInlineConfirmationResponse: ((String, String) -> Void)?
 
     /// Called to determine whether this ChatViewModel should accept a `confirmationRequest`.
-    /// Set by ThreadManager to coordinate routing when multiple ChatViewModels are active.
+    /// Set by ConversationManager to coordinate routing when multiple ChatViewModels are active.
     public var shouldAcceptConfirmation: (() -> Bool)?
 
     /// Called when the daemon sends a `watch_started` message to begin a watch session.
@@ -490,15 +490,15 @@ public final class ChatViewModel: ObservableObject {
     public var onStopWatch: (() -> Void)?
 
     /// Called when the daemon assigns a session ID to this chat (via conversation_info).
-    /// Used by ThreadManager to backfill ThreadModel.conversationId for new threads.
+    /// Used by ConversationManager to backfill ConversationModel.conversationId for new conversations.
     public var onConversationCreated: ((String) -> Void)?
 
     /// Called once when the first user message is sent, with the message text.
-    /// Used by ThreadManager to auto-title the thread.
+    /// Used by ConversationManager to auto-title the conversation.
     public var onFirstUserMessage: ((String) -> Void)?
 
-    /// Called every time a user message is sent. Used by ThreadManager to
-    /// bump the thread's lastInteractedAt so it rises to the top of the list.
+    /// Called every time a user message is sent. Used by ConversationManager to
+    /// bump the conversation's lastInteractedAt so it rises to the top of the list.
     public var onUserMessageSent: (() -> Void)?
 
     /// Whether this view model has had its history loaded from the daemon.
@@ -1043,7 +1043,7 @@ public final class ChatViewModel: ObservableObject {
             callback(rawText)
         }
 
-        // Notify ThreadManager so the thread rises to the top of the list
+        // Notify ConversationManager so the conversation rises to the top of the list
         onUserMessageSent?()
 
         // Block rapid-fire only when bootstrapping with a queued message.

@@ -1,14 +1,14 @@
 import SwiftUI
 
-/// Slack-style thread indicator for a subagent, rendered below the parent message.
+/// Slack-style conversation indicator for a subagent, rendered below the parent message.
 ///
 /// Looks like Slack's "3 replies  Last reply 2m ago" bar with:
 /// - A vertical connecting line on the left linking it visually to the parent message
 /// - Subagent icon, label, status, reply preview, and reply count
-/// - Clicking opens the thread detail in the side panel (like Slack opens thread panel)
+/// - Clicking opens the conversation detail in the side panel (like Slack opens thread panel)
 ///
-/// This replaces SubagentStatusChip with richer thread-style affordances.
-public struct SubagentThreadView: View {
+/// This replaces SubagentStatusChip with richer conversation-style affordances.
+public struct SubagentConversationView: View {
     let subagent: SubagentInfo
     let events: [SubagentEventItem]
     var onAbort: (() -> Void)?
@@ -152,8 +152,8 @@ public struct SubagentThreadView: View {
             isHovered = hovering
         }
         .pointerCursor()
-        .accessibilityLabel("Thread: \(subagent.label)")
-        .accessibilityHint("Opens thread detail panel")
+        .accessibilityLabel("Conversation: \(subagent.label)")
+        .accessibilityHint("Opens conversation detail panel")
         .accessibilityAddTraits(.isButton)
     }
 
@@ -239,7 +239,7 @@ public struct SubagentEventsReader: View {
 
     public var body: some View {
         let state = store.subagentStates[subagent.id]
-        SubagentThreadView(
+        SubagentConversationView(
             subagent: subagent,
             events: state?.events ?? [],
             onAbort: onAbort,

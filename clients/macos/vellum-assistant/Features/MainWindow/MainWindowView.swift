@@ -186,9 +186,9 @@ struct MainWindowView: View {
         let messages = conversationManager.activeViewModel?.messages ?? []
         let title = conversationManager.activeConversation?.title
         let names = resolveParticipantNames()
-        let markdown = ChatTranscriptFormatter.threadMarkdown(
+        let markdown = ChatTranscriptFormatter.conversationMarkdown(
             messages: messages,
-            threadTitle: title,
+            conversationTitle: title,
             participantNames: names
         )
         guard !markdown.isEmpty else { return }

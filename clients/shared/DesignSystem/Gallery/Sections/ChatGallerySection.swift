@@ -118,7 +118,7 @@ struct ChatGallerySection: View {
             // MARK: - Subagent Status
             GallerySectionHeader(
                 title: "Subagent Status",
-                description: "SubagentStatusChip, SubagentThreadView"
+                description: "SubagentStatusChip, SubagentConversationView"
             )
 
             VCard {
@@ -151,11 +151,11 @@ struct ChatGallerySection: View {
 
             VCard {
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
-                    Text("SubagentThreadView")
+                    Text("SubagentConversationView")
                         .font(VFont.captionMedium)
                         .foregroundColor(VColor.contentSecondary)
 
-                    SubagentThreadView(
+                    SubagentConversationView(
                         subagent: SubagentInfo(id: "t-1", label: "Research Agent", status: .running),
                         events: [
                             SubagentEventItem(timestamp: Date(), kind: .toolUse(name: "web_search"), content: "SwiftUI adaptive colors"),
@@ -163,7 +163,7 @@ struct ChatGallerySection: View {
                         ]
                     )
 
-                    SubagentThreadView(
+                    SubagentConversationView(
                         subagent: SubagentInfo(id: "t-2", label: "Code Review Agent", status: .completed),
                         events: [
                             SubagentEventItem(timestamp: Date(), kind: .text, content: "All checks passed. No issues found."),
@@ -171,14 +171,14 @@ struct ChatGallerySection: View {
                         ]
                     )
 
-                    SubagentThreadView(
+                    SubagentConversationView(
                         subagent: SubagentInfo(id: "t-3", label: "Deploy Agent", status: .failed),
                         events: [
                             SubagentEventItem(timestamp: Date(), kind: .error, content: "Connection timed out after 30s")
                         ]
                     )
 
-                    SubagentThreadView(
+                    SubagentConversationView(
                         subagent: SubagentInfo(id: "t-4", label: "Cleanup Agent", status: .aborted),
                         events: []
                     )
