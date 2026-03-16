@@ -361,10 +361,11 @@ struct AgentPanelContent: View {
             }
 
             // Two-pane content: file list + file content viewer
-            HStack(alignment: .top, spacing: VSpacing.md) {
+            HStack(spacing: VSpacing.md) {
                 // Left: file list (always fixed width)
                 skillFilesSection
                     .frame(width: 280, alignment: .topLeading)
+                    .frame(maxHeight: .infinity)
 
                 // Right: file content viewer (always visible)
                 if let selectedPath = expandedFilePath,
@@ -469,19 +470,11 @@ struct AgentPanelContent: View {
     private func skillFileContentPane(file: SkillFileEntry, content: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             // File header
-            HStack(spacing: VSpacing.sm) {
-                VIconView(fileIcon(for: file.mimeType), size: 12)
-                    .foregroundColor(VColor.primaryBase)
-                Text(file.path)
-                    .font(VFont.captionMedium)
-                    .foregroundColor(VColor.contentDefault)
-                Spacer()
-                Text(formatFileSize(file.size))
-                    .font(VFont.small)
-                    .foregroundColor(VColor.contentTertiary)
-            }
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
+            FileContentHeaderBar(
+                icon: fileIcon(for: file.mimeType),
+                fileName: file.path,
+                fileSize: formatFileSize(file.size)
+            )
 
             Divider().background(VColor.borderBase)
 
@@ -516,26 +509,46 @@ struct AgentPanelContent: View {
     private var skillFilesSection: some View {
         if skillsManager.isLoadingSkillFiles || skillsManager.skillFilesError != nil ||
             (skillsManager.selectedSkillFiles != nil && !skillsManager.selectedSkillFiles!.files.isEmpty) {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                if skillsManager.isLoadingSkillFiles {
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                            .controlSize(.small)
-                        Spacer()
-                    }
-                    .padding(.vertical, VSpacing.md)
-                } else if let error = skillsManager.skillFilesError {
-                    Text(error)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.systemNegativeStrong)
-                } else if let filesResponse = skillsManager.selectedSkillFiles, !filesResponse.files.isEmpty {
-                    SkillFileTreeView(
-                        files: filesResponse.files,
-                        selectedFilePath: $expandedFilePath
-                    )
+            VStack(alignment: .leading, spacing: 0) {
+                // Header
+                HStack {
+                    Text("Files")
+                        .font(VFont.headline)
+                        .foregroundColor(VColor.contentDefault)
+                    Spacer()
                 }
+                .padding(.horizontal, VSpacing.md)
+                .padding(.vertical, VSpacing.sm)
+
+                Divider().background(VColor.borderBase)
+
+                // Content (loading, error, or tree)
+                Group {
+                    if skillsManager.isLoadingSkillFiles {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                                .controlSize(.small)
+                            Spacer()
+                        }
+                        .padding(.vertical, VSpacing.md)
+                    } else if let error = skillsManager.skillFilesError {
+                        Text(error)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.systemNegativeStrong)
+                    } else if let filesResponse = skillsManager.selectedSkillFiles, !filesResponse.files.isEmpty {
+                        ScrollView(.vertical) {
+                            SkillFileTreeView(
+                                files: filesResponse.files,
+                                selectedFilePath: $expandedFilePath
+                            )
+                        }
+                    }
+                }
+                .frame(maxHeight: .infinity, alignment: .topLeading)
             }
+            .background(VColor.surfaceBase)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         }
     }
 

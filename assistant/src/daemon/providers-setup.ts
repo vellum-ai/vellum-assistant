@@ -1,3 +1,4 @@
+import { setPlatformBaseUrl } from "../config/env.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import { gmailMessagingProvider } from "../messaging/providers/gmail/adapter.js";
@@ -6,6 +7,8 @@ import { telegramBotMessagingProvider } from "../messaging/providers/telegram-bo
 import { whatsappMessagingProvider } from "../messaging/providers/whatsapp/adapter.js";
 import { registerMessagingProvider } from "../messaging/registry.js";
 import { initializeProviders } from "../providers/registry.js";
+import { credentialKey } from "../security/credential-key.js";
+import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { createMcpToolsFromServer } from "../tools/mcp/mcp-tool-factory.js";
 import { initializeTools, registerMcpTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
@@ -21,6 +24,24 @@ export async function initializeProvidersAndTools(
   config: AssistantConfig,
 ): Promise<void> {
   log.info("Daemon startup: initializing providers and tools");
+
+  // Rehydrate the platform base URL from the credential store so managed
+  // proxy activation survives assistant restarts. The in-memory override is
+  // normally only set by handleAddSecret/handleDeleteSecret at runtime.
+  try {
+    const key = credentialKey("vellum", "platform_base_url");
+    const persisted = await getSecureKeyAsync(key);
+    if (persisted) {
+      setPlatformBaseUrl(persisted);
+      log.info("Rehydrated platform base URL from credential store");
+    }
+  } catch (err) {
+    log.warn(
+      { error: err instanceof Error ? err.message : String(err) },
+      "Failed to rehydrate platform base URL from credential store (non-fatal)",
+    );
+  }
+
   await initializeProviders(config);
   await initializeTools();
 

@@ -208,14 +208,14 @@ struct ConversationListView: View {
             )
             .onAppear {
                 store.loadHistoryIfNeeded(for: conversationLocalId)
-                store.markConversationSeenIfNeeded(threadId: conversationLocalId, isExplicitOpen: true)
+                store.markConversationSeenIfNeeded(conversationLocalId: conversationLocalId, isExplicitOpen: true)
                 store.viewModel(for: conversationLocalId).consumeDeepLinkIfNeeded()
             }
             .onChange(of: conversation.hasUnseenLatestAssistantMessage) { _, hasUnseen in
                 guard hasUnseen else { return }
                 // The detail view can stay mounted across reconnects, so re-run
                 // the explicit seen path when the visible conversation flips unread.
-                store.markConversationSeenIfNeeded(threadId: conversationLocalId)
+                store.markConversationSeenIfNeeded(conversationLocalId: conversationLocalId)
             }
             .onOpenURL { _ in
                 DispatchQueue.main.async {

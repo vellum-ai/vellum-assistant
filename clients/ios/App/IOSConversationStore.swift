@@ -557,7 +557,7 @@ class IOSConversationStore: ObservableObject {
                 // Case 3: User is active (VMs exist or local conversations present).
                 // Do not clear locallyEditedConversationIds — title/archive edits persist until
                 // rebind (which resets all local-edit tracking).
-                // Deduplicate: only prepend restored conversations whose sessionId
+                // Deduplicate: only prepend restored conversations whose conversationId
                 // doesn't already exist in the current conversation list.
                 let existingConversationIds: Set<String> = Set(
                     conversations.compactMap { conversation -> String? in
@@ -690,9 +690,9 @@ class IOSConversationStore: ObservableObject {
     /// only an explicit open (e.g. tapping/selecting the conversation) clears that
     /// override — passive onChange callbacks leave it intact so the user's
     /// "mark as unread" action isn't immediately undone.
-    func markConversationSeenIfNeeded(threadId: UUID, isExplicitOpen: Bool = false) {
+    func markConversationSeenIfNeeded(conversationLocalId: UUID, isExplicitOpen: Bool = false) {
         guard isConnectedMode,
-              let idx = conversations.firstIndex(where: { $0.id == threadId }),
+              let idx = conversations.firstIndex(where: { $0.id == conversationLocalId }),
               let conversationId = conversations[idx].conversationId,
               conversations[idx].hasUnseenLatestAssistantMessage else { return }
         if case .unread = pendingAttentionOverrides[conversationId] {
@@ -775,10 +775,10 @@ class IOSConversationStore: ObservableObject {
     /// pendingHistoryByConversationId and the response is properly routed back.
     private func wireReconnectCallback(vm: ChatViewModel, conversationLocalId: UUID) {
         guard vm.onReconnectHistoryNeeded == nil else { return }
-        vm.onReconnectHistoryNeeded = { [weak self, weak vm] sessionId in
+        vm.onReconnectHistoryNeeded = { [weak self, weak vm] conversationId in
             guard let self, let _ = vm, let daemon = self.daemonClient as? DaemonClient else { return }
-            self.pendingHistoryByConversationId[sessionId] = conversationLocalId
-            try? daemon.sendHistoryRequest(conversationId: sessionId, limit: 50, mode: "light", maxToolResultChars: 1000)
+            self.pendingHistoryByConversationId[conversationId] = conversationLocalId
+            try? daemon.sendHistoryRequest(conversationId: conversationId, limit: 50, mode: "light", maxToolResultChars: 1000)
         }
     }
 

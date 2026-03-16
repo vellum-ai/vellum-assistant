@@ -181,6 +181,8 @@ struct SettingsPanel: View {
                     if !enabled && selectedTab == .developer {
                         selectedTab = .general
                     }
+                } else if key == Self.billingFeatureFlagKey {
+                    isBillingEnabled = enabled
                 } else if key == Self.emailFeatureFlagKey {
                     isEmailEnabled = enabled
                 }

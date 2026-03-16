@@ -26,14 +26,6 @@
       "defaultEnabled": true
     },
     {
-      "id": "collect-usage-data",
-      "scope": "assistant",
-      "key": "feature_flags.collect-usage-data.enabled",
-      "label": "Collect usage data",
-      "description": "Send crash reports, error diagnostics, and anonymized usage telemetry to help improve the app",
-      "defaultEnabled": true
-    },
-    {
       "id": "user-hosted-enabled",
       "scope": "macos",
       "key": "user_hosted_enabled",

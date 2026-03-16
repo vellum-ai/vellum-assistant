@@ -77,12 +77,6 @@ struct SkillFileTreeView: View {
                 .disabled(!item.node.isDirectory && !isText)
             }
         }
-        .background(VColor.surfaceOverlay)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(VColor.borderBase, lineWidth: 1)
-        )
     }
 
     private func fileIcon(for mimeType: String) -> VIcon {

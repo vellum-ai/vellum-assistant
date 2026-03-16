@@ -683,17 +683,33 @@ private struct WorkspaceFileViewer: View {
     private func fileContent(_ detail: WorkspaceFileResponse) -> some View {
         let mime = detail.mimeType.lowercased()
 
-        if !detail.isBinary, detail.content != nil {
-            textViewer(detail)
-        } else if mime.hasPrefix("image/") {
-            imageViewer(detail)
-        } else if mime.hasPrefix("video/") {
-            videoViewer(detail)
-        } else if !detail.isBinary, detail.content == nil {
-            fileTooLarge(detail)
-        } else {
-            binaryFallback(detail)
+        VStack(spacing: 0) {
+            FileContentHeaderBar(
+                icon: fileIcon(for: mime),
+                fileName: detail.name,
+                fileSize: formatFileSize(detail.size)
+            )
+            Divider().background(VColor.borderBase)
+
+            if !detail.isBinary, detail.content != nil {
+                textViewer(detail)
+            } else if mime.hasPrefix("image/") {
+                imageViewer(detail)
+            } else if mime.hasPrefix("video/") {
+                videoViewer(detail)
+            } else if !detail.isBinary, detail.content == nil {
+                fileTooLarge(detail)
+            } else {
+                binaryFallback(detail)
+            }
         }
+    }
+
+    private func fileIcon(for mimeType: String) -> VIcon {
+        if mimeType.hasPrefix("image/") { return .image }
+        if mimeType.hasPrefix("text/") { return .fileText }
+        if mimeType == "application/json" || mimeType == "application/javascript" || mimeType == "application/typescript" { return .fileCode }
+        return .file
     }
 
     private func textViewer(_ detail: WorkspaceFileResponse) -> some View {

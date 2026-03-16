@@ -452,7 +452,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
             return
         }
 
-        store.markConversationSeenIfNeeded(threadId: storedConversation.id)
+        store.markConversationSeenIfNeeded(conversationLocalId: storedConversation.id)
 
         guard let updatedConversation = store.conversations.first(where: { $0.id == storedConversation.id }) else {
             XCTFail("Expected updated conversation")
@@ -505,7 +505,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
             return
         }
 
-        store.markConversationSeenIfNeeded(threadId: storedConversation.id)
+        store.markConversationSeenIfNeeded(conversationLocalId: storedConversation.id)
 
         XCTAssertTrue(sentSignals.isEmpty)
         XCTAssertFalse(store.conversations.first(where: { $0.id == storedConversation.id })?.hasUnseenLatestAssistantMessage ?? true)
@@ -751,7 +751,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
             return
         }
 
-        store.markConversationSeenIfNeeded(threadId: storedConversation.id)
+        store.markConversationSeenIfNeeded(conversationLocalId: storedConversation.id)
 
         let staleResponse = makeConversationListResponse(conversations: [[
             "id": "connected-session-refresh-seen",

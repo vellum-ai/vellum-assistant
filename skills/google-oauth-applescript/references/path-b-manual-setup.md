@@ -8,7 +8,9 @@ Tell the user:
 
 > **Setting up Gmail & Calendar from chat**
 >
-> Since I can't open pages in your browser from here, I'll walk you through each step with direct links. You'll need:
+> Fair warning — this involves Google's developer console, which can feel pretty technical. Don't worry about that — you don't need to understand any of it. I'll give you a direct link for every step and tell you exactly what to do. If anything looks confusing, just let me know and I'll help you through it.
+>
+> Since I can't open pages in your browser from here, you'll need:
 >
 > 1. A Google account with access to Google Cloud Console
 > 2. About 5 minutes
@@ -84,6 +86,8 @@ Tell the user:
 >     `https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/contacts.readonly`
 >   - Click **Update** at the bottom of the panel
 >   - Back on the main page, scroll down and click **Save**
+>
+> **Quick note:** The `gmail.modify` and `gmail.send` scopes are what allow me to draft and send emails on your behalf. If you'd rather I only have read access to your email for now, you can remove those two from the list before pasting — everything else will still work fine, and you can always add them later.
 >
 > Let me know when all parts are done.
 

@@ -107,7 +107,8 @@ public struct ConversationError: Equatable {
     }
 
     /// Whether this error indicates that the user's credits are exhausted.
+    /// Matches both plain "credits_exhausted" and prefixed variants like "regenerate:credits_exhausted".
     public var isCreditsExhausted: Bool {
-        errorCategory == "credits_exhausted"
+        errorCategory?.hasSuffix("credits_exhausted") == true
     }
 }
