@@ -58,6 +58,11 @@ struct HighlightedTextView: View {
 
     // MARK: - Read-Only Mode
 
+    /// Syntax-highlighted text for the read-only view.
+    private var highlightedText: AttributedString {
+        SyntaxTheme.highlight(text, language: language)
+    }
+
     /// Read-only view with line numbers and horizontal scrolling.
     private var readOnlyView: some View {
         let lines = text.components(separatedBy: "\n")
@@ -72,9 +77,7 @@ struct HighlightedTextView: View {
 
                     // Text content — scrolls both directions
                     ScrollView(.horizontal, showsIndicators: true) {
-                        Text(text)
-                            .font(VFont.mono)
-                            .foregroundStyle(VColor.contentDefault)
+                        Text(highlightedText)
                             .textSelection(.enabled)
                             .fixedSize(horizontal: true, vertical: false)
                             .padding(.vertical, VSpacing.sm)
