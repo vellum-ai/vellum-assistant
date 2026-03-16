@@ -60,26 +60,24 @@ export class AcpSessionManager {
       pendingPermissions,
     );
 
-    const process = new AcpAgentProcess(
+    const agentProcess = new AcpAgentProcess(
       agentId,
       agentConfig,
       (_agent) => clientHandler,
     );
 
-    process.spawn(cwd);
-    await process.initialize();
-    const acpProtocolSessionId = await process.createSession(cwd);
-
+    // Reserve a slot in the map before any async work to enforce the
+    // concurrency limit even when multiple spawn() calls race.
     const state: AcpSessionState = {
       id: acpSessionId,
       agentId,
-      acpSessionId: acpProtocolSessionId,
-      status: "running",
+      acpSessionId: "", // placeholder until createSession resolves
+      status: "initializing",
       startedAt: Date.now(),
     };
 
     const entry: SessionEntry = {
-      process,
+      process: agentProcess,
       state,
       clientHandler,
       pendingPermissions,
@@ -88,6 +86,19 @@ export class AcpSessionManager {
     };
 
     this.sessions.set(acpSessionId, entry);
+
+    try {
+      agentProcess.spawn(cwd);
+      await agentProcess.initialize();
+      const acpProtocolSessionId = await agentProcess.createSession(cwd);
+      state.acpSessionId = acpProtocolSessionId;
+      state.status = "running";
+    } catch (err) {
+      // Kill the orphaned child process and remove the reserved slot.
+      agentProcess.kill();
+      this.sessions.delete(acpSessionId);
+      throw err;
+    }
 
     sendToVellum({
       type: "acp_session_spawned",
@@ -100,7 +111,7 @@ export class AcpSessionManager {
     entry.currentPrompt = this.firePromptInBackground(
       acpSessionId,
       entry,
-      acpProtocolSessionId,
+      state.acpSessionId,
       task,
     );
 
@@ -220,36 +231,47 @@ export class AcpSessionManager {
     acpProtocolSessionId: string,
     message: string,
   ): Promise<unknown> {
-    return entry.process
+    const promptPromise = entry.process
       .prompt(acpProtocolSessionId, message)
       .then((response) => {
         const current = this.sessions.get(acpSessionId);
-        if (current) {
-          current.state.status = "completed";
-          current.state.completedAt = Date.now();
-          current.state.stopReason = response.stopReason;
+        // Only mutate state if the session still exists, this is still the
+        // current prompt (not stale from a previous steer), and the status
+        // hasn't been set to "cancelled" already.
+        if (current && current.currentPrompt === promptPromise) {
+          if (current.state.status !== "cancelled") {
+            current.state.status = "completed";
+            current.state.completedAt = Date.now();
+            current.state.stopReason = response.stopReason;
+          }
           current.currentPrompt = null;
+          current.sendToVellum({
+            type: "acp_session_completed",
+            acpSessionId,
+            stopReason: response.stopReason,
+          });
         }
-        entry.sendToVellum({
-          type: "acp_session_completed",
-          acpSessionId,
-          stopReason: response.stopReason,
-        });
       })
       .catch((err: Error) => {
         const current = this.sessions.get(acpSessionId);
-        if (current) {
-          current.state.status = "failed";
-          current.state.completedAt = Date.now();
-          current.state.error = err.message;
+        // Same guards: entry must exist, prompt must be current, and status
+        // must not have been set to "cancelled".
+        if (current && current.currentPrompt === promptPromise) {
+          if (current.state.status !== "cancelled") {
+            current.state.status = "failed";
+            current.state.completedAt = Date.now();
+            current.state.error = err.message;
+          }
           current.currentPrompt = null;
+          current.sendToVellum({
+            type: "acp_session_error",
+            acpSessionId,
+            error: err.message,
+          });
         }
-        entry.sendToVellum({
-          type: "acp_session_error",
-          acpSessionId,
-          error: err.message,
-        });
       });
+
+    return promptPromise;
   }
 
   /**
