@@ -134,6 +134,7 @@ final class OnboardingState {
             hasHatched = UserDefaults.standard.bool(forKey: "onboarding.hatched")
             interviewCompleted = UserDefaults.standard.bool(forKey: "onboarding.interviewCompleted")
             cloudProvider = UserDefaults.standard.string(forKey: "onboarding.cloudProvider") ?? "local"
+            skippedAPIKeyEntry = UserDefaults.standard.bool(forKey: "onboarding.skippedAPIKeyEntry")
         }
         if let rawVariant = UserDefaults.standard.string(forKey: "onboarding.variant"),
            let variant = OnboardingVariant(rawValue: rawVariant) {
@@ -176,6 +177,7 @@ final class OnboardingState {
         UserDefaults.standard.set(onboardingVariant.rawValue, forKey: "onboarding.variant")
         UserDefaults.standard.set(Double(firstMeetingCrackProgress), forKey: "onboarding.firstMeetingCrackProgress")
         UserDefaults.standard.set(Self.currentFlowVersion, forKey: "onboarding.flowVersion")
+        UserDefaults.standard.set(skippedAPIKeyEntry, forKey: "onboarding.skippedAPIKeyEntry")
     }
 
     /// Resets all hatch-related and credential state for a clean retry,
@@ -190,6 +192,7 @@ final class OnboardingState {
         hatchLogLines = []
         hasHatched = false
         skippedAuth = false
+        skippedAPIKeyEntry = false
 
         // Clear stored API key so the user starts fresh
         APIKeyManager.deleteKey(for: "anthropic")
@@ -211,7 +214,7 @@ final class OnboardingState {
     }
 
     static func clearPersistedState() {
-        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.variant", "onboarding.firstMeetingCrackProgress", "onboarding.flowVersion", "onboarding.cloudProvider"] {
+        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.variant", "onboarding.firstMeetingCrackProgress", "onboarding.flowVersion", "onboarding.cloudProvider", "onboarding.skippedAPIKeyEntry"] {
             UserDefaults.standard.removeObject(forKey: key)
         }
     }
