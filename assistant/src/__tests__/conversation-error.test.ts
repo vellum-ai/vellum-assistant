@@ -395,6 +395,14 @@ describe("classifySessionError", () => {
       expect(result.retryable).toBe(false);
     });
 
+    it("classifies ProviderError with 402 as credits_exhausted (non-retryable)", () => {
+      const err = new ProviderError("Payment Required", "anthropic", 402);
+      const result = classifySessionError(err, baseCtx);
+      expect(result.code).toBe("PROVIDER_BILLING");
+      expect(result.errorCategory).toBe("credits_exhausted");
+      expect(result.retryable).toBe(false);
+    });
+
     it("classifies ProviderError with 400 as PROVIDER_API (retryable)", () => {
       const err = new ProviderError("Bad request", "anthropic", 400);
       const result = classifySessionError(err, baseCtx);
