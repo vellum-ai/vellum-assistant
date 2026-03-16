@@ -2,7 +2,7 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Full-screen debug panel for iOS, showing trace logs and session metrics.
+/// Full-screen debug panel for iOS, showing trace logs and conversation metrics.
 ///
 /// Mirrors the macOS DebugPanel. Presented as a sheet from the chat view when
 /// the developer toggle is enabled. Gated behind `UserDefaultsKeys.developerModeEnabled`.
@@ -22,7 +22,7 @@ struct DebugPanelView: View {
                     if events.isEmpty {
                         emptyState(
                             title: "No trace events yet",
-                            subtitle: "Events will appear as the session runs",
+                            subtitle: "Events will appear as the conversation runs",
                             icon: .audioWaveform
                         )
                     } else {
@@ -30,7 +30,7 @@ struct DebugPanelView: View {
                     }
                 } else {
                     emptyState(
-                        title: "No session selected",
+                        title: "No conversation selected",
                         subtitle: "Start a conversation to see trace events",
                         icon: .bug
                     )

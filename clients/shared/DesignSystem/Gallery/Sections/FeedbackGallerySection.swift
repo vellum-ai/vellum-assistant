@@ -181,7 +181,7 @@ struct FeedbackGallerySection: View {
                     onDismiss: {}
                 )
                 VToast(
-                    message: "Session was interrupted.",
+                    message: "Conversation was interrupted.",
                     style: .warning,
                     onDismiss: {}
                 )

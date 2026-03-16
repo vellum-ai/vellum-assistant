@@ -51,7 +51,7 @@ private struct DeveloperSettingsSectionContent: View {
     var body: some View {
         Form {
             Section("Trace Store") {
-                LabeledContent("Sessions with events", value: "\(conversationCount)")
+                LabeledContent("Conversations with events", value: "\(conversationCount)")
                 LabeledContent("Total events", value: "\(totalEventCount)")
 
                 Button("Clear All Trace Events", role: .destructive) {
