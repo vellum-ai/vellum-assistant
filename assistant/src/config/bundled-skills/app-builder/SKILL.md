@@ -151,7 +151,7 @@ useEffect(() => {
 }, []);
 ```
 
-**File workflow:** Use `app_file_write` for each source file. The build happens automatically when you call `app_open`.
+**File workflow:** Use `app_file_write` for each source file. Each write automatically triggers a recompile of the project.
 
 **Allowed third-party packages:** `date-fns`, `chart.js`, `lodash-es`, `zod`, `clsx`, `lucide`. Import them directly — esbuild resolves them at build time. No CDN imports. Note: `lucide` is the vanilla JS icon library (not `lucide-react`). Use its `createElement` or `createIcons` API, or manually inline SVG — do not import JSX icon components.
 
