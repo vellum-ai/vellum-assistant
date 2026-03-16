@@ -12,7 +12,12 @@ export interface AcpSessionSpawned {
 export interface AcpSessionUpdate {
   type: "acp_session_update";
   acpSessionId: string;
-  updateType: "agent_message_chunk" | "tool_call" | "tool_call_update" | "plan";
+  updateType:
+    | "agent_message_chunk"
+    | "user_message_chunk"
+    | "tool_call"
+    | "tool_call_update"
+    | "plan";
   content?: string;
   toolCallId?: string;
   toolTitle?: string;
