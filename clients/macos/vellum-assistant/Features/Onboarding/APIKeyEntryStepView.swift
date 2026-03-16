@@ -143,7 +143,7 @@ struct APIKeyEntryStepView: View {
         APIKeyManager.syncKeyToDaemon(provider: "anthropic", value: trimmed)
 
         saveModelToConfig("claude-opus-4-6")
-        state.isHatching = true
+        state.advance()
     }
 
     private func saveModelToConfig(_ model: String) {
