@@ -7,7 +7,15 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 public final class BillingService {
     public static let shared = BillingService()
 
+    /// In-flight bootstrap task to prevent concurrent calls for the same org.
+    private var bootstrapTask: Task<BillingSummaryResponse?, Never>?
+
     private init() {}
+
+    /// Key used to persist that billing bootstrap has been attempted for a given org.
+    private func bootstrapKey(for orgId: String) -> String {
+        "billingBootstrapAttempted_\(orgId)"
+    }
 
     /// Fetch the current organization's billing summary.
     public func getBillingSummary() async throws -> BillingSummaryResponse {
@@ -60,9 +68,44 @@ public final class BillingService {
         }
     }
 
-    /// Bootstrap billing for organizations that don't have a BillingAccount yet.
-    /// Calling POST on the summary endpoint creates the account with initial credit.
-    public func bootstrapBillingSummary() async throws -> BillingSummaryResponse {
+    /// Bootstrap billing if this org hasn't been bootstrapped yet.
+    /// Returns the bootstrapped summary, or nil if bootstrap was already attempted or not needed.
+    /// Uses a local UserDefaults flag per org + in-flight task dedup to ensure bootstrap
+    /// fires at most once per organization, preventing repeated POSTs for depleted accounts.
+    public func bootstrapBillingSummaryIfNeeded(summary: BillingSummaryResponse) async -> BillingSummaryResponse? {
+        guard let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") else { return nil }
+
+        // Only attempt bootstrap for all-zero balances
+        let isAllZero = summary.effective_balance_usd == "0.00"
+            && summary.settled_balance_usd == "0.00"
+            && summary.pending_compute_usd == "0.00"
+        guard isAllZero else { return nil }
+
+        // Skip if we've already attempted bootstrap for this org
+        guard !UserDefaults.standard.bool(forKey: bootstrapKey(for: orgId)) else { return nil }
+
+        // Deduplicate concurrent bootstrap calls
+        if let existing = bootstrapTask {
+            return await existing.value
+        }
+
+        let task = Task<BillingSummaryResponse?, Never> {
+            defer { bootstrapTask = nil }
+            // Mark as attempted before the request so concurrent callers also skip
+            UserDefaults.standard.set(true, forKey: bootstrapKey(for: orgId))
+            do {
+                return try await postBootstrapBillingSummary()
+            } catch {
+                log.error("Billing bootstrap failed: \(error.localizedDescription)")
+                return nil
+            }
+        }
+        bootstrapTask = task
+        return await task.value
+    }
+
+    /// POST to the billing summary endpoint to create the BillingAccount with initial credit.
+    private func postBootstrapBillingSummary() async throws -> BillingSummaryResponse {
         let urlString = "\(AuthService.shared.baseURL)/v1/organizations/billing/summary/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
@@ -72,6 +115,7 @@ public final class BillingService {
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = "{}".data(using: .utf8)
 
         if let token = await SessionTokenManager.getTokenAsync() {
             urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
