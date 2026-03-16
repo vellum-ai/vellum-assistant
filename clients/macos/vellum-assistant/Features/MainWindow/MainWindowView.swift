@@ -356,7 +356,7 @@ struct MainWindowView: View {
             DaemonLoadingOverlayContent(
                 error: daemonStartupError,
                 onRetry: { handleDaemonRetry() },
-                onSendLogs: { AppDelegate.shared?.showLogReportWindow() }
+                onSendLogs: { AppDelegate.shared?.showLogReportWindow(reason: .connectionIssue) }
             )
             .transition(.opacity)
         }

@@ -497,7 +497,7 @@ extension AppDelegate {
         }
     }
 
-    func showLogReportWindow(scope: LogExportScope = .global) {
+    func showLogReportWindow(scope: LogExportScope = .global, reason: LogReportReason? = nil) {
         // If the window is already showing, just bring it forward.
         if let existing = logReportWindow, existing.isVisible {
             existing.makeKeyAndOrderFront(nil)
@@ -511,6 +511,7 @@ extension AppDelegate {
 
         let view = LogReportFormView(
             authManager: authManager,
+            initialReason: reason,
             onSend: { [weak self] formData in
                 self?.dismissLogReportWindow()
                 var formData = formData
