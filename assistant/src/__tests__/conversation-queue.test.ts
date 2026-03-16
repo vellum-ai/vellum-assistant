@@ -374,7 +374,7 @@ async function waitForCondition(
 
 /**
  * Resolve the Nth pending AgentLoop.run() call. Fires the minimal events
- * that `runAgentLoop` expects (usage + message_complete) so the session
+ * that `runAgentLoop` expects (usage + message_complete) so the conversation
  * cleanly transitions out of its processing state.
  */
 function resolveRun(index: number) {
@@ -416,7 +416,7 @@ describe("Conversation message queue", () => {
     pendingRuns = [];
   });
 
-  test("second message is queued when session is busy (does not throw)", async () => {
+  test("second message is queued when conversation is busy (does not throw)", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
@@ -539,7 +539,7 @@ describe("Conversation message queue", () => {
       requestId: "req-2",
     });
 
-    // Complete second run so the session finishes cleanly
+    // Complete second run so the conversation finishes cleanly
     resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
   });
@@ -566,7 +566,7 @@ describe("Conversation message queue", () => {
     // Queue should be empty
     expect(conversation.getQueueDepth()).toBe(0);
 
-    // Both queued messages should receive session-scoped cancellation events.
+    // Both queued messages should receive conversation-scoped cancellation events.
     const cancel2 = events2.find((e) => e.type === "generation_cancelled");
     expect(cancel2).toEqual({
       type: "generation_cancelled",
@@ -585,11 +585,15 @@ describe("Conversation message queue", () => {
     const err3 = events3.find((e) => e.type === "error");
     expect(err3).toBeUndefined();
 
-    const sessionErr2 = events2.find((e) => e.type === "conversation_error");
-    expect(sessionErr2).toBeUndefined();
+    const conversationErr2 = events2.find(
+      (e) => e.type === "conversation_error",
+    );
+    expect(conversationErr2).toBeUndefined();
 
-    const sessionErr3 = events3.find((e) => e.type === "conversation_error");
-    expect(sessionErr3).toBeUndefined();
+    const conversationErr3 = events3.find(
+      (e) => e.type === "conversation_error",
+    );
+    expect(conversationErr3).toBeUndefined();
   });
 
   test("conversation-scoped errors emit both conversation_error and generic error", async () => {
@@ -613,8 +617,8 @@ describe("Conversation message queue", () => {
     await p1;
 
     // Should emit conversation_error (typed, structured)
-    const sessionErr = events.find((e) => e.type === "conversation_error");
-    expect(sessionErr).toBeDefined();
+    const conversationErr = events.find((e) => e.type === "conversation_error");
+    expect(conversationErr).toBeDefined();
 
     // Should also emit generic error (callers rely on error events to detect failures)
     const genericErr = events.find((e) => e.type === "error");
@@ -723,7 +727,7 @@ describe("Conversation queue policy helpers", () => {
     pendingRuns = [];
   });
 
-  test("hasQueuedMessages() returns false on a fresh session", async () => {
+  test("hasQueuedMessages() returns false on a fresh conversation", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
     expect(conversation.hasQueuedMessages()).toBe(false);
@@ -855,7 +859,7 @@ describe("Conversation checkpoint handoff", () => {
     // Because there is a queued message, the callback should return 'yield'
     expect(decision).toBe("yield");
 
-    // Complete the run so the session finishes cleanly
+    // Complete the run so the conversation finishes cleanly
     resolveRun(0);
     await p1;
 
@@ -1558,7 +1562,7 @@ describe("Conversation attachment event payloads", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Regression: cancel semantics + session/global error channel split
+// Regression: cancel semantics + conversation/global error channel split
 // ---------------------------------------------------------------------------
 
 describe("Regression: cancel semantics and error channel split", () => {
@@ -1594,8 +1598,10 @@ describe("Regression: cancel semantics and error channel split", () => {
     expect(cancelEvent).toBeDefined();
 
     // conversation_error must never appear on cancel
-    const sessionErr = msgEvents.find((e) => e.type === "conversation_error");
-    expect(sessionErr).toBeUndefined();
+    const conversationErr = msgEvents.find(
+      (e) => e.type === "conversation_error",
+    );
+    expect(conversationErr).toBeUndefined();
   });
 
   test("post-processing failure still attempts turn-boundary commit", async () => {
@@ -1667,8 +1673,10 @@ describe("Regression: cancel semantics and error channel split", () => {
     await p1;
 
     // Should get conversation_error (structured)
-    const sessionErr = allEvents.find((e) => e.type === "conversation_error");
-    expect(sessionErr).toBeDefined();
+    const conversationErr = allEvents.find(
+      (e) => e.type === "conversation_error",
+    );
+    expect(conversationErr).toBeDefined();
 
     // Should also get generic error
     const genericErr = allEvents.find((e) => e.type === "error");
@@ -1706,8 +1714,10 @@ describe("Regression: cancel semantics and error channel split", () => {
 
     // No queued message should have received conversation_error
     for (const events of eventsPerMsg) {
-      const sessionErr = events.find((e) => e.type === "conversation_error");
-      expect(sessionErr).toBeUndefined();
+      const conversationErr = events.find(
+        (e) => e.type === "conversation_error",
+      );
+      expect(conversationErr).toBeUndefined();
     }
   });
 

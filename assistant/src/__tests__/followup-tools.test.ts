@@ -78,7 +78,7 @@ describe("followup_create tool", () => {
     const result = await executeFollowupCreate(
       {
         channel: "email",
-        conversation_id: "thread-123",
+        conversation_id: "conv-123",
       },
       ctx,
     );
@@ -86,7 +86,7 @@ describe("followup_create tool", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Created follow-up");
     expect(result.content).toContain("email");
-    expect(result.content).toContain("thread-123");
+    expect(result.content).toContain("conv-123");
     expect(result.content).toContain("Status: pending");
   });
 
@@ -108,7 +108,7 @@ describe("followup_create tool", () => {
     const result = await executeFollowupCreate(
       {
         channel: "email",
-        conversation_id: "thread-456",
+        conversation_id: "conv-456",
         reminder_schedule_id: "sched-abc",
       },
       ctx,
@@ -121,7 +121,7 @@ describe("followup_create tool", () => {
   test("rejects missing channel", async () => {
     const result = await executeFollowupCreate(
       {
-        conversation_id: "thread-123",
+        conversation_id: "conv-123",
       },
       ctx,
     );
@@ -134,7 +134,7 @@ describe("followup_create tool", () => {
     const result = await executeFollowupCreate(
       {
         channel: "   ",
-        conversation_id: "thread-123",
+        conversation_id: "conv-123",
       },
       ctx,
     );
@@ -159,7 +159,7 @@ describe("followup_create tool", () => {
     const result = await executeFollowupCreate(
       {
         channel: "email",
-        conversation_id: "thread-123",
+        conversation_id: "conv-123",
         expected_response_hours: -1,
       },
       ctx,
@@ -175,7 +175,7 @@ describe("followup_create tool", () => {
     const result = await executeFollowupCreate(
       {
         channel: "email",
-        conversation_id: "thread-123",
+        conversation_id: "conv-123",
         contact_id: "nonexistent-contact",
       },
       ctx,
@@ -200,11 +200,11 @@ describe("followup_list tool", () => {
 
   test("lists all follow-ups", async () => {
     await executeFollowupCreate(
-      { channel: "email", conversation_id: "thread-1" },
+      { channel: "email", conversation_id: "conv-1" },
       ctx,
     );
     await executeFollowupCreate(
-      { channel: "slack", conversation_id: "thread-2" },
+      { channel: "slack", conversation_id: "conv-2" },
       ctx,
     );
 
@@ -218,7 +218,7 @@ describe("followup_list tool", () => {
 
   test("filters by status", async () => {
     await executeFollowupCreate(
-      { channel: "email", conversation_id: "thread-1" },
+      { channel: "email", conversation_id: "conv-1" },
       ctx,
     );
 
@@ -230,11 +230,11 @@ describe("followup_list tool", () => {
 
   test("filters by channel", async () => {
     await executeFollowupCreate(
-      { channel: "email", conversation_id: "thread-1" },
+      { channel: "email", conversation_id: "conv-1" },
       ctx,
     );
     await executeFollowupCreate(
-      { channel: "slack", conversation_id: "thread-2" },
+      { channel: "slack", conversation_id: "conv-2" },
       ctx,
     );
 
@@ -262,7 +262,7 @@ describe("followup_resolve tool", () => {
     const createResult = await executeFollowupCreate(
       {
         channel: "email",
-        conversation_id: "thread-1",
+        conversation_id: "conv-1",
       },
       ctx,
     );
@@ -279,7 +279,7 @@ describe("followup_resolve tool", () => {
     await executeFollowupCreate(
       {
         channel: "email",
-        conversation_id: "thread-1",
+        conversation_id: "conv-1",
       },
       ctx,
     );
@@ -287,7 +287,7 @@ describe("followup_resolve tool", () => {
     const result = await executeFollowupResolve(
       {
         channel: "email",
-        conversation_id: "thread-1",
+        conversation_id: "conv-1",
       },
       ctx,
     );

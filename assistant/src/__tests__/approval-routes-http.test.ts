@@ -202,7 +202,7 @@ function makeConfirmationEmittingSession(opts?: {
         allowlistOptions: [
           { label: "Allow ls", description: "Allow ls command", pattern: "ls" },
         ],
-        scopeOptions: [{ label: "This session", scope: "session" }],
+        scopeOptions: [{ label: "This conversation", scope: "session" }],
         persistentDecisionsAllowed: true,
       });
       // Hang to simulate waiting for decision

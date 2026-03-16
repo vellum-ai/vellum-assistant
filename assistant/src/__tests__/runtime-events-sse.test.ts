@@ -186,7 +186,7 @@ describe("SSE assistant-events endpoint", () => {
   // ── Unfiltered subscription ──────────────────────────────────────────────
 
   test("streams all events when conversationKey is omitted", async () => {
-    // Subscribe without a conversationKey — should receive events from any session.
+    // Subscribe without a conversationKey — should receive events from any conversation.
     const ac = new AbortController();
     const req = new Request("http://localhost/v1/events", {
       signal: ac.signal,
@@ -212,9 +212,17 @@ describe("SSE assistant-events endpoint", () => {
     expect(heartbeat.done).toBe(false);
     expect(new TextDecoder().decode(heartbeat.value)).toBe(": heartbeat\n\n");
 
-    // Publish events with two different sessionIds.
-    const eventA = buildAssistantEvent("self", { type: "pong" }, "session-aaa");
-    const eventB = buildAssistantEvent("self", { type: "pong" }, "session-bbb");
+    // Publish events with two different conversationIds.
+    const eventA = buildAssistantEvent(
+      "self",
+      { type: "pong" },
+      "conversation-aaa",
+    );
+    const eventB = buildAssistantEvent(
+      "self",
+      { type: "pong" },
+      "conversation-bbb",
+    );
     await testHub.publish(eventA);
     await testHub.publish(eventB);
 
@@ -222,12 +230,12 @@ describe("SSE assistant-events endpoint", () => {
     const frameA = await reader.read();
     expect(frameA.done).toBe(false);
     const textA = new TextDecoder().decode(frameA.value);
-    expect(textA).toContain("session-aaa");
+    expect(textA).toContain("conversation-aaa");
 
     const frameB = await reader.read();
     expect(frameB.done).toBe(false);
     const textB = new TextDecoder().decode(frameB.value);
-    expect(textB).toContain("session-bbb");
+    expect(textB).toContain("conversation-bbb");
 
     ac.abort();
   });
