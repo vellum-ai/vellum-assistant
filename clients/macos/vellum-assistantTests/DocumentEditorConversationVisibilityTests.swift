@@ -3,7 +3,7 @@ import XCTest
 @testable import VellumAssistantShared
 
 @MainActor
-final class DocumentEditorThreadVisibilityTests: XCTestCase {
+final class DocumentEditorConversationVisibilityTests: XCTestCase {
 
     // MARK: - Helpers
 
@@ -31,7 +31,7 @@ final class DocumentEditorThreadVisibilityTests: XCTestCase {
                         "isShowingChat should be false for document editor (it's a panel)")
     }
 
-    func testThreadSelectionIsConversationVisible() {
+    func testConversationSelectionIsConversationVisible() {
         let state = makeState(.conversation(UUID()))
 
         XCTAssertTrue(state.isConversationVisible)
@@ -54,11 +54,11 @@ final class DocumentEditorThreadVisibilityTests: XCTestCase {
 
     // MARK: - ConversationHeaderPresentation for document editor
 
-    func testDocumentEditorShowsThreadTitleWhenActiveThreadExists() {
-        let thread = ConversationModel(title: "Doc Session Conversation", conversationId: "doc-session-1")
+    func testDocumentEditorShowsConversationTitleWhenActiveConversationExists() {
+        let conversation = ConversationModel(title: "Doc Session Conversation", conversationId: "doc-session-1")
         let vm = ChatViewModel(daemonClient: DaemonClient())
         let presentation = ConversationHeaderPresentation(
-            activeConversation: thread,
+            activeConversation: conversation,
             activeViewModel: vm,
             isConversationVisible: true  // document editor always reports conversation as visible
         )
@@ -69,7 +69,7 @@ final class DocumentEditorThreadVisibilityTests: XCTestCase {
         XCTAssertTrue(presentation.showsActionsMenu)
     }
 
-    func testDocumentEditorShowsNewThreadWhenNoActiveThread() {
+    func testDocumentEditorShowsNewConversationWhenNoActiveConversation() {
         let presentation = ConversationHeaderPresentation(
             activeConversation: nil,
             activeViewModel: nil,

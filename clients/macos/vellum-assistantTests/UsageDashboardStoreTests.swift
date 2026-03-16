@@ -186,7 +186,8 @@ struct UsageDashboardStoreLoadingTests {
             )
         ])
 
-        let store = UsageDashboardStore(client: client)
+        let store = UsageDashboardStore()
+        store.updateClient(client)
         #expect(store.totalsState == .idle)
         #expect(store.dailyState == .idle)
         #expect(store.breakdownState == .idle)
@@ -222,7 +223,8 @@ struct UsageDashboardStoreLoadingTests {
         let client = MockUsageClient()
         // All stubs nil by default — simulates network failure.
 
-        let store = UsageDashboardStore(client: client)
+        let store = UsageDashboardStore()
+        store.updateClient(client)
         await store.refresh()
 
         if case .failed(let msg) = store.totalsState {
@@ -256,7 +258,8 @@ struct UsageDashboardStoreLoadingTests {
         client.stubbedDaily = UsageDailyResponse(buckets: [])
         client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [])
 
-        let store = UsageDashboardStore(client: client)
+        let store = UsageDashboardStore()
+        store.updateClient(client)
         #expect(store.selectedRange == .last7Days)
 
         await store.selectRange(.last30Days)
@@ -295,7 +298,8 @@ struct UsageDashboardStoreGroupTests {
             )
         ])
 
-        let store = UsageDashboardStore(client: client)
+        let store = UsageDashboardStore()
+        store.updateClient(client)
 
         // Initial refresh to populate all states
         await store.refresh()
@@ -332,7 +336,8 @@ struct UsageDashboardStoreGroupTests {
         let client = MockUsageClient()
         client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [])
 
-        let store = UsageDashboardStore(client: client)
+        let store = UsageDashboardStore()
+        store.updateClient(client)
         await store.selectGroupBy(.actor)
 
         #expect(client.lastBreakdownGroupBy == "actor")
@@ -413,7 +418,8 @@ struct UsageDashboardStoreRaceTests {
     @Test @MainActor
     func staleRefreshResultsAreDiscarded() async {
         let client = DelayedMockUsageClient()
-        let store = UsageDashboardStore(client: client)
+        let store = UsageDashboardStore()
+        store.updateClient(client)
 
         // Launch first refresh (simulates selecting "Last 7 Days")
         let firstRefresh = Task { @MainActor in await store.selectRange(.last7Days) }
@@ -466,7 +472,8 @@ struct UsageDashboardStoreRaceTests {
     @Test @MainActor
     func refreshDoesNotOverwriteBreakdownFromConcurrentSelectGroupBy() async {
         let client = DelayedMockUsageClient()
-        let store = UsageDashboardStore(client: client)
+        let store = UsageDashboardStore()
+        store.updateClient(client)
 
         // Launch refresh() — it fetches totals, daily, and breakdown
         let refreshTask = Task { @MainActor in await store.refresh() }
@@ -516,7 +523,8 @@ struct UsageDashboardStoreRaceTests {
     @Test @MainActor
     func staleSelectGroupByResultsAreDiscarded() async {
         let client = DelayedMockUsageClient()
-        let store = UsageDashboardStore(client: client)
+        let store = UsageDashboardStore()
+        store.updateClient(client)
 
         // Launch first selectGroupBy
         let first = Task { @MainActor in await store.selectGroupBy(.model) }

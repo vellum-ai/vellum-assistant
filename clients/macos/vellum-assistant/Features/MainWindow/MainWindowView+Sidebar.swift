@@ -6,13 +6,13 @@ import VellumAssistantShared
 
 extension MainWindowView {
 
-    func selectConversation(_ thread: ConversationModel) {
+    func selectConversation(_ conversation: ConversationModel) {
         if case .appEditing(let appId, _) = windowState.selection {
-            windowState.selection = .appEditing(appId: appId, conversationId: thread.id)
-            conversationManager.selectConversation(id: thread.id)
+            windowState.selection = .appEditing(appId: appId, conversationId: conversation.id)
+            conversationManager.selectConversation(id: conversation.id)
         } else {
-            windowState.selection = .conversation(thread.id)
-            conversationManager.selectConversation(id: thread.id)
+            windowState.selection = .conversation(conversation.id)
+            conversationManager.selectConversation(id: conversation.id)
         }
     }
 
@@ -28,8 +28,8 @@ extension MainWindowView {
     }
 
     /// Maps a conversation's interaction state to a dot color for VConversationIcon.
-    func interactionDotColor(for thread: ConversationModel) -> Color? {
-        switch conversationManager.interactionState(for: thread.id) {
+    func interactionDotColor(for conversation: ConversationModel) -> Color? {
+        switch conversationManager.interactionState(for: conversation.id) {
         case .processing: return VColor.primaryBase
         case .waitingForInput: return VColor.systemNegativeHover
         case .error: return VColor.systemNegativeStrong
@@ -60,12 +60,12 @@ extension MainWindowView {
     var scheduleConversationGroups: [(key: String, label: String, conversations: [ConversationModel])] {
         var grouped: [String: [ConversationModel]] = [:]
         var order: [String] = []
-        for thread in scheduleConversations {
-            let key = thread.scheduleJobId ?? thread.conversationId ?? thread.id.uuidString
+        for conversation in scheduleConversations {
+            let key = conversation.scheduleJobId ?? conversation.conversationId ?? conversation.id.uuidString
             if grouped[key] == nil {
                 order.append(key)
             }
-            grouped[key, default: []].append(thread)
+            grouped[key, default: []].append(conversation)
         }
         return order.compactMap { key in
             guard let conversations = grouped[key], let first = conversations.first else { return nil }
@@ -139,7 +139,7 @@ extension MainWindowView {
                 sidebar.renamingConversationId = nil
             }
         } message: {
-            Text("Enter a new name for this conversation")
+            Text("Enter a new name for this thread")
         }
     }
 
@@ -202,7 +202,7 @@ extension MainWindowView {
             sidebarSectionDivider(isExpanded: true)
 
             // MARK: Threads (scrollable)
-            SidebarThreadsHeader(
+            SidebarConversationsHeader(
                 hasUnseenThreads: conversationManager.unseenVisibleConversationCount > 0,
                 isLoading: showDaemonLoading,
                 onMarkAllSeen: {
@@ -224,26 +224,26 @@ extension MainWindowView {
                         windowState.dismissToast(id: toastId)
                     }
                 },
-                onNewThread: { startNewConversation() }
+                onNewConversation: { startNewConversation() }
             )
 
             ScrollView {
                 VStack(spacing: 0) {
                     if showDaemonLoading && displayedConversations.isEmpty {
-                        DaemonLoadingThreadsSkeleton()
+                        DaemonLoadingConversationsSkeleton()
                     }
 
-                    ForEach(displayedConversations) { thread in
-                        SidebarThreadItem(
-                            thread: thread,
+                    ForEach(displayedConversations) { conversation in
+                        SidebarConversationItem(
+                            conversation: conversation,
                             conversationManager: conversationManager,
                             windowState: windowState,
                             sidebar: sidebar,
-                            selectConversation: { selectConversation(thread) }
+                            selectConversation: { selectConversation(conversation) }
                         )
                             .padding(.bottom, SidebarLayoutMetrics.listRowGap)
                             .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
-                                if sidebar.dropTargetConversationId == thread.id {
+                                if sidebar.dropTargetConversationId == conversation.id {
                                     Rectangle()
                                         .fill(VColor.primaryBase)
                                         .frame(height: 2)
@@ -255,18 +255,18 @@ extension MainWindowView {
                                 sidebar.draggingConversationId = nil
                                 guard let droppedId = items.first,
                                       let sourceUUID = UUID(uuidString: droppedId),
-                                      sourceUUID != thread.id else { return false }
-                                return conversationManager.moveConversation(sourceId: sourceUUID, targetId: thread.id)
+                                      sourceUUID != conversation.id else { return false }
+                                return conversationManager.moveConversation(sourceId: sourceUUID, targetId: conversation.id)
                             } isTargeted: { isTargeted in
-                                if isTargeted && thread.id != sidebar.draggingConversationId {
-                                    sidebar.dropTargetConversationId = thread.id
+                                if isTargeted && conversation.id != sidebar.draggingConversationId {
+                                    sidebar.dropTargetConversationId = conversation.id
                                     if let dragId = sidebar.draggingConversationId {
                                         let visible = conversationManager.visibleConversations
                                         let sIdx = visible.firstIndex(where: { $0.id == dragId }) ?? 0
-                                        let tIdx = visible.firstIndex(where: { $0.id == thread.id }) ?? 0
+                                        let tIdx = visible.firstIndex(where: { $0.id == conversation.id }) ?? 0
                                         sidebar.dropIndicatorAtBottom = sIdx < tIdx
                                     }
-                                } else if !isTargeted && sidebar.dropTargetConversationId == thread.id {
+                                } else if !isTargeted && sidebar.dropTargetConversationId == conversation.id {
                                     sidebar.dropTargetConversationId = nil
                                 }
                             }
@@ -302,18 +302,18 @@ extension MainWindowView {
                         .padding(.bottom, SidebarLayoutMetrics.scheduledHeaderBottomGap)
 
                         ForEach(displayedScheduleGroups, id: \.key) { group in
-                            if group.conversations.count == 1, let thread = group.conversations.first {
-                                // Single-thread group: render inline without a disclosure wrapper
-                                SidebarThreadItem(
-                                    thread: thread,
+                            if group.conversations.count == 1, let conversation = group.conversations.first {
+                                // Single-conversation group: render inline without a disclosure wrapper
+                                SidebarConversationItem(
+                                    conversation: conversation,
                                     conversationManager: conversationManager,
                                     windowState: windowState,
                                     sidebar: sidebar,
-                                    selectConversation: { selectConversation(thread) }
+                                    selectConversation: { selectConversation(conversation) }
                                 )
                                     .padding(.bottom, SidebarLayoutMetrics.listRowGap)
                                     .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
-                                        if sidebar.dropTargetConversationId == thread.id {
+                                        if sidebar.dropTargetConversationId == conversation.id {
                                             Rectangle()
                                                 .fill(VColor.primaryBase)
                                                 .frame(height: 2)
@@ -321,12 +321,12 @@ extension MainWindowView {
                                         }
                                     }
                                     .onDrop(of: [.plainText], delegate: ScheduleReorderDropDelegate(
-                                        targetThread: thread,
+                                        targetConversation: conversation,
                                         sidebar: sidebar,
                                         conversationManager: conversationManager
                                     ))
                             } else {
-                                // Multi-thread group: custom disclosure styled like a nav row
+                                // Multi-conversation group: custom disclosure styled like a nav row
                                 let isGroupExpanded = sidebar.expandedScheduleGroups.contains(group.key)
                                 let hasUnread = !isGroupExpanded &&
                                     group.conversations.contains(where: { $0.hasUnseenLatestAssistantMessage })
@@ -383,17 +383,17 @@ extension MainWindowView {
 
                                 // Expanded child rows
                                 if isGroupExpanded {
-                                    ForEach(group.conversations) { thread in
-                                        SidebarThreadItem(
-                                            thread: thread,
+                                    ForEach(group.conversations) { conversation in
+                                        SidebarConversationItem(
+                                            conversation: conversation,
                                             conversationManager: conversationManager,
                                             windowState: windowState,
                                             sidebar: sidebar,
-                                            selectConversation: { selectConversation(thread) }
+                                            selectConversation: { selectConversation(conversation) }
                                         )
                                             .padding(.bottom, SidebarLayoutMetrics.listRowGap)
                                             .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
-                                                if sidebar.dropTargetConversationId == thread.id {
+                                                if sidebar.dropTargetConversationId == conversation.id {
                                                     Rectangle()
                                                         .fill(VColor.primaryBase)
                                                         .frame(height: 2)
@@ -401,7 +401,7 @@ extension MainWindowView {
                                                 }
                                             }
                                             .onDrop(of: [.plainText], delegate: ScheduleReorderDropDelegate(
-                                                targetThread: thread,
+                                                targetConversation: conversation,
                                                 sidebar: sidebar,
                                                 conversationManager: conversationManager
                                             ))

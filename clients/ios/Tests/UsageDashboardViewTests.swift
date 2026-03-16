@@ -16,7 +16,8 @@ final class UsageDashboardViewTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        store = UsageDashboardStore(client: NilUsageClient())
+        store = UsageDashboardStore()
+        store.updateClient(NilUsageClient())
     }
 
     override func tearDown() {
@@ -70,7 +71,8 @@ final class UsageDashboardViewTests: XCTestCase {
 
     func testRefreshPopulatesLoadedStateWithStubClient() async {
         let stubClient = StubUsageClient()
-        let populatedStore = UsageDashboardStore(client: stubClient)
+        let populatedStore = UsageDashboardStore()
+        populatedStore.updateClient(stubClient)
 
         await populatedStore.refresh()
 
@@ -133,14 +135,16 @@ final class UsageDashboardViewTests: XCTestCase {
     #if canImport(UIKit)
 
     func testViewRendersInIdleState() {
-        let store = UsageDashboardStore(client: NilUsageClient())
+        let store = UsageDashboardStore()
+        store.updateClient(NilUsageClient())
         let view = UsageDashboardView(store: store)
         let _ = view.body
     }
 
     func testViewRendersInFailedState() async {
         let client = NilUsageClient()
-        let store = UsageDashboardStore(client: client)
+        let store = UsageDashboardStore()
+        store.updateClient(client)
         await store.refresh()
 
         XCTAssertNotNil(store.totalsState)
@@ -154,7 +158,8 @@ final class UsageDashboardViewTests: XCTestCase {
 
     func testViewRendersInLoadedState() async {
         let client = StubUsageClient()
-        let store = UsageDashboardStore(client: client)
+        let store = UsageDashboardStore()
+        store.updateClient(client)
         await store.refresh()
 
         if case .loaded = store.totalsState {} else {

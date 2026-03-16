@@ -165,16 +165,14 @@ public final class UsageDashboardStore {
 
     // MARK: - Dependencies
 
-    private var client: any UsageClientProtocol
+    private var client: any UsageClientProtocol = UsageClient()
 
     /// Generation counters to discard results from stale in-flight requests
     /// when the user changes filters faster than fetches complete.
     private var refreshGeneration: UInt = 0
     private var breakdownGeneration: UInt = 0
 
-    public init(client: any UsageClientProtocol = UsageClient()) {
-        self.client = client
-    }
+    public init() {}
 
     /// Replace the underlying client and reset all loaded data.
     public func updateClient(_ newClient: any UsageClientProtocol) {

@@ -531,11 +531,11 @@ The assistant currently exposes an HTTP port so that the native client can call 
 
 ### Pattern
 
-Each migrated API surface gets a focused protocol + struct, injected via init parameters for testability. Once every method has been migrated off `DaemonClient`/`HTTPTransport`, the assistant's HTTP port can be removed:
+Each migrated API surface gets a focused protocol + struct, instantiated inline on the consuming type. Once every method has been migrated off `DaemonClient`/`HTTPTransport`, the assistant's HTTP port can be removed:
 
 1. **Define a protocol** describing the operations (e.g. `ConversationClientProtocol`).
 2. **Implement a struct** that calls `GatewayHTTPClient.get/post/delete(path:timeout:)`.
-3. **Inject the struct** into the consuming type (e.g. `ThreadManager`) with a default value.
+3. **Instantiate the struct** inline as a private property on the consuming type (e.g. `private let client: any SurfaceClientProtocol = SurfaceClient()`).
 4. **Remove** the corresponding method from `DaemonClient` and `HTTPTransport`.
 5. **Clean up** any `Endpoint` enum cases that are no longer referenced.
 

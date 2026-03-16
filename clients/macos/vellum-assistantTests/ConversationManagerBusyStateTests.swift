@@ -96,7 +96,7 @@ final class ConversationManagerBusyStateTests: XCTestCase {
         XCTAssertTrue(conversationManager.busyConversationIds.isEmpty)
     }
 
-    func testLRUEvictionSkipsBusyBackgroundThread() {
+    func testLRUEvictionSkipsBusyBackgroundConversation() {
         guard let originalConversationId = conversationManager.activeConversationId else {
             XCTFail("Expected initial active conversation")
             return

@@ -9,7 +9,7 @@ struct AppsGridView: View {
     let onOpenApp: (String) -> Void
     /// Called when the user opens a shared app (needs surface-based navigation).
     var onOpenSharedApp: ((UiSurfaceShowMessage) -> Void)?
-    var onNewThread: (() -> Void)?
+    var onNewConversation: (() -> Void)?
 
     @State private var searchText = ""
     @State private var hoveredAppId: String?
@@ -142,7 +142,7 @@ struct AppsGridView: View {
             icon: VIcon.layoutGrid.rawValue,
             actionLabel: "New Conversation",
             actionIcon: VIcon.plus.rawValue,
-            action: { onNewThread?() }
+            action: { onNewConversation?() }
         )
     }
 

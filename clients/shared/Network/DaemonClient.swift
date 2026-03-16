@@ -86,7 +86,6 @@ public protocol DaemonClientProtocol {
     func disconnect()
     func startSSE()
     func stopSSE()
-    func fetchSurfaceData(surfaceId: String, conversationId: String) async -> SurfaceData?
     func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error>
 }
 
@@ -94,9 +93,6 @@ extension DaemonClientProtocol {
     public func sendConversationUnread(_ signal: ConversationUnreadSignal) async throws {
         try send(signal)
     }
-
-    /// Default no-op implementation for clients that don't support HTTP surface fetches.
-    public func fetchSurfaceData(surfaceId: String, conversationId: String) async -> SurfaceData? { nil }
 
     /// Default no-op implementation for clients that don't support btw side-chain.
     public func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error> {
@@ -524,10 +520,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
 
-    /// Called when a task run creates a conversation so the client can show it as a visible chat thread.
+    /// Called when a task run creates a conversation so the client can show it as a visible chat conversation.
     public var onTaskRunConversationCreated: ((TaskRunConversationCreated) -> Void)?
 
-    /// Called when a schedule creates a conversation so the client can show it as a visible chat thread.
+    /// Called when a schedule creates a conversation so the client can show it as a visible chat conversation.
     public var onScheduleConversationCreated: ((ScheduleConversationCreated) -> Void)?
 
     /// Called when the daemon requests pairing approval from macOS.
@@ -765,59 +761,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             data: data
         )
         try send(message)
-    }
-
-    // MARK: - Surface Content Fetch
-
-    /// Fetch the full surface payload for a stripped surface from the daemon HTTP API.
-    /// For remote connections, delegates to `HTTPTransport`. For local connections,
-    /// builds a request against the daemon's HTTP server directly.
-    /// Returns the parsed `SurfaceData`, or `nil` on failure.
-    public func fetchSurfaceData(surfaceId: String, conversationId: String) async -> SurfaceData? {
-        if let httpTransport {
-            return await httpTransport.fetchSurfaceData(surfaceId: surfaceId, conversationId: conversationId)
-        }
-
-        // Local daemon path — build request using the daemon HTTP port.
-        let sEncoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
-        let qEncoded = conversationId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationId
-        let surfacePath = "v1/surfaces/\(sEncoded)?conversationId=\(qEncoded)"
-        guard let request = buildLocalRequest(
-            target: .daemon,
-            path: surfacePath,
-            timeout: 10
-        ) else { return nil }
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse else { return nil }
-
-            if http.statusCode == 401 {
-                guard let platform = recoveryPlatform, let deviceId = recoveryDeviceId else {
-                    log.warning("Local HTTP 401 for \(surfacePath, privacy: .public) — no recovery credentials configured")
-                    return nil
-                }
-                log.info("Local HTTP 401 for \(surfacePath, privacy: .public) — attempting re-bootstrap")
-                let success = await bootstrapActorToken(platform: platform, deviceId: deviceId)
-                guard success else {
-                    log.warning("Local HTTP re-bootstrap failed for \(surfacePath, privacy: .public)")
-                    return nil
-                }
-                // Retry with fresh token
-                guard let retryRequest = buildLocalRequest(target: .daemon, path: surfacePath, timeout: 10) else { return nil }
-                let (retryData, retryResponse) = try await URLSession.shared.data(for: retryRequest)
-                guard let retryHttp = retryResponse as? HTTPURLResponse, (200...299).contains(retryHttp.statusCode) else {
-                    log.warning("Local HTTP retry failed for \(surfacePath, privacy: .public) status=\((retryResponse as? HTTPURLResponse)?.statusCode ?? -1)")
-                    return nil
-                }
-                return Surface.parseSurfaceDataFromResponse(retryData)
-            }
-
-            guard (200...299).contains(http.statusCode) else { return nil }
-            return Surface.parseSurfaceDataFromResponse(data)
-        } catch {
-            return nil
-        }
     }
 
     // MARK: - BTW Side-Chain

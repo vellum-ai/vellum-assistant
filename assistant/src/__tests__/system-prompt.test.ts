@@ -88,7 +88,6 @@ const {
   ensurePromptFiles,
   stripCommentLines,
   buildExternalCommsIdentitySection,
-  buildPhoneCallsRoutingSection,
 } = await import("../prompts/system-prompt.js");
 
 /** Strip the Configuration, Skills, and hardcoded preamble sections so base-prompt tests stay focused. */
@@ -249,19 +248,12 @@ describe("buildSystemPrompt", () => {
     expect(section).toContain("Occasional variations are acceptable");
   });
 
-  test("includes phone calls routing section", () => {
+  test("does not include removed domain routing sections", () => {
     const result = buildSystemPrompt();
-    expect(result).toContain("## Routing: Phone Calls");
-    expect(result).toContain('skill: "phone-calls"');
-  });
-
-  test("buildPhoneCallsRoutingSection returns section with expected content", () => {
-    const section = buildPhoneCallsRoutingSection();
-    expect(section).toContain("## Routing: Phone Calls");
-    expect(section).toContain("Trigger phrases");
-    expect(section).toContain("Exclusivity rules");
-    expect(section).toContain("phone-calls");
-    expect(section).toContain("Do NOT improvise Twilio setup instructions");
+    expect(result).not.toContain("## Routing: Phone Calls");
+    expect(result).not.toContain("## Routing: Guardian Verification");
+    expect(result).not.toContain("## Routing: Voice Setup");
+    expect(result).not.toContain("## Routing: Starter Tasks");
   });
 
   test("includes memory persistence section", () => {

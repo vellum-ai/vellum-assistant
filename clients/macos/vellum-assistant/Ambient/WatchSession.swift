@@ -19,7 +19,6 @@ public final class WatchSession: ObservableObject {
     public let conversationId: String
     public let durationSeconds: Int
     public let intervalSeconds: Int
-    public let isLearnMode: Bool
 
     private var daemonClient: (any DaemonClientProtocol)?
     private var captureTask: Task<Void, Never>?
@@ -29,12 +28,11 @@ public final class WatchSession: ObservableObject {
     private let ocr = ScreenOCR()
     private var previousOcrText: String = ""
 
-    public init(watchId: String, conversationId: String, durationSeconds: Int, intervalSeconds: Int, isLearnMode: Bool = false) {
+    public init(watchId: String, conversationId: String, durationSeconds: Int, intervalSeconds: Int) {
         self.watchId = watchId
         self.conversationId = conversationId
         self.durationSeconds = durationSeconds
         self.intervalSeconds = intervalSeconds
-        self.isLearnMode = isLearnMode
     }
 
     public func start(daemonClient: any DaemonClientProtocol) {
@@ -43,12 +41,9 @@ public final class WatchSession: ObservableObject {
         totalExpected = durationSeconds / intervalSeconds
         elapsedSeconds = 0
         startedAt = Date()
-        log.info("Watch session started: watchId=\(self.watchId) duration=\(self.durationSeconds)s interval=\(self.intervalSeconds)s isLearnMode=\(self.isLearnMode)")
-        // In learn mode the daemon records network traffic via CDP — skip the screen capture loop
-        if !isLearnMode {
-            captureTask = Task { [weak self] in
-                await self?.captureLoop()
-            }
+        log.info("Watch session started: watchId=\(self.watchId) duration=\(self.durationSeconds)s interval=\(self.intervalSeconds)s")
+        captureTask = Task { [weak self] in
+            await self?.captureLoop()
         }
         elapsedTask = Task { [weak self] in
             await self?.elapsedLoop()

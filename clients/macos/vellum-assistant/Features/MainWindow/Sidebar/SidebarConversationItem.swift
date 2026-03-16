@@ -1,14 +1,14 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// A single thread row in the sidebar, handling hover, pin, archive, rename,
+/// A single conversation row in the sidebar, handling hover, pin, archive, rename,
 /// and drag interactions.
-struct SidebarThreadItem: View {
-    let thread: ConversationModel
+struct SidebarConversationItem: View {
+    let conversation: ConversationModel
     @ObservedObject var conversationManager: ConversationManager
     @ObservedObject var windowState: MainWindowState
     var sidebar: SidebarInteractionState
-    /// Called when the user taps the thread row (handles selection logic).
+    /// Called when the user taps the conversation row (handles selection logic).
     var selectConversation: () -> Void
     /// Optional additional callback after selection (e.g. dismiss a popover).
     var onSelect: (() -> Void)? = nil
@@ -18,24 +18,24 @@ struct SidebarThreadItem: View {
         case .panel:
             return false
         case .conversation(let id):
-            return id == thread.id
+            return id == conversation.id
         case .appEditing(_, let conversationId):
-            return conversationId == thread.id
+            return conversationId == conversation.id
         case .app, .none:
             // No explicit conversation in selection; fall back to the persistent conversation.
-            return thread.id == windowState.persistentConversationId
+            return conversation.id == windowState.persistentConversationId
         }
     }
 
-    private var isHovered: Bool { sidebar.isHoveredConversation == thread.id }
-    private var interactionState: ConversationInteractionState { conversationManager.interactionState(for: thread.id) }
+    private var isHovered: Bool { sidebar.isHoveredConversation == conversation.id }
+    private var interactionState: ConversationInteractionState { conversationManager.interactionState(for: conversation.id) }
     // Reserve trailing space when hovered for archive button overlay.
-    private var hasTrailingIcon: Bool { isHovered || sidebar.conversationPendingDeletion == thread.id }
-    private var isPendingDeletion: Bool { sidebar.conversationPendingDeletion == thread.id }
+    private var hasTrailingIcon: Bool { isHovered || sidebar.conversationPendingDeletion == conversation.id }
+    private var isPendingDeletion: Bool { sidebar.conversationPendingDeletion == conversation.id }
     private var canMarkUnread: Bool {
-        !thread.hasUnseenLatestAssistantMessage &&
-            thread.conversationId != nil &&
-            thread.latestAssistantMessageAt != nil
+        !conversation.hasUnseenLatestAssistantMessage &&
+            conversation.conversationId != nil &&
+            conversation.latestAssistantMessageAt != nil
     }
 
     var body: some View {
@@ -49,22 +49,22 @@ struct SidebarThreadItem: View {
                 if isHovered {
                     Button {
                         withAnimation(VAnimation.standard) {
-                            if thread.isPinned {
-                                conversationManager.unpinThread(id: thread.id)
+                            if conversation.isPinned {
+                                conversationManager.unpinConversation(id: conversation.id)
                             } else {
-                                conversationManager.pinThread(id: thread.id)
+                                conversationManager.pinConversation(id: conversation.id)
                             }
                         }
                     } label: {
                         VIconView(.pin, size: 13)
-                            .foregroundColor(thread.isPinned ? VColor.contentTertiary : VColor.contentSecondary)
+                            .foregroundColor(conversation.isPinned ? VColor.contentTertiary : VColor.contentSecondary)
                             .rotationEffect(.degrees(-45))
                             .frame(width: 20, height: 20)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .transition(.opacity)
-                    .accessibilityLabel(thread.isPinned ? "Unpin \(thread.title)" : "Pin \(thread.title)")
+                    .accessibilityLabel(conversation.isPinned ? "Unpin \(conversation.title)" : "Pin \(conversation.title)")
                 } else {
                     switch interactionState {
                     case .processing:
@@ -80,12 +80,12 @@ struct SidebarThreadItem: View {
                             .frame(width: 20, height: 20)
                             .transition(.opacity)
                     case .idle:
-                        if thread.hasUnseenLatestAssistantMessage {
+                        if conversation.hasUnseenLatestAssistantMessage {
                             VBadge(style: .dot, color: VColor.systemNegativeHover)
                                 .accessibilityLabel("Unread")
                                 .frame(width: 20, height: 20)
                                 .transition(.opacity)
-                        } else if thread.isPinned {
+                        } else if conversation.isPinned {
                             VIconView(.pin, size: 13)
                                 .foregroundColor(VColor.contentTertiary)
                                 .rotationEffect(.degrees(-45))
@@ -97,16 +97,16 @@ struct SidebarThreadItem: View {
                         }
                     }
                 }
-                if thread.kind == .private {
+                if conversation.kind == .private {
                     VIconView(.lock, size: 13)
                         .foregroundColor(VColor.primaryBase.opacity(0.7))
                 }
-                Text(thread.title)
+                Text(conversation.title)
                     .font(.system(size: 13))
                     .foregroundColor(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .help(thread.title)
+                    .help(conversation.title)
 
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -119,7 +119,7 @@ struct SidebarThreadItem: View {
                     VColor.surfaceActive
                 } else if isHovered {
                     VColor.surfaceBase
-                } else if thread.kind == .private {
+                } else if conversation.kind == .private {
                     VColor.primaryBase.opacity(0.04)
                 } else {
                     VColor.surfaceBase.opacity(0)
@@ -134,22 +134,22 @@ struct SidebarThreadItem: View {
             onSelect?()
         }
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("Conversation: \(thread.title)")
+        .accessibilityLabel("Conversation: \(conversation.title)")
         .accessibilityAction(.default) {
             selectConversation()
         }
         .overlay(alignment: .trailing) {
-            if sidebar.conversationPendingDeletion == thread.id {
+            if sidebar.conversationPendingDeletion == conversation.id {
                 VButton(label: "Confirm", style: .dangerOutline, size: .pill) {
-                    conversationManager.archiveConversation(id: thread.id)
+                    conversationManager.archiveConversation(id: conversation.id)
                     sidebar.conversationPendingDeletion = nil
                 }
                 .fixedSize()
                 .padding(.trailing, VSpacing.xs)
-                .accessibilityLabel("Confirm archive \(thread.title)")
+                .accessibilityLabel("Confirm archive \(conversation.title)")
             } else if isHovered {
                 Button {
-                    sidebar.conversationPendingDeletion = thread.id
+                    sidebar.conversationPendingDeletion = conversation.id
                 } label: {
                     VIconView(.archive, size: 13)
                         .foregroundColor(VColor.contentSecondary)
@@ -158,35 +158,35 @@ struct SidebarThreadItem: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.trailing, VSpacing.xs)
-                .accessibilityLabel("Archive \(thread.title)")
+                .accessibilityLabel("Archive \(conversation.title)")
             }
         }
         .padding(.horizontal, 0)
         .contextMenu {
             Button {
                 withAnimation(VAnimation.standard) {
-                    if thread.isPinned {
-                        conversationManager.unpinThread(id: thread.id)
+                    if conversation.isPinned {
+                        conversationManager.unpinConversation(id: conversation.id)
                     } else {
-                        conversationManager.pinThread(id: thread.id)
+                        conversationManager.pinConversation(id: conversation.id)
                     }
                 }
             } label: {
-                Label { Text(thread.isPinned ? "Unpin thread" : "Pin thread") } icon: { VIconView(thread.isPinned ? .pinOff : .pin, size: 14) }
+                Label { Text(conversation.isPinned ? "Unpin thread" : "Pin thread") } icon: { VIconView(conversation.isPinned ? .pinOff : .pin, size: 14) }
             }
             Button {
-                sidebar.renamingConversationId = thread.id
-                sidebar.renameText = thread.title
+                sidebar.renamingConversationId = conversation.id
+                sidebar.renameText = conversation.title
             } label: {
                 Label { Text("Rename thread") } icon: { VIconView(.pencil, size: 14) }
             }
             Button {
-                conversationManager.archiveConversation(id: thread.id)
+                conversationManager.archiveConversation(id: conversation.id)
             } label: {
                 Label { Text("Archive thread") } icon: { VIconView(.archive, size: 14) }
             }
             Button {
-                conversationManager.markConversationUnread(conversationId: thread.id)
+                conversationManager.markConversationUnread(conversationId: conversation.id)
             } label: {
                 Label { Text("Mark as unread") } icon: { VIconView(.circle, size: 14) }
             }
@@ -195,25 +195,25 @@ struct SidebarThreadItem: View {
             Divider()
 
             Button {
-                guard let conversationId = thread.conversationId else { return }
-                AppDelegate.shared?.showLogReportWindow(scope: .conversation(conversationId: conversationId, conversationTitle: thread.title))
+                guard let conversationId = conversation.conversationId else { return }
+                AppDelegate.shared?.showLogReportWindow(scope: .conversation(conversationId: conversationId, conversationTitle: conversation.title))
             } label: {
                 Label { Text("Send Logs for Conversation") } icon: { VIconView(.upload, size: 14) }
             }
-            .disabled(thread.conversationId == nil || LogExporter.isManagedAssistant)
+            .disabled(conversation.conversationId == nil || LogExporter.isManagedAssistant)
         }
         .pointerCursor()
         .onHover { hovering in
             withAnimation(VAnimation.fast) {
-                sidebar.setConversationHover(conversationId: thread.id, hovering: hovering)
+                sidebar.setConversationHover(conversationId: conversation.id, hovering: hovering)
             }
         }
         .onDrag {
-            sidebar.draggingConversationId = thread.id
-            return NSItemProvider(object: thread.id.uuidString as NSString)
+            sidebar.draggingConversationId = conversation.id
+            return NSItemProvider(object: conversation.id.uuidString as NSString)
         } preview: {
             HStack(spacing: VSpacing.xs) {
-                if thread.isPinned {
+                if conversation.isPinned {
                     VIconView(.pin, size: 13)
                         .foregroundColor(VColor.contentTertiary)
                         .rotationEffect(.degrees(-45))
@@ -221,7 +221,7 @@ struct SidebarThreadItem: View {
                 } else {
                     Color.clear.frame(width: 20, height: 20)
                 }
-                Text(thread.title)
+                Text(conversation.title)
                     .font(.system(size: 13))
                     .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)

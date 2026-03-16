@@ -1,11 +1,11 @@
 import SwiftUI
 import VellumAssistantShared
 
-struct SidebarThreadsHeader: View {
+struct SidebarConversationsHeader: View {
     let hasUnseenThreads: Bool
     var isLoading: Bool = false
     let onMarkAllSeen: () -> Void
-    let onNewThread: () -> Void
+    let onNewConversation: () -> Void
 
     var body: some View {
         HStack {
@@ -23,7 +23,7 @@ struct SidebarThreadsHeader: View {
                 )
                 .disabled(isLoading)
             }
-            VButton(label: "New thread", iconOnly: VIcon.squarePen.rawValue, style: .ghost, action: onNewThread)
+            VButton(label: "New thread", iconOnly: VIcon.squarePen.rawValue, style: .ghost, action: onNewConversation)
                 .disabled(isLoading)
                 .opacity(isLoading ? 0.4 : 1)
         }

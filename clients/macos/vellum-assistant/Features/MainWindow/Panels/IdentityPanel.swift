@@ -174,7 +174,7 @@ struct IdentityPanel: View {
                     }
                 }
 
-                if !isBootstrapActive {
+                if !isBootstrapActive && introText == nil {
                     generateIntro()
                 }
             }
@@ -186,10 +186,9 @@ struct IdentityPanel: View {
 
     private func generateIntro() {
         introTask?.cancel()
-        introText = nil
 
         introTask = Task {
-            let key = "identity-intro-\(UUID().uuidString)"
+            let key = "identity-intro"
             let prompt = "Generate a very short intro for yourself (2-5 words). This should feel natural to your personality — playful, formal, chill, whatever fits you. Some examples for inspiration (don't limit yourself to these): \"I'm [name]!\", \"It's [name]\", \"Hey, I'm [name]\", \"[name] here.\", \"[name], at your service.\" Output ONLY the intro text, nothing else."
             var result = ""
             do {
@@ -201,7 +200,8 @@ struct IdentityPanel: View {
                     guard !Task.isCancelled else { return }
                     result += delta
                 }
-                self.introText = result.isEmpty ? nil : result
+                let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
+                self.introText = trimmed.isEmpty ? "I'm \(assistantDisplayName)!" : trimmed
             } catch is CancellationError {
                 return
             } catch {

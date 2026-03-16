@@ -8,7 +8,8 @@ export type ContactsControlPlaneRoute =
   | { kind: "listInvites" }
   | { kind: "createInvite" }
   | { kind: "redeemInvite" }
-  | { kind: "revokeInvite"; inviteId: string };
+  | { kind: "revokeInvite"; inviteId: string }
+  | { kind: "callInvite"; inviteId: string };
 
 export function matchContactsControlPlaneRoute(
   pathname: string,
@@ -43,6 +44,13 @@ export function matchContactsControlPlaneRoute(
 
   if (pathname === "/v1/contacts/invites/redeem" && method === "POST") {
     return { kind: "redeemInvite" };
+  }
+
+  const inviteCallMatch = pathname.match(
+    /^\/v1\/contacts\/invites\/([^/]+)\/call$/,
+  );
+  if (inviteCallMatch && method === "POST") {
+    return { kind: "callInvite", inviteId: inviteCallMatch[1] };
   }
 
   const inviteMatch = pathname.match(/^\/v1\/contacts\/invites\/([^/]+)$/);

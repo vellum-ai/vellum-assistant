@@ -231,10 +231,10 @@ describe("cross-tool routing consistency", () => {
 });
 
 // =====================================================================
-// 4. Guardian verification routing section in system prompt
+// 4. Activation hints in <available_skills> XML (replaces domain routing sections)
 // =====================================================================
 
-describe("Guardian verification routing section in system prompt", () => {
+describe("Activation hints in available_skills XML", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
   });
@@ -245,92 +245,68 @@ describe("Guardian verification routing section in system prompt", () => {
     }
   });
 
-  test("system prompt includes the guardian verification routing heading", () => {
+  test("available_skills XML does NOT contain location attribute", () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain("## Routing: Guardian Verification");
+    const start = prompt.indexOf("<available_skills>");
+    const end = prompt.indexOf("</available_skills>");
+    expect(start).not.toBe(-1);
+    expect(end).not.toBe(-1);
+    const skillsXml = prompt.substring(start, end);
+    expect(skillsXml).not.toContain("location=");
   });
 
-  test('routing section includes trigger phrase "verify guardian"', () => {
+  test("phone-calls bundled skill has hints and avoid-when attributes in XML", () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain("verify guardian");
+    const start = prompt.indexOf("<available_skills>");
+    const end = prompt.indexOf("</available_skills>");
+    expect(start).not.toBe(-1);
+    expect(end).not.toBe(-1);
+    const skillsXml = prompt.substring(start, end);
+    expect(skillsXml).toContain('id="phone-calls"');
+    const skillLine = skillsXml
+      .split("\n")
+      .find((l) => l.includes('id="phone-calls"'));
+    expect(skillLine).toBeDefined();
+    expect(skillLine).toContain("hints=");
+    expect(skillLine).toContain("avoid-when=");
   });
 
-  test("routing section does not include legacy channel trigger phrases", () => {
+  test("orchestration bundled skill has hints and avoid-when attributes in XML", () => {
     const prompt = buildSystemPrompt();
-    // Verify no legacy channel trigger phrases remain in the routing section
-    expect(prompt).not.toContain("set guardian for");
+    const start = prompt.indexOf("<available_skills>");
+    const end = prompt.indexOf("</available_skills>");
+    expect(start).not.toBe(-1);
+    expect(end).not.toBe(-1);
+    const skillsXml = prompt.substring(start, end);
+    expect(skillsXml).toContain('id="orchestration"');
+    const skillLine = skillsXml
+      .split("\n")
+      .find((l) => l.includes('id="orchestration"'));
+    expect(skillLine).toBeDefined();
+    expect(skillLine).toContain("hints=");
+    expect(skillLine).toContain("avoid-when=");
   });
 
-  test('routing section includes trigger phrase "verify my Telegram account"', () => {
+  test("browser bundled skill has hints attribute in XML", () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain("verify my Telegram account");
+    const start = prompt.indexOf("<available_skills>");
+    const end = prompt.indexOf("</available_skills>");
+    expect(start).not.toBe(-1);
+    expect(end).not.toBe(-1);
+    const skillsXml = prompt.substring(start, end);
+    expect(skillsXml).toContain('id="browser"');
+    const skillLine = skillsXml
+      .split("\n")
+      .find((l) => l.includes('id="browser"'));
+    expect(skillLine).toBeDefined();
+    expect(skillLine).toContain("hints=");
   });
 
-  test('routing section includes trigger phrase "verify phone channel"', () => {
+  test("domain routing sections are no longer in system prompt", () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain("verify phone channel");
-  });
-
-  test('routing section includes trigger phrase "verify my phone number"', () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain("verify my phone number");
-  });
-
-  test('routing section includes trigger phrase "set up guardian verification"', () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain("set up guardian verification");
-  });
-
-  test("routing section references the guardian-verify-setup skill", () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain("guardian-verify-setup");
-  });
-
-  test("routing section mentions phone and telegram channels but not legacy channels", () => {
-    const prompt = buildSystemPrompt();
-    const routingStart = prompt.indexOf("## Routing: Guardian Verification");
-    const routingSection = prompt.substring(routingStart, routingStart + 1000);
-    expect(routingSection).toContain("phone");
-    expect(routingSection).toContain("telegram");
-  });
-
-  test("routing section contains exclusivity wording", () => {
-    const prompt = buildSystemPrompt();
-    const lower = prompt.toLowerCase();
-    // Must contain "exclusively" or "must only" to enforce exclusive handling
-    expect(lower.includes("exclusively") || lower.includes("must only")).toBe(
-      true,
-    );
-  });
-
-  test("routing section prohibits loading phone-calls for guardian verification", () => {
-    const prompt = buildSystemPrompt();
-    const lower = prompt.toLowerCase();
-    // Must explicitly prohibit phone-calls for guardian verification intents
-    expect(lower).toContain("do not load");
-    expect(lower).toContain("phone-calls");
-  });
-
-  test("routing section includes channel-preservation guidance", () => {
-    const prompt = buildSystemPrompt();
-    const lower = prompt.toLowerCase();
-    // Must advise not to re-ask channel if already specified
-    expect(
-      lower.includes("do not re-ask") || lower.includes("already specified"),
-    ).toBe(true);
-  });
-
-  test('routing section disambiguates "set myself up as your guardian" phrasing', () => {
-    const prompt = buildSystemPrompt();
-    const lower = prompt.toLowerCase();
-    expect(lower).toContain("help me set myself up as your guardian");
-    expect(lower).toContain("asking to verify themselves as guardian");
-  });
-
-  test("routing section discourages conceptual detours for direct setup requests", () => {
-    const prompt = buildSystemPrompt();
-    const lower = prompt.toLowerCase();
-    expect(lower).toContain("do not give conceptual");
-    expect(lower).toContain("unless the user explicitly asks");
+    expect(prompt).not.toContain("## Routing: Guardian Verification");
+    expect(prompt).not.toContain("## Routing: Phone Calls");
+    expect(prompt).not.toContain("## Routing: Voice Setup");
+    expect(prompt).not.toContain("## Routing: Starter Tasks");
   });
 });

@@ -142,7 +142,7 @@ Swift does not allow `private` members to be accessed from a different file, eve
 ### Comment Quality
 - Comments and docstrings must describe the code's intent and behavior, not its refactoring history.
 - Do not leave breadcrumb comments like `// moved to X.swift` or `// extracted from Y()`. These become stale and clutter the code.
-- Good: `/// Cancellable task for the delayed hover trigger on the collapsed thread section.`
+- Good: `/// Cancellable task for the delayed hover trigger on the collapsed conversation section.`
 - Bad: `// conversationItem — moved to Sidebar/SidebarConversationItem.swift (standalone view)`
 
 ---
@@ -278,7 +278,7 @@ When adding a new HTTP endpoint call:
 
 1. Create or extend a focused protocol (e.g. `ConversationClientProtocol`) describing the operation.
 2. Implement it in a struct that calls `GatewayHTTPClient.get/post/delete(path:timeout:)`. Path encoding and `{assistantId}` substitution are handled automatically by `GatewayHTTPClient.buildRequest()` — do not percent-encode paths manually.
-3. Inject the struct via an init parameter with a default value for testability.
+3. Instantiate the struct inline as a private property on the consuming type (e.g. `private let surfaceClient: any SurfaceClientProtocol = SurfaceClient()`).
 4. If migrating an existing method, remove it from `DaemonClient` and `HTTPTransport` and clean up any unused `Endpoint` enum cases.
 
 See `clients/ARCHITECTURE.md` § "GatewayHTTPClient Migration" for the full pattern and migration tracker.

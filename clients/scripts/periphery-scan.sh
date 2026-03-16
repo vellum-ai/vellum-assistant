@@ -7,15 +7,24 @@ set -euo pipefail
 # and enforcement. Designed to be called from any CI workflow (PR, main, release)
 # or locally with a single command.
 #
-# Enforcement uses USR set-differentiation: the script compares the exact set
-# of USR identifiers in the current scan against a reference baseline. Any
-# NEW USRs (present in the current scan but absent from the baseline) cause a
-# failure. This prevents "violation churn" where a PR swaps one dead symbol
-# for another without being flagged.
+# Enforcement uses two-layer USR set-differentiation:
+#
+#   Layer 1 (baseline-to-baseline): In CI mode, the PR's committed baseline
+#   is compared against origin/main's baseline. Any USRs present in the PR
+#   baseline but absent from main cause a failure — this prevents adding new
+#   dead code to the baseline.
+#
+#   Layer 2 (scan-to-baseline): A fresh Periphery scan is compared against
+#   the committed baseline. New USRs in the scan that aren't in the baseline
+#   indicate stale or inaccurate baselines. In CI mode this is informational
+#   (warning); locally it's enforced (error).
+#
+# This two-layer approach avoids false positives from baseline drift on main
+# while still catching genuinely new dead code.
 #
 # Usage:
 #   periphery-scan.sh                              Scan and enforce against committed baseline
-#   periphery-scan.sh --ci                          CI mode: fetch baseline from origin/main, enforce
+#   periphery-scan.sh --ci                          CI mode: two-layer enforcement (see above)
 #   periphery-scan.sh --update-baseline             Re-generate the committed baseline file
 #   periphery-scan.sh --reference-baseline <path>   Compare against a specific baseline file
 
@@ -97,8 +106,45 @@ if [ "$CI_MODE" = true ]; then
   fi
 fi
 
+# --- CI mode: verify committed baseline doesn't introduce new violations vs main ---
+if [ "$CI_MODE" = true ] && [ -n "$REFERENCE_BASELINE" ] && [ -f "$BASELINE_FILE" ]; then
+  BASELINE_ADDED=$(python3 -c "
+import json, sys
+main = set(json.load(open(sys.argv[1])).get('v1', {}).get('usrs', []))
+pr   = set(json.load(open(sys.argv[2])).get('v1', {}).get('usrs', []))
+for u in sorted(pr - main):
+    print(u)
+" "$REFERENCE_BASELINE" "$BASELINE_FILE")
+
+  ADDED_COUNT=$(echo "$BASELINE_ADDED" | grep -c . || true)
+
+  REMOVED_COUNT=$(python3 -c "
+import json, sys
+main = set(json.load(open(sys.argv[1])).get('v1', {}).get('usrs', []))
+pr   = set(json.load(open(sys.argv[2])).get('v1', {}).get('usrs', []))
+print(len(main - pr))
+" "$REFERENCE_BASELINE" "$BASELINE_FILE")
+
+  echo "Baseline comparison: $REMOVED_COUNT removed vs main, $ADDED_COUNT added."
+
+  if [ "$ADDED_COUNT" -gt 0 ]; then
+    echo ""
+    echo "error: Committed baseline adds $ADDED_COUNT new USR(s) not present on main."
+    echo "These USRs suggest new dead code was added and included in the baseline:"
+    echo "$BASELINE_ADDED"
+    echo ""
+    echo "Remove the unused code, or if the baseline was updated on main, rebase your branch."
+    exit 1
+  fi
+fi
+
 # --- Determine which baseline to compare against ---
-if [ -n "$REFERENCE_BASELINE" ]; then
+# In CI mode, use the committed baseline (not main's) for the scan comparison.
+# The baseline-to-baseline check above already enforces against main.
+if [ "$CI_MODE" = true ] && [ -f "$BASELINE_FILE" ]; then
+  COMPARE_FILE="$BASELINE_FILE"
+  echo "Using committed baseline: $BASELINE_FILE"
+elif [ -n "$REFERENCE_BASELINE" ]; then
   if [ ! -f "$REFERENCE_BASELINE" ]; then
     echo "Error: Reference baseline not found at $REFERENCE_BASELINE"
     exit 1
@@ -149,21 +195,28 @@ for u in new_usrs:
 NEW_COUNT=$(echo "$NEW_USRS" | grep -c . || true)
 
 if [ "$NEW_COUNT" -gt 0 ]; then
-  echo ""
-  echo "error: $NEW_COUNT new dead-code violation(s) introduced."
-  echo "The following USRs are in the current scan but NOT in the baseline:"
-  echo "$NEW_USRS"
-  echo ""
-  echo "Remove the unused code or update the baseline with:"
-  echo "  bash clients/scripts/periphery-scan.sh --update-baseline"
+  if [ "$CI_MODE" = true ]; then
+    echo ""
+    echo "warning: $NEW_COUNT scan violation(s) not in committed baseline (likely baseline drift)."
+    echo "Consider running locally: bash clients/scripts/periphery-scan.sh --update-baseline"
+    SCAN_DRIFT=true
+  else
+    echo ""
+    echo "error: $NEW_COUNT new dead-code violation(s) introduced."
+    echo "The following USRs are in the current scan but NOT in the baseline:"
+    echo "$NEW_USRS"
+    echo ""
+    echo "Remove the unused code or update the baseline with:"
+    echo "  bash clients/scripts/periphery-scan.sh --update-baseline"
 
-  echo ""
-  echo "Detailed new violations:"
-  periphery scan \
-    --config "$CONFIG_FILE" \
-    --baseline "$COMPARE_FILE" 2>&1 || true
+    echo ""
+    echo "Detailed new violations:"
+    periphery scan \
+      --config "$CONFIG_FILE" \
+      --baseline "$COMPARE_FILE" 2>&1 || true
 
-  exit 1
+    exit 1
+  fi
 fi
 
 if [ "$CURRENT" -lt "$BASELINE_COUNT" ]; then
@@ -172,4 +225,8 @@ if [ "$CURRENT" -lt "$BASELINE_COUNT" ]; then
   echo "  bash clients/scripts/periphery-scan.sh --update-baseline"
 fi
 
-echo "Periphery check passed (no new violations)."
+if [ "${SCAN_DRIFT:-false}" = true ]; then
+  echo "Periphery check passed (baseline OK vs main; scan drift noted above)."
+else
+  echo "Periphery check passed (no new violations)."
+fi

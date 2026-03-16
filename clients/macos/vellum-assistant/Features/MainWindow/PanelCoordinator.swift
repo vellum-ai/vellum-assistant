@@ -72,7 +72,7 @@ extension MainWindowView {
                         windowState.selection = .app(surfaceMsg.surfaceId)
                     }
                 },
-                onNewThread: {
+                onNewConversation: {
                     conversationManager.openConversation(message: "What kind of apps can you build?", forceNew: true)
                     windowState.selection = nil
                 }
@@ -271,7 +271,7 @@ extension MainWindowView {
                             windowState.selection = .app(surfaceMsg.surfaceId)
                         }
                     },
-                    onNewThread: {
+                    onNewConversation: {
                         conversationManager.openConversation(message: "What kind of apps can you build?", forceNew: true)
                         windowState.selection = nil
                     }
@@ -443,7 +443,7 @@ extension MainWindowView {
                         windowState.selection = .app(surfaceMsg.surfaceId)
                     }
                 },
-                onNewThread: {
+                onNewConversation: {
                     conversationManager.openConversation(message: "What kind of apps can you build?", forceNew: true)
                     windowState.dismissOverlay()
                 }
@@ -1055,7 +1055,7 @@ private struct PublishedButton: View {
 // MARK: - Share Drawer
 
 /// Popover menu with "Share" and "Publish to Vercel" options.
-/// Styled to match ThreadSwitcherDrawer / DrawerMenuView.
+/// Styled to match ConversationSwitcherDrawer / DrawerMenuView.
 private struct ShareDrawer: View {
     let onShare: () -> Void
     let onPublish: () -> Void

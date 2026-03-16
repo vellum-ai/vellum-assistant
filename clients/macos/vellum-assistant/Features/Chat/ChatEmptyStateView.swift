@@ -124,7 +124,9 @@ struct ChatEmptyStateView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            onRequestGreeting?()
+            if soulGreeting == nil {
+                onRequestGreeting?()
+            }
             withAnimation(.easeOut(duration: 0.5)) {
                 visible = true
             }

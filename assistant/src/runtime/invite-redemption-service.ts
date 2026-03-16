@@ -390,12 +390,12 @@ export function redeemVoiceInviteCode(params: {
   const STALE_INVITE = Symbol("stale_invite");
   let memberId: string | undefined;
 
-  // When the invite targets a specific contact (targetMismatch path), preserve
-  // the target contact's guardian-assigned display name if it has one.
+  // When the invite targets a specific contact, preserve the target contact's
+  // guardian-assigned display name if it has one.
   let preservedDisplayName = voiceContact?.displayName?.trim().length
     ? voiceContact.displayName
     : (invite.friendName ?? undefined);
-  if (targetMismatch && invite.contactId) {
+  if (invite.contactId) {
     const targetContact = getContact(invite.contactId);
     if (targetContact?.displayName?.trim().length) {
       preservedDisplayName = targetContact.displayName;

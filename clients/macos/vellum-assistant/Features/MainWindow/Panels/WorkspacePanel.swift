@@ -696,17 +696,40 @@ private struct WorkspaceFileViewer: View {
     @ViewBuilder
     private func fileContent(_ detail: WorkspaceFileResponse) -> some View {
         let mime = detail.mimeType.lowercased()
+        let isText = !detail.isBinary && detail.content != nil
+        let readOnly = isText && isHiddenPath(detail.path)
 
         VStack(spacing: 0) {
             FileContentHeaderBar(
                 icon: fileIcon(for: mime),
                 fileName: detail.name,
                 fileSize: formatFileSize(detail.size)
-            )
+            ) {
+                if isText && readOnly {
+                    Text("Read-only")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentTertiary)
+                } else if isText && state.isDirty {
+                    Button {
+                        Task { await saveFile(path: detail.path) }
+                    } label: {
+                        HStack(spacing: VSpacing.xs) {
+                            if state.isSaving {
+                                ProgressView().controlSize(.mini)
+                            }
+                            Text("Save")
+                                .font(VFont.captionMedium)
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(state.isSaving)
+                    .keyboardShortcut("s", modifiers: .command)
+                }
+            }
             Divider().background(VColor.borderBase)
 
-            if !detail.isBinary, detail.content != nil {
-                textViewer(detail)
+            if isText {
+                textViewer(detail, readOnly: readOnly)
             } else if mime.hasPrefix("image/") {
                 imageViewer(detail)
             } else if mime.hasPrefix("video/") {
@@ -727,63 +750,32 @@ private struct WorkspaceFileViewer: View {
         return .file
     }
 
-    private func textViewer(_ detail: WorkspaceFileResponse) -> some View {
+    @ViewBuilder
+    private func textViewer(_ detail: WorkspaceFileResponse, readOnly: Bool) -> some View {
         let modes = availableViewModes(for: detail.name, mimeType: detail.mimeType)
-        let readOnly = isHiddenPath(detail.path)
         let effectiveMode = modes.contains(state.viewMode) ? state.viewMode : (modes.first ?? .source)
-        return VStack(spacing: 0) {
-            if modes.count > 1 {
-                HStack(spacing: 0) {
-                    VSegmentedControl(
-                        items: modes.map { (label: viewModeLabel($0), tag: $0) },
-                        selection: $state.viewMode,
-                        style: .pill
-                    )
-                    .frame(width: CGFloat(modes.count) * 100)
-                    Spacer()
-                }
-                .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.sm)
-            }
 
-            if readOnly {
-                HStack {
-                    Spacer()
-                    Text("Read-only")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.contentTertiary)
-                        .padding(.trailing, VSpacing.md)
-                        .padding(.vertical, VSpacing.xs)
-                }
-            } else if state.isDirty {
-                HStack {
-                    Spacer()
-                    Button {
-                        Task { await saveFile(path: detail.path) }
-                    } label: {
-                        HStack(spacing: VSpacing.xs) {
-                            if state.isSaving {
-                                ProgressView().controlSize(.small)
-                            }
-                            Text("Save")
-                                .font(VFont.bodyMedium)
-                        }
-                    }
-                    .disabled(state.isSaving)
-                    .keyboardShortcut("s", modifiers: .command)
-                    .padding(.trailing, VSpacing.md)
-                    .padding(.vertical, VSpacing.xs)
-                }
+        if modes.count > 1 {
+            HStack(spacing: 0) {
+                VSegmentedControl(
+                    items: modes.map { (label: viewModeLabel($0), tag: $0) },
+                    selection: $state.viewMode,
+                    style: .pill
+                )
+                .frame(width: CGFloat(modes.count) * 100)
+                Spacer()
             }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
+        }
 
-            switch effectiveMode {
-            case .source:
-                sourceView(detail)
-            case .preview:
-                previewView(detail)
-            case .tree:
-                treeView(detail)
-            }
+        switch effectiveMode {
+        case .source:
+            sourceView(detail)
+        case .preview:
+            previewView(detail)
+        case .tree:
+            treeView(detail)
         }
     }
 

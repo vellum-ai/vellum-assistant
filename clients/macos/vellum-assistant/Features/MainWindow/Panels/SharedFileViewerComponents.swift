@@ -82,10 +82,18 @@ struct ReadOnlyCodeContent: View {
 }
 
 /// Header bar showing file icon, name, and size for file content viewers.
-struct FileContentHeaderBar: View {
+struct FileContentHeaderBar<Trailing: View>: View {
     let icon: VIcon
     let fileName: String
     let fileSize: String
+    let trailing: Trailing
+
+    init(icon: VIcon, fileName: String, fileSize: String, @ViewBuilder trailing: () -> Trailing = { EmptyView() }) {
+        self.icon = icon
+        self.fileName = fileName
+        self.fileSize = fileSize
+        self.trailing = trailing()
+    }
 
     var body: some View {
         HStack(spacing: VSpacing.sm) {
@@ -98,8 +106,9 @@ struct FileContentHeaderBar: View {
             Text(fileSize)
                 .font(VFont.small)
                 .foregroundColor(VColor.contentTertiary)
+            trailing
         }
         .padding(.horizontal, VSpacing.md)
-        .padding(.vertical, VSpacing.sm)
+        .frame(height: 28)
     }
 }

@@ -1,8 +1,8 @@
 /**
  * Route handler for surface action operations.
  *
- * POST /v1/surface-actions — dispatch a surface action to an active session.
- * Requires the session to already exist (does not create new sessions).
+ * POST /v1/surface-actions — dispatch a surface action to an active conversation.
+ * Requires the conversation to already exist (does not create new conversations).
  */
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
@@ -20,11 +20,11 @@ interface SurfaceActionTarget {
   handleSurfaceUndo?(surfaceId: string): void;
 }
 
-export type SessionLookup = (
+export type ConversationLookup = (
   conversationId: string,
 ) => SurfaceActionTarget | undefined;
 
-export type SessionLookupBySurfaceId = (
+export type ConversationLookupBySurfaceId = (
   surfaceId: string,
 ) => SurfaceActionTarget | undefined;
 
@@ -35,8 +35,8 @@ export type SessionLookupBySurfaceId = (
  */
 export async function handleSurfaceAction(
   req: Request,
-  findConversation: SessionLookup,
-  findConversationBySurfaceId?: SessionLookupBySurfaceId,
+  findConversation: ConversationLookup,
+  findConversationBySurfaceId?: ConversationLookupBySurfaceId,
 ): Promise<Response> {
   const body = (await req.json()) as {
     conversationId?: string | null;
@@ -57,16 +57,16 @@ export async function handleSurfaceAction(
     return httpError("BAD_REQUEST", "conversationId must be a string", 400);
   }
 
-  const session = conversationId
+  const conversation = conversationId
     ? findConversation(conversationId)
     : findConversationBySurfaceId?.(surfaceId);
 
-  if (!session) {
-    return httpError("NOT_FOUND", "No active session found", 404);
+  if (!conversation) {
+    return httpError("NOT_FOUND", "No active conversation found", 404);
   }
 
   try {
-    session.handleSurfaceAction(surfaceId, actionId, data);
+    conversation.handleSurfaceAction(surfaceId, actionId, data);
     log.info(
       { conversationId: conversationId ?? undefined, surfaceId, actionId },
       "Surface action handled via HTTP",
@@ -93,8 +93,8 @@ export async function handleSurfaceAction(
 export async function handleSurfaceUndo(
   req: Request,
   surfaceId: string,
-  findConversation: SessionLookup,
-  findConversationBySurfaceId?: SessionLookupBySurfaceId,
+  findConversation: ConversationLookup,
+  findConversationBySurfaceId?: ConversationLookupBySurfaceId,
 ): Promise<Response> {
   const body = (await req.json()) as {
     conversationId?: string | null;
@@ -106,24 +106,24 @@ export async function handleSurfaceUndo(
     return httpError("BAD_REQUEST", "conversationId must be a string", 400);
   }
 
-  const session = conversationId
+  const conversation = conversationId
     ? findConversation(conversationId)
     : findConversationBySurfaceId?.(surfaceId);
 
-  if (!session) {
-    return httpError("NOT_FOUND", "No active session found", 404);
+  if (!conversation) {
+    return httpError("NOT_FOUND", "No active conversation found", 404);
   }
 
-  if (!session.handleSurfaceUndo) {
+  if (!conversation.handleSurfaceUndo) {
     return httpError(
       "NOT_IMPLEMENTED",
-      "Surface undo not supported for this session type",
+      "Surface undo not supported for this conversation type",
       501,
     );
   }
 
   try {
-    session.handleSurfaceUndo(surfaceId);
+    conversation.handleSurfaceUndo(surfaceId);
     log.info({ conversationId, surfaceId }, "Surface undo handled via HTTP");
     return Response.json({ ok: true });
   } catch (err) {
@@ -136,8 +136,8 @@ export async function handleSurfaceUndo(
 }
 
 export function surfaceActionRouteDefinitions(deps: {
-  findConversation?: SessionLookup;
-  findConversationBySurfaceId?: SessionLookupBySurfaceId;
+  findConversation?: ConversationLookup;
+  findConversationBySurfaceId?: ConversationLookupBySurfaceId;
 }): RouteDefinition[] {
   return [
     {

@@ -14,6 +14,28 @@ import UIKit
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ChatViewModel")
 
+@MainActor
+protocol SurfaceClientProtocol {
+    func fetchSurfaceData(surfaceId: String, conversationId: String) async -> SurfaceData?
+}
+
+@MainActor
+struct SurfaceClient: SurfaceClientProtocol {
+    nonisolated init() {}
+
+    func fetchSurfaceData(surfaceId: String, conversationId: String) async -> SurfaceData? {
+        let response = try? await GatewayHTTPClient.get(
+            path: "assistants/{assistantId}/surfaces/\(surfaceId)?conversationId=\(conversationId)", timeout: 10
+        )
+        if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
+            log.error("Fetch surface \(surfaceId) failed (HTTP \(statusCode))")
+            return nil
+        }
+        guard let data = response?.data else { return nil }
+        return Surface.parseSurfaceDataFromResponse(data)
+    }
+}
+
 /// Facade that owns the three focused sub-managers and forwards all property
 /// accesses to them via computed properties.  Existing call sites require no
 /// changes because the public API surface is identical to the previous monolith.
@@ -294,6 +316,7 @@ public final class ChatViewModel: ObservableObject {
 
     public let subagentDetailStore = SubagentDetailStore()
     let daemonClient: any DaemonClientProtocol
+    private let surfaceClient: any SurfaceClientProtocol = SurfaceClient()
     /// Tracks the action submitted for each guardian decision requestId so the
     /// response handler can display the correct resolved state (the server does
     /// not echo back the action in its acknowledgement).
@@ -621,13 +644,13 @@ public final class ChatViewModel: ObservableObject {
         guard hasMoreHistory, let cursor = historyCursor, let conversationId else { return false }
         isLoadingMoreMessages = true
         // Safety timeout: log a warning if the daemon is slow, but do NOT
-        // clear isLoadingMoreMessages here. Callers (ThreadConversationRestorer,
+        // clear isLoadingMoreMessages here. Callers (ConversationRestorer,
         // IOSConversationStore) use `vm.isLoadingMoreMessages` to decide whether
         // a history response is a pagination load. If the timeout clears the
         // flag before the response arrives, the late-but-valid response is
         // misclassified as an initial load and replaces all messages instead
         // of prepending. The flag is properly cleared by populateFromHistory
-        // when the response arrives, or by reconnect/thread-switch logic if
+        // when the response arrives, or by reconnect/conversation-switch logic if
         // the daemon disconnects.
         loadMoreTimeoutTask?.cancel()
         loadMoreTimeoutTask = Task { @MainActor [weak self] in
@@ -640,7 +663,7 @@ public final class ChatViewModel: ObservableObject {
         return true
     }
 
-    /// Reset pagination when the thread switches or history is reloaded.
+    /// Reset pagination when the conversation switches or history is reloaded.
     public func resetMessagePagination() {
         displayedMessageCount = Self.messagePageSize
         historyCursor = nil
@@ -667,7 +690,7 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
-    /// Persist a captured preview image into the ChatMessage model so it survives thread switches.
+    /// Persist a captured preview image into the ChatMessage model so it survives conversation switches.
     public func updateSurfacePreviewImage(appId: String, base64: String) {
         for msgIdx in messages.indices {
             for surfIdx in messages[msgIdx].inlineSurfaces.indices {
@@ -782,7 +805,7 @@ public final class ChatViewModel: ObservableObject {
         }
         displayedMessageCount = Self.messagePageSize
         // Only mark history as unloaded if there's a session to reload from.
-        // Threads without a session (new, empty) have nothing to fetch —
+        // Conversations without a session (new, empty) have nothing to fetch —
         // resetting the flag would leave the UI stuck on a loading spinner.
         if conversationId != nil {
             isHistoryLoaded = false
@@ -956,7 +979,7 @@ public final class ChatViewModel: ObservableObject {
         }
 
         // Listen for captured app preview images and persist them into the
-        // ChatMessage model so they survive thread switches and history reloads.
+        // ChatMessage model so they survive conversation switches and history reloads.
         appPreviewCapturedObserver = NotificationCenter.default.addObserver(
             forName: Notification.Name("MainWindow.appPreviewImageCaptured"),
             object: nil,
@@ -998,7 +1021,7 @@ public final class ChatViewModel: ObservableObject {
 
     /// Check for a buffered deep-link message and apply it to `inputText`.
     /// Called by the view layer when this `ChatViewModel` becomes the
-    /// active/visible thread, ensuring only one VM ever consumes the message.
+    /// active/visible conversation, ensuring only one VM ever consumes the message.
     public func consumeDeepLinkIfNeeded() {
         guard let message = DeepLinkManager.pendingMessage else { return }
         DeepLinkManager.pendingMessage = nil
@@ -1039,7 +1062,7 @@ public final class ChatViewModel: ObservableObject {
         }
 
         // Fire auto-title callback on the first user message (skip slash commands
-        // like /model so the thread title isn't set to a command string)
+        // like /model so the conversation title isn't set to a command string)
         if !rawText.isEmpty, !rawText.hasPrefix("/"), let callback = onFirstUserMessage {
             onFirstUserMessage = nil
             callback(rawText)
@@ -1049,7 +1072,7 @@ public final class ChatViewModel: ObservableObject {
         onUserMessageSent?()
 
         // Block rapid-fire only when bootstrapping with a queued message.
-        // When a message-less bootstrap is in flight (e.g. private thread
+        // When a message-less bootstrap is in flight (e.g. private conversation
         // pre-allocation), adopt the user's message as the pending message
         // so it gets sent when conversation_info arrives instead of being dropped.
         if (isSending || isBootstrapping) && conversationId == nil {
@@ -1213,7 +1236,7 @@ public final class ChatViewModel: ObservableObject {
 
         greetingTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let key = "greeting-\(UUID().uuidString)"
+            let key = "greeting"
             var result = ""
             do {
                 let stream = self.daemonClient.sendBtwMessage(
@@ -1238,9 +1261,17 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
+    /// Clear greeting state and cancel any in-flight generation.
+    public func dismissGreeting() {
+        greetingTask?.cancel()
+        greetingTask = nil
+        emptyStateGreeting = nil
+        isGeneratingGreeting = false
+    }
+
     private func bootstrapConversation(userMessage: String?, attachments: [UserMessageAttachment]?) {
         // Only set sending/thinking indicators when there's an actual user
-        // message; message-less session creates (e.g. private thread
+        // message; message-less session creates (e.g. private conversation
         // pre-allocation) are silent and shouldn't affect UI state.
         if userMessage != nil {
             isSending = true
@@ -1281,7 +1312,7 @@ public final class ChatViewModel: ObservableObject {
             // Subscribe to daemon stream
             self.startMessageLoop()
 
-            // Send conversation_create with correlation ID and thread type
+            // Send conversation_create with correlation ID and conversation type
             do {
                 try daemonClient.send(ConversationCreateMessage(title: nil, correlationId: correlationId, conversationType: self.conversationType, preactivatedSkillIds: self.preactivatedSkillIds))
                 // Clear one-shot preactivated skills so they don't leak into a
@@ -1519,8 +1550,8 @@ public final class ChatViewModel: ObservableObject {
     }
 
     /// Create a daemon session immediately, without a user message.
-    /// Used by private threads that need a persistent session ID right away
-    /// (e.g. to store the thread in the database before the user types anything).
+    /// Used by private conversations that need a persistent session ID right away
+    /// (e.g. to store the conversation in the database before the user types anything).
     /// No-op if a session already exists or a bootstrap is already in flight.
     public func createConversationIfNeeded(conversationType: String? = nil) {
         guard conversationId == nil, !isBootstrapping else { return }
@@ -1579,7 +1610,7 @@ public final class ChatViewModel: ObservableObject {
     /// Lazily created manager that serializes surface content fetches.
     private lazy var surfaceRefetchManager = SurfaceRefetchManager { [weak self] surfaceId, conversationId in
         guard let self else { return nil }
-        return await self.daemonClient.fetchSurfaceData(surfaceId: surfaceId, conversationId: conversationId)
+        return await self.surfaceClient.fetchSurfaceData(surfaceId: surfaceId, conversationId: conversationId)
     }
 
     /// In-flight refetch tasks, keyed by surface ID for cancellation.
@@ -1617,7 +1648,7 @@ public final class ChatViewModel: ObservableObject {
     }
 
     /// Cancel the queued user message without clearing `bootstrapCorrelationId`.
-    /// Used when archiving a thread before conversation_info arrives: we want to
+    /// Used when archiving a conversation before conversation_info arrives: we want to
     /// discard the pending message (so it isn't sent once the session is claimed)
     /// but preserve the correlation ID so the VM only claims its own session.
     public func cancelPendingMessage() {
@@ -2726,7 +2757,7 @@ public final class ChatViewModel: ObservableObject {
         // Surfaces are now included directly in the history response and populated above
         // Strip heavy data from old messages after a (potentially large) history load.
         trimOldMessagesIfNeeded()
-        // Fetch pending guardian prompts when history loads (thread open/restore)
+        // Fetch pending guardian prompts when history loads (conversation open/restore)
         refreshGuardianPrompts()
     }
 

@@ -391,9 +391,9 @@ extension AppDelegate {
             let notify = window?.notifyOnComplete ?? false
             self?.handleQuickInputSubmit(message, imageData: imageData, notifyOnComplete: notify)
         }
-        window.onSubmitToThread = { [weak self, weak window] message, imageData in
+        window.onSubmitToConversation = { [weak self, weak window] message, imageData in
             let notify = window?.notifyOnComplete ?? false
-            self?.handleQuickInputSubmitToThread(message, imageData: imageData, notifyOnComplete: notify)
+            self?.handleQuickInputSubmitToConversation(message, imageData: imageData, notifyOnComplete: notify)
         }
         window.onSelectConversation = { [weak self] conversationId in
             self?.handleQuickInputSelectConversation(conversationId)
@@ -407,7 +407,7 @@ extension AppDelegate {
                 .filter { !$0.isArchived }
                 .sorted { $0.lastInteractedAt > $1.lastInteractedAt }
                 .prefix(3)
-                .map { QuickInputThread(id: $0.id, title: $0.title) }
+                .map { QuickInputConversation(id: $0.id, title: $0.title) }
         }
         window.showScreenPermissionPrompt = shouldShowPermissionPrompt
         if aboveDock {
@@ -440,9 +440,9 @@ extension AppDelegate {
                 let notify = window?.notifyOnComplete ?? false
                 self?.handleQuickInputSubmit(message, imageData: imgData, notifyOnComplete: notify)
             }
-            window.onSubmitToThread = { [weak self, weak window] message, imgData in
+            window.onSubmitToConversation = { [weak self, weak window] message, imgData in
                 let notify = window?.notifyOnComplete ?? false
-                self?.handleQuickInputSubmitToThread(message, imageData: imgData, notifyOnComplete: notify)
+                self?.handleQuickInputSubmitToConversation(message, imageData: imgData, notifyOnComplete: notify)
             }
             window.onSelectConversation = { [weak self] conversationId in
                 self?.handleQuickInputSelectConversation(conversationId)
@@ -455,7 +455,7 @@ extension AppDelegate {
                     .filter { !$0.isArchived }
                     .sorted { $0.lastInteractedAt > $1.lastInteractedAt }
                     .prefix(3)
-                    .map { QuickInputThread(id: $0.id, title: $0.title) }
+                    .map { QuickInputConversation(id: $0.id, title: $0.title) }
             }
             window.setAttachment(imageData: imageData)
             window.showNearRect(selectionRect)
@@ -496,7 +496,7 @@ extension AppDelegate {
         }
     }
 
-    func handleQuickInputSubmitToThread(_ message: String, imageData: Data?, notifyOnComplete: Bool) {
+    func handleQuickInputSubmitToConversation(_ message: String, imageData: Data?, notifyOnComplete: Bool) {
         guard let mainWindow else { return }
         if let viewModel = mainWindow.activeViewModel {
             if notifyOnComplete {

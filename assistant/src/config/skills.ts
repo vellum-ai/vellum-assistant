@@ -42,6 +42,8 @@ const VellumMetadataSchema = z
     "display-name": z.string().optional(),
     includes: z.array(z.string()).optional(),
     "feature-flag": z.string().optional(),
+    "activation-hints": z.array(z.string()).optional(),
+    "avoid-when": z.array(z.string()).optional(),
   })
   .passthrough();
 
@@ -74,6 +76,10 @@ export interface SkillSummary {
   includes?: string[];
   /** Feature flag ID declared in frontmatter. Only skills with this field are subject to feature flag gating. */
   featureFlag?: string;
+  /** Compact routing cues projected into <available_skills> XML to guide skill selection. */
+  activationHints?: string[];
+  /** Conditions under which this skill should NOT be loaded. */
+  avoidWhen?: string[];
 }
 
 export interface SkillDefinition extends SkillSummary {
@@ -190,6 +196,17 @@ interface ParsedFrontmatter {
   emoji?: string;
   includes?: string[];
   featureFlag?: string;
+  activationHints?: string[];
+  avoidWhen?: string[];
+}
+
+function normalizeStringArray(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const result = raw
+    .filter((item): item is string => typeof item === "string")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  return result.length > 0 ? result : undefined;
 }
 
 function parseFrontmatter(
@@ -282,6 +299,9 @@ function parseFrontmatter(
       ? vellum["display-name"]
       : undefined) ?? name;
 
+  const activationHints = normalizeStringArray(vellum?.["activation-hints"]);
+  const avoidWhen = normalizeStringArray(vellum?.["avoid-when"]);
+
   return {
     name,
     displayName,
@@ -290,6 +310,8 @@ function parseFrontmatter(
     emoji,
     includes,
     featureFlag,
+    activationHints,
+    avoidWhen,
   };
 }
 
@@ -442,6 +464,8 @@ function readSkillFromDirectory(
       toolManifest: detectToolManifest(directoryPath),
       includes: parsed.includes,
       featureFlag: parsed.featureFlag,
+      activationHints: parsed.activationHints,
+      avoidWhen: parsed.avoidWhen,
     };
   } catch (err) {
     log.warn({ err, skillFilePath }, "Failed to read skill file");
@@ -490,6 +514,8 @@ function readBundledSkillFromDirectory(
       toolManifest: detectToolManifest(directoryPath),
       includes: parsed.includes,
       featureFlag: parsed.featureFlag,
+      activationHints: parsed.activationHints,
+      avoidWhen: parsed.avoidWhen,
     };
   } catch (err) {
     log.warn({ err, skillFilePath }, "Failed to read bundled skill file");
@@ -546,6 +572,8 @@ function loadBundledSkills(): SkillSummary[] {
       toolManifest: skill.toolManifest,
       includes: skill.includes,
       featureFlag: skill.featureFlag,
+      activationHints: skill.activationHints,
+      avoidWhen: skill.avoidWhen,
     });
   }
 
@@ -680,6 +708,8 @@ function skillSummaryFromDefinition(
     toolManifest: skill.toolManifest,
     includes: skill.includes,
     featureFlag: skill.featureFlag,
+    activationHints: skill.activationHints,
+    avoidWhen: skill.avoidWhen,
   };
 }
 
