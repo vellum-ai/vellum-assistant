@@ -523,7 +523,7 @@ struct AgentPanelContent: View {
                 Divider().background(VColor.borderBase)
 
                 // Content (loading, error, or tree)
-                Group {
+                VStack(spacing: 0) {
                     if skillsManager.isLoadingSkillFiles {
                         HStack {
                             Spacer()

@@ -286,7 +286,7 @@ private struct WorkspaceTreeSidebar: View {
 
             Divider().background(VColor.borderBase)
 
-            Group {
+            VStack(spacing: 0) {
                 if state.isLoadingTree && state.directoryCache.isEmpty {
                     VStack {
                         Spacer()
