@@ -161,6 +161,7 @@ struct AppsGridView: View {
         .frame(maxWidth: .infinity)
         .padding(.top, VSpacing.lg)
         .padding(.horizontal, VSpacing.xl)
+        .accessibilityHidden(true)
     }
 
     private var skeletonSection: some View {
@@ -183,13 +184,14 @@ struct AppsGridView: View {
     private var skeletonAppCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             // Preview rectangle matching 16:10 aspect ratio
-            VSkeletonBone(height: 0, radius: VRadius.lg)
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(VColor.borderBase.opacity(0.5))
                 .aspectRatio(16.0 / 10.0, contentMode: .fit)
+                .vShimmer()
 
-            // Name line
-            VStack(alignment: .leading, spacing: 4) {
+            // Name and date lines
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
                 VSkeletonBone(width: 120, height: 12)
-                // Date line
                 VSkeletonBone(width: 80, height: 10)
             }
             .padding(.horizontal, VSpacing.xs)
