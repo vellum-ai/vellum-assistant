@@ -209,6 +209,12 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Rebuild guardian tables so timestamp columns have INTEGER affinity instead of TEXT",
   },
+  {
+    key: "migration_rename_gmail_provider_key_to_google_v1",
+    version: 31,
+    description:
+      "Rename integration:gmail provider key to integration:google across oauth_providers, oauth_apps, and oauth_connections",
+  },
 ];
 
 export interface MigrationValidationResult {
