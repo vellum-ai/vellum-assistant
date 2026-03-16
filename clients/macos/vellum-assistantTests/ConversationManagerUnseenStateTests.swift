@@ -724,6 +724,124 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
                        "Duplicate conversationId should not create a second conversation")
     }
 
+    func testNotificationIntentMarksInactiveConversationUnseen() {
+        conversationManager.createScheduleConversation(
+            conversationId: "notif-reuse-1",
+            scheduleJobId: "sched-reuse-1",
+            title: "Reuse Target"
+        )
+
+        guard let idx = conversationManager.conversations.firstIndex(where: { $0.conversationId == "notif-reuse-1" }) else {
+            XCTFail("Expected conversation to exist")
+            return
+        }
+
+        // Simulate previously seen state
+        conversationManager.conversations[idx].hasUnseenLatestAssistantMessage = false
+
+        // Ensure the active conversation is a different one (the default from setUp)
+        XCTAssertNotEqual(conversationManager.conversations[idx].id, conversationManager.activeConversationId)
+
+        conversationManager.handleNotificationIntentForExistingConversation(daemonConversationId: "notif-reuse-1")
+
+        XCTAssertTrue(conversationManager.conversations[idx].hasUnseenLatestAssistantMessage,
+                      "Inactive conversation should be marked unseen after notification intent")
+        XCTAssertNotNil(conversationManager.conversations[idx].latestAssistantMessageAt,
+                        "latestAssistantMessageAt should be set")
+        XCTAssertTrue(
+            abs(conversationManager.conversations[idx].latestAssistantMessageAt!.timeIntervalSinceNow) < 1.0,
+            "latestAssistantMessageAt should be recent (within last second)"
+        )
+    }
+
+    func testNotificationIntentSkipsUnseenBadgeForActiveConversation() {
+        conversationManager.createScheduleConversation(
+            conversationId: "notif-active-1",
+            scheduleJobId: "sched-active-1",
+            title: "Active Target"
+        )
+
+        guard let conversation = conversationManager.conversations.first(where: { $0.conversationId == "notif-active-1" }) else {
+            XCTFail("Expected conversation to exist")
+            return
+        }
+
+        conversationManager.selectConversation(id: conversation.id)
+
+        // Re-find index after selectConversation (may have shifted due to removeAbandonedEmptyConversation)
+        guard let idx = conversationManager.conversations.firstIndex(where: { $0.conversationId == "notif-active-1" }) else {
+            XCTFail("Expected conversation to still exist after selection")
+            return
+        }
+
+        conversationManager.conversations[idx].hasUnseenLatestAssistantMessage = false
+
+        conversationManager.handleNotificationIntentForExistingConversation(daemonConversationId: "notif-active-1")
+
+        XCTAssertFalse(conversationManager.conversations[idx].hasUnseenLatestAssistantMessage,
+                       "Active conversation should not be marked unseen — user is looking at it")
+    }
+
+    func testNotificationIntentNoopsForUnknownConversation() {
+        let countBefore = conversationManager.conversations.count
+
+        conversationManager.handleNotificationIntentForExistingConversation(daemonConversationId: "nonexistent")
+
+        XCTAssertEqual(conversationManager.conversations.count, countBefore,
+                       "Unknown conversation ID should not change conversation count")
+    }
+
+    func testNotificationIntentDoesNotSendDaemonSignal() {
+        conversationManager.createScheduleConversation(
+            conversationId: "notif-no-signal",
+            scheduleJobId: "sched-no-signal",
+            title: "No Signal Target"
+        )
+
+        guard let idx = conversationManager.conversations.firstIndex(where: { $0.conversationId == "notif-no-signal" }) else {
+            XCTFail("Expected conversation to exist")
+            return
+        }
+
+        // Mark as seen and switch away
+        conversationManager.conversations[idx].hasUnseenLatestAssistantMessage = false
+
+        sentMessages.removeAll()
+
+        conversationManager.handleNotificationIntentForExistingConversation(daemonConversationId: "notif-no-signal")
+
+        let unreadSignals = sentMessages.compactMap { $0 as? ConversationUnreadSignal }
+        let seenSignals = sentMessages.compactMap { $0 as? ConversationSeenSignal }
+
+        XCTAssertTrue(unreadSignals.isEmpty,
+                      "handleNotificationIntentForExistingConversation should not emit conversation_unread_signal")
+        XCTAssertTrue(seenSignals.isEmpty,
+                      "handleNotificationIntentForExistingConversation should not emit conversation_seen_signal")
+    }
+
+    func testNotificationIntentTriggersHistoryRequest() {
+        conversationManager.createScheduleConversation(
+            conversationId: "notif-history-1",
+            scheduleJobId: "sched-history-1",
+            title: "History Target"
+        )
+
+        guard conversationManager.conversations.firstIndex(where: { $0.conversationId == "notif-history-1" }) != nil else {
+            XCTFail("Expected conversation to exist")
+            return
+        }
+
+        sentMessages.removeAll()
+
+        conversationManager.handleNotificationIntentForExistingConversation(daemonConversationId: "notif-history-1")
+
+        let historyRequests = sentMessages.compactMap { $0 as? HistoryRequestMessage }
+        XCTAssertFalse(historyRequests.isEmpty,
+                       "handleNotificationIntentForExistingConversation should trigger a history request")
+        XCTAssertEqual(historyRequests.first?.conversationId, "notif-history-1",
+                       "History request should target the correct conversation")
+    }
+
     private func waitForPropagation() {
         let exp = expectation(description: "combine propagation")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {

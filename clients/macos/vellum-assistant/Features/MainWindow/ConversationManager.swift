@@ -1393,6 +1393,37 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
     }
 
+    /// Handle a `notification_intent` that targets a conversation the client already
+    /// knows about (reuse case). Two effects:
+    ///
+    /// 1. **Unseen badge** — marks the conversation as having unseen content (if it's
+    ///    not the active conversation). Does NOT send a signal to the daemon because
+    ///    the server already advanced the attention cursor via `projectAssistantMessage`.
+    ///
+    /// 2. **Message visibility** — triggers a reconnect-style history fetch so the
+    ///    notification seed message appears in the chat view. Only fires when a
+    ///    ViewModel exists and is idle (not mid-response), to avoid disrupting
+    ///    active streaming. For inactive conversations without a ViewModel, the
+    ///    message will load normally when the user opens the conversation.
+    func handleNotificationIntentForExistingConversation(daemonConversationId: String) {
+        guard let idx = conversations.firstIndex(where: { $0.conversationId == daemonConversationId }) else { return }
+        let localId = conversations[idx].id
+
+        if localId != activeConversationId {
+            // Background conversation: mark unseen. Message loads on activation.
+            conversations[idx].hasUnseenLatestAssistantMessage = true
+            conversations[idx].latestAssistantMessageAt = Date()
+        }
+
+        // Trigger history catch-up so the new message appears in the chat view.
+        // Guard: only when a ViewModel exists and is idle — triggering populateFromHistory
+        // mid-stream would discard the in-flight streaming buffer (line 2709 of ChatViewModel).
+        if let vm = chatViewModels[localId], !vm.isThinking, !vm.isSending {
+            vm.prepareForNotificationCatchUp()
+            conversationRestorer.requestReconnectHistory(conversationId: daemonConversationId)
+        }
+    }
+
     /// Set a pending anchor message for scroll-to behavior on notification deep links.
     /// Only takes effect when the specified conversation is currently active.
     func setPendingAnchorMessage(conversationId: UUID, messageId: UUID) {
