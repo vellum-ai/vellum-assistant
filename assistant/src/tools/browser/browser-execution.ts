@@ -66,7 +66,7 @@ export const MAX_EXTRACT_LENGTH = 50_000;
 // ── Shared element resolution ────────────────────────────────────────
 
 export function resolveSelector(
-  sessionId: string,
+  conversationId: string,
   input: Record<string, unknown>,
 ): { selector: string | null; error: string | null } {
   const elementId =
@@ -83,7 +83,7 @@ export function resolveSelector(
 
   if (elementId) {
     const resolved = browserManager.resolveSnapshotSelector(
-      sessionId,
+      conversationId,
       elementId,
     );
     if (!resolved) {
@@ -159,7 +159,7 @@ export async function executeBrowserNavigate(
       context.conversationId,
     );
     log.debug(
-      { url: safeRequestedUrl, sessionId: context.conversationId },
+      { url: safeRequestedUrl, conversationId: context.conversationId },
       "Navigating",
     );
 
