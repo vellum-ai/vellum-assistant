@@ -161,6 +161,11 @@ struct APIKeyEntryStepView: View {
     }
 
     private func saveModelToConfig(_ model: String) {
-        try? WorkspaceConfigIO.merge(["services": ["inference": ["model": model]]])
+        let existingConfig = WorkspaceConfigIO.read()
+        var services = existingConfig["services"] as? [String: Any] ?? [:]
+        var inference = services["inference"] as? [String: Any] ?? [:]
+        inference["model"] = model
+        services["inference"] = inference
+        try? WorkspaceConfigIO.merge(["services": services])
     }
 }
