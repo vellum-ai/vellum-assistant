@@ -655,6 +655,75 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         XCTAssertEqual(appendedThread.lastSeenAssistantMessageAt?.timeIntervalSince1970, 9.0)
     }
 
+    func testScheduleConversationCreatedWithUnseenFlag() {
+        conversationManager.createScheduleConversation(
+            conversationId: "schedule-conv-1",
+            scheduleJobId: "sched-1",
+            title: "Daily Standup"
+        )
+
+        guard let conversation = conversationManager.conversations.first(where: { $0.conversationId == "schedule-conv-1" }) else {
+            XCTFail("Expected schedule conversation to be created")
+            return
+        }
+
+        XCTAssertTrue(conversation.hasUnseenLatestAssistantMessage,
+                      "Schedule conversations should start with unread badge")
+        XCTAssertEqual(conversation.source, "schedule")
+        XCTAssertEqual(conversation.scheduleJobId, "sched-1")
+    }
+
+    func testTaskRunConversationCreatedWithUnseenFlag() {
+        conversationManager.createTaskRunConversation(
+            conversationId: "task-conv-1",
+            workItemId: "work-1",
+            title: "Run Tests"
+        )
+
+        guard let conversation = conversationManager.conversations.first(where: { $0.conversationId == "task-conv-1" }) else {
+            XCTFail("Expected task run conversation to be created")
+            return
+        }
+
+        XCTAssertTrue(conversation.hasUnseenLatestAssistantMessage,
+                      "Task run conversations should start with unread badge")
+    }
+
+    func testNotificationConversationCreatedWithUnseenFlag() {
+        conversationManager.createNotificationConversation(
+            conversationId: "notif-conv-1",
+            title: "New Alert",
+            sourceEventName: "watcher.notification"
+        )
+
+        guard let conversation = conversationManager.conversations.first(where: { $0.conversationId == "notif-conv-1" }) else {
+            XCTFail("Expected notification conversation to be created")
+            return
+        }
+
+        XCTAssertTrue(conversation.hasUnseenLatestAssistantMessage,
+                      "Notification conversations should start with unread badge")
+        XCTAssertEqual(conversation.source, "notification")
+    }
+
+    func testBackgroundConversationCreationSkipsDuplicateConversationId() {
+        conversationManager.createScheduleConversation(
+            conversationId: "dup-conv",
+            scheduleJobId: "sched-dup",
+            title: "First"
+        )
+        let countAfterFirst = conversationManager.conversations.count
+
+        conversationManager.createScheduleConversation(
+            conversationId: "dup-conv",
+            scheduleJobId: "sched-dup",
+            title: "Duplicate"
+        )
+
+        XCTAssertEqual(conversationManager.conversations.count, countAfterFirst,
+                       "Duplicate conversationId should not create a second conversation")
+    }
+
     private func waitForPropagation() {
         let exp = expectation(description: "combine propagation")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
