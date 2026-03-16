@@ -1125,11 +1125,16 @@ export async function startCli(): Promise<void> {
         try {
           const raw = loadRawConfig();
           const provider = MODEL_TO_PROVIDER[modelArg];
-          raw.model = modelArg;
-          if (provider) raw.provider = provider;
+          const services =
+            (raw.services as Record<string, Record<string, unknown>>) ?? {};
+          const inference = services.inference ?? {};
+          inference.model = modelArg;
+          if (provider) inference.provider = provider;
+          services.inference = inference;
+          raw.services = services;
           saveRawConfig(raw);
           process.stdout.write(
-            `\n  Model: ${modelArg} (${provider ?? raw.provider})\n\n`,
+            `\n  Model: ${modelArg} (${provider ?? (inference.provider as string)})\n\n`,
           );
         } catch {
           process.stdout.write("[Failed to set model]\n");

@@ -84,7 +84,9 @@ export async function run(
   const prompt = input.prompt as string;
   const mode = (input.mode as "generate" | "edit") ?? "generate";
   const attachmentIds = input.attachment_ids as string[] | undefined;
-  const model = (input.model as string | undefined) ?? config.imageGenModel;
+  const model =
+    (input.model as string | undefined) ??
+    config.services["image-generation"].model;
   const variants = input.variants as number | undefined;
 
   // Resolve source images from attachments for edit mode

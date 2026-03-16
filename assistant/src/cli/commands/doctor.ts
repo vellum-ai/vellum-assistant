@@ -73,8 +73,14 @@ Examples:
 
       // 2. Provider/API key configured
       const raw = loadRawConfig();
+      const rawServices = raw.services as
+        | Record<string, Record<string, unknown>>
+        | undefined;
+      const rawInferenceProvider = rawServices?.inference?.provider;
       const provider =
-        typeof raw.provider === "string" ? raw.provider : "anthropic";
+        typeof rawInferenceProvider === "string"
+          ? rawInferenceProvider
+          : "anthropic";
       const configKey = await getSecureKeyAsync(provider);
 
       if (provider === "ollama") {

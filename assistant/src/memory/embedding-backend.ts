@@ -626,7 +626,7 @@ export async function selectedBackendSupportsMultimodal(
 
 async function isOllamaConfigured(config: AssistantConfig): Promise<boolean> {
   return (
-    config.provider === "ollama" ||
+    config.services.inference.provider === "ollama" ||
     Boolean(await getSecureKeyAsync("ollama")) ||
     Boolean(getOllamaBaseUrlEnv())
   );

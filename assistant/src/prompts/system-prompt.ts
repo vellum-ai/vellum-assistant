@@ -673,7 +673,7 @@ function buildConfigSection(hasNoClient: boolean): string {
 
   return [
     "## Configuration",
-    `- **Active model**: \`${config.model}\` (provider: ${config.provider})`,
+    `- **Active model**: \`${config.services.inference.model}\` (provider: ${config.services.inference.provider})`,
     fileToolGuidance,
     "",
     "- `IDENTITY.md` — Your name, nature, personality, and emoji. Updated during the first-run ritual.",

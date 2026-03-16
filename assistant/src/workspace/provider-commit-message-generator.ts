@@ -55,7 +55,7 @@ function getProviderCandidates(config: ReturnType<typeof getConfig>): string[] {
   const order = Array.isArray(config.providerOrder) ? config.providerOrder : [];
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const name of [config.provider, ...order]) {
+  for (const name of [config.services.inference.provider, ...order]) {
     if (seen.has(name)) continue;
     seen.add(name);
     out.push(name);
@@ -161,7 +161,7 @@ export class ProviderCommitMessageGenerator {
         return buildDeterministicResult(context, "missing_provider_api_key");
       }
       log.debug(
-        { provider: config.provider },
+        { provider: config.services.inference.provider },
         "Provider not initialized; falling back to deterministic",
       );
       return buildDeterministicResult(context, "provider_not_initialized");
@@ -177,7 +177,7 @@ export class ProviderCommitMessageGenerator {
         log.debug(
           {
             selectedProvider: selectedProviderName,
-            configuredProvider: config.provider,
+            configuredProvider: config.services.inference.provider,
           },
           "Selected provider API key missing; falling back to deterministic",
         );
@@ -216,7 +216,10 @@ export class ProviderCommitMessageGenerator {
 
     if (!fastModel) {
       log.debug(
-        { provider: selectedProviderName, configuredProvider: config.provider },
+        {
+          provider: selectedProviderName,
+          configuredProvider: config.services.inference.provider,
+        },
         "No fast model resolvable for provider; falling back to deterministic",
       );
       return buildDeterministicResult(context, "missing_fast_model");

@@ -136,6 +136,23 @@ export {
   SecretDetectionConfigSchema,
 } from "./schemas/security.js";
 export type {
+  ImageGenerationService,
+  InferenceService,
+  ServiceMode,
+  Services,
+  WebSearchService,
+} from "./schemas/services.js";
+export {
+  ImageGenerationServiceSchema,
+  InferenceServiceSchema,
+  ServiceModeSchema,
+  ServicesSchema,
+  VALID_IMAGE_GEN_PROVIDERS,
+  VALID_INFERENCE_PROVIDERS,
+  VALID_WEB_SEARCH_PROVIDERS,
+  WebSearchServiceSchema,
+} from "./schemas/services.js";
+export type {
   RemotePolicyConfig,
   RemoteProviderConfig,
   RemoteProvidersConfig,
@@ -197,6 +214,10 @@ import {
   PermissionsConfigSchema,
   SecretDetectionConfigSchema,
 } from "./schemas/security.js";
+import {
+  ServicesSchema,
+  VALID_INFERENCE_PROVIDERS,
+} from "./schemas/services.js";
 import { SkillsConfigSchema } from "./schemas/skills.js";
 import { SwarmConfigSchema } from "./schemas/swarm.js";
 import {
@@ -205,44 +226,13 @@ import {
 } from "./schemas/timeouts.js";
 import { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 
-const VALID_PROVIDERS = [
-  "anthropic",
-  "openai",
-  "gemini",
-  "ollama",
-  "fireworks",
-  "openrouter",
-] as const;
-const VALID_WEB_SEARCH_PROVIDERS = [
-  "perplexity",
-  "brave",
-  "anthropic-native",
-] as const;
-
 export const AssistantConfigSchema = z
   .object({
-    provider: z
-      .enum(VALID_PROVIDERS, {
-        error: `provider must be one of: ${VALID_PROVIDERS.join(", ")}`,
-      })
-      .default("anthropic"),
-    model: z
-      .string({ error: "model must be a string" })
-      .default("claude-opus-4-6"),
-    imageGenModel: z
-      .string({ error: "imageGenModel must be a string" })
-      .default("gemini-2.5-flash-image"),
-    webSearchProvider: z
-      .enum(VALID_WEB_SEARCH_PROVIDERS, {
-        error: `webSearchProvider must be one of: ${VALID_WEB_SEARCH_PROVIDERS.join(
-          ", ",
-        )}`,
-      })
-      .default("anthropic-native"),
+    services: ServicesSchema.default(ServicesSchema.parse({})),
     providerOrder: z
       .array(
-        z.enum(VALID_PROVIDERS, {
-          error: `Each providerOrder entry must be one of: ${VALID_PROVIDERS.join(
+        z.enum(VALID_INFERENCE_PROVIDERS, {
+          error: `Each providerOrder entry must be one of: ${VALID_INFERENCE_PROVIDERS.join(
             ", ",
           )}`,
         }),

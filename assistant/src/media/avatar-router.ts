@@ -40,7 +40,7 @@ export async function generateAvatar(
   const result = await generateImage(credentials, {
     prompt,
     mode: "generate",
-    model: config.imageGenModel,
+    model: config.services["image-generation"].model,
   });
 
   const image = result.images[0];

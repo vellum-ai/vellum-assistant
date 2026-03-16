@@ -20,7 +20,7 @@ mock.module("../security/secure-keys.js", () => ({
 // ---------------------------------------------------------------------------
 function cloneConfig(): AssistantConfig {
   const cfg = structuredClone(DEFAULT_CONFIG);
-  cfg.provider = "anthropic";
+  cfg.services.inference.provider = "anthropic";
   cfg.workspaceGit.commitMessageLLM = {
     ...cfg.workspaceGit.commitMessageLLM,
     enabled: true,
@@ -338,7 +338,7 @@ describe("ProviderCommitMessageGenerator", () => {
 
   // 12. Keyless provider (Ollama) without fast model → missing_fast_model (skips API key check)
   test('Ollama without API key or fast model → returns deterministic, reason "missing_fast_model"', async () => {
-    (currentConfig as Record<string, unknown>).provider = "ollama";
+    currentConfig.services.inference.provider = "ollama";
     mockSecureKeys = {};
     resolvedProvider = {
       provider: mockProvider,
@@ -358,7 +358,8 @@ describe("ProviderCommitMessageGenerator", () => {
 
   // 13. Unknown provider without fast model default → missing_fast_model, no provider call
   test('Unknown provider without fast model default → returns deterministic, reason "missing_fast_model"', async () => {
-    (currentConfig as Record<string, unknown>).provider = "exotic-provider";
+    (currentConfig.services.inference as Record<string, unknown>).provider =
+      "exotic-provider";
     mockSecureKeys = { "exotic-provider": "sk-exotic" };
     resolvedProvider = {
       provider: mockProvider,
@@ -377,7 +378,7 @@ describe("ProviderCommitMessageGenerator", () => {
 
   // 14. Fast-model override enables LLM path for provider without built-in default
   test("fast-model override enables LLM path for provider without built-in default", async () => {
-    (currentConfig as Record<string, unknown>).provider = "ollama";
+    currentConfig.services.inference.provider = "ollama";
     mockSecureKeys = {}; // Ollama is keyless
     resolvedProvider = {
       provider: mockProvider,
@@ -405,7 +406,7 @@ describe("ProviderCommitMessageGenerator", () => {
 
   // 15. Fail-open fallback provider uses fallback provider's fast-model mapping
   test("configured provider unavailable -> selected fallback provider model mapping is used", async () => {
-    currentConfig.provider = "anthropic";
+    currentConfig.services.inference.provider = "anthropic";
     currentConfig.providerOrder = ["openai"];
     mockSecureKeys = { openai: "sk-openai" };
     resolvedProvider = {
