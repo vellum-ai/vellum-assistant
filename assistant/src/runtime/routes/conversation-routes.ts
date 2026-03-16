@@ -16,20 +16,20 @@ import {
   parseInterfaceId,
 } from "../../channels/types.js";
 import { getConfig } from "../../config/loader.js";
+import {
+  buildModelInfoEvent,
+  isModelSlashCommand,
+} from "../../daemon/conversation-process.js";
+import {
+  isProviderShortcut,
+  resolveSlash,
+  type SlashContext,
+} from "../../daemon/conversation-slash.js";
 import { renderHistoryContent } from "../../daemon/handlers/shared.js";
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
 import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
-import {
-  buildModelInfoEvent,
-  isModelSlashCommand,
-} from "../../daemon/session-process.js";
-import {
-  isProviderShortcut,
-  resolveSlash,
-  type SlashContext,
-} from "../../daemon/session-slash.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
@@ -79,7 +79,7 @@ const SUGGESTION_CACHE_MAX = 100;
 function collectCanonicalGuardianRequestHintIds(
   conversationId: string,
   sourceChannel: string,
-  session: import("../../daemon/session.js").Session,
+  session: import("../../daemon/conversation.js").Session,
 ): string[] {
   const requests = listPendingRequestsByConversationScope(
     conversationId,
@@ -105,7 +105,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
     mimeType: string;
     data: string;
   }>;
-  session: import("../../daemon/session.js").Session;
+  session: import("../../daemon/conversation.js").Session;
   onEvent: (msg: ServerMessage) => void;
   approvalConversationGenerator?: ApprovalConversationGenerator;
   /** Verified actor identity from actor-token middleware. */
@@ -403,7 +403,7 @@ export function handleListMessages(
 function makeHubPublisher(
   deps: SendMessageDeps,
   conversationId: string,
-  session: import("../../daemon/session.js").Session,
+  session: import("../../daemon/conversation.js").Session,
 ): (msg: ServerMessage) => void {
   let hubChain: Promise<void> = Promise.resolve();
   return (msg: ServerMessage) => {

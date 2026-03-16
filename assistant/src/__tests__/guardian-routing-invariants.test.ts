@@ -129,7 +129,7 @@ function registerPendingToolApprovalInteraction(
   const mockSession = {
     handleConfirmationResponse,
     ensureActorScopedHistory: async () => {},
-  } as unknown as import("../daemon/session.js").Session;
+  } as unknown as import("../daemon/conversation.js").Session;
 
   pendingInteractions.register(requestId, {
     session: mockSession,
@@ -209,7 +209,7 @@ describe("routing invariant: all decision paths reference applyCanonicalGuardian
   // the shared router rather than inlining decision logic.
   const ROUTER_CONSUMERS = [
     "runtime/routes/inbound-message-handler.ts",
-    "daemon/session-process.ts",
+    "daemon/conversation-process.ts",
   ];
 
   for (const relPath of ROUTER_CONSUMERS) {
@@ -220,15 +220,15 @@ describe("routing invariant: all decision paths reference applyCanonicalGuardian
     });
   }
 
-  test("daemon/session-process.ts no longer references legacy guardian-action interception", () => {
-    const fullPath = join(srcRoot, "daemon/session-process.ts");
+  test("daemon/conversation-process.ts no longer references legacy guardian-action interception", () => {
+    const fullPath = join(srcRoot, "daemon/conversation-process.ts");
     const source = readFileSync(fullPath, "utf-8");
     expect(source).not.toContain("../memory/guardian-action-store.js");
     expect(source).not.toContain("getPendingDeliveriesByConversation");
   });
 
-  test("daemon/session-process.ts seeds router hints via listPendingRequestsByConversationScope", () => {
-    const fullPath = join(srcRoot, "daemon/session-process.ts");
+  test("daemon/conversation-process.ts seeds router hints via listPendingRequestsByConversationScope", () => {
+    const fullPath = join(srcRoot, "daemon/conversation-process.ts");
     const source = readFileSync(fullPath, "utf-8");
     expect(source).toContain("listPendingRequestsByConversationScope");
   });

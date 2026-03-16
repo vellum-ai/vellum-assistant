@@ -18,13 +18,13 @@ import {
   updateStatusText,
 } from "./cli/main-screen.jsx";
 import { loadRawConfig, saveRawConfig } from "./config/loader.js";
+import { MODEL_TO_PROVIDER } from "./daemon/conversation-slash.js";
 import { getModelInfo } from "./daemon/handlers/config-model.js";
 import { renderHistoryContent } from "./daemon/handlers/shared.js";
 import type {
   ConfirmationRequest,
   ServerMessage,
 } from "./daemon/message-protocol.js";
-import { MODEL_TO_PROVIDER } from "./daemon/session-slash.js";
 import { getConversation, getMessages } from "./memory/conversation-crud.js";
 import {
   getConversationByKey,

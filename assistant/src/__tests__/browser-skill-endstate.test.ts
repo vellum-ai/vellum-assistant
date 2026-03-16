@@ -18,7 +18,7 @@ mock.module("../config/loader.js", () => ({
 import {
   projectSkillTools,
   resetSkillToolProjection,
-} from "../daemon/session-skill-tools.js";
+} from "../daemon/conversation-skill-tools.js";
 import { getDefaultRuleTemplates } from "../permissions/defaults.js";
 import {
   __resetRegistryForTesting,

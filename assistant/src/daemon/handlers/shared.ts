@@ -7,12 +7,12 @@ import type { AuthContext } from "../../runtime/auth/types.js";
 import type { DebouncerMap } from "../../util/debounce.js";
 import { getLogger } from "../../util/logger.js";
 import { estimateBase64Bytes } from "../assistant-attachments.js";
+import { Session } from "../conversation.js";
+import type { TrustContext } from "../conversation-runtime-assembly.js";
 import type {
   ConversationTransportMetadata,
   ServerMessage,
 } from "../message-protocol.js";
-import { Session } from "../session.js";
-import type { TrustContext } from "../session-runtime-assembly.js";
 
 const log = getLogger("handlers");
 

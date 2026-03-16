@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
-import type { SlashResolution } from "../daemon/session-slash.js";
+import type { SlashResolution } from "../daemon/conversation-slash.js";
 
 const resolveSlashMock = mock(
   (_content: string, _context?: unknown): SlashResolution => ({
@@ -19,7 +19,7 @@ const resolveSlashMock = mock(
   }),
 );
 
-mock.module("../daemon/session-slash.js", () => ({
+mock.module("../daemon/conversation-slash.js", () => ({
   resolveSlash: resolveSlashMock,
 }));
 
@@ -101,7 +101,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   setConversationOriginInterfaceIfUnset: () => {},
 }));
 
-mock.module("../daemon/session-process.js", () => ({
+mock.module("../daemon/conversation-process.js", () => ({
   buildModelInfoEvent: () => ({
     type: "model_info",
     model: "claude-opus-4-6",
@@ -207,7 +207,7 @@ function makeSession() {
       outputTokens: 500,
       estimatedCost: 0.05,
     },
-  } as unknown as import("../daemon/session.js").Session;
+  } as unknown as import("../daemon/conversation.js").Session;
   return {
     session,
     persistUserMessage,
@@ -231,7 +231,7 @@ function makeRequest(content: string) {
   });
 }
 
-function makeDeps(session: import("../daemon/session.js").Session) {
+function makeDeps(session: import("../daemon/conversation.js").Session) {
   return {
     sendMessageDeps: {
       getOrCreateSession: async () => session,

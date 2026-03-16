@@ -63,6 +63,14 @@ import {
 } from "../util/platform.js";
 import { registerDaemonCallbacks } from "../work-items/work-item-runner.js";
 import { ConfigWatcher } from "./config-watcher.js";
+import {
+  DEFAULT_MEMORY_POLICY,
+  Session,
+  type SessionMemoryPolicy,
+} from "./conversation.js";
+import { SessionEvictor } from "./conversation-evictor.js";
+import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
+import { resolveSlash } from "./conversation-slash.js";
 import { undoLastMessage } from "./handlers/conversations.js";
 import { parseIdentityFields } from "./handlers/identity.js";
 import type {
@@ -74,14 +82,6 @@ import { HostBashProxy } from "./host-bash-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import { HostFileProxy } from "./host-file-proxy.js";
 import type { ServerMessage } from "./message-protocol.js";
-import {
-  DEFAULT_MEMORY_POLICY,
-  Session,
-  type SessionMemoryPolicy,
-} from "./session.js";
-import { SessionEvictor } from "./session-evictor.js";
-import { resolveChannelCapabilities } from "./session-runtime-assembly.js";
-import { resolveSlash } from "./session-slash.js";
 
 const log = getLogger("server");
 

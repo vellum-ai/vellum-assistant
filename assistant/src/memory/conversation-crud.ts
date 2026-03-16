@@ -6,7 +6,7 @@ import type { ChannelId, InterfaceId } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { CHANNEL_IDS, INTERFACE_IDS, isChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
-import type { TrustContext } from "../daemon/session-runtime-assembly.js";
+import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import { getLogger } from "../util/logger.js";
 import { createRowMapper } from "../util/row-mapper.js";
 import { deleteOrphanAttachments } from "./attachments-store.js";

@@ -173,7 +173,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
       addPreactivatedSkillId: () => {},
-    } as unknown as import("../daemon/session.js").Session;
+    } as unknown as import("../daemon/conversation.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
@@ -250,7 +250,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
       addPreactivatedSkillId: () => {},
-    } as unknown as import("../daemon/session.js").Session;
+    } as unknown as import("../daemon/conversation.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
@@ -323,7 +323,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
       addPreactivatedSkillId: () => {},
-    } as unknown as import("../daemon/session.js").Session;
+    } as unknown as import("../daemon/conversation.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
@@ -400,7 +400,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
       addPreactivatedSkillId: () => {},
-    } as unknown as import("../daemon/session.js").Session;
+    } as unknown as import("../daemon/conversation.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
@@ -473,7 +473,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
       addPreactivatedSkillId: () => {},
-    } as unknown as import("../daemon/session.js").Session;
+    } as unknown as import("../daemon/conversation.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
@@ -540,7 +540,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
       addPreactivatedSkillId: () => {},
-    } as unknown as import("../daemon/session.js").Session;
+    } as unknown as import("../daemon/conversation.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
@@ -609,7 +609,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
       addPreactivatedSkillId: () => {},
-    } as unknown as import("../daemon/session.js").Session;
+    } as unknown as import("../daemon/conversation.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
@@ -679,7 +679,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
       addPreactivatedSkillId: () => {},
-    } as unknown as import("../daemon/session.js").Session;
+    } as unknown as import("../daemon/conversation.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",

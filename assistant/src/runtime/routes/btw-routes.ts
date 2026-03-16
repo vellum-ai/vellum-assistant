@@ -12,7 +12,7 @@
  * No messages are persisted. `session.processing` is never set or checked.
  */
 
-import { buildToolDefinitions } from "../../daemon/session-tool-setup.js";
+import { buildToolDefinitions } from "../../daemon/conversation-tool-setup.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import { buildSystemPrompt } from "../../prompts/system-prompt.js";
 import {

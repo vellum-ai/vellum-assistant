@@ -23,7 +23,7 @@ import {
   handleSurfaceAction,
   surfaceProxyResolver,
   type SurfaceSessionContext,
-} from "../daemon/session-surfaces.js";
+} from "../daemon/conversation-surfaces.js";
 
 function makeContext(): SurfaceSessionContext {
   return {

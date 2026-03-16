@@ -38,7 +38,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import type { Session } from "../daemon/session.js";
+import type { Session } from "../daemon/conversation.js";
 import * as trustStore from "../permissions/trust-store.js";
 import type {
   ApprovalDecisionResult,

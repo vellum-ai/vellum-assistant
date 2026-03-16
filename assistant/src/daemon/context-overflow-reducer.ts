@@ -27,8 +27,8 @@ import type { Message } from "../providers/types.js";
 import {
   countMediaBlocks,
   stripMediaPayloadsForRetry,
-} from "./session-media-retry.js";
-import type { InjectionMode } from "./session-runtime-assembly.js";
+} from "./conversation-media-retry.js";
+import type { InjectionMode } from "./conversation-runtime-assembly.js";
 
 /**
  * Identifies which reduction tier was applied in a given step.

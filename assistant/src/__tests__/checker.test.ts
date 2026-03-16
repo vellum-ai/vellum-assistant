@@ -1,5 +1,5 @@
 // Smoke command (run all security test files together):
-// bun test src/__tests__/checker.test.ts src/__tests__/trust-store.test.ts src/__tests__/session-skill-tools.test.ts src/__tests__/skill-script-runner-host.test.ts
+// bun test src/__tests__/checker.test.ts src/__tests__/trust-store.test.ts src/__tests__/conversation-skill-tools.test.ts src/__tests__/skill-script-runner-host.test.ts
 
 import {
   mkdirSync,

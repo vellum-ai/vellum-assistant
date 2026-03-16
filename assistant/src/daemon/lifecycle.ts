@@ -84,6 +84,7 @@ import {
   createApprovalConversationGenerator,
   createApprovalCopyGenerator,
 } from "./approval-generators.js";
+import { initSlashPairingContext } from "./conversation-slash.js";
 import {
   cleanupPidFile,
   cleanupPidFileIfOwner,
@@ -109,7 +110,6 @@ import {
 } from "./providers-setup.js";
 import { seedInterfaceFiles } from "./seed-files.js";
 import { DaemonServer } from "./server.js";
-import { initSlashPairingContext } from "./session-slash.js";
 import { installShutdownHandlers } from "./shutdown-handlers.js";
 import { handleWatchObservation } from "./watch-handler.js";
 

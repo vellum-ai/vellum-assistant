@@ -86,7 +86,7 @@ mock.module("../runtime/channel-verification-service.js", () => ({
   },
 }));
 
-import type { TrustContext } from "../daemon/session-runtime-assembly.js";
+import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,

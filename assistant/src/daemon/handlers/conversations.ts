@@ -27,6 +27,7 @@ import {
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { truncate } from "../../util/truncate.js";
+import type { Session } from "../conversation.js";
 import { HostBashProxy } from "../host-bash-proxy.js";
 import { HostCuProxy } from "../host-cu-proxy.js";
 import { HostFileProxy } from "../host-file-proxy.js";
@@ -43,7 +44,6 @@ import type {
   UsageRequest,
 } from "../message-protocol.js";
 import { normalizeConversationType } from "../message-protocol.js";
-import type { Session } from "../session.js";
 import {
   type HandlerContext,
   log,
