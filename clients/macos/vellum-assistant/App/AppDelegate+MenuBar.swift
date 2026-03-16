@@ -464,14 +464,16 @@ extension AppDelegate {
             for await message in stream {
                 guard !Task.isCancelled else { return }
                 if case .appsListResponse(let response) = message {
-                    self.cachedApps = response.apps
-                    let daemonItems = response.apps.map {
-                        AppListManager.AppItem_Daemon(
-                            id: $0.id, name: $0.name, description: $0.description,
-                            icon: $0.icon, appType: nil, createdAt: $0.createdAt
-                        )
+                    if response.success {
+                        self.cachedApps = response.apps
+                        let daemonItems = response.apps.map {
+                            AppListManager.AppItem_Daemon(
+                                id: $0.id, name: $0.name, description: $0.description,
+                                icon: $0.icon, appType: nil, createdAt: $0.createdAt
+                            )
+                        }
+                        self.mainWindow?.appListManager.syncFromDaemon(daemonItems)
                     }
-                    self.mainWindow?.appListManager.syncFromDaemon(daemonItems)
                     return
                 }
             }
