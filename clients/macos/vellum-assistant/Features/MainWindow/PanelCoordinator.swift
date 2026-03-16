@@ -383,7 +383,8 @@ extension MainWindowView {
                     toggleVoiceMode()
                 },
                 threadId: threadManager.activeThreadId,
-                anchorMessageId: $threadManager.pendingAnchorMessageId
+                anchorMessageId: $threadManager.pendingAnchorMessageId,
+                highlightedMessageId: $threadManager.highlightedMessageId
             )
             .environment(\.conversationZoomScale, conversationZoomManager.zoomLevel)
             .overlay(alignment: .top) {
@@ -580,6 +581,7 @@ struct ActiveChatViewWrapper: View {
     var onVoiceModeToggle: (() -> Void)? = nil
     var threadId: UUID?
     @Binding var anchorMessageId: UUID?
+    @Binding var highlightedMessageId: UUID?
 
     /// Reads the persisted bootstrap state so the chat view can suppress
     /// the empty state during first-launch bootstrap.
@@ -693,6 +695,7 @@ struct ActiveChatViewWrapper: View {
             daemonGreeting: viewModel.emptyStateGreeting,
             onRequestGreeting: { [weak viewModel] in viewModel?.generateGreeting() },
             anchorMessageId: $anchorMessageId,
+            highlightedMessageId: $highlightedMessageId,
             btwResponse: viewModel.btwResponse,
             btwLoading: viewModel.btwLoading,
             onDismissBtw: { viewModel.dismissBtw() },

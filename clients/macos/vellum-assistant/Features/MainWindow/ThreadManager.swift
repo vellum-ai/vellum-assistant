@@ -135,6 +135,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     private var interactionStateCancellables: [UUID: Set<AnyCancellable>] = [:]
     /// Pending anchor message ID for scroll-to behavior on notification deep links.
     @Published var pendingAnchorMessageId: UUID?
+    /// Message ID to visually highlight after an anchor scroll completes.
+    /// Set by MessageListView when it scrolls to the anchor, cleared after the flash animation.
+    @Published var highlightedMessageId: UUID?
     /// Tracks which thread the pending anchor belongs to so stale anchors are
     /// cleared automatically when the user switches to a different thread.
     private var pendingAnchorThreadId: UUID?

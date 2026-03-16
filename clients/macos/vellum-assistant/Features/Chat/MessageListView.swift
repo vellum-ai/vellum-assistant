@@ -98,6 +98,8 @@ struct MessageListView: View {
     /// When set, scroll to this message ID and clear the binding.
     /// Used by notification deep links to anchor the view to a specific message.
     @Binding var anchorMessageId: UUID?
+    /// Message ID to visually highlight after an anchor scroll completes.
+    @Binding var highlightedMessageId: UUID?
     @Binding var isNearBottom: Bool
     /// Measured width of the chat container, used to detect sidebar/split resizes
     /// and stabilize scroll position during layout width changes.
@@ -156,6 +158,8 @@ struct MessageListView: View {
     @State private var lastHandledContainerWidth: CGFloat = 0
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State private var resizeScrollTask: Task<Void, Never>?
+    /// Task that clears the highlight flash after the animation duration.
+    @State private var highlightDismissTask: Task<Void, Never>?
     /// In-flight staged scroll-to-bottom task used after thread switches and
     /// app restarts to reliably anchor the viewport once layout settles.
     @State private var scrollRestoreTask: Task<Void, Never>?
@@ -490,6 +494,25 @@ struct MessageListView: View {
         }
     }
 
+    /// Flash-highlight the given message after an anchor scroll completes.
+    /// The highlight fades out automatically after 1.5 seconds.
+    private func flashHighlight(messageId: UUID) {
+        highlightDismissTask?.cancel()
+        highlightedMessageId = messageId
+        highlightDismissTask = Task { @MainActor in
+            do {
+                try await Task.sleep(nanoseconds: 1_500_000_000)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            withAnimation(VAnimation.slow) {
+                highlightedMessageId = nil
+            }
+            highlightDismissTask = nil
+        }
+    }
+
     private var shouldAnchorThinkingToConfirmationChip: Bool {
         assistantActivityPhase == "thinking"
             && assistantActivityAnchor == "assistant_turn"
@@ -609,6 +632,7 @@ struct MessageListView: View {
                             assistantStatusText: state.effectiveStatusText,
                             dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
                             activeSurfaceId: activeSurfaceId,
+                            isHighlighted: highlightedMessageId == message.id,
                             mediaEmbedSettings: mediaEmbedSettings,
                             resolveHttpPort: resolveHttpPort,
                             onConfirmationAllow: onConfirmationAllow,
@@ -805,6 +829,7 @@ struct MessageListView: View {
                     // Anchor is already set and the target message is loaded —
                     // scroll to it immediately instead of falling through to bottom.
                     proxy.scrollTo(id, anchor: .center)
+                    flashHighlight(messageId: id)
                     anchorMessageId = nil
                     anchorSetTime = nil
                 } else if anchorMessageId != nil {
@@ -857,6 +882,8 @@ struct MessageListView: View {
                 scrollRestoreTask = nil
                 avatarSmoothingTask?.cancel()
                 avatarSmoothingTask = nil
+                highlightDismissTask?.cancel()
+                highlightDismissTask = nil
             }
             .onChange(of: isSending) {
                 if isSending {
@@ -920,6 +947,7 @@ struct MessageListView: View {
                     withAnimation {
                         proxy.scrollTo(id, anchor: .center)
                     }
+                    flashHighlight(messageId: id)
                     anchorMessageId = nil
                     anchorSetTime = nil
                     anchorTimeoutTask?.cancel()
@@ -1011,6 +1039,9 @@ struct MessageListView: View {
                 isPaginationInFlight = false
                 isSuppressingBottomScroll = false
                 isNearBottom = true
+                highlightedMessageId = nil
+                highlightDismissTask?.cancel()
+                highlightDismissTask = nil
                 anchorTracker.isVisible = true
                 anchorTracker.lastMinY = 0
                 hasReceivedScrollEvent = false
@@ -1063,6 +1094,7 @@ struct MessageListView: View {
                     withAnimation {
                         proxy.scrollTo(id, anchor: .center)
                     }
+                    flashHighlight(messageId: id)
                     anchorMessageId = nil
                     anchorSetTime = nil
                 } else {
@@ -1156,6 +1188,7 @@ private struct MessageCellView: View, Equatable {
             && lhs.assistantStatusText == rhs.assistantStatusText
             && lhs.dismissedDocumentSurfaceIds == rhs.dismissedDocumentSurfaceIds
             && lhs.activeSurfaceId == rhs.activeSurfaceId
+            && lhs.isHighlighted == rhs.isHighlighted
             && lhs.selectedModel == rhs.selectedModel
     }
 
@@ -1172,6 +1205,8 @@ private struct MessageCellView: View, Equatable {
     let assistantStatusText: String?
     let dismissedDocumentSurfaceIds: Set<String>
     let activeSurfaceId: String?
+    /// When true, the cell renders a brief highlight flash.
+    let isHighlighted: Bool
     let mediaEmbedSettings: MediaEmbedResolverSettings?
     let resolveHttpPort: () -> Int?
     let onConfirmationAllow: (String) -> Void
@@ -1343,6 +1378,13 @@ private struct MessageCellView: View, Equatable {
                 processingStatusText: canInlineProcessing && message.id == latestAssistantId ? assistantStatusText : nil,
                 activeSurfaceId: activeSurfaceId
             )
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(VColor.primaryBase.opacity(isHighlighted ? 0.15 : 0))
+                    .padding(.horizontal, -VSpacing.sm)
+                    .padding(.vertical, -VSpacing.xs)
+            )
+            .animation(VAnimation.slow, value: isHighlighted)
             .id(message.id)
         }
 
