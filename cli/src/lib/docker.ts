@@ -456,10 +456,24 @@ function startFileWatcher(opts: {
         }),
       );
 
-      for (const service of services) {
+      // Gateway and CES share the assistant's network namespace, so if
+      // the assistant container is restarted they must be restarted too.
+      const restartSet = new Set(services);
+      if (restartSet.has("assistant")) {
+        for (const s of SERVICE_START_ORDER) restartSet.add(s);
+      }
+
+      // Stop in reverse dependency order, start in forward order.
+      const stopOrder = [...SERVICE_START_ORDER].reverse();
+      for (const service of stopOrder) {
+        if (!restartSet.has(service)) continue;
         const container = containerForService[service];
-        console.log(`🔄 Restarting ${container}...`);
+        console.log(`🛑 Stopping ${container}...`);
         await removeContainer(container);
+      }
+      for (const service of SERVICE_START_ORDER) {
+        if (!restartSet.has(service)) continue;
+        console.log(`🚀 Starting ${containerForService[service]}...`);
         await exec("docker", runArgs[service]());
       }
 
