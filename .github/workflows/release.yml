@@ -76,7 +76,7 @@ jobs:
                       text: "View Run"
                     url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-  bump-and-tag:
+  create-release-branch:
     needs: compute-version
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -97,7 +97,7 @@ jobs:
         id: version
         run: echo "version=${{ needs.compute-version.outputs.version }}" >> "$GITHUB_OUTPUT"
 
-      - name: Bump versions via PR
+      - name: Create release branch and bump versions
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
@@ -125,34 +125,25 @@ jobs:
           sed -i "s/^let appVersion = .*/let appVersion = \"$VERSION\"/" clients/Package.swift
 
           git add -A
-          if git diff --cached --quiet; then
-            echo "Version files already at $VERSION — skipping bump PR"
-          else
+          if ! git diff --cached --quiet; then
             git commit -m "Release v$VERSION"
-            git push origin "$BRANCH"
-
-            PR_URL=$(gh pr create \
-              --title "Release v$VERSION" \
-              --body "Automated version bump to $VERSION." \
-              --base main \
-              --head "$BRANCH")
-            gh pr merge "$PR_URL" --squash --admin
           fi
+          git push origin "$BRANCH"
 
       - name: Tag release
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           VERSION="${{ needs.compute-version.outputs.version }}"
-          git fetch origin main
-          git tag "v$VERSION" origin/main
+          BRANCH="release/v$VERSION"
+          git tag "v$VERSION" "$BRANCH"
           git push origin "v$VERSION"
 
     outputs:
       version: ${{ steps.version.outputs.version }}
 
   push-assistant-image:
-    needs: bump-and-tag
+    needs: create-release-branch
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -170,7 +161,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+          ref: "v${{ needs.create-release-branch.outputs.version }}"
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
@@ -233,7 +224,7 @@ jobs:
           retention-days: 1
 
   push-assistant-manifest:
-    needs: [bump-and-tag, push-assistant-image]
+    needs: [create-release-branch, push-assistant-image]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -248,7 +239,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+          ref: "v${{ needs.create-release-branch.outputs.version }}"
 
       - name: Get release SHA
         id: release-sha
@@ -284,7 +275,7 @@ jobs:
         run: |
           GCP_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
           DOCKERHUB_IMAGE="vellumai/${{ secrets.ASSISTANT_IMAGE_NAME }}"
-          VERSION="${{ needs.bump-and-tag.outputs.version }}"
+          VERSION="${{ needs.create-release-branch.outputs.version }}"
           SHA="${{ steps.release-sha.outputs.sha }}"
 
           GCP_TAGS="${GCP_IMAGE}:${SHA}"
@@ -329,7 +320,7 @@ jobs:
         id: manifest-digest
         run: |
           IMAGE="${{ steps.tags.outputs.gcp_image }}"
-          VERSION="${{ needs.bump-and-tag.outputs.version }}"
+          VERSION="${{ needs.create-release-branch.outputs.version }}"
           DIGEST=$(docker buildx imagetools inspect "${IMAGE}:v${VERSION}" --format '{{json .Manifest.Digest}}' | tr -d '"')
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
           echo "Manifest digest: ${DIGEST}"
@@ -347,7 +338,7 @@ jobs:
         id: meta
         run: |
           echo "repository=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
-          echo "tag=v${{ needs.bump-and-tag.outputs.version }}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${{ needs.create-release-branch.outputs.version }}" >> "$GITHUB_OUTPUT"
           echo "sha=${{ steps.release-sha.outputs.sha }}" >> "$GITHUB_OUTPUT"
 
       - name: Summary
@@ -355,12 +346,12 @@ jobs:
           echo "## Assistant Image Published (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Version:** \`${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${{ needs.create-release-branch.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Docker Hub:** \`${{ steps.tags.outputs.dockerhub_image }}:v${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Docker Hub:** \`${{ steps.tags.outputs.dockerhub_image }}:v${{ needs.create-release-branch.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
 
   push-gateway-image:
-    needs: bump-and-tag
+    needs: create-release-branch
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -378,7 +369,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+          ref: "v${{ needs.create-release-branch.outputs.version }}"
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
@@ -440,7 +431,7 @@ jobs:
           retention-days: 1
 
   push-credential-executor-image:
-    needs: bump-and-tag
+    needs: create-release-branch
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -458,7 +449,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+          ref: "v${{ needs.create-release-branch.outputs.version }}"
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
@@ -518,7 +509,7 @@ jobs:
           retention-days: 1
 
   push-gateway-manifest:
-    needs: [bump-and-tag, push-gateway-image]
+    needs: [create-release-branch, push-gateway-image]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -533,7 +524,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+          ref: "v${{ needs.create-release-branch.outputs.version }}"
 
       - name: Get release SHA
         id: release-sha
@@ -569,7 +560,7 @@ jobs:
         run: |
           GCP_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
           DOCKERHUB_IMAGE="vellumai/${{ secrets.GATEWAY_IMAGE_NAME }}"
-          VERSION="${{ needs.bump-and-tag.outputs.version }}"
+          VERSION="${{ needs.create-release-branch.outputs.version }}"
           SHA="${{ steps.release-sha.outputs.sha }}"
 
           GCP_TAGS="${GCP_IMAGE}:${SHA}"
@@ -614,7 +605,7 @@ jobs:
         id: manifest-digest
         run: |
           IMAGE="${{ steps.tags.outputs.gcp_image }}"
-          VERSION="${{ needs.bump-and-tag.outputs.version }}"
+          VERSION="${{ needs.create-release-branch.outputs.version }}"
           DIGEST=$(docker buildx imagetools inspect "${IMAGE}:v${VERSION}" --format '{{json .Manifest.Digest}}' | tr -d '"')
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
           echo "Manifest digest: ${DIGEST}"
@@ -632,7 +623,7 @@ jobs:
         id: meta
         run: |
           echo "repository=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
-          echo "tag=v${{ needs.bump-and-tag.outputs.version }}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${{ needs.create-release-branch.outputs.version }}" >> "$GITHUB_OUTPUT"
           echo "sha=${{ steps.release-sha.outputs.sha }}" >> "$GITHUB_OUTPUT"
 
       - name: Summary
@@ -640,12 +631,12 @@ jobs:
           echo "## Gateway Image Published (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Version:** \`${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${{ needs.create-release-branch.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Docker Hub:** \`${{ steps.tags.outputs.dockerhub_image }}:v${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Docker Hub:** \`${{ steps.tags.outputs.dockerhub_image }}:v${{ needs.create-release-branch.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
 
   push-credential-executor-manifest:
-    needs: [bump-and-tag, push-credential-executor-image]
+    needs: [create-release-branch, push-credential-executor-image]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -660,7 +651,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+          ref: "v${{ needs.create-release-branch.outputs.version }}"
 
       - name: Get release SHA
         id: release-sha
@@ -696,7 +687,7 @@ jobs:
         run: |
           GCP_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
           DOCKERHUB_IMAGE="vellumai/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
-          VERSION="${{ needs.bump-and-tag.outputs.version }}"
+          VERSION="${{ needs.create-release-branch.outputs.version }}"
           SHA="${{ steps.release-sha.outputs.sha }}"
 
           GCP_TAGS="${GCP_IMAGE}:${SHA}"
@@ -741,7 +732,7 @@ jobs:
         id: manifest-digest
         run: |
           IMAGE="${{ steps.tags.outputs.gcp_image }}"
-          VERSION="${{ needs.bump-and-tag.outputs.version }}"
+          VERSION="${{ needs.create-release-branch.outputs.version }}"
           DIGEST=$(docker buildx imagetools inspect "${IMAGE}:v${VERSION}" --format '{{json .Manifest.Digest}}' | tr -d '"')
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
           echo "Manifest digest: ${DIGEST}"
@@ -759,7 +750,7 @@ jobs:
         id: meta
         run: |
           echo "repository=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
-          echo "tag=v${{ needs.bump-and-tag.outputs.version }}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${{ needs.create-release-branch.outputs.version }}" >> "$GITHUB_OUTPUT"
           echo "sha=${{ steps.release-sha.outputs.sha }}" >> "$GITHUB_OUTPUT"
 
       - name: Summary
@@ -767,12 +758,12 @@ jobs:
           echo "## Credential Executor Image Published (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Version:** \`${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${{ needs.create-release-branch.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Docker Hub:** \`${{ steps.tags.outputs.dockerhub_image }}:v${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Docker Hub:** \`${{ steps.tags.outputs.dockerhub_image }}:v${{ needs.create-release-branch.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
 
   register-release:
-    needs: [bump-and-tag, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
+    needs: [create-release-branch, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -784,7 +775,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+          ref: "v${{ needs.create-release-branch.outputs.version }}"
 
       - name: Get release SHA
         id: release-sha
@@ -831,7 +822,7 @@ jobs:
 
       - name: Register release with platform
         run: |
-          VERSION="${{ needs.bump-and-tag.outputs.version }}"
+          VERSION="${{ needs.create-release-branch.outputs.version }}"
           SHA="${{ steps.release-sha.outputs.sha }}"
           ASSISTANT_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
           GATEWAY_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
@@ -915,10 +906,10 @@ jobs:
         run: |
           echo "## Release Registered (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Version:** \`${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${{ needs.create-release-branch.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
 
   publish-npm:
-    needs: [bump-and-tag, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright]
+    needs: [create-release-branch, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -929,7 +920,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+          ref: "v${{ needs.create-release-branch.outputs.version }}"
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -954,7 +945,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   publish-meta:
-    needs: [bump-and-tag, publish-npm]
+    needs: [create-release-branch, publish-npm]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -962,7 +953,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+          ref: "v${{ needs.create-release-branch.outputs.version }}"
 
       - uses: actions/setup-node@v4
         with:
@@ -980,7 +971,7 @@ jobs:
   # creates DMG, notarizes, staples, and generates the Sparkle appcast.
   # This is the primary/default build.
   build-macos-arm64:
-    needs: bump-and-tag
+    needs: create-release-branch
     runs-on: macos-15
     timeout-minutes: 45
     defaults:
@@ -993,7 +984,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+          ref: "v${{ needs.create-release-branch.outputs.version }}"
 
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
@@ -1030,7 +1021,7 @@ jobs:
       - name: Set version
         id: version
         run: |
-          DISPLAY_VERSION="${{ needs.bump-and-tag.outputs.version }}"
+          DISPLAY_VERSION="${{ needs.create-release-branch.outputs.version }}"
           BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
@@ -1314,7 +1305,7 @@ jobs:
   # produces a separate DMG for Intel Macs.
   # Runs in parallel with build-macos-arm64 and does NOT block the release job.
   build-macos-x64:
-    needs: bump-and-tag
+    needs: create-release-branch
     runs-on: macos-15
     timeout-minutes: 45
     continue-on-error: true
@@ -1328,7 +1319,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+          ref: "v${{ needs.create-release-branch.outputs.version }}"
 
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
@@ -1365,7 +1356,7 @@ jobs:
       - name: Set version
         id: version
         run: |
-          DISPLAY_VERSION="${{ needs.bump-and-tag.outputs.version }}"
+          DISPLAY_VERSION="${{ needs.create-release-branch.outputs.version }}"
           BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
@@ -1626,8 +1617,8 @@ jobs:
           rm -rf ~/.private_keys 2>/dev/null || true
 
   release:
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, register-release, ci-playwright]
-    if: ${{ !cancelled() && needs.bump-and-tag.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos-arm64.result == 'success' && needs.ci-playwright.result == 'success' }}
+    needs: [create-release-branch, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, register-release, ci-playwright]
+    if: ${{ !cancelled() && needs.create-release-branch.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos-arm64.result == 'success' && needs.ci-playwright.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1642,7 +1633,7 @@ jobs:
 
       - uses: actions/checkout@v6
         with:
-          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+          ref: "v${{ needs.create-release-branch.outputs.version }}"
 
       - name: Download macOS build artifacts
         uses: actions/download-artifact@v4
@@ -1661,7 +1652,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          VERSION="${{ needs.bump-and-tag.outputs.version }}"
+          VERSION="${{ needs.create-release-branch.outputs.version }}"
           SHORT_SHA=$(git rev-parse --short HEAD)
           FULL_SHA=$(git rev-parse HEAD)
           TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
@@ -1724,8 +1715,40 @@ jobs:
 
           rm -f "$NOTES_FILE"
 
+  merge-release-branch:
+    needs: [create-release-branch, release]
+    if: ${{ !cancelled() && needs.release.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Merge release branch and delete
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          VERSION="${{ needs.create-release-branch.outputs.version }}"
+          BRANCH="release/v$VERSION"
+
+          PR_URL=$(gh pr create \
+            --title "Release v$VERSION" \
+            --body "Automated version bump to $VERSION." \
+            --base main \
+            --head "$BRANCH")
+          gh pr merge "$PR_URL" --squash --admin --delete-branch
+
   update-platform:
-    needs: [bump-and-tag, publish-npm]
+    needs: [create-release-branch, publish-npm]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -1752,7 +1775,7 @@ jobs:
 
       - name: Update vel dependency
         env:
-          NEW_VERSION: ${{ needs.bump-and-tag.outputs.version }}
+          NEW_VERSION: ${{ needs.create-release-branch.outputs.version }}
         run: |
           cd vel
           jq --arg v "$NEW_VERSION" '.dependencies["@vellumai/cli"] = $v' package.json > package.json.tmp && mv package.json.tmp package.json
@@ -1761,7 +1784,7 @@ jobs:
       - name: Create Pull Request
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          NEW_VERSION: ${{ needs.bump-and-tag.outputs.version }}
+          NEW_VERSION: ${{ needs.create-release-branch.outputs.version }}
         run: |
           BRANCH="auto/bump-cli-${NEW_VERSION}"
           git config user.name "github-actions[bot]"
@@ -1783,7 +1806,7 @@ jobs:
   # release on its result. It still runs so we get visibility in the Slack
   # notification, but downstream jobs no longer depend on it.
   ci-assistant:
-    needs: bump-and-tag
+    needs: create-release-branch
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -1822,7 +1845,7 @@ jobs:
           TEST_WORKERS: '4'
 
   ci-cli:
-    needs: bump-and-tag
+    needs: create-release-branch
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1845,7 +1868,7 @@ jobs:
         working-directory: cli
 
   ci-gateway:
-    needs: bump-and-tag
+    needs: create-release-branch
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1872,7 +1895,7 @@ jobs:
         working-directory: gateway
 
   ci-credential-executor:
-    needs: bump-and-tag
+    needs: create-release-branch
     runs-on: ubuntu-latest
     timeout-minutes: 10
     continue-on-error: true
@@ -1902,13 +1925,13 @@ jobs:
         working-directory: credential-executor
 
   build-ios:
-    needs: bump-and-tag
+    needs: create-release-branch
     runs-on: macos-15
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+          ref: "v${{ needs.create-release-branch.outputs.version }}"
 
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
@@ -1942,7 +1965,7 @@ jobs:
         run: ./build.sh test
 
   release-ios:
-    needs: [bump-and-tag, build-ios]
+    needs: [create-release-branch, build-ios]
     runs-on: macos-15
     timeout-minutes: 30
     env:
@@ -1951,7 +1974,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+          ref: "v${{ needs.create-release-branch.outputs.version }}"
 
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
@@ -1997,7 +2020,7 @@ jobs:
       - name: Set version
         id: version
         run: |
-          DISPLAY_VERSION="${{ needs.bump-and-tag.outputs.version }}"
+          DISPLAY_VERSION="${{ needs.create-release-branch.outputs.version }}"
           BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
@@ -2065,7 +2088,7 @@ jobs:
 
   ci-playwright:
     name: Playwright Tests
-    needs: [bump-and-tag, build-macos-arm64]
+    needs: [create-release-branch, build-macos-arm64]
     if: ${{ !cancelled() && needs.build-macos-arm64.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -2153,7 +2176,7 @@ jobs:
   notify-release:
     name: Slack Notification (Release)
     if: always() && !cancelled()
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, register-release, release, update-platform, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright]
+    needs: [create-release-branch, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, register-release, release, merge-release-branch, update-platform, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -2169,7 +2192,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          VERSION="${{ needs.bump-and-tag.outputs.version }}"
+          VERSION="${{ needs.create-release-branch.outputs.version }}"
           VERSION_TAG="v${VERSION}"
 
           # Determine release status from the release job
