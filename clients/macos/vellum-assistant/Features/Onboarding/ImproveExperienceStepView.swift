@@ -116,7 +116,7 @@ struct ImproveExperienceStepView: View {
 
     private var tosConsentText: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            Text(.init("I agree to the [Terms of Service](https://www.vellum.ai/docs/vellum-terms-of-use)"))
+            Text(.init("I agree to the [Terms of Service](https://www.vellum.ai/docs/vellum-terms-of-use) and [Privacy Policy](https://www.vellum.ai/docs/privacy-policy)"))
                 .font(VFont.body)
                 .foregroundColor(VColor.contentSecondary)
                 .tint(VColor.primaryBase)
