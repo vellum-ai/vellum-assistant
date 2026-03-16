@@ -920,6 +920,7 @@ struct MainWindowView: View {
                 if case .daemonStartupFailed(let startupError) = error {
                     appDelegate.daemonStartupError = startupError
                     daemonStartupError = startupError
+                    MetricKitManager.reportDaemonStartupFailure(startupError)
                 }
                 return
             } catch {
