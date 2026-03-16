@@ -324,7 +324,7 @@ case "$CMD" in
         ;;
     clean)
         echo "Cleaning..."
-        rm -rf "$SCRIPT_DIR/dist" "$SCRIPT_DIR/../.build"
+        rm -rf "$SCRIPT_DIR/dist" "$SCRIPT_DIR/../.build" "$SCRIPT_DIR/apple-containers-runtime-build"
         echo "Done."
         exit 0
         ;;
@@ -389,6 +389,124 @@ fi
 if [ ! -f "$EXECUTABLE" ]; then
     echo "ERROR: executable not found at $EXECUTABLE"
     exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# 1b. Optionally build the AppleContainersRuntime nested package.
+#
+# This package owns the `apple/containerization` dependency and requires
+# macOS 15+.  We probe whether the active toolchain can compile it by checking
+# the SDK version.  When compilation succeeds the resulting dynamic framework
+# is stored under apple-containers-runtime-build/ so the packaging step can
+# embed it into Contents/Frameworks/.  When the toolchain does not support
+# macOS 15+, the build is silently skipped — the app still works; Apple
+# Containers simply won't be available at runtime (AppleContainersRuntimeLoader
+# reports .notEmbedded).
+# ---------------------------------------------------------------------------
+APPLE_CONTAINERS_RUNTIME_SRC="$SCRIPT_DIR/apple-containers-runtime"
+APPLE_CONTAINERS_RUNTIME_BUILD="$SCRIPT_DIR/apple-containers-runtime-build"
+APPLE_CONTAINERS_RUNTIME_FW="$APPLE_CONTAINERS_RUNTIME_BUILD/AppleContainersRuntime.framework"
+
+build_apple_containers_runtime() {
+    # Require macOS 15+ SDK.  xcrun returns the platform version for the
+    # selected SDK; compare numerically to "15.0".
+    local sdk_version
+    sdk_version=$(xcrun --show-sdk-platform-version 2>/dev/null || echo "0.0")
+    local sdk_major
+    sdk_major=$(echo "$sdk_version" | cut -d. -f1)
+    if [ "${sdk_major:-0}" -lt 15 ] 2>/dev/null; then
+        echo "Skipping AppleContainersRuntime build (SDK $sdk_version < 15.0)"
+        return 0
+    fi
+
+    echo "Building AppleContainersRuntime (macOS 15+ SDK detected)..."
+    local runtime_config="debug"
+    local runtime_swift_flags=""
+    if [ "$CONFIG" = "release" ]; then
+        runtime_config="release"
+        runtime_swift_flags="-c release"
+    fi
+
+    mkdir -p "$APPLE_CONTAINERS_RUNTIME_BUILD"
+
+    # Build the nested package with its own --scratch-path so it doesn't
+    # interfere with the main Package.swift build artifacts.
+    if ! (
+        cd "$APPLE_CONTAINERS_RUNTIME_SRC"
+        swift_with_retry swift build $runtime_swift_flags \
+            --product AppleContainersRuntime \
+            --scratch-path "$APPLE_CONTAINERS_RUNTIME_BUILD/.build" \
+            2>&1
+    ); then
+        echo "WARNING: AppleContainersRuntime build failed — Apple Containers will not be available."
+        return 0
+    fi
+
+    # Locate the compiled dylib.
+    local built_dylib
+    built_dylib=$(
+        cd "$APPLE_CONTAINERS_RUNTIME_SRC"
+        swift build $runtime_swift_flags \
+            --product AppleContainersRuntime \
+            --scratch-path "$APPLE_CONTAINERS_RUNTIME_BUILD/.build" \
+            --show-bin-path 2>/dev/null
+    )/libAppleContainersRuntime.dylib
+
+    if [ ! -f "$built_dylib" ]; then
+        # SPM may emit a .dylib with a different prefix on some toolchains.
+        built_dylib=$(find "$APPLE_CONTAINERS_RUNTIME_BUILD/.build" \
+            -name "*.dylib" -path "*/AppleContainersRuntime*" 2>/dev/null | head -1 || true)
+    fi
+
+    if [ -z "$built_dylib" ] || [ ! -f "$built_dylib" ]; then
+        echo "WARNING: Could not locate AppleContainersRuntime dylib — skipping framework assembly."
+        return 0
+    fi
+
+    # Assemble a minimal .framework bundle recognised by both codesign and
+    # the dynamic linker.
+    rm -rf "$APPLE_CONTAINERS_RUNTIME_FW"
+    mkdir -p "$APPLE_CONTAINERS_RUNTIME_FW"
+
+    # Copy dylib as the framework executable (same name as the framework).
+    cp "$built_dylib" "$APPLE_CONTAINERS_RUNTIME_FW/AppleContainersRuntime"
+    chmod +x "$APPLE_CONTAINERS_RUNTIME_FW/AppleContainersRuntime"
+
+    # Rewrite the install name so the dynamic linker finds it from the bundle.
+    install_name_tool \
+        -id "@rpath/AppleContainersRuntime.framework/AppleContainersRuntime" \
+        "$APPLE_CONTAINERS_RUNTIME_FW/AppleContainersRuntime" 2>/dev/null || true
+
+    # Minimal Info.plist required by codesign.
+    cat > "$APPLE_CONTAINERS_RUNTIME_FW/Info.plist" <<FWPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>AppleContainersRuntime</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.vellum.vellum-assistant.AppleContainersRuntime</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundlePackageType</key>
+    <string>FMWK</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>MinimumOSVersion</key>
+    <string>15.0</string>
+</dict>
+</plist>
+FWPLIST
+
+    echo "AppleContainersRuntime.framework assembled at $APPLE_CONTAINERS_RUNTIME_FW"
+}
+
+# Only attempt to build when the nested package sources exist.
+if [ -d "$APPLE_CONTAINERS_RUNTIME_SRC" ]; then
+    build_apple_containers_runtime
 fi
 
 # 2. Create .app bundle structure
@@ -616,6 +734,18 @@ if [ -d "$SPARKLE_FW" ]; then
     fi
 else
     echo "WARNING: Sparkle.framework not found at $SPARKLE_FW"
+fi
+
+# Embed AppleContainersRuntime.framework when available (macOS 15+ builds only).
+# When absent the app still works — Apple Containers simply won't be available
+# at runtime (AppleContainersRuntimeLoader returns .notEmbedded).
+if [ -d "$APPLE_CONTAINERS_RUNTIME_FW" ]; then
+    if [ ! -d "$FRAMEWORKS_DIR/AppleContainersRuntime.framework" ] \
+        || [ "$APPLE_CONTAINERS_RUNTIME_FW" -nt "$FRAMEWORKS_DIR/AppleContainersRuntime.framework" ]; then
+        echo "Embedding AppleContainersRuntime.framework..."
+        rm -rf "$FRAMEWORKS_DIR/AppleContainersRuntime.framework"
+        cp -R "$APPLE_CONTAINERS_RUNTIME_FW" "$FRAMEWORKS_DIR/"
+    fi
 fi
 
 # Always refresh bundled skills in app bundle (skill assets change independently of binaries)
@@ -940,6 +1070,16 @@ if [ -d "$FRAMEWORKS_DIR/Sparkle.framework" ]; then
         codesign "${FW_SIGN_FLAGS[@]}" "$FRAMEWORKS_DIR/Sparkle.framework"
     fi
     echo "Sparkle.framework signed (including nested binaries)"
+fi
+
+# Sign AppleContainersRuntime.framework (embedded only on macOS 15+ builds)
+if [ -d "$FRAMEWORKS_DIR/AppleContainersRuntime.framework" ]; then
+    ACR_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
+    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
+        ACR_SIGN_FLAGS+=(--timestamp --options runtime)
+    fi
+    codesign "${ACR_SIGN_FLAGS[@]}" "$FRAMEWORKS_DIR/AppleContainersRuntime.framework"
+    echo "AppleContainersRuntime.framework signed"
 fi
 
 # Sign Quick Look Thumbnail extension (must be signed before outer app bundle)

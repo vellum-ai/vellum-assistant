@@ -71,6 +71,13 @@ export async function sleep(): Promise<void> {
     process.exit(1);
   }
 
+  if (entry.runtimeBackend === "apple-containers") {
+    console.error(
+      `Error: '${entry.assistantId}' uses the apple-containers runtime. Its lifecycle is managed by the macOS app — use the app to stop it.`,
+    );
+    process.exit(1);
+  }
+
   if (!entry.resources) {
     console.error(
       `Error: Local assistant '${entry.assistantId}' is missing resource configuration. Re-hatch to fix.`,

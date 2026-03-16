@@ -125,6 +125,24 @@ extension AppDelegate {
         log.info("Configured HTTP transport for remote assistant \(assistant.assistantId) at \(runtimeUrl, privacy: .public)")
     }
 
+    // MARK: - Backend Dispatch
+
+    /// Return the `LocalAssistantLauncher` appropriate for `assistant`'s `runtimeBackend`.
+    ///
+    /// - `process` (or absent): delegates to the bundled `AssistantCli` hatch path.
+    /// - `appleContainers`: reserved — falls back to `AssistantCli` today so existing
+    ///   behavior is preserved until PR 5 wires the real Apple Containers runtime.
+    ///   A log warning is emitted so the absence of a dedicated launcher is visible.
+    func localLauncher(for assistant: LockfileAssistant?) -> LocalAssistantLauncher {
+        guard let assistant, assistant.runtimeBackend == .appleContainers else {
+            return assistantCli
+        }
+        // Apple Containers runtime is not yet wired (see PR 5). Fall back to the
+        // CLI launcher and warn so the gap is visible during development.
+        log.warning("localLauncher: apple-containers backend not yet implemented — falling back to CLI hatch for '\(assistant.assistantId, privacy: .public)'")
+        return assistantCli
+    }
+
     // MARK: - Daemon Client Setup
 
     func setupDaemonClient(isFirstLaunch: Bool = false) {
@@ -384,8 +402,13 @@ extension AppDelegate {
                     // Pass the selected assistant ID so the gateway starts
                     // with the correct default assistant (not a random name).
                     let assistantName = assistant?.assistantId
+
+                    // Dispatch to the launcher registered for this assistant's backend.
+                    // apple-containers entries are owned by the macOS app and must not
+                    // go through the CLI hatch path.
+                    let launcher: LocalAssistantLauncher = localLauncher(for: assistant)
                     do {
-                        try await assistantCli.hatch(name: assistantName, daemonOnly: daemonOnly)
+                        try await launcher.launch(name: assistantName, daemonOnly: daemonOnly, restart: false)
                     } catch let error as AssistantCli.CLIError {
                         switch error {
                         case .daemonStartupFailed(let startupError):
@@ -398,7 +421,7 @@ extension AppDelegate {
                         if needsLockfileEntry {
                             log.info("Full hatch failed on first launch — retrying daemon-only as fallback")
                             do {
-                                try await assistantCli.hatch(name: assistantName, daemonOnly: true)
+                                try await assistantCli.launch(name: assistantName, daemonOnly: true, restart: false)
                                 self.daemonStartupError = nil
                             } catch {
                                 log.error("Fallback daemon-only hatch also failed: \(error)")
@@ -409,7 +432,7 @@ extension AppDelegate {
                         if needsLockfileEntry {
                             log.info("Full hatch failed on first launch — retrying daemon-only as fallback")
                             do {
-                                try await assistantCli.hatch(name: assistantName, daemonOnly: true)
+                                try await assistantCli.launch(name: assistantName, daemonOnly: true, restart: false)
                                 self.daemonStartupError = nil
                             } catch {
                                 log.error("Fallback daemon-only hatch also failed: \(error)")
