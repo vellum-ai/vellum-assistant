@@ -79,8 +79,9 @@ struct OnboardingFlowView: View {
                             case 0:
                                 WakeUpStepView(
                                     state: state,
-                                    authManager: authManager,
+                                    authManager: managedSignInEnabled ? authManager : nil,
                                     isAdvancing: isAdvancingFromWakeUp,
+                                    managedSignInEnabled: managedSignInEnabled,
                                     onStartWithAPIKey: {
                                         guard !isAdvancingFromWakeUp else { return }
                                         isAdvancingFromWakeUp = true
