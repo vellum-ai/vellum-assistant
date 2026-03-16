@@ -47,8 +47,9 @@ export async function initializeProvidersAndTools(
   try {
     const key = credentialKey("vellum", "platform_assistant_id");
     const persisted = await getSecureKeyAsync(key);
-    if (persisted) {
-      setPlatformAssistantId(persisted);
+    const trimmed = persisted?.trim();
+    if (trimmed) {
+      setPlatformAssistantId(trimmed);
       log.info("Rehydrated platform assistant ID from credential store");
     }
   } catch (err) {

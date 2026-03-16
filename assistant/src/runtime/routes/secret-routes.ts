@@ -166,7 +166,8 @@ export async function handleAddSecret(
         setPlatformBaseUrl(value);
       }
       if (service === "vellum" && field === "platform_assistant_id") {
-        setPlatformAssistantId(value);
+        const trimmed = value.trim();
+        setPlatformAssistantId(trimmed || undefined);
       }
       if (isManagedProxyCredential(service, field)) {
         await initializeProviders(getConfig());
