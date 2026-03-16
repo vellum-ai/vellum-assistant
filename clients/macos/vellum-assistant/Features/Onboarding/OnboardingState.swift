@@ -46,6 +46,8 @@ final class OnboardingState {
     enum HostingMode: String {
         case vellumCloud = "vellum-cloud"
         case local = "local"
+        case localDocker = "local-docker"
+        case vps = "vps"
     }
     var hasHatched: Bool = false
     var interviewCompleted: Bool = false

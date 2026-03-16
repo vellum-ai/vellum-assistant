@@ -84,6 +84,21 @@ struct APIKeyStepView: View {
                 comingSoon: false
             )
 
+            hostingCard(
+                icon: .package,
+                title: "Local Docker",
+                subtitle: "Run in a Docker container",
+                mode: .localDocker,
+                comingSoon: true
+            )
+
+            hostingCard(
+                icon: .globe,
+                title: "VPS",
+                subtitle: "Run on a remote server",
+                mode: .vps,
+                comingSoon: true
+            )
         }
     }
 
