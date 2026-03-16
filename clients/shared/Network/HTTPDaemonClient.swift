@@ -1673,7 +1673,7 @@ public final class HTTPTransport {
         }
     }
 
-    func sendMessage(content: String?, conversationId: String, attachments: [UserMessageAttachment]? = nil, uploadedAttachmentIds: [String]? = nil, isRetry: Bool = false) async {
+    func sendMessage(content: String?, conversationId: String, attachments: [UserMessageAttachment]? = nil, uploadedAttachmentIds: [String]? = nil, automated: Bool? = nil, isRetry: Bool = false) async {
         locallyOwnedConversationIds.insert(conversationId)
 
         // On retry, reuse already-uploaded attachment IDs to avoid duplicates
@@ -1723,6 +1723,9 @@ public final class HTTPTransport {
         if privateConversationIds.contains(conversationId) {
             body["conversationType"] = "private"
         }
+        if automated == true {
+            body["automated"] = true
+        }
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -1754,7 +1757,7 @@ public final class HTTPTransport {
                 switch refreshResult {
                 case .success:
                     // Reuse already-uploaded IDs to avoid duplicate uploads
-                    await sendMessage(content: content, conversationId: conversationId, uploadedAttachmentIds: attachmentIds, isRetry: true)
+                    await sendMessage(content: content, conversationId: conversationId, uploadedAttachmentIds: attachmentIds, automated: automated, isRetry: true)
                 case .terminalFailure:
                     // performRefresh() already emitted .authenticationRequired — don't overwrite it
                     break
