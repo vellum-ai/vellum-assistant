@@ -309,18 +309,27 @@ struct MainWindowView: View {
                     sharing.publishError = nil
                 }
 
-                // Collapse the sidebar when an app opens to avoid crowding
-                if sidebarExpanded {
-                    let shouldCollapse: Bool = {
-                        switch newSelection {
-                        case .app, .appEditing: return true
-                        default: return false
-                        }
-                    }()
-                    if shouldCollapse {
-                        withAnimation(VAnimation.panel) {
-                            sidebarExpanded = false
-                        }
+                // Collapse the sidebar when an app opens to avoid crowding;
+                // re-expand when leaving an app so other panels see the sidebar.
+                let wasApp: Bool = {
+                    switch oldSelection {
+                    case .app, .appEditing: return true
+                    default: return false
+                    }
+                }()
+                let isApp: Bool = {
+                    switch newSelection {
+                    case .app, .appEditing: return true
+                    default: return false
+                    }
+                }()
+                if sidebarExpanded && isApp {
+                    withAnimation(VAnimation.panel) {
+                        sidebarExpanded = false
+                    }
+                } else if !sidebarExpanded && wasApp && !isApp {
+                    withAnimation(VAnimation.panel) {
+                        sidebarExpanded = true
                     }
                 }
             }
