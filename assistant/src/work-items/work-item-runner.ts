@@ -142,18 +142,18 @@ export function runWorkItemInBackground(workItemId: string): RunWorkItemResult {
   broadcast({ type: "tasks_changed" } as ServerMessage);
 
   // Execute asynchronously
-  let session: Awaited<ReturnType<typeof getOrCreateConversation>> | null =
+  let conversation: Awaited<ReturnType<typeof getOrCreateConversation>> | null =
     null;
   void (async () => {
     try {
       const result = await runTask(
         { taskId: workItem.taskId, workingDir: process.cwd(), approvedTools },
         async (conversationId, message, taskRunId) => {
-          if (!session) {
+          if (!conversation) {
             updateWorkItem(workItemId, {
               lastRunConversationId: conversationId,
             });
-            session = await getOrCreateConversation(conversationId);
+            conversation = await getOrCreateConversation(conversationId);
 
             broadcast({
               type: "task_run_conversation_created",
@@ -161,19 +161,19 @@ export function runWorkItemInBackground(workItemId: string): RunWorkItemResult {
               workItemId,
               title: workItem.title,
             } as ServerMessage);
-            session.taskRunId = taskRunId;
-            session.headlessLock = true;
+            conversation.taskRunId = taskRunId;
+            conversation.headlessLock = true;
           }
-          await session.processMessage(message, [], (event) => {
+          await conversation.processMessage(message, [], (event) => {
             broadcast(event);
           });
         },
       );
 
-      // TS can't track that session is mutated inside the closure above
-      const doneSession = session as { headlessLock: boolean } | null;
-      if (doneSession) {
-        doneSession.headlessLock = false;
+      // TS can't track that conversation is mutated inside the closure above
+      const doneConversation = conversation as { headlessLock: boolean } | null;
+      if (doneConversation) {
+        doneConversation.headlessLock = false;
       }
 
       const current = getWorkItem(workItemId);
@@ -191,9 +191,9 @@ export function runWorkItemInBackground(workItemId: string): RunWorkItemResult {
       broadcastWorkItemStatus(broadcast, workItemId);
       broadcast({ type: "tasks_changed" } as ServerMessage);
     } catch (err) {
-      const errSession = session as { headlessLock: boolean } | null;
-      if (errSession) {
-        errSession.headlessLock = false;
+      const errConversation = conversation as { headlessLock: boolean } | null;
+      if (errConversation) {
+        errConversation.headlessLock = false;
       }
       log.error({ err, workItemId }, "work item background run failed");
       updateWorkItem(workItemId, {
