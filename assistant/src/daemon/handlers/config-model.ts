@@ -5,7 +5,7 @@ import {
   saveRawConfig,
 } from "../../config/loader.js";
 import { initializeProviders } from "../../providers/registry.js";
-import { getSecureKeyAsync } from "../../security/secure-keys.js";
+import { getProviderKeyAsync } from "../../security/secure-keys.js";
 import { MODEL_TO_PROVIDER } from "../conversation-slash.js";
 import type {
   ImageGenModelSetRequest,
@@ -32,7 +32,7 @@ export async function getModelInfo(): Promise<ModelInfo> {
   const config = getConfig();
   const configured: string[] = [];
   for (const p of API_KEY_PROVIDERS) {
-    if (await getSecureKeyAsync(p)) {
+    if (await getProviderKeyAsync(p)) {
       configured.push(p);
     }
   }
@@ -83,7 +83,7 @@ export async function setModel(
   // Validate API key before switching
   const provider = MODEL_TO_PROVIDER[modelId];
   if (provider && provider !== "ollama") {
-    if (!(await getSecureKeyAsync(provider))) {
+    if (!(await getProviderKeyAsync(provider))) {
       // Return current model_info so the client resyncs its optimistic state
       return await getModelInfo();
     }

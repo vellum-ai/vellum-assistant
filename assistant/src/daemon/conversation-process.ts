@@ -27,7 +27,7 @@ import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
 import type { Message } from "../providers/types.js";
 import { routeGuardianReply } from "../runtime/guardian-reply-router.js";
-import { getSecureKeyAsync } from "../security/secure-keys.js";
+import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { QueueDrainReason } from "./conversation-queue-manager.js";
@@ -53,7 +53,7 @@ export async function buildModelInfoEvent(): Promise<ServerMessage> {
   const configured: string[] = ["ollama"];
   for (const p of API_KEY_PROVIDERS) {
     if (p === "ollama") continue;
-    if (await getSecureKeyAsync(p)) {
+    if (await getProviderKeyAsync(p)) {
       configured.push(p);
     }
   }

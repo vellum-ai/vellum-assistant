@@ -12,7 +12,7 @@ import {
   saveRawConfig,
 } from "../config/loader.js";
 import { initializeProviders } from "../providers/registry.js";
-import { getSecureKeyAsync } from "../security/secure-keys.js";
+import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { getLocalIPv4 } from "../util/network-info.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { silentlyWithLog } from "../util/silently.js";
@@ -157,7 +157,7 @@ async function resolveProviderModelCommand(
   const name = getAssistantName();
 
   // Check if API key exists for this provider (Ollama doesn't require an API key)
-  if (provider !== "ollama" && !(await getSecureKeyAsync(provider))) {
+  if (provider !== "ollama" && !(await getProviderKeyAsync(provider))) {
     return {
       kind: "unknown",
       message: `Cannot switch to ${displayName}. No API key configured for ${provider}.\n\nSet it with: \`keys set ${provider} <your-key>\``,
@@ -201,7 +201,7 @@ async function resolveModelList(): Promise<SlashResolution> {
   // Build a set of providers that have a configured API key.
   const configuredProviders = new Set<string>(["ollama"]);
   for (const p of API_KEY_PROVIDERS) {
-    if (await getSecureKeyAsync(p)) {
+    if (await getProviderKeyAsync(p)) {
       configuredProviders.add(p);
     }
   }
@@ -285,7 +285,7 @@ async function resolveModelCommand(
   }
 
   // Validate that Anthropic provider is available
-  if (!(await getSecureKeyAsync("anthropic"))) {
+  if (!(await getProviderKeyAsync("anthropic"))) {
     const displayName = MODEL_DISPLAY_NAMES[matched] ?? matched;
     return {
       kind: "unknown",

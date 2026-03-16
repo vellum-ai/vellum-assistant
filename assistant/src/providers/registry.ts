@@ -1,5 +1,5 @@
 import { wrapWithLogfire } from "../logfire.js";
-import { getSecureKeyAsync } from "../security/secure-keys.js";
+import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { ConfigError, ProviderNotConfiguredError } from "../util/errors.js";
 import { AnthropicProvider } from "./anthropic/client.js";
 import { FailoverProvider, type ProviderHealthStatus } from "./failover.js";
@@ -215,7 +215,7 @@ export async function initializeProviders(
   const streamTimeoutMs =
     (config.timeouts?.providerStreamTimeoutSec ?? 300) * 1000;
 
-  const anthropicKey = await getSecureKeyAsync("anthropic");
+  const anthropicKey = await getProviderKeyAsync("anthropic");
   if (anthropicKey) {
     const model = resolveModel(config, "anthropic");
     registerProvider(
@@ -252,7 +252,7 @@ export async function initializeProviders(
       routingSources.set("anthropic", "managed-proxy");
     }
   }
-  const openaiKey = await getSecureKeyAsync("openai");
+  const openaiKey = await getProviderKeyAsync("openai");
   if (openaiKey) {
     const model = resolveModel(config, "openai");
     registerProvider(
@@ -283,7 +283,7 @@ export async function initializeProviders(
       routingSources.set("openai", "managed-proxy");
     }
   }
-  const geminiKey = await getSecureKeyAsync("gemini");
+  const geminiKey = await getProviderKeyAsync("gemini");
   if (geminiKey) {
     const model = resolveModel(config, "gemini");
     registerProvider(
@@ -315,7 +315,7 @@ export async function initializeProviders(
       routingSources.set("gemini", "managed-proxy");
     }
   }
-  const ollamaKey = await getSecureKeyAsync("ollama");
+  const ollamaKey = await getProviderKeyAsync("ollama");
   if (config.provider === "ollama" || ollamaKey) {
     const model = resolveModel(config, "ollama");
     registerProvider(
@@ -331,7 +331,7 @@ export async function initializeProviders(
     );
     routingSources.set("ollama", "user-key");
   }
-  const fireworksKey = await getSecureKeyAsync("fireworks");
+  const fireworksKey = await getProviderKeyAsync("fireworks");
   if (fireworksKey) {
     const model = resolveModel(config, "fireworks");
     registerProvider(
@@ -346,7 +346,7 @@ export async function initializeProviders(
     );
     routingSources.set("fireworks", "user-key");
   }
-  const openrouterKey = await getSecureKeyAsync("openrouter");
+  const openrouterKey = await getProviderKeyAsync("openrouter");
   if (openrouterKey) {
     const model = resolveModel(config, "openrouter");
     registerProvider(
