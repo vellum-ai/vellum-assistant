@@ -28,6 +28,11 @@ struct HighlightedTextView: NSViewRepresentable {
         let scrollView = NSTextView.scrollableTextView()
         let textView = scrollView.documentView as! NSTextView
 
+        // Layer-back everything for proper compositing inside SwiftUI
+        scrollView.wantsLayer = true
+        scrollView.contentView.wantsLayer = true
+        textView.wantsLayer = true
+
         // Enable horizontal scrolling (no word wrap)
         textView.textContainer?.widthTracksTextView = false
         textView.textContainer?.containerSize = NSSize(
@@ -49,17 +54,19 @@ struct HighlightedTextView: NSViewRepresentable {
         textView.isAutomaticTextReplacementEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.isAutomaticTextCompletionEnabled = false
+        // Resolve appearance once — dynamic NSColors may not resolve correctly
+        // inside SwiftUI-hosted NSTextViews.
+        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let resolvedTextColor = SyntaxTheme.resolvedBaseTextColor(isDark: isDark)
+
         textView.font = context.coordinator.baseFont
-        textView.textColor = SyntaxTheme.baseTextColor
+        textView.textColor = resolvedTextColor
         textView.backgroundColor = Self.editorBackground
-        textView.insertionPointColor = SyntaxTheme.baseTextColor
+        textView.insertionPointColor = resolvedTextColor
         textView.selectedTextAttributes = [
-            .backgroundColor: NSColor(name: nil) { appearance in
-                let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                return isDark
-                    ? NSColor(white: 1.0, alpha: 0.15)
-                    : NSColor(white: 0.0, alpha: 0.12)
-            },
+            .backgroundColor: isDark
+                ? NSColor(white: 1.0, alpha: 0.15)
+                : NSColor(white: 0.0, alpha: 0.12),
         ]
 
         textView.string = text
@@ -80,7 +87,12 @@ struct HighlightedTextView: NSViewRepresentable {
         textView.delegate = context.coordinator
         context.coordinator.textView = textView
         context.coordinator.rulerView = rulerView
-        context.coordinator.applyHighlighting()
+
+        // Defer highlighting to the next run loop iteration so the view is in the
+        // window hierarchy and effectiveAppearance resolves correctly.
+        DispatchQueue.main.async {
+            context.coordinator.applyHighlighting()
+        }
 
         return scrollView
     }
@@ -170,16 +182,23 @@ struct HighlightedTextView: NSViewRepresentable {
 
             let selectedRange = textView.selectedRange()
 
+            // Pre-resolve colors to static sRGB values. Dynamic NSColors
+            // (NSColor(name:dynamicProvider:) and NSColor(SwiftUI.Color)) stored
+            // in NSAttributedString foreground color attributes may not resolve
+            // correctly inside an NSTextView hosted in SwiftUI.
+            let isDark = textView.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let resolvedBaseColor = SyntaxTheme.resolvedBaseTextColor(isDark: isDark)
+
             textStorage.beginEditing()
             textStorage.setAttributes(
-                [.font: baseFont, .foregroundColor: SyntaxTheme.baseTextColor],
+                [.font: baseFont, .foregroundColor: resolvedBaseColor],
                 range: NSRange(location: 0, length: fullText.utf16.count)
             )
 
             let tokens = SyntaxTokenizer.tokenize(fullText, language: language)
             for token in tokens {
                 textStorage.addAttributes(
-                    SyntaxTheme.attributes(for: token.type, baseFont: baseFont),
+                    SyntaxTheme.resolvedAttributes(for: token.type, baseFont: baseFont, isDark: isDark),
                     range: token.range
                 )
             }
