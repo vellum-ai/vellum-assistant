@@ -131,14 +131,16 @@ Examples:
           return;
         }
 
-        const success = writeTraitsAndRenderAvatar({
+        const result = writeTraitsAndRenderAvatar({
           bodyShape: opts.bodyShape,
           eyeStyle: opts.eyeStyle,
           color: opts.color,
         });
 
-        if (!success) {
-          log.error("Failed to write traits and render avatar.");
+        if (!result.ok) {
+          log.error(
+            `Failed to write traits and render avatar: ${result.message}`,
+          );
           process.exitCode = 1;
           return;
         }
