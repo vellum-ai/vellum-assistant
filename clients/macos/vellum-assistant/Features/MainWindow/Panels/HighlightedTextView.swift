@@ -101,7 +101,7 @@ struct HighlightedTextView: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var textView: NSTextView?
-        var rulerView: LineNumberRulerView?
+        fileprivate var rulerView: LineNumberRulerView?
         var language: SyntaxLanguage
         var onTextChange: ((String) -> Void)?
         var isUpdatingFromSwiftUI = false
