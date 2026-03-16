@@ -73,7 +73,7 @@ public struct ContactClient: ContactClientProtocol {
             log.error("updateContact failed (HTTP \(response.statusCode))")
             return nil
         }
-        return try? JSONDecoder().decode(UpsertResponse.self, from: response.data).contact
+        return try JSONDecoder().decode(UpsertResponse.self, from: response.data).contact
     }
 
     public func createContact(
@@ -96,7 +96,7 @@ public struct ContactClient: ContactClientProtocol {
             log.error("createContact failed (HTTP \(response.statusCode))")
             return nil
         }
-        return try? JSONDecoder().decode(UpsertResponse.self, from: response.data).contact
+        return try JSONDecoder().decode(UpsertResponse.self, from: response.data).contact
     }
 
     public func createInvite(
