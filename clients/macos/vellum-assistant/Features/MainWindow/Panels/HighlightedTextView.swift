@@ -75,9 +75,22 @@ struct HighlightedTextView: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
 
+        // Refresh coordinator's reference to the current SwiftUI struct
+        context.coordinator.parent = self
+
         // Keep closures and language fresh
+        let languageChanged = context.coordinator.language != language
         context.coordinator.language = language
         context.coordinator.onTextChange = onTextChange
+
+        // Sync editability with SwiftUI state
+        textView.isEditable = isEditable
+
+        // Re-highlight when language changes even if text hasn't changed
+        if languageChanged && text == textView.string {
+            context.coordinator.applyHighlighting()
+            return
+        }
 
         // Only update text if it differs and the user is not actively editing
         guard text != textView.string else { return }
@@ -90,8 +103,8 @@ struct HighlightedTextView: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
-        coordinator.highlightWorkItem?.cancel()
-        coordinator.highlightWorkItem = nil
+        coordinator.highlightTask?.cancel()
+        coordinator.highlightTask = nil
         coordinator.rulerView?.removeAllObservers()
         coordinator.textView = nil
         coordinator.rulerView = nil
@@ -105,7 +118,7 @@ struct HighlightedTextView: NSViewRepresentable {
         var language: SyntaxLanguage
         var onTextChange: ((String) -> Void)?
         var isUpdatingFromSwiftUI = false
-        var highlightWorkItem: DispatchWorkItem?
+        var highlightTask: Task<Void, Never>?
         var parent: HighlightedTextView
 
         lazy var baseFont: NSFont = {
@@ -128,12 +141,12 @@ struct HighlightedTextView: NSViewRepresentable {
             onTextChange?(newString)
 
             // Debounce re-highlighting at 50ms
-            highlightWorkItem?.cancel()
-            let workItem = DispatchWorkItem { [weak self] in
+            highlightTask?.cancel()
+            highlightTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                guard !Task.isCancelled else { return }
                 self?.applyHighlighting()
             }
-            highlightWorkItem = workItem
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: workItem)
         }
 
         func applyHighlighting() {
