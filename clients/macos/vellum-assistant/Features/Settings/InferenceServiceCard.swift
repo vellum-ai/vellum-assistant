@@ -15,6 +15,8 @@ struct InferenceServiceCard: View {
 
     /// Local draft of the mode selection — only persisted on Save.
     @State private var draftMode: String = "your-own"
+    /// Snapshot of the model at card appear — used to detect model-only changes.
+    @State private var initialModel: String = ""
     /// Whether the Managed segment is being hovered (for tooltip).
     @State private var isManagedHovered: Bool = false
 
@@ -39,7 +41,8 @@ struct InferenceServiceCard: View {
     private var hasChanges: Bool {
         let modeChanged = draftMode != store.inferenceMode
         let hasNewKey = !apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        return modeChanged || hasNewKey
+        let modelChanged = store.selectedModel != initialModel
+        return modeChanged || hasNewKey || modelChanged
     }
 
     var body: some View {
@@ -68,6 +71,7 @@ struct InferenceServiceCard: View {
         .vCard(background: VColor.surfaceOverlay)
         .onAppear {
             draftMode = store.inferenceMode
+            initialModel = store.selectedModel
         }
         .onChange(of: store.inferenceMode) { _, newValue in
             // Sync draft when external changes arrive (e.g. daemon reload)
@@ -256,5 +260,6 @@ struct InferenceServiceCard: View {
 
         // Persist model selection
         store.setModel(store.selectedModel)
+        initialModel = store.selectedModel
     }
 }
