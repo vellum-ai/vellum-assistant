@@ -169,19 +169,4 @@ describe("CES flags do not affect unrelated flags", () => {
       ),
     ).toBe(false);
   });
-
-  test("enabling all CES flags does not change collect-usage-data flag (defaultEnabled: true)", () => {
-    const overrides: Record<string, boolean> = {};
-    for (const key of ALL_CES_FLAG_KEYS) {
-      overrides[key] = true;
-    }
-    const config = makeConfig(overrides);
-
-    expect(
-      isAssistantFeatureFlagEnabled(
-        "feature_flags.collect-usage-data.enabled",
-        config,
-      ),
-    ).toBe(true);
-  });
 });

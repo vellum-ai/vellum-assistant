@@ -1,5 +1,6 @@
 import { avatarRenameMigration } from "./001-avatar-rename.js";
 import { seedDeviceIdMigration } from "./003-seed-device-id.js";
+import { extractCollectUsageDataMigration } from "./004-extract-collect-usage-data.js";
 import type { WorkspaceMigration } from "./types.js";
 
 /**
@@ -9,4 +10,5 @@ import type { WorkspaceMigration } from "./types.js";
 export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   avatarRenameMigration,
   seedDeviceIdMigration,
+  extractCollectUsageDataMigration,
 ];
