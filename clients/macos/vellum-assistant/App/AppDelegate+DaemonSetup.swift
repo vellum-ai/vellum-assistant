@@ -243,16 +243,24 @@ extension AppDelegate {
         }
 
         daemonClient.onDocumentEditorShow = { [weak self] msg in
-            self?.mainWindow?.handleDocumentEditorShow(msg)
+            guard let self else { return }
+            self.ensureMainWindowExists()
+            self.mainWindow?.handleDocumentEditorShow(msg)
         }
         daemonClient.onDocumentEditorUpdate = { [weak self] msg in
-            self?.mainWindow?.handleDocumentEditorUpdate(msg)
+            guard let self else { return }
+            self.ensureMainWindowExists()
+            self.mainWindow?.handleDocumentEditorUpdate(msg)
         }
         daemonClient.onDocumentSaveResponse = { [weak self] msg in
-            self?.mainWindow?.handleDocumentSaveResponse(msg)
+            guard let self else { return }
+            self.ensureMainWindowExists()
+            self.mainWindow?.handleDocumentSaveResponse(msg)
         }
         daemonClient.onDocumentLoadResponse = { [weak self] msg in
-            self?.mainWindow?.handleDocumentLoadResponse(msg)
+            guard let self else { return }
+            self.ensureMainWindowExists()
+            self.mainWindow?.handleDocumentLoadResponse(msg)
         }
 
         // Handle diagnostics export response — show a toast in the main window
