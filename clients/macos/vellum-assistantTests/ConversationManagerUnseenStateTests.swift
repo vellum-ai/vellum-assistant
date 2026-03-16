@@ -474,7 +474,7 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
             return
         }
 
-        conversationManager.mergeAssistantAttention(from: session, intoThreadAt: index)
+        conversationManager.mergeAssistantAttention(from: session, intoConversationAt: index)
 
         XCTAssertFalse(
             conversationManager.conversations.first(where: { $0.conversationId == "session-refresh-seen" })?.hasUnseenLatestAssistantMessage ?? true

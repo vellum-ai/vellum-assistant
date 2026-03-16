@@ -28,7 +28,7 @@ struct ComposerSection: View {
     var recordingAmplitude: Float = 0
     var onDictateToggle: (() -> Void)? = nil
     var onVoiceModeToggle: (() -> Void)? = nil
-    var threadId: UUID?
+    var conversationId: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -65,7 +65,7 @@ struct ComposerSection: View {
                 onDictateToggle: onDictateToggle,
                 onVoiceModeToggle: onVoiceModeToggle,
                 placeholderText: isSending ? "Working on it..." : "What would you like to do?",
-                threadId: threadId
+                conversationId: conversationId
             )
         }
         .background(

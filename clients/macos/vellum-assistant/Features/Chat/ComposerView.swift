@@ -62,7 +62,7 @@ struct ComposerView: View {
     var onVoiceModeToggle: (() -> Void)? = nil
     var placeholderText: String = "What would you like to do?"
     var composerCompactHeight: CGFloat = 38
-    var threadId: UUID?
+    var conversationId: UUID?
 
     @Environment(\.conversationZoomScale) private var zoomScale
     @Environment(\.cmdEnterToSend) private var cmdEnterToSend
@@ -127,7 +127,7 @@ struct ComposerView: View {
             let identity = IdentityInfo.load()
             avatarSeed = identity?.name ?? "default"
         }
-        .onChange(of: threadId) {
+        .onChange(of: conversationId) {
             guard !hasPendingConfirmation else { return }
             composerFocus = true
         }

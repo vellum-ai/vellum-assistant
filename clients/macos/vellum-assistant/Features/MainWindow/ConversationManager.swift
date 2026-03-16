@@ -66,7 +66,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
                 let activeViewModel = getOrCreateViewModel(for: activeConversationId)
                 activeViewModel?.ensureMessageLoopStarted()
-                conversationRestorer.loadHistoryIfNeeded(threadId: activeConversationId)
+                conversationRestorer.loadHistoryIfNeeded(conversationId: activeConversationId)
                 // Only persist the active thread ID if we're not in the middle of restoration.
                 // During init and session restoration, the didSet fires multiple times and would
                 // overwrite the saved value before restoreLastActiveConversation() reads it.
@@ -702,7 +702,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
                 thread.pinnedOrder = isPinned ? (session.displayOrder.map { Int($0) } ?? nextPinnedOrder) : nil
                 thread.displayOrder = session.displayOrder.map { Int($0) }
                 conversations[existingIdx] = thread
-                mergeAssistantAttention(from: session, intoThreadAt: existingIdx)
+                mergeAssistantAttention(from: session, intoConversationAt: existingIdx)
                 if isPinned && session.displayOrder == nil { nextPinnedOrder += 1 }
                 continue
             }
@@ -1119,41 +1119,41 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     // MARK: - ConversationRestorerDelegate
 
-    func chatViewModel(for threadId: UUID) -> ChatViewModel? {
-        return getOrCreateViewModel(for: threadId)
+    func chatViewModel(for conversationId: UUID) -> ChatViewModel? {
+        return getOrCreateViewModel(for: conversationId)
     }
 
-    func existingChatViewModel(for threadId: UUID) -> ChatViewModel? {
-        guard let vm = chatViewModels[threadId] else { return nil }
-        touchVMAccessOrder(threadId)
+    func existingChatViewModel(for conversationId: UUID) -> ChatViewModel? {
+        guard let vm = chatViewModels[conversationId] else { return nil }
+        touchVMAccessOrder(conversationId)
         return vm
     }
 
     func existingChatViewModel(forConversationId conversationId: String) -> ChatViewModel? {
-        for (threadId, vm) in chatViewModels where vm.conversationId == conversationId {
-            touchVMAccessOrder(threadId)
+        for (localId, vm) in chatViewModels where vm.conversationId == conversationId {
+            touchVMAccessOrder(localId)
             return vm
         }
         return nil
     }
 
-    func setChatViewModel(_ vm: ChatViewModel, for threadId: UUID) {
-        chatViewModels[threadId] = vm
-        subscribeToBusyState(for: threadId, viewModel: vm)
-        subscribeToAssistantActivity(for: threadId, viewModel: vm)
-        subscribeToInteractionState(for: threadId, viewModel: vm)
-        touchVMAccessOrder(threadId)
+    func setChatViewModel(_ vm: ChatViewModel, for conversationId: UUID) {
+        chatViewModels[conversationId] = vm
+        subscribeToBusyState(for: conversationId, viewModel: vm)
+        subscribeToAssistantActivity(for: conversationId, viewModel: vm)
+        subscribeToInteractionState(for: conversationId, viewModel: vm)
+        touchVMAccessOrder(conversationId)
         evictStaleCachedViewModels()
         // Re-subscribe if this is the active view model
-        if threadId == activeConversationId {
+        if conversationId == activeConversationId {
             subscribeToActiveViewModel()
         }
     }
 
-    func removeChatViewModel(for threadId: UUID) {
-        chatViewModels.removeValue(forKey: threadId)
-        unsubscribeAllForConversation(id: threadId)
-        vmAccessOrder.removeAll { $0 == threadId }
+    func removeChatViewModel(for conversationId: UUID) {
+        chatViewModels.removeValue(forKey: conversationId)
+        unsubscribeAllForConversation(id: conversationId)
+        vmAccessOrder.removeAll { $0 == conversationId }
     }
 
     /// Called when the user responds to a confirmation via the inline chat UI.
@@ -1610,7 +1610,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     func mergeAssistantAttention(
         from item: ConversationListResponseItem,
-        intoThreadAt index: Int
+        intoConversationAt index: Int
     ) {
         conversations[index].hasUnseenLatestAssistantMessage =
             item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false

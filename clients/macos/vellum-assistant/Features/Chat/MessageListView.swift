@@ -108,7 +108,7 @@ struct MessageListView: View {
     /// Callback to load the next older page of messages.
     var loadPreviousMessagePage: (() async -> Bool)?
 
-    var threadId: UUID?
+    var conversationId: UUID?
     /// When set, scroll to this message ID and clear the binding.
     /// Used by notification deep links to anchor the view to a specific message.
     @Binding var anchorMessageId: UUID?
@@ -1046,7 +1046,7 @@ struct MessageListView: View {
                     // If not near bottom or anchor is set, preserve viewport.
                 }
             }
-            .onChange(of: threadId) {
+            .onChange(of: conversationId) {
                 // Keep the underlying NSScrollView instance stable across thread
                 // switches (prevents default-scroller flash), and reset view-local
                 // scroll state explicitly instead of remounting the whole view.

@@ -63,7 +63,7 @@ struct ChatView: View {
     var recordingAmplitude: Float = 0
     var onDictateToggle: (() -> Void)? = nil
     var onVoiceModeToggle: (() -> Void)? = nil
-    var threadId: UUID?
+    var conversationId: UUID?
     var daemonGreeting: String? = nil
     var onRequestGreeting: (() -> Void)? = nil
     /// When set, scroll to this message ID and clear the binding.
@@ -167,7 +167,7 @@ struct ChatView: View {
                             recordingAmplitude: recordingAmplitude,
                             onDictateToggle: onDictateToggle,
                             onVoiceModeToggle: onVoiceModeToggle,
-                            threadId: threadId
+                            conversationId: conversationId
                         )
                     } else {
                         ChatEmptyStateView(
@@ -190,7 +190,7 @@ struct ChatView: View {
                             recordingAmplitude: recordingAmplitude,
                             onDictateToggle: onDictateToggle,
                             onVoiceModeToggle: onVoiceModeToggle,
-                            threadId: threadId,
+                            conversationId: conversationId,
                             daemonGreeting: daemonGreeting,
                             onRequestGreeting: onRequestGreeting
                         )
@@ -234,7 +234,7 @@ struct ChatView: View {
                             hasMoreMessages: hasMoreMessages,
                             isLoadingMoreMessages: isLoadingMoreMessages,
                             loadPreviousMessagePage: loadPreviousMessagePage,
-                            threadId: threadId,
+                            conversationId: conversationId,
                             anchorMessageId: $anchorMessageId,
                             highlightedMessageId: $highlightedMessageId,
                             isNearBottom: $isNearBottom,
@@ -278,7 +278,7 @@ struct ChatView: View {
                             recordingAmplitude: recordingAmplitude,
                             onDictateToggle: onDictateToggle,
                             onVoiceModeToggle: onVoiceModeToggle,
-                            threadId: threadId
+                            conversationId: conversationId
                         )
                     }
                 }
@@ -370,7 +370,7 @@ struct ChatView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .activateChatSearch)) { notification in
             // Scope to the active thread so only the visible ChatView activates.
-            if let targetId = notification.object as? UUID, targetId != threadId {
+            if let targetId = notification.object as? UUID, targetId != conversationId {
                 return
             }
             activateSearch()

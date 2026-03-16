@@ -382,7 +382,7 @@ extension MainWindowView {
                 onVoiceModeToggle: {
                     toggleVoiceMode()
                 },
-                threadId: conversationManager.activeConversationId,
+                conversationId: conversationManager.activeConversationId,
                 anchorMessageId: $conversationManager.pendingAnchorMessageId,
                 highlightedMessageId: $conversationManager.highlightedMessageId
             )
@@ -579,7 +579,7 @@ struct ActiveChatViewWrapper: View {
     var onEndVoiceMode: (() -> Void)? = nil
     var onDictateToggle: (() -> Void)? = nil
     var onVoiceModeToggle: (() -> Void)? = nil
-    var threadId: UUID?
+    var conversationId: UUID?
     @Binding var anchorMessageId: UUID?
     @Binding var highlightedMessageId: UUID?
 
@@ -691,7 +691,7 @@ struct ActiveChatViewWrapper: View {
             recordingAmplitude: viewModel.recordingAmplitude,
             onDictateToggle: onDictateToggle,
             onVoiceModeToggle: onVoiceModeToggle,
-            threadId: threadId,
+            conversationId: conversationId,
             daemonGreeting: viewModel.emptyStateGreeting,
             onRequestGreeting: { [weak viewModel] in viewModel?.generateGreeting() },
             anchorMessageId: $anchorMessageId,

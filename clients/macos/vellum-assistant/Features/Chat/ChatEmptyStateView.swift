@@ -26,7 +26,7 @@ struct ChatEmptyStateView: View {
     var recordingAmplitude: Float = 0
     var onDictateToggle: (() -> Void)? = nil
     var onVoiceModeToggle: (() -> Void)? = nil
-    var threadId: UUID?
+    var conversationId: UUID?
     var daemonGreeting: String? = nil
     var onRequestGreeting: (() -> Void)? = nil
 
@@ -112,7 +112,7 @@ struct ChatEmptyStateView: View {
                 onDictateToggle: onDictateToggle,
                 onVoiceModeToggle: onVoiceModeToggle,
                 placeholderText: placeholder,
-                threadId: threadId
+                conversationId: conversationId
             )
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
             .opacity(visible ? 1 : 0)
@@ -159,7 +159,7 @@ struct ChatTemporaryChatEmptyStateView: View {
     var recordingAmplitude: Float = 0
     var onDictateToggle: (() -> Void)? = nil
     var onVoiceModeToggle: (() -> Void)? = nil
-    var threadId: UUID?
+    var conversationId: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -206,7 +206,7 @@ struct ChatTemporaryChatEmptyStateView: View {
                 onDictateToggle: onDictateToggle,
                 onVoiceModeToggle: onVoiceModeToggle,
                 placeholderText: "Ask anything...",
-                threadId: threadId
+                conversationId: conversationId
             )
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
 

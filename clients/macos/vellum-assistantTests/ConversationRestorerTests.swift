@@ -22,12 +22,12 @@ final class MockConversationRestorerDelegate: ConversationRestorerDelegate {
         self.daemonClient = daemonClient
     }
 
-    func chatViewModel(for threadId: UUID) -> ChatViewModel? {
-        viewModels[threadId]
+    func chatViewModel(for conversationId: UUID) -> ChatViewModel? {
+        viewModels[conversationId]
     }
 
-    func existingChatViewModel(for threadId: UUID) -> ChatViewModel? {
-        viewModels[threadId]
+    func existingChatViewModel(for conversationId: UUID) -> ChatViewModel? {
+        viewModels[conversationId]
     }
 
     func existingChatViewModel(forConversationId conversationId: String) -> ChatViewModel? {
@@ -37,12 +37,12 @@ final class MockConversationRestorerDelegate: ConversationRestorerDelegate {
         return nil
     }
 
-    func setChatViewModel(_ vm: ChatViewModel, for threadId: UUID) {
-        viewModels[threadId] = vm
+    func setChatViewModel(_ vm: ChatViewModel, for conversationId: UUID) {
+        viewModels[conversationId] = vm
     }
 
-    func removeChatViewModel(for threadId: UUID) {
-        viewModels.removeValue(forKey: threadId)
+    func removeChatViewModel(for conversationId: UUID) {
+        viewModels.removeValue(forKey: conversationId)
     }
 
     func makeViewModel() -> ChatViewModel {
@@ -76,7 +76,7 @@ final class MockConversationRestorerDelegate: ConversationRestorerDelegate {
 
     func mergeAssistantAttention(
         from item: ConversationListResponseItem,
-        intoThreadAt index: Int
+        intoConversationAt index: Int
     ) {
         conversations[index].hasUnseenLatestAssistantMessage =
             item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
