@@ -283,7 +283,7 @@ mock.module("../workspace/git-service.js", () => ({
 }));
 
 mock.module("../daemon/conversation-error.js", () => ({
-  classifySessionError: (_err: unknown, _ctx: unknown) => ({
+  classifyConversationError: (_err: unknown, _ctx: unknown) => ({
     code: "CONVERSATION_PROCESSING_FAILED",
     userMessage: "Something went wrong processing your message.",
     retryable: false,
@@ -295,7 +295,7 @@ mock.module("../daemon/conversation-error.js", () => ({
     if (err instanceof Error && err.name === "AbortError") return true;
     return false;
   },
-  buildSessionErrorMessage: (
+  buildConversationErrorMessage: (
     conversationId: string,
     classified: Record<string, unknown>,
   ) => ({
@@ -698,8 +698,8 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       // After PR 2 fix, the reducer SHOULD be called to attempt compaction.
       expect(reducerCalled).toBe(true);
 
-      // BUG: Currently a session_error IS emitted instead of retrying.
-      // After PR 2 fix, there should be no session_error.
+      // BUG: Currently a conversation_error IS emitted instead of retrying.
+      // After PR 2 fix, there should be no conversation_error.
       const sessionError = events.find((e) => e.type === "conversation_error");
       expect(sessionError).toBeUndefined();
     },
@@ -806,7 +806,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
 
       // The reducer should be called in the convergence loop
       expect(reducerCalled).toBe(true);
-      // Should recover without session_error
+      // Should recover without conversation_error
       const sessionError = events.find((e) => e.type === "conversation_error");
       expect(sessionError).toBeUndefined();
       expect(callCount).toBe(2);
@@ -940,7 +940,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       );
       expect(capturedTargetTokens!).toBe(expectedCorrectedTarget);
 
-      // Should recover without session_error
+      // Should recover without conversation_error
       const sessionError = events.find((e) => e.type === "conversation_error");
       expect(sessionError).toBeUndefined();
       expect(callCount).toBe(2);
@@ -1229,7 +1229,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       // After PR 2 fix, emergency compaction should be attempted.
       expect(emergencyCompactCalled).toBe(true);
 
-      // BUG: Currently a session_error IS emitted.
+      // BUG: Currently a conversation_error IS emitted.
       const sessionError = events.find((e) => e.type === "conversation_error");
       expect(sessionError).toBeUndefined();
     },
@@ -1405,7 +1405,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       // Agent loop should have been called twice: once before yield, once after compaction
       expect(agentLoopCallCount).toBe(2);
 
-      // No session_error should be emitted
+      // No conversation_error should be emitted
       const sessionError = events.find((e) => e.type === "conversation_error");
       expect(sessionError).toBeUndefined();
 
@@ -1592,7 +1592,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       // Agent loop called twice: once (yielded at tool 3), once after compaction
       expect(agentLoopCallCount).toBe(2);
 
-      // No session_error
+      // No conversation_error
       const sessionError = events.find((e) => e.type === "conversation_error");
       expect(sessionError).toBeUndefined();
     },

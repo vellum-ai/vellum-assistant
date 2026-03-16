@@ -28,8 +28,8 @@ import {
 } from "./assistant-attachments.js";
 import type { AgentLoopConversationContext } from "./conversation-agent-loop.js";
 import {
-  buildSessionErrorMessage,
-  classifySessionError,
+  buildConversationErrorMessage,
+  classifyConversationError,
   isContextTooLarge,
 } from "./conversation-error.js";
 import { isProviderOrderingError } from "./conversation-slash.js";
@@ -600,7 +600,7 @@ export function handleError(
     state.contextTooLargeDetected = true;
     state.contextTooLargeErrorMessage = event.error.message;
   } else {
-    const classified = classifySessionError(event.error, {
+    const classified = classifyConversationError(event.error, {
       phase: "agent_loop",
     });
     if (classified.code === "CONTEXT_TOO_LARGE") {
@@ -610,13 +610,13 @@ export function handleError(
       classified.code === "PROVIDER_ORDERING" ||
       classified.code === "PROVIDER_WEB_SEARCH"
     ) {
-      // Ordering errors detected via classifySessionError (e.g. from ProviderError
+      // Ordering errors detected via classifyConversationError (e.g. from ProviderError
       // with statusCode 400 and ordering message) — trigger the retry path.
       state.orderingErrorDetected = true;
       state.deferredOrderingError = event.error.message;
     } else {
       deps.onEvent(
-        buildSessionErrorMessage(deps.ctx.conversationId, classified),
+        buildConversationErrorMessage(deps.ctx.conversationId, classified),
       );
       state.providerErrorUserMessage = classified.userMessage;
     }

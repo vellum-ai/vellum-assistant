@@ -2,8 +2,8 @@ import { describe, expect, it } from "bun:test";
 
 import type { ErrorContext } from "../daemon/conversation-error.js";
 import {
-  buildSessionErrorMessage,
-  classifySessionError,
+  buildConversationErrorMessage,
+  classifyConversationError,
   isUserCancellation,
 } from "../daemon/conversation-error.js";
 import { ProviderError } from "../util/errors.js";
@@ -56,7 +56,7 @@ describe("isUserCancellation", () => {
   });
 });
 
-describe("classifySessionError", () => {
+describe("classifyConversationError", () => {
   const baseCtx: ErrorContext = { phase: "agent_loop" };
 
   describe("network errors", () => {
@@ -74,7 +74,7 @@ describe("classifySessionError", () => {
 
     for (const msg of cases) {
       it(`classifies "${msg}" as PROVIDER_NETWORK`, () => {
-        const result = classifySessionError(new Error(msg), baseCtx);
+        const result = classifyConversationError(new Error(msg), baseCtx);
         expect(result.code).toBe("PROVIDER_NETWORK");
         expect(result.retryable).toBe(true);
         expect(result.errorCategory).toBe("provider_network");
@@ -93,7 +93,7 @@ describe("classifySessionError", () => {
 
     for (const msg of cases) {
       it(`classifies "${msg}" as PROVIDER_RATE_LIMIT`, () => {
-        const result = classifySessionError(new Error(msg), baseCtx);
+        const result = classifyConversationError(new Error(msg), baseCtx);
         expect(result.code).toBe("PROVIDER_RATE_LIMIT");
         expect(result.retryable).toBe(true);
         expect(result.userMessage).toContain("busy");
@@ -114,7 +114,7 @@ describe("classifySessionError", () => {
 
     for (const msg of cases) {
       it(`classifies "${msg}" as PROVIDER_API`, () => {
-        const result = classifySessionError(new Error(msg), baseCtx);
+        const result = classifyConversationError(new Error(msg), baseCtx);
         expect(result.code).toBe("PROVIDER_API");
         expect(result.retryable).toBe(true);
       });
@@ -126,7 +126,7 @@ describe("classifySessionError", () => {
 
     for (const msg of cases) {
       it(`classifies "${msg}" as PROVIDER_API with timeout message`, () => {
-        const result = classifySessionError(new Error(msg), baseCtx);
+        const result = classifyConversationError(new Error(msg), baseCtx);
         expect(result.code).toBe("PROVIDER_API");
         expect(result.userMessage).toContain("timed out");
         expect(result.retryable).toBe(true);
@@ -135,7 +135,7 @@ describe("classifySessionError", () => {
     }
 
     it('does not steal "connection timeout" from PROVIDER_NETWORK', () => {
-      const result = classifySessionError(
+      const result = classifyConversationError(
         new Error("connection timeout"),
         baseCtx,
       );
@@ -143,7 +143,7 @@ describe("classifySessionError", () => {
     });
 
     it('does not steal "Gateway timeout" from PROVIDER_API', () => {
-      const result = classifySessionError(
+      const result = classifyConversationError(
         new Error("Gateway timeout"),
         baseCtx,
       );
@@ -167,7 +167,7 @@ describe("classifySessionError", () => {
 
     for (const msg of cases) {
       it(`classifies "${msg}" as CONTEXT_TOO_LARGE`, () => {
-        const result = classifySessionError(new Error(msg), baseCtx);
+        const result = classifyConversationError(new Error(msg), baseCtx);
         expect(result.code).toBe("CONTEXT_TOO_LARGE");
         expect(result.retryable).toBe(false);
         expect(result.userMessage).toContain("too long");
@@ -183,7 +183,7 @@ describe("classifySessionError", () => {
         "anthropic",
         400,
       );
-      const result = classifySessionError(err, baseCtx);
+      const result = classifyConversationError(err, baseCtx);
       expect(result.code).toBe("CONTEXT_TOO_LARGE");
       expect(result.retryable).toBe(false);
     });
@@ -194,7 +194,7 @@ describe("classifySessionError", () => {
         "anthropic",
         413,
       );
-      const result = classifySessionError(err, baseCtx);
+      const result = classifyConversationError(err, baseCtx);
       expect(result.code).toBe("CONTEXT_TOO_LARGE");
       expect(result.retryable).toBe(false);
     });
@@ -205,7 +205,7 @@ describe("classifySessionError", () => {
         "anthropic",
         400,
       );
-      const result = classifySessionError(err, baseCtx);
+      const result = classifyConversationError(err, baseCtx);
       expect(result.code).toBe("PROVIDER_API");
       expect(result.retryable).toBe(true);
     });
@@ -222,7 +222,7 @@ describe("classifySessionError", () => {
 
     for (const msg of cases) {
       it(`classifies "${msg}" as PROVIDER_ORDERING`, () => {
-        const result = classifySessionError(new Error(msg), baseCtx);
+        const result = classifyConversationError(new Error(msg), baseCtx);
         expect(result.code).toBe("PROVIDER_ORDERING");
         expect(result.retryable).toBe(true);
         expect(result.userMessage).toBe(
@@ -238,7 +238,7 @@ describe("classifySessionError", () => {
         "anthropic",
         400,
       );
-      const result = classifySessionError(err, baseCtx);
+      const result = classifyConversationError(err, baseCtx);
       expect(result.code).toBe("PROVIDER_ORDERING");
       expect(result.retryable).toBe(true);
       expect(result.errorCategory).toBe("tool_ordering");
@@ -253,7 +253,7 @@ describe("classifySessionError", () => {
 
     for (const msg of cases) {
       it(`classifies "${msg}" as PROVIDER_WEB_SEARCH`, () => {
-        const result = classifySessionError(new Error(msg), baseCtx);
+        const result = classifyConversationError(new Error(msg), baseCtx);
         expect(result.code).toBe("PROVIDER_WEB_SEARCH");
         expect(result.retryable).toBe(true);
         expect(result.userMessage).toBe(
@@ -269,7 +269,7 @@ describe("classifySessionError", () => {
         "anthropic",
         400,
       );
-      const result = classifySessionError(err, baseCtx);
+      const result = classifyConversationError(err, baseCtx);
       expect(result.code).toBe("PROVIDER_WEB_SEARCH");
       expect(result.retryable).toBe(true);
       expect(result.errorCategory).toBe("web_search_ordering");
@@ -278,7 +278,7 @@ describe("classifySessionError", () => {
 
   describe("abort/cancel errors (non-user-initiated)", () => {
     it('classifies "aborted" as CONVERSATION_ABORTED', () => {
-      const result = classifySessionError(
+      const result = classifyConversationError(
         new Error("Request aborted"),
         baseCtx,
       );
@@ -287,7 +287,7 @@ describe("classifySessionError", () => {
     });
 
     it('classifies "cancelled" as CONVERSATION_ABORTED', () => {
-      const result = classifySessionError(
+      const result = classifyConversationError(
         new Error("Operation cancelled"),
         baseCtx,
       );
@@ -299,7 +299,7 @@ describe("classifySessionError", () => {
   describe("regenerate phase", () => {
     it("returns REGENERATE_FAILED with nested classification info", () => {
       const ctx: ErrorContext = { phase: "regenerate" };
-      const result = classifySessionError(new Error("ECONNREFUSED"), ctx);
+      const result = classifyConversationError(new Error("ECONNREFUSED"), ctx);
       expect(result.code).toBe("REGENERATE_FAILED");
       expect(result.retryable).toBe(true);
       expect(result.userMessage).toContain("regenerate");
@@ -308,7 +308,7 @@ describe("classifySessionError", () => {
 
     it("returns REGENERATE_FAILED for generic errors", () => {
       const ctx: ErrorContext = { phase: "regenerate" };
-      const result = classifySessionError(new Error("unknown issue"), ctx);
+      const result = classifyConversationError(new Error("unknown issue"), ctx);
       expect(result.code).toBe("REGENERATE_FAILED");
       expect(result.retryable).toBe(true);
     });
@@ -316,7 +316,7 @@ describe("classifySessionError", () => {
 
   describe("generic errors", () => {
     it("classifies unknown errors as CONVERSATION_PROCESSING_FAILED with error summary", () => {
-      const result = classifySessionError(
+      const result = classifyConversationError(
         new Error("something completely unexpected"),
         baseCtx,
       );
@@ -328,20 +328,20 @@ describe("classifySessionError", () => {
 
     it("includes debugDetails with stack trace", () => {
       const err = new Error("test error");
-      const result = classifySessionError(err, baseCtx);
+      const result = classifyConversationError(err, baseCtx);
       expect(result.debugDetails).toBeDefined();
       expect(result.debugDetails).toContain("test error");
     });
 
     it("handles non-Error values", () => {
-      const result = classifySessionError("plain string error", baseCtx);
+      const result = classifyConversationError("plain string error", baseCtx);
       expect(result.code).toBe("CONVERSATION_PROCESSING_FAILED");
       expect(result.userMessage).toContain("plain string error");
       expect(result.debugDetails).toBe("plain string error");
     });
 
     it("falls back to generic message for empty error", () => {
-      const result = classifySessionError(new Error(""), baseCtx);
+      const result = classifyConversationError(new Error(""), baseCtx);
       expect(result.code).toBe("CONVERSATION_PROCESSING_FAILED");
       expect(result.userMessage).toBe(
         "Something went wrong processing your message. Please try again.",
@@ -349,7 +349,7 @@ describe("classifySessionError", () => {
     });
 
     it("skips leading newlines to find first non-empty line", () => {
-      const result = classifySessionError(
+      const result = classifyConversationError(
         new Error("\n\nactual error on line 3"),
         baseCtx,
       );
@@ -361,7 +361,7 @@ describe("classifySessionError", () => {
   describe("ProviderError with statusCode (deterministic classification)", () => {
     it("classifies ProviderError with 429 as PROVIDER_RATE_LIMIT", () => {
       const err = new ProviderError("Rate limit exceeded", "anthropic", 429);
-      const result = classifySessionError(err, baseCtx);
+      const result = classifyConversationError(err, baseCtx);
       expect(result.code).toBe("PROVIDER_RATE_LIMIT");
       expect(result.retryable).toBe(true);
       expect(result.errorCategory).toBe("rate_limit");
@@ -369,35 +369,35 @@ describe("classifySessionError", () => {
 
     it("classifies ProviderError with 500 as PROVIDER_API (retryable)", () => {
       const err = new ProviderError("Internal server error", "anthropic", 500);
-      const result = classifySessionError(err, baseCtx);
+      const result = classifyConversationError(err, baseCtx);
       expect(result.code).toBe("PROVIDER_API");
       expect(result.retryable).toBe(true);
     });
 
     it("classifies ProviderError with 502 as PROVIDER_API (retryable)", () => {
       const err = new ProviderError("Bad gateway", "openai", 502);
-      const result = classifySessionError(err, baseCtx);
+      const result = classifyConversationError(err, baseCtx);
       expect(result.code).toBe("PROVIDER_API");
       expect(result.retryable).toBe(true);
     });
 
     it("classifies ProviderError with 503 as PROVIDER_API (retryable)", () => {
       const err = new ProviderError("Service unavailable", "gemini", 503);
-      const result = classifySessionError(err, baseCtx);
+      const result = classifyConversationError(err, baseCtx);
       expect(result.code).toBe("PROVIDER_API");
       expect(result.retryable).toBe(true);
     });
 
     it("classifies ProviderError with 401 as PROVIDER_BILLING (non-retryable)", () => {
       const err = new ProviderError("Unauthorized", "anthropic", 401);
-      const result = classifySessionError(err, baseCtx);
+      const result = classifyConversationError(err, baseCtx);
       expect(result.code).toBe("PROVIDER_BILLING");
       expect(result.retryable).toBe(false);
     });
 
     it("classifies ProviderError with 402 as credits_exhausted (non-retryable)", () => {
       const err = new ProviderError("Payment Required", "anthropic", 402);
-      const result = classifySessionError(err, baseCtx);
+      const result = classifyConversationError(err, baseCtx);
       expect(result.code).toBe("PROVIDER_BILLING");
       expect(result.errorCategory).toBe("credits_exhausted");
       expect(result.retryable).toBe(false);
@@ -405,14 +405,14 @@ describe("classifySessionError", () => {
 
     it("classifies ProviderError with 400 as PROVIDER_API (retryable)", () => {
       const err = new ProviderError("Bad request", "anthropic", 400);
-      const result = classifySessionError(err, baseCtx);
+      const result = classifyConversationError(err, baseCtx);
       expect(result.code).toBe("PROVIDER_API");
       expect(result.retryable).toBe(true);
     });
 
     it("ProviderError without statusCode falls back to regex", () => {
       const err = new ProviderError("ECONNREFUSED", "anthropic");
-      const result = classifySessionError(err, baseCtx);
+      const result = classifyConversationError(err, baseCtx);
       expect(result.code).toBe("PROVIDER_NETWORK");
       expect(result.retryable).toBe(true);
     });
@@ -420,7 +420,7 @@ describe("classifySessionError", () => {
     it("statusCode takes priority over conflicting message regex", () => {
       // Message says "rate limit" but statusCode is 500 → should use statusCode
       const err = new ProviderError("rate limit error", "anthropic", 500);
-      const result = classifySessionError(err, baseCtx);
+      const result = classifyConversationError(err, baseCtx);
       expect(result.code).toBe("PROVIDER_API");
       expect(result.retryable).toBe(true);
     });
@@ -439,7 +439,7 @@ describe("classifySessionError", () => {
         },
       ];
       for (const { error, ctx } of cases) {
-        const result = classifySessionError(error, ctx);
+        const result = classifyConversationError(error, ctx);
         expect(result.errorCategory).toBeDefined();
         expect(result.errorCategory.length).toBeGreaterThan(0);
       }
@@ -449,14 +449,14 @@ describe("classifySessionError", () => {
   describe("debug detail truncation", () => {
     it("truncates debugDetails longer than 4000 chars", () => {
       const longMsg = "x".repeat(5000);
-      const result = classifySessionError(new Error(longMsg), baseCtx);
+      const result = classifyConversationError(new Error(longMsg), baseCtx);
       expect(result.debugDetails!.length).toBeLessThanOrEqual(4020); // 4000 + truncation marker
       expect(result.debugDetails!).toContain("(truncated)");
     });
 
     it("preserves debugDetails under 4000 chars", () => {
       const shortMsg = "short error message";
-      const result = classifySessionError(new Error(shortMsg), baseCtx);
+      const result = classifyConversationError(new Error(shortMsg), baseCtx);
       expect(result.debugDetails).toBeDefined();
       expect(result.debugDetails!).not.toContain("(truncated)");
     });
@@ -486,9 +486,9 @@ describe("classifySessionError", () => {
   });
 });
 
-describe("buildSessionErrorMessage", () => {
+describe("buildConversationErrorMessage", () => {
   it("builds a valid ConversationErrorMessage", () => {
-    const msg = buildSessionErrorMessage("session-123", {
+    const msg = buildConversationErrorMessage("session-123", {
       code: "PROVIDER_NETWORK",
       userMessage: "Network error",
       retryable: true,
@@ -506,7 +506,7 @@ describe("buildSessionErrorMessage", () => {
   });
 
   it("omits debugDetails when not provided", () => {
-    const msg = buildSessionErrorMessage("session-456", {
+    const msg = buildConversationErrorMessage("session-456", {
       code: "UNKNOWN",
       userMessage: "Something went wrong",
       retryable: false,
@@ -519,7 +519,7 @@ describe("buildSessionErrorMessage", () => {
   });
 
   it("includes errorCategory for ordering errors", () => {
-    const msg = buildSessionErrorMessage("session-789", {
+    const msg = buildConversationErrorMessage("session-789", {
       code: "PROVIDER_ORDERING",
       userMessage: "An internal error occurred. Please try again.",
       retryable: true,
@@ -531,7 +531,7 @@ describe("buildSessionErrorMessage", () => {
   });
 
   it("includes errorCategory for web search errors", () => {
-    const msg = buildSessionErrorMessage("session-abc", {
+    const msg = buildConversationErrorMessage("session-abc", {
       code: "PROVIDER_WEB_SEARCH",
       userMessage:
         "An internal error occurred with web search. Please try again.",

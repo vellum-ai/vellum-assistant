@@ -5,9 +5,9 @@ import type {
 } from "./message-protocol.js";
 
 /**
- * Classified session error ready for client emission.
+ * Classified conversation error ready for client emission.
  */
-export interface ClassifiedSessionError {
+export interface ClassifiedConversationError {
   code: ConversationErrorCode;
   userMessage: string;
   retryable: boolean;
@@ -85,7 +85,7 @@ const WEB_SEARCH_ORDERING_PATTERNS = [
   /web_search.*tool_result/i,
 ];
 
-// User-initiated cancellation patterns — these should NOT produce session_error
+// User-initiated cancellation patterns — these should NOT produce conversation_error
 const CANCEL_PATTERNS = [/abort/i, /cancel/i];
 
 /**
@@ -101,7 +101,7 @@ export interface ErrorContext {
 /**
  * Returns true if the error looks like a user-initiated cancellation
  * (AbortError or explicit cancel). These should use `generation_cancelled`
- * instead of `session_error`.
+ * instead of `conversation_error`.
  */
 export function isUserCancellation(error: unknown, ctx: ErrorContext): boolean {
   if (!ctx.aborted) return false;
@@ -122,7 +122,7 @@ function truncateDebugDetails(details: string): string {
 }
 
 /**
- * Classify an unknown error into a structured session error.
+ * Classify an unknown error into a structured conversation error.
  * Does NOT handle user-initiated cancellation — callers should check
  * `isUserCancellation` first and emit `generation_cancelled` instead.
  *
@@ -131,10 +131,10 @@ function truncateDebugDetails(details: string): string {
  * 2. ProviderError.statusCode (deterministic for provider failures)
  * 3. Regex fallback for network/cancel/unknown errors
  */
-export function classifySessionError(
+export function classifyConversationError(
   error: unknown,
   ctx: ErrorContext,
-): ClassifiedSessionError {
+): ClassifiedConversationError {
   const message = error instanceof Error ? error.message : String(error);
   const rawDetails =
     (error instanceof Error ? error.stack : undefined) ?? message;
@@ -167,7 +167,7 @@ export function classifySessionError(
 function classifyCore(
   error: unknown,
   message: string,
-): Omit<ClassifiedSessionError, "debugDetails"> {
+): Omit<ClassifiedConversationError, "debugDetails"> {
   // ProviderError with statusCode — deterministic classification
   if (error instanceof ProviderError && error.statusCode !== undefined) {
     if (error.statusCode === 413) {
@@ -290,7 +290,7 @@ export function isOrderingError(message: string): boolean {
 
 function classifyByMessage(
   message: string,
-): Omit<ClassifiedSessionError, "debugDetails"> {
+): Omit<ClassifiedConversationError, "debugDetails"> {
   // Check context-too-large before other patterns
   if (isContextTooLarge(message)) {
     return {
@@ -405,11 +405,11 @@ function classifyByMessage(
 }
 
 /**
- * Build a `session_error` server message from a classified error.
+ * Build a `conversation_error` server message from a classified error.
  */
-export function buildSessionErrorMessage(
+export function buildConversationErrorMessage(
   conversationId: string,
-  classified: ClassifiedSessionError,
+  classified: ClassifiedConversationError,
 ): ConversationErrorMessage {
   return {
     type: "conversation_error",

@@ -556,7 +556,7 @@ describe("provider ordering error retry", () => {
     expect(events.some((e) => e.type === "conversation_error")).toBe(false);
   });
 
-  test("ProviderError with statusCode 413 triggers forced-compaction retry via classifySessionError", async () => {
+  test("ProviderError with statusCode 413 triggers forced-compaction retry via classifyConversationError", async () => {
     firstRunErrorMode = "context_too_large_413";
     forceCompactionEnabled = true;
 
@@ -571,7 +571,7 @@ describe("provider ordering error retry", () => {
     );
 
     // The 413 ProviderError message "request entity too large" doesn't match
-    // the regex patterns, but classifySessionError recognizes statusCode 413
+    // the regex patterns, but classifyConversationError recognizes statusCode 413
     // as CONTEXT_TOO_LARGE and sets contextTooLargeDetected = true.
     expect(agentLoopRunCount).toBe(2);
     expect(maybeCompactCalls).toEqual([{ force: false }, { force: true }]);
@@ -598,7 +598,7 @@ describe("provider ordering error retry", () => {
     // since compaction didn't help (forceCompactionEnabled=false).
     expect(agentLoopRunCount).toBe(2);
 
-    // The error must be surfaced to clients via session_error, not silently swallowed.
+    // The error must be surfaced to clients via conversation_error, not silently swallowed.
     const sessionError = events.find((e) => e.type === "conversation_error") as
       | { code?: string }
       | undefined;

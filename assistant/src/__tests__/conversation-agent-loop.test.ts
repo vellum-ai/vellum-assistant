@@ -266,7 +266,7 @@ mock.module("../workspace/git-service.js", () => ({
 }));
 
 mock.module("../daemon/conversation-error.js", () => ({
-  classifySessionError: (_err: unknown, _ctx: unknown) => ({
+  classifyConversationError: (_err: unknown, _ctx: unknown) => ({
     code: "CONVERSATION_PROCESSING_FAILED",
     userMessage: "Something went wrong processing your message.",
     retryable: false,
@@ -278,7 +278,7 @@ mock.module("../daemon/conversation-error.js", () => ({
     if (err instanceof Error && err.name === "AbortError") return true;
     return false;
   },
-  buildSessionErrorMessage: (
+  buildConversationErrorMessage: (
     conversationId: string,
     classified: Record<string, unknown>,
   ) => ({
@@ -549,7 +549,7 @@ describe("session-agent-loop", () => {
       expect(sessionError).toBeDefined();
     });
 
-    test("non-error agent loop completion does not emit session_error", async () => {
+    test("non-error agent loop completion does not emit conversation_error", async () => {
       const events: ServerMessage[] = [];
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
@@ -773,7 +773,7 @@ describe("session-agent-loop", () => {
       expect(compactEvent).toBeDefined();
     });
 
-    test("emits session_error when context stays too large after all recovery attempts", async () => {
+    test("emits conversation_error when context stays too large after all recovery attempts", async () => {
       const events: ServerMessage[] = [];
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
@@ -902,7 +902,7 @@ describe("session-agent-loop", () => {
       expect(complete).toBeDefined();
     });
 
-    test("interactive deny produces graceful assistant response instead of session_error", async () => {
+    test("interactive deny produces graceful assistant response instead of conversation_error", async () => {
       const events: ServerMessage[] = [];
 
       // Reducer exhausts all tiers but context is still too large
@@ -950,7 +950,7 @@ describe("session-agent-loop", () => {
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-      // Should NOT emit session_error
+      // Should NOT emit conversation_error
       const sessionError = events.find((e) => e.type === "conversation_error");
       expect(sessionError).toBeUndefined();
 
@@ -1056,7 +1056,7 @@ describe("session-agent-loop", () => {
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-      // Should not produce session_error since auto-compress recovered
+      // Should not produce conversation_error since auto-compress recovered
       const sessionError = events.find((e) => e.type === "conversation_error");
       expect(sessionError).toBeUndefined();
       const complete = events.find((e) => e.type === "message_complete");
@@ -1506,7 +1506,7 @@ describe("session-agent-loop", () => {
 
       const cancelled = events.find((e) => e.type === "generation_cancelled");
       expect(cancelled).toBeDefined();
-      // Should NOT emit a session_error for user cancellation
+      // Should NOT emit a conversation_error for user cancellation
       const sessionError = events.find((e) => e.type === "conversation_error");
       expect(sessionError).toBeUndefined();
     });

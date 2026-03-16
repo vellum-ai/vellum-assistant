@@ -4,7 +4,7 @@ import { getApp, getAppPreview, updateApp } from "../memory/app-store.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
-import { buildSessionErrorMessage } from "./conversation-error.js";
+import { buildConversationErrorMessage } from "./conversation-error.js";
 import type {
   CardSurfaceData,
   DynamicPageSurfaceData,
@@ -609,7 +609,7 @@ export function handleSurfaceAction(
           "Failed to process history-restored relay prompt",
         );
         onEvent(
-          buildSessionErrorMessage(ctx.conversationId, {
+          buildConversationErrorMessage(ctx.conversationId, {
             code: "CONVERSATION_PROCESSING_FAILED",
             userMessage: `Something went wrong: ${message}`,
             retryable: false,

@@ -82,8 +82,8 @@ import {
   resolveAssistantAttachments,
 } from "./conversation-attachments.js";
 import {
-  buildSessionErrorMessage,
-  classifySessionError,
+  buildConversationErrorMessage,
+  classifyConversationError,
   isUserCancellation,
 } from "./conversation-error.js";
 import { consolidateAssistantMessages } from "./conversation-history.js";
@@ -1295,7 +1295,7 @@ export async function runAgentLoopImpl(
             );
           } else {
             // User denied compression — emit a graceful assistant explanation
-            // instead of a session_error, and end the turn cleanly.
+            // instead of a conversation_error, and end the turn cleanly.
             state.contextTooLargeDetected = false;
             const denyText =
               "The conversation has grown too long for the model to process, " +
@@ -1403,20 +1403,20 @@ export async function runAgentLoopImpl(
 
       // Final fallback: all recovery paths exhausted
       if (state.contextTooLargeDetected) {
-        const classified = classifySessionError(
+        const classified = classifyConversationError(
           new Error("context_length_exceeded"),
           { phase: "agent_loop" },
         );
-        onEvent(buildSessionErrorMessage(ctx.conversationId, classified));
+        onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
       }
     }
 
     if (state.deferredOrderingError) {
-      const classified = classifySessionError(
+      const classified = classifyConversationError(
         new Error(state.deferredOrderingError),
         { phase: "agent_loop" },
       );
-      onEvent(buildSessionErrorMessage(ctx.conversationId, classified));
+      onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
     }
 
     // Reconcile synthesized cancellation tool_results
@@ -1697,7 +1697,7 @@ export async function runAgentLoopImpl(
       const message = err instanceof Error ? err.message : String(err);
       const errorClass = err instanceof Error ? err.constructor.name : "Error";
       rlog.error({ err }, "Conversation processing error");
-      const classified = classifySessionError(err, errorCtx);
+      const classified = classifyConversationError(err, errorCtx);
       ctx.traceEmitter.emit("request_error", truncate(message, 200, ""), {
         requestId: reqId,
         status: "error",
@@ -1709,7 +1709,7 @@ export async function runAgentLoopImpl(
         },
       });
       onEvent({ type: "error", message: classified.userMessage });
-      onEvent(buildSessionErrorMessage(ctx.conversationId, classified));
+      onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
       void getHookManager().trigger("on-error", {
         error: err instanceof Error ? err.name : "Error",
         message,
