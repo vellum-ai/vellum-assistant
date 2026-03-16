@@ -44,7 +44,7 @@ jobs:
           branch: main
           path: assistant/baseline
           if_no_artifact_found: warn
-          workflow_conclusion: completed
+          workflow_conclusion: ''
         continue-on-error: true
 
       - name: Run benchmarks
