@@ -188,6 +188,30 @@ import os
         }
     }
 
+    /// Reports a daemon startup failure to Sentry for automatic triage.
+    ///
+    /// This covers cases where the daemon crashed before its own Sentry
+    /// initialization, so the macOS client reports it on the daemon's behalf.
+    /// Events are grouped by error category (MIGRATION_FAILED, PORT_IN_USE, etc.)
+    /// using a custom fingerprint. Respects the `sendDiagnostics` privacy preference.
+    nonisolated static func reportDaemonStartupFailure(_ error: DaemonStartupError) {
+        let sendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
+            ?? true
+        guard sendDiagnostics else { return }
+
+        let event = Event(level: .error)
+        event.message = SentryMessage(formatted: "Daemon startup failed: \(error.category)")
+        event.tags = [
+            "daemon_error_category": error.category,
+        ]
+        event.extra = [
+            "error_message": error.message,
+            "error_detail": error.detail,
+        ]
+        event.fingerprint = ["daemon_startup_failure", error.category]
+        captureSentryEvent(event)
+    }
+
     /// Synchronous Sentry restart — must be called from `sentrySerialQueue`.
     /// Shared by `startSentry()` and inline DSN restoration in `sendManualReport`
     /// so no queued events are dropped between close and restart.

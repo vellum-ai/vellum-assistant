@@ -37,6 +37,18 @@ private final class OnceFlag: @unchecked Sendable {
     }
 }
 
+/// Structured daemon startup error parsed from the CLI's stderr output.
+/// The daemon emits a `DAEMON_ERROR:` JSON line on startup failure (PR 1).
+/// PR 2 parses it in AssistantCli; this struct mirrors the TypeScript interface.
+struct DaemonStartupError: Sendable {
+    /// Error category for grouping (e.g. MIGRATION_FAILED, PORT_IN_USE).
+    let category: String
+    /// Human-readable error message.
+    let message: String
+    /// Additional detail about the error.
+    let detail: String
+}
+
 /// Manages all daemon lifecycle operations through the bundled CLI binary.
 ///
 /// This is the single entry point for hatching, stopping, and retiring the
@@ -48,6 +60,7 @@ final class AssistantCli {
     enum CLIError: LocalizedError {
         case binaryNotFound
         case executionFailed(String)
+        case daemonStartupFailed(DaemonStartupError)
 
         var errorDescription: String? {
             switch self {
@@ -55,6 +68,8 @@ final class AssistantCli {
                 return "CLI binary not found in app bundle"
             case .executionFailed(let message):
                 return "CLI command failed: \(message)"
+            case .daemonStartupFailed(let error):
+                return "Daemon startup failed (\(error.category)): \(error.message)"
             }
         }
     }
@@ -118,10 +133,35 @@ final class AssistantCli {
 
         if status != 0 {
             log.error("CLI hatch failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
+
+            // Parse structured DAEMON_ERROR from stderr if present
+            if let startupError = Self.parseDaemonStartupError(from: stderr) {
+                throw CLIError.daemonStartupFailed(startupError)
+            }
             throw CLIError.executionFailed(stderr)
         }
 
         log.info("CLI hatch completed successfully")
+    }
+
+    /// Parse a `DAEMON_ERROR:{...}` JSON line from CLI stderr output.
+    /// Returns a `DaemonStartupError` if found, nil otherwise.
+    static func parseDaemonStartupError(from stderr: String) -> DaemonStartupError? {
+        let prefix = "DAEMON_ERROR:"
+        for line in stderr.components(separatedBy: .newlines).reversed() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix(prefix) else { continue }
+            let jsonStr = String(trimmed.dropFirst(prefix.count))
+            guard let data = jsonStr.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let category = json["error"] as? String,
+                  let message = json["message"] as? String,
+                  let detail = json["detail"] as? String else {
+                continue
+            }
+            return DaemonStartupError(category: category, message: message, detail: detail)
+        }
+        return nil
     }
 
     /// How long to wait for the retire CLI command before giving up.

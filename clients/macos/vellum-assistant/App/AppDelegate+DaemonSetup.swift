@@ -388,6 +388,13 @@ extension AppDelegate {
                         try await assistantCli.hatch(name: assistantName, daemonOnly: daemonOnly)
                     } catch {
                         log.error("Failed to hatch assistant during daemon setup: \(error)")
+
+                        // Extract structured startup error and report to Sentry
+                        if case AssistantCli.CLIError.daemonStartupFailed(let startupError) = error {
+                            self.daemonStartupError = startupError
+                            MetricKitManager.reportDaemonStartupFailure(startupError)
+                        }
+
                         if needsLockfileEntry {
                             log.info("Full hatch failed on first launch — retrying daemon-only as fallback")
                             try? await assistantCli.hatch(name: assistantName, daemonOnly: true)

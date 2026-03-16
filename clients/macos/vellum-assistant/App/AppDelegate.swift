@@ -137,6 +137,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// derived from the platform session, not local actor tokens.
     var isCurrentAssistantManaged = false
 
+    /// Set when the daemon fails to start with a structured error.
+    /// Used by the UI (PR 3) to display an actionable error view, and
+    /// immediately reported to Sentry (this PR) for automatic triage.
+    var daemonStartupError: DaemonStartupError?
+
     /// Set to `true` when `.localBootstrapCompleted` has been posted, so
     /// `awaitLocalBootstrapCompleted` can return immediately if bootstrap
     /// finished before the observer was registered.
