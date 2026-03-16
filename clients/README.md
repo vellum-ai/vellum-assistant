@@ -32,7 +32,7 @@ clients/
 │   └── CLAUDE.md              # Development guide for Claude Code
 ├── ios/                       # iOS-specific code
 │   ├── App/                   # App lifecycle (VellumAssistantApp, AppDelegate, VellumIntents, etc.)
-│   ├── Views/                 # iOS-specific SwiftUI views (ChatTabView, ThreadListView, etc.)
+│   ├── Views/                 # iOS-specific SwiftUI views (ChatTabView, ConversationListView, etc.)
 │   │   ├── Intelligence/      # Skills and contacts views (InstalledSkills, Contacts)
 │   │   ├── Things/            # Apps, shared apps, and documents views
 │   │   └── Settings/          # Decomposed settings sections (Integrations, TrustRules, Models, Privacy, etc.)

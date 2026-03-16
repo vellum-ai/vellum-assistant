@@ -10,7 +10,7 @@ CLI / macOS app / iOS app
         ▼
    RuntimeHttpServer (HTTP + SSE)
         │
-        ├── Session Manager (in-memory pool, stale eviction)
+        ├── Conversation Manager (in-memory pool, stale eviction)
         │       ├── Anthropic Claude (primary)
         │       ├── OpenAI (secondary)
         │       ├── Google Gemini (secondary)

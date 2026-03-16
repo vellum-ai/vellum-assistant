@@ -55,7 +55,7 @@ All UI and feature code lives in `Features/`, organized by domain:
 | `CommandPalette/` | Command palette (search, actions) |
 | `Contacts/` | Contact management |
 | `ChannelVerification/` | Channel verification flow |
-| `MainWindow/` | MainWindowView shell, ThreadTabBar, NavigationToolbar, ConversationManager, side panels |
+| `MainWindow/` | MainWindowView shell, ConversationSwitcherDrawer, NavigationToolbar, ConversationManager, side panels |
 | `MainWindow/Panels/` | Side panels including DebugPanel (real-time trace viewer with metrics + timeline) |
 | `Onboarding/` | Multi-step first-launch flow (OnboardingFlowView → OnboardingState) |
 | `QuickInput/` | Quick task input popover and screen selection |
@@ -67,9 +67,9 @@ All UI and feature code lives in `Features/`, organized by domain:
 
 **Main window layout** (`MainWindowView`):
 ```
-ThreadTabBar          (row 1 — thread tabs, extends into titlebar)
-NavigationToolbar     (row 2 — Chat tab + panel toggle buttons)
-VSplitView            (row 3 — ChatView + optional side panel)
+Sidebar / ConversationSwitcherDrawer  (conversation list + navigation)
+NavigationToolbar                     (Chat tab + panel toggle buttons)
+VSplitView                            (ChatView + optional side panel)
 ```
 
 **Data flow**: `ConversationManager` (`@MainActor ObservableObject`) owns `[ConversationModel]` and a dictionary of `ChatViewModel` instances keyed by conversation ID. `MainWindowView` binds to the active `ChatViewModel` via `conversationManager.activeViewModel`. ConversationManager subscribes to each nested ChatViewModel's `objectWillChange` and forwards it via Combine so SwiftUI picks up changes.
@@ -160,7 +160,7 @@ DesignSystem/
 **Classification rule:**
 - **Core** = atomic, single-responsibility control (wraps one native SwiftUI element or thin styling layer). Place in `Core/`.
 - **Component** = composes multiple Core elements or has internal layout logic (VTabBar arranges VTabs, VCard has header/body slots, VEmptyState composes icon + title + subtitle). Place in `Components/`.
-- **Feature-specific** views (e.g. ThreadTab) belong in `Features/`, not in the design system.
+- **Feature-specific** views (e.g. SidebarConversationItem) belong in `Features/`, not in the design system.
 
 All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Always use design tokens instead of raw values — `VFont.body` not `Font.system(size: 13)`, `VColor.accent` not `Color.purple`.
 

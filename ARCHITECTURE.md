@@ -163,8 +163,8 @@ subgraph "Text Q&A Session"
 
         subgraph "Main Window"
             MW_STATE["MainWindowState<br/>cross-view UI state"]
-            THREAD_MGR["ThreadManager<br/>thread CRUD + delegate"]
-            THREAD_RESTORER["ThreadSessionRestorer<br/>daemon session restoration"]
+            CONV_MGR["ConversationManager<br/>conversation CRUD + delegate"]
+            CONV_RESTORER["ConversationRestorer<br/>daemon conversation restoration"]
             CHAT_VM["ChatViewModel<br/>session bootstrap + streaming"]
             CHAT_VIEW["ChatView<br/>bubbles + composer + stop"]
         end
@@ -187,7 +187,7 @@ subgraph "Text Q&A Session"
     subgraph "Daemon (Bun + TypeScript)"
         HTTP_RT["RuntimeHttpServer<br/>HTTP + SSE"]
         HANDLERS["Route Handlers<br/>session routing"]
-        SESSION_MGR["Session Manager<br/>in-memory pool<br/>stale eviction"]
+        SESSION_MGR["Conversation Manager<br/>in-memory pool<br/>stale eviction"]
 
         subgraph "Onboarding Control Plane"
             PLAYBOOK_MGR["OnboardingPlaybookManager<br/>resolve + reconcile channel playbooks"]

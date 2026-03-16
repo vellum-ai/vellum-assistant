@@ -439,7 +439,7 @@ Features/
   CommandPalette/     Command palette (search, actions)
   Contacts/           Contact management
   ChannelVerification/ Channel verification flow
-  MainWindow/         Main window shell, ThreadTabBar, ConversationManager, PanelCoordinator, side panels
+  MainWindow/         Main window shell, ConversationSwitcherDrawer, ConversationManager, PanelCoordinator, side panels
   Onboarding/         First-launch setup flow (permissions, naming, Fn key)
   QuickInput/         Quick task input popover and screen selection
   Session/            Session overlay UI for computer-use task execution
