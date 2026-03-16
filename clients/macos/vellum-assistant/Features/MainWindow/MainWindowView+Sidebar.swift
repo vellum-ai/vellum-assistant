@@ -56,7 +56,7 @@ extension MainWindowView {
     }
 
     /// Groups schedule conversations by their scheduleJobId.
-    /// Conversations without a scheduleJobId are placed in individual groups keyed by their session ID.
+    /// Conversations without a scheduleJobId are placed in individual groups keyed by their conversation ID.
     var scheduleConversationGroups: [(key: String, label: String, conversations: [ConversationModel])] {
         var grouped: [String: [ConversationModel]] = [:]
         var order: [String] = []
