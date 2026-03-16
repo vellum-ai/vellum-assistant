@@ -52,7 +52,7 @@ class ScreenWatchTool implements Tool {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
-    const { conversationId: sessionId } = context;
+    const { conversationId } = context;
 
     // Validate focus_area
     const focusArea =
@@ -78,7 +78,7 @@ class ScreenWatchTool implements Tool {
     intervalSeconds = Math.max(5, Math.min(30, intervalSeconds));
 
     // Check for existing active session
-    const existing = getActiveWatchSession(sessionId);
+    const existing = getActiveWatchSession(conversationId);
     if (existing) {
       return {
         content: `Error: An active watch session already exists for this conversation (watchId: ${existing.watchId}, focus: "${existing.focusArea}"). Cancel or wait for it to complete before starting a new one.`,
@@ -94,7 +94,7 @@ class ScreenWatchTool implements Tool {
     // Create session
     const session: WatchSession = {
       watchId,
-      sessionId,
+      conversationId,
       focusArea,
       durationSeconds,
       intervalSeconds,
@@ -108,7 +108,7 @@ class ScreenWatchTool implements Tool {
     watchSessions.set(watchId, session);
 
     // Fire start notifier
-    fireWatchStartNotifier(sessionId, session);
+    fireWatchStartNotifier(conversationId, session);
 
     // Set timeout for duration expiry
     session.timeoutHandle = setTimeout(() => {
@@ -118,11 +118,11 @@ class ScreenWatchTool implements Tool {
         { watchId, focusArea },
         "Watch session duration expired, marking as completing",
       );
-      fireWatchCompletionNotifier(sessionId, session);
+      fireWatchCompletionNotifier(conversationId, session);
     }, durationSeconds * 1000);
 
     log.info(
-      { watchId, sessionId, focusArea, durationMinutes, intervalSeconds },
+      { watchId, conversationId, focusArea, durationMinutes, intervalSeconds },
       "Screen watch session started",
     );
 

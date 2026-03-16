@@ -13,7 +13,7 @@ export interface WatchObservationEntry {
 
 export interface WatchSession {
   watchId: string;
-  sessionId: string;
+  conversationId: string;
   focusArea: string;
   durationSeconds: number;
   intervalSeconds: number;
@@ -33,73 +33,80 @@ export const watchSessions = new Map<string, WatchSession>();
 const startNotifiers = new Map<string, (session: WatchSession) => void>();
 
 export function registerWatchStartNotifier(
-  sessionId: string,
+  conversationId: string,
   callback: (session: WatchSession) => void,
 ): void {
-  startNotifiers.set(sessionId, callback);
+  startNotifiers.set(conversationId, callback);
 }
 
-export function unregisterWatchStartNotifier(sessionId: string): void {
-  startNotifiers.delete(sessionId);
+export function unregisterWatchStartNotifier(conversationId: string): void {
+  startNotifiers.delete(conversationId);
 }
 
 export function fireWatchStartNotifier(
-  sessionId: string,
+  conversationId: string,
   session: WatchSession,
 ): void {
-  startNotifiers.get(sessionId)?.(session);
+  startNotifiers.get(conversationId)?.(session);
 }
 
 // ── Commentary notifiers ────────────────────────────────────────────
 const commentaryNotifiers = new Map<string, (session: WatchSession) => void>();
 
 export function registerWatchCommentaryNotifier(
-  sessionId: string,
+  conversationId: string,
   callback: (session: WatchSession) => void,
 ): void {
-  commentaryNotifiers.set(sessionId, callback);
+  commentaryNotifiers.set(conversationId, callback);
 }
 
-export function unregisterWatchCommentaryNotifier(sessionId: string): void {
-  commentaryNotifiers.delete(sessionId);
+export function unregisterWatchCommentaryNotifier(
+  conversationId: string,
+): void {
+  commentaryNotifiers.delete(conversationId);
 }
 
 export function fireWatchCommentaryNotifier(
-  sessionId: string,
+  conversationId: string,
   session: WatchSession,
 ): void {
-  commentaryNotifiers.get(sessionId)?.(session);
+  commentaryNotifiers.get(conversationId)?.(session);
 }
 
 // ── Completion notifiers ────────────────────────────────────────────
 const completionNotifiers = new Map<string, (session: WatchSession) => void>();
 
 export function registerWatchCompletionNotifier(
-  sessionId: string,
+  conversationId: string,
   callback: (session: WatchSession) => void,
 ): void {
-  completionNotifiers.set(sessionId, callback);
+  completionNotifiers.set(conversationId, callback);
 }
 
-export function unregisterWatchCompletionNotifier(sessionId: string): void {
-  completionNotifiers.delete(sessionId);
+export function unregisterWatchCompletionNotifier(
+  conversationId: string,
+): void {
+  completionNotifiers.delete(conversationId);
 }
 
 export function fireWatchCompletionNotifier(
-  sessionId: string,
+  conversationId: string,
   session: WatchSession,
 ): void {
-  completionNotifiers.get(sessionId)?.(session);
+  completionNotifiers.get(conversationId)?.(session);
 }
 
-// ── Session helpers ─────────────────────────────────────────────────
+// ── Conversation helpers ─────────────────────────────────────────────────
 
-/** Find the first active watch session for a given sessionId. */
+/** Find the first active watch session for a given conversationId. */
 export function getActiveWatchSession(
-  sessionId: string,
+  conversationId: string,
 ): WatchSession | undefined {
   for (const session of watchSessions.values()) {
-    if (session.sessionId === sessionId && session.status === "active") {
+    if (
+      session.conversationId === conversationId &&
+      session.status === "active"
+    ) {
       return session;
     }
   }
@@ -123,10 +130,10 @@ export function addObservation(
   );
 }
 
-/** Remove completed/cancelled sessions for a given sessionId. */
-export function pruneWatchSessions(sessionId: string): void {
+/** Remove completed/cancelled sessions for a given conversationId. */
+export function pruneWatchSessions(conversationId: string): void {
   for (const [watchId, session] of watchSessions) {
-    if (session.sessionId !== sessionId) continue;
+    if (session.conversationId !== conversationId) continue;
     if (session.status === "completed" || session.status === "cancelled") {
       if (session.timeoutHandle) clearTimeout(session.timeoutHandle);
       watchSessions.delete(watchId);

@@ -21,10 +21,10 @@ const log = getLogger("watch-handler");
 
 /**
  * Module-level maps to store commentary/summary text so that session
- * notifier callbacks can retrieve it from the WatchSession's sessionId.
+ * notifier callbacks can retrieve it from the WatchSession's conversationId.
  */
-export const lastCommentaryBySession = new Map<string, string>();
-export const lastSummaryBySession = new Map<string, string>();
+export const lastCommentaryByConversation = new Map<string, string>();
+export const lastSummaryByConversation = new Map<string, string>();
 
 export async function handleWatchObservation(
   msg: WatchObservation,
@@ -76,7 +76,7 @@ export async function handleWatchObservation(
         totalObservations: session.observations.length,
         status: session.status,
       },
-      "Observation added to session",
+      "Observation added to watch session",
     );
 
     // 4. Every 3 observations: call the LLM for live commentary
@@ -92,7 +92,7 @@ export async function handleWatchObservation(
     if (session.status === "completing") {
       log.debug(
         { watchId: msg.watchId },
-        "Session is completing — generating summary from observation handler",
+        "Watch session completing — generating summary from observation handler",
       );
       session.status = "completed";
       await generateSummary(session);
@@ -116,7 +116,9 @@ async function generateCommentary(session: WatchSession): Promise<void> {
       return;
     }
     const lastThree = session.observations.slice(-3);
-    const previousCommentary = lastCommentaryBySession.get(session.sessionId);
+    const previousCommentary = lastCommentaryByConversation.get(
+      session.conversationId,
+    );
 
     const userContent = [
       `Focus area: ${session.focusArea}`,
@@ -165,8 +167,8 @@ async function generateCommentary(session: WatchSession): Promise<void> {
     const commentaryText = extractText(response);
 
     if (commentaryText && commentaryText !== "SKIP") {
-      lastCommentaryBySession.set(session.sessionId, commentaryText);
-      fireWatchCommentaryNotifier(session.sessionId, session);
+      lastCommentaryByConversation.set(session.conversationId, commentaryText);
+      fireWatchCommentaryNotifier(session.conversationId, session);
       session.commentaryCount++;
     }
   } catch (err) {
@@ -192,7 +194,7 @@ export async function generateSummary(session: WatchSession): Promise<void> {
     log.debug(
       {
         watchId: session.watchId,
-        sessionId: session.sessionId,
+        conversationId: session.conversationId,
         observationCount: session.observations.length,
         commentaryCount: session.commentaryCount,
       },
@@ -204,11 +206,11 @@ export async function generateSummary(session: WatchSession): Promise<void> {
         { watchId: session.watchId },
         "Configured provider unavailable for summary generation",
       );
-      lastSummaryBySession.set(
-        session.sessionId,
+      lastSummaryByConversation.set(
+        session.conversationId,
         "[error] Configured provider unavailable. Check your settings.",
       );
-      fireWatchCompletionNotifier(session.sessionId, session);
+      fireWatchCompletionNotifier(session.conversationId, session);
       return;
     }
 
@@ -321,22 +323,22 @@ export async function generateSummary(session: WatchSession): Promise<void> {
     );
 
     if (summaryText) {
-      lastSummaryBySession.set(session.sessionId, summaryText);
+      lastSummaryByConversation.set(session.conversationId, summaryText);
       log.debug(
-        { watchId: session.watchId, sessionId: session.sessionId },
+        { watchId: session.watchId, conversationId: session.conversationId },
         "Firing completion notifier with summary",
       );
-      fireWatchCompletionNotifier(session.sessionId, session);
+      fireWatchCompletionNotifier(session.conversationId, session);
     } else {
       log.warn(
         { watchId: session.watchId },
         "Summary was empty from API response",
       );
-      lastSummaryBySession.set(
-        session.sessionId,
+      lastSummaryByConversation.set(
+        session.conversationId,
         "[error] The API returned an empty summary. This may indicate a service issue.",
       );
-      fireWatchCompletionNotifier(session.sessionId, session);
+      fireWatchCompletionNotifier(session.conversationId, session);
     }
   } catch (err) {
     log.error(
@@ -344,10 +346,10 @@ export async function generateSummary(session: WatchSession): Promise<void> {
       "Error generating watch summary — LLM API call failed",
     );
     const message = err instanceof Error ? err.message : String(err);
-    lastSummaryBySession.set(
-      session.sessionId,
+    lastSummaryByConversation.set(
+      session.conversationId,
       `[error] Summary generation failed: ${message}`,
     );
-    fireWatchCompletionNotifier(session.sessionId, session);
+    fireWatchCompletionNotifier(session.conversationId, session);
   }
 }

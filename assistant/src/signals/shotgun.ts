@@ -7,7 +7,7 @@
  * the result to `signals/shotgun.<requestId>.result` for the CLI to pick up.
  *
  * Supports two actions:
- * - `start`: Create a new watch session and return the watchId/sessionId.
+ * - `start`: Create a new watch session and return the watchId/conversationId.
  * - `status`: Query the status of an existing watch session by watchId.
  */
 
@@ -33,7 +33,7 @@ interface ShotgunResult {
   ok: boolean;
   error?: string;
   watchId?: string;
-  sessionId?: string;
+  conversationId?: string;
   status?: string;
 }
 
@@ -128,12 +128,12 @@ function handleStart(
       : "general observation";
 
   const watchId = crypto.randomUUID().slice(0, SHORT_HASH_LENGTH);
-  const sessionId = `shotgun-${watchId}`;
+  const conversationId = `shotgun-${watchId}`;
   const now = Date.now();
 
   const session: WatchSession = {
     watchId,
-    sessionId,
+    conversationId,
     focusArea,
     durationSeconds,
     intervalSeconds,
@@ -144,7 +144,7 @@ function handleStart(
   };
 
   watchSessions.set(watchId, session);
-  fireWatchStartNotifier(sessionId, session);
+  fireWatchStartNotifier(conversationId, session);
 
   session.timeoutHandle = setTimeout(() => {
     session.status = "completing";
@@ -153,11 +153,11 @@ function handleStart(
       { watchId, focusArea },
       "Shotgun session duration expired, marking as completing",
     );
-    fireWatchCompletionNotifier(sessionId, session);
+    fireWatchCompletionNotifier(conversationId, session);
   }, durationSeconds * 1000);
 
   log.info(
-    { watchId, sessionId, focusArea, durationSeconds, intervalSeconds },
+    { watchId, conversationId, focusArea, durationSeconds, intervalSeconds },
     "Shotgun watch session started via signal",
   );
 
@@ -165,7 +165,7 @@ function handleStart(
     requestId,
     ok: true,
     watchId,
-    sessionId,
+    conversationId,
   });
 }
 
@@ -194,7 +194,7 @@ function handleStatus(requestId: string, payload: { watchId?: string }): void {
     requestId,
     ok: true,
     watchId,
-    sessionId: session.sessionId,
+    conversationId: session.conversationId,
     status: session.status,
   });
 }
