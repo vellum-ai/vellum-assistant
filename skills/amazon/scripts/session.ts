@@ -20,7 +20,10 @@ export async function loadSession(): Promise<AmazonSession | null> {
     const { stdout } = await execFileAsync("assistant", [
       "credentials",
       "reveal",
-      "amazon:session:cookies",
+      "--service",
+      "amazon",
+      "--field",
+      "session:cookies",
     ]);
     const cookies = JSON.parse(stdout.trim()) as ExtractedCredential[];
     return { cookies };
@@ -34,7 +37,10 @@ export async function saveSession(session: AmazonSession): Promise<void> {
     await execFileAsync("assistant", [
       "credentials",
       "set",
-      "amazon:session:cookies",
+      "--service",
+      "amazon",
+      "--field",
+      "session:cookies",
       JSON.stringify(session.cookies),
     ]);
   } catch (err) {
@@ -51,7 +57,10 @@ export async function clearSession(): Promise<void> {
     await execFileAsync("assistant", [
       "credentials",
       "delete",
-      "amazon:session:cookies",
+      "--service",
+      "amazon",
+      "--field",
+      "session:cookies",
     ]);
   } catch {
     // Clearing a non-existent session is fine — no-op
@@ -69,7 +78,10 @@ export async function importFromCredentialStore(
   const { stdout } = await execFileAsync("assistant", [
     "credentials",
     "reveal",
-    `${targetDomain}:session:cookies`,
+    "--service",
+    targetDomain,
+    "--field",
+    "session:cookies",
   ]);
   const cookies = JSON.parse(stdout.trim()) as ExtractedCredential[];
   if (!cookies.length) {
