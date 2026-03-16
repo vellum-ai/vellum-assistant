@@ -9,7 +9,11 @@ import {
   removeAssistantEntry,
 } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
-import { fetchOrganizationId, getPlatformUrl, readPlatformToken } from "../lib/platform-client";
+import {
+  fetchOrganizationId,
+  getPlatformUrl,
+  readPlatformToken,
+} from "../lib/platform-client";
 import { retireInstance as retireAwsInstance } from "../lib/aws";
 import { retireDocker } from "../lib/docker";
 import { retireInstance as retireGcpInstance } from "../lib/gcp";
@@ -83,6 +87,21 @@ async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
   // drain window (5s) before it exits.
   const gatewayPidFile = join(vellumDir, "gateway.pid");
   await stopProcessByPidFile(gatewayPidFile, "gateway", undefined, 7000);
+
+  // Stop Qdrant — the daemon's graceful shutdown tries to stop it via
+  // qdrantManager.stop(), but if the daemon was SIGKILL'd (after 2s timeout)
+  // Qdrant may still be running as an orphan. Check both the current PID file
+  // location and the legacy location.
+  const qdrantPidFile = join(
+    vellumDir,
+    "workspace",
+    "data",
+    "qdrant",
+    "qdrant.pid",
+  );
+  const qdrantLegacyPidFile = join(vellumDir, "qdrant.pid");
+  await stopProcessByPidFile(qdrantPidFile, "qdrant", undefined, 5000);
+  await stopProcessByPidFile(qdrantLegacyPidFile, "qdrant", undefined, 5000);
 
   // If the PID file didn't track a running daemon, scan for orphaned
   // daemon processes that may have been started without writing a PID.
