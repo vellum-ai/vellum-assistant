@@ -353,6 +353,16 @@ extension AppDelegate {
             pendingFallbackNotifications.removeValue(forKey: conversationId)
         }
 
+        // When a notification intent targets a conversation the client already knows
+        // about (reuse case), mark it as unseen and trigger a history catch-up so the
+        // new message appears in the chat view. New conversations are handled by
+        // notification_conversation_created instead.
+        if let conversationId = conversationId(from: msg.deepLinkMetadata) {
+            mainWindow?.conversationManager.handleNotificationIntentForExistingConversation(
+                daemonConversationId: conversationId
+            )
+        }
+
         postNotificationIntent(
             sourceEventName: msg.sourceEventName,
             title: msg.title,
