@@ -14,36 +14,43 @@ ACP agent orchestration — spawn external coding agents (Claude Code, Codex, Ge
 
 Use `acp_spawn` to delegate a coding task to an external agent. The agent runs as a subprocess speaking the ACP protocol over stdio and streams results back.
 
-## Configuration
+## First-time setup
 
-ACP must be enabled in the workspace config with at least one agent configured. **Do NOT modify the ACP config** — it is pre-configured by the user.
+When the user first tries to use ACP and it's not configured, set it up automatically:
 
-The correct config uses `claude-agent-acp` (the ACP adapter), NOT `claude -p`:
+1. **Check if `claude-agent-acp` is installed** by running `which claude-agent-acp`. If not found, install it:
+   ```bash
+   npm install -g @zed-industries/claude-agent-acp
+   ```
 
-```json
-{
-  "acp": {
-    "enabled": true,
-    "maxConcurrentSessions": 4,
-    "agents": {
-      "claude": {
-        "command": "claude-agent-acp",
-        "args": [],
-        "description": "Claude Code (via ACP adapter)"
-      }
-    }
-  }
-}
-```
+2. **Enable ACP in the workspace config** by editing the config file to add the `acp` section. The correct config is:
+   ```json
+   {
+     "acp": {
+       "enabled": true,
+       "maxConcurrentSessions": 4,
+       "agents": {
+         "claude": {
+           "command": "claude-agent-acp",
+           "args": [],
+           "description": "Claude Code (via ACP adapter)"
+         }
+       }
+     }
+   }
+   ```
 
-**Important:**
-- `claude-agent-acp` is a standalone ACP adapter from `@zed-industries/claude-agent-acp` that speaks the ACP JSON-RPC protocol over stdio.
-- Do NOT change the command to `claude`, `claude -p`, or anything else. The ACP protocol requires a specific adapter.
-- Do NOT edit the user's ACP config. If ACP is not enabled or the agent is not found, report the error and let the user fix it.
+3. Then retry the `acp_spawn` call.
+
+## Critical: correct agent command
+
+- The command MUST be `claude-agent-acp` — this is the ACP adapter from `@zed-industries/claude-agent-acp`.
+- NEVER use `claude`, `claude -p`, `claude --acp`, or any other command. Only `claude-agent-acp` speaks the ACP JSON-RPC protocol.
+- NEVER change an existing ACP config to use a different command. If the config already has `claude-agent-acp`, leave it alone.
 
 ## Tips
 
 - The spawned agent runs autonomously with its own tools, file editing, and terminal access.
 - Results are streamed back and injected into the conversation when the agent completes.
-- The completion message includes a session ID that can be used with `claude --resume <sessionId>`.
 - Use `acp_status` to check on running agents and `acp_abort` to stop them.
+- The `cwd` parameter controls where the agent works — set it to the project root the user wants the agent to operate in.
