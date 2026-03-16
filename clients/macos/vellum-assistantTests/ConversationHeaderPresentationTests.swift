@@ -7,7 +7,7 @@ final class ConversationHeaderPresentationTests: XCTestCase {
 
     // MARK: - No active thread / draft
 
-    func testDraftShowsNewThreadTitle() {
+    func testDraftShowsNewConversationTitle() {
         let p = ConversationHeaderPresentation(
             activeConversation: nil,
             activeViewModel: nil,
@@ -19,7 +19,7 @@ final class ConversationHeaderPresentationTests: XCTestCase {
         XCTAssertFalse(p.canCopy)
     }
 
-    func testConversationNotVisibleShowsNewThread() {
+    func testConversationNotVisibleShowsNewConversation() {
         let thread = ConversationModel(title: "My Conversation", conversationId: "session-1")
         let p = ConversationHeaderPresentation(
             activeConversation: thread,
@@ -32,7 +32,7 @@ final class ConversationHeaderPresentationTests: XCTestCase {
 
     // MARK: - Started standard thread
 
-    func testStartedStandardThreadShowsActionsMenu() {
+    func testStartedStandardConversationShowsActionsMenu() {
         let thread = ConversationModel(title: "Test Conversation", conversationId: "session-1")
         let vm = ChatViewModel(daemonClient: DaemonClient())
         let p = ConversationHeaderPresentation(
@@ -47,7 +47,7 @@ final class ConversationHeaderPresentationTests: XCTestCase {
 
     // MARK: - Private thread
 
-    func testPrivateThreadHidesActionsMenu() {
+    func testPrivateConversationHidesActionsMenu() {
         let thread = ConversationModel(title: "Private Chat", conversationId: "session-2", kind: .private)
         let p = ConversationHeaderPresentation(
             activeConversation: thread,
@@ -61,7 +61,7 @@ final class ConversationHeaderPresentationTests: XCTestCase {
 
     // MARK: - Not started (no conversationId, no messages)
 
-    func testUnstartedThreadDoesNotShowActions() {
+    func testUnstartedConversationDoesNotShowActions() {
         let thread = ConversationModel(title: "New Conversation")
         let vm = ChatViewModel(daemonClient: DaemonClient())
         let p = ConversationHeaderPresentation(
@@ -76,7 +76,7 @@ final class ConversationHeaderPresentationTests: XCTestCase {
 
     // MARK: - Pin state
 
-    func testPinnedThreadShowsPinnedState() {
+    func testPinnedConversationShowsPinnedState() {
         let thread = ConversationModel(title: "Pinned", conversationId: "s", isPinned: true)
         let p = ConversationHeaderPresentation(
             activeConversation: thread,
